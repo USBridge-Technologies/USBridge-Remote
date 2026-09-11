@@ -14,48 +14,9 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
-
-type snapshotInfoButtonsLayout struct {
-	gap float32
-}
-
-func (l *snapshotInfoButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 2 {
-		return
-	}
-
-	left := objects[0]
-	right := objects[1]
-	leftWidth := (size.Width - l.gap) / 2
-	if leftWidth < 0 {
-		leftWidth = 0
-	}
-	rightWidth := size.Width - leftWidth - l.gap
-	if rightWidth < 0 {
-		rightWidth = 0
-	}
-
-	left.Move(fyne.NewPos(0, 0))
-	left.Resize(fyne.NewSize(leftWidth, size.Height))
-
-	right.Move(fyne.NewPos(leftWidth+l.gap, 0))
-	right.Resize(fyne.NewSize(rightWidth, size.Height))
-}
-
-func (l *snapshotInfoButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 2 {
-		return fyne.NewSize(0, 0)
-	}
-
-	leftMin := objects[0].MinSize()
-	rightMin := objects[1].MinSize()
-	height := maxFloat32(leftMin.Height, rightMin.Height)
-	return fyne.NewSize(leftMin.Width+rightMin.Width+l.gap, height)
-}
 
 func (bw *BackupWidget) buildBaseDeviceBatch() []models.DeviceStartRequest {
 	var requests []models.DeviceStartRequest
@@ -157,14 +118,14 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 	}
 
 	bw.isMounting.Store(true)
-	bw.updateUIAsync(func() { bw.ui.SnapshotsList.Refresh() })
+	bw.updateUIAsync(func() { bw.ui.Refresh() })
 
 	go func() {
 		success := false
 		defer func() {
 			if !success {
 				bw.isMounting.Store(false)
-				bw.updateUIAsync(func() { bw.ui.SnapshotsList.Refresh() })
+				bw.updateUIAsync(func() { bw.ui.Refresh() })
 			}
 		}()
 
@@ -212,14 +173,14 @@ func (bw *BackupWidget) handleMountSnapshot(snapshot *models.SnapshotInfo) {
 	}
 
 	bw.isMounting.Store(true)
-	bw.updateUIAsync(func() { bw.ui.SnapshotsList.Refresh() })
+	bw.updateUIAsync(func() { bw.ui.Refresh() })
 
 	go func() {
 		success := false
 		defer func() {
 			if !success {
 				bw.isMounting.Store(false)
-				bw.updateUIAsync(func() { bw.ui.SnapshotsList.Refresh() })
+				bw.updateUIAsync(func() { bw.ui.Refresh() })
 			}
 		}()
 
@@ -257,23 +218,54 @@ func (bw *BackupWidget) handleMountSnapshot(snapshot *models.SnapshotInfo) {
 	}()
 }
 
-// showSnapshotDetails shows a dialog with snapshot details
+func snapshotInfoFieldLabel(format string) string {
+	s := strings.TrimSpace(strings.TrimSuffix(format, "%s"))
+	return strings.TrimSpace(strings.TrimSuffix(s, ":"))
+}
+
+func newSnapshotInfoStatRow(label, value string, valueColor color.Color) fyne.CanvasObject {
+	labelText := canvas.NewText(label, design.ColorConnectionsSectionSubtitle)
+	labelText.TextSize = 10
+	labelText.TextStyle.Monospace = true
+
+	valueText := canvas.NewText(value, valueColor)
+	valueText.TextSize = 10
+	valueText.TextStyle.Monospace = true
+	valueText.Alignment = fyne.TextAlignTrailing
+
+	return container.NewBorder(nil, nil, labelText, nil, valueText)
+}
+
+func newSnapshotInfoSurface(content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bg.CornerRadius = 6
+	bg.StrokeColor = design.ColorTailscaleChipBorder
+	bg.StrokeWidth = 1
+	return container.NewStack(bg, view.NewInset(content, 12, 12, 8, 8))
+}
+
+func newSnapshotInfoLogLine(text string, col color.Color) fyne.CanvasObject {
+	line := canvas.NewText(text, col)
+	line.TextSize = 10
+	line.TextStyle.Monospace = true
+	return line
+}
+
+const snapshotInfoLogHeight float32 = 152
+
+// showSnapshotDetails shows snapshot date/size/changelog in the same panel
+// chrome as Add Connection (accent hairline, left title+subtitle, corner X,
+// gray-900 card, compact pill footer). Copy/OK sit where Connect/Save would.
 func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	if bw.window == nil {
 		return
 	}
 
 	title := "Snapshot Info"
-	dateText := view.NewBrandText(snapshot.CreatedAt.Format(i18n.Current.DateTimeFormat), 14, design.ColorTextLight, false)
-	sizeText := view.NewBrandText(snapshot.DisplaySize(), 14, design.ColorTextLight, false)
-	dateLabel := strings.TrimSpace(strings.TrimSuffix(i18n.Current.SnapshotDetailsDate, "%s"))
-	sizeLabel := strings.TrimSpace(strings.TrimSuffix(i18n.Current.SnapshotDetailsSize, "%s"))
-	metaBlock := container.NewVBox(
-		view.NewBrandText(dateLabel, 11, design.ColorTextMuted, true),
-		dateText,
-		view.NewBrandText(sizeLabel, 11, design.ColorTextMuted, true),
-		sizeText,
-	)
+	dateValue := snapshot.CreatedAt.In(time.Local).Format(i18n.Current.DateTimeFormat)
+	sizeValue := snapshot.DisplaySize()
+	dateLabel := snapshotInfoFieldLabel(i18n.Current.SnapshotDetailsDate)
+	sizeLabel := snapshotInfoFieldLabel(i18n.Current.SnapshotDetailsSize)
 
 	changelogOpts := &models.ChangelogFormatOptions{
 		OpNames: map[string]string{
@@ -291,41 +283,43 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	changelog := snapshot.FormatChangelog(changelogOpts)
 	copyContent := strings.Join([]string{
 		title,
-		fmt.Sprintf("%s %s", i18n.Current.SnapshotDetailsDate, snapshot.CreatedAt.Format(i18n.Current.DateTimeFormat)),
-		fmt.Sprintf("%s %s", i18n.Current.SnapshotDetailsSize, snapshot.DisplaySize()),
+		fmt.Sprintf("%s %s", i18n.Current.SnapshotDetailsDate, dateValue),
+		fmt.Sprintf("%s %s", i18n.Current.SnapshotDetailsSize, sizeValue),
 		"",
 		"LOG",
 		changelog,
 	}, "\n")
 
-	logRows := make([]fyne.CanvasObject, 0)
+	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
+	metaSep := canvas.NewRectangle(dividerColor)
+	metaSep.SetMinSize(fyne.NewSize(1, 1))
+	metaBox := newSnapshotInfoSurface(container.New(&tightHeaderVBoxLayout{Gap: 4},
+		newSnapshotInfoStatRow(dateLabel, dateValue, design.ColorTextLight),
+		metaSep,
+		newSnapshotInfoStatRow(sizeLabel, sizeValue, color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff}),
+	))
+
+	logTitle := canvas.NewText("LOG", design.ColorConnectionsSectionSubtitle)
+	logTitle.TextSize = 10
+	logTitle.TextStyle.Monospace = true
+	logLines := make([]fyne.CanvasObject, 0)
 	for _, line := range strings.Split(changelog, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		logRows = append(logRows, view.NewBrandText(line, 13, design.ColorTextMuted, false))
+		logLines = append(logLines, newSnapshotInfoLogLine(line, design.ColorTextMuted))
 	}
-	if len(logRows) == 0 {
-		logRows = append(logRows, view.NewBrandText(i18n.Current.SnapshotChangelogEmpty, 13, design.ColorBorder, false))
+	if len(logLines) == 0 {
+		logLines = append(logLines, newSnapshotInfoLogLine(i18n.Current.SnapshotChangelogEmpty, design.ColorBorder))
 	}
+	logScroll := container.NewVScroll(container.New(&tightHeaderVBoxLayout{Gap: 4}, logLines...))
+	logScroll.SetMinSize(fyne.NewSize(0, snapshotInfoLogHeight))
+	logBox := newSnapshotInfoSurface(container.New(&tightHeaderVBoxLayout{Gap: 8}, logTitle, logScroll))
 
-	logContent := container.NewVBox(logRows...)
-	scrollContent := view.NewInset(logContent, 0, 14, 0, 12)
-	scroll := container.NewScroll(scrollContent)
-	scroll.SetMinSize(fyne.NewSize(0, 170))
-
-	logTitle := view.NewBrandText("LOG", 11, design.ColorTextMuted, true)
-	logCard := view.NewCompactSurfacePanel(
-		view.NewInset(
-			container.NewVBox(
-				logTitle,
-				view.NewInset(scroll, 0, 0, 10, 0),
-			),
-			12, 12, 12, 12,
-		),
-		design.ColorGray950,
-		design.RadiusMD,
+	form := container.NewVBox(
+		view.NewInset(metaBox, 0, 0, 12, 0),
+		view.NewInset(logBox, 0, 0, 8, 4),
 	)
 
 	var popup *widget.PopUp
@@ -335,41 +329,72 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 		}
 	}
 
-	titleText := view.NewBrandText(title, 19, design.ColorTextLight, true)
-	titleText.Alignment = fyne.TextAlignCenter
-	nameText := view.NewBrandText(snapshot.Name, 13, design.ColorTextMuted, false)
-	nameText.Alignment = fyne.TextAlignCenter
-	closeBtn := newConnectionDialogIconButton(theme.CancelIcon(), closePopup)
-	closeSlot := container.NewGridWrap(fyne.NewSize(28, 28), closeBtn)
-	leftSlot := canvas.NewRectangle(color.Transparent)
-	leftSlot.SetMinSize(fyne.NewSize(28, 28))
-	titleBarContent := container.NewBorder(nil, nil, leftSlot, closeSlot,
-		container.NewVBox(
-			container.NewCenter(titleText),
-			view.NewInset(container.NewCenter(nameText), 0, 0, 2, 0),
-		),
-	)
+	titleText := view.NewBrandText(title, 13, design.ColorTextLight, true)
+	var titleCol fyne.CanvasObject = titleText
+	if name := strings.TrimSpace(snapshot.Name); name != "" {
+		subtitleLbl := widget.NewLabel(name)
+		subtitleLbl.Wrapping = fyne.TextWrapWord
+		subtitleThemed := container.NewThemeOverride(subtitleLbl, &mutedForegroundTheme{design.NewBrandTheme()})
+		nudgedSubtitle := container.New(&subtitleLeftNudgeLayout{Amount: 8}, subtitleThemed)
+		titleCol = container.New(&tightHeaderVBoxLayout{Gap: -2}, titleText, nudgedSubtitle)
+	}
 
-	copyBtn := widget.NewButton(i18n.Current.Copy, func() {
+	closeBtn := newConnectionDialogIconButton(connectionDialogCancelIconRes, closePopup)
+	topAccent := newConnectionDialogTopAccentBar()
+	sep := canvas.NewRectangle(color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff})
+	sep.SetMinSize(fyne.NewSize(0, 1))
+	sepFooter := canvas.NewRectangle(color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff})
+	sepFooter.SetMinSize(fyne.NewSize(0, 1))
+	headerBlock := container.New(&tightHeaderVBoxLayout{Gap: 0}, topAccent, view.NewInset(titleCol, 21, 44, 9, 4), sep)
+
+	copyIcon := fyne.NewStaticResource("snapshot-info-copy.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e9fdbb"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`))
+	copyBtn := newConnectionDialogIconButton(copyIcon, func() {
 		if bw.window != nil && bw.window.Clipboard() != nil {
 			bw.window.Clipboard().SetContent(copyContent)
 		}
 	})
-	okBtn := widget.NewButton(i18n.Current.OK, closePopup)
-	okBtn.Importance = widget.HighImportance
-	buttons := container.New(&snapshotInfoButtonsLayout{gap: 12}, copyBtn, okBtn)
+	copyBtn.buttonSize = fyne.NewSize(32, 32)
+	copyBtn.iconSize = fyne.NewSize(14, 14)
+	copyBtn.customNormalFill = color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff}
+	copyBtn.customHoverFill = color.NRGBA{R: 0x31, G: 0x35, B: 0x39, A: 0xff}
+	copyBtn.customNormalBorder = color.Transparent
+	copyBtn.customHoverBorder = color.Transparent
+	copyBtn.opaqueIcon = true
 
-	body := container.NewBorder(
-		nil,
-		view.NewInset(buttons, 0, 0, 10, 0),
-		nil,
-		nil,
-		container.NewVBox(
-			titleBarContent,
-			view.NewInset(metaBlock, 0, 0, 16, 14),
-			logCard,
-		),
+	okBtn := &connectionDialogSecondaryButton{
+		labelText:      i18n.Current.OK,
+		onTapped:       closePopup,
+		compact:        true,
+		fillColor:      design.ColorConnectionBadgeText,
+		borderColor:    color.Transparent,
+		textColor:      design.ColorGray950,
+		hoverFillColor: color.NRGBA{R: 0x61, G: 0xf0, B: 0xd3, A: 0xff},
+		hoverTextColor: design.ColorGray950,
+	}
+	okBtn.ExtendBaseWidget(okBtn)
+
+	cancelBtn := &connectionDialogSecondaryButton{
+		labelText:      i18n.Current.Cancel,
+		onTapped:       closePopup,
+		compact:        true,
+		fillColor:      color.Transparent,
+		borderColor:    color.Transparent,
+		textColor:      color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff},
+		hoverFillColor: color.Transparent,
+		hoverTextColor: design.ColorTextLight,
+	}
+	cancelBtn.ExtendBaseWidget(cancelBtn)
+
+	rightGroup := container.New(&view.DeviceRowControlsLayout{Gap: connectionDialogButtonsGap}, copyBtn, okBtn)
+	buttons := container.NewBorder(nil, nil, container.NewCenter(cancelBtn), rightGroup)
+	footerBlock := container.NewVBox(
+		sepFooter,
+		view.NewInset(buttons, 12, 18, 14, 0),
 	)
+
+	scrollBody := container.NewVBox(form)
+	scroll := container.NewVScroll(scrollBody)
+	scroll.SetMinSize(fyne.NewSize(0, scrollBody.MinSize().Height))
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -377,33 +402,28 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	border.CornerRadius = design.RadiusMD
 	border.StrokeColor = design.ColorBorder
 	border.StrokeWidth = 1
+
+	inner := container.NewBorder(
+		headerBlock,
+		footerBlock,
+		nil, nil,
+		view.NewInset(scroll, 18, 18, 0, 0),
+	)
+	cornerBtn := container.New(&dialogCornerButtonLayout{Top: 12, Right: 12}, closeBtn)
 	panel := container.NewStack(
 		bg,
-		view.NewInset(body, 18, 18, 16, 16),
+		view.NewInset(inner, 0, 0, 0, 16),
+		cornerBtn,
 		border,
 	)
 
-	popup = view.NewOverlayPopup(bw.window, view.OverlayPopupSpec{
+	popup = view.ShowOverlayPopup(bw.window, view.OverlayPopupSpec{
 		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		DimColor: connectionDialogDimColor(),
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
-			margin := float32(24)
-			maxWidth := canvasSize.Width - margin*2
-			maxHeight := canvasSize.Height - margin*2
-			if maxWidth <= 0 {
-				maxWidth = canvasSize.Width
-			}
-			if maxHeight <= 0 {
-				maxHeight = canvasSize.Height
-			}
-
-			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 500), maxWidth)
-			panelHeight := minFloat32(maxFloat32(panelMin.Height, 380), maxHeight)
-			return fyne.NewSize(panelWidth, panelHeight)
+			return connectionDialogPanelSize(panel, canvasSize)
 		},
 	})
-	popup.Show()
 }
 
 // showErrorAsync safely shows an error from a goroutine
@@ -444,29 +464,62 @@ func (bw *BackupWidget) handleDisconnectCurrentFlash() {
 		return
 	}
 
-	view.ShowConfirmYesLeft(i18n.Current.Confirmation, i18n.Current.UnmountSelectedConfirm, func(ok bool) {
+	view.ShowConfirmToast(i18n.Current.UnmountSelectedConfirm, func(ok bool) {
 		if !ok {
 			return
 		}
-
-		bw.updateStatusAsync(i18n.Current.StoppingAllDevices)
-		go func() {
-			client := bw.usbClient
-			if client == nil {
-				return
-			}
-			batchRequest := bw.buildDeviceBatchWithoutCurrentFlash()
-			if _, err := executeDeviceBatch(client, client.StartDevicesBatchWithMerge, batchRequest, false); err != nil {
-				logrus.Errorf("❌ Error unmounting backup flash: %v", err)
-				bw.showErrorAsync(fmt.Errorf(i18n.Current.ErrorMounting, err))
-				return
-			}
-
-			time.Sleep(2 * time.Second)
-			bw.updateStatusAsync(i18n.Current.AllDevicesUnmounted)
-			bw.finishMountRefresh()
-		}()
+		bw.unmountBackupOrSnapshotMTP()
 	}, bw.window)
+}
+
+func (bw *BackupWidget) handleUnmountSnapshot(snapshot *models.SnapshotInfo) {
+	if bw.usbClient == nil {
+		if bw.window != nil {
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), bw.window)
+		}
+		return
+	}
+	if snapshot == nil || !snapshot.Connected {
+		return
+	}
+
+	view.ShowConfirmToast(i18n.Current.UnmountSelectedConfirm, func(ok bool) {
+		if !ok {
+			return
+		}
+		bw.unmountBackupOrSnapshotMTP()
+	}, bw.window)
+}
+
+func (bw *BackupWidget) unmountBackupOrSnapshotMTP() {
+	bw.isMounting.Store(true)
+	bw.updateUIAsync(func() { bw.ui.Refresh() })
+	bw.updateStatusAsync(i18n.Current.StoppingAllDevices)
+	go func() {
+		success := false
+		defer func() {
+			if !success {
+				bw.isMounting.Store(false)
+				bw.updateUIAsync(func() { bw.ui.Refresh() })
+			}
+		}()
+
+		client := bw.usbClient
+		if client == nil {
+			return
+		}
+		batchRequest := bw.buildDeviceBatchWithoutCurrentFlash()
+		if _, err := executeDeviceBatch(client, client.StartDevicesBatchWithMerge, batchRequest, false); err != nil {
+			logrus.Errorf("❌ Error unmounting backup MTP: %v", err)
+			bw.showErrorAsync(fmt.Errorf(i18n.Current.ErrorMounting, err))
+			return
+		}
+
+		time.Sleep(2 * time.Second)
+		bw.updateStatusAsync(i18n.Current.AllDevicesUnmounted)
+		success = true
+		bw.finishMountRefresh()
+	}()
 }
 
 func (bw *BackupWidget) logBatchResponse(success bool, message string, data any) {

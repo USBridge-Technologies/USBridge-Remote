@@ -89,6 +89,14 @@ type DiskWidget struct {
 	// updateSDStorageInfo has a reading.
 	dashboardBackupSpace *view.DeviceDashboardSpaceMeter
 
+	// dashboardSnapshotCount is the number of snapshots last reported by
+	// BackupWidget (via SetDashboardSnapshotCount). Shown as a plaque on
+	// the Backups row; dashboardSnapshotKnown is false until the first
+	// successful (or disconnected) report so we don't flash "0 snapshots"
+	// before the list has loaded.
+	dashboardSnapshotCount int
+	dashboardSnapshotKnown bool
+
 	// dashboardStorageScroll wraps dashboardStorage (the Storage card's own
 	// row list) so it can become internally scrollable once there are more
 	// rows than fit comfortably -- see refreshDashboard's own height cap.
@@ -962,6 +970,8 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 			dw.mountedDevices = nil
 			dw.audioDevices = nil
 			dw.sdSpaceInfo = nil
+			dw.dashboardSnapshotCount = 0
+			dw.dashboardSnapshotKnown = false
 			dw.updateSDStorageInfo()
 			dw.stopAllGamepadCaptures()
 			dw.combineDrives()

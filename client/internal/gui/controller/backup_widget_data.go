@@ -63,7 +63,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 
 		bw.loadISOSpace()
 		bw.updateUIAsync(func() {
-			bw.ui.SnapshotsList.Refresh()
+			bw.ui.Refresh()
 		})
 	}()
 }
@@ -110,6 +110,10 @@ func (bw *BackupWidget) SetOnStorageInfoUpdate(fn func(usedPct float64, availabl
 	bw.onStorageInfoUpdate = fn
 }
 
+func (bw *BackupWidget) SetOnSnapshotsLoaded(fn func(count int)) {
+	bw.onSnapshotsLoaded = fn
+}
+
 // loadSnapshots loads the list of snapshots
 func (bw *BackupWidget) loadSnapshots() {
 	if bw.isClosing.Load() {
@@ -127,6 +131,9 @@ func (bw *BackupWidget) loadSnapshots() {
 			bw.updateUIAsync(func() {
 				if !bw.isClosing.Load() {
 					bw.ui.StatusLabel.SetText(i18n.Current.WaitingConnection)
+				}
+				if bw.onSnapshotsLoaded != nil {
+					bw.onSnapshotsLoaded(0)
 				}
 			})
 			return
@@ -154,8 +161,11 @@ func (bw *BackupWidget) loadSnapshots() {
 		}
 
 		bw.updateUIAsync(func() {
-			bw.ui.SnapshotsList.Refresh()
+			bw.ui.Refresh()
 			bw.ui.StatusLabel.SetText(fmt.Sprintf(i18n.Current.LoadedSnapshots, len(bw.snapshots)))
+			if bw.onSnapshotsLoaded != nil {
+				bw.onSnapshotsLoaded(len(bw.snapshots))
+			}
 		})
 
 		logrus.Infof("✅ Loaded %d snapshots", len(bw.snapshots))

@@ -202,7 +202,7 @@ func (dw *DiskWidget) refreshDashboard() {
 			backupRows = append(backupRows, view.NewDeviceDashboardStorageRow(
 				icon, name, drive.IsMounted, nil, nil, nil,
 				dw.newDashboardConnectSlot(idx, drive, dw.dashboardBackupHover),
-				nil, drive.Size,
+				nil, dw.dashboardBackupChips(drive.Size)...,
 			))
 		default:
 			if drive.IsUploading {
@@ -530,6 +530,39 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 // on its own Backups card instead.
 func isDashboardBackupDrive(drive DriveItem) bool {
 	return drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp"
+}
+
+// SetDashboardSnapshotCount updates the Backups row's snapshot-count plaque.
+// Wired from BackupWidget after each GetSnapshots so Devices doesn't poll
+// the same endpoint a second time.
+func (dw *DiskWidget) SetDashboardSnapshotCount(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if dw.dashboardSnapshotKnown && dw.dashboardSnapshotCount == n {
+		return
+	}
+	dw.dashboardSnapshotCount = n
+	dw.dashboardSnapshotKnown = true
+	dw.refreshDashboard()
+}
+
+// dashboardBackupChips is the under-name plaques on the Backups row:
+// snapshot count plus the MTP flash size (backup weight), including "0 B"
+// when the agent has not yet reported a real size.
+func (dw *DiskWidget) dashboardBackupChips(size string) []string {
+	var chips []string
+	if dw.dashboardSnapshotKnown {
+		if dw.dashboardSnapshotCount == 1 {
+			chips = append(chips, "1 snapshot")
+		} else {
+			chips = append(chips, fmt.Sprintf("%d snapshots", dw.dashboardSnapshotCount))
+		}
+	}
+	if strings.TrimSpace(size) != "" {
+		chips = append(chips, strings.TrimSpace(size))
+	}
+	return chips
 }
 
 // dashboardNetworkTitle splits "Network Card (RNDIS)" into the row name

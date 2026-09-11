@@ -288,6 +288,9 @@ func (mw *MainWindow) recreateContainers() {
 	}
 	if mw.backupWidget != nil {
 		mw.backupWidget.SetOnStorageInfoUpdate(storageUpdate)
+		if mw.diskWidget != nil {
+			mw.backupWidget.SetOnSnapshotsLoaded(mw.diskWidget.SetDashboardSnapshotCount)
+		}
 	}
 
 	mw.createStatusBar()

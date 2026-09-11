@@ -753,11 +753,27 @@ func newDeviceDashboardRowLeftColored(icon fyne.Resource, name string, nameColor
 // means no badge (e.g. the drive's own size isn't known) -- falls back to
 // the plain single-line row.
 func newDeviceDashboardRowLeftSized(icon fyne.Resource, name string, active bool, sizeText string) fyne.CanvasObject {
+	return newDeviceDashboardRowLeftChips(icon, name, active, sizeText)
+}
+
+// newDeviceDashboardRowLeftChips is newDeviceDashboardRowLeftSized with
+// one or more under-name plaques (snapshot count + flash size on Backups).
+func newDeviceDashboardRowLeftChips(icon fyne.Resource, name string, active bool, chips ...string) fyne.CanvasObject {
 	nameColor := rowNameColor(active, DeviceDashboardAccentLime)
-	if strings.TrimSpace(sizeText) == "" {
+	var chipObjs []fyne.CanvasObject
+	for _, text := range chips {
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		chipObjs = append(chipObjs, newConnectionPlatformChipSized(text, 7))
+	}
+	if len(chipObjs) == 0 {
 		return newDeviceDashboardRowLeftColored(icon, name, nameColor)
 	}
-	return newDeviceDashboardRowLeftWithChip(icon, name, nameColor, newConnectionPlatformChipSized(sizeText, 7))
+	if len(chipObjs) == 1 {
+		return newDeviceDashboardRowLeftWithChip(icon, name, nameColor, chipObjs[0])
+	}
+	return newDeviceDashboardRowLeftWithChip(icon, name, nameColor, container.New(&DeviceRowControlsLayout{Gap: 4}, chipObjs...))
 }
 
 // newDeviceDashboardRowLeftWithChip is icon + name with an already-built
@@ -1444,12 +1460,12 @@ func DisableDashboardAction(obj fyne.CanvasObject, disabled bool) {
 // uploadProgress, when non-nil (see NewDeviceDashboardUploadProgress),
 // replaces every other right-side control while a file is actively
 // uploading -- the caller is expected to pass nil for
-// modePicker/deleteBtn/uploadBtn/connectBtn in that case. sizeText, when
-// non-empty, shows a small chip with the drive's own size under its name
-// (see newDeviceDashboardRowLeftSized) -- empty for drives whose size
-// isn't known.
-func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, modePicker, deleteBtn, uploadBtn, connectBtn, uploadProgress fyne.CanvasObject, sizeText string) fyne.CanvasObject {
-	left := newDeviceDashboardRowLeftSized(icon, name, active, sizeText)
+// modePicker/deleteBtn/uploadBtn/connectBtn in that case. chips, when
+// non-empty, show small plaques under the name (drive size, snapshot
+// count, …) -- see newDeviceDashboardRowLeftChips -- empty for drives
+// whose size isn't known.
+func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, modePicker, deleteBtn, uploadBtn, connectBtn, uploadProgress fyne.CanvasObject, chips ...string) fyne.CanvasObject {
+	left := newDeviceDashboardRowLeftChips(icon, name, active, chips...)
 
 	var rightParts []fyne.CanvasObject
 	if uploadProgress != nil {

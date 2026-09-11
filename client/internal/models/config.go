@@ -21,9 +21,9 @@ const (
 // AppConfig application configuration
 type AppConfig struct {
 	// USBridge 2 connection (as client)
-	USBPort              int `json:"usb_port" mapstructure:"usb_port"`
-	USBPassthroughPort   int `json:"usb_passthrough_port" mapstructure:"usb_passthrough_port"`
-	APITimeout int `json:"api_timeout" mapstructure:"api_timeout"` // API request timeout
+	USBPort            int `json:"usb_port" mapstructure:"usb_port"`
+	USBPassthroughPort int `json:"usb_passthrough_port" mapstructure:"usb_passthrough_port"`
+	APITimeout         int `json:"api_timeout" mapstructure:"api_timeout"` // API request timeout
 
 	ConnectionProtocol string `json:"connection_protocol" mapstructure:"connection_protocol"`
 
@@ -93,7 +93,7 @@ func DefaultConfig() *AppConfig {
 		// USBridge 2
 		USBPort:            8080,
 		USBPassthroughPort: 8090,
-		APITimeout: 15,
+		APITimeout:         15,
 
 		ConnectionProtocol: modelsafeProtocol(ConnectionProtocolAuto),
 
@@ -190,42 +190,55 @@ type SnapshotJSON struct {
 
 // ToSnapshotInfo converts SnapshotJSON into SnapshotInfo
 func (sj *SnapshotJSON) ToSnapshotInfo() *SnapshotInfo {
-	// Try to parse the date from the string; fall back to the timestamp if that fails
-	var createdAt time.Time
-	var err error
-
-	if sj.Date != "" {
-		// Try different date formats
-		formats := []string{
-			"2006-01-02 15:04:05",
-			"2006-01-02T15:04:05",
-			"2006-01-02 15:04:05Z",
-			"2006-01-02T15:04:05Z",
-			"2006-01-02T15:04:05.000Z",
-		}
-
-		for _, format := range formats {
-			if createdAt, err = time.Parse(format, sj.Date); err == nil {
-				break
-			}
-		}
-	}
-
-	// If the date string couldn't be parsed, use the timestamp
-	if err != nil {
-		createdAt = time.Unix(sj.Timestamp, 0)
-	}
-
 	return &SnapshotInfo{
 		Name:        sj.Name,
 		Size:        sj.Size,
 		SizeHuman:   sj.SizeHuman,
 		Changelog:   sj.Changelog,
-		CreatedAt:   createdAt,
+		CreatedAt:   parseSnapshotTime(sj.Timestamp, sj.Date),
 		Description: "",
 		Path:        "",
 		Connected:   sj.Connected,
 	}
+}
+
+// parseSnapshotTime turns the KVM's snapshot time into a local Time.
+//
+// The API sends both a unix `timestamp` (seconds since epoch, timezone-
+// unambiguous) and a naive `date` string like "2026-09-11 15:04:05" with
+// no offset. time.Parse of that naive form treats it as UTC; Format then
+// converts to the client's zone, so a user in UTC+2 sees the row two hours
+// off their wall clock. Prefer the unix timestamp whenever it is present.
+func parseSnapshotTime(unix int64, date string) time.Time {
+	if unix > 0 {
+		return time.Unix(unix, 0).In(time.Local)
+	}
+	date = strings.TrimSpace(date)
+	if date == "" {
+		return time.Time{}
+	}
+	withZone := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05Z",
+	}
+	for _, format := range withZone {
+		if t, err := time.Parse(format, date); err == nil {
+			return t.In(time.Local)
+		}
+	}
+	naive := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+	}
+	for _, format := range naive {
+		if t, err := time.ParseInLocation(format, date, time.Local); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // FormatSize formats the size into a human-readable form (from bytes)
