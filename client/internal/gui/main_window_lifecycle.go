@@ -267,7 +267,6 @@ func (mw *MainWindow) Show() {
 	// CenterOnScreen is skipped when a last-session monitor position exists.
 	mw.recreateContainers()
 	if mw.connectionManager != nil {
-		mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
 		mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
 	}
 	mw.setupEventHandlers()
@@ -318,7 +317,6 @@ func (mw *MainWindow) reloadUI() {
 	mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
 
 	mw.recreateContainers()
-	mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
 	mw.window.SetTitle(i18n.Current.AppTitle)
 
 	if wasConnected {

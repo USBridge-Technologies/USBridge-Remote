@@ -1490,61 +1490,7 @@ func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, 
 	return NewInsetExact(row, 0, 0, 2, 2)
 }
 
-// NewDeviceDashboardFooter is the Devices tab's own small bottom strip:
-// a lime busy spinner on the left (hidden until a mount/unmount is in
-// flight), optional extra left chips (script run status), Disconnect All
-// plus the build version on the right, aligned with the dashboard's own
-// 18px content inset. A ColorHeaderAccentLine hairline sits on top --
-// the same stroke the app header wears underneath. disconnectBtn,
-// spinner, and extraLeft may be nil.
-func NewDeviceDashboardFooter(version string, disconnectBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
-	leftParts := make([]fyne.CanvasObject, 0, 1+len(extraLeft))
-	if usableCanvasObject(spinner) {
-		leftParts = append(leftParts, spinner)
-	}
-	for _, extra := range extraLeft {
-		if usableCanvasObject(extra) {
-			leftParts = append(leftParts, extra)
-		}
-	}
-	var left fyne.CanvasObject
-	if len(leftParts) > 0 {
-		left = container.New(&DeviceRowControlsLayout{Gap: 10}, leftParts...)
-	}
-	var rightParts []fyne.CanvasObject
-	if disconnectBtn != nil {
-		rightParts = append(rightParts, disconnectBtn)
-	}
-	if v := strings.TrimSpace(version); v != "" {
-		label := canvas.NewText("v"+v, design.ColorTextMuted)
-		label.TextSize = 9
-		rightParts = append(rightParts, label)
-	}
-	var right fyne.CanvasObject
-	if len(rightParts) > 0 {
-		right = container.New(&DeviceRowControlsLayout{Gap: 12}, rightParts...)
-	}
-	var row fyne.CanvasObject
-	if left == nil && right == nil {
-		row = canvas.NewRectangle(color.Transparent)
-	} else {
-		row = container.NewBorder(nil, nil, left, right)
-	}
-	// Spinner/chip are 14px; version text is ~9px. Hidden children are
-	// skipped by DeviceRowControlsLayout, so without a height lock the
-	// footer shrinks when idle and jumps when a hint appears.
-	heightLock := canvas.NewRectangle(color.Transparent)
-	heightLock.SetMinSize(fyne.NewSize(0, deviceDashboardBusySpinnerSize))
-	return newDeviceDashboardFooterStrip(NewInsetExact(container.NewMax(heightLock, row), 18, 18, 4, 6))
-}
-
-func newDeviceDashboardFooterStrip(inner fyne.CanvasObject) fyne.CanvasObject {
-	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
-	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
-	return NewTopLine(inner, accentLine)
-}
-
-const deviceDashboardBusySpinnerSize = float32(14)
+const deviceDashboardBusySpinnerSize = AppFooterRowHeight
 const deviceDashboardBusySpinnerInterval = 140 * time.Millisecond
 
 // DeviceDashboardBusySpinner is the Devices footer's lime (#c4e77a) dot

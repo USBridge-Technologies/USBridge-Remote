@@ -20,7 +20,27 @@ import (
 // before this key has ever been set.
 const connectionsViewModePrefKey = "connections_view_mode"
 
+// addCardDismissedPrefKey persists Grid mode's "Add New Connect" tile being
+// closed -- the footer chip restores it. Same small prefs store as
+// connectionsViewModePrefKey / "language".
+const addCardDismissedPrefKey = "connections.add_card.dismissed"
+
+// firmwarePromoDismissedPrefKey persists the firmware banner being closed
+// -- the footer "software" chip restores it.
+const firmwarePromoDismissedPrefKey = "connections.firmware_promo.dismissed"
+
 func (cm *ConnectionManager) createInterface() {
+	cm.addCardDismissed = cm.app.Preferences().BoolWithFallback(addCardDismissedPrefKey, false)
+	cm.promoChip = view.NewFooterPromoChip()
+	cm.promoChip.SetOnOpen(cm.showAddDialog)
+	cm.promoChip.SetOnRestore(cm.restoreAddConnectionCard)
+	cm.firmwarePromoDismissed = cm.app.Preferences().BoolWithFallback(firmwarePromoDismissedPrefKey, false)
+	cm.firmwareBanner = view.NewFirmwarePromoBanner()
+	cm.firmwareBanner.SetOnDismiss(cm.dismissFirmwarePromo)
+	cm.firmwareBanner.SetOnTrial(cm.openFirmwarePromo)
+	cm.firmwareChip = view.NewFooterLabelChip("software")
+	cm.firmwareChip.SetOnOpen(cm.openFirmwarePromo)
+	cm.firmwareChip.SetOnRestore(cm.restoreFirmwarePromo)
 	cm.ui = view.NewConnectionManagerUI(
 		cm.handleQRScan,
 		cm.showAddDialog,
@@ -33,8 +53,56 @@ func (cm *ConnectionManager) createInterface() {
 			cm.app.Preferences().SetString(connectionsViewModePrefKey, mode)
 		},
 	)
+	cm.ui.SetFirmwarePromo(cm.firmwareBanner)
+	cm.syncAddCardPromo()
+	cm.syncFirmwarePromo()
 	cm.refreshConnectionsList()
 	cm.initTailscaleMode()
+}
+
+// PromoFooterChip is the Connections footer's left-side restore/add stand-in
+// for a dismissed Add New Connect tile -- nil-safe so createConnectionFooterBar
+// can ask before the manager exists.
+func (cm *ConnectionManager) PromoFooterChip() fyne.CanvasObject {
+	if cm == nil {
+		return nil
+	}
+	return cm.promoChip
+}
+
+// FirmwareFooterChip is the Connections footer's "software" stand-in for a
+// dismissed firmware banner -- click opens the trial page, expand restores
+// the banner.
+func (cm *ConnectionManager) FirmwareFooterChip() fyne.CanvasObject {
+	if cm == nil {
+		return nil
+	}
+	return cm.firmwareChip
+}
+
+func (cm *ConnectionManager) openFirmwarePromo() {
+	cm.openExternalLink(view.FirmwarePromoURL, "firmware promo URL")
+}
+
+func (cm *ConnectionManager) dismissFirmwarePromo() {
+	cm.firmwarePromoDismissed = true
+	cm.app.Preferences().SetBool(firmwarePromoDismissedPrefKey, true)
+	cm.syncFirmwarePromo()
+}
+
+func (cm *ConnectionManager) restoreFirmwarePromo() {
+	cm.firmwarePromoDismissed = false
+	cm.app.Preferences().SetBool(firmwarePromoDismissedPrefKey, false)
+	cm.syncFirmwarePromo()
+}
+
+func (cm *ConnectionManager) syncFirmwarePromo() {
+	if cm.ui != nil {
+		cm.ui.SetFirmwarePromoVisible(!cm.firmwarePromoDismissed)
+	}
+	if cm.firmwareChip != nil {
+		cm.firmwareChip.SetActive(cm.firmwarePromoDismissed)
+	}
 }
 
 func (cm *ConnectionManager) initTailscaleMode() {
@@ -153,13 +221,15 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 		cards = append(cards, cm.createConnectionGridCard(conn, idx))
 		remoteOSValues = append(remoteOSValues, conn.RemoteOS)
 	}
-	// Grid mode's own tile, always last, per the brief -- with zero
+	// Grid mode's own tile, last when it hasn't been dismissed -- with zero
 	// connections this is the only card, so the grid never goes empty (see
-	// view.ConnectionManagerUI.applyConnectionsContent). List's equivalent
-	// (rows has no such tile) is addConnectionCardActions() below, used only
-	// when rows itself is empty -- see connection_list_table.go's
-	// newConnectionListAddRow.
-	cards = append(cards, cm.newAddConnectionGridCard())
+	// view.ConnectionManagerUI.applyConnectionsContent). Closing it leaves
+	// a footer chip instead. List's equivalent (rows has no such tile) is
+	// addConnectionCardActions() below, used only when rows itself is empty
+	// -- see connection_list_table.go's newConnectionListAddRow.
+	if !cm.addCardDismissed {
+		cards = append(cards, cm.newAddConnectionGridCard())
+	}
 
 	editIndex := -1
 	var editPanel fyne.CanvasObject
@@ -181,16 +251,38 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 }
 
 // addConnectionCardActions are the Scan QR/Paste Link/blank-dialog entry
-// points shared by Grid mode's always-present add tile
-// (newAddConnectionGridCard) and List mode's equivalent placeholder row
-// (view.ConnectionManagerUI.SetRows' addActions, used only when there are
-// zero saved connections).
+// points shared by Grid mode's add tile (newAddConnectionGridCard) and List
+// mode's equivalent placeholder row (view.ConnectionManagerUI.SetRows'
+// addActions, used only when there are zero saved connections). OnDismiss
+// is Grid-only -- List's empty-state row is not closable.
 func (cm *ConnectionManager) addConnectionCardActions() view.AddConnectionCardActions {
 	return view.AddConnectionCardActions{
 		OnAdd:       cm.showAddDialog,
 		OnQR:        cm.handleQRScan,
 		OnPasteLink: cm.handlePasteLink,
+		OnDismiss:   cm.dismissAddConnectionCard,
 	}
+}
+
+func (cm *ConnectionManager) dismissAddConnectionCard() {
+	cm.addCardDismissed = true
+	cm.app.Preferences().SetBool(addCardDismissedPrefKey, true)
+	cm.syncAddCardPromo()
+	cm.refreshConnectionsList()
+}
+
+func (cm *ConnectionManager) restoreAddConnectionCard() {
+	cm.addCardDismissed = false
+	cm.app.Preferences().SetBool(addCardDismissedPrefKey, false)
+	cm.syncAddCardPromo()
+	cm.refreshConnectionsList()
+}
+
+func (cm *ConnectionManager) syncAddCardPromo() {
+	if cm.promoChip == nil {
+		return
+	}
+	cm.promoChip.SetActive(cm.addCardDismissed)
 }
 
 // connectionsDisplayOrder returns cm.connections' indices in the order the
@@ -486,4 +578,3 @@ func formatConnectionAddressSummary(internalHost, tailscaleHost string) string {
 	}
 	return "LAN: " + internalHost + "\nTS: " + tailscaleHost
 }
-

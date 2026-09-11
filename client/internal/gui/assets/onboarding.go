@@ -94,6 +94,8 @@ var (
 	linkIcon []byte
 	//go:embed cpu-svgrepo-com.svg
 	cpuIcon []byte
+	//go:embed expand-1-svgrepo-com.svg
+	expandIcon []byte
 	//go:embed onboarding/Front_panel.png
 	onboardingStep01 []byte
 )
@@ -161,6 +163,11 @@ var (
 	// are both this same "#c4e77a", so one variant covers both callers).
 	LinkIconMuted = fyne.NewStaticResource("link-svgrepo-com-muted.svg", recolorStrokeIcon(linkIcon, "#c5c8b5", "2"))
 	LinkIconLime  = fyne.NewStaticResource("link-svgrepo-com-lime.svg", recolorStrokeIcon(linkIcon, "#c4e77a", "2"))
+	// ExpandIconMuted/Hover -- expand-1-svgrepo-com.svg, the footer chip's
+	// "put the dismissed Add card back" glyph. Same mute/hover pair as
+	// ScriptFooterStatus's dismiss X (#8f9381 / #c5c8b5).
+	ExpandIconMuted = fyne.NewStaticResource("expand-1-svgrepo-com-muted.svg", recolorFillIcon(expandIcon, "#8f9381"))
+	ExpandIconHover = fyne.NewStaticResource("expand-1-svgrepo-com-hover.svg", recolorFillIcon(expandIcon, "#c5c8b5"))
 	// PencilIconLime -- the same edit-pencil glyph List/Grid's own edit
 	// pencil uses (connection-edit-title.svg's path, muted gray there),
 	// tinted the same lime as LinkIconLime -- the Add Connection dialog's

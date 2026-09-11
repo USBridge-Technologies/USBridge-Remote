@@ -124,7 +124,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		dw.handleUnmount()
 	})
 	dw.dashboardBusySpinner = view.NewDeviceDashboardBusyHint("connecting device")
-	footer := view.NewDeviceDashboardFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner, dw.dashboardScriptFooter)
+	footer := view.NewAppFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner, dw.dashboardScriptFooter)
 	dw.dashboardContainer = view.NewEdgeStack(nil, footer, scroll)
 	dw.refreshDashboard()
 	return dw.dashboardContainer

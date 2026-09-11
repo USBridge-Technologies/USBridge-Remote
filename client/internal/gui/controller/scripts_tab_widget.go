@@ -262,7 +262,7 @@ func (w *ScriptsTabWidget) build() {
 	w.footerChip = view.NewScriptFooterStatus()
 	w.footerChip.SetOnDismiss(w.dismissFooterHint)
 	w.body = container.NewMax()
-	footer := view.NewDeviceDashboardFooter(view.AppVersion(), nil, w.busySpinner, w.connectingHint, w.footerChip)
+	footer := view.NewAppFooter(view.AppVersion(), nil, w.busySpinner, w.connectingHint, w.footerChip)
 	w.outerContainer = view.NewEdgeStack(nil, footer, w.body)
 	w.lockedMessage = "Not connected"
 	if app := fyne.CurrentApp(); app != nil {

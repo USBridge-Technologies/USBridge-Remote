@@ -325,7 +325,7 @@ func (mw *MainWindow) recreateContainers() {
 		mw.scriptsWidget.AttachFooterStatus(snapshotsScriptFooter)
 		mw.scriptsWidget.AttachFooterStatus(controlScriptFooter)
 	}
-	controlContent := view.NewEdgeStack(nil, view.NewDeviceDashboardFooter(view.AppVersion(), nil, controlConnecting, controlScriptFooter), mw.videoWidget.GetContainer())
+	controlContent := view.NewEdgeStack(nil, view.NewAppFooter(view.AppVersion(), nil, controlConnecting, controlScriptFooter), mw.videoWidget.GetContainer())
 
 	mw.tabs = container.NewAppTabs(
 		container.NewTabItem(controlTabTitle, container.NewThemeOverride(controlContent, design.NewBrandTheme())),
@@ -581,11 +581,13 @@ func newHeaderPassiveIndicator(icon fyne.Resource, size fyne.Size) fyne.CanvasOb
 	return container.NewCenter(image)
 }
 
-func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
-	bar := container.NewWithoutLayout()
-	bar.Hide()
-	mw.connectionFooterBar = bar
-	return bar
+func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
+	var extras []fyne.CanvasObject
+	if mw.connectionManager != nil {
+		extras = append(extras, mw.connectionManager.FirmwareFooterChip())
+		extras = append(extras, mw.connectionManager.PromoFooterChip())
+	}
+	return view.NewAppFooter(view.AppVersion(), nil, nil, extras...)
 }
 
 func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
@@ -597,22 +599,6 @@ func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
 	mw.deviceFooterBar = bar
 	mw.deviceFooterBar.Hide()
 	return bar
-}
-
-func (mw *MainWindow) updateConnectionFooterVisibility(hasConnections bool) {
-	if mw.connectionFooterBar == nil {
-		return
-	}
-
-	fyne.Do(func() {
-		_ = hasConnections
-		mw.connectionFooterBar.Hide()
-
-		if content := mw.window.Content(); content != nil {
-			content.Refresh()
-			mw.window.Canvas().Refresh(content)
-		}
-	})
 }
 
 type collapsingBoxLayout struct{}

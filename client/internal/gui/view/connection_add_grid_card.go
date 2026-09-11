@@ -1,13 +1,15 @@
 package view
 
 // connection_add_grid_card.go -- the "Add New Connect" placeholder tile Grid
-// mode always appends after the real connection cards (see
-// ConnectionManager.refreshConnectionsList in the controller package). Same
-// footprint as a real card (connectionCardWidth/Height) so it slots into the
-// same GridWrap without a special case there, but dashed-bordered and empty
-// instead of showing a saved connection -- a standing hint for how to add
-// one. List mode has no equivalent: this only ever lands in the cards slice
-// SetRows caches for grid mode, never in rows.
+// mode appends after the real connection cards (see
+// ConnectionManager.refreshConnectionsList in the controller package) until
+// the user dismisses it. Same footprint as a real card
+// (connectionCardWidth/Height) so it slots into the same GridWrap without a
+// special case there, but dashed-bordered and empty instead of showing a
+// saved connection -- a standing hint for how to add one. List mode has no
+// equivalent: this only ever lands in the cards slice SetRows caches for
+// grid mode, never in rows. A hover-only X in the top-right dismisses it
+// (OnDismiss); the Connections footer chip restores it.
 //
 // Only the "+" circle actually opens anything (the same Add Connection
 // dialog the header's own Add button opens) -- the QR/paste-link buttons are
@@ -19,6 +21,7 @@ package view
 import (
 	"fmt"
 	"image/color"
+	"time"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
@@ -26,6 +29,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 )
 
 // AddConnectionCardActions are the entry points the placeholder card's own
@@ -38,6 +42,9 @@ type AddConnectionCardActions struct {
 	OnQR func()
 	// OnPasteLink opens the paste-a-link popup.
 	OnPasteLink func()
+	// OnDismiss hides this tile and leaves a restore chip in the
+	// Connections footer -- the hover-only X in the card's top-right.
+	OnDismiss func()
 }
 
 // addConnectionCardMutedColor is the "+" icon and subtitle's shared color --
@@ -268,7 +275,14 @@ func NewAddConnectionGridCard(actions AddConnectionCardActions) fyne.CanvasObjec
 	// swap their own border/icon/label to the same lime via HoverStroke/
 	// HoverIcon/HoverLabelColor above -- independent of this, since that's
 	// scoped to hovering that specific button rather than the whole card.
-	setHovered := func(hovered bool) {
+	//
+	// Leaving the overlay for the close X (a child widget on top of the
+	// stack) would otherwise snap the card back to idle before the X's
+	// own hover arrives -- same 80ms delay ScriptFooterStatus uses so
+	// moving onto its dismiss button doesn't collapse it.
+	var cardHovered, closeHovered bool
+	var closeBtn *iconChromeButton
+	applyHoverVisuals := func(hovered bool) {
 		setBorderHovered(hovered)
 		if hovered {
 			title.Color = addConnectionCardHoverColor
@@ -285,12 +299,74 @@ func NewAddConnectionGridCard(actions AddConnectionCardActions) fyne.CanvasObjec
 		addRing.Refresh()
 		plusImg.Refresh()
 	}
+	syncClose := func() {
+		if closeBtn == nil {
+			return
+		}
+		if cardHovered || closeHovered {
+			closeBtn.Show()
+		} else {
+			closeBtn.Hide()
+		}
+		closeBtn.Refresh()
+	}
+	releaseHover := func() {
+		time.AfterFunc(80*time.Millisecond, func() {
+			fyne.Do(func() {
+				if cardHovered || closeHovered {
+					return
+				}
+				applyHoverVisuals(false)
+				syncClose()
+			})
+		})
+	}
+	setHovered := func(hovered bool) {
+		if hovered {
+			cardHovered = true
+			applyHoverVisuals(true)
+			syncClose()
+			return
+		}
+		cardHovered = false
+		releaseHover()
+	}
 	addBtn.spec.OnHover = setHovered
 	qrBtn.spec.OnHover = setHovered
 	pasteBtn.spec.OnHover = setHovered
 	overlay := newConnectionCardOverlay(nil, setHovered)
 
-	return container.NewStack(overlay, cardBg, centered, dashedBorder)
+	closeBtn = newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:   color.Transparent,
+		HoverFill:    design.ColorSurfaceLight,
+		Stroke:       color.Transparent,
+		CornerRadius: 3,
+		NormalIcon:   scriptFooterCloseIcon,
+		HoverIcon:    scriptFooterCloseHoverIcon,
+		IconSize:     fyne.NewSize(10, 10),
+		ButtonSize:   fyne.NewSize(16, 16),
+		OnHover: func(on bool) {
+			closeHovered = on
+			if on {
+				applyHoverVisuals(true)
+			}
+			syncClose()
+			if !on {
+				releaseHover()
+			}
+		},
+		OnTapped: actions.OnDismiss,
+	})
+	closeBtn.Hide()
+	// Top-right of the stack, above the overlay so the X actually receives
+	// hover/clicks. The Border/HBox themselves are not widgets, so blank
+	// card area still falls through to the overlay.
+	closeSlot := container.NewBorder(
+		NewInsetExact(container.NewHBox(layout.NewSpacer(), closeBtn), 0, 8, 8, 0),
+		nil, nil, nil,
+	)
+
+	return container.NewStack(overlay, cardBg, centered, dashedBorder, closeSlot)
 }
 
 // newAddConnectionCardDashedBorder draws the dashed rounded-rect outline

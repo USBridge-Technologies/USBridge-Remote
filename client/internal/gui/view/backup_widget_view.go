@@ -7,7 +7,7 @@ import (
 )
 
 // BackupWidgetUI is the Snapshots tab: a connections-style header + table
-// (see NewSnapshotsSection) above the same Devices footer (busy spinner
+// (see NewSnapshotsSection) above the shared app footer (busy spinner
 // on the left, build version on the right). Refresh() rebuilds the
 // section from the controller's onRebuild callback; the footer persists.
 type BackupWidgetUI struct {
@@ -25,7 +25,7 @@ type BackupWidgetUI struct {
 func NewBackupWidgetUI() *BackupWidgetUI {
 	spinner := NewDeviceDashboardBusyHint("connecting device")
 	body := container.NewMax()
-	footerHost := container.NewMax(NewDeviceDashboardFooter(AppVersion(), nil, spinner))
+	footerHost := container.NewMax(NewAppFooter(AppVersion(), nil, spinner))
 	return &BackupWidgetUI{
 		Container:   NewEdgeStack(nil, footerHost, body),
 		body:        body,
@@ -76,7 +76,7 @@ func (ui *BackupWidgetUI) rebuildFooter() {
 	if ui.scriptFooter != nil {
 		extra = append(extra, ui.scriptFooter)
 	}
-	ui.footerHost.Objects = []fyne.CanvasObject{NewDeviceDashboardFooter(AppVersion(), nil, ui.BusySpinner, extra...)}
+	ui.footerHost.Objects = []fyne.CanvasObject{NewAppFooter(AppVersion(), nil, ui.BusySpinner, extra...)}
 	ui.footerHost.Refresh()
 }
 

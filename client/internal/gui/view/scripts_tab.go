@@ -2,7 +2,7 @@ package view
 
 // scripts_tab.go -- Scripts tab: Devices-style two-column split (narrow MCP
 // card, wide automation table) with Connections/Snapshots section headers
-// and the same Devices footer (busy spinner + version).
+// and the shared app footer (busy spinner + version).
 
 import (
 	"fmt"

@@ -110,6 +110,18 @@ type ConnectionManager struct {
 	// through. name is only meaningful while connecting=true.
 	connectingStateSink func(connecting bool, name string)
 
+	// addCardDismissed hides Grid mode's "Add New Connect" tile and shows
+	// promoChip in the Connections footer instead -- persisted so a closed
+	// hint stays closed across restarts (same pattern later ads will use).
+	addCardDismissed bool
+	promoChip        *view.FooterPromoChip
+
+	// firmwarePromoDismissed hides the firmware banner and shows
+	// firmwareChip ("software") in the Connections footer instead.
+	firmwarePromoDismissed bool
+	firmwareBanner         *view.FirmwarePromoBanner
+	firmwareChip           *view.FooterPromoChip
+
 	// Account owns the account login + sync passphrase this connections
 	// list is end-to-end synced under -- see account_manager.go and
 	// connection_manager_sync.go. nil is a valid state (no account

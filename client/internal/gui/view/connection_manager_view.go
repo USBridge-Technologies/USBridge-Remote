@@ -23,9 +23,9 @@ import (
 // which would create an import cycle (gui already imports view).
 var appVersion string
 
-// SetAppVersion records the running build's version string, shown as a small
-// "vX.Y.Z" tag in the bottom-right corner of the connections screen (and
-// on the left of the Devices tab footer).
+// SetAppVersion records the running build's version string, shown as a
+// "vX.Y.Z" tag in the shared app footer (Connections, Control, Devices,
+// Snapshots, Scripts).
 func SetAppVersion(version string) {
 	appVersion = strings.TrimSpace(version)
 }
@@ -43,6 +43,12 @@ type ConnectionManagerUI struct {
 
 	contentArea *fyne.Container
 	topHelpBtn  fyne.CanvasObject
+
+	// promoSlot sits between the section header and the cards/table so the
+	// firmware banner can show/hide without rebuilding the list. Empty
+	// while the banner is dismissed.
+	promoSlot      *fyne.Container
+	firmwareBanner fyne.CanvasObject
 
 	headerActions connectionsHeaderActions
 	headerButtons *connectionsHeaderButtons
@@ -378,19 +384,13 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 	root := container.NewStack(bg, contentArea)
-	if v := strings.TrimSpace(appVersion); v != "" {
-		versionLabel := canvas.NewText("v"+v, design.ColorTextMuted)
-		versionLabel.TextSize = 10
-		versionLabel.Alignment = fyne.TextAlignTrailing
-		versionCorner := container.NewBorder(nil, NewInset(container.NewHBox(layout.NewSpacer(), versionLabel), 0, 6, 0, 6), nil, nil, nil)
-		root.Add(versionCorner)
-	}
 
 	ui := &ConnectionManagerUI{
 		Container:         root,
 		ConnectionsScroll: connectionsScroll,
 		ConnectionsBox:    connectionsBox,
 		contentArea:       contentArea,
+		promoSlot:         container.NewVBox(),
 		topHelpBtn:        topHelpBtn,
 		viewMode:          initialViewMode,
 		onViewModeChange:  onViewModeChange,
@@ -723,7 +723,7 @@ func (ui *ConnectionManagerUI) SetRows(rows []ConnectionListItem, cards []fyne.C
 	ui.headerButtons = buttons
 
 	ui.contentArea.Objects = []fyne.CanvasObject{
-		container.NewBorder(header, nil, nil, nil, ui.ConnectionsScroll),
+		container.NewBorder(container.NewVBox(header, ui.promoSlot), nil, nil, nil, ui.ConnectionsScroll),
 	}
 	ui.ConnectionsScroll.Refresh()
 	ui.contentArea.Refresh()
@@ -731,6 +731,42 @@ func (ui *ConnectionManagerUI) SetRows(rows []ConnectionListItem, cards []fyne.C
 
 func (ui *ConnectionManagerUI) SetActionButtonsDisabled(disabled bool) {
 	ui.headerButtons.SetDisabled(disabled)
+}
+
+// SetFirmwarePromo attaches the firmware banner above the cards/table.
+// Visibility is driven by SetFirmwarePromoVisible so dismiss/restore does
+// not rebuild the connections list.
+func (ui *ConnectionManagerUI) SetFirmwarePromo(banner fyne.CanvasObject) {
+	if ui == nil {
+		return
+	}
+	ui.firmwareBanner = banner
+	ui.syncFirmwarePromoSlot()
+}
+
+func (ui *ConnectionManagerUI) SetFirmwarePromoVisible(on bool) {
+	if ui == nil {
+		return
+	}
+	if usableCanvasObject(ui.firmwareBanner) {
+		if on {
+			ui.firmwareBanner.Show()
+		} else {
+			ui.firmwareBanner.Hide()
+		}
+	}
+	ui.syncFirmwarePromoSlot()
+}
+
+func (ui *ConnectionManagerUI) syncFirmwarePromoSlot() {
+	if ui.promoSlot == nil {
+		return
+	}
+	ui.promoSlot.RemoveAll()
+	if usableCanvasObject(ui.firmwareBanner) && ui.firmwareBanner.Visible() {
+		ui.promoSlot.Add(ui.firmwareBanner)
+	}
+	ui.promoSlot.Refresh()
 }
 
 type foregroundOverrideTheme struct {
