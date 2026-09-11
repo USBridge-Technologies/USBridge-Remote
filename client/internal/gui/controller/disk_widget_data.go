@@ -857,4 +857,3 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	dw.updateButtons()
 	dw.syncGamepadCaptures()
 }
-
