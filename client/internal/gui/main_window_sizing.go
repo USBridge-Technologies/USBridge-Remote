@@ -67,12 +67,18 @@ func (mw *MainWindow) applyInitialWindowSize() {
 		contentMin = content.MinSize()
 	}
 
-	mw.window.Resize(windowSizeToLogical(
-		mw.config.WindowWidth,
-		mw.config.WindowHeight,
-		contentMin,
-	))
-	mw.window.CenterOnScreen()
+	width, height := mw.config.WindowWidth, mw.config.WindowHeight
+	if lw, lh, ok := mw.savedLogicalWindowSize(); ok {
+		width, height = lw, lh
+	}
+
+	mw.window.Resize(windowSizeToLogical(width, height, contentMin))
+	// CenterOnScreen uses Fyne/GLFW's "current" monitor, which on first
+	// Show is the primary. Skip it when we have a last-session frame so
+	// the window can reopen on the same display the user left it on.
+	if !mw.canRestoreWindowPlacement() {
+		mw.window.CenterOnScreen()
+	}
 }
 
 func (mw *MainWindow) ensureWindowFitsContent() {

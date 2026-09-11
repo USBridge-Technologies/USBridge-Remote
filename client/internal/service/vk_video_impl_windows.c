@@ -234,11 +234,13 @@ static DWORD WINAPI vk_hwnd_thread(LPVOID unused) {
     DWORD ex_style;
 
     if (g_hwnd_args.standalone) {
-        // Standalone fullscreen: cover the entire primary display.
+        // Standalone fullscreen: cover the monitor chosen by
+        // vk_video_create_standalone (the one hosting the client HWND).
         // No TOPMOST (only window on screen), no NOACTIVATE (needs keyboard focus).
-        px = 0; py = 0;
-        cw = GetSystemMetrics(SM_CXSCREEN);
-        ch = GetSystemMetrics(SM_CYSCREEN);
+        px = g_hwnd_args.x;
+        py = g_hwnd_args.y;
+        cw = g_hwnd_args.w > 0 ? g_hwnd_args.w : GetSystemMetrics(SM_CXSCREEN);
+        ch = g_hwnd_args.h > 0 ? g_hwnd_args.h : GetSystemMetrics(SM_CYSCREEN);
         ex_style = 0;
     } else {
         POINT pt = { g_hwnd_args.x, g_hwnd_args.y };
@@ -1223,27 +1225,55 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
     return 1;
 }
 
+// vk_monitor_rect_near_hwnd fills x/y/w/h with the monitor that contains
+// hint (MONITOR_DEFAULTTONEAREST). Falls back to the primary display.
+static void vk_monitor_rect_near_hwnd(HWND hint, int *x, int *y, int *w, int *h) {
+    if (hint) {
+        HMONITOR mon = MonitorFromWindow(hint, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi;
+        ZeroMemory(&mi, sizeof(mi));
+        mi.cbSize = sizeof(mi);
+        if (mon && GetMonitorInfoW(mon, &mi)) {
+            *x = mi.rcMonitor.left;
+            *y = mi.rcMonitor.top;
+            *w = mi.rcMonitor.right - mi.rcMonitor.left;
+            *h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+            return;
+        }
+    }
+    *x = 0;
+    *y = 0;
+    *w = GetSystemMetrics(SM_CXSCREEN);
+    *h = GetSystemMetrics(SM_CYSCREEN);
+}
+
 // vk_video_create_standalone — initialise Vulkan renderer as a standalone fullscreen window.
-// No parent HWND required; the window covers the entire primary monitor.
-// The window has keyboard focus so WM_KEYDOWN/UP are delivered for input forwarding.
+// hint_hwnd, when non-null, picks the monitor that currently hosts the client
+// window; otherwise the primary monitor is used. The window has keyboard focus
+// so WM_KEYDOWN/UP are delivered for input forwarding.
 // Returns 1 on success, 0 on failure.
-int vk_video_create_standalone(void) {
+int vk_video_create_standalone(uintptr_t hint_hwnd) {
     if (atomic_load(&g_active)) vk_full_cleanup();
 
-    int sw = GetSystemMetrics(SM_CXSCREEN);
-    int sh = GetSystemMetrics(SM_CYSCREEN);
+    int x = 0, y = 0, sw = 0, sh = 0;
+    vk_monitor_rect_near_hwnd((HWND)hint_hwnd, &x, &y, &sw, &sh);
     g_parent_hwnd = NULL;
     g_standalone = 1;
-    g_hwnd_args.parent = NULL; g_hwnd_args.x = 0; g_hwnd_args.y = 0;
-    g_hwnd_args.w = sw; g_hwnd_args.h = sh; g_hwnd_args.standalone = 1;
+    g_hwnd_args.parent = NULL;
+    g_hwnd_args.x = x;
+    g_hwnd_args.y = y;
+    g_hwnd_args.w = sw;
+    g_hwnd_args.h = sh;
+    g_hwnd_args.standalone = 1;
 
-    if (!vk_video_init_common(0, 0, sw, sh)) return 0;
+    if (!vk_video_init_common(x, y, sw, sh)) return 0;
 
     {
         char m[256];
         VkPhysicalDeviceProperties pr;
         vkGetPhysicalDeviceProperties(g_pdev, &pr);
-        snprintf(m, sizeof(m), "Vulkan standalone fullscreen created — GPU=%s %dx%d", pr.deviceName, sw, sh);
+        snprintf(m, sizeof(m), "Vulkan standalone fullscreen created — GPU=%s origin=(%d,%d) %dx%d hint_hwnd=%p",
+                 pr.deviceName, x, y, sw, sh, (void *)hint_hwnd);
         goVKLog(m, 0);
     }
     return 1;
@@ -1331,7 +1361,7 @@ int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
 }
 
 // vk_video_get_dst_size — return the current overlay/standalone window dimensions in pixels.
-// In standalone mode this equals the primary screen resolution.
+// In standalone mode this equals the chosen monitor's resolution.
 // In overlay mode this is the video rect passed to vk_video_create / vk_video_update_frame.
 void vk_video_get_dst_size(int *w, int *h) {
     *w = atomic_load(&g_dst_w);

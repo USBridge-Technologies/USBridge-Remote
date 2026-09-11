@@ -44,27 +44,29 @@ func (mw *MainWindow) handleHostChanged(host string) {
 
 // showConnectionManager displays the connection manager.
 func (mw *MainWindow) showConnectionManager() {
-	fyne.Do(func() {
-		if mw.connectionContent == nil {
-			logrus.Warn("showConnectionManager: connectionContent is nil")
-			return
-		}
-		if mw.deviceButtonsPanel != nil {
-			mw.deviceButtonsPanel.Hide()
-		}
-		// Refresh the list before making it visible so newly-resolved
-		// Tailscale addresses (set by RememberResolvedTailscaleHost while
-		// the main content was shown) are not stuck showing "TS: none".
-		if mw.connectionManager != nil {
-			mw.connectionManager.RefreshList()
-		}
-		mw.window.SetContent(mw.wrapWithResizeGuard(mw.connectionContent))
-		mw.onMainContent = false
-		mw.connectionContent.Refresh()
-		mw.window.Canvas().Refresh(mw.connectionContent)
-		mw.syncVideoOverlayForNav()
-		mw.syncAudioMuteForNav()
-	})
+	fyne.Do(mw.showConnectionManagerNow)
+}
+
+func (mw *MainWindow) showConnectionManagerNow() {
+	if mw.connectionContent == nil {
+		logrus.Warn("showConnectionManager: connectionContent is nil")
+		return
+	}
+	if mw.deviceButtonsPanel != nil {
+		mw.deviceButtonsPanel.Hide()
+	}
+	// Refresh the list before making it visible so newly-resolved
+	// Tailscale addresses (set by RememberResolvedTailscaleHost while
+	// the main content was shown) are not stuck showing "TS: none".
+	if mw.connectionManager != nil {
+		mw.connectionManager.RefreshList()
+	}
+	mw.window.SetContent(mw.wrapWithResizeGuard(mw.connectionContent))
+	mw.onMainContent = false
+	mw.connectionContent.Refresh()
+	mw.window.Canvas().Refresh(mw.connectionContent)
+	mw.syncVideoOverlayForNav()
+	mw.syncAudioMuteForNav()
 }
 
 // showMainContent displays the main interface.
@@ -196,6 +198,8 @@ func (mw *MainWindow) handleClose() {
 			return
 		}
 
+		mw.stopWindowPlacementAutosave()
+
 		if mw.scriptsWidget != nil {
 			logrus.Info("[shutdown] handleClose: stopping scripts widget")
 			mw.scriptsWidget.Shutdown()
@@ -219,6 +223,7 @@ func (mw *MainWindow) handleClose() {
 		}
 
 		fyne.Do(func() {
+			mw.persistWindowPlacement()
 			// CloseIntercept must be cleared before Quit/Close: Fyne's
 			// Quit closes windows by going through this intercept, and
 			// handleClose already consumed the first close (and returns
@@ -254,27 +259,30 @@ func (mw *MainWindow) SetOnReadyCallback(cb func()) {
 
 // Show displays the window.
 func (mw *MainWindow) Show() {
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-
-		fyne.Do(func() {
-			// createInterface and connectionManager creation moved to NewMainWindow
-			mw.recreateContainers()
-			mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
-			mw.setupEventHandlers()
-			mw.setDefaultValues()
-			mw.showConnectionManager()
-			mw.applyInitialWindowSize()
-			mw.updateStatusBar()
-			mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromDeepLink, mw.handleSaveFromDeepLink)
-			mw.checkDeepLink()
-			mw.startDeepLinkMonitoring()
-			mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
-			if mw.onReadyCallback != nil {
-				go mw.onReadyCallback()
-			}
-		})
-	}()
+	// Build content and apply the configured size on this thread before
+	// ShowAndRun maps the HWND. The old 200ms + fyne.Do path left GLFW
+	// showing its default-sized window for a beat, then jumping to the
+	// real size — a Windows Fyne/GLFW quirk we work around here rather
+	// than patching Fyne. Resize happens before the first Show;
+	// CenterOnScreen is skipped when a last-session monitor position exists.
+	mw.recreateContainers()
+	if mw.connectionManager != nil {
+		mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
+		mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
+	}
+	mw.setupEventHandlers()
+	mw.setDefaultValues()
+	mw.showConnectionManagerNow()
+	mw.applyInitialWindowSize()
+	mw.scheduleWindowPlacementRestore()
+	mw.startWindowPlacementAutosave()
+	mw.updateStatusBar()
+	mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromDeepLink, mw.handleSaveFromDeepLink)
+	mw.checkDeepLink()
+	mw.startDeepLinkMonitoring()
+	if mw.onReadyCallback != nil {
+		go mw.onReadyCallback()
+	}
 
 	mw.window.ShowAndRun()
 }

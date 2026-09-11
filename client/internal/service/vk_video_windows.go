@@ -23,7 +23,7 @@ extern void vk_video_get_diag(long long *hb, int *stage);
 extern void vk_video_set_hidden(int hidden);
 extern void vk_video_bring_to_top(void);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
-extern int  vk_video_create_standalone(void);
+extern int  vk_video_create_standalone(uintptr_t hint_hwnd);
 extern int  vk_video_next_key_event(int *type_out, int *vk_out);
 extern void vk_video_get_dst_size(int *w, int *h);
 
@@ -149,11 +149,13 @@ func VKVideoSetHidden(hidden bool) {
 	C.vk_video_set_hidden(h)
 }
 
-// VKVideoCreateStandalone creates a standalone fullscreen Vulkan window covering the
-// primary monitor. No parent HWND needed; the window captures keyboard focus directly.
-// Use this instead of VKVideoCreate when entering fullscreen without a Fyne window.
-func VKVideoCreateStandalone() bool {
-	return C.vk_video_create_standalone() != 0
+// VKVideoCreateStandalone creates a standalone fullscreen Vulkan window covering
+// the monitor nearest to hintHWND (the client window). hintHWND may be 0, in
+// which case the primary monitor is used. The window captures keyboard focus
+// directly. Use this instead of VKVideoCreate when entering fullscreen without
+// a Fyne window.
+func VKVideoCreateStandalone(hintHWND uintptr) bool {
+	return C.vk_video_create_standalone(C.uintptr_t(hintHWND)) != 0
 }
 
 // VKVideoNextKeyEvent drains one pending keyboard event from the standalone VK window.
@@ -166,7 +168,7 @@ func VKVideoNextKeyEvent() (typ, vkCode int, ok bool) {
 }
 
 // VKVideoGetDstSize returns the current VK window dimensions in physical pixels.
-// In standalone mode this equals the primary screen resolution.
+// In standalone mode this equals the chosen monitor's resolution.
 func VKVideoGetDstSize() (w, h int) {
 	var cw, ch C.int
 	C.vk_video_get_dst_size(&cw, &ch)

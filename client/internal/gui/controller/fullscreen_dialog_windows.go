@@ -7,6 +7,8 @@ import (
 
 	"usbridge-client/internal/service"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/driver"
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,9 +18,29 @@ func (fd *FullscreenDialog) canWindowlessVKFullscreen() bool {
 	return fd.videoWidget != nil
 }
 
+func fyneWindowHWND(window fyne.Window) uintptr {
+	if window == nil {
+		return 0
+	}
+	nw, ok := window.(driver.NativeWindow)
+	if !ok {
+		return 0
+	}
+	var hwnd uintptr
+	nw.RunNative(func(ctx any) {
+		switch c := ctx.(type) {
+		case driver.WindowsWindowContext:
+			hwnd = c.HWND
+		case *driver.WindowsWindowContext:
+			hwnd = c.HWND
+		}
+	})
+	return hwnd
+}
+
 // enterWindowlessVKFullscreen creates a standalone Vulkan fullscreen window that
-// covers the entire primary display. No Fyne/GLFW window is involved, so there is
-// no Z-order competition and no black-screen flicker.
+// covers the monitor currently hosting the client window. No Fyne/GLFW window
+// is involved, so there is no Z-order competition and no black-screen flicker.
 // Input (keyboard + mouse) is captured directly by the VK window and forwarded to
 // Moonlight via the C event queues polled by startVKKeyForwarding / startVKMouseForwarding.
 func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
@@ -30,8 +52,13 @@ func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
 	// Destroy any existing VK/GDI overlay on the main window.
 	vw.stopMetalVideo()
 
-	// Create the standalone fullscreen VK window.
-	if !service.VKVideoCreateStandalone() {
+	hintHWND := fyneWindowHWND(fd.parent)
+	if hintHWND == 0 && vw != nil {
+		hintHWND = fyneWindowHWND(vw.parentWindow)
+	}
+
+	// Create the standalone fullscreen VK window on the client's monitor.
+	if !service.VKVideoCreateStandalone(hintHWND) {
 		logrus.Error("[Win/FS] VKVideoCreateStandalone failed — cannot enter fullscreen")
 		fd.windowlessVKFullscreen = false
 		fd.isFullscreen = false
@@ -42,7 +69,7 @@ func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
 
 	// Fix absolute mouse mode: PositionToAbsolute uses touchpadSizeW/H which is
 	// normally the video widget area in the main window. In standalone fullscreen
-	// the VK window covers the entire primary screen, so update the size to match.
+	// the VK window covers that monitor, so update the size to match.
 	// Store the screen dp size on VideoWidget so updateFrameContentRect (called on
 	// every decoded frame) re-applies it instead of overwriting with main-window size.
 	sw, sh := service.VKVideoGetDstSize() // physical screen pixels

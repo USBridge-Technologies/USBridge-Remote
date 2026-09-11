@@ -202,6 +202,9 @@ type MainWindow struct {
 	// down to its content's bare MinSize instead of its actual prior size.
 	lastGoodWindowSize fyne.Size
 	resizeGuardPending bool
+	// windowPlacementStop ends the periodic save of the window's last
+	// monitor/position so the next launch can reopen on the same display.
+	windowPlacementStop chan struct{}
 
 	// onMainContent tracks which screen is showing (true: mainContent,
 	// false: connectionContent) -- syncVideoOverlayForNav/syncAudioMuteForNav
@@ -275,6 +278,10 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	)
 
 	go mw.runLifecycleLoop()
+
+	// Stamp the configured size onto the window object before anyone
+	// calls Show, so GLFW's first HWND is not the driver's tiny default.
+	mw.applyInitialWindowSize()
 
 	return mw
 }
