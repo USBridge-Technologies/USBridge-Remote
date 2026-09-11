@@ -17,6 +17,11 @@ import (
 // appears or disappears.
 const AppFooterRowHeight = float32(14)
 
+// AppFooterOuterHeight is NewAppFooter's full strip: the 14px row, 4/6
+// insets, and the 0.5px hairline. Native video overlays subtract this
+// from canvasH − containerH when AbsolutePosition has not settled yet.
+const AppFooterOuterHeight = AppFooterRowHeight + 4 + 6 + 0.5
+
 // NewAppFooter is the one bottom strip used on every main screen: optional
 // left chips (busy spinner, script status), optional right action
 // (Disconnect All), and the build version. A ColorHeaderAccentLine

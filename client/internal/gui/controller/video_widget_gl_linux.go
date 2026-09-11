@@ -207,8 +207,9 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 //
 // Fullscreen: the VK child window covers the entire fullscreen window → (0,0,W,H).
 //
-// Normal: vw.videoCanvas.Position() is always (0,0) within its parent container,
-// so y-offset = canvasHeight − containerHeight (height of the toolbar above video).
+// Normal: vw.videoCanvas.Position() is always (0,0) within its parent
+// container; the canvas origin comes from videoContainerOrigin so a
+// footer under the video is not treated as chrome above it.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if fsWin := vkFullscreenWindow; fsWin != nil {
 		sz := fsWin.Canvas().Size()
@@ -218,9 +219,8 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return
 	}
 	sz := vw.container.Size()
-	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - sz.Height
-	return 0, topOffset, sz.Width, sz.Height
+	pos := vw.videoContainerOrigin()
+	return pos.X, pos.Y, sz.Width, sz.Height
 }
 
 // ── Vulkan mouse event forwarding ─────────────────────────────────────────────

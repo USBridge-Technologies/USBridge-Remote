@@ -184,15 +184,19 @@ type VideoWidget struct {
 	standaloneVKScreenDpW float32
 	standaloneVKScreenDpH float32
 	// Video rectangle within the input area (ImageFillContain): for correct coordinate translation into 0..4095
-	contentRectX     float32
-	contentRectY     float32
-	contentRectW     float32
-	contentRectH     float32
-	baseContentRectW float32
-	baseContentRectH float32
-	zoomScale        float32
-	panOffsetX       float32
-	panOffsetY       float32
+	contentRectX float32
+	contentRectY float32
+	contentRectW float32
+	contentRectH float32
+	// lastVideoCanvasOrigin is the last settled canvas position of the
+	// video container. AbsolutePositionForObject reports (0,0) for a
+	// frame when the overlay first starts, which would cover the header.
+	lastVideoCanvasOrigin fyne.Position
+	baseContentRectW      float32
+	baseContentRectH      float32
+	zoomScale             float32
+	panOffsetX            float32
+	panOffsetY            float32
 	// bottomAnchorContentVertically switches recalculateViewport's "content
 	// shorter than available area" branch from vertically centering the
 	// video to anchoring it flush against the bottom of the available

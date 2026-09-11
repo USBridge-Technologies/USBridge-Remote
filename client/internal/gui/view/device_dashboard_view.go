@@ -256,6 +256,15 @@ func NewDeviceDashboardHoverCell() (onHover func(bool), bind func(func(bool))) {
 // hover-border logic to the onHover cell every interactive control inside
 // content was already built with.
 func NewDeviceDashboardCard(icon fyne.Resource, title string, description string, headerRight fyne.CanvasObject, content fyne.CanvasObject, bindHover func(func(bool))) fyne.CanvasObject {
+	card, _ := NewDeviceDashboardCardWithTitle(icon, title, description, headerRight, content, bindHover)
+	return card
+}
+
+// NewDeviceDashboardCardWithTitle is NewDeviceDashboardCard plus a setter
+// for the header label. Devices' storage card uses it to show
+// "Virtual Mass Storage & ISO Media" on hardware KVM and "USB Emulation"
+// on a software agent.
+func NewDeviceDashboardCardWithTitle(icon fyne.Resource, title string, description string, headerRight fyne.CanvasObject, content fyne.CanvasObject, bindHover func(func(bool))) (fyne.CanvasObject, func(string)) {
 	iconImg := canvas.NewImageFromResource(icon)
 	iconImg.FillMode = canvas.ImageFillContain
 	iconImg.SetMinSize(fyne.NewSize(16, 16))
@@ -327,7 +336,13 @@ func NewDeviceDashboardCard(icon fyne.Resource, title string, description string
 	// content so a button on top still gets first claim on the cursor.
 	overlay := newConnectionCardOverlay(nil, setCardHovered)
 
-	return container.NewStack(overlay, cardBg, body)
+	return container.NewStack(overlay, cardBg, body), func(next string) {
+		if titleText.Text == next {
+			return
+		}
+		titleText.Text = next
+		titleText.Refresh()
+	}
 }
 
 // NewDeviceDashboardRowSeparator is a thin divider between two rows inside

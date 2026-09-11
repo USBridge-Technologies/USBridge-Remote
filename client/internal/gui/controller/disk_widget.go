@@ -55,9 +55,14 @@ type DiskWidget struct {
 	dashboardNetworkCard fyne.CanvasObject
 	dashboardBackupCard  fyne.CanvasObject
 	// dashboardPairSection is the one-row Network+Backups pair under
-	// Storage (plus the gap above it) -- shown if either card has rows.
-	dashboardPairSection fyne.CanvasObject
-	dashboardWideColumn  *fyne.Container
+	// Storage (plus the gap above it) -- shown if either card has rows,
+	// or on a software agent as a dismissible firmware promo.
+	dashboardPairSection   fyne.CanvasObject
+	dashboardPairRow       fyne.CanvasObject
+	dashboardFirmwarePromo     *view.DeviceFirmwarePromo
+	setDashboardStorageTitle   func(string)
+	firmwareChip               *view.FooterPromoChip
+	dashboardWideColumn        *fyne.Container
 	// dashboardXHover is card X's own onHover cell (view.NewDeviceDashboardHoverCell),
 	// created once in GetDashboardContainer and reused by every refreshDashboard
 	// call so each rebuilt row's own buttons/toggles can still be wired to
@@ -735,10 +740,17 @@ func (dw *DiskWidget) setPreferredVideoDevice(device models.SystemDevice) {
 	}()
 }
 
-// selectVideoDevice saves the preferred device and, if video is currently
-// streaming, reconnects to the new device — mirrors setPreferredAudioDevice.
+// selectVideoDevice saves the preferred device and reconnects the pipeline
+// to it — only when this is a different capture than the one already
+// selected. Tapping the already-active radio used to bounce
+// disconnect→connect on the same device; with a single screen that just
+// looked broken. Switching between two+ captures still goes through here.
 func (dw *DiskWidget) selectVideoDevice(device models.SystemDevice) {
-	if strings.TrimSpace(device.Path) == "" {
+	path := strings.TrimSpace(device.Path)
+	if path == "" {
+		return
+	}
+	if path == strings.TrimSpace(selectedVideoDevicePath()) {
 		return
 	}
 	go func() {
@@ -746,23 +758,42 @@ func (dw *DiskWidget) selectVideoDevice(device models.SystemDevice) {
 		fyne.Do(func() {
 			for i := range dw.allDrives {
 				if dw.allDrives[i].IsVideo && dw.allDrives[i].VideoDevice != nil {
-					dw.allDrives[i].IsMounted = dw.allDrives[i].VideoDevice.Path == device.Path
+					dw.allDrives[i].IsMounted = dw.allDrives[i].VideoDevice.Path == path
 				}
 			}
 			dw.requestDevicesRefresh()
 		})
-		cfg := loadSavedVideoDeviceConfig(device.Path, device.Name)
-		cfg.DevicePath = device.Path
+		cfg := loadSavedVideoDeviceConfig(path, device.Name)
+		cfg.DevicePath = path
 		cfg.DeviceName = device.Name
 		saveVideoDeviceConfig(cfg)
-		logrus.Infof("💾 [VIDEO-SELECT] Selected device: %s (%s)", device.Name, device.Path)
+		logrus.Infof("💾 [VIDEO-SELECT] Selected device: %s (%s)", device.Name, path)
 		if dw.onVideoDisconnect != nil {
 			dw.onVideoDisconnect()
 		}
 		if dw.onVideoConnect != nil {
-			dw.onVideoConnect(device.Path)
+			dw.onVideoConnect(path)
 		}
 	}()
+}
+
+// availableVideoDriveCount is how many Video Pipe rows can actually be
+// switched to (connected, or a software-agent desktop capture). The radio
+// is only clickable when this is more than one — a single screen has
+// nothing to switch to.
+func (dw *DiskWidget) availableVideoDriveCount() int {
+	n := 0
+	for _, drive := range dw.allDrives {
+		if !drive.IsVideo || drive.VideoDevice == nil {
+			continue
+		}
+		unavailable := !drive.VideoDevice.Connected && !drive.IsMounted && isUSBridgeAgentOS(dw.agentOS)
+		if unavailable {
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 func (dw *DiskWidget) isPreferredVideoDrive(drive DriveItem) bool {

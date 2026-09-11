@@ -24,11 +24,11 @@ import (
 // to TouchpadWrapper via fyne.Do — same pattern as Linux X11 / Windows Vulkan.
 
 var (
-	metalMouseMu             sync.Mutex
-	metalMouseQuit           chan struct{}
-	metalFullscreenWindow    fyne.Window
-	metalMouseCheckPending   int32 // atomic
-	lastMetalFrameMu         sync.Mutex
+	metalMouseMu                     sync.Mutex
+	metalMouseQuit                   chan struct{}
+	metalFullscreenWindow            fyne.Window
+	metalMouseCheckPending           int32 // atomic
+	lastMetalFrameMu                 sync.Mutex
 	lastMetalFrameX, lastMetalFrameY float32
 	lastMetalFrameW, lastMetalFrameH float32
 )
@@ -282,14 +282,12 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return
 	}
 
-	// Fyne's AbsolutePositionForObject is unreliable on mobile canvases,
-	// and we match the robust iOS math here for consistency.
-	szMain := vw.container.Size()
-	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - szMain.Height
-
+	// Desktop: AbsolutePositionForObject is the canvas origin of the
+	// container. canvasH − height assumed the video was flush with the
+	// window bottom and shifted the overlay once Control grew a footer.
+	pos := vw.videoContainerOrigin()
 	szVideo := vw.touchpadWrapper.Size()
-	return 0, topOffset, szVideo.Width, szVideo.Height
+	return pos.X, pos.Y, szVideo.Width, szVideo.Height
 }
 
 // metalVideoEnterFullscreen tears down the main-window overlay and creates a

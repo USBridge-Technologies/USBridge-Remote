@@ -293,7 +293,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		if captureSelector != nil {
 			captureSelector.Show()
 			captureSelector.SetSelected(dw.isPreferredVideoDrive(drive))
-			captureSelector.SetDisabled(controlsLocked || videoUnavailable)
+			captureSelector.SetDisabled(controlsLocked || videoUnavailable || dw.availableVideoDriveCount() <= 1)
 		}
 		settingsBtn.Show()
 		if controlsLocked || videoUnavailable {

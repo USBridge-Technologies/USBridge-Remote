@@ -662,16 +662,16 @@ func (vw *VideoWidget) getMetalLastFrame() *image.RGBA { return nil }
 
 // videoCanvasFrame returns the video canvas rect in window-local dp coordinates.
 //
-// Fyne widget positions are relative to their parent container, not the window,
-// so vw.videoCanvas.Position() is always near (0,0) within its tab container.
-// We derive the absolute y-offset the same way Mac Metal does: the video container
-// fills everything below the toolbar, so y = canvasHeight - containerHeight.
+// Fyne widget positions are relative to their parent, not the window, so
+// vw.videoCanvas.Position() is always near (0,0) inside its tab. The
+// container's canvas origin comes from videoContainerOrigin — not
+// canvasH − height, which assumed the video was flush with the window
+// bottom and broke once Control grew a footer under it.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.container == nil || vw.parentWindow == nil {
 		return
 	}
 	sz := vw.container.Size()
-	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - sz.Height
-	return 0, topOffset, sz.Width, sz.Height
+	pos := vw.videoContainerOrigin()
+	return pos.X, pos.Y, sz.Width, sz.Height
 }

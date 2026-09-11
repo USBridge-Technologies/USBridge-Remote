@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -12,12 +13,14 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
+	"github.com/sirupsen/logrus"
 )
 
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
 // column (HID & Input Hub, Video Pipe & EDID, Audio Pipeline) stacked above
-// one another, and a wide right column (Virtual Mass Storage & ISO Media,
-// then a short Network + Backups pair in one row underneath), all styled
+// one another, and a wide right column (Virtual Mass Storage & ISO Media
+// on hardware KVM, USB Emulation on a software agent; then a short
+// Network + Backups pair, or the firmware promo on an agent), all styled
 // after the Connections grid's own cards (see view.NewDeviceDashboardCard),
 // including their own teal-on-hover border.
 //
@@ -91,19 +94,26 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	// scrollbar thumb overlays once scrolling is actually active.
 	dw.dashboardStorageScroll = container.NewVScroll(view.NewInsetExact(dw.dashboardStorage, 0, 10, 0, 0))
 
-	pairRow := container.New(&view.DeviceDashboardPairLayout{Gap: 16}, dw.dashboardNetworkCard, dw.dashboardBackupCard)
-	dw.dashboardPairSection = container.NewVBox(view.NewDeviceDashboardCardGap(), pairRow)
+	pairRow := container.New(&view.DeviceDashboardPairLayout{Gap: 12}, dw.dashboardNetworkCard, dw.dashboardBackupCard)
+	dw.dashboardPairRow = pairRow
+	dw.dashboardFirmwarePromo = view.NewDeviceFirmwarePromo()
+	dw.dashboardFirmwarePromo.SetOnDismiss(dw.dismissFirmwarePromo)
+	dw.dashboardFirmwarePromo.SetOnOpen(dw.openFirmwarePromo)
+	dw.dashboardPairSection = container.NewVBox(view.NewDeviceDashboardCardGap(), pairRow, dw.dashboardFirmwarePromo)
 	dw.dashboardPairSection.Hide()
 
+	storageCard, setStorageTitle := view.NewDeviceDashboardCardWithTitle(
+		view.DeviceDashboardStorageIconSVG,
+		deviceDashboardStorageTitleHardware,
+		"",
+		addImageBtn,
+		dw.dashboardStorageScroll,
+		storageBind,
+	)
+	dw.setDashboardStorageTitle = setStorageTitle
+
 	dw.dashboardWideColumn = container.NewVBox(
-		view.NewDeviceDashboardCard(
-			view.DeviceDashboardStorageIconSVG,
-			"Virtual Mass Storage & ISO Media",
-			"",
-			addImageBtn,
-			dw.dashboardStorageScroll,
-			storageBind,
-		),
+		storageCard,
 		dw.dashboardPairSection,
 	)
 
@@ -124,7 +134,10 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		dw.handleUnmount()
 	})
 	dw.dashboardBusySpinner = view.NewDeviceDashboardBusyHint("connecting device")
-	footer := view.NewAppFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner, dw.dashboardScriptFooter)
+	dw.firmwareChip = view.NewFooterLabelChip("software")
+	dw.firmwareChip.SetOnOpen(dw.openFirmwarePromo)
+	dw.firmwareChip.SetOnRestore(dw.restoreFirmwarePromo)
+	footer := view.NewAppFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner, dw.dashboardScriptFooter, dw.firmwareChip)
 	dw.dashboardContainer = view.NewEdgeStack(nil, footer, scroll)
 	dw.refreshDashboard()
 	return dw.dashboardContainer
@@ -147,6 +160,56 @@ func (dw *DiskWidget) AttachConnectingHint(hint *view.DeviceDashboardBusySpinner
 		return
 	}
 	dw.connectingHints = append(dw.connectingHints, hint)
+}
+
+const (
+	devicesFirmwarePromoDismissedPrefKey = "devices.firmware_promo.dismissed"
+	deviceDashboardStorageTitleHardware  = "Virtual Mass Storage & ISO Media"
+	deviceDashboardStorageTitleAgent     = "USB Emulation"
+)
+
+func (dw *DiskWidget) firmwarePromoDismissed() bool {
+	if dw.app == nil {
+		return false
+	}
+	return dw.app.Preferences().BoolWithFallback(devicesFirmwarePromoDismissedPrefKey, false)
+}
+
+func (dw *DiskWidget) setFirmwarePromoDismissed(on bool) {
+	if dw.app != nil {
+		dw.app.Preferences().SetBool(devicesFirmwarePromoDismissedPrefKey, on)
+	}
+}
+
+func (dw *DiskWidget) dismissFirmwarePromo() {
+	dw.setFirmwarePromoDismissed(true)
+	dw.refreshDashboard()
+}
+
+func (dw *DiskWidget) restoreFirmwarePromo() {
+	dw.setFirmwarePromoDismissed(false)
+	dw.refreshDashboard()
+}
+
+func (dw *DiskWidget) openFirmwarePromo() {
+	uri, err := url.Parse(view.FirmwarePromoURL)
+	if err != nil {
+		logrus.Errorf("failed to parse firmware promo URL %q: %v", view.FirmwarePromoURL, err)
+		return
+	}
+	fyneApp := dw.app
+	if fyneApp == nil {
+		fyneApp = fyne.CurrentApp()
+	}
+	if fyneApp == nil {
+		logrus.Errorf("failed to open firmware promo URL: fyne app is nil")
+		return
+	}
+	go func() {
+		if err := fyneApp.OpenURL(uri); err != nil {
+			logrus.Errorf("failed to open firmware promo URL %q: %v", view.FirmwarePromoURL, err)
+		}
+	}()
 }
 
 // refreshDashboard repopulates each dashboard card's rows from dw.allDrives.
@@ -194,10 +257,14 @@ func (dw *DiskWidget) refreshDashboard() {
 			hidGamepads = append(hidGamepads, hidDrive{idx: idx, drive: drive})
 		case drive.IsVideo:
 			chipText, tealChip := videoDashboardLatencyChip(drive)
+			videoActive := dw.isPreferredVideoDrive(drive)
+			if videoActive {
+				icon = view.DeviceDashboardCameraIconActive
+			}
 			videoRows = append(videoRows, view.NewDeviceDashboardVideoRow(
 				icon,
 				dw.captureDeviceBaseTitle(drive),
-				drive.IsMounted,
+				videoActive,
 				chipText,
 				tealChip,
 				dw.newDashboardVideoSettingsButton(drive),
@@ -275,13 +342,26 @@ func (dw *DiskWidget) refreshDashboard() {
 	setDashboardRows(dw.dashboardVideo, videoRows, "No capture devices")
 	setDashboardRows(dw.dashboardAudio, audioRows, "No audio devices")
 	setDashboardRows(dw.dashboardStorage, storageRows, "No storage or ISO media")
+
+	softwareAgent := !isUSBridgeAgentOS(dw.agentOS)
+	promoDismissed := dw.firmwarePromoDismissed()
+	showPromo := softwareAgent && !promoDismissed
+	if dw.setDashboardStorageTitle != nil {
+		if softwareAgent {
+			dw.setDashboardStorageTitle(deviceDashboardStorageTitleAgent)
+		} else {
+			dw.setDashboardStorageTitle(deviceDashboardStorageTitleHardware)
+		}
+	}
+
 	setDashboardRows(dw.dashboardNetworkRows, networkRows, "No network bridge devices")
 	if dw.dashboardBackup != nil {
 		setDashboardRows(dw.dashboardBackup, backupRows, "No backup devices")
 	}
 
-	networkOn := len(networkRows) > 0
-	backupOn := len(backupRows) > 0
+	networkOn := !softwareAgent && len(networkRows) > 0
+	backupOn := !softwareAgent && len(backupRows) > 0
+	showPair := networkOn || backupOn
 	if dw.dashboardNetworkCard != nil {
 		if networkOn {
 			dw.dashboardNetworkCard.Show()
@@ -296,12 +376,29 @@ func (dw *DiskWidget) refreshDashboard() {
 			dw.dashboardBackupCard.Hide()
 		}
 	}
+	if dw.dashboardPairRow != nil {
+		if showPair {
+			dw.dashboardPairRow.Show()
+		} else {
+			dw.dashboardPairRow.Hide()
+		}
+	}
+	if dw.dashboardFirmwarePromo != nil {
+		if showPromo {
+			dw.dashboardFirmwarePromo.Show()
+		} else {
+			dw.dashboardFirmwarePromo.Hide()
+		}
+	}
 	if dw.dashboardPairSection != nil {
-		if networkOn || backupOn {
+		if showPromo || showPair {
 			dw.dashboardPairSection.Show()
 		} else {
 			dw.dashboardPairSection.Hide()
 		}
+	}
+	if dw.firmwareChip != nil {
+		dw.firmwareChip.SetActive(softwareAgent && promoDismissed)
 	}
 
 	if dw.dashboardStorageScroll != nil {
@@ -691,17 +788,18 @@ func (dw *DiskWidget) newDashboardUSBAudioModePicker(idx int, drive DriveItem) *
 }
 
 // newDashboardVideoRadio is Video Pipe's exclusive round selector -- tapping
-// it picks this capture device (and clears the others) the same way the
-// old list's CaptureSelector did.
+// it switches capture to this device. With only one available screen the
+// radio is gray and inert: there is nothing to switch to, and tapping the
+// already-active one used to bounce the pipeline off and back on.
 func (dw *DiskWidget) newDashboardVideoRadio(drive DriveItem) fyne.CanvasObject {
 	unavailable := drive.IsVideo && drive.VideoDevice != nil && !drive.VideoDevice.Connected && !drive.IsMounted && isUSBridgeAgentOS(dw.agentOS)
 	selected := dw.isPreferredVideoDrive(drive)
-	disabled := dw.controlsLocked() || unavailable
+	disabled := dw.controlsLocked() || unavailable || dw.availableVideoDriveCount() <= 1
 	onTap := func() {}
 	if drive.VideoDevice != nil {
 		deviceCopy := *drive.VideoDevice
 		onTap = func() {
-			if dw.controlsLocked() || unavailable {
+			if dw.controlsLocked() || unavailable || dw.availableVideoDriveCount() <= 1 {
 				return
 			}
 			dw.selectVideoDevice(deviceCopy)
