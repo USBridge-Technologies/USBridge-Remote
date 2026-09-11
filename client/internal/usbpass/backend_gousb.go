@@ -5,6 +5,7 @@ package usbpass
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
@@ -111,18 +112,56 @@ func TryClaimGousb(dev *ExportedDevice) error {
 
 	logrus.Infof("usbpass: gousb claimed %04x:%04x bus=%d addr=%d cfg=%d iface=%d speed=%d",
 		dev.VID, dev.PID, d.Desc.Bus, d.Desc.Address, cfgNum, ifaceNum, dev.Speed)
-	dev.Backend = &gousbBackend{
+	backend := &gousbBackend{
 		ctx:        ctx,
 		dev:        d,
 		cfg:        cfg,
 		intf:       intf,
-		deviceDesc:  deviceDesc,
-		configDesc:  configDesc,
+		deviceDesc: deviceDesc,
+		configDesc: configDesc,
 		configVal:  uint8(cfgNum),
 		ifaceNum:   uint8(ifaceNum),
 		altNum:     uint8(alt),
+		busnum:     uint32(d.Desc.Bus),
+		devnum:     uint32(d.Desc.Address),
 	}
+	// A stick can be left with a stale host-side endpoint-halt state from a
+	// previous session (crash, unclean client exit, or a prior STALL whose
+	// device-side recovery didn't reach the host controller's own endpoint
+	// tracking — see clearEndpointHalt). Clear every bulk endpoint up front
+	// so the very first CBW/CSW exchange doesn't inherit a leftover halt.
+	for _, ep := range bulkEndpointsFromConfigDesc(configDesc, uint8(ifaceNum), uint8(alt)) {
+		backend.clearEndpointHalt(ep)
+	}
+	dev.Backend = backend
 	return nil
+}
+
+// bulkEndpointsFromConfigDesc returns the bulk endpoint addresses (with the
+// IN/OUT direction bit) of one interface/altsetting, parsed straight out of
+// the raw config descriptor so it works identically to interfacesFromConfigDesc.
+func bulkEndpointsFromConfigDesc(cfg []byte, ifaceNum, alt uint8) []uint8 {
+	var eps []uint8
+	i := 0
+	inTarget := false
+	for i+2 <= len(cfg) {
+		length := int(cfg[i])
+		typ := cfg[i+1]
+		if length < 2 || i+length > len(cfg) {
+			break
+		}
+		switch {
+		case typ == 0x04 && length >= 9: // INTERFACE
+			inTarget = cfg[i+2] == ifaceNum && cfg[i+3] == alt
+		case typ == 0x05 && length >= 7 && inTarget: // ENDPOINT
+			attrs := cfg[i+3]
+			if attrs&0x03 == 0x02 { // bulk
+				eps = append(eps, cfg[i+2])
+			}
+		}
+		i += length
+	}
+	return eps
 }
 
 func readUSBDescriptor(d *gousb.Device, descType, index uint16, length int) ([]byte, error) {
@@ -185,6 +224,52 @@ type gousbBackend struct {
 	configVal uint8
 	ifaceNum  uint8
 	altNum    uint8
+
+	// Linux busnum/devnum, used to reach the usbfs node directly for
+	// USBDEVFS_CLEAR_HALT — see clearEndpointHalt.
+	busnum uint32
+	devnum uint32
+
+	// Set from the CBW opcode sniffed in HandleBulk's bulk-OUT path when it
+	// is one we answer ourselves instead of forwarding — see
+	// shortCircuitCBW's doc comment for why.
+	shortCircuit     bool
+	shortCircuitTag  [4]byte
+	shortCircuitXfer uint32
+}
+
+// clearEndpointHalt clears both the device-side STALL and the host
+// controller's own endpoint-halt bookkeeping for ep (full address, with the
+// IN/OUT direction bit set, e.g. 0x81). Forwarding a raw CLEAR_FEATURE
+// control transfer through libusb only reaches the device; on xHCI the
+// endpoint context itself latches into "Halted" on a STALL and needs an
+// explicit Reset Endpoint, which is exactly what libusb_clear_halt() does
+// that a raw control transfer does not.
+//
+// Goes through gousb's own Device.ClearHalt (vendored in third_party/gousb —
+// upstream doesn't expose libusb_clear_halt at all), which calls it on the
+// SAME libusb handle that already claimed the interface. Two earlier
+// approaches were both confirmed live to fail: an independent second
+// usbfs open() gets EBUSY (usbfs only lets the fd that actually claimed an
+// interface clear a halt on its endpoints — journalctl showed "did not
+// claim interface 0 before use" for every such call), and reaching into
+// gousb's private handle field via reflection produced an unusable pointer
+// (same kernel message, from libusb_clear_halt itself this time — the
+// reflected value did not resolve to the real handle). A method added
+// inside the gousb package itself has direct access to the real *Device
+// and needs neither trick.
+func (b *gousbBackend) clearEndpointHalt(ep uint8) {
+	if err := b.dev.ClearHalt(ep); err == nil {
+		logrus.Debugf("usbpass: cleared halt on ep=%#02x bus=%d addr=%d", ep, b.busnum, b.devnum)
+		return
+	} else {
+		logrus.Debugf("usbpass: libusb clear-halt ep=%#02x bus=%d addr=%d: %v", ep, b.busnum, b.devnum, err)
+	}
+	if err := usbfsClearHalt(b.busnum, b.devnum, ep); err != nil {
+		logrus.Debugf("usbpass: usbfs clear-halt ep=%#02x bus=%d addr=%d: %v", ep, b.busnum, b.devnum, err)
+	} else {
+		logrus.Debugf("usbpass: cleared halt on ep=%#02x bus=%d addr=%d (usbfs fallback)", ep, b.busnum, b.devnum)
+	}
 }
 
 func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte) {
@@ -215,6 +300,12 @@ func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte)
 		return 0, []byte{b.configVal}
 	case bm == 0x81 && req == 0x0a: // GET_INTERFACE
 		return 0, []byte{b.altNum}
+	case bm == 0x02 && req == 0x01 && wValue == 0x0000: // CLEAR_FEATURE(ENDPOINT_HALT)
+		// See clearEndpointHalt: a raw forwarded control transfer only
+		// clears the device side, not the host controller's own endpoint
+		// state, so recovery after a STALL needs the real usbfs ioctl.
+		b.clearEndpointHalt(uint8(wIndex))
+		return 0, nil
 	}
 
 	if bm == 0x80 && req == 0x06 {
@@ -251,27 +342,140 @@ live:
 	return 0, data[:n]
 }
 
+// shortCircuitCBW reports whether opcode should be answered directly (CSW
+// CHECK CONDITION, no data) instead of forwarded to the real device.
+//
+// 0xA2 (SECURITY PROTOCOL IN) is Windows' IEEE 1667 / TCG Opal probe that
+// runs on every new USB disk arrival to check for hardware encryption
+// support. A stick that doesn't implement it correctly rejects it by
+// STALLing the bulk-IN endpoint — valid per the BOT spec, and we do recover
+// from that STALL correctly (see clearEndpointHalt) — but confirmed live
+// that Windows' own port error-recovery counts repeated endpoint STALLs as
+// a sign of a malfunctioning port and full-resets it, which restarts
+// enumeration from GET_DESCRIPTOR. Since the stick stalls this exact probe
+// every single time, that reset loops forever and the disk never finishes
+// mounting. Answering it ourselves — CHECK CONDITION, zero data, no
+// STALL — is what a device that rejects the command "cleanly" (without
+// stalling) looks like from the host's side, and breaks the loop.
+func shortCircuitCBW(opcode byte) bool {
+	return opcode == 0xa2 // SECURITY PROTOCOL IN
+}
+
+// isStall reports whether err is (or wraps) a libusb STALL/pipe condition —
+// the two error shapes gousb actually returns for it (a TransferStatus from
+// the transfer path, or the raw ErrorPipe from a synchronous libusb call).
+func isStall(err error) bool {
+	if err == nil {
+		return false
+	}
+	if ts, ok := err.(gousb.TransferStatus); ok {
+		return ts == gousb.TransferStall
+	}
+	if e, ok := err.(gousb.Error); ok {
+		return e == gousb.ErrorPipe
+	}
+	return errors.Is(err, gousb.TransferStall) || errors.Is(err, gousb.ErrorPipe)
+}
+
 func (b *gousbBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []byte) (int32, []byte) {
 	num := int(ep & 0x7f)
+	fullAddr := num
+	if dirIn {
+		fullAddr |= 0x80
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if dirIn {
 		if length <= 0 {
 			return 0, nil
 		}
+		if b.shortCircuit {
+			// See shortCircuitCBW: this command's data/CSW phases are
+			// synthesized entirely in software, without ever touching the
+			// real device, so it can't STALL. A CSW is always exactly 13
+			// bytes; anything else here is the (empty) data phase.
+			if length != 13 {
+				return 0, nil
+			}
+			csw := make([]byte, 13)
+			copy(csw[0:4], "USBS")
+			copy(csw[4:8], b.shortCircuitTag[:])
+			binary.LittleEndian.PutUint32(csw[8:12], b.shortCircuitXfer)
+			csw[12] = 1 // CHECK CONDITION — command not supported
+			b.shortCircuit = false
+			logrus.Debugf("usbpass: CSW status=1 residue=%d (short-circuited)", b.shortCircuitXfer)
+			return 0, csw
+		}
 		inep, err := b.intf.InEndpoint(num)
 		if err != nil {
 			logrus.Debugf("usbpass: bulk IN ep=%d: %v", num, err)
 			return errnoEPIPE, nil
 		}
-		buf := make([]byte, length)
+		// libusb rejects a transfer with "device sent more data than
+		// requested" (babble) if the device's reply doesn't fit the buffer
+		// exactly — confirmed live against a real SanDisk stick, whose SCSI
+		// responses don't always match byte-for-byte what Windows asked
+		// this particular URB to carry. A device only ever sends whole
+		// wMaxPacketSize chunks, so over-allocating to the next multiple of
+		// it (libusb's own documented recommendation for this exact error)
+		// absorbs that without changing what we hand back upstream — still
+		// truncated to `length`, so Windows never sees the difference.
+		bufLen := length
+		if mps := inep.Desc.MaxPacketSize; mps > 0 && bufLen%mps != 0 {
+			bufLen += mps - bufLen%mps
+		}
+		buf := make([]byte, bufLen)
 		n, err := inep.ReadContext(ctx, buf)
+		if n > length {
+			n = length
+		}
 		if err != nil && n == 0 {
 			logrus.Debugf("usbpass: bulk IN ep=%d len=%d: %v", num, length, err)
-			return errnoEPIPE, nil
+			if isStall(err) {
+				// The device signalled STALL — clear it host-side too (see
+				// clearEndpointHalt) and retry once immediately rather than
+				// bubbling an error up to Windows, which would otherwise
+				// abort the whole SCSI command instead of just this URB.
+				b.clearEndpointHalt(uint8(fullAddr))
+				n, err = inep.ReadContext(ctx, buf)
+				if err != nil && n == 0 {
+					logrus.Debugf("usbpass: bulk IN ep=%d len=%d after clear-halt retry: %v", num, length, err)
+					return errnoEPIPE, nil
+				}
+			} else {
+				return errnoEPIPE, nil
+			}
+		}
+		// A CSW is exactly 13 bytes, signature "USBS" at offset 0, status
+		// byte at offset 12 (0=pass, 1=fail, 2=phase error) — log it even on
+		// success, it's the one thing that tells a completed SCSI command
+		// from a silently-wrong one.
+		if n == 13 && buf[0] == 'U' && buf[1] == 'S' && buf[2] == 'B' && buf[3] == 'S' {
+			logrus.Debugf("usbpass: CSW status=%d residue=%d", buf[12], binary.LittleEndian.Uint32(buf[8:12]))
 		}
 		// Short reads are valid (ZLP / short packet); return what we got.
 		return 0, buf[:n]
+	}
+	// A CBW is exactly 31 bytes, signature "USBC" at offset 0, opcode at
+	// offset 15 — log it so a repeating failure can be tied to a specific
+	// SCSI command instead of just an endpoint/length pair.
+	if len(outData) == 31 && outData[0] == 'U' && outData[1] == 'S' && outData[2] == 'B' && outData[3] == 'C' {
+		opcode := outData[15]
+		logrus.Debugf("usbpass: CBW opcode=%#02x cdblen=%d datalen=%d dir=%s",
+			opcode, outData[14], binary.LittleEndian.Uint32(outData[8:12]), map[bool]string{true: "in", false: "out"}[outData[12]&0x80 != 0])
+		// A new CBW conclusively ends the previous command's cycle, whether
+		// or not the host actually read back a short-circuited command's
+		// data/CSW phases (confirmed live: it doesn't always) — leaving
+		// b.shortCircuit set would otherwise wrongly intercept this new
+		// command's own data phase with an empty read.
+		b.shortCircuit = false
+		if shortCircuitCBW(opcode) {
+			copy(b.shortCircuitTag[:], outData[4:8])
+			b.shortCircuitXfer = binary.LittleEndian.Uint32(outData[8:12])
+			b.shortCircuit = true
+			logrus.Debugf("usbpass: short-circuiting opcode=%#02x (not forwarded to device)", opcode)
+			return 0, nil
+		}
 	}
 	outep, err := b.intf.OutEndpoint(num)
 	if err != nil {
@@ -280,12 +484,18 @@ func (b *gousbBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []by
 	}
 	// WriteContext may short-write; loop until all CBW/data bytes are out.
 	off := 0
+	retried := false
 	for off < len(outData) {
 		n, err := outep.WriteContext(ctx, outData[off:])
 		if n > 0 {
 			off += n
 		}
 		if err != nil {
+			if isStall(err) && !retried {
+				retried = true
+				b.clearEndpointHalt(uint8(fullAddr))
+				continue
+			}
 			if off == 0 {
 				logrus.Debugf("usbpass: bulk OUT ep=%d len=%d: %v", num, len(outData), err)
 				return errnoEPIPE, nil

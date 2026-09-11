@@ -249,19 +249,51 @@ echo -e "${YELLOW}Packaging AppImage...${NC}"
 OUTPUT_APPIMAGE="$REPO_ROOT/dist/USBridgeClient-Linux-x86_64-${VERSION}.AppImage"
 rm -f "$OUTPUT_APPIMAGE"
 
+# linuxdeploy writes its output to $PWD using its own default name derived
+# from the desktop file (e.g. "USBridge_Client-x86_64.AppImage" — note the
+# underscore, which does NOT match "USBridgeClient*"). The old code guessed
+# that name back out of $REPO_ROOT with `find | head -1`, which is unsafe: a
+# stale .AppImage left in $REPO_ROOT from an earlier build (linuxdeploy run
+# manually, or a previous invocation that errored before cleanup) could win
+# that match, silently shipping an OLD binary under the NEW version's
+# filename — confirmed live, this is exactly what happened here (the client
+# kept shipping 2.4.25's binary for several "2.4.26" builds in a row).
+# Deleting every loose .AppImage in $REPO_ROOT before running linuxdeploy
+# removes the ambiguity outright: whatever single .AppImage exists there
+# afterward can only be this run's own output.
+find "$REPO_ROOT" -maxdepth 1 -name '*.AppImage' -delete
+
 ARCH=x86_64 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
     --output appimage 2>&1
 
-# linuxdeploy writes the AppImage to cwd — move it to dist/
-PRODUCED="$(find "$REPO_ROOT" -maxdepth 2 -name 'USBridgeClient*.AppImage' ! -path '*/AppDir/*' | head -1)"
+PRODUCED="$(find "$REPO_ROOT" -maxdepth 1 -name '*.AppImage' | head -1)"
 if [[ -z "$PRODUCED" ]]; then
-    PRODUCED="$(find . -maxdepth 2 -name '*.AppImage' ! -path '*/AppDir/*' | head -1)"
+    echo -e "${RED}❌ linuxdeploy did not produce an AppImage in $REPO_ROOT${NC}"
+    exit 1
 fi
-if [[ -n "$PRODUCED" && "$PRODUCED" != "$OUTPUT_APPIMAGE" ]]; then
-    mv "$PRODUCED" "$OUTPUT_APPIMAGE"
-fi
+mv "$PRODUCED" "$OUTPUT_APPIMAGE"
 chmod +x "$OUTPUT_APPIMAGE"
+
+# Fail loudly instead of silently shipping a stale binary under a fresh
+# version number (exactly the bug worked around above): confirm the version
+# string ldflags just stamped into main.version is present in the ELF that
+# actually got packaged. Checked against $APPDIR/usr/bin -- the ELF
+# linuxdeploy embedded into the AppImage -- not $OUTPUT_APPIMAGE itself:
+# the AppImage is a compressed (zstd) squashfs image, so `strings` on the
+# whole file finds nothing at all, compressed data isn't printable text.
+if ! strings "$APPDIR/usr/bin/$EXE_NAME" | grep -qx "$VERSION"; then
+    echo -e "${RED}❌ $APPDIR/usr/bin/$EXE_NAME does not contain version string '$VERSION' -- packaging picked up a stale binary${NC}"
+    exit 1
+fi
+
+# Fail loudly instead of silently shipping a stale binary under a fresh
+# version number (exactly the bug worked around above) — verify the
+# AppImage's own bundled binary is byte-identical to what we just built.
+if ! cmp -s "$OUTPUT_PATH" "$APPDIR/usr/bin/$EXE_NAME"; then
+    echo -e "${RED}❌ $APPDIR/usr/bin/$EXE_NAME does not match freshly built $OUTPUT_PATH${NC}"
+    exit 1
+fi
 
 echo -e "${GREEN}✓${NC} AppImage: $OUTPUT_APPIMAGE"
 echo "Binary: $OUTPUT_PATH"
