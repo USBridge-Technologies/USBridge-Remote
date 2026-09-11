@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/gousb"
@@ -252,23 +253,132 @@ type gousbBackend struct {
 	// STALL storms this file's other recovery logic was fighting — not
 	// hardware wear. A channel-based semaphore (not sync.Mutex) so a queued
 	// call can still abandon waiting the moment CMD_UNLINK cancels its ctx.
-	bulkSem chan struct{}
+	// Guarded by bulkSemMu because acquireBulk can replace it outright (see
+	// its own doc comment) — a plain channel var would race between a
+	// reader draining the old one and a writer swapping it.
+	bulkSemMu sync.Mutex
+	bulkSem   chan struct{}
+
+	// cycleHeld reports whether bulkSem is currently held on behalf of an
+	// in-progress BOT cycle (CBW-out, its optional data phase(s), and its
+	// CSW-in) rather than just the one URB HandleBulk is answering right
+	// now. Each of those steps is a *separate* URB — and therefore a
+	// separate HandleBulk call, frequently on a different goroutine per
+	// server.go's async dispatch — so acquiring and releasing bulkSem
+	// within a single HandleBulk call only serialized individual URBs, not
+	// whole BOT cycles: the gap between "CBW-out URB done" and "CSW-in URB
+	// starts" was wide enough for a pipelined next command's CBW to slip in
+	// and get answered first. Confirmed live: two different CBW opcodes
+	// logged within the same millisecond, with the first one's CSW not yet
+	// read — which desyncs the device's BOT state machine and produced the
+	// repeated ~15s "transfer was cancelled" stalls (and eventual I/O
+	// error on the Windows side) that motivated this field, not device
+	// wear. See beginCycle/endCycle.
+	cycleMu   sync.Mutex
+	cycleHeld bool
 }
 
 // acquireBulk serializes entry into the BOT command cycle; see bulkSem.
 // Returns false if ctx was cancelled before a turn was granted (the URB was
 // unlinked while still queued — nothing was sent to the device for it).
+//
+// Deadlock backstop: gousb's cancellation path (transfer.go's wait()) asks
+// libusb to cancel, then bounds its own wait on libusb's completion
+// callback (see wait()'s own 5s bound) rather than blocking forever, but
+// this is still a second, coarser line of defense — nothing here can prove
+// every device/kernel/driver combination in the field always honors that.
+// Waiting past holdTimeout discards the old channel and hands out a fresh
+// one instead of waiting on it forever; the abandoned goroutine, if it ever
+// does return, releases into a channel nobody is reading from anymore,
+// which is a harmless no-op.
+//
+// holdTimeout has to cover a whole BOT cycle now, not just one HandleBulk
+// call: bulkSem is held from a CBW's first URB through its CSW (see
+// cycleHeld), and each step in between can itself retry once after its own
+// 15s cap (HandleBulk's freshCtx) — CBW-out, one or more data phases, and
+// CSW-in each worth up to ~30s in the worst case. 120s gives real headroom
+// over that worst-case chain (confirmed live: legitimate single-step stalls
+// on a loaded flash controller reaching into the tens of seconds) so this
+// backstop only ever fires for an actual stuck cycle, not a slow-but-alive
+// one — firing on the latter would reset the semaphore mid-cycle and
+// reopen exactly the interleaving race cycleHeld exists to close.
 func (b *gousbBackend) acquireBulk(ctx context.Context) bool {
-	select {
-	case b.bulkSem <- struct{}{}:
-		return true
-	case <-ctx.Done():
-		return false
+	const holdTimeout = 120 * time.Second
+	for {
+		b.bulkSemMu.Lock()
+		sem := b.bulkSem
+		b.bulkSemMu.Unlock()
+
+		timer := time.NewTimer(holdTimeout)
+		select {
+		case sem <- struct{}{}:
+			timer.Stop()
+			return true
+		case <-ctx.Done():
+			timer.Stop()
+			return false
+		case <-timer.C:
+			b.bulkSemMu.Lock()
+			if b.bulkSem == sem { // nobody else already recovered it
+				logrus.Warnf("usbpass: bulk semaphore held past %s (a prior transfer never returned) — resetting", holdTimeout)
+				b.bulkSem = make(chan struct{}, 1)
+			}
+			b.bulkSemMu.Unlock()
+			// Loop: try again against whichever channel is now current.
+		}
 	}
 }
 
 func (b *gousbBackend) releaseBulk() {
-	<-b.bulkSem
+	b.bulkSemMu.Lock()
+	sem := b.bulkSem
+	b.bulkSemMu.Unlock()
+	select {
+	case <-sem:
+	default:
+		// sem was already reset out from under us by the holdTimeout path
+		// above; nothing to release.
+	}
+}
+
+// beginCycle acquires bulkSem for the URB HandleBulk is about to answer.
+// newCBW must be true only for a fresh CBW-out submission (31 bytes,
+// "USBC" signature) — see cycleHeld's doc comment for why this can't just
+// be "acquire on every call": a fresh CBW must actually contend for the
+// semaphore (a previous cycle's CSW may still be unread), but every other
+// step of an already-open cycle — a data phase or the CSW-in read — must
+// reuse the same hold instead of racing a concurrent CBW for it, or the
+// same interleaving this exists to prevent happens one level up.
+func (b *gousbBackend) beginCycle(ctx context.Context, newCBW bool) bool {
+	if !newCBW {
+		b.cycleMu.Lock()
+		held := b.cycleHeld
+		b.cycleMu.Unlock()
+		if held {
+			return true
+		}
+		// Arrived with no cycle open — not a spec-conformant BOT sequence,
+		// but fall back to a transient acquire so it's still serialized
+		// against any real concurrent CBW rather than racing the wire.
+	}
+	if !b.acquireBulk(ctx) {
+		return false
+	}
+	b.cycleMu.Lock()
+	b.cycleHeld = true
+	b.cycleMu.Unlock()
+	return true
+}
+
+// endCycle releases bulkSem, closing out the BOT cycle beginCycle opened.
+// Called once per cycle: on the CSW actually being delivered (success), or
+// on any error/timeout/cancellation that abandons the cycle — never on a
+// step that expects more URBs to follow (CBW submitted, data phase done).
+func (b *gousbBackend) endCycle() {
+	b.cycleMu.Lock()
+	b.cycleHeld = false
+	b.cycleMu.Unlock()
+	b.releaseBulk()
 }
 
 // clearEndpointHalt clears both the device-side STALL and the host
@@ -430,13 +540,26 @@ func isCancelled(err error) bool {
 }
 
 func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, length int, outData []byte) (int32, []byte) {
-	// See bulkSem's doc comment: only one CBW/data/CSW cycle may be in
-	// flight on the device at a time, no matter how many URBs server.go's
-	// serveURBs has dispatched concurrently.
-	if !b.acquireBulk(reqCtx) {
+	// Only one CBW/data/CSW cycle may be in flight on the device at a time,
+	// no matter how many URBs server.go's serveURBs has dispatched
+	// concurrently — see cycleHeld's doc comment for why the hold has to
+	// span the whole cycle (multiple URBs/HandleBulk calls), not just this
+	// one call.
+	isNewCBW := !dirIn && len(outData) == 31 && outData[0] == 'U' && outData[1] == 'S' && outData[2] == 'B' && outData[3] == 'C'
+	if !b.beginCycle(reqCtx, isNewCBW) {
 		return errnoEPIPE, nil
 	}
-	defer b.releaseBulk()
+	// cycleDone defaults to true (this call also closes out the cycle) and
+	// is only cleared at the specific points below where more URBs for the
+	// same cycle are still expected (CBW submitted, a non-CSW data phase
+	// completed) — every error/timeout return and the actual CSW delivery
+	// leave it true, releasing the hold for the next command.
+	cycleDone := true
+	defer func() {
+		if cycleDone {
+			b.endCycle()
+		}
+	}()
 
 	num := int(ep & 0x7f)
 	fullAddr := num
@@ -468,6 +591,7 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 	}
 	if dirIn {
 		if length <= 0 {
+			cycleDone = false // nothing concluded; the real CSW read is still to come
 			return 0, nil
 		}
 		if b.shortCircuit {
@@ -476,6 +600,7 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 			// real device, so it can't STALL. A CSW is always exactly 13
 			// bytes; anything else here is the (empty) data phase.
 			if length != 13 {
+				cycleDone = false // synthesized data phase; the synthesized CSW is still to come
 				return 0, nil
 			}
 			csw := make([]byte, 13)
@@ -537,8 +662,13 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 		// byte at offset 12 (0=pass, 1=fail, 2=phase error) — log it even on
 		// success, it's the one thing that tells a completed SCSI command
 		// from a silently-wrong one.
-		if n == 13 && buf[0] == 'U' && buf[1] == 'S' && buf[2] == 'B' && buf[3] == 'S' {
+		isCSW := n == 13 && buf[0] == 'U' && buf[1] == 'S' && buf[2] == 'B' && buf[3] == 'S'
+		if isCSW {
 			logrus.Debugf("usbpass: CSW status=%d residue=%d", buf[12], binary.LittleEndian.Uint32(buf[8:12]))
+		} else {
+			// A data-in phase, not the CSW — the CSW read is still to come
+			// as its own URB; keep the cycle open for it.
+			cycleDone = false
 		}
 		// Short reads are valid (ZLP / short packet); return what we got.
 		return 0, buf[:n]
@@ -561,6 +691,7 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 			b.shortCircuitXfer = binary.LittleEndian.Uint32(outData[8:12])
 			b.shortCircuit = true
 			logrus.Debugf("usbpass: short-circuiting opcode=%#02x (not forwarded to device)", opcode)
+			cycleDone = false // synthesized data/CSW phases for this command are still to come
 			return 0, nil
 		}
 	}
@@ -609,6 +740,11 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 		logrus.Debugf("usbpass: bulk OUT short %d/%d", off, len(outData))
 		return errnoEPIPE, nil
 	}
+	// A successful OUT never carries the CSW (that's always read via IN) —
+	// whether this was the CBW submission or a data-out phase, at least one
+	// more URB (the CSW-in, possibly preceded by more data) is still coming
+	// for this cycle.
+	cycleDone = false
 	return 0, nil
 }
 

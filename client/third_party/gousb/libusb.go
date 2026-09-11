@@ -526,7 +526,26 @@ func xferCallback(xfer *C.struct_libusb_transfer) {
 	xferDoneMap.RLock()
 	ch := xferDoneMap.m[(*libusbTransfer)(xfer)]
 	xferDoneMap.RUnlock()
-	ch <- struct{}{}
+	// This callback runs synchronously inside libusb_handle_events_timeout_
+	// completed(), on the single goroutine (handleEvents, in usb.go) that
+	// pumps ALL libusb events for this Context. A blocking send here that
+	// never completes — ch already full (a stale/duplicate callback for a
+	// transfer whose done channel was reused after free(), plausible under
+	// the rapid alloc/submit/wait/free cycling many short bulk transfers
+	// produce) or ch nil (map entry raced with free()'s delete) — freezes
+	// event processing for every endpoint under this Context, not just the
+	// one transfer, which surfaces as every subsequent bulk transfer
+	// timing out with no libusb-level error at all (confirmed live: this
+	// exact symptom, recovered only by usbpass's own last-resort semaphore
+	// reset in gousbBackend, which local instrumentation traced back to
+	// wait()'s cancel() never having its <-t.done unblock). A non-blocking
+	// send trades an exceedingly rare missed wakeup for guaranteeing this
+	// callback can never wedge the shared event loop.
+	select {
+	case ch <- struct{}{}:
+	default:
+		log.Printf("usbpass-debug: xferCallback: send to done channel would have blocked (ch=%v, xfer=%p) — dropped instead of stalling the shared libusb event loop", ch, xfer)
+	}
 }
 
 // for benchmarking of method on implementation vs vanilla function.

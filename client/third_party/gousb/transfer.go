@@ -17,8 +17,10 @@ package gousb
 import (
 	"context"
 	"errors"
+	"log"
 	"runtime"
 	"sync"
+	"time"
 )
 
 type usbTransfer struct {
@@ -62,20 +64,58 @@ func (t *usbTransfer) submit() error {
 // smaller than the length of t.buf.
 func (t *usbTransfer) wait(ctx context.Context) (n int, err error) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if !t.submitted {
+		t.mu.Unlock()
 		return 0, nil
 	}
 	select {
 	case <-ctx.Done():
 		t.ctx.libusb.cancel(t.xfer)
-		// after the transfer is cancelled, it will run a callback
-		// that triggers the activation of t.done.
-		<-t.done
+		// After cancel(), libusb is supposed to run xferCallback and post to
+		// t.done shortly — but that delivery goes through the single shared
+		// handleEvents goroutine for this whole Context (see xferCallback's
+		// doc comment), and there is no guarantee, for every
+		// device/kernel/driver combination in the field, that it always
+		// arrives. Blocking here unconditionally on <-t.done was confirmed
+		// live to be the actual root cause of a real accumulating-resource
+		// bug, not device wear: while this call sits stuck, it holds t.mu,
+		// which means the deferred t.free() in endpoint.go's transfer()
+		// never runs — the libusb_transfer and its buffer are simply never
+		// released — and every caller waiting on this same bulk pipe (see
+		// gousbBackend.bulkSem) is blocked right along with it. Repeated
+		// occurrences leak one outstanding, never-released transfer each
+		// time, which is exactly what degraded behavior over a long test
+		// session and looked like a tiring flash drive.
+		//
+		// Bound the wait instead: if the completion doesn't show up quickly
+		// (cancellation on Linux is normally sub-millisecond — confirmed
+		// live), stop blocking the caller and hand the eventual completion,
+		// if it ever arrives, to a background goroutine that finishes the
+		// real cleanup (including the actual libusb free) on its own time.
+		// t.submitted is deliberately left true so the caller's own deferred
+		// t.free() — which already refuses to free a submitted transfer — is
+		// a safe no-op instead of a use-after-free race with that goroutine.
+		const cancelBound = 5 * time.Second
+		timer := time.NewTimer(cancelBound)
+		select {
+		case <-t.done:
+			timer.Stop()
+		case <-timer.C:
+			xfer, doneCh, lib := t.xfer, t.done, t.ctx.libusb
+			log.Printf("gousb: transfer cancel did not complete within %s (xfer=%p) — no longer blocking on it; releasing it in the background once/if libusb actually completes it", cancelBound, xfer)
+			runtime.SetFinalizer(t, nil) // we own this transfer's cleanup now
+			t.mu.Unlock()
+			go func() {
+				<-doneCh // may never fire; this goroutine alone pays that cost, not the caller
+				lib.free(xfer)
+			}()
+			return 0, TransferCancelled
+		}
 	case <-t.done:
 	}
 	t.submitted = false
 	n, status := t.ctx.libusb.data(t.xfer)
+	t.mu.Unlock()
 	if status != TransferCompleted {
 		return n, status
 	}
