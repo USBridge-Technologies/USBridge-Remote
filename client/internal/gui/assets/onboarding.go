@@ -123,6 +123,10 @@ var (
 	LanguageIcon       = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
 	LanguageIconActive = fyne.NewStaticResource("language-svgrepo-com-active.svg", recolorFillIcon(languageIcon, "#93C572"))
 	LoadingGrayFrames  = buildLoadingFrames(loadingIcon, "#111111")
+	// LoadingLimeFrames is the same dots without the dark backdrop disc --
+	// Devices' footer busy spinner sits on the tab's own background, so
+	// the video overlay's baked-in circle would read as a dirty blob.
+	LoadingLimeFrames = buildDotSpinnerFrames("#c4e77a", false, "loading-lime")
 	// VideoConnectingFramesAgent/VideoConnectingFramesKVM are the same dot
 	// spinner shape as LoadingGrayFrames, for the video overlay shown while
 	// a stream is connecting (VideoWidget's spinnerIcon, see
@@ -189,7 +193,7 @@ var (
 	// since these four never react to clicks/hover.
 	SnapshotsIconIndicator = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-indicator.svg", recolorFillIcon(snapshotsTabIcon, "#c5c8b5"))
 	DiscIconIndicator      = fyne.NewStaticResource("disc-svgrepo-com-indicator.svg", recolorFillIcon(discIcon, "#c5c8b5"))
-	GamepadIconIndicator   = fyne.NewStaticResource("gamepad-svgrepo-com-indicator.svg", recolorStrokeIcon(gamepadIcon, "#c5c8b5", "1.8"))
+	GamepadIconIndicator   = fyne.NewStaticResource("gamepad-svgrepo-com-indicator.svg", recolorGamepadIcon(gamepadIcon, "#c5c8b5"))
 	SDCardIconIndicator    = fyne.NewStaticResource("sd-card-svgrepo-com-indicator.svg", recolorFillIcon(sdCardIcon, "#c5c8b5"))
 
 	// CameraIconStatusBarHover/AudioIconStatusBarHover/KeyboardIconStatusBarHover/
@@ -265,9 +269,9 @@ var (
 	MouseIconActive            = fyne.NewStaticResource("mouse-svgrepo-com-active.svg", recolorFillIcon(mouseIcon, "#93C572"))
 	MouseIconStatusBar         = fyne.NewStaticResource("mouse-svgrepo-com-statusbar.svg", recolorFillIcon(mouseIcon, "#c4e77a"))
 	CursorPointerSVG           = cursorPointerIcon // raw SVG bytes for Vulkan cursor rasterization
-	GamepadIcon                = fyne.NewStaticResource("gamepad-svgrepo-com.svg", recolorStrokeIcon(gamepadIcon, "#C9C9C9", "1.8"))
-	GamepadIconActive          = fyne.NewStaticResource("gamepad-svgrepo-com-active.svg", recolorStrokeIcon(gamepadIcon, "#93C572", "1.8"))
-	GamepadIconStatusBar       = fyne.NewStaticResource("gamepad-svgrepo-com-statusbar.svg", recolorStrokeIcon(gamepadIcon, "#c4e77a", "1.8"))
+	GamepadIcon                = fyne.NewStaticResource("gamepad-svgrepo-com.svg", recolorGamepadIcon(gamepadIcon, "#C9C9C9"))
+	GamepadIconActive          = fyne.NewStaticResource("gamepad-svgrepo-com-active.svg", recolorGamepadIcon(gamepadIcon, "#93C572"))
+	GamepadIconStatusBar       = fyne.NewStaticResource("gamepad-svgrepo-com-statusbar.svg", recolorGamepadIcon(gamepadIcon, "#c4e77a"))
 	AudioIcon                  = fyne.NewStaticResource("audio-svgrepo-com.svg", recolorFillIcon(audioIcon, "#C9C9C9"))
 	AudioIconActive            = fyne.NewStaticResource("audio-svgrepo-com-active.svg", recolorFillIcon(audioIcon, "#93C572"))
 	AudioIconStatusBar         = fyne.NewStaticResource("audio-svgrepo-com-statusbar.svg", recolorFillIcon(audioIcon, "#c4e77a"))
@@ -363,6 +367,15 @@ func recolorFillIcon(source []byte, fill string) []byte {
 	return []byte(svg)
 }
 
+// recolorGamepadIcon tints gamepad-svgrepo-com.svg -- a filled shape whose
+// source fill is #1C274C, which recolorFillIcon (#000000/#222222) and
+// recolorStrokeIcon (stroke attrs) both miss. Without this the glyph
+// rendered navy regardless of the color passed in.
+func recolorGamepadIcon(source []byte, fill string) []byte {
+	svg := strings.ReplaceAll(string(source), "#1C274C", fill)
+	return []byte(strings.ReplaceAll(svg, "#1c274c", fill))
+}
+
 func recolorMemoryChipIcon(source []byte, fill string) []byte {
 	svg := recolorFillIcon(source, fill)
 	out := string(svg)
@@ -408,6 +421,10 @@ func boldenServerIcon(source []byte, stroke string, width string) []byte {
 const spinnerBackdropSVG = `<circle cx="8" cy="8" r="7.6" fill="#000000" fill-opacity="0.55"/>`
 
 func buildLoadingFrames(_ []byte, fill string) []fyne.Resource {
+	return buildDotSpinnerFrames(fill, true, "loading-gray")
+}
+
+func buildDotSpinnerFrames(fill string, backdrop bool, namePrefix string) []fyne.Resource {
 	type dot struct {
 		x float32
 		y float32
@@ -429,7 +446,9 @@ func buildLoadingFrames(_ []byte, fill string) []fyne.Resource {
 	for frame := range frames {
 		var sb strings.Builder
 		sb.WriteString(`<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">`)
-		sb.WriteString(spinnerBackdropSVG)
+		if backdrop {
+			sb.WriteString(spinnerBackdropSVG)
+		}
 		for idx, point := range dots {
 			alpha := alphas[(idx-frame+len(dots))%len(dots)]
 			sb.WriteString(fmt.Sprintf(
@@ -442,7 +461,7 @@ func buildLoadingFrames(_ []byte, fill string) []fyne.Resource {
 		}
 		sb.WriteString(`</svg>`)
 		frames[frame] = fyne.NewStaticResource(
-			fmt.Sprintf("loading-gray-%02d.svg", frame),
+			fmt.Sprintf("%s-%02d.svg", namePrefix, frame),
 			[]byte(sb.String()),
 		)
 	}

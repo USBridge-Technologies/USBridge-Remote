@@ -47,12 +47,16 @@ type DiskWidget struct {
 	dashboardAudio       *fyne.Container
 	dashboardStorage     *fyne.Container
 	dashboardNetworkRows *fyne.Container
+	dashboardBackup      *fyne.Container
 	// dashboardNetworkCard is only shown once a real RNDIS device exists --
 	// see refreshDashboard -- so it's kept by reference to Show()/Hide().
-	// dashboardWideColumn is its direct parent: Container.Show()/Hide()
-	// alone don't force a relayout, so refreshDashboard also has to
-	// Refresh() the parent to actually reserve/collapse the card's space.
+	// dashboardBackupCard is the same for the MTP backup flash. Both sit
+	// in one short row under Storage (dashboardPairSection), not stacked.
 	dashboardNetworkCard fyne.CanvasObject
+	dashboardBackupCard  fyne.CanvasObject
+	// dashboardPairSection is the one-row Network+Backups pair under
+	// Storage (plus the gap above it) -- shown if either card has rows.
+	dashboardPairSection fyne.CanvasObject
 	dashboardWideColumn  *fyne.Container
 	// dashboardXHover is card X's own onHover cell (view.NewDeviceDashboardHoverCell),
 	// created once in GetDashboardContainer and reused by every refreshDashboard
@@ -65,11 +69,25 @@ type DiskWidget struct {
 	dashboardAudioHover   func(bool)
 	dashboardStorageHover func(bool)
 	dashboardNetworkHover func(bool)
+	dashboardBackupHover  func(bool)
 
 	// dashboardAddImageBtn is Storage's own "Mount New ISO" header button --
 	// kept so refreshDashboard can darken it (SetBusy) while its own file
 	// picker is in flight, without rebuilding it every refresh.
 	dashboardAddImageBtn *view.DeviceDashboardHeaderButton
+
+	// dashboardFooterDisconnect is Devices' own footer "Disconnect All"
+	// text action -- shown only while something is actually mounted.
+	dashboardFooterDisconnect *view.DeviceDashboardFooterTextButton
+
+	// dashboardBusySpinner is the lime footer spinner shown while a
+	// mount/unmount is in flight (beginOperation/endOperation).
+	dashboardBusySpinner *view.DeviceDashboardBusySpinner
+
+	// dashboardBackupSpace is the compact SD fill meter in the Backups
+	// card header (used/total + a short teal bar). Hidden until
+	// updateSDStorageInfo has a reading.
+	dashboardBackupSpace *view.DeviceDashboardSpaceMeter
 
 	// dashboardStorageScroll wraps dashboardStorage (the Storage card's own
 	// row list) so it can become internally scrollable once there are more
@@ -503,11 +521,27 @@ func (dw *DiskWidget) SetOnUSBAudioConnect(fn func(mode string)) {
 }
 
 func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
-	if strings.TrimSpace(device.Path) == "" {
+	if strings.TrimSpace(device.Path) == "" || dw.controlsLocked() {
 		return
 	}
+	already := false
+	switchingFromUSBAudio := false
+	for _, d := range dw.allDrives {
+		if d.IsUSBAudio && d.IsMounted {
+			switchingFromUSBAudio = true
+		}
+		if d.IsAudio && d.AudioDevice != nil && d.IsMounted && d.AudioDevice.Path == device.Path {
+			already = true
+		}
+	}
+	if already && !switchingFromUSBAudio {
+		return
+	}
+
 	dw.audioConnectGen.Add(1) // cancel any in-flight auto-start goroutine
+	dw.beginOperation()
 	go func() {
+		defer dw.endOperation()
 		// Set pending path before fyne.Do to close the race window where combineDrives
 		// could fire between the optimistic UI update and the pending path being set,
 		// causing the inference block to re-select UAC from stale server state.
@@ -540,8 +574,29 @@ func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
 }
 
 func (dw *DiskWidget) selectUSBAudio(mode string) {
+	if dw.controlsLocked() {
+		return
+	}
+	alreadySame := false
+	for _, d := range dw.allDrives {
+		if d.IsUSBAudio && d.IsMounted {
+			current := d.USBAudioMode
+			if current == "" {
+				current = "uac1"
+			}
+			if current == mode {
+				alreadySame = true
+			}
+		}
+	}
+	if alreadySame {
+		return
+	}
+
 	dw.audioConnectGen.Add(1) // cancel any in-flight auto-start goroutine
+	dw.beginOperation()
 	go func() {
+		defer dw.endOperation()
 		// Set pending path before fyne.Do to close the race window (same as setPreferredAudioDevice).
 		dw.pendingAudioPath.Store("uac")
 		fyne.Do(func() {
@@ -702,7 +757,7 @@ func (dw *DiskWidget) isPreferredVideoDrive(drive DriveItem) bool {
 }
 
 func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
-	if rowID < 0 || rowID >= len(dw.allDrives) {
+	if dw.controlsLocked() || rowID < 0 || rowID >= len(dw.allDrives) {
 		return
 	}
 	newMode = normalizeMouseMode(newMode)
@@ -828,6 +883,25 @@ func (dw *DiskWidget) setButtonsEnabled(enabled bool) {
 			}
 		})
 	}
+}
+
+// markSelectedDrivesMounting flips IsMounting on the drives about to be
+// mounted so their Connect buttons darken on the next dashboard rebuild --
+// including API/MTP drives that never get an NBD export name for
+// setMountingStateByExportNames. Called on the Fyne thread immediately
+// before beginOperation, which rebuilds the dashboard while locked.
+// endOperation clears the flags when done.
+func (dw *DiskWidget) markSelectedDrivesMounting() {
+	dw.selectedItemsMu.RLock()
+	for id, selected := range dw.selectedItems {
+		if selected && id < len(dw.allDrives) {
+			d := dw.allDrives[id]
+			if !d.IsMounted && !d.IsVideo && !d.IsAudio {
+				dw.allDrives[id].IsMounting = true
+			}
+		}
+	}
+	dw.selectedItemsMu.RUnlock()
 }
 
 // setMountingStateByExportNames sets IsMounting for devices matching the given export names

@@ -314,41 +314,43 @@ type LocalizedStrings struct {
 	VirtualKeyboard string // "Virtual keyboard"
 
 	// Device names
-	DeviceKeyboard            string // "Keyboard"
-	DeviceTouchPad            string // "TouchPad" (relative touchpad mode)
-	DeviceMouse               string // "Mouse" (USB pointer device name)
-	DeviceTouch               string // "Touch" (touchscreen mode)
-	DeviceAbsolute            string // "Absolute" (absolute pointing mode)
-	DeviceAbsoluteLeft2       string // "Abs L/2" (absolute, left display of 2)
-	DeviceAbsoluteRight2      string // "Abs R/2" (absolute, right display of 2)
-	DeviceVirtualCursor       string // "Cursor" (virtual cursor mode, Android only)
-	DeviceGyroMouse           string // "GyroMouse" (gyroscope cursor mode, Android only)
-	DeviceNetworkCard         string // "Network Card (RNDIS)"
-	DeviceGamepad             string // "Gamepad"
-	DeviceDirectInput         string // "DirectInput"
-	DeviceXInput              string // "XInput"
-	XInputIncompatibleWithHID string // error: XInput + keyboard/mouse
-	ShowMouseCursor           string // "Show Mouse" (show cursor in captured video)
-	ClipboardSyncEnabled      string // "Shared Clipboard" (toggle clipboard sync with the agent)
-	EnableVSync               string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
-	EnableVSyncHint           string // description shown under the VSync checkbox
-	EnableVSyncBadge          string // small badge next to the VSync title, e.g. "RECOMMENDED"
-	AIVision                  string // "AI Vision Detection Overlay" checkbox title, video parameters dialog
-	AIVisionHint              string // hint shown under the AI Vision checkbox
-	AIVisionBadge             string // small badge next to the AI Vision title, e.g. "EXPERIMENTAL"
-	Color444                  string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
-	Color444Hint              string // hint under the checkbox when 4:4:4 is available (checked or not)
-	Color444UnavailableHint   string // hint under the (disabled, unchecked) checkbox when H.265 is selected but the agent doesn't currently offer 4:4:4
-	Color444RequiresH265Hint  string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
-	Color444Badge             string // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
-	MuteAudio                 string // "Mute Audio"
-	UnmuteAudio               string // "Unmute Audio"
-	DeviceAudio               string // "Audio"
-	DeviceUSBAudio            string // "USB Audio Codec"
-	AudioDeviceUAC1           string // "UAC1"
-	AudioDeviceUAC2           string // "UAC2"
-	DriveModeDisk             string // "USB Stick"
-	DriveModeCDROM            string // "CD-ROM"
+	DeviceKeyboard              string // "Keyboard"
+	DeviceTouchPad              string // "TouchPad" (relative touchpad mode)
+	DeviceMouse                 string // "Mouse" (USB pointer device name)
+	DeviceTouch                 string // "Touch" (touchscreen mode)
+	DeviceAbsolute              string // "Absolute" (absolute pointing mode)
+	DeviceAbsoluteLeft2         string // "Abs L/2" (absolute, left display of 2)
+	DeviceAbsoluteRight2        string // "Abs R/2" (absolute, right display of 2)
+	DeviceVirtualCursor         string // "Cursor" (virtual cursor mode, Android only)
+	DeviceGyroMouse             string // "GyroMouse" (gyroscope cursor mode, Android only)
+	DeviceNetworkCard           string // "Network Card (RNDIS)"
+	DeviceGamepad               string // "Gamepad"
+	DeviceDirectInput           string // "DirectInput"
+	DeviceXInput                string // "XInput"
+	XInputIncompatibleWithHID   string // error: XInput + keyboard/mouse
+	GamepadDisconnectHIDConfirm string // toast: connecting XInput gamepad will drop keyboard/mouse
+	HIDDisconnectGamepadConfirm string // toast: connecting keyboard/mouse will drop the XInput gamepad
+	ShowMouseCursor             string // "Show Mouse" (show cursor in captured video)
+	ClipboardSyncEnabled        string // "Shared Clipboard" (toggle clipboard sync with the agent)
+	EnableVSync                 string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
+	EnableVSyncHint             string // description shown under the VSync checkbox
+	EnableVSyncBadge            string // small badge next to the VSync title, e.g. "RECOMMENDED"
+	AIVision                    string // "AI Vision Detection Overlay" checkbox title, video parameters dialog
+	AIVisionHint                string // hint shown under the AI Vision checkbox
+	AIVisionBadge               string // small badge next to the AI Vision title, e.g. "EXPERIMENTAL"
+	Color444                    string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
+	Color444Hint                string // hint under the checkbox when 4:4:4 is available (checked or not)
+	Color444UnavailableHint     string // hint under the (disabled, unchecked) checkbox when H.265 is selected but the agent doesn't currently offer 4:4:4
+	Color444RequiresH265Hint    string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
+	Color444Badge               string // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
+	MuteAudio                   string // "Mute Audio"
+	UnmuteAudio                 string // "Unmute Audio"
+	DeviceAudio                 string // "Audio"
+	DeviceUSBAudio              string // "USB Audio Codec"
+	AudioDeviceUAC1             string // "UAC1"
+	AudioDeviceUAC2             string // "UAC2"
+	DriveModeDisk               string // "USB Stick"
+	DriveModeCDROM              string // "CD-ROM"
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -713,41 +715,43 @@ func EN() *LocalizedStrings {
 		VirtualKeyboard: "Virtual keyboard",
 
 		// Device names
-		DeviceKeyboard:            "Keyboard",
-		DeviceTouchPad:            "TouchPad",
-		DeviceMouse:               "Mouse",
-		DeviceTouch:               "TouchScreen",
-		DeviceAbsolute:            "Absolute",
-		DeviceAbsoluteLeft2:       "Abs L/2",
-		DeviceAbsoluteRight2:      "Abs R/2",
-		DeviceVirtualCursor:       "Cursor",
-		DeviceGyroMouse:           "GyroMouse",
-		DeviceNetworkCard:         "Network Card (RNDIS)",
-		DeviceGamepad:             "Gamepad",
-		DeviceDirectInput:         "DirectInput",
-		DeviceXInput:              "XInput",
-		XInputIncompatibleWithHID: "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
-		ShowMouseCursor:           "Show Mouse",
-		ClipboardSyncEnabled:      "Shared Clipboard",
-		EnableVSync:               "VSync (Vertical Sync)",
-		EnableVSyncHint:           "Synchronizes frame delivery with the host display's refresh rate to eliminate tearing during fast motion.",
-		EnableVSyncBadge:          "Recommended",
-		AIVision:                  "AI Vision Detection Overlay",
-		AIVisionHint:              "Overlays live object detection (Set-of-Mark bounding boxes + hex IDs) on the video feed, mirroring an agent's ui.parse() telemetry call.",
-		AIVisionBadge:             "Experimental",
-		Color444:                  "4:4:4 Color (RustShine)",
-		Color444Hint:              "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
-		Color444UnavailableHint:   "Requires RustShine Pro and a GPU with HEVC 4:4:4 hardware encode.",
-		Color444RequiresH265Hint:  "Only available with the H.265 codec -- select it above to use 4:4:4 color.",
-		Color444Badge:             "Pro",
-		MuteAudio:                 "Mute Audio",
-		UnmuteAudio:               "Unmute Audio",
-		DeviceAudio:               "Audio",
-		DeviceUSBAudio:            "USB Audio Codec",
-		AudioDeviceUAC1:           "UAC1",
-		AudioDeviceUAC2:           "UAC2",
-		DriveModeDisk:             "USB Stick",
-		DriveModeCDROM:            "CD-ROM",
+		DeviceKeyboard:              "Keyboard",
+		DeviceTouchPad:              "TouchPad",
+		DeviceMouse:                 "Mouse",
+		DeviceTouch:                 "TouchScreen",
+		DeviceAbsolute:              "Absolute",
+		DeviceAbsoluteLeft2:         "Abs L/2",
+		DeviceAbsoluteRight2:        "Abs R/2",
+		DeviceVirtualCursor:         "Cursor",
+		DeviceGyroMouse:             "GyroMouse",
+		DeviceNetworkCard:           "Network Card (RNDIS)",
+		DeviceGamepad:               "Gamepad",
+		DeviceDirectInput:           "DirectInput",
+		DeviceXInput:                "XInput",
+		XInputIncompatibleWithHID:   "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
+		GamepadDisconnectHIDConfirm: "Connecting the gamepad will disconnect the keyboard and mouse.",
+		HIDDisconnectGamepadConfirm: "Connecting the keyboard or mouse will disconnect the gamepad.",
+		ShowMouseCursor:             "Show Mouse",
+		ClipboardSyncEnabled:        "Shared Clipboard",
+		EnableVSync:                 "VSync (Vertical Sync)",
+		EnableVSyncHint:             "Synchronizes frame delivery with the host display's refresh rate to eliminate tearing during fast motion.",
+		EnableVSyncBadge:            "Recommended",
+		AIVision:                    "AI Vision Detection Overlay",
+		AIVisionHint:                "Overlays live object detection (Set-of-Mark bounding boxes + hex IDs) on the video feed, mirroring an agent's ui.parse() telemetry call.",
+		AIVisionBadge:               "Experimental",
+		Color444:                    "4:4:4 Color (RustShine)",
+		Color444Hint:                "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
+		Color444UnavailableHint:     "Requires RustShine Pro and a GPU with HEVC 4:4:4 hardware encode.",
+		Color444RequiresH265Hint:    "Only available with the H.265 codec -- select it above to use 4:4:4 color.",
+		Color444Badge:               "Pro",
+		MuteAudio:                   "Mute Audio",
+		UnmuteAudio:                 "Unmute Audio",
+		DeviceAudio:                 "Audio",
+		DeviceUSBAudio:              "USB Audio Codec",
+		AudioDeviceUAC1:             "UAC1",
+		AudioDeviceUAC2:             "UAC2",
+		DriveModeDisk:               "USB Stick",
+		DriveModeCDROM:              "CD-ROM",
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",

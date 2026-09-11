@@ -597,6 +597,16 @@ func (dw *DiskWidget) localizedAPIDriveName(drive *models.LocalDrive) string {
 }
 
 func (dw *DiskWidget) captureDeviceTitle(drive DriveItem) string {
+	name := dw.captureDeviceBaseTitle(drive)
+	if drive.VideoDevice != nil {
+		if busLabel := formatVideoBusLabel(drive.VideoDevice.Bus); busLabel != "" {
+			return fmt.Sprintf("%s [%s]", name, busLabel)
+		}
+	}
+	return name
+}
+
+func (dw *DiskWidget) captureDeviceBaseTitle(drive DriveItem) string {
 	if drive.VideoDevice == nil {
 		return i18n.Current.CaptureDevice
 	}
@@ -611,9 +621,6 @@ func (dw *DiskWidget) captureDeviceTitle(drive DriveItem) string {
 				break
 			}
 		}
-	}
-	if busLabel := formatVideoBusLabel(drive.VideoDevice.Bus); busLabel != "" {
-		return fmt.Sprintf("%s [%s]", name, busLabel)
 	}
 	return name
 }

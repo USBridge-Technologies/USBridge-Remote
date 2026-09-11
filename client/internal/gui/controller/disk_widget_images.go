@@ -48,6 +48,9 @@ func (dw *DiskWidget) refreshDriveItemByPath(path string) {
 
 // handleAddImage handles adding a disk image from the file system.
 func (dw *DiskWidget) handleAddImage() {
+	if dw.controlsLocked() {
+		return
+	}
 	if !dw.imagePickerInFlight.CompareAndSwap(false, true) {
 		logrus.Debug("image picker already in flight, skipping overlapping request")
 		return

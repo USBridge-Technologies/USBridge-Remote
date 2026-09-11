@@ -1220,13 +1220,8 @@ func (mw *MainWindow) updateDeviceButtonsVisibility() {
 
 	fyne.Do(func() {
 		mw.refreshDeviceFooterButtons()
-		if mw.tabs.SelectedIndex() == mw.devicesTabIndex() {
-			mw.deviceButtonsPanel.Show()
-			mw.deviceFooterBar.Show()
-		} else {
-			mw.deviceButtonsPanel.Hide()
-			mw.deviceFooterBar.Hide()
-		}
+		mw.deviceButtonsPanel.Hide()
+		mw.deviceFooterBar.Hide()
 		mw.deviceButtonsPanel.Refresh()
 		mw.deviceFooterBar.Refresh()
 	})

@@ -24,9 +24,16 @@ import (
 var appVersion string
 
 // SetAppVersion records the running build's version string, shown as a small
-// "vX.Y.Z" tag in the bottom-right corner of the connections screen.
+// "vX.Y.Z" tag in the bottom-right corner of the connections screen (and
+// on the left of the Devices tab footer).
 func SetAppVersion(version string) {
 	appVersion = strings.TrimSpace(version)
+}
+
+// AppVersion returns the build version last recorded by SetAppVersion,
+// without a "v" prefix. Empty until SetAppVersion has been called.
+func AppVersion() string {
+	return appVersion
 }
 
 type ConnectionManagerUI struct {
@@ -1926,8 +1933,9 @@ func (b *iconChromeButton) refreshVisuals() {
 			}
 			if b.spec.DisabledIcon != nil {
 				b.icon.Resource = b.spec.DisabledIcon
+			} else {
+				b.icon.Translucency = 0.18
 			}
-			b.icon.Translucency = 0.18
 			b.label.Color = design.ColorTextMuted
 		}
 	case b.hovered:

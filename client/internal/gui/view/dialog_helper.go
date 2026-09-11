@@ -826,21 +826,42 @@ func ShowConnectingToast(message string, maxDuration time.Duration, parent fyne.
 	return handle
 }
 
-// ShowConnectionErrorDialog is a modal, centered, dimmed-background sibling
-// of ConnectingToastHandle.ShowError -- same visual language (red border,
-// small left-aligned "Error" title sharing a header row with copy/close
-// buttons, small wrapped message text) but for connection errors that have
-// no live connecting toast to transform in place: a deep link that fails to
-// even parse (no connect attempt ever started), or an established
-// connection dropping mid-session (the user isn't watching a "connecting…"
-// toast when that happens). Everything else in this app's non-connection
-// errors still goes through the plain ShowErrorDialog below.
+// ShowConnectionErrorDialog is the connection-flow entry point for the
+// same styled error panel ShowErrorDialog now draws -- kept as a named
+// alias so call sites that failed to even start a connecting toast (a
+// deep-link parse error, a mid-session drop) still read as connection
+// errors in the source.
 func ShowConnectionErrorDialog(err error, parent fyne.Window) {
+	ShowErrorDialog(err, parent)
+}
+
+// ShowErrorDialog is the app's styled error panel: a modal, centered,
+// dimmed-background sibling of ConnectingToastHandle.ShowError -- same
+// visual language (red border, small left-aligned "Error" title sharing a
+// header row with copy/close buttons, small wrapped message text). Used
+// from Devices (mount/unmount, ISO upload/delete) as well as Connect.
+func ShowErrorDialog(err error, parent fyne.Window) {
 	if err == nil {
 		return
 	}
-	message := err.Error()
+	showStyledMessageDialog(i18n.Current.Error, err.Error(), design.ColorDanger, design.ColorDanger, parent)
+}
 
+// ShowInfoDialog is ShowErrorDialog's own panel for non-error notices
+// (max devices, upload success, storage permission, …): same header,
+// copy/close, wrapped message and dimmed overlay, with a gray border
+// and a muted title instead of the red error chrome.
+func ShowInfoDialog(title, message string, parent fyne.Window) {
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+	if strings.TrimSpace(title) == "" {
+		title = i18n.Current.Information
+	}
+	showStyledMessageDialog(title, message, design.ColorTextMuted, design.ColorBorder, parent)
+}
+
+func showStyledMessageDialog(title, message string, titleColor, borderColor color.Color, parent fyne.Window) {
 	var popup *widget.PopUp
 	closePopup := func() {
 		if popup != nil {
@@ -862,7 +883,7 @@ func ShowConnectionErrorDialog(err error, parent fyne.Window) {
 			parent.Clipboard().SetContent(message)
 		}
 	})
-	titleText := NewBrandText(i18n.Current.Error, 10, design.ColorDanger, true)
+	titleText := NewBrandText(title, 10, titleColor, true)
 	buttonsRow := container.NewHBox(copyBtn, newToastCloseButton(closePopup))
 	headerRow := container.NewBorder(nil, nil, titleText, buttonsRow)
 
@@ -889,7 +910,7 @@ func ShowConnectionErrorDialog(err error, parent fyne.Window) {
 
 	border := canvas.NewRectangle(color.Transparent)
 	border.CornerRadius = confirmToastRadius
-	border.StrokeColor = design.ColorDanger
+	border.StrokeColor = borderColor
 	border.StrokeWidth = 1
 
 	panel := container.NewStack(
@@ -914,171 +935,6 @@ func ShowConnectionErrorDialog(err error, parent fyne.Window) {
 
 			panelMin := panel.MinSize()
 			panelWidth := minFloat32(maxFloat32(panelMin.Width, 320), minFloat32(maxWidth, 420))
-			panelHeight := minFloat32(panelMin.Height, maxHeight)
-			return fyne.NewSize(panelWidth, panelHeight)
-		},
-	})
-}
-
-func ShowErrorDialog(err error, parent fyne.Window) {
-	if err == nil {
-		return
-	}
-
-	message := err.Error()
-
-	var popup *widget.PopUp
-	closePopup := func() {
-		if popup != nil {
-			popup.Hide()
-		}
-	}
-
-	titleText := NewBrandText(i18n.Current.Error, 19, design.ColorTextLight, true)
-	titleText.Alignment = fyne.TextAlignCenter
-
-	closeBtn := newConfirmDialogCloseButton(closePopup)
-	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
-
-	label := widget.NewLabel(message)
-	label.Wrapping = fyne.TextWrapWord
-
-	okBtn := widget.NewButton(i18n.Current.OK, closePopup)
-	copyBtn := widget.NewButton(i18n.Current.Copy, func() {
-		if parent != nil && parent.Clipboard() != nil {
-			parent.Clipboard().SetContent(message)
-		}
-	})
-
-	buttons := container.New(&confirmDialogButtonsLayout{gap: 12}, copyBtn, okBtn)
-	body := container.NewVBox(
-		titleBar,
-		NewInset(label, 0, 0, 16, 14),
-		buttons,
-	)
-
-	panelContent := fyne.CanvasObject(body)
-	if parent != nil {
-		var minW float32 = 408
-		canvasSize := parent.Canvas().Size()
-		if UseCompactLayout(canvasSize.Width) {
-			minW = canvasSize.Width * 0.85
-			if minW < 280 {
-				minW = 280
-			}
-		}
-		panelContent = container.New(&minWidthLayout{minWidth: minW}, body)
-	}
-
-	bg := canvas.NewRectangle(design.ColorGray900)
-	bg.CornerRadius = design.RadiusMD
-
-	border := canvas.NewRectangle(color.Transparent)
-	border.CornerRadius = design.RadiusMD
-	border.StrokeColor = design.ColorBorder
-	border.StrokeWidth = 1
-
-	panel := container.NewStack(
-		bg,
-		NewInset(panelContent, 18, 18, 16, 16),
-		border,
-	)
-
-	popup = ShowOverlayPopup(parent, OverlayPopupSpec{
-		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
-			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
-			maxWidth := canvasSize.Width - margin*2
-			maxHeight := canvasSize.Height - margin*2
-			if maxWidth <= 0 {
-				maxWidth = canvasSize.Width
-			}
-			if maxHeight <= 0 {
-				maxHeight = canvasSize.Height
-			}
-
-			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 408), maxWidth)
-			panelHeight := minFloat32(panelMin.Height, maxHeight)
-			return fyne.NewSize(panelWidth, panelHeight)
-		},
-	})
-}
-
-func ShowInfoDialog(title, message string, parent fyne.Window) {
-	if strings.TrimSpace(message) == "" {
-		return
-	}
-
-	var popup *widget.PopUp
-	closePopup := func() {
-		if popup != nil {
-			popup.Hide()
-		}
-	}
-
-	titleText := NewBrandText(title, 19, design.ColorTextLight, true)
-	titleText.Alignment = fyne.TextAlignCenter
-
-	closeBtn := newConfirmDialogCloseButton(closePopup)
-	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
-
-	label := widget.NewLabel(message)
-	label.Wrapping = fyne.TextWrapWord
-
-	okBtn := widget.NewButton(i18n.Current.OK, closePopup)
-	okBtn.Importance = widget.MediumImportance
-	buttons := container.NewCenter(container.NewGridWrap(fyne.NewSize(260, okBtn.MinSize().Height), okBtn))
-	body := container.NewVBox(
-		titleBar,
-		NewInset(label, 0, 0, 16, 14),
-		buttons,
-	)
-
-	panelContent := fyne.CanvasObject(body)
-	if parent != nil {
-		var minW float32 = 408
-		canvasSize := parent.Canvas().Size()
-		if UseCompactLayout(canvasSize.Width) {
-			minW = canvasSize.Width * 0.85
-			if minW < 280 {
-				minW = 280
-			}
-		}
-		panelContent = container.New(&minWidthLayout{minWidth: minW}, body)
-	}
-
-	bg := canvas.NewRectangle(design.ColorGray900)
-	bg.CornerRadius = design.RadiusMD
-
-	border := canvas.NewRectangle(color.Transparent)
-	border.CornerRadius = design.RadiusMD
-	border.StrokeColor = design.ColorBorder
-	border.StrokeWidth = 1
-
-	panel := container.NewStack(
-		bg,
-		NewInset(panelContent, 18, 18, 16, 16),
-		border,
-	)
-
-	popup = ShowOverlayPopup(parent, OverlayPopupSpec{
-		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
-			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
-			maxWidth := canvasSize.Width - margin*2
-			maxHeight := canvasSize.Height - margin*2
-			if maxWidth <= 0 {
-				maxWidth = canvasSize.Width
-			}
-			if maxHeight <= 0 {
-				maxHeight = canvasSize.Height
-			}
-
-			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 408), maxWidth)
 			panelHeight := minFloat32(panelMin.Height, maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
 		},

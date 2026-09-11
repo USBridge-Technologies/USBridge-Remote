@@ -492,13 +492,21 @@ func newConnectionPlatformChip(text string) fyne.CanvasObject {
 // that row already carries a name line right above it.
 func newConnectionPlatformChipSized(text string, textSize float32) fyne.CanvasObject {
 	c5c8b5Color := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
-	label := canvas.NewText(text, c5c8b5Color)
+	return newConnectionPlatformChipColored(text, textSize, c5c8b5Color, design.ColorTailscaleChipBorder)
+}
+
+// newConnectionPlatformChipColored is newConnectionPlatformChipSized with
+// explicit label and stroke colors -- the Devices dashboard's Video row
+// uses turquoise for USB 3 "Ultra Low Latency" and the default gray for
+// USB 2 "Medium".
+func newConnectionPlatformChipColored(text string, textSize float32, textColor, stroke color.Color) fyne.CanvasObject {
+	label := canvas.NewText(text, textColor)
 	label.TextSize = textSize
 	label.TextStyle.Monospace = true
 
 	bg := canvas.NewRectangle(color.Transparent)
 	bg.CornerRadius = 3
-	bg.StrokeColor = design.ColorTailscaleChipBorder
+	bg.StrokeColor = stroke
 	bg.StrokeWidth = 1
 
 	chip := container.New(&tightPlatformChipLayout{}, bg, label)

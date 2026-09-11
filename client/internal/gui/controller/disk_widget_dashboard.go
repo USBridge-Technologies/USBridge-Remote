@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -16,10 +17,9 @@ import (
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
 // column (HID & Input Hub, Video Pipe & EDID, Audio Pipeline) stacked above
 // one another, and a wide right column (Virtual Mass Storage & ISO Media,
-// and -- once a KVM/agent session actually offers one -- Virtual Network &
-// NDIS Bridge below it), all styled after the Connections grid's own cards
-// (see view.NewDeviceDashboardCard), including their own teal-on-hover
-// border.
+// then a short Network + Backups pair in one row underneath), all styled
+// after the Connections grid's own cards (see view.NewDeviceDashboardCard),
+// including their own teal-on-hover border.
 //
 // HID/Network rows carry an on/off toggle (view.DeviceToggle); Storage rows
 // carry Delete/Upload buttons plus a mount button, replaced by a disconnect
@@ -28,10 +28,10 @@ import (
 // toggleDriveMount, reusing the exact same handleMount/handleUnmount flow
 // the old selection-driven list used, just pre-selecting the one row's own
 // index instead of requiring the user to select it first. Video/Audio rows
-// get neither: those two kinds are excluded from that mount flow entirely
-// (see handleMount/handleUnmount's own IsVideo/IsAudio checks) and are
-// driven by the Control tab's own start/stop and the header's audio menu
-// instead, so a connect control here would just be misleading.
+// carry a round exclusive radio (view.NewDeviceDashboardCaptureSelector)
+// instead: only one video source and only one audio source can be on, so
+// a HID-style independent toggle would be misleading. USB Audio Codec
+// also gets the UAC1/UAC2 picker the old list had.
 func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	if dw.dashboardContainer != nil {
 		return dw.dashboardContainer
@@ -42,36 +42,43 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardAudio = container.NewVBox()
 	dw.dashboardStorage = container.NewVBox()
 	dw.dashboardNetworkRows = container.NewVBox()
+	dw.dashboardBackup = container.NewVBox()
 
 	// Each card's own hover cell (see view.NewDeviceDashboardHoverCell's
 	// doc comment) is created up front -- refreshDashboard rebuilds every
 	// row's buttons/toggles from scratch on every call, and each of those
 	// needs the SAME onHover reference the card it lives in was bound to,
 	// not a fresh one every refresh.
-	var hidBind, videoBind, audioBind, storageBind, networkBind func(func(bool))
+	var hidBind, videoBind, audioBind, storageBind, networkBind, backupBind func(func(bool))
 	dw.dashboardHIDHover, hidBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardVideoHover, videoBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardAudioHover, audioBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardStorageHover, storageBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardNetworkHover, networkBind = view.NewDeviceDashboardHoverCell()
+	dw.dashboardBackupHover, backupBind = view.NewDeviceDashboardHoverCell()
 
 	plusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
 	addImageBtn := view.NewDeviceDashboardHeaderButton("Mount New ISO", plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
 	addImageBtn.OnHover = dw.dashboardStorageHover
 	dw.dashboardAddImageBtn = addImageBtn
 
-	dw.refreshDashboard()
-
-	dashboardNetworkCard := view.NewDeviceDashboardCard(assets.NetworkIcon, "Virtual Network & NDIS Bridge", "", nil, dw.dashboardNetworkRows, networkBind)
+	dashboardNetworkCard := view.NewDeviceDashboardCard(view.DeviceDashboardNetworkIconSVG, "Network", "", nil, dw.dashboardNetworkRows, networkBind)
 	dw.dashboardNetworkCard = dashboardNetworkCard
 	dw.dashboardNetworkCard.Hide() // only shown once a real RNDIS device exists -- see refreshDashboard
 
+	dw.dashboardBackupSpace = view.NewDeviceDashboardSpaceMeter()
+	dw.dashboardBackupSpace.OnHover = dw.dashboardBackupHover
+	dw.syncDashboardBackupSpace()
+	dashboardBackupCard := view.NewDeviceDashboardCard(view.DeviceDashboardBackupsIconSVG, "Backups", "", dw.dashboardBackupSpace, dw.dashboardBackup, backupBind)
+	dw.dashboardBackupCard = dashboardBackupCard
+	dw.dashboardBackupCard.Hide() // only shown once the MTP backup flash exists -- see refreshDashboard
+
 	narrowColumn := container.NewVBox(
-		view.NewDeviceDashboardCard(assets.KeyboardIcon, "HID & Input Hub", "", nil, dw.dashboardHID, hidBind),
+		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", nil, dw.dashboardHID, hidBind),
 		view.NewDeviceDashboardCardGap(),
-		view.NewDeviceDashboardCard(assets.MonitorTabIcon, "Video Pipe & EDID", "", nil, dw.dashboardVideo, videoBind),
+		view.NewDeviceDashboardCard(view.DeviceDashboardVideoIconSVG, "Video Pipe & EDID", "", nil, dw.dashboardVideo, videoBind),
 		view.NewDeviceDashboardCardGap(),
-		view.NewDeviceDashboardCard(assets.AudioIcon, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind),
+		view.NewDeviceDashboardCard(view.DeviceDashboardAudioIconSVG, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind),
 	)
 	// Wrapped in a Scroll from the start (rather than only once there
 	// happen to be enough drives) so refreshDashboard can just adjust its
@@ -84,6 +91,10 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	// scrollbar thumb overlays once scrolling is actually active.
 	dw.dashboardStorageScroll = container.NewVScroll(view.NewInsetExact(dw.dashboardStorage, 0, 10, 0, 0))
 
+	pairRow := container.New(&view.DeviceDashboardPairLayout{Gap: 16}, dw.dashboardNetworkCard, dw.dashboardBackupCard)
+	dw.dashboardPairSection = container.NewVBox(view.NewDeviceDashboardCardGap(), pairRow)
+	dw.dashboardPairSection.Hide()
+
 	dw.dashboardWideColumn = container.NewVBox(
 		view.NewDeviceDashboardCard(
 			view.DeviceDashboardStorageIconSVG,
@@ -93,16 +104,29 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 			dw.dashboardStorageScroll,
 			storageBind,
 		),
-		view.NewDeviceDashboardCardGap(),
-		dw.dashboardNetworkCard,
+		dw.dashboardPairSection,
 	)
 
 	columns := container.New(&view.DeviceDashboardColumnsLayout{Gap: 16, Ratio: 1.4}, narrowColumn, dw.dashboardWideColumn)
 	// Scrollable, matching the old list view (view.DevicesListView is a
 	// VScroll internally) -- the narrow column's three stacked cards plus
 	// the wide column's storage list can easily exceed the tab's visible
-	// height.
-	dw.dashboardContainer = container.NewVScroll(view.NewInset(columns, 18, 18, 16, 16))
+	// height. Footer sits outside the scroll so the lime busy spinner,
+	// Disconnect All, and version stay pinned to the bottom of the tab.
+	scroll := container.NewVScroll(view.NewInset(columns, 18, 18, 16, 8))
+	dw.dashboardFooterDisconnect = view.NewDeviceDashboardFooterTextButton(i18n.Current.DisconnectAllButton, func() {
+		if dw.controlsLocked() {
+			return
+		}
+		dw.selectedItemsMu.Lock()
+		dw.selectedItems = map[int]bool{}
+		dw.selectedItemsMu.Unlock()
+		dw.handleUnmount()
+	})
+	dw.dashboardBusySpinner = view.NewDeviceDashboardBusySpinner()
+	footer := view.NewDeviceDashboardFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner)
+	dw.dashboardContainer = container.NewBorder(nil, footer, nil, nil, scroll)
+	dw.refreshDashboard()
 	return dw.dashboardContainer
 }
 
@@ -117,63 +141,115 @@ func (dw *DiskWidget) refreshDashboard() {
 	}
 
 	// "Mount New ISO" darkens while its own file picker is open -- and
-	// ONLY then, not while a mount/unmount is in flight (userOperationInFlight
-	// is shared by both, see beginOperation/endOperation in
-	// disk_widget_mount.go), which is why this reads imagePickerInFlight
-	// specifically instead. The row buttons elsewhere in the card
-	// deliberately don't visually react to any of this at all (see
-	// buildStorageRowExtras's own doc comment on why they skip
-	// SetDisabled(dw.controlsLocked())).
+	// greys out (SetEnabled) while a mount/unmount is in flight. The
+	// picker uses imagePickerInFlight so it doesn't share the footer's
+	// lime spinner, which is reserved for gadget connect/disconnect.
 	if dw.dashboardAddImageBtn != nil {
-		dw.dashboardAddImageBtn.SetBusy(dw.imagePickerInFlight.Load())
+		pickerOpen := dw.imagePickerInFlight.Load()
+		dw.dashboardAddImageBtn.SetBusy(pickerOpen)
+		// File-picker busy is its own visual; while a mount/unmount is in
+		// flight the pill is just unclickable so it doesn't compete with
+		// the footer spinner.
+		dw.dashboardAddImageBtn.SetEnabled(!dw.controlsLocked() || pickerOpen)
 	}
 
-	var hidRows, videoRows, audioRows, storageRows, networkRows []fyne.CanvasObject
+	var hidRows, videoRows, audioRows, storageRows, networkRows, backupRows []fyne.CanvasObject
+	type hidDrive struct {
+		idx   int
+		drive DriveItem
+	}
+	var hidKeyboard, hidMouse *hidDrive
+	var hidGamepads []hidDrive
 	for idx, drive := range dw.allDrives {
 		name := dw.deviceRowText(drive)
 		icon := driveIconResource(drive)
 
 		switch {
-		case drive.IsKeyboard || drive.IsMouse || drive.IsGamepad:
-			hidRows = append(hidRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive, dw.dashboardHIDHover)))
+		case drive.IsKeyboard:
+			d := hidDrive{idx: idx, drive: drive}
+			hidKeyboard = &d
+		case drive.IsMouse:
+			d := hidDrive{idx: idx, drive: drive}
+			hidMouse = &d
+		case drive.IsGamepad:
+			hidGamepads = append(hidGamepads, hidDrive{idx: idx, drive: drive})
 		case drive.IsVideo:
-			// Excluded from the mount flow entirely (see this method's own
-			// doc comment) -- no toggle.
-			videoRows = append(videoRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, nil))
+			chipText, tealChip := videoDashboardLatencyChip(drive)
+			videoRows = append(videoRows, view.NewDeviceDashboardVideoRow(
+				icon,
+				dw.captureDeviceBaseTitle(drive),
+				drive.IsMounted,
+				chipText,
+				tealChip,
+				dw.newDashboardVideoSettingsButton(drive),
+				dw.newDashboardVideoRadio(drive),
+			))
 		case drive.IsAudio || drive.IsUSBAudio:
-			audioRows = append(audioRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, nil))
+			var extras []fyne.CanvasObject
+			if drive.IsUSBAudio {
+				extras = append(extras, dw.newDashboardUSBAudioModePicker(idx, drive))
+			}
+			extras = append(extras, dw.newDashboardAudioRadio(idx, drive))
+			audioRows = append(audioRows, view.NewDeviceDashboardAudioRow(icon, name, drive.IsMounted, extras...))
 		case drive.IsRNDIS:
-			networkRows = append(networkRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive, dw.dashboardNetworkHover)))
+			netName, netChip := dashboardNetworkTitle(name)
+			networkRows = append(networkRows, view.NewDeviceDashboardLimeRow(
+				icon, netName, drive.IsMounted, netChip,
+				dw.newDashboardRNDISSettingsButton(idx, drive),
+				dw.newDriveToggle(idx, drive, dw.dashboardNetworkHover),
+			))
+		case isDashboardBackupDrive(drive):
+			backupRows = append(backupRows, view.NewDeviceDashboardStorageRow(
+				icon, name, drive.IsMounted, nil, nil, nil,
+				dw.newDashboardConnectSlot(idx, drive, dw.dashboardBackupHover),
+				nil, drive.Size,
+			))
 		default:
 			if drive.IsUploading {
 				storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, nil, nil, nil, nil, view.NewDeviceDashboardUploadProgress(drive.UploadProgress), drive.Size))
 				continue
 			}
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
-			// The same trailing slot shows a "disconnect" button once
-			// mounted (the mounted state itself is read off the row's
-			// own lime name/icon color, see newDeviceDashboardRowLeftSized),
-			// or -- while not yet mounted/mounting -- a plain "mount it"
-			// button; both drive the exact same toggleDriveMount. Only
-			// for a drive already resident on the device (source
-			// "api"/"local") -- a "user" source file still sitting on
-			// the client's own PC has to be uploaded first (see the
-			// Upload button below), so it gets no mount/connect control
-			// until it re-appears as "local"/"api" after that.
-			var connectSlot fyne.CanvasObject
-			if drive.IsMounted {
-				connectSlot = view.NewDeviceDashboardDisconnectButton(func() {
-					dw.toggleDriveMount(idx)
-				}, dw.dashboardStorageHover)
-			} else if !drive.IsMounting && drive.Source != "user" {
-				connectSlot = view.NewDeviceDashboardMountButton(func() {
-					if !dw.controlsLocked() {
-						dw.toggleDriveMount(idx)
-					}
-				}, dw.dashboardStorageHover)
-			}
-			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectSlot, nil, drive.Size))
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, dw.newDashboardConnectSlot(idx, drive, dw.dashboardStorageHover), nil, drive.Size))
 		}
+	}
+
+	if hidKeyboard != nil || hidMouse != nil {
+		var kbCell, mouseCell fyne.CanvasObject
+		if hidKeyboard != nil {
+			kbCell = view.NewDeviceDashboardHIDCell(
+				driveIconResource(hidKeyboard.drive),
+				dw.deviceRowText(hidKeyboard.drive),
+				hidKeyboard.drive.IsMounted,
+				dw.newDriveToggle(hidKeyboard.idx, hidKeyboard.drive, dw.dashboardHIDHover),
+			)
+		}
+		if hidMouse != nil {
+			mouseCell = view.NewDeviceDashboardHIDCell(
+				driveIconResource(hidMouse.drive),
+				dw.deviceRowText(hidMouse.drive),
+				hidMouse.drive.IsMounted,
+				dw.newDashboardMouseSettingsButton(hidMouse.idx, hidMouse.drive),
+				dw.newDriveToggle(hidMouse.idx, hidMouse.drive, dw.dashboardHIDHover),
+			)
+		}
+		hidRows = append(hidRows, view.NewDeviceDashboardHIDPairRow(kbCell, mouseCell))
+	}
+	for i, pad := range hidGamepads {
+		name := strings.TrimSpace(dw.deviceRowText(pad.drive))
+		if name == "" {
+			name = i18n.Current.DeviceGamepad
+		}
+		if len(hidGamepads) > 1 {
+			name = fmt.Sprintf("%s (%d)", name, i+1)
+		}
+		hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
+			driveIconResource(pad.drive),
+			name,
+			pad.drive.IsMounted,
+			dw.newDashboardGamepadModePicker(pad.idx, pad.drive),
+			dw.newDriveToggle(pad.idx, pad.drive, dw.dashboardHIDHover),
+		))
 	}
 
 	setDashboardRows(dw.dashboardHID, hidRows, "No keyboard, mouse, or gamepad devices")
@@ -181,12 +257,31 @@ func (dw *DiskWidget) refreshDashboard() {
 	setDashboardRows(dw.dashboardAudio, audioRows, "No audio devices")
 	setDashboardRows(dw.dashboardStorage, storageRows, "No storage or ISO media")
 	setDashboardRows(dw.dashboardNetworkRows, networkRows, "No network bridge devices")
+	if dw.dashboardBackup != nil {
+		setDashboardRows(dw.dashboardBackup, backupRows, "No backup devices")
+	}
 
+	networkOn := len(networkRows) > 0
+	backupOn := len(backupRows) > 0
 	if dw.dashboardNetworkCard != nil {
-		if len(networkRows) > 0 {
+		if networkOn {
 			dw.dashboardNetworkCard.Show()
 		} else {
 			dw.dashboardNetworkCard.Hide()
+		}
+	}
+	if dw.dashboardBackupCard != nil {
+		if backupOn {
+			dw.dashboardBackupCard.Show()
+		} else {
+			dw.dashboardBackupCard.Hide()
+		}
+	}
+	if dw.dashboardPairSection != nil {
+		if networkOn || backupOn {
+			dw.dashboardPairSection.Show()
+		} else {
+			dw.dashboardPairSection.Hide()
 		}
 	}
 
@@ -207,11 +302,13 @@ func (dw *DiskWidget) refreshDashboard() {
 
 	// Container.Show()/Hide()/SetMinSize() alone don't force a relayout --
 	// without this, the wide column wouldn't actually reserve/collapse the
-	// network card's space or resize the storage scroll's own viewport
+	// network/backup cards' space or resize the storage scroll's own viewport
 	// until something else happened to refresh it.
 	if dw.dashboardWideColumn != nil {
 		dw.dashboardWideColumn.Refresh()
 	}
+	dw.syncDashboardBackupSpace()
+	dw.syncDashboardFooter()
 }
 
 // dashboardStorageVisibleRows caps how many Storage rows show before the
@@ -290,32 +387,32 @@ func driveIconResource(drive DriveItem) fyne.Resource {
 	case "keyboard":
 		iconRes = assets.KeyboardIcon
 		if drive.IsMounted {
-			iconRes = assets.KeyboardIconActive
+			iconRes = view.DeviceDashboardKeyboardIconActive
 		}
 	case "mouse":
 		iconRes = assets.MouseIcon
 		if drive.IsMounted {
-			iconRes = assets.MouseIconActive
+			iconRes = view.DeviceDashboardMouseIconActive
 		}
 	case "rndis":
 		iconRes = assets.NetworkIcon
 		if drive.IsMounted {
-			iconRes = assets.NetworkIconActive
+			iconRes = view.DeviceDashboardNetworkIconActive
 		}
 	case "gamepad":
 		iconRes = assets.GamepadIcon
 		if drive.IsMounted {
-			iconRes = assets.GamepadIconActive
+			iconRes = view.DeviceDashboardGamepadIconActive
 		}
 	case "video":
 		iconRes = assets.CameraIcon
 		if drive.IsMounted {
-			iconRes = assets.CameraIconActive
+			iconRes = view.DeviceDashboardCameraIconActive
 		}
 	case "audio", "usbaudio":
 		iconRes = assets.AudioIcon
 		if drive.IsMounted {
-			iconRes = assets.AudioIconActive
+			iconRes = view.DeviceDashboardAudioIconActive
 		}
 	default:
 		iconRes = assets.DiscIcon
@@ -374,21 +471,18 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 			},
 		)
 		picker.OnHover = dw.dashboardStorageHover
+		picker.SetDisabled(dw.controlsLocked())
 		modePicker = picker
 	}
 
 	if drive.Source == "user" && drive.DiskInfo != nil && !drive.IsMounting && !drive.IsMounted {
-		// No SetDisabled(dw.controlsLocked()) here -- this row's own
-		// buttons deliberately keep their normal look even while e.g. the
-		// "Mount New ISO" file picker is open elsewhere in the card (see
-		// NewDeviceDashboardHeaderButton.SetBusy for that button's own
-		// feedback instead); the onTap closure above already guards
-		// against acting while locked.
-		uploadBtn = view.NewDeviceDashboardUploadButton(func() {
+		btn := view.NewDeviceDashboardUploadButton(func() {
 			if !dw.controlsLocked() {
 				dw.handleUploadImage(idx)
 			}
 		}, dw.dashboardStorageHover)
+		btn.SetDisabled(dw.controlsLocked())
+		uploadBtn = btn
 	}
 
 	shouldShowDelete := false
@@ -422,10 +516,58 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 				}
 			}
 		}
-		deleteBtn = view.NewDeviceDashboardDeleteButton(onTap, dw.dashboardStorageHover)
+		btn := view.NewDeviceDashboardDeleteButton(onTap, dw.dashboardStorageHover)
+		btn.SetDisabled(dw.controlsLocked())
+		deleteBtn = btn
 	}
 
 	return modePicker, deleteBtn, uploadBtn
+}
+
+// isDashboardBackupDrive reports the MTP backup flash (api source, mtp
+// "data" partition) -- the old list put this in its own Backup section
+// (disk_widget_sections.go); the dashboard keeps it out of Storage and
+// on its own Backups card instead.
+func isDashboardBackupDrive(drive DriveItem) bool {
+	return drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp"
+}
+
+// dashboardNetworkTitle splits "Network Card (RNDIS)" into the row name
+// and an under-name chip -- same plaque Backups uses for size -- so RNDIS
+// isn't sitting in the title. The old list (deviceRowText) still shows
+// the combined string.
+func dashboardNetworkTitle(title string) (name, chip string) {
+	chip = "RNDIS"
+	name = strings.TrimSpace(title)
+	name = strings.TrimSpace(strings.TrimSuffix(name, "(RNDIS)"))
+	name = strings.TrimSpace(strings.TrimSuffix(name, "RNDIS"))
+	name = strings.Trim(name, "()- ")
+	if name == "" {
+		return title, chip
+	}
+	return name, chip
+}
+
+// newDashboardConnectSlot is Storage/Backups' trailing mount-or-disconnect
+// control: a "disconnect" button once mounted (the mounted state itself is
+// read off the row's own lime name/icon color, see
+// newDeviceDashboardRowLeftSized), or a lime "mount it" button otherwise.
+// While IsMounting the mount button stays in place but darkens -- the same
+// busy fill "Mount New ISO" uses -- instead of disappearing.
+func (dw *DiskWidget) newDashboardConnectSlot(idx int, drive DriveItem, hover func(bool)) fyne.CanvasObject {
+	locked := dw.controlsLocked()
+	if drive.IsMounted {
+		btn := view.NewDeviceDashboardDisconnectButton(func() {
+			dw.toggleDriveMount(idx)
+		}, hover)
+		btn.SetDisabled(locked)
+		return btn
+	}
+	btn := view.NewDeviceDashboardMountButton(func() {
+		dw.toggleDriveMount(idx)
+	}, hover, drive.IsMounting && !locked)
+	btn.SetDisabled(locked)
+	return btn
 }
 
 // newDriveToggle builds a HID/Network row's own on/off switch, wired to
@@ -436,7 +578,256 @@ func (dw *DiskWidget) newDriveToggle(idx int, drive DriveItem, cardHover func(bo
 		dw.toggleDriveMount(idx)
 	})
 	t.OnHover = cardHover
+	if drive.IsRNDIS {
+		t.ActiveFill = view.DeviceDashboardAccentLime
+	}
+	t.SetEnabled(!dw.controlsLocked())
 	return t
+}
+
+// newDashboardGamepadModePicker is a gamepad row's DirectInput/XInput
+// dropdown -- same compact teal HeaderDropdown Storage uses for USB
+// Stick/CD-ROM (NewDeviceDashboardModePicker), matching the header
+// settings menus' own look.
+func (dw *DiskWidget) newDashboardGamepadModePicker(idx int, drive DriveItem) *view.HeaderDropdown {
+	picker := view.NewDeviceDashboardModePicker(
+		[]string{i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput},
+		gamepadModeLabel(normalizeGamepadMode(drive.GamepadMode)),
+		func(s string) {
+			if dw.controlsLocked() || idx >= len(dw.allDrives) {
+				return
+			}
+			mode := gamepadModeDirectInput
+			if s == i18n.Current.DeviceXInput {
+				mode = gamepadModeXInput
+			}
+			dw.allDrives[idx].GamepadMode = mode
+		},
+	)
+	picker.OnHover = dw.dashboardHIDHover
+	picker.SetDisabled(dw.controlsLocked())
+	return picker
+}
+
+// newDashboardUSBAudioModePicker is USB Audio Codec's UAC1/UAC2 dropdown --
+// the same compact HeaderDropdown gamepad and Storage rows already use.
+// Capture-audio rows do not get one; only the gadget codec has a mode.
+func (dw *DiskWidget) newDashboardUSBAudioModePicker(idx int, drive DriveItem) *view.HeaderDropdown {
+	selected := i18n.Current.AudioDeviceUAC1
+	if drive.USBAudioMode == "uac2" {
+		selected = i18n.Current.AudioDeviceUAC2
+	}
+	picker := view.NewDeviceDashboardModePicker(
+		[]string{i18n.Current.AudioDeviceUAC1, i18n.Current.AudioDeviceUAC2},
+		selected,
+		func(s string) {
+			if dw.controlsLocked() || idx < 0 || idx >= len(dw.allDrives) {
+				return
+			}
+			mode := "uac1"
+			if s == i18n.Current.AudioDeviceUAC2 {
+				mode = "uac2"
+			}
+			dw.allDrives[idx].USBAudioMode = mode
+		},
+	)
+	picker.OnHover = dw.dashboardAudioHover
+	picker.SetDisabled(dw.controlsLocked())
+	return picker
+}
+
+// newDashboardVideoRadio is Video Pipe's exclusive round selector -- tapping
+// it picks this capture device (and clears the others) the same way the
+// old list's CaptureSelector did.
+func (dw *DiskWidget) newDashboardVideoRadio(drive DriveItem) fyne.CanvasObject {
+	unavailable := drive.IsVideo && drive.VideoDevice != nil && !drive.VideoDevice.Connected && !drive.IsMounted && isUSBridgeAgentOS(dw.agentOS)
+	selected := dw.isPreferredVideoDrive(drive)
+	disabled := dw.controlsLocked() || unavailable
+	onTap := func() {}
+	if drive.VideoDevice != nil {
+		deviceCopy := *drive.VideoDevice
+		onTap = func() {
+			if dw.controlsLocked() || unavailable {
+				return
+			}
+			dw.selectVideoDevice(deviceCopy)
+		}
+	}
+	return view.NewDeviceDashboardCaptureSelector(selected, disabled, onTap, dw.dashboardVideoHover)
+}
+
+// newDashboardAudioRadio is Audio Pipeline's exclusive round selector --
+// capture devices call setPreferredAudioDevice, USB Audio Codec calls
+// selectUSBAudio. Only one of those can be on at a time: tapping this
+// one fills it and clears the sibling radios.
+func (dw *DiskWidget) newDashboardAudioRadio(idx int, drive DriveItem) fyne.CanvasObject {
+	unavailable := drive.IsAudio && drive.AudioDevice != nil && !drive.AudioDevice.Connected && !drive.IsMounted
+	selected := false
+	if drive.IsUSBAudio {
+		selected = drive.IsMounted
+	} else {
+		selected = dw.isPreferredAudioDrive(drive)
+	}
+	disabled := dw.controlsLocked() || unavailable
+	isUSB := drive.IsUSBAudio
+	onTap := func() {
+		if dw.controlsLocked() || unavailable {
+			return
+		}
+		if isUSB {
+			mode := "uac1"
+			if idx >= 0 && idx < len(dw.allDrives) && dw.allDrives[idx].USBAudioMode != "" {
+				mode = dw.allDrives[idx].USBAudioMode
+			}
+			dw.selectUSBAudio(mode)
+			dw.requestDevicesRefresh()
+		}
+	}
+	if drive.AudioDevice != nil {
+		audioCopy := *drive.AudioDevice
+		onTap = func() {
+			if dw.controlsLocked() || unavailable {
+				return
+			}
+			dw.setPreferredAudioDevice(audioCopy)
+			dw.requestDevicesRefresh()
+		}
+	}
+	return view.NewDeviceDashboardCaptureSelector(selected, disabled, onTap, dw.dashboardAudioHover)
+}
+
+// newDashboardRNDISSettingsButton is Network's gear -- tapping it opens
+// the same teal styled menu the header RNDIS icon uses (auto / wifirouter
+// / etherouter / etherbridge). A compact HeaderDropdown did not fit the
+// half-width card next to Backups; the mouse row already uses this gear
+// + menu pattern.
+func (dw *DiskWidget) newDashboardRNDISSettingsButton(idx int, _ DriveItem) fyne.CanvasObject {
+	var btn fyne.CanvasObject
+	btn = view.NewDeviceDashboardSettingsButton(func() {
+		if dw.controlsLocked() {
+			return
+		}
+		view.ShowStyledMenuTeal(btn, dw.dashboardRNDISModeMenuItems(idx))
+	}, dw.dashboardNetworkHover)
+	view.DisableDashboardAction(btn, dw.controlsLocked())
+	return btn
+}
+
+func (dw *DiskWidget) dashboardRNDISModeMenuItems(idx int) []view.StyledMenuItem {
+	current := "auto"
+	if idx >= 0 && idx < len(dw.allDrives) {
+		current = normalizeRNDISMode(dw.allDrives[idx].RNDISMode)
+	}
+	items := make([]view.StyledMenuItem, 0, len(rndisModeOptions))
+	for _, label := range rndisModeOptions {
+		mode := label
+		items = append(items, view.StyledMenuItem{
+			Label:    label,
+			Selected: mode == current,
+			OnTap: func() {
+				if dw.controlsLocked() || idx < 0 || idx >= len(dw.allDrives) {
+					return
+				}
+				dw.allDrives[idx].RNDISMode = normalizeRNDISMode(mode)
+			},
+		})
+	}
+	return items
+}
+
+// newDashboardMouseSettingsButton is the Mouse half's gear -- tapping it
+// opens the same teal styled menu the header mouse icon uses, with just
+// the pointing-mode choices (TouchPad/Absolute, plus mobile extras).
+func (dw *DiskWidget) newDashboardMouseSettingsButton(idx int, drive DriveItem) fyne.CanvasObject {
+	var btn fyne.CanvasObject
+	btn = view.NewDeviceDashboardSettingsButton(func() {
+		if dw.controlsLocked() {
+			return
+		}
+		view.ShowStyledMenuTeal(btn, dw.dashboardMouseModeMenuItems(idx))
+	}, dw.dashboardHIDHover)
+	view.DisableDashboardAction(btn, dw.controlsLocked())
+	return btn
+}
+
+func (dw *DiskWidget) dashboardMouseModeMenuItems(idx int) []view.StyledMenuItem {
+	current := ""
+	if idx >= 0 && idx < len(dw.allDrives) {
+		current = normalizeMouseMode(dw.allDrives[idx].MouseType)
+	}
+	items := make([]view.StyledMenuItem, 0, len(mouseConfigOptions()))
+	for _, label := range mouseConfigOptions() {
+		lab := label
+		mode, _, _ := mouseLabelToConfig(lab)
+		items = append(items, view.StyledMenuItem{
+			Label:    lab,
+			Selected: mode == current,
+			OnTap: func() {
+				dw.applyMouseModeSelection(idx, mode)
+			},
+		})
+	}
+	return items
+}
+
+// videoDashboardLatencyChip is the under-name plaque on a Video Pipe row:
+// USB 3.x reads as a turquoise "Ultra Low Latency", USB 2.0 (480) as a
+// gray "Medium". Anything else (no bus, USB 1.1) has no chip.
+func videoDashboardLatencyChip(drive DriveItem) (text string, teal bool) {
+	if drive.VideoDevice == nil {
+		return "", false
+	}
+	switch drive.VideoDevice.Bus {
+	case "usb-3.2", "usb-3.0":
+		return "Ultra Low Latency", true
+	case "usb-2.0":
+		return "Medium", false
+	default:
+		return "", false
+	}
+}
+
+// newDashboardVideoSettingsButton opens this capture device's config
+// window -- same onVideoConfigRequested path the old list's Config button
+// used (disk_widget_row.go).
+func (dw *DiskWidget) newDashboardVideoSettingsButton(drive DriveItem) fyne.CanvasObject {
+	if drive.VideoDevice == nil {
+		return nil
+	}
+	deviceCopy := *drive.VideoDevice
+	btn := view.NewDeviceDashboardSettingsButton(func() {
+		if dw.controlsLocked() {
+			return
+		}
+		dw.setPreferredVideoDevice(deviceCopy)
+		if dw.onVideoConfigRequested != nil {
+			dw.onVideoConfigRequested(deviceCopy.Path)
+		}
+	}, dw.dashboardVideoHover)
+	btn.SetDisabled(dw.controlsLocked())
+	return btn
+}
+
+// syncDashboardFooter shows Devices' footer "Disconnect All" only while
+// something is actually mounted (same condition the old compact unmount
+// button used). No-op until GetDashboardContainer has built the footer.
+func (dw *DiskWidget) syncDashboardFooter() {
+	if dw.dashboardFooterDisconnect == nil {
+		return
+	}
+	hasMounted := false
+	for _, drive := range dw.allDrives {
+		if drive.IsMounted {
+			hasMounted = true
+			break
+		}
+	}
+	dw.dashboardFooterDisconnect.SetEnabled(!dw.controlsLocked())
+	if hasMounted {
+		dw.dashboardFooterDisconnect.Show()
+	} else {
+		dw.dashboardFooterDisconnect.Hide()
+	}
 }
 
 // toggleDriveMount mounts or unmounts exactly the one drive at index,
@@ -445,7 +836,7 @@ func (dw *DiskWidget) newDriveToggle(idx int, drive DriveItem, cardHover func(bo
 // list's per-row checkbox drove) by pre-selecting just that index instead
 // of requiring the user to select it through a list first.
 func (dw *DiskWidget) toggleDriveMount(index int) {
-	if index < 0 || index >= len(dw.allDrives) {
+	if dw.controlsLocked() || index < 0 || index >= len(dw.allDrives) {
 		return
 	}
 	drive := dw.allDrives[index]

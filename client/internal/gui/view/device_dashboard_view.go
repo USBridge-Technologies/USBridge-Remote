@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
+	"sync"
 	"time"
 
 	"usbridge-client/internal/gui/assets"
@@ -62,6 +63,123 @@ func (l *DeviceDashboardColumnsLayout) MinSize(objects []fyne.CanvasObject) fyne
 	narrowMin := objects[0].MinSize()
 	wideMin := objects[1].MinSize()
 	return fyne.NewSize(narrowMin.Width+l.Gap+wideMin.Width, maxFloat32(narrowMin.Height, wideMin.Height))
+}
+
+func visibleDashboardObjects(objects []fyne.CanvasObject) []fyne.CanvasObject {
+	visible := make([]fyne.CanvasObject, 0, len(objects))
+	for _, obj := range objects {
+		if obj != nil && obj.Visible() {
+			visible = append(visible, obj)
+		}
+	}
+	return visible
+}
+
+// DeviceDashboardPairLayout places its visible children in one equal-width
+// row with Gap between them -- Network and Backups under Storage, each
+// taking half the wide column when both are shown, or the full row if the
+// other card is hidden.
+type DeviceDashboardPairLayout struct {
+	Gap float32
+}
+
+func (l *DeviceDashboardPairLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	visible := visibleDashboardObjects(objects)
+	if len(visible) == 0 {
+		return
+	}
+	if len(visible) == 1 {
+		visible[0].Move(fyne.NewPos(0, 0))
+		visible[0].Resize(size)
+		return
+	}
+	n := float32(len(visible))
+	slot := (size.Width - l.Gap*(n-1)) / n
+	if slot < 0 {
+		slot = 0
+	}
+	x := float32(0)
+	for _, obj := range visible {
+		obj.Move(fyne.NewPos(x, 0))
+		obj.Resize(fyne.NewSize(slot, size.Height))
+		x += slot + l.Gap
+	}
+}
+
+func (l *DeviceDashboardPairLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	visible := visibleDashboardObjects(objects)
+	if len(visible) == 0 {
+		return fyne.NewSize(0, 0)
+	}
+	if len(visible) == 1 {
+		return visible[0].MinSize()
+	}
+	var width, height float32
+	for i, obj := range visible {
+		min := obj.MinSize()
+		width += min.Width
+		if i > 0 {
+			width += l.Gap
+		}
+		if min.Height > height {
+			height = min.Height
+		}
+	}
+	return fyne.NewSize(width, height)
+}
+
+// deviceDashboardHIDSplitLayout places keyboard and mouse side by side in
+// one HID row, with a 1px vertical rule between them. objects are
+// [left, divider, right]; Gap is the breathing room on each side of the
+// rule.
+type deviceDashboardHIDSplitLayout struct {
+	Gap float32
+}
+
+func (l *deviceDashboardHIDSplitLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		if len(objects) == 1 && objects[0] != nil {
+			objects[0].Move(fyne.NewPos(0, 0))
+			objects[0].Resize(size)
+		}
+		return
+	}
+	left, sep, right := objects[0], objects[1], objects[2]
+	sepW := float32(1)
+	slot := (size.Width - l.Gap*2 - sepW) / 2
+	if slot < 0 {
+		slot = 0
+	}
+	left.Move(fyne.NewPos(0, 0))
+	left.Resize(fyne.NewSize(slot, size.Height))
+	sepH := sep.MinSize().Height
+	if sepH > size.Height {
+		sepH = size.Height
+	}
+	sep.Move(fyne.NewPos(slot+l.Gap, (size.Height-sepH)/2))
+	sep.Resize(fyne.NewSize(sepW, sepH))
+	right.Move(fyne.NewPos(slot+l.Gap*2+sepW, 0))
+	right.Resize(fyne.NewSize(slot, size.Height))
+}
+
+func (l *deviceDashboardHIDSplitLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		if len(objects) == 1 && objects[0] != nil {
+			return objects[0].MinSize()
+		}
+		return fyne.NewSize(0, 0)
+	}
+	left := objects[0].MinSize()
+	sep := objects[1].MinSize()
+	right := objects[2].MinSize()
+	h := left.Height
+	if right.Height > h {
+		h = right.Height
+	}
+	if sep.Height > h {
+		h = sep.Height
+	}
+	return fyne.NewSize(left.Width+l.Gap+1+l.Gap+right.Width, h)
 }
 
 // deviceDashboardTightVBoxLayout stacks exactly two children vertically
@@ -241,27 +359,377 @@ func NewDeviceDashboardCardGap() fyne.CanvasObject {
 // device kinds this dashboard doesn't drive mount/unmount for (Video,
 // Audio -- see disk_widget_mount.go's own IsVideo/IsAudio exclusions).
 func NewDeviceDashboardRow(icon fyne.Resource, name string, active bool, connectBtn fyne.CanvasObject) fyne.CanvasObject {
-	left := newDeviceDashboardRowLeft(icon, name, active)
+	return newDeviceDashboardRowWithActiveColor(icon, name, active, connectBtn, design.ColorAccent)
+}
+
+// NewDeviceDashboardTealRow is NewDeviceDashboardRow with HID's turquoise
+// (#41e0c3, design.ColorConnectionBadgeText) as the mounted name color --
+// extras (a mode picker, then the on/off toggle) trail on the right.
+func NewDeviceDashboardTealRow(icon fyne.Resource, name string, active bool, extras ...fyne.CanvasObject) fyne.CanvasObject {
+	left := newDeviceDashboardRowLeftColored(icon, name, rowNameColor(active, design.ColorConnectionBadgeText))
+	var parts []fyne.CanvasObject
+	for _, extra := range extras {
+		if extra != nil {
+			parts = append(parts, extra)
+		}
+	}
+	var right fyne.CanvasObject
+	if len(parts) > 0 {
+		right = container.New(&DeviceRowControlsLayout{Gap: 8}, parts...)
+	}
+	row := container.NewBorder(nil, nil, left, right)
+	return NewInsetExact(row, 0, 0, 2, 2)
+}
+
+// NewDeviceDashboardHIDCell is one half of the keyboard+mouse pair row --
+// icon, name, then trailing extras (mouse: settings gear then toggle;
+// keyboard: just the toggle) -- without the outer inset (the pair wrapper
+// adds it once around both halves).
+func NewDeviceDashboardHIDCell(icon fyne.Resource, name string, active bool, extras ...fyne.CanvasObject) fyne.CanvasObject {
+	left := newDeviceDashboardRowLeftColored(icon, name, rowNameColor(active, design.ColorConnectionBadgeText))
+	var parts []fyne.CanvasObject
+	for _, extra := range extras {
+		if extra != nil {
+			parts = append(parts, extra)
+		}
+	}
+	var right fyne.CanvasObject
+	if len(parts) > 0 {
+		right = container.New(&DeviceRowControlsLayout{Gap: 6}, parts...)
+	}
+	return container.NewBorder(nil, nil, left, right)
+}
+
+// NewDeviceDashboardHIDPairRow puts keyboard and mouse on one line with a
+// short vertical rule between them. Either half may be nil.
+func NewDeviceDashboardHIDPairRow(left, right fyne.CanvasObject) fyne.CanvasObject {
+	if left == nil && right == nil {
+		return canvas.NewRectangle(color.Transparent)
+	}
+	if left == nil {
+		return NewInsetExact(right, 0, 0, 2, 2)
+	}
+	if right == nil {
+		return NewInsetExact(left, 0, 0, 2, 2)
+	}
+	sep := canvas.NewRectangle(deviceDashboardCardSep)
+	sep.SetMinSize(fyne.NewSize(1, 16))
+	return NewInsetExact(container.New(&deviceDashboardHIDSplitLayout{Gap: 8}, left, sep, right), 0, 0, 2, 2)
+}
+
+// NewDeviceDashboardLimeRow is NewDeviceDashboardRow with this dashboard's
+// own lime (#c4e77a) as the mounted name color -- Network uses it so a
+// mounted bridge matches the card title icon, same lime Storage already
+// uses (see newDeviceDashboardRowLeftSized). chip, when set, is the same
+// under-name plaque Storage/Backups use for size -- Network puts "RNDIS"
+// there instead of leaving it in the title. extras trail on the right
+// (RNDIS settings gear, then the on/off toggle).
+func NewDeviceDashboardLimeRow(icon fyne.Resource, name string, active bool, chip string, extras ...fyne.CanvasObject) fyne.CanvasObject {
+	var left fyne.CanvasObject
+	if strings.TrimSpace(chip) != "" {
+		left = newDeviceDashboardRowLeftSized(icon, name, active, chip)
+	} else {
+		left = newDeviceDashboardRowLeftColored(icon, name, rowNameColor(active, DeviceDashboardAccentLime))
+	}
+	var parts []fyne.CanvasObject
+	for _, extra := range extras {
+		if extra != nil {
+			parts = append(parts, extra)
+		}
+	}
+	var right fyne.CanvasObject
+	if len(parts) > 0 {
+		right = container.New(&DeviceRowControlsLayout{Gap: 8}, parts...)
+	}
+	row := container.NewBorder(nil, nil, left, right)
+	return NewInsetExact(row, 0, 0, 2, 2)
+}
+
+// NewDeviceDashboardVideoRow is a Video Pipe row: wrapping name, an optional
+// latency chip under it (turquoise "Ultra Low Latency" on USB 3, gray
+// "Medium" on USB 2), and trailing extras (settings gear, then the round
+// exclusive radio). Active name uses the same turquoise as Audio/HID when
+// the capture radio is on; off stays ColorTextLight.
+func NewDeviceDashboardVideoRow(icon fyne.Resource, name string, active bool, chipText string, tealChip bool, extras ...fyne.CanvasObject) fyne.CanvasObject {
+	nameColor := rowNameColor(active, design.ColorConnectionBadgeText)
+	var chip fyne.CanvasObject
+	if strings.TrimSpace(chipText) != "" {
+		if tealChip {
+			chip = newConnectionPlatformChipColored(chipText, 7, design.ColorConnectionBadgeText, design.ColorConnectionBadgeText)
+		} else {
+			chip = newConnectionPlatformChipSized(chipText, 7)
+		}
+	}
+	return newDeviceDashboardFlexibleRow(icon, name, nameColor, chip, extras...)
+}
+
+// NewDeviceDashboardAudioRow is an Audio Pipeline row: wrapping name (capture
+// device titles routinely overflow the narrow left column), then trailing
+// extras -- USB Audio Codec gets the UAC1/UAC2 picker, every audio row
+// gets the exclusive round radio. Active name uses HID/Video/Audio
+// turquoise, matching the card title icon.
+func NewDeviceDashboardAudioRow(icon fyne.Resource, name string, active bool, extras ...fyne.CanvasObject) fyne.CanvasObject {
+	return newDeviceDashboardFlexibleRow(icon, name, rowNameColor(active, design.ColorConnectionBadgeText), nil, extras...)
+}
+
+// newDeviceDashboardFlexibleRow is icon | wrapping name[+chip] | extras --
+// the name sits in the Border center so it receives leftover width and
+// wraps instead of pushing the card wider (canvas.Text as a Border left
+// child reports its full unwrapped MinSize).
+func newDeviceDashboardFlexibleRow(icon fyne.Resource, name string, nameColor color.Color, chip fyne.CanvasObject, extras ...fyne.CanvasObject) fyne.CanvasObject {
+	nameText := newDeviceDashboardWrapText(name, nameColor)
+	var center fyne.CanvasObject = nameText
+	if chip != nil {
+		chipRow := container.New(&DeviceRowControlsLayout{Gap: 0}, chip)
+		center = container.New(&tightStatsVBoxLayout{Gap: 2}, nameText, chipRow)
+	}
+	var left fyne.CanvasObject
+	if icon != nil {
+		iconImg := canvas.NewImageFromResource(icon)
+		iconImg.FillMode = canvas.ImageFillContain
+		iconImg.SetMinSize(fyne.NewSize(14, 14))
+		left = NewInsetExact(container.NewCenter(iconImg), 0, 8, 0, 0)
+	}
+	var parts []fyne.CanvasObject
+	for _, extra := range extras {
+		if extra != nil {
+			parts = append(parts, extra)
+		}
+	}
+	var right fyne.CanvasObject
+	if len(parts) > 0 {
+		right = container.New(&DeviceRowControlsLayout{Gap: 8}, parts...)
+	}
+	// Border stretches the name to the row's height (set by the radio /
+	// settings gear); wrap text would otherwise sit at y=0 and read as
+	// shifted up on a short one-line title. Center the name block in
+	// that leftover height, same as the icon and radio already do.
+	center = container.New(&deviceDashboardVCenterLayout{}, center)
+	return NewInsetExact(container.NewBorder(nil, nil, left, right, center), 0, 0, 2, 2)
+}
+
+// deviceDashboardVCenterLayout gives its one child the full width it was
+// assigned and the child's own MinSize height, then vertically centers
+// that block -- used so a short Audio/Video name lines up with the row's
+// icon and round radio.
+type deviceDashboardVCenterLayout struct{}
+
+func (*deviceDashboardVCenterLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) == 0 {
+		return fyne.NewSize(1, 0)
+	}
+	s := objects[0].MinSize()
+	if s.Width < 1 {
+		s.Width = 1
+	}
+	return s
+}
+
+func (*deviceDashboardVCenterLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+	o := objects[0]
+	h := o.MinSize().Height
+	if h > size.Height {
+		h = size.Height
+	}
+	y := (size.Height - h) / 2
+	if y < 0 {
+		y = 0
+	}
+	o.Move(fyne.NewPos(0, y))
+	o.Resize(fyne.NewSize(size.Width, h))
+}
+
+const dashboardWrapMaxLines = 3
+
+// deviceDashboardWrapText is an 11px name that wraps to the width it is
+// given (up to dashboardWrapMaxLines, then ellipsizes) -- widget.Label's
+// own wrapping still reports the full unwrapped width as MinSize, which
+// is what overflowed the Audio card.
+type deviceDashboardWrapText struct {
+	widget.BaseWidget
+	text     string
+	color    color.Color
+	textSize float32
+}
+
+func newDeviceDashboardWrapText(text string, col color.Color) *deviceDashboardWrapText {
+	t := &deviceDashboardWrapText{text: text, color: col, textSize: 11}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (t *deviceDashboardWrapText) MinSize() fyne.Size {
+	h := fyne.MeasureText("Ag", t.textSize, fyne.TextStyle{}).Height
+	if h < 1 {
+		h = 14
+	}
+	n := len(wrapDashboardName(t.text, t.textSize, t.Size().Width))
+	if n < 1 {
+		n = 1
+	}
+	return fyne.NewSize(1, float32(n)*h)
+}
+
+func (t *deviceDashboardWrapText) Resize(size fyne.Size) {
+	prev := t.Size()
+	t.BaseWidget.Resize(size)
+	if prev.Width != size.Width {
+		t.Refresh()
+	}
+}
+
+func (t *deviceDashboardWrapText) CreateRenderer() fyne.WidgetRenderer {
+	r := &deviceDashboardWrapTextRenderer{t: t}
+	for i := range r.lines {
+		ln := canvas.NewText("", t.color)
+		ln.TextSize = t.textSize
+		r.lines[i] = ln
+	}
+	return r
+}
+
+type deviceDashboardWrapTextRenderer struct {
+	t     *deviceDashboardWrapText
+	lines [dashboardWrapMaxLines]*canvas.Text
+}
+
+func (r *deviceDashboardWrapTextRenderer) Layout(size fyne.Size) {
+	r.apply(size.Width)
+}
+
+func (r *deviceDashboardWrapTextRenderer) apply(width float32) {
+	parts := wrapDashboardName(r.t.text, r.t.textSize, width)
+	h := fyne.MeasureText("Ag", r.t.textSize, fyne.TextStyle{}).Height
+	y := float32(0)
+	for i, ln := range r.lines {
+		if i < len(parts) {
+			ln.Text = parts[i]
+			ln.Color = r.t.color
+			ln.TextSize = r.t.textSize
+			ln.Show()
+			ln.Move(fyne.NewPos(0, y))
+			ln.Resize(ln.MinSize())
+			ln.Refresh()
+			y += h
+		} else {
+			ln.Hide()
+		}
+	}
+}
+
+func (r *deviceDashboardWrapTextRenderer) MinSize() fyne.Size {
+	return r.t.MinSize()
+}
+
+func (r *deviceDashboardWrapTextRenderer) Refresh() {
+	r.apply(r.t.Size().Width)
+	canvas.Refresh(r.t)
+}
+
+func (r *deviceDashboardWrapTextRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *deviceDashboardWrapTextRenderer) Objects() []fyne.CanvasObject {
+	objs := make([]fyne.CanvasObject, 0, dashboardWrapMaxLines)
+	for _, ln := range r.lines {
+		objs = append(objs, ln)
+	}
+	return objs
+}
+
+func (r *deviceDashboardWrapTextRenderer) Destroy() {}
+
+func wrapDashboardName(text string, textSize, width float32) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{""}
+	}
+	if width <= 8 {
+		return []string{text}
+	}
+	style := fyne.TextStyle{}
+	fit := func(s string) bool {
+		return fyne.MeasureText(s, textSize, style).Width <= width
+	}
+	runes := []rune(text)
+	var lines []string
+	start := 0
+	for start < len(runes) {
+		best := start + 1
+		lastSpace := -1
+		for end := start + 1; end <= len(runes); end++ {
+			if !fit(string(runes[start:end])) {
+				break
+			}
+			best = end
+			if runes[end-1] == ' ' {
+				lastSpace = end
+			}
+		}
+		cut := best
+		if cut < len(runes) && lastSpace > start {
+			cut = lastSpace
+		}
+		line := strings.TrimSpace(string(runes[start:cut]))
+		if line == "" {
+			line = string(runes[start:cut])
+		}
+		lines = append(lines, line)
+		start = cut
+		for start < len(runes) && runes[start] == ' ' {
+			start++
+		}
+		if len(lines) >= dashboardWrapMaxLines {
+			break
+		}
+	}
+	if start < len(runes) && len(lines) > 0 {
+		last := lines[len(lines)-1]
+		lastRunes := []rune(last)
+		for len(lastRunes) > 1 && !fit(string(lastRunes)+"…") {
+			lastRunes = lastRunes[:len(lastRunes)-1]
+		}
+		lines[len(lines)-1] = string(lastRunes) + "…"
+	}
+	if len(lines) == 0 {
+		return []string{text}
+	}
+	return lines
+}
+
+// NewDeviceDashboardCaptureSelector is Video/Audio's exclusive round radio
+// -- the same CaptureSelector the old list used, recolored to this
+// dashboard's turquoise and wired to the card's hover cell.
+func NewDeviceDashboardCaptureSelector(selected, disabled bool, onTap func(), onHover func(bool)) *CaptureSelector {
+	s := NewCaptureSelector(onTap)
+	s.ActiveColor = design.ColorConnectionBadgeText
+	s.OnHover = onHover
+	s.SetSelected(selected)
+	s.SetDisabled(disabled)
+	return s
+}
+
+func newDeviceDashboardRowWithActiveColor(icon fyne.Resource, name string, active bool, connectBtn fyne.CanvasObject, activeColor color.Color) fyne.CanvasObject {
+	left := newDeviceDashboardRowLeftColored(icon, name, rowNameColor(active, activeColor))
 	row := container.NewBorder(nil, nil, left, connectBtn)
 	return NewInsetExact(row, 0, 0, 2, 2)
 }
 
-// newDeviceDashboardRowLeft is the icon+name group shared by
-// NewDeviceDashboardRow and NewDeviceDashboardStorageRow.
-func newDeviceDashboardRowLeft(icon fyne.Resource, name string, active bool) fyne.CanvasObject {
-	nameColor := design.ColorTextLight
+func rowNameColor(active bool, activeColor color.Color) color.Color {
 	if active {
-		nameColor = design.ColorAccent
+		return activeColor
 	}
-	return newDeviceDashboardRowLeftColored(icon, name, nameColor)
+	return design.ColorTextLight
 }
 
-// newDeviceDashboardRowLeftColored is newDeviceDashboardRowLeft's own
-// icon+name composition with an explicit name color instead of the
-// HID/Video/Audio/Network "active" convention (design.ColorAccent) --
-// Storage rows use DeviceDashboardAccentLime instead (see
-// newDeviceDashboardRowLeftSized), matching the rest of that card's own
-// lime accent.
+// newDeviceDashboardRowLeftColored is the icon+name composition with an
+// explicit name color -- HID/Audio/Video use turquoise
+// (design.ColorConnectionBadgeText); Storage/Network use
+// DeviceDashboardAccentLime instead.
 func newDeviceDashboardRowLeftColored(icon fyne.Resource, name string, nameColor color.Color) fyne.CanvasObject {
 	nameText := canvas.NewText(name, nameColor)
 	nameText.TextSize = 11
@@ -285,42 +753,27 @@ func newDeviceDashboardRowLeftColored(icon fyne.Resource, name string, nameColor
 // means no badge (e.g. the drive's own size isn't known) -- falls back to
 // the plain single-line row.
 func newDeviceDashboardRowLeftSized(icon fyne.Resource, name string, active bool, sizeText string) fyne.CanvasObject {
-	// Lime (DeviceDashboardAccentLime), not the generic design.ColorAccent
-	// every other row kind uses -- matches the rest of this card's own
-	// lime accent (the SSD icon, "Mount New ISO", the mount button).
-	nameColor := design.ColorTextLight
-	if active {
-		nameColor = DeviceDashboardAccentLime
-	}
-
+	nameColor := rowNameColor(active, DeviceDashboardAccentLime)
 	if strings.TrimSpace(sizeText) == "" {
 		return newDeviceDashboardRowLeftColored(icon, name, nameColor)
 	}
+	return newDeviceDashboardRowLeftWithChip(icon, name, nameColor, newConnectionPlatformChipSized(sizeText, 7))
+}
 
+// newDeviceDashboardRowLeftWithChip is icon + name with an already-built
+// chip under the name -- Video's latency plaque (turquoise or gray) and
+// Storage/Network's size/RNDIS chips all go through here.
+func newDeviceDashboardRowLeftWithChip(icon fyne.Resource, name string, nameColor color.Color, chip fyne.CanvasObject) fyne.CanvasObject {
 	nameText := canvas.NewText(name, nameColor)
 	nameText.TextSize = 11
-
-	// Wrapped in DeviceRowControlsLayout (which sizes its child to its
-	// own natural width, not the container's) rather than placed
-	// directly -- tightStatsVBoxLayout below stretches every row to the
-	// width of the widest one (usually the name), and the chip's own
-	// container.NewCenter wrapper (newConnectionPlatformChipSized) would
-	// then center itself inside that extra width instead of hugging the
-	// left edge under the name. Same fix newConnectionCardChipsRow
-	// already relies on for the Connections table's own name-cell badge.
-	// One size step smaller (7 vs. the Connections table's own 8) --
-	// this row already carries a name line right above it.
-	chipRow := container.New(&DeviceRowControlsLayout{Gap: 0}, newConnectionPlatformChipSized(sizeText, 7))
+	chipRow := container.New(&DeviceRowControlsLayout{Gap: 0}, chip)
 	textColumn := container.New(&tightStatsVBoxLayout{Gap: 2}, nameText, chipRow)
-
 	if icon == nil {
 		return textColumn
 	}
-
 	iconImg := canvas.NewImageFromResource(icon)
 	iconImg.FillMode = canvas.ImageFillContain
 	iconImg.SetMinSize(fyne.NewSize(14, 14))
-
 	return container.New(&DeviceRowControlsLayout{Gap: 8}, iconImg, textColumn)
 }
 
@@ -334,11 +787,12 @@ func NewDeviceDashboardEmptyState(text string) fyne.CanvasObject {
 
 // deviceToggleWidth/Height is the pill track's own footprint; deviceToggleKnob
 // is the round knob sliding inside it, deviceToggleInset its resting gap
-// from the track's own edge.
+// from the track's own edge. Kept a little under a typical 30x16 iOS-style
+// switch so it sits quieter next to an 11px row name.
 const (
-	deviceToggleWidth  = float32(30)
-	deviceToggleHeight = float32(16)
-	deviceToggleKnob   = float32(12)
+	deviceToggleWidth  = float32(26)
+	deviceToggleHeight = float32(14)
+	deviceToggleKnob   = float32(10)
 	deviceToggleInset  = float32(2)
 )
 
@@ -357,6 +811,9 @@ type DeviceToggle struct {
 	// hovering this toggle keeps that card's border teal instead of
 	// flickering it off and back on.
 	OnHover func(bool)
+	// ActiveFill is the on-state track color. Nil keeps HID's teal
+	// (design.ColorConnectionBadgeText); Network sets DeviceDashboardAccentLime.
+	ActiveFill color.Color
 
 	disabled bool
 	hovered  bool
@@ -393,18 +850,23 @@ func (t *DeviceToggle) Tapped(*fyne.PointEvent) {
 	if t.disabled {
 		return
 	}
-	t.Active = !t.Active
-	t.Refresh()
+	// Don't flip Active here -- the dashboard rebuilds this switch from
+	// IsMounted, and a speculative flip (then a refresh while the gadget
+	// is still connecting) is what made keyboard/mouse twitch on then off.
+	// OnChanged starts the mount/unmount; the switch stays put until the
+	// operation actually finishes.
 	if t.OnChanged != nil {
-		t.OnChanged(t.Active)
+		t.OnChanged(!t.Active)
 	}
 }
 
 func (t *DeviceToggle) TappedSecondary(*fyne.PointEvent) {}
 
 func (t *DeviceToggle) MouseIn(*desktop.MouseEvent) {
-	t.hovered = true
-	t.Refresh()
+	if !t.disabled {
+		t.hovered = true
+		t.Refresh()
+	}
 	if t.OnHover != nil {
 		t.OnHover(true)
 	}
@@ -421,6 +883,9 @@ func (t *DeviceToggle) MouseOut() {
 }
 
 func (t *DeviceToggle) Cursor() desktop.Cursor {
+	if t.disabled {
+		return desktop.DefaultCursor
+	}
 	return desktop.PointerCursor
 }
 
@@ -462,7 +927,11 @@ func (r *deviceToggleRenderer) applyColors() {
 		t.track.FillColor = color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff}
 		t.knob.FillColor = color.NRGBA{R: 0x55, G: 0x58, B: 0x52, A: 0xff}
 	case t.Active:
-		t.track.FillColor = design.ColorConnectionBadgeText
+		fill := t.ActiveFill
+		if fill == nil {
+			fill = design.ColorConnectionBadgeText
+		}
+		t.track.FillColor = fill
 		t.knob.FillColor = design.ColorGray950
 	default:
 		fill := color.Color(color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff})
@@ -520,12 +989,41 @@ var DeviceDashboardFolderIconActive = fyne.NewStaticResource("device_dashboard_f
 var DeviceDashboardDiscIconActive = fyne.NewStaticResource("device_dashboard_disc_active.svg", []byte(strings.ReplaceAll(string(assets.DiscIconActive.Content()), "#93C572", "#c4e77a")))
 var DeviceDashboardSDCardIconActive = fyne.NewStaticResource("device_dashboard_sdcard_active.svg", []byte(strings.ReplaceAll(string(assets.SDCardIconActive.Content()), "#93C572", "#c4e77a")))
 
+// DeviceDashboardHIDIconSVG/VideoIconSVG/AudioIconSVG are those three
+// cards' own title glyphs, recolored to turquoise (#41e0c3,
+// design.ColorConnectionBadgeText) -- HID/Video/Audio share that accent,
+// distinct from Storage/Network/Backups' lime.
+var DeviceDashboardHIDIconSVG = fyne.NewStaticResource("device_dashboard_hid.svg", []byte(strings.ReplaceAll(string(assets.KeyboardIcon.Content()), "#C9C9C9", "#41e0c3")))
+var DeviceDashboardVideoIconSVG = fyne.NewStaticResource("device_dashboard_video.svg", []byte(strings.ReplaceAll(string(assets.MonitorTabIcon.Content()), "#F5F5F5", "#41e0c3")))
+var DeviceDashboardAudioIconSVG = fyne.NewStaticResource("device_dashboard_audio.svg", []byte(strings.ReplaceAll(string(assets.AudioIcon.Content()), "#C9C9C9", "#41e0c3")))
+
+// DeviceDashboardKeyboardIconActive/MouseIconActive/GamepadIconActive/
+// AudioIconActive/CameraIconActive are a mounted HID/Audio/Video row's
+// own icons -- the shared *Active green (#93C572) recolored to turquoise,
+// matching the row's name text.
+var DeviceDashboardKeyboardIconActive = fyne.NewStaticResource("device_dashboard_keyboard_active.svg", []byte(strings.ReplaceAll(string(assets.KeyboardIconActive.Content()), "#93C572", "#41e0c3")))
+var DeviceDashboardMouseIconActive = fyne.NewStaticResource("device_dashboard_mouse_active.svg", []byte(strings.ReplaceAll(string(assets.MouseIconActive.Content()), "#93C572", "#41e0c3")))
+var DeviceDashboardGamepadIconActive = fyne.NewStaticResource("device_dashboard_gamepad_active.svg", []byte(strings.ReplaceAll(string(assets.GamepadIconActive.Content()), "#93C572", "#41e0c3")))
+var DeviceDashboardAudioIconActive = fyne.NewStaticResource("device_dashboard_audio_active.svg", []byte(strings.ReplaceAll(string(assets.AudioIconActive.Content()), "#93C572", "#41e0c3")))
+var DeviceDashboardCameraIconActive = fyne.NewStaticResource("device_dashboard_camera_active.svg", []byte(strings.ReplaceAll(string(assets.CameraIconActive.Content()), "#93C572", "#41e0c3")))
+
+// DeviceDashboardNetworkIconSVG/DeviceDashboardBackupsIconSVG are those
+// two cards' own title glyphs, recolored to #c4e77a to match Storage's
+// SSD icon (DeviceDashboardStorageIconSVG). Network uses language-svgrepo-
+// com.svg -- a filled globe that already renders correctly as the header
+// language glyph (the dedicated network-backup globe filled solid at this
+// size). Backups uses SnapshotsTabIcon (the floppy the Snapshots tab uses).
+var DeviceDashboardNetworkIconSVG = fyne.NewStaticResource("device_dashboard_network.svg", []byte(strings.ReplaceAll(string(assets.LanguageIcon.Content()), "#F5F5F5", "#c4e77a")))
+var DeviceDashboardBackupsIconSVG = fyne.NewStaticResource("device_dashboard_backups.svg", []byte(strings.ReplaceAll(string(assets.SnapshotsTabIcon.Content()), "#F5F5F5", "#c4e77a")))
+
+// DeviceDashboardNetworkIconActive is a mounted Network row's own icon --
+// assets.NetworkIconActive's #93C572 recolored to this dashboard's lime,
+// matching the row's name text (see NewDeviceDashboardLimeRow).
+var DeviceDashboardNetworkIconActive = fyne.NewStaticResource("device_dashboard_network_active.svg", []byte(strings.ReplaceAll(string(assets.NetworkIconActive.Content()), "#93C572", "#c4e77a")))
+
 // deviceDashboardHeaderButtonBusyFill is DeviceDashboardAccentLime
-// darkened -- a header button's own fill (e.g. "Mount New ISO") while its
-// action is in flight (the OS file picker is open). This is the only
-// visual feedback for that state; the row's own Delete/Upload/mount
-// buttons deliberately stay exactly as they look normally instead of
-// graying out (see disk_widget_dashboard.go's refreshDashboard).
+// darkened -- a header button's own fill (e.g. "Mount New ISO") and a
+// Storage/Backups Connect button's fill while its action is in flight.
 var deviceDashboardHeaderButtonBusyFill = color.NRGBA{R: 0x75, G: 0x8a, B: 0x49, A: 0xff}
 
 // DeviceDashboardHeaderButtonTextColor is the dark olive-green text/icon
@@ -563,12 +1061,13 @@ func NewDeviceDashboardPlusGlyph(size float32, col color.Color) fyne.CanvasObjec
 type DeviceDashboardHeaderButton struct {
 	widget.BaseWidget
 
-	text    string
-	icon    fyne.CanvasObject
-	accent  color.Color
-	onTap   func()
-	hovered bool
-	busy    bool
+	text     string
+	icon     fyne.CanvasObject
+	accent   color.Color
+	onTap    func()
+	hovered  bool
+	busy     bool
+	disabled bool
 
 	// OnHover, when set, is called with the pointer's hover state -- see
 	// DeviceToggle.OnHover's own doc comment.
@@ -587,9 +1086,23 @@ func NewDeviceDashboardHeaderButton(text string, icon fyne.CanvasObject, accent 
 }
 
 func (b *DeviceDashboardHeaderButton) Tapped(*fyne.PointEvent) {
+	if b.disabled || b.busy {
+		return
+	}
 	if b.onTap != nil {
 		b.onTap()
 	}
+}
+
+// SetEnabled greys the header pill and swallows taps -- used while a
+// mount/unmount is in flight (see DiskWidget.controlsLocked).
+func (b *DeviceDashboardHeaderButton) SetEnabled(enabled bool) {
+	disabled := !enabled
+	if b.disabled == disabled {
+		return
+	}
+	b.disabled = disabled
+	b.refreshVisuals()
 }
 
 // SetBusy darkens the button while its own action is in flight (e.g. the
@@ -607,10 +1120,16 @@ func (b *DeviceDashboardHeaderButton) SetBusy(busy bool) {
 func (b *DeviceDashboardHeaderButton) TappedSecondary(*fyne.PointEvent) {}
 
 func (b *DeviceDashboardHeaderButton) Cursor() desktop.Cursor {
+	if b.disabled {
+		return desktop.DefaultCursor
+	}
 	return desktop.PointerCursor
 }
 
 func (b *DeviceDashboardHeaderButton) MouseIn(*desktop.MouseEvent) {
+	if b.disabled {
+		return
+	}
 	b.hovered = true
 	b.refreshVisuals()
 	if b.OnHover != nil {
@@ -634,6 +1153,8 @@ func (b *DeviceDashboardHeaderButton) refreshVisuals() {
 	}
 	fill := b.accent
 	switch {
+	case b.disabled:
+		fill = deviceDashboardHeaderButtonBusyFill
 	case b.busy:
 		fill = deviceDashboardHeaderButtonBusyFill
 	case b.hovered:
@@ -791,6 +1312,18 @@ func NewDeviceDashboardUploadProgress(progressPercent float64) fyne.CanvasObject
 // videoDialogRobotSVG/videoDialogCheckmarkSVG in video_start_dialog.go).
 var deviceDashboardConnectIconSVG = fyne.NewStaticResource("device_dashboard_plug.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#4c6803" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7H18V12C18 15.3137 15.3137 18 12 18V18C8.68629 18 6 15.3137 6 12V7Z"/><line x1="15" y1="2" x2="15" y2="7"/><path d="M12 18V22"/><line x1="9" y1="2" x2="9" y2="7"/></svg>`))
 
+// deviceDashboardConnectDisabledIconSVG is the same plug on the gray
+// disabled fill -- #111111, matching the Connections Connect button's
+// own dark glyph, so the square still reads as a button instead of a
+// ghost on ColorGray900.
+var deviceDashboardConnectDisabledIconSVG = fyne.NewStaticResource("device_dashboard_plug_disabled.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7H18V12C18 15.3137 15.3137 18 12 18V18C8.68629 18 6 15.3137 6 12V7Z"/><line x1="15" y1="2" x2="15" y2="7"/><path d="M12 18V22"/><line x1="9" y1="2" x2="9" y2="7"/></svg>`))
+
+// deviceDashboardDisabledFill is the gray square Storage/Backups Connect
+// (and Disconnect) use while the dashboard is locked -- ColorSurfaceLight
+// on ColorGray900, not ColorGray900 on itself (that made the lime fill
+// vanish and left a washed-out icon).
+var deviceDashboardDisabledFill = design.ColorSurfaceLight
+
 // deviceDashboardConnectHoverFill matches the Connections table's own
 // Connect button hover fill exactly (connectHover in
 // connection_list_table.go).
@@ -825,13 +1358,14 @@ func NewDeviceDashboardDisconnectButton(onTap func(), onHover func(bool)) *iconC
 	return newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
 		HoverFill:    deviceDashboardDisconnectHoverFill,
-		DisabledFill: connectionActionBlockedFill,
+		DisabledFill: deviceDashboardDisabledFill,
 		Stroke:       design.ColorTailscaleChipBorder,
 		HoverStroke:  deviceDashboardDisconnectHoverStroke,
 		StrokeWidth:  1,
 		CornerRadius: 6,
 		NormalIcon:   deviceDashboardDisconnectIconSVG,
 		HoverIcon:    deviceDashboardDisconnectHoverIconSVG,
+		DisabledIcon: assets.ConnectIconBoldBlack,
 		IconSize:     fyne.NewSize(11, 11),
 		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     onTap,
@@ -844,19 +1378,62 @@ func NewDeviceDashboardDisconnectButton(onTap func(), onHover func(bool)) *iconC
 // NewDeviceDashboardDisconnectButton takes once the drive is actually
 // mounted (see disk_widget_dashboard.go's refreshDashboard) -- same lime
 // fill/hover/icon recipe as "Mount New ISO". Tapping it mounts the drive.
-func NewDeviceDashboardMountButton(onTap func(), onHover func(bool)) *iconChromeButton {
-	return newIconChromeButton(iconChromeButtonSpec{
+// busy darkens the lime fill to the same shade "Mount New ISO" uses while
+// its file picker is open (deviceDashboardHeaderButtonBusyFill) and
+// swallows further taps until the mount finishes.
+func NewDeviceDashboardMountButton(onTap func(), onHover func(bool), busy bool) *iconChromeButton {
+	btn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   DeviceDashboardAccentLime,
 		HoverFill:    deviceDashboardConnectHoverFill,
-		DisabledFill: connectionActionBlockedFill,
+		LoadingFill:  deviceDashboardHeaderButtonBusyFill,
+		DisabledFill: deviceDashboardDisabledFill,
 		Stroke:       color.Transparent,
 		CornerRadius: 6,
 		NormalIcon:   deviceDashboardConnectIconSVG,
+		DisabledIcon: deviceDashboardConnectDisabledIconSVG,
 		IconSize:     fyne.NewSize(11, 11),
 		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     onTap,
 		OnHover:      onHover,
 	})
+	if busy {
+		btn.SetLoading(true)
+	}
+	return btn
+}
+
+// deviceDashboardSettingsIconSVG recolors assets.ConfigVerticalIcon to
+// #c5c8b5 -- same muted fill Delete/Upload use, so the Video row's gear
+// reads as the same button family.
+var deviceDashboardSettingsIconSVG = fyne.NewStaticResource("device_dashboard_settings.svg", []byte(strings.ReplaceAll(string(assets.ConfigVerticalIcon.Content()), "#F5F5F5", "#c5c8b5")))
+
+// NewDeviceDashboardSettingsButton is NewDeviceDashboardDeleteButton's own
+// chrome with a gear glyph -- Video Pipe's "open this capture device's
+// config window" action. onHover may be nil; see DeviceToggle.OnHover.
+func NewDeviceDashboardSettingsButton(onTap func(), onHover func(bool)) *iconChromeButton {
+	return newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:   color.Transparent,
+		HoverFill:    design.ColorSurfaceLight,
+		DisabledFill: connectionActionBlockedFill,
+		Stroke:       design.ColorTailscaleChipBorder,
+		StrokeWidth:  1,
+		CornerRadius: 6,
+		NormalIcon:   deviceDashboardSettingsIconSVG,
+		IconSize:     fyne.NewSize(11, 11),
+		ButtonSize:   fyne.NewSize(23, 23),
+		OnTapped:     onTap,
+		OnHover:      onHover,
+	})
+}
+
+// DisableDashboardAction greys a dashboard chrome control (gear, delete,
+// upload, mount, disconnect) and swallows taps. Dashboard builders return
+// these as fyne.CanvasObject, so callers in other packages can't name the
+// unexported button type themselves.
+func DisableDashboardAction(obj fyne.CanvasObject, disabled bool) {
+	if b, ok := obj.(*iconChromeButton); ok {
+		b.SetDisabled(disabled)
+	}
 }
 
 // NewDeviceDashboardStorageRow is NewDeviceDashboardRow's Storage-specific
@@ -896,3 +1473,359 @@ func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, 
 	row := container.NewBorder(nil, nil, left, right)
 	return NewInsetExact(row, 0, 0, 2, 2)
 }
+
+// NewDeviceDashboardFooter is the Devices tab's own small bottom strip:
+// a lime busy spinner on the left (hidden until a mount/unmount is in
+// flight), Disconnect All plus the build version on the right, aligned
+// with the dashboard's own 18px content inset. disconnectBtn and spinner
+// may be nil.
+func NewDeviceDashboardFooter(version string, disconnectBtn, spinner fyne.CanvasObject) fyne.CanvasObject {
+	var left fyne.CanvasObject
+	if spinner != nil {
+		left = container.New(&DeviceRowControlsLayout{Gap: 0}, spinner)
+	}
+	var rightParts []fyne.CanvasObject
+	if disconnectBtn != nil {
+		rightParts = append(rightParts, disconnectBtn)
+	}
+	if v := strings.TrimSpace(version); v != "" {
+		label := canvas.NewText("v"+v, design.ColorTextMuted)
+		label.TextSize = 10
+		rightParts = append(rightParts, label)
+	}
+	var right fyne.CanvasObject
+	if len(rightParts) > 0 {
+		right = container.New(&DeviceRowControlsLayout{Gap: 12}, rightParts...)
+	}
+	if left == nil && right == nil {
+		return NewInsetExact(canvas.NewRectangle(color.Transparent), 18, 18, 4, 8)
+	}
+	return NewInsetExact(container.NewBorder(nil, nil, left, right), 18, 18, 4, 8)
+}
+
+const deviceDashboardBusySpinnerSize = float32(14)
+const deviceDashboardBusySpinnerInterval = 140 * time.Millisecond
+
+// DeviceDashboardBusySpinner is the Devices footer's lime (#c4e77a) dot
+// spinner -- shown while a gadget mount/unmount is in flight. Hidden and
+// stopped otherwise so it doesn't leave a hole in the footer.
+type DeviceDashboardBusySpinner struct {
+	widget.BaseWidget
+
+	mu     sync.Mutex
+	stop   chan struct{}
+	active bool
+	img    *canvas.Image
+}
+
+func NewDeviceDashboardBusySpinner() *DeviceDashboardBusySpinner {
+	s := &DeviceDashboardBusySpinner{}
+	s.ExtendBaseWidget(s)
+	s.Hide()
+	return s
+}
+
+func (s *DeviceDashboardBusySpinner) Start() {
+	s.mu.Lock()
+	if s.active {
+		s.mu.Unlock()
+		return
+	}
+	s.active = true
+	stop := make(chan struct{})
+	s.stop = stop
+	s.mu.Unlock()
+
+	s.Show()
+	s.Refresh()
+	frames := assets.LoadingLimeFrames
+	if s.img != nil && len(frames) > 0 {
+		s.img.Resource = frames[0]
+		s.img.Refresh()
+	}
+
+	go func() {
+		ticker := time.NewTicker(deviceDashboardBusySpinnerInterval)
+		defer ticker.Stop()
+		frame := 0
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if len(frames) == 0 {
+					continue
+				}
+				frame = (frame + 1) % len(frames)
+				res := frames[frame]
+				fyne.Do(func() {
+					s.mu.Lock()
+					active := s.active
+					s.mu.Unlock()
+					if !active || s.img == nil {
+						return
+					}
+					s.img.Resource = res
+					s.img.Refresh()
+				})
+			}
+		}
+	}()
+}
+
+func (s *DeviceDashboardBusySpinner) Stop() {
+	s.mu.Lock()
+	if !s.active {
+		s.mu.Unlock()
+		return
+	}
+	s.active = false
+	stop := s.stop
+	s.stop = nil
+	s.mu.Unlock()
+	if stop != nil {
+		close(stop)
+	}
+	s.Hide()
+	s.Refresh()
+}
+
+func (s *DeviceDashboardBusySpinner) MinSize() fyne.Size {
+	return fyne.NewSize(deviceDashboardBusySpinnerSize, deviceDashboardBusySpinnerSize)
+}
+
+func (s *DeviceDashboardBusySpinner) CreateRenderer() fyne.WidgetRenderer {
+	s.img = canvas.NewImageFromResource(nil)
+	s.img.FillMode = canvas.ImageFillContain
+	s.img.SetMinSize(fyne.NewSize(deviceDashboardBusySpinnerSize, deviceDashboardBusySpinnerSize))
+	if len(assets.LoadingLimeFrames) > 0 {
+		s.img.Resource = assets.LoadingLimeFrames[0]
+	}
+	return widget.NewSimpleRenderer(s.img)
+}
+
+// DeviceDashboardFooterTextButton is a miniature, no-chrome text action
+// for the Devices footer (Disconnect All): no fill, no padding, same 10px
+// muted type as the version tag, brightening on hover.
+type DeviceDashboardFooterTextButton struct {
+	widget.BaseWidget
+
+	text     string
+	onTap    func()
+	hovered  bool
+	disabled bool
+	lbl      *canvas.Text
+}
+
+func NewDeviceDashboardFooterTextButton(text string, onTap func()) *DeviceDashboardFooterTextButton {
+	b := &DeviceDashboardFooterTextButton{text: text, onTap: onTap}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *DeviceDashboardFooterTextButton) Tapped(*fyne.PointEvent) {
+	if b.disabled {
+		return
+	}
+	if b.onTap != nil {
+		b.onTap()
+	}
+}
+
+func (b *DeviceDashboardFooterTextButton) SetEnabled(enabled bool) {
+	disabled := !enabled
+	if b.disabled == disabled {
+		return
+	}
+	b.disabled = disabled
+	b.refreshVisuals()
+}
+
+func (b *DeviceDashboardFooterTextButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *DeviceDashboardFooterTextButton) Cursor() desktop.Cursor {
+	if b.disabled {
+		return desktop.DefaultCursor
+	}
+	return desktop.PointerCursor
+}
+
+func (b *DeviceDashboardFooterTextButton) MouseIn(*desktop.MouseEvent) {
+	if b.disabled {
+		return
+	}
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *DeviceDashboardFooterTextButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *DeviceDashboardFooterTextButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *DeviceDashboardFooterTextButton) refreshVisuals() {
+	if b.lbl == nil {
+		return
+	}
+	if b.disabled {
+		b.lbl.Color = design.ColorBorder
+	} else if b.hovered {
+		b.lbl.Color = design.ColorTextLight
+	} else {
+		b.lbl.Color = design.ColorTextMuted
+	}
+	b.lbl.Refresh()
+}
+
+func (b *DeviceDashboardFooterTextButton) CreateRenderer() fyne.WidgetRenderer {
+	b.lbl = canvas.NewText(b.text, design.ColorTextMuted)
+	b.lbl.TextSize = 10
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(b.lbl)
+}
+
+// DeviceDashboardSpaceMeter is the compact SD fill readout in the Backups
+// card header: a short teal bar plus "12/32 GB" digits, sitting to the
+// right of the title. Same turquoise/muted-text recipe as the Control
+// header's StorageProgressBar, without that chip's own icon (the card
+// title already carries the floppy).
+type DeviceDashboardSpaceMeter struct {
+	widget.BaseWidget
+
+	usedFrac float64 // 0-1
+	text     string
+	OnHover  func(bool)
+
+	track *canvas.Rectangle
+	fill  *canvas.Rectangle
+	label *canvas.Text
+}
+
+const (
+	deviceDashboardSpaceMeterBarW = float32(36)
+	deviceDashboardSpaceMeterBarH = float32(3)
+	deviceDashboardSpaceMeterGap  = float32(6)
+)
+
+func NewDeviceDashboardSpaceMeter() *DeviceDashboardSpaceMeter {
+	m := &DeviceDashboardSpaceMeter{}
+	m.ExtendBaseWidget(m)
+	m.Hide()
+	return m
+}
+
+// Set updates the fill fraction and the used/total label. An empty label
+// hides the meter so the Backups title keeps the header to itself.
+func (m *DeviceDashboardSpaceMeter) Set(usedFrac float64, sizeText string) {
+	if usedFrac < 0 {
+		usedFrac = 0
+	}
+	if usedFrac > 1 {
+		usedFrac = 1
+	}
+	m.usedFrac = usedFrac
+	m.text = strings.TrimSpace(sizeText)
+	if m.text == "" {
+		m.Hide()
+	} else {
+		m.Show()
+	}
+	m.Refresh()
+}
+
+func (m *DeviceDashboardSpaceMeter) Clear() {
+	m.Set(0, "")
+}
+
+func (m *DeviceDashboardSpaceMeter) MouseIn(*desktop.MouseEvent) {
+	if m.OnHover != nil {
+		m.OnHover(true)
+	}
+}
+
+func (m *DeviceDashboardSpaceMeter) MouseMoved(*desktop.MouseEvent) {}
+
+func (m *DeviceDashboardSpaceMeter) MouseOut() {
+	if m.OnHover != nil {
+		m.OnHover(false)
+	}
+}
+
+func (m *DeviceDashboardSpaceMeter) CreateRenderer() fyne.WidgetRenderer {
+	m.track = canvas.NewRectangle(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c})
+	m.track.CornerRadius = 2
+	m.fill = canvas.NewRectangle(design.ColorConnectionBadgeText)
+	m.fill.CornerRadius = 2
+	m.label = canvas.NewText(m.text, design.ColorStatusBarIndicatorText)
+	m.label.TextSize = 8
+	return &deviceDashboardSpaceMeterRenderer{m: m}
+}
+
+type deviceDashboardSpaceMeterRenderer struct {
+	m *DeviceDashboardSpaceMeter
+}
+
+func (r *deviceDashboardSpaceMeterRenderer) Layout(size fyne.Size) {
+	m := r.m
+	if m.track == nil || m.fill == nil || m.label == nil {
+		return
+	}
+	barY := (size.Height - deviceDashboardSpaceMeterBarH) / 2
+	if barY < 0 {
+		barY = 0
+	}
+	m.track.Move(fyne.NewPos(0, barY))
+	m.track.Resize(fyne.NewSize(deviceDashboardSpaceMeterBarW, deviceDashboardSpaceMeterBarH))
+	fillW := deviceDashboardSpaceMeterBarW * float32(m.usedFrac)
+	if fillW < 1 && m.usedFrac > 0 {
+		fillW = 1
+	}
+	m.fill.Move(fyne.NewPos(0, barY))
+	m.fill.Resize(fyne.NewSize(fillW, deviceDashboardSpaceMeterBarH))
+	labelSize := m.label.MinSize()
+	m.label.Move(fyne.NewPos(deviceDashboardSpaceMeterBarW+deviceDashboardSpaceMeterGap, (size.Height-labelSize.Height)/2))
+	m.label.Resize(labelSize)
+}
+
+func (r *deviceDashboardSpaceMeterRenderer) MinSize() fyne.Size {
+	m := r.m
+	if m.text == "" {
+		return fyne.NewSize(0, 0)
+	}
+	measure := canvas.NewText(m.text, design.ColorStatusBarIndicatorText)
+	measure.TextSize = 8
+	tw := measure.MinSize()
+	h := tw.Height
+	if h < deviceDashboardSpaceMeterBarH {
+		h = deviceDashboardSpaceMeterBarH
+	}
+	return fyne.NewSize(deviceDashboardSpaceMeterBarW+deviceDashboardSpaceMeterGap+tw.Width, h)
+}
+
+func (r *deviceDashboardSpaceMeterRenderer) Refresh() {
+	m := r.m
+	if m.label != nil {
+		m.label.Text = m.text
+		m.label.Color = design.ColorStatusBarIndicatorText
+		m.label.Refresh()
+	}
+	if m.track != nil {
+		m.track.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c}
+		m.track.Refresh()
+	}
+	if m.fill != nil {
+		m.fill.FillColor = design.ColorConnectionBadgeText
+		m.fill.Refresh()
+	}
+	r.Layout(m.Size())
+	canvas.Refresh(m)
+}
+
+func (r *deviceDashboardSpaceMeterRenderer) Objects() []fyne.CanvasObject {
+	m := r.m
+	return []fyne.CanvasObject{m.track, m.fill, m.label}
+}
+
+func (r *deviceDashboardSpaceMeterRenderer) Destroy() {}
