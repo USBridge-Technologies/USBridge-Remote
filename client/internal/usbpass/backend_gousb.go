@@ -687,6 +687,7 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 			// as its own URB; keep the cycle open for it.
 			cycleDone = false
 			b.lastCBWTransfer += uint32(n)
+			logrus.Debugf("usbpass: IN data phase returned %d bytes", n)
 		}
 		// Short reads are valid (ZLP / short packet); return what we got.
 		return 0, buf[:n]
