@@ -635,27 +635,33 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 		if n > length {
 			n = length
 		}
-		if err != nil && n == 0 {
-			logrus.Debugf("usbpass: bulk IN ep=%d len=%d: %v", num, length, err)
-			if recoverable(err) {
-				// STALL, or our own timeout with no UNLINK yet — clear halt
-				// (see clearEndpointHalt) and retry once, with a fresh 15s
-				// window, instead of bubbling an error up to Windows, which
-				// would otherwise abort the whole SCSI command over what a
-				// real device recovers from routinely.
+		if err != nil {
+			if n > 0 && isStall(err) {
+				logrus.Debugf("usbpass: bulk IN ep=%d len=%d short read (%d bytes) with STALL, clearing halt immediately", num, length, n)
 				b.clearEndpointHalt(uint8(fullAddr))
-				retryCtx, retryCancel := freshCtx()
-				n, err = inep.ReadContext(retryCtx, buf)
-				retryCancel()
-				if n > length {
-					n = length
-				}
-				if err != nil && n == 0 {
-					logrus.Debugf("usbpass: bulk IN ep=%d len=%d after clear-halt retry: %v", num, length, err)
+				err = nil
+			} else if n == 0 {
+				logrus.Debugf("usbpass: bulk IN ep=%d len=%d: %v", num, length, err)
+				if recoverable(err) {
+					// STALL, or our own timeout with no UNLINK yet - clear halt
+					// (see clearEndpointHalt) and retry once, with a fresh 15s
+					// window, instead of bubbling an error up to Windows, which
+					// would otherwise abort the whole SCSI command over what a
+					// real device recovers from routinely.
+					b.clearEndpointHalt(uint8(fullAddr))
+					retryCtx, retryCancel := freshCtx()
+					n, err = inep.ReadContext(retryCtx, buf)
+					retryCancel()
+					if n > length {
+						n = length
+					}
+					if err != nil && n == 0 {
+						logrus.Debugf("usbpass: bulk IN ep=%d len=%d after clear-halt retry: %v", num, length, err)
+						return errnoEPIPE, nil
+					}
+				} else {
 					return errnoEPIPE, nil
 				}
-			} else {
-				return errnoEPIPE, nil
 			}
 		}
 		// A CSW is exactly 13 bytes, signature "USBS" at offset 0, status
