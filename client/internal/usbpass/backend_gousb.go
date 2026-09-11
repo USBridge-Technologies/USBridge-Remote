@@ -686,6 +686,13 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 			// A data-in phase, not the CSW — the CSW read is still to come
 			// as its own URB; keep the cycle open for it.
 			cycleDone = false
+			if uint32(n) < b.lastCBWDatalen {
+				logrus.Debugf("usbpass: padding IN data from %d to %d to workaround usbip-win bug", n, b.lastCBWDatalen)
+				padded := make([]byte, b.lastCBWDatalen)
+				copy(padded, buf[:n])
+				b.lastCBWTransfer += b.lastCBWDatalen
+				return 0, padded
+			}
 			b.lastCBWTransfer += uint32(n)
 			logrus.Debugf("usbpass: IN data phase returned %d bytes", n)
 		}
