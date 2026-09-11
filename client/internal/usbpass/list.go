@@ -1,5 +1,9 @@
-// Package usbpass: thin GPLv3 shell around closed rust-shine usb-broker
-// plus an in-process USB/IP v1.1.1 export server (no external usbipd-win).
+// Package usbpass: in-process USB/IP v1.1.1 export server (no external
+// usbipd-win) plus a pure-Go AES-GCM client for the closed rust-shine
+// agent's control plane (see usbaes_attach.go). The only remaining use of
+// the closed usbridge-usb-broker binary is as an optional --list fallback
+// on platforms without native enumeration (see listViaBroker below);
+// Attach/StopAttach no longer spawn or depend on it at all.
 package usbpass
 
 import (
@@ -12,9 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 
-	"github.com/sirupsen/logrus"
 	"usbridge-client/internal/models"
 )
 
@@ -138,87 +140,16 @@ func StableUSBIPBusID(instanceID string) string {
 	return strconv.FormatUint(uint64(bus), 10) + "-" + strconv.FormatUint(uint64(port), 10)
 }
 
-// AttachOptions configures the closed rust-shine AES client (USB/IP client
-// lives on the agent; this process only tells it where our Go export listens).
+// AttachOptions configures the AES attach to the agent's control plane.
+// Attach/StopAttach live in usbaes_attach.go (Go, linux/windows) or
+// usbaes_attach_stub.go (everywhere else) — see those files.
 type AttachOptions struct {
-	AgentAddr     string
-	Secret        string
-	InstanceID    string // Windows SetupAPI id for --bus-id
-	USBIPBusID    string // Linux-style id advertised by our export server
-	ExportService string // default 3240
-	AllowUnlicensed bool
-}
-
-var (
-	attachMu   sync.Mutex
-	attachCmd  *exec.Cmd
-)
-
-// Attach starts rust-shine --role client in the background and returns once
-// the process has started. The broker stays up for the life of the session;
-// StopAttach / StopSession kill it. (Blocking on cmd.Run kept the Devices
-// UI locked in beginOperation for the entire passthrough lifetime.)
-func Attach(opts AttachOptions) error {
-	exe := ResolveBroker()
-	if exe == "" {
-		return fmt.Errorf("usbridge-usb-broker not staged next to the client (needed for AES attach to the Windows agent VHCI)")
-	}
-	if opts.ExportService == "" {
-		opts.ExportService = "3240"
-	}
-	if opts.USBIPBusID == "" {
-		opts.USBIPBusID = StableUSBIPBusID(opts.InstanceID)
-	}
-	// Drop any previous attach (tracked + orphans) before starting a new one.
-	StopAttach()
-	args := []string{
-		"--role", "client",
-		"--agent-addr", opts.AgentAddr,
-		"--secret", opts.Secret,
-		"--bus-id", opts.InstanceID,
-		"--usbip-bus-id", opts.USBIPBusID,
-		"--export-service", opts.ExportService,
-		// export_host empty → agent uses AES peer IP (Direct/Tailscale).
-	}
-	if opts.AllowUnlicensed {
-		args = append(args, "--allow-unlicensed")
-	}
-	cmd := exec.Command(exe, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	setAttachProcAttr(cmd)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start usb-broker client: %w", err)
-	}
-	attachMu.Lock()
-	attachCmd = cmd
-	attachMu.Unlock()
-	go func() {
-		err := cmd.Wait()
-		attachMu.Lock()
-		if attachCmd == cmd {
-			attachCmd = nil
-		}
-		attachMu.Unlock()
-		if err != nil {
-			logrus.Warnf("usbpass: broker client exited: %v", err)
-		} else {
-			logrus.Infof("usbpass: broker client exited")
-		}
-	}()
-	logrus.Infof("usbpass: broker client started pid=%d agent=%s bus=%s usbip=%s",
-		cmd.Process.Pid, opts.AgentAddr, opts.InstanceID, opts.USBIPBusID)
-	return nil
-}
-
-// StopAttach kills a running rust client attach process (and orphans).
-func StopAttach() {
-	attachMu.Lock()
-	cmd := attachCmd
-	attachCmd = nil
-	attachMu.Unlock()
-	if cmd != nil && cmd.Process != nil {
-		killAttachProcess(cmd.Process)
-	}
-	killOrphanClientBrokers()
+	AgentAddr       string
+	Secret          string
+	InstanceID      string // Windows SetupAPI id (used to derive USBIPBusID if unset)
+	USBIPBusID      string // Linux-style id advertised by our export server
+	VID             string // hex, e.g. "0781" — from models.USBPassthroughDevice
+	PID             string // hex, e.g. "55A9"
+	ExportService   string // default 3240
+	AllowUnlicensed bool   // unused client-side: the entitlement gate is on the agent
 }
