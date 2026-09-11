@@ -17,6 +17,9 @@ func (bw *BackupWidget) createInterface() {
 
 func (bw *BackupWidget) snapshotsSectionData() view.SnapshotsSectionData {
 	if !isUSBridgeAgentOS(bw.agentOS) && bw.usbClient != nil {
+		if bw.ui != nil {
+			bw.ui.SetBusy(false)
+		}
 		return view.SnapshotsSectionData{
 			SnapshotCount: 0,
 			MountLabel:    "Mount backup flash",
@@ -27,6 +30,9 @@ func (bw *BackupWidget) snapshotsSectionData() view.SnapshotsSectionData {
 	}
 
 	mounting := bw.isMounting.Load()
+	if bw.ui != nil {
+		bw.ui.SetBusy(mounting)
+	}
 	data := view.SnapshotsSectionData{
 		SnapshotCount: len(bw.snapshots),
 		MountLabel:    "Mount backup flash",
@@ -50,7 +56,6 @@ func (bw *BackupWidget) snapshotsSectionData() view.SnapshotsSectionData {
 		}
 		rows = append(rows, view.SnapshotTableRow{
 			Title:          title,
-			Subtitle:       snap.Name,
 			Size:           snap.DisplaySize(),
 			Mounted:        snap.Connected,
 			OnInfo:         func() { bw.showSnapshotDetails(snap) },

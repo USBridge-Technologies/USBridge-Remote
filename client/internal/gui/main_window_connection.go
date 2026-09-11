@@ -973,65 +973,74 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.connectionLossInProgress.Store(false)
 	mw.appState.LastDisconnected = time.Now()
 
-	// 2. Immediately update the UI (go back to the login screen)
-	fyne.Do(func() {
-		mw.showConnectionManager()
-		if mw.mainExitBtn != nil {
-			mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
-				Fill:            design.ColorExitButtonFill,
-				Foreground:      design.ColorExitButtonText,
-				Stroke:          design.ColorExitButtonBorder,
-				StrokeWidth:     1.2,
-				Icon:            assets.ExitIcon,
-				IconSize:        fyne.NewSize(12, 12),
-				HoverFill:       design.ColorExitButtonHoverFill,
-				HoverStroke:     design.ColorExitButtonHoverBorder,
-				HoverForeground: design.ColorExitButtonHoverText,
-				HoverIcon:       assets.ExitIconHover,
-			})
-		}
+	closing := mw.isClosing.Load()
 
-		if mw.diskWidget != nil {
-			mw.diskWidget.UpdateClient(nil)
-		}
-		if video != nil {
-			video.UpdateClient(nil)
-		}
-		if backup != nil {
-			backup.UpdateClient(nil)
-		}
+	// 2. Immediately update the UI (go back to the login screen).
+	// Skip this on app shutdown -- rebuilding the connection manager
+	// queues fyne.Do work into a main loop that is about to Quit, which
+	// can freeze the process after "quitting app".
+	if !closing {
+		fyne.Do(func() {
+			mw.showConnectionManager()
+			if mw.mainExitBtn != nil {
+				mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
+					Fill:            design.ColorExitButtonFill,
+					Foreground:      design.ColorExitButtonText,
+					Stroke:          design.ColorExitButtonBorder,
+					StrokeWidth:     1.2,
+					Icon:            assets.ExitIcon,
+					IconSize:        fyne.NewSize(12, 12),
+					HoverFill:       design.ColorExitButtonHoverFill,
+					HoverStroke:     design.ColorExitButtonHoverBorder,
+					HoverForeground: design.ColorExitButtonHoverText,
+					HoverIcon:       assets.ExitIconHover,
+				})
+			}
 
-		mw.usbClient = nil
+			if mw.diskWidget != nil {
+				mw.diskWidget.UpdateClient(nil)
+			}
+			if video != nil {
+				video.UpdateClient(nil)
+			}
+			if backup != nil {
+				backup.UpdateClient(nil)
+			}
 
-		mw.clearConnectionPending()
-		mw.refreshConnectionControls()
+			mw.usbClient = nil
 
-		if mw.pcpanelWidget != nil {
-			mw.pcpanelWidget.SetClient(nil)
-		}
-		if mw.scriptsWidget != nil {
-			mw.scriptsWidget.SetClient(nil)
-		}
+			mw.clearConnectionPending()
+			mw.refreshConnectionControls()
 
-		mw.updateStatus()
-		mw.config.VideoBindHost = "127.0.0.1"
+			if mw.pcpanelWidget != nil {
+				mw.pcpanelWidget.SetClient(nil)
+			}
+			if mw.scriptsWidget != nil {
+				mw.scriptsWidget.SetClient(nil)
+			}
 
-		if !mw.isClosing.Load() {
+			mw.updateStatus()
+			mw.config.VideoBindHost = "127.0.0.1"
+
 			mw.hostEntry.Enable()
 			mw.tokenEntry.Enable()
 			mw.protocolSelect.Enable()
-		}
 
-		mw.updateStatusBar()
-	})
+			mw.updateStatusBar()
+		})
+	} else {
+		mw.usbClient = nil
+	}
 
 	// 3. Do the heavy lifting in the BACKGROUND
+	done := make(chan struct{})
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				logrus.Errorf("🔥 PANIC in background disconnect cleanup: %v", r)
 			}
 			logrus.Info("✅ [shutdown] Background disconnect cleanup complete")
+			close(done)
 		}()
 
 		logrus.Info("⏳ [shutdown] Background cleanup starting...")
@@ -1077,6 +1086,14 @@ func (mw *MainWindow) handleDisconnect() {
 			diskWidget.StopUSBPassthrough()
 		}
 	}()
+
+	if closing {
+		select {
+		case <-done:
+		case <-time.After(8 * time.Second):
+			logrus.Warn("[shutdown] background disconnect cleanup timed out")
+		}
+	}
 }
 
 // handleRefresh handles a refresh

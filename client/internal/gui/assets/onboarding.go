@@ -297,6 +297,7 @@ var (
 	ConnectIconMuted           = fyne.NewStaticResource("connect-svgrepo-com-muted.svg", recolorFillIcon(connectIcon, "#8E8E8E"))
 	PowerOffFillRoundIcon      = fyne.NewStaticResource("Power-Off-Fill--Streamline-Rounded-Fill-Material-Symbols.svg", recolorFillIcon(powerOffFillIcon, "#F5F5F5"))
 	PowerOffFillRoundIconMuted = fyne.NewStaticResource("Power-Off-Fill--Streamline-Rounded-Fill-Material-Symbols-muted.svg", recolorFillIcon(powerOffFillIcon, "#8E8E8E"))
+	PowerOffFillRoundIconBlack = fyne.NewStaticResource("Power-Off-Fill--Streamline-Rounded-Fill-Material-Symbols-black.svg", recolorFillIcon(powerOffFillIcon, "#111111"))
 	ExitIcon                   = fyne.NewStaticResource("exit-svgrepo-com.svg", recolorStrokeIcon(exitIcon, "#e0e3e7", "2"))
 	ExitIconHover              = fyne.NewStaticResource("exit-svgrepo-com-hover.svg", recolorStrokeIcon(exitIcon, "#f46e81", "2"))
 	PowerOffIcon               = fyne.NewStaticResource("off.svg", recolorFillIcon(powerOffIcon, "#F5F5F5"))

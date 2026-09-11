@@ -202,7 +202,23 @@ func (mw *MainWindow) handleClose() {
 			mw.handleDisconnect()
 		}
 
+		if mw.backupWidget != nil {
+			mw.backupWidget.Shutdown()
+		}
+		if mw.diskWidget != nil {
+			mw.diskWidget.Shutdown()
+		}
+
 		fyne.Do(func() {
+			// CloseIntercept must be cleared before Quit/Close: Fyne's
+			// Quit closes windows by going through this intercept, and
+			// handleClose already consumed the first close (and returns
+			// immediately on re-entry via shutdownInProgress). Leaving
+			// the intercept in place meant Quit waited forever for a
+			// window that never actually closed.
+			if mw.window != nil {
+				mw.window.SetCloseIntercept(nil)
+			}
 			if mw.app != nil {
 				logrus.Info("[shutdown] handleClose: quitting app")
 				mw.app.Quit()
@@ -210,7 +226,6 @@ func (mw *MainWindow) handleClose() {
 			}
 
 			logrus.Info("[shutdown] handleClose: closing window")
-			mw.window.SetCloseIntercept(nil)
 			mw.window.Close()
 		})
 	})

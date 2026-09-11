@@ -148,6 +148,10 @@ type DiskWidget struct {
 	imagePickerInFlight   atomic.Bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
+	isClosing      atomic.Bool
+
+	refreshStop     chan struct{}
+	stopRefreshOnce sync.Once
 
 	refreshMu          sync.Mutex
 	lastDevicesRefresh time.Time
@@ -287,6 +291,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		safHelper:             platform.GetSAFHelper(app),
 		rowsCache:             make(map[string]fyne.CanvasObject),
 		cardsCache:            make(map[string]fyne.CanvasObject),
+		refreshStop:           make(chan struct{}),
 	}
 
 	if runtime.GOOS == "android" && dw.safHelper != nil {
@@ -931,6 +936,9 @@ func (dw *DiskWidget) setMountingStateByExportNames(exportNames map[string]bool,
 
 // updateUIAsync safely updates the UI from a goroutine
 func (dw *DiskWidget) updateUIAsync(updateFunc func()) {
+	if dw.isClosing.Load() {
+		return
+	}
 	fyne.Do(updateFunc)
 }
 

@@ -7,18 +7,26 @@ import (
 )
 
 // BackupWidgetUI is the Snapshots tab: a connections-style header + table
-// (see NewSnapshotsSection). Refresh() rebuilds that section from the
-// controller's onRebuild callback.
+// (see NewSnapshotsSection) above the same Devices footer (busy spinner
+// on the left, build version on the right). Refresh() rebuilds the
+// section from the controller's onRebuild callback; the footer persists.
 type BackupWidgetUI struct {
 	Container   *fyne.Container
 	StatusLabel *widget.Label
+	BusySpinner *DeviceDashboardBusySpinner
 
+	body      *fyne.Container
 	onRebuild func()
 }
 
 func NewBackupWidgetUI() *BackupWidgetUI {
+	spinner := NewDeviceDashboardBusySpinner()
+	body := container.NewMax()
+	footer := NewDeviceDashboardFooter(AppVersion(), nil, spinner)
 	return &BackupWidgetUI{
-		Container:   container.NewMax(),
+		Container:   container.NewBorder(nil, footer, nil, nil, body),
+		body:        body,
+		BusySpinner: spinner,
 		StatusLabel: widget.NewLabel(""),
 	}
 }
@@ -31,15 +39,26 @@ func (ui *BackupWidgetUI) SetOnRebuild(fn func()) {
 }
 
 func (ui *BackupWidgetUI) SetSection(section fyne.CanvasObject) {
-	if ui == nil || ui.Container == nil {
+	if ui == nil || ui.body == nil {
 		return
 	}
 	if section == nil {
-		ui.Container.Objects = nil
+		ui.body.Objects = nil
 	} else {
-		ui.Container.Objects = []fyne.CanvasObject{section}
+		ui.body.Objects = []fyne.CanvasObject{section}
 	}
-	ui.Container.Refresh()
+	ui.body.Refresh()
+}
+
+func (ui *BackupWidgetUI) SetBusy(busy bool) {
+	if ui == nil || ui.BusySpinner == nil {
+		return
+	}
+	if busy {
+		ui.BusySpinner.Start()
+		return
+	}
+	ui.BusySpinner.Stop()
 }
 
 func (ui *BackupWidgetUI) Refresh() {

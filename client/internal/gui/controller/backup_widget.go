@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/view"
@@ -32,6 +33,8 @@ type BackupWidget struct {
 	hostEntry             *widget.Entry
 	updateStatus          func() // Callback for status update
 	isClosing             atomic.Bool
+	refreshStop           chan struct{}
+	stopRefreshOnce       sync.Once
 }
 
 // NewBackupWidget creates a new backup widget
@@ -42,6 +45,7 @@ func NewBackupWidget(usbClient *api.USBClient, hostEntry *widget.Entry, updateSt
 		snapshots:    make([]*models.SnapshotInfo, 0),
 		currentFlash: nil,
 		updateStatus: updateStatus,
+		refreshStop:  make(chan struct{}),
 	}
 
 	bw.createInterface()
@@ -54,6 +58,17 @@ func NewBackupWidget(usbClient *api.USBClient, hostEntry *widget.Entry, updateSt
 
 func (bw *BackupWidget) Close() {
 	bw.isClosing.Store(true)
+}
+
+// Shutdown stops the snapshot poller for real app exit. Close() only pauses
+// it across a disconnect/reconnect cycle (see startPeriodicRefresh).
+func (bw *BackupWidget) Shutdown() {
+	bw.isClosing.Store(true)
+	bw.stopRefreshOnce.Do(func() {
+		if bw.refreshStop != nil {
+			close(bw.refreshStop)
+		}
+	})
 }
 
 // SetWindow sets the window for dialogs
@@ -101,7 +116,9 @@ func (bw *BackupWidget) GetISODirectory() string {
 
 // updateUIAsync safely updates UI from a goroutine
 func (bw *BackupWidget) updateUIAsync(updateFunc func()) {
-	// In Fyne we use fyne.Do to update UI from goroutines
+	if bw.isClosing.Load() {
+		return
+	}
 	fyne.Do(updateFunc)
 }
 

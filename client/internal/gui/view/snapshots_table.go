@@ -18,7 +18,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 )
 
-const snapshotsHeaderSubtitle = "Backup flash and restore points from this KVM."
+const snapshotsHeaderSubtitle = "Immutable restore points of your data. Mount one without changing the original."
 
 var (
 	snapshotListColumnLabels = []string{"NAME", "SIZE", "", "STATE", "ACTIONS"}
@@ -32,7 +32,6 @@ var (
 // SnapshotTableRow is one restore-point row in NewSnapshotsListTable.
 type SnapshotTableRow struct {
 	Title          string
-	Subtitle       string
 	Size           string
 	Mounted        bool
 	OnInfo         func()
@@ -163,7 +162,8 @@ func newSnapshotsMountButton(data SnapshotsSectionData) *iconChromeButton {
 		spec.NormalIcon = assets.PowerOffFillRoundIcon
 		spec.HoverIcon = assets.PowerOffFillRoundIcon
 		spec.IconSize = fyne.NewSize(12, 12)
-		spec.LoadingIcon = assets.PowerOffFillRoundIcon
+		spec.LoadingIcon = assets.PowerOffFillRoundIconBlack
+		spec.LoadingLabelColor = color.Black
 	}
 
 	btn := newIconChromeButton(spec)
@@ -213,7 +213,7 @@ func newSnapshotsEmptyRow(widths []float32) fyne.CanvasObject {
 }
 
 func newSnapshotListRow(row SnapshotTableRow, widths []float32) fyne.CanvasObject {
-	nameCell := newSnapshotListNameCell(row.Title, row.Subtitle, row.Mounted)
+	nameCell := newSnapshotListNameCell(row.Title, row.Mounted)
 	sizeCell := newSnapshotListSizeCell(row.Size)
 	gap := canvas.NewRectangle(color.Transparent)
 	stateCell := container.NewCenter(newSnapshotListStateCell(row.Mounted))
@@ -222,20 +222,12 @@ func newSnapshotListRow(row SnapshotTableRow, widths []float32) fyne.CanvasObjec
 		nameCell, sizeCell, gap, stateCell, actionsCell)
 }
 
-func newSnapshotListNameCell(title, subtitle string, mounted bool) fyne.CanvasObject {
+func newSnapshotListNameCell(title string, mounted bool) fyne.CanvasObject {
 	titleColor := color.Color(design.ColorTextLight)
-	subColor := addConnectionCardMutedColor
 	if mounted {
 		titleColor = DeviceDashboardAccentLime
-		subColor = DeviceDashboardAccentLime
 	}
-	nameText := NewBrandText(title, 11, titleColor, true)
-	if subtitle == "" {
-		return nameText
-	}
-	sub := canvas.NewText(subtitle, subColor)
-	sub.TextSize = 9
-	return container.New(&tightStatsVBoxLayout{Gap: 2}, nameText, sub)
+	return NewBrandText(title, 11, titleColor, true)
 }
 
 func newSnapshotListSizeCell(size string) fyne.CanvasObject {
@@ -280,7 +272,25 @@ func newSnapshotListActionsCell(row SnapshotTableRow) fyne.CanvasObject {
 	})
 
 	if row.Mounted {
-		disconnectBtn := NewDeviceDashboardDisconnectButton(row.OnDisconnect, nil)
+		disconnectBtn := newIconChromeButton(iconChromeButtonSpec{
+			NormalFill:         color.Transparent,
+			HoverFill:          deviceDashboardDisconnectHoverFill,
+			DisabledFill:       deviceDashboardDisabledFill,
+			Stroke:             design.ColorTailscaleChipBorder,
+			HoverStroke:        deviceDashboardDisconnectHoverStroke,
+			StrokeWidth:        1,
+			CornerRadius:       6,
+			NormalIcon:         deviceDashboardDisconnectIconSVG,
+			HoverIcon:          deviceDashboardDisconnectHoverIconSVG,
+			DisabledIcon:       assets.ConnectIconBoldBlack,
+			IconSize:           fyne.NewSize(11, 11),
+			ButtonSize:         fyne.NewSize(23, 23),
+			OnTapped:           row.OnDisconnect,
+			LoadingFill:        connectLoadingFill,
+			LoadingIcon:        assets.ConnectIconBoldBlack,
+			LoadingLabelColor:  color.Black,
+			MuteDisabledVisual: true,
+		})
 		disconnectBtn.SetDisabled(!row.ConnectEnabled)
 		disconnectBtn.SetLoading(row.ConnectLoading)
 		return container.New(&DeviceRowControlsLayout{Gap: 6}, infoBtn, disconnectBtn)

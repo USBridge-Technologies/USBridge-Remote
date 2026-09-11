@@ -180,6 +180,8 @@ func (bw *BackupWidget) startPeriodicRefresh() {
 
 		for {
 			select {
+			case <-bw.refreshStop:
+				return
 			case <-ticker.C:
 				// isClosing is a *temporary* pause flag here, not real
 				// teardown -- Close() is called on every disconnect
@@ -195,6 +197,8 @@ func (bw *BackupWidget) startPeriodicRefresh() {
 				// i.e. only right after a reconnect (found 2026-09-02).
 				// Skip the tick instead of exiting; loadCurrentFlash()/
 				// loadSnapshots() already no-op correctly while closing.
+				// App exit uses Shutdown() to close refreshStop so this
+				// loop actually returns.
 				if bw.isClosing.Load() {
 					continue
 				}

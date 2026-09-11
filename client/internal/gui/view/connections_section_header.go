@@ -314,10 +314,16 @@ func (b *connectionSortBadge) Tapped(*fyne.PointEvent) {
 func (b *connectionSortBadge) TappedSecondary(*fyne.PointEvent) {}
 
 func (b *connectionSortBadge) Cursor() desktop.Cursor {
+	if b.onTapped == nil {
+		return desktop.DefaultCursor
+	}
 	return desktop.PointerCursor
 }
 
 func (b *connectionSortBadge) MouseIn(*desktop.MouseEvent) {
+	if b.onTapped == nil {
+		return
+	}
 	b.hovered = true
 	b.refreshVisuals()
 }

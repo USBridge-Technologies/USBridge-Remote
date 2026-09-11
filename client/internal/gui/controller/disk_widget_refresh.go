@@ -117,10 +117,27 @@ func (dw *DiskWidget) startPeriodicRefresh() {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			dw.loadLocalDrives()
-			dw.loadMountedDevices()
-			dw.loadUSBPassthroughDevices()
+		for {
+			select {
+			case <-dw.refreshStop:
+				return
+			case <-ticker.C:
+				if dw.isClosing.Load() {
+					continue
+				}
+				dw.loadLocalDrives()
+				dw.loadMountedDevices()
+				dw.loadUSBPassthroughDevices()
+			}
 		}
 	}()
+}
+
+func (dw *DiskWidget) Shutdown() {
+	dw.isClosing.Store(true)
+	dw.stopRefreshOnce.Do(func() {
+		if dw.refreshStop != nil {
+			close(dw.refreshStop)
+		}
+	})
 }

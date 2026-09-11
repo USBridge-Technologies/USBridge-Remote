@@ -440,6 +440,11 @@ func (bw *BackupWidget) finishMountRefresh() {
 	logrus.Info("⏳ Waiting for device list update (2 seconds)...")
 	time.Sleep(2 * time.Second)
 
+	if bw.isClosing.Load() {
+		bw.isMounting.Store(false)
+		return
+	}
+
 	bw.isMounting.Store(false)
 	bw.loadCurrentFlash()
 	bw.loadSnapshots()
