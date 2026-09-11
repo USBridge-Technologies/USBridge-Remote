@@ -271,7 +271,7 @@ func newConnectionListHeaderRow(labels []string, widths []float32) fyne.CanvasOb
 		t.TextStyle.Monospace = true
 
 		switch l {
-		case "OS", "STATE":
+		case "OS", "STATE", "SOURCE":
 			t.Alignment = fyne.TextAlignCenter
 		case "ROUTE BRIDGE", "ACTIONS":
 			t.Alignment = fyne.TextAlignTrailing

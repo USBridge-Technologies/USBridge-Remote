@@ -192,6 +192,11 @@ func (mw *MainWindow) handleClose() {
 			return
 		}
 
+		if mw.scriptsWidget != nil {
+			logrus.Info("[shutdown] handleClose: stopping scripts widget")
+			mw.scriptsWidget.Shutdown()
+		}
+
 		needsDisconnect := mw.isConnected ||
 			mw.usbClient != nil ||
 			(mw.videoWidget != nil && mw.videoWidget.IsStreaming()) ||
