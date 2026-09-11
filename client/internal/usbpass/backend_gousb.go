@@ -697,8 +697,9 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 	// SCSI command instead of just an endpoint/length pair.
 	if len(outData) == 31 && outData[0] == 'U' && outData[1] == 'S' && outData[2] == 'B' && outData[3] == 'C' {
 		opcode := outData[15]
-		logrus.Debugf("usbpass: CBW opcode=%#02x cdblen=%d datalen=%d dir=%s",
-			opcode, outData[14], binary.LittleEndian.Uint32(outData[8:12]), map[bool]string{true: "in", false: "out"}[outData[12]&0x80 != 0])
+		lba := binary.BigEndian.Uint32(outData[17:21])
+		logrus.Debugf("usbpass: CBW opcode=%#02x lba=%#x cdblen=%d datalen=%d dir=%s",
+			opcode, lba, outData[14], binary.LittleEndian.Uint32(outData[8:12]), map[bool]string{true: "in", false: "out"}[outData[12]&0x80 != 0])
 		// A new CBW conclusively ends the previous command's cycle, whether
 		// or not the host actually read back a short-circuited command's
 		// data/CSW phases (confirmed live: it doesn't always) — leaving
