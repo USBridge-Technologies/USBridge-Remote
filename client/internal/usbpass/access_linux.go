@@ -22,8 +22,18 @@ const (
 // Same shape as the agent's uinput rule: scoped GROUP+MODE=0660 (not world
 // writable), plus TAG+=uaccess so an interactive desktop session gets an
 // immediate logind ACL without waiting for the next login to pick up the
-// new supplementary group.
-const usbRuleContent = `SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", GROUP="` + usbGroupName + `", MODE="0660", TAG+="uaccess"` + "\n"
+// new supplementary group. ATTR{power/control}="on" disables USB
+// autosuspend/LPM for every usb_device node it matches — root hubs
+// included, since they enumerate as usb_device too. Confirmed live this is
+// necessary, not cosmetic: with the (kernel-default) root hub power/control
+// left at "auto", real writes to a real flash drive's bulk-OUT endpoint
+// hung for the full 15s timeout on a live USB2 port even though bulk-IN
+// reads and control transfers on the exact same device stayed perfectly
+// reliable — an asymmetry that matches a link-power transition the host
+// controller mishandles specifically for OUT tokens, not a failing device
+// (setting it explicitly on the root hub made 25/25 real writes succeed
+// where they'd previously stalled almost immediately).
+const usbRuleContent = `SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", GROUP="` + usbGroupName + `", MODE="0660", TAG+="uaccess", ATTR{power/control}="on"` + "\n"
 
 var lastUSBAccessErr string
 

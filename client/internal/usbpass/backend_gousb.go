@@ -124,6 +124,7 @@ func TryClaimGousb(dev *ExportedDevice) error {
 		altNum:     uint8(alt),
 		busnum:     uint32(d.Desc.Bus),
 		devnum:     uint32(d.Desc.Address),
+		bulkSem:    make(chan struct{}, 1),
 	}
 	// A stick can be left with a stale host-side endpoint-halt state from a
 	// previous session (crash, unclean client exit, or a prior STALL whose
@@ -236,6 +237,38 @@ type gousbBackend struct {
 	shortCircuit     bool
 	shortCircuitTag  [4]byte
 	shortCircuitXfer uint32
+
+	// bulkSem is a size-1 semaphore serializing the CBW/data/CSW steps of
+	// Bulk-Only Transport across the whole device: BOT is strictly one
+	// command in flight at a time on a given bulk pipe (the device has one
+	// pending-CBW slot, not a queue), but server.go's serveURBs dispatches
+	// each CMD_SUBMIT in its own goroutine to keep CMD_UNLINK responsive,
+	// and a real client (confirmed live against Windows' usbip-win2 VHCI)
+	// pipelines URBs — the next CBW can arrive before the previous one's
+	// CSW came back. Without this, two BOT cycles' phases interleave on the
+	// wire (confirmed live: a WRITE(10) CBW and a READ(10) CBW logged
+	// within the same millisecond, no CSW between them), which desyncs the
+	// device's own CBW/CSW state machine and was the actual cause of the
+	// STALL storms this file's other recovery logic was fighting — not
+	// hardware wear. A channel-based semaphore (not sync.Mutex) so a queued
+	// call can still abandon waiting the moment CMD_UNLINK cancels its ctx.
+	bulkSem chan struct{}
+}
+
+// acquireBulk serializes entry into the BOT command cycle; see bulkSem.
+// Returns false if ctx was cancelled before a turn was granted (the URB was
+// unlinked while still queued — nothing was sent to the device for it).
+func (b *gousbBackend) acquireBulk(ctx context.Context) bool {
+	select {
+	case b.bulkSem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (b *gousbBackend) releaseBulk() {
+	<-b.bulkSem
 }
 
 // clearEndpointHalt clears both the device-side STALL and the host
@@ -272,7 +305,8 @@ func (b *gousbBackend) clearEndpointHalt(ep uint8) {
 	}
 }
 
-func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte) {
+func (b *gousbBackend) HandleControl(ctx context.Context, setup [8]byte, wLength int) (int32, []byte) {
+	_ = ctx // control transfers use gousb's own fixed ControlTimeout; only bulk is UNLINK-cancellable (see HandleBulk)
 	bm := setup[0]
 	req := setup[1]
 	wValue := binary.LittleEndian.Uint16(setup[2:4])
@@ -377,14 +411,61 @@ func isStall(err error) bool {
 	return errors.Is(err, gousb.TransferStall) || errors.Is(err, gousb.ErrorPipe)
 }
 
-func (b *gousbBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []byte) (int32, []byte) {
+// isCancelled reports whether err is gousb's TransferCancelled — what
+// ReadContext/WriteContext return whenever their ctx is Done, regardless of
+// *why* (our own local WithTimeout expiring, or the caller's ctx being
+// cancelled because CMD_UNLINK arrived). ctx.Err() is what distinguishes
+// those two cases (see the two call sites below): DeadlineExceeded is us,
+// worth a recovery retry; Canceled is the caller's, meaning Windows already
+// gave up on this exact URB and a retry would just be racing a RET_UNLINK
+// that already went out.
+func isCancelled(err error) bool {
+	if err == nil {
+		return false
+	}
+	if ts, ok := err.(gousb.TransferStatus); ok {
+		return ts == gousb.TransferCancelled
+	}
+	return errors.Is(err, gousb.TransferCancelled)
+}
+
+func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, length int, outData []byte) (int32, []byte) {
+	// See bulkSem's doc comment: only one CBW/data/CSW cycle may be in
+	// flight on the device at a time, no matter how many URBs server.go's
+	// serveURBs has dispatched concurrently.
+	if !b.acquireBulk(reqCtx) {
+		return errnoEPIPE, nil
+	}
+	defer b.releaseBulk()
+
 	num := int(ep & 0x7f)
 	fullAddr := num
 	if dirIn {
 		fullAddr |= 0x80
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// reqCtx is cancelled the instant a CMD_UNLINK for this exact URB
+	// arrives (see server.go's serveURBs) — deriving from it, not
+	// context.Background(), is what makes that cancellation actually reach
+	// libusb's blocking ReadContext/WriteContext below instead of leaving
+	// them running for the full 15s regardless. freshCtx hands out a new
+	// 15s-capped context each call so a recovery retry (below) gets its own
+	// full timeout window rather than reusing one that just expired.
+	freshCtx := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(reqCtx, 15*time.Second)
+	}
+	ctx, cancel := freshCtx()
 	defer cancel()
+	// recoverable reports whether err is worth one clear-halt-and-retry
+	// attempt: a real STALL always is; a cancelled transfer only is when
+	// *our own* 15s timeout is what fired — if reqCtx itself is already
+	// Done, Windows sent CMD_UNLINK for this exact URB and retrying would
+	// just race the RET_UNLINK serveURBs already sent for it.
+	recoverable := func(err error) bool {
+		if isStall(err) {
+			return true
+		}
+		return isCancelled(err) && reqCtx.Err() == nil
+	}
 	if dirIn {
 		if length <= 0 {
 			return 0, nil
@@ -431,13 +512,19 @@ func (b *gousbBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []by
 		}
 		if err != nil && n == 0 {
 			logrus.Debugf("usbpass: bulk IN ep=%d len=%d: %v", num, length, err)
-			if isStall(err) {
-				// The device signalled STALL — clear it host-side too (see
-				// clearEndpointHalt) and retry once immediately rather than
-				// bubbling an error up to Windows, which would otherwise
-				// abort the whole SCSI command instead of just this URB.
+			if recoverable(err) {
+				// STALL, or our own timeout with no UNLINK yet — clear halt
+				// (see clearEndpointHalt) and retry once, with a fresh 15s
+				// window, instead of bubbling an error up to Windows, which
+				// would otherwise abort the whole SCSI command over what a
+				// real device recovers from routinely.
 				b.clearEndpointHalt(uint8(fullAddr))
-				n, err = inep.ReadContext(ctx, buf)
+				retryCtx, retryCancel := freshCtx()
+				n, err = inep.ReadContext(retryCtx, buf)
+				retryCancel()
+				if n > length {
+					n = length
+				}
 				if err != nil && n == 0 {
 					logrus.Debugf("usbpass: bulk IN ep=%d len=%d after clear-halt retry: %v", num, length, err)
 					return errnoEPIPE, nil
@@ -491,9 +578,21 @@ func (b *gousbBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []by
 			off += n
 		}
 		if err != nil {
-			if isStall(err) && !retried {
+			// A STALL is the case ClearHalt exists for, but a timeout with
+			// no UNLINK yet (see recoverable) is worth the exact same
+			// recovery attempt: ClearHalt drives a Reset Endpoint at the
+			// host controller, which can un-stick an endpoint the scheduler
+			// otherwise considers permanently blocked even though the
+			// device itself never signalled a STALL. Confirmed live that
+			// plain STALLs recover this way; worth trying once for a hard
+			// timeout too, with a fresh 15s window, before giving up.
+			if !retried && recoverable(err) {
 				retried = true
+				logrus.Debugf("usbpass: bulk OUT ep=%d len=%d: %v; clearing halt and retrying once", num, len(outData), err)
 				b.clearEndpointHalt(uint8(fullAddr))
+				var retryCancel context.CancelFunc
+				ctx, retryCancel = freshCtx()
+				defer retryCancel()
 				continue
 			}
 			if off == 0 {

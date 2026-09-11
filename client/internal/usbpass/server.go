@@ -1,6 +1,7 @@
 package usbpass
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -48,10 +49,16 @@ type ExportedDevice struct {
 	Backend    DeviceBackend
 }
 
-// DeviceBackend answers URBs for an imported device.
+// DeviceBackend answers URBs for an imported device. ctx is per-URB: it is
+// cancelled the moment a CMD_UNLINK for that same URB arrives (see
+// serveURBs), so an implementation whose transfer takes a context (like
+// gousb's ReadContext/WriteContext) must actually use it — that's what lets
+// a hung transfer be aborted instead of blocking the whole connection until
+// its own internal timeout, which is what left CMD_UNLINK unprocessable and
+// made Windows reset the port after a slow/stuck transfer (see serveURBs).
 type DeviceBackend interface {
-	HandleControl(setup [8]byte, wLength int) (status int32, data []byte)
-	HandleBulk(ep uint8, dirIn bool, length int, outData []byte) (status int32, data []byte)
+	HandleControl(ctx context.Context, setup [8]byte, wLength int) (status int32, data []byte)
+	HandleBulk(ctx context.Context, ep uint8, dirIn bool, length int, outData []byte) (status int32, data []byte)
 	Close() error
 }
 
@@ -201,10 +208,44 @@ func (s *Server) handleConn(c net.Conn) error {
 	}
 }
 
+// serveURBs reads CMD_SUBMIT/CMD_UNLINK frames off c and answers them.
+//
+// Each CMD_SUBMIT is dispatched in its own goroutine rather than inline: a
+// real USB/IP client (confirmed live against Windows' usbip-win2 VHCI)
+// pipelines URBs — it does not wait for one RET_SUBMIT before sending the
+// next CMD_SUBMIT or a CMD_UNLINK to cancel one that's taking too long. The
+// previous inline version blocked this whole read loop for the duration of
+// one URB (up to HandleBulk's own internal timeout), during which a
+// CMD_UNLINK for that exact URB was sitting unread in the socket buffer —
+// Windows got no RET_UNLINK, decided the port was unresponsive, and reset
+// it. Tracking in-flight URBs by seq and actually cancelling the matching
+// context on UNLINK is what lets a stuck transfer be aborted immediately
+// instead of stalling the connection.
 func (s *Server) serveURBs(c net.Conn, dev *ExportedDevice) error {
+	connCtx, cancelConn := context.WithCancel(context.Background())
+	defer cancelConn()
+
+	var writeMu sync.Mutex
+	writeFrame := func(b []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_, err := c.Write(b)
+		return err
+	}
+
+	var inflightMu sync.Mutex
+	inflight := make(map[uint32]context.CancelFunc)
+
+	var wg sync.WaitGroup
+	defer func() {
+		cancelConn() // aborts every still-running HandleBulk/HandleControl
+		wg.Wait()
+	}()
+
 	buf := make([]byte, 0, 8192)
 	tmp := make([]byte, 4096)
-	for {
+	var loopErr error
+	for loopErr == nil {
 		n, err := c.Read(tmp)
 		if n > 0 {
 			buf = append(buf, tmp[:n]...)
@@ -215,21 +256,55 @@ func (s *Server) serveURBs(c net.Conn, dev *ExportedDevice) error {
 				break
 			}
 			if perr != nil {
-				return perr
+				loopErr = perr
+				break
 			}
 			buf = buf[consumed:]
-			resp, err := dispatchURB(dev, frame)
-			if err != nil {
-				return err
+
+			if frame.cmd == cmdUnlink {
+				inflightMu.Lock()
+				if cancel, ok := inflight[frame.unlinkSeq]; ok {
+					cancel()
+					delete(inflight, frame.unlinkSeq)
+				}
+				inflightMu.Unlock()
+				if werr := writeFrame(packRetUnlink(frame.seq, errnoECONNRESET)); werr != nil {
+					loopErr = werr
+					break
+				}
+				continue
 			}
-			if _, err := c.Write(resp); err != nil {
-				return err
-			}
+
+			ctx, cancel := context.WithCancel(connCtx)
+			inflightMu.Lock()
+			inflight[frame.seq] = cancel
+			inflightMu.Unlock()
+
+			wg.Add(1)
+			go func(f urbFrame) {
+				defer wg.Done()
+				resp := dispatchURB(ctx, dev, f)
+				inflightMu.Lock()
+				_, stillPending := inflight[f.seq]
+				delete(inflight, f.seq)
+				inflightMu.Unlock()
+				cancel()
+				if !stillPending {
+					// Already unlinked; RET_UNLINK was already sent for
+					// this seq and Windows has moved on — skip the
+					// now-meaningless second reply.
+					return
+				}
+				if werr := writeFrame(resp); werr != nil {
+					logrus.Debugf("usbpass: conn: write RET_SUBMIT seq=%d: %v", f.seq, werr)
+				}
+			}(frame)
 		}
-		if err != nil {
-			return err
+		if loopErr == nil && err != nil {
+			loopErr = err
 		}
 	}
+	return loopErr
 }
 
 type urbFrame struct {
@@ -288,27 +363,23 @@ func parseCmd(buf []byte) (urbFrame, int, error) {
 	}
 }
 
-func dispatchURB(dev *ExportedDevice, f urbFrame) ([]byte, error) {
-	switch f.cmd {
-	case cmdUnlink:
-		return packRetUnlink(f.seq, errnoECONNRESET), nil
-	case cmdSubmit:
-		ep := uint8(f.ep)
-		var status int32
-		var data []byte
-		if ep&0x7f == 0 {
-			wLen := int(binary.LittleEndian.Uint16(f.setup[6:8]))
-			if f.transferLen > 0 && int(f.transferLen) < wLen {
-				wLen = int(f.transferLen)
-			}
-			status, data = dev.Backend.HandleControl(f.setup, wLen)
-		} else {
-			status, data = dev.Backend.HandleBulk(ep, f.direction == dirIn, int(f.transferLen), f.data)
+// dispatchURB handles exactly one CMD_SUBMIT (cmdUnlink is handled directly
+// in serveURBs, since it needs to cancel a different in-flight call rather
+// than answer one of its own).
+func dispatchURB(ctx context.Context, dev *ExportedDevice, f urbFrame) []byte {
+	ep := uint8(f.ep)
+	var status int32
+	var data []byte
+	if ep&0x7f == 0 {
+		wLen := int(binary.LittleEndian.Uint16(f.setup[6:8]))
+		if f.transferLen > 0 && int(f.transferLen) < wLen {
+			wLen = int(f.transferLen)
 		}
-		return packRetSubmit(f.seq, status, data, f.numPackets), nil
-	default:
-		return nil, fmt.Errorf("unsupported cmd")
+		status, data = dev.Backend.HandleControl(ctx, f.setup, wLen)
+	} else {
+		status, data = dev.Backend.HandleBulk(ctx, ep, f.direction == dirIn, int(f.transferLen), f.data)
 	}
+	return packRetSubmit(f.seq, status, data, f.numPackets)
 }
 
 func packRepDevlist(devs []*ExportedDevice) []byte {

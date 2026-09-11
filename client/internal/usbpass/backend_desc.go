@@ -1,6 +1,7 @@
 package usbpass
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -142,7 +143,7 @@ type descBackend struct {
 	configDesc []byte
 }
 
-func (b *descBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte) {
+func (b *descBackend) HandleControl(_ context.Context, setup [8]byte, wLength int) (int32, []byte) {
 	bm := setup[0]
 	req := setup[1]
 	wValue := binary.LittleEndian.Uint16(setup[2:4])
@@ -182,7 +183,7 @@ func (b *descBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte) 
 	return errnoEPIPE, nil
 }
 
-func (b *descBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []byte) (int32, []byte) {
+func (b *descBackend) HandleBulk(_ context.Context, ep uint8, dirIn bool, length int, outData []byte) (int32, []byte) {
 	_ = ep
 	_ = dirIn
 	_ = length
