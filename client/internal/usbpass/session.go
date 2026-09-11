@@ -77,36 +77,61 @@ func claimWithTimeout(ed *ExportedDevice) error {
 }
 
 // claimDevice claims one device, retrying once behind a pkexec grant (udev
-// rule + kernel-driver unbind) when the first attempt fails. abandoned
-// reports that the libusb call is stuck and ed must not be reused.
-func claimDevice(ed *ExportedDevice, ref usbDevRef) (abandoned bool, err error) {
-	wedged := func() error {
+// rule + kernel-driver unbind) when the first attempt fails, and once more
+// behind a port power-cycle when the device is wedged (stopped responding
+// on the bus — see docs/USB_PASSTHROUGH.md's postmortem; a leftover claim
+// from a crashed/killed previous client session reliably reproduces this).
+// use is the ExportedDevice the caller should keep going forward: normally
+// ed itself, but a fresh one after a power-cycle retry, since ed may still
+// be touched later by an abandoned watcher goroutine (see claimWithTimeout)
+// and must not be reused. abandoned reports that use's own claim is stuck
+// and use must not be reused either.
+func claimDevice(ed *ExportedDevice, ref usbDevRef) (use *ExportedDevice, abandoned bool, err error) {
+	wedged := func(id string) error {
 		return fmt.Errorf("libusb claim %s timed out after %s: the device stopped responding on the bus, unplug and replug it",
-			ed.BusID, claimTimeout)
+			id, claimTimeout)
 	}
 
 	logrus.Infof("usbpass: claiming %s (busnum=%d devnum=%d)", ed.BusID, ed.Busnum, ed.Devnum)
 	err = claimWithTimeout(ed)
 	if errors.Is(err, errClaimTimeout) {
-		return true, wedged()
+		logrus.Warnf("usbpass: claim %s timed out (wedged); power-cycling the port and retrying", ed.BusID)
+		if pcErr := powerCycleUSBPort(ed.BusID); pcErr != nil {
+			logrus.Warnf("usbpass: power-cycle %s failed: %v", ed.BusID, pcErr)
+			return ed, true, wedged(ed.BusID)
+		}
+		fresh := NewExportedFromVIDPID(ed.BusID, ed.VID, ed.PID)
+		if accErr := EnsureUSBAccess([]usbDevRef{{BusID: fresh.BusID, Busnum: fresh.Busnum, Devnum: fresh.Devnum}}); accErr != nil {
+			return fresh, false, fmt.Errorf("USB access after power-cycle: %w", accErr)
+		}
+		err = claimWithTimeout(fresh)
+		if errors.Is(err, errClaimTimeout) {
+			return fresh, true, wedged(fresh.BusID)
+		}
+		if err != nil && !isGousbDisabled(err) {
+			return fresh, false, fmt.Errorf("libusb claim %s after power-cycle (busnum=%d devnum=%d): %w",
+				fresh.BusID, fresh.Busnum, fresh.Devnum, err)
+		}
+		logrus.Infof("usbpass: claim %s recovered after power-cycle", fresh.BusID)
+		return fresh, false, err
 	}
 	if err != nil && !isGousbDisabled(err) {
 		logrus.Warnf("usbpass: claim %s failed (%v); requesting unbind/grant via pkexec", ed.BusID, err)
 		if !RequestUSBAccess([]usbDevRef{ref}) {
 			if msg := LastUSBAccessError(); msg != "" {
-				return false, fmt.Errorf("USB access: %s", msg)
+				return ed, false, fmt.Errorf("USB access: %s", msg)
 			}
-			return false, fmt.Errorf("USB access was not granted for %s", ed.BusID)
+			return ed, false, fmt.Errorf("USB access was not granted for %s", ed.BusID)
 		}
 		err = claimWithTimeout(ed)
 		if errors.Is(err, errClaimTimeout) {
-			return true, wedged()
+			return ed, true, wedged(ed.BusID)
 		}
 	}
 	if err != nil && !isGousbDisabled(err) {
-		return false, fmt.Errorf("libusb claim %s (busnum=%d devnum=%d): %w", ed.BusID, ed.Busnum, ed.Devnum, err)
+		return ed, false, fmt.Errorf("libusb claim %s (busnum=%d devnum=%d): %w", ed.BusID, ed.Busnum, ed.Devnum, err)
 	}
-	return false, err
+	return ed, false, err
 }
 
 // ActiveBusIDs returns Linux busids currently exported by the local session
@@ -169,12 +194,17 @@ func StartSession(listenAddr string, devices []models.USBPassthroughDevice) (*Se
 		return nil, fmt.Errorf("USB access: %w", err)
 	}
 	for i, ed := range exported {
-		busID := ed.BusID
-		abandoned, err := claimDevice(ed, accessRefs[i])
+		used, abandoned, err := claimDevice(ed, accessRefs[i])
+		if used != ed {
+			// A wedged claim was recovered via power-cycle onto a fresh
+			// ExportedDevice (ed's original claim may still complete
+			// asynchronously in an abandoned watcher goroutine).
+			exported[i] = used
+		}
 		if err != nil {
 			if isGousbDisabled(err) {
 				logrus.Warnf("usbpass: descriptor-only export for %s (busnum=%d devnum=%d): %v — bulk URB will EPIPE",
-					busID, ed.Busnum, ed.Devnum, err)
+					used.BusID, used.Busnum, used.Devnum, err)
 				continue
 			}
 			if abandoned {
@@ -184,7 +214,7 @@ func StartSession(listenAddr string, devices []models.USBPassthroughDevice) (*Se
 			}
 			return nil, err
 		}
-		logrus.Infof("usbpass: live libusb claim for %s (busnum=%d devnum=%d)", busID, ed.Busnum, ed.Devnum)
+		logrus.Infof("usbpass: live libusb claim for %s (busnum=%d devnum=%d)", used.BusID, used.Busnum, used.Devnum)
 	}
 
 	srv, err := StartExport(listenAddr, exported)

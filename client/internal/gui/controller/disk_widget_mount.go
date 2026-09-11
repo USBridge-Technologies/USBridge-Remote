@@ -1398,12 +1398,13 @@ func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
 				inst = d.BusID
 			}
 			if err := usbpass.Attach(usbpass.AttachOptions{
-				AgentAddr:       addr,
-				Secret:          secret,
-				InstanceID:      inst,
-				USBIPBusID:      d.BusID,
-				ExportService:   strconv.Itoa(exportPort),
-				AllowUnlicensed: true, // lab; enterprise gate is on the agent broker
+				AgentAddr:     addr,
+				Secret:        secret,
+				InstanceID:    inst,
+				USBIPBusID:    d.BusID,
+				VID:           d.VID,
+				PID:           d.PID,
+				ExportService: strconv.Itoa(exportPort),
 			}); err != nil {
 				usbpass.StopSession()
 				dw.showErrorAsync(err)

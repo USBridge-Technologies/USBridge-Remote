@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -99,12 +100,86 @@ func inquiry(sess *usbpass.Session) {
 	cbw[14] = 6    // CDB length
 	copy(cbw[15:], []byte{0x12, 0x00, 0x00, 0x00, 36, 0x00})
 
-	st, _ := d.Backend.HandleBulk(epOut, false, 0, cbw)
+	ctx := context.Background()
+	st, _ := d.Backend.HandleBulk(ctx, epOut, false, 0, cbw)
 	fmt.Printf("-- selftest CBW  out: status=%d\n", st)
-	st, data := d.Backend.HandleBulk(epIn, true, 36, nil)
+	st, data := d.Backend.HandleBulk(ctx, epIn, true, 36, nil)
 	fmt.Printf("-- selftest data in : status=%d len=%d %q\n", st, len(data), printable(data))
-	st, csw := d.Backend.HandleBulk(epIn, true, 13, nil)
+	st, csw := d.Backend.HandleBulk(ctx, epIn, true, 13, nil)
 	fmt.Printf("-- selftest CSW  in : status=%d len=%d raw=% x\n", st, len(csw), csw)
+
+	writeReadBack(ctx, d, epIn, epOut)
+}
+
+// writeReadBack round-trips one 512-byte sector through WRITE(10)/READ(10)
+// straight against the live backend — no filesystem, no Windows, no
+// USB/IP, isolating whether this client+device combination can do a
+// reliable write at all. LBA 5,000,000 is deep into the data area (disk is
+// tens of millions of sectors), nowhere near the MBR or a FAT32 volume's
+// boot sector / FAT tables, so this is safe to run against an already
+// partitioned/formatted stick without corrupting it.
+func writeReadBack(ctx context.Context, d *usbpass.ExportedDevice, epIn, epOut uint8) {
+	const lba = 5000000
+	pattern := make([]byte, 512)
+	for i := range pattern {
+		pattern[i] = byte(i)
+	}
+
+	doCmd := func(label string, cdb []byte, dataLen uint32, dirIn bool, out []byte) (ok bool, in []byte) {
+		cbw := make([]byte, 31)
+		copy(cbw, "USBC")
+		binary.LittleEndian.PutUint32(cbw[4:], 0xaabbccdd)
+		binary.LittleEndian.PutUint32(cbw[8:], dataLen)
+		if dirIn {
+			cbw[12] = 0x80
+		}
+		cbw[14] = byte(len(cdb))
+		copy(cbw[15:], cdb)
+
+		st, _ := d.Backend.HandleBulk(ctx, epOut, false, 0, cbw)
+		if st != 0 {
+			fmt.Printf("-- %s: CBW out failed status=%d\n", label, st)
+			return false, nil
+		}
+		if dirIn {
+			st, in = d.Backend.HandleBulk(ctx, epIn, true, int(dataLen), nil)
+			if st != 0 {
+				fmt.Printf("-- %s: data in failed status=%d\n", label, st)
+				return false, nil
+			}
+		} else {
+			st, _ = d.Backend.HandleBulk(ctx, epOut, false, len(out), out)
+			if st != 0 {
+				fmt.Printf("-- %s: data out failed status=%d\n", label, st)
+				return false, nil
+			}
+		}
+		st, csw := d.Backend.HandleBulk(ctx, epIn, true, 13, nil)
+		if st != 0 || len(csw) != 13 || csw[12] != 0 {
+			fmt.Printf("-- %s: CSW failed status=%d csw=% x\n", label, st, csw)
+			return false, in
+		}
+		fmt.Printf("-- %s: OK\n", label)
+		return true, in
+	}
+
+	lbaU := uint32(lba)
+	write10 := []byte{0x2a, 0, byte(lbaU >> 24), byte(lbaU >> 16), byte(lbaU >> 8), byte(lbaU), 0, 0, 1, 0}
+	if ok, _ := doCmd("WRITE(10) lba=5000000", write10, 512, false, pattern); !ok {
+		fmt.Println("!! write-readback: WRITE failed, stopping")
+		return
+	}
+	read10 := []byte{0x28, 0, byte(lbaU >> 24), byte(lbaU >> 16), byte(lbaU >> 8), byte(lbaU), 0, 0, 1, 0}
+	ok, back := doCmd("READ(10)  lba=5000000", read10, 512, true, nil)
+	if !ok {
+		fmt.Println("!! write-readback: READ failed, stopping")
+		return
+	}
+	if len(back) == 512 && string(back) == string(pattern) {
+		fmt.Println("== write-readback: PASS (data matches byte-for-byte)")
+	} else {
+		fmt.Printf("== write-readback: MISMATCH (got %d bytes)\n", len(back))
+	}
 }
 
 func bulkEndpoints(cfg []byte) (in, out uint8) {

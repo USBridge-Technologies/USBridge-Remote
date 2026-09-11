@@ -22,8 +22,18 @@ const (
 // Same shape as the agent's uinput rule: scoped GROUP+MODE=0660 (not world
 // writable), plus TAG+=uaccess so an interactive desktop session gets an
 // immediate logind ACL without waiting for the next login to pick up the
-// new supplementary group.
-const usbRuleContent = `SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", GROUP="` + usbGroupName + `", MODE="0660", TAG+="uaccess"` + "\n"
+// new supplementary group. ATTR{power/control}="on" disables USB
+// autosuspend/LPM for every usb_device node it matches — root hubs
+// included, since they enumerate as usb_device too. Confirmed live this is
+// necessary, not cosmetic: with the (kernel-default) root hub power/control
+// left at "auto", real writes to a real flash drive's bulk-OUT endpoint
+// hung for the full 15s timeout on a live USB2 port even though bulk-IN
+// reads and control transfers on the exact same device stayed perfectly
+// reliable — an asymmetry that matches a link-power transition the host
+// controller mishandles specifically for OUT tokens, not a failing device
+// (setting it explicitly on the root hub made 25/25 real writes succeed
+// where they'd previously stalled almost immediately).
+const usbRuleContent = `SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", GROUP="` + usbGroupName + `", MODE="0660", TAG+="uaccess", ATTR{power/control}="on"` + "\n"
 
 var lastUSBAccessErr string
 
@@ -144,6 +154,44 @@ func friendlyPkexecError(err error, out []byte) string {
 	default:
 		return strings.TrimSpace(s)
 	}
+}
+
+// powerCycleUSBPort toggles the port's "authorized" attribute off then on
+// via pkexec, and waits for the device to re-enumerate. This is the fix for
+// a stick left "wedged" on the bus (interface claimed, endpoints stop
+// responding — see docs/USB_PASSTHROUGH.md's postmortem) after a client
+// crash or unclean shutdown left libusb's claim dangling: a plain re-claim
+// hangs forever inside cgo since the device itself stopped answering, so
+// claimDevice calls this once a claim attempt has already timed out.
+func powerCycleUSBPort(busID string) error {
+	busID = strings.TrimSpace(busID)
+	if busID == "" || strings.ContainsAny(busID, " \t\n;'\"`$\\/|&()<>") {
+		return fmt.Errorf("refusing to power-cycle invalid busid %q", busID)
+	}
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		return fmt.Errorf("pkexec is not installed")
+	}
+	path := filepath.Join("/sys/bus/usb/devices", busID, "authorized")
+	script := fmt.Sprintf(
+		`echo 0 > %[1]s 2>/dev/null; sleep 1; echo 1 > %[1]s 2>/dev/null`,
+		shellQuote(path),
+	)
+	logrus.Infof("usbpass: power-cycling wedged port %s via pkexec", busID)
+	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", friendlyPkexecError(err, out))
+	}
+	// Re-enumeration is asynchronous (new devnum assigned); give the kernel
+	// a moment and confirm the device node is back before the caller retries.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, dev := resolveUSBBusDev(busID); dev != 0 {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("port %s did not re-enumerate after power-cycle", busID)
 }
 
 func kernelDriverBound(busID string) bool {

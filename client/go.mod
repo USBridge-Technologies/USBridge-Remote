@@ -108,3 +108,5 @@ require (
 replace github.com/wlynxg/anet => ./internal/anet
 
 tool golang.org/x/mobile/cmd/gobind
+
+replace github.com/google/gousb => ./third_party/gousb

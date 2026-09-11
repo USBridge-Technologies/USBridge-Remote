@@ -21,3 +21,6 @@ func EnsureUSBAccess(devs []usbDevRef) error { return nil }
 
 // RequestUSBAccess is a no-op off Linux.
 func RequestUSBAccess(devs []usbDevRef) bool { return true }
+
+// powerCycleUSBPort is Linux-only (sysfs authorized toggle).
+func powerCycleUSBPort(busID string) error { return nil }
