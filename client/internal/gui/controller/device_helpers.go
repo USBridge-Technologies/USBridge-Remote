@@ -44,9 +44,30 @@ func IsStorageDeviceType(deviceType string, deviceName string) bool {
 	}
 }
 
+// backupFlashMTPName is the agent's live backup-flash MTP export.
+// Snapshot exports use the same MTP gadget with a different name
+// (typically data_<timestamp>), so name must be matched exactly.
+const backupFlashMTPName = "data"
+
 // IsBackupDeviceType checks if the device represents the backup/data flash.
 func IsBackupDeviceType(deviceType string, deviceName string, productName string) bool {
-	return deviceType == "mtp" && strings.Contains(deviceName, "data") && !strings.Contains(productName, "snapshot")
+	return deviceType == "mtp" && deviceName == backupFlashMTPName
+}
+
+// IsSnapshotMTPDevice checks if the device is a snapshot MTP source.
+// The agent allows only one mtp:// source at a time. Snapshot names look
+// like data_<timestamp> and often omit the word "snapshot"; empty names
+// still count as long as this is not the live backup flash ("data").
+func IsSnapshotMTPDevice(deviceType string, deviceName string) bool {
+	return IsMTPGadget(deviceType, "") && deviceName != backupFlashMTPName
+}
+
+// IsMTPGadget reports a USB gadget that occupies the agent's single mtp:// slot.
+func IsMTPGadget(deviceType, deviceKey string) bool {
+	if deviceType == "mtp" || strings.HasPrefix(deviceType, "mtp:") {
+		return true
+	}
+	return strings.HasPrefix(deviceKey, "mtp:")
 }
 
 // IsSnapshotDeviceType checks if the device represents a storage snapshot.
@@ -54,5 +75,5 @@ func IsSnapshotDeviceType(deviceType string, deviceName string, productName stri
 	if deviceType == "nbd" {
 		return true
 	}
-	return deviceType == "mtp" && (strings.Contains(productName, "snapshot") || strings.Contains(deviceName, "snapshot"))
+	return IsSnapshotMTPDevice(deviceType, deviceName)
 }

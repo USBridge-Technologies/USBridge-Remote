@@ -30,7 +30,7 @@ func (bw *BackupWidget) buildBaseDeviceBatch() []models.DeviceStartRequest {
 			}
 
 			switch {
-			case device.Type == "mtp" && strings.Contains(device.Name, "data") && !strings.Contains(device.ProductName, "snapshot"):
+			case device.Type == "mtp":
 				continue
 			case (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) && !addedKeyboard:
 				requests = append(requests, newKeyboardStartRequest())
@@ -75,10 +75,8 @@ func (bw *BackupWidget) canConnectBackupOrSnapshot() (bool, string) {
 			continue
 		}
 		connectedCount++
-		if device.Type == "mtp" && strings.Contains(device.Name, "data") && !strings.Contains(device.ProductName, "snapshot") {
-			hasBackupOrSnapshot = true
-		}
-		if device.Type == "nbd" || (device.Type == "mtp" && (strings.Contains(device.ProductName, "snapshot") || strings.Contains(device.Name, "snapshot"))) {
+		if IsBackupDeviceType(device.Type, device.Name, device.ProductName) ||
+			IsSnapshotDeviceType(device.Type, device.Name, device.ProductName) {
 			hasBackupOrSnapshot = true
 		}
 	}
@@ -117,6 +115,31 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 		return
 	}
 
+	if snapshotListHasConnected(bw.snapshots) {
+		if bw.window == nil {
+			return
+		}
+		view.ShowConfirmToast(i18n.Current.BackupFlashDisconnectSnapshotConfirm, func(ok bool) {
+			if !ok {
+				return
+			}
+			bw.mountCurrentFlashNow()
+		}, bw.window)
+		return
+	}
+	bw.mountCurrentFlashNow()
+}
+
+func snapshotListHasConnected(snaps []*models.SnapshotInfo) bool {
+	for _, snap := range snaps {
+		if snap != nil && snap.Connected {
+			return true
+		}
+	}
+	return false
+}
+
+func (bw *BackupWidget) mountCurrentFlashNow() {
 	bw.isMounting.Store(true)
 	bw.updateUIAsync(func() { bw.ui.Refresh() })
 

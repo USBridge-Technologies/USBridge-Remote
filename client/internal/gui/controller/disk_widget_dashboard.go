@@ -532,17 +532,19 @@ func isDashboardBackupDrive(drive DriveItem) bool {
 	return drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp"
 }
 
-// SetDashboardSnapshotCount updates the Backups row's snapshot-count plaque.
-// Wired from BackupWidget after each GetSnapshots so Devices doesn't poll
-// the same endpoint a second time.
-func (dw *DiskWidget) SetDashboardSnapshotCount(n int) {
+// SetDashboardSnapshotCount updates the Backups row's snapshot-count plaque
+// and whether a snapshot MTP is currently mounted. Wired from BackupWidget
+// after each GetSnapshots so Devices doesn't poll the same endpoint a second
+// time -- and so the Backups mount button can warn before a second MTP source.
+func (dw *DiskWidget) SetDashboardSnapshotCount(n int, snapshotMounted bool) {
 	if n < 0 {
 		n = 0
 	}
-	if dw.dashboardSnapshotKnown && dw.dashboardSnapshotCount == n {
+	if dw.dashboardSnapshotKnown && dw.dashboardSnapshotCount == n && dw.dashboardSnapshotMounted == snapshotMounted {
 		return
 	}
 	dw.dashboardSnapshotCount = n
+	dw.dashboardSnapshotMounted = snapshotMounted
 	dw.dashboardSnapshotKnown = true
 	dw.refreshDashboard()
 }

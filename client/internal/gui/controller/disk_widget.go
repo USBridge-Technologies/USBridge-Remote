@@ -94,8 +94,9 @@ type DiskWidget struct {
 	// the Backups row; dashboardSnapshotKnown is false until the first
 	// successful (or disconnected) report so we don't flash "0 snapshots"
 	// before the list has loaded.
-	dashboardSnapshotCount int
-	dashboardSnapshotKnown bool
+	dashboardSnapshotCount   int
+	dashboardSnapshotKnown   bool
+	dashboardSnapshotMounted bool
 
 	// dashboardStorageScroll wraps dashboardStorage (the Storage card's own
 	// row list) so it can become internally scrollable once there are more
@@ -980,6 +981,7 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 			dw.sdSpaceInfo = nil
 			dw.dashboardSnapshotCount = 0
 			dw.dashboardSnapshotKnown = false
+			dw.dashboardSnapshotMounted = false
 			dw.updateSDStorageInfo()
 			dw.stopAllGamepadCaptures()
 			dw.combineDrives()

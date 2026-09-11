@@ -290,6 +290,25 @@ func (dw *DiskWidget) handleMount() {
 		return
 	}
 
+	// The agent allows only one mtp:// source. A mounted snapshot occupies
+	// that slot, so adding the backup flash with merge=true fails. Offer to
+	// unmount the snapshot and continue, same Yes/No toast as the gamepad.
+	if selectedIncludesBackupFlash(selectedDrives) && dw.hasConflictingSnapshotMTP() {
+		logrus.Infof("📁 [MOUNT] backup flash requested while a snapshot MTP is mounted")
+		if dw.window == nil {
+			return
+		}
+		selectedCopy := append([]DriveItem(nil), selectedDrives...)
+		view.ShowConfirmToast(i18n.Current.BackupFlashDisconnectSnapshotConfirm, func(ok bool) {
+			if !ok {
+				dw.requestDevicesRefresh()
+				return
+			}
+			dw.mountReplacingGadget(selectedCopy, func(DriveItem) bool { return false }, false)
+		}, dw.window)
+		return
+	}
+
 	// Progress dialog for files from Google Drive
 	var progressDialog dialog.Dialog
 	for _, d := range selectedDrives {
@@ -388,6 +407,62 @@ func (dw *DiskWidget) handleMount() {
 	}()
 }
 
+func isBackupFlashDrive(d DriveItem) bool {
+	return isDashboardBackupDrive(d)
+}
+
+func selectedIncludesBackupFlash(drives []DriveItem) bool {
+	for _, d := range drives {
+		if isBackupFlashDrive(d) {
+			return true
+		}
+	}
+	return false
+}
+
+func (dw *DiskWidget) hasMountedSnapshotMTP() bool {
+	for _, device := range dw.mountedDevices {
+		if device == nil || device.Status != "connected" {
+			continue
+		}
+		if !IsMTPGadget(device.Type, device.Device) {
+			continue
+		}
+		if device.Name == backupFlashMTPName {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// hasConflictingSnapshotMTP is the Devices-tab check: the snapshot gadget
+// often does not show up as a DriveItem, and GetDeviceInfo may omit it, so
+// we also trust BackupWidget's last GetSnapshots and a live lookup.
+func (dw *DiskWidget) hasConflictingSnapshotMTP() bool {
+	if dw.dashboardSnapshotMounted {
+		return true
+	}
+	if dw.hasMountedSnapshotMTP() {
+		return true
+	}
+	if dw.usbClient == nil {
+		return false
+	}
+	resp, err := dw.usbClient.GetSnapshots()
+	if err != nil || resp == nil {
+		logrus.Debugf("📁 [MOUNT] GetSnapshots for MTP conflict: %v", err)
+		return false
+	}
+	for i := range resp.Snapshots {
+		if resp.Snapshots[i].Connected {
+			dw.dashboardSnapshotMounted = true
+			return true
+		}
+	}
+	return false
+}
+
 // conflictsWithXInputGamepad is the agent's exclusive-USB rule: an XInput
 // gamepad cannot share the gadget with keyboard, mouse, RNDIS, or drives.
 func conflictsWithXInputGamepad(d DriveItem) bool {
@@ -408,6 +483,10 @@ func conflictsWithXInputGamepad(d DriveItem) bool {
 // Stop the current USB gadget first, wait for UDC to release, then
 // start the replacement set without the dropped devices.
 func (dw *DiskWidget) mountReplacing(selectedDrives []DriveItem, drop func(DriveItem) bool) {
+	dw.mountReplacingGadget(selectedDrives, drop, true)
+}
+
+func (dw *DiskWidget) mountReplacingGadget(selectedDrives []DriveItem, drop func(DriveItem) bool, stopFirst bool) {
 	var filtered []DriveItem
 	for _, d := range selectedDrives {
 		if drop(d) {
@@ -486,15 +565,17 @@ func (dw *DiskWidget) mountReplacing(selectedDrives []DriveItem, drop func(Drive
 			dw.requestDevicesRefresh()
 		})
 
-		logrus.Infof("🛑 [MOUNT-SWAP] Stopping current USB gadgets before replacement")
-		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
-			logrus.Errorf("❌ [MOUNT-SWAP] Stop before replace: %v", err)
-			dw.showErrorAsync(fmt.Errorf("error disconnecting devices: %v", err))
-			return
+		if stopFirst {
+			logrus.Infof("🛑 [MOUNT-SWAP] Stopping current USB gadgets before replacement")
+			if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
+				logrus.Errorf("❌ [MOUNT-SWAP] Stop before replace: %v", err)
+				dw.showErrorAsync(fmt.Errorf("error disconnecting devices: %v", err))
+				return
+			}
+			time.Sleep(gadgetRebuildDelay)
 		}
-		time.Sleep(gadgetRebuildDelay)
 
-		logrus.Infof("🚀 [MOUNT-SWAP] Starting %d devices after stop", len(deviceRequests))
+		logrus.Infof("🚀 [MOUNT-SWAP] Starting %d devices (Full Replace, stopFirst=%v)", len(deviceRequests), stopFirst)
 		dw.updateStatusAsync("Starting devices...")
 		if resp, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests), false); err != nil {
 			logrus.Errorf("❌ [MOUNT-SWAP] Error: %v", err)

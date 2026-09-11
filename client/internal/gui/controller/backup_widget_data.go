@@ -51,9 +51,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 			bw.agentOS = deviceInfo.AgentOS
 			for _, device := range deviceInfo.Devices {
 				if device.Status == "connected" &&
-					device.Type == "mtp" &&
-					strings.Contains(device.Name, "data") &&
-					!strings.Contains(device.ProductName, "snapshot") {
+					IsBackupDeviceType(device.Type, device.Name, device.ProductName) {
 					bw.currentFlashConnected = true
 					logrus.Infof("✅ Backup flash drive connected: %s", device.Name)
 					break
@@ -110,7 +108,7 @@ func (bw *BackupWidget) SetOnStorageInfoUpdate(fn func(usedPct float64, availabl
 	bw.onStorageInfoUpdate = fn
 }
 
-func (bw *BackupWidget) SetOnSnapshotsLoaded(fn func(count int)) {
+func (bw *BackupWidget) SetOnSnapshotsLoaded(fn func(count int, snapshotMounted bool)) {
 	bw.onSnapshotsLoaded = fn
 }
 
@@ -133,7 +131,7 @@ func (bw *BackupWidget) loadSnapshots() {
 					bw.ui.StatusLabel.SetText(i18n.Current.WaitingConnection)
 				}
 				if bw.onSnapshotsLoaded != nil {
-					bw.onSnapshotsLoaded(0)
+					bw.onSnapshotsLoaded(0, false)
 				}
 			})
 			return
@@ -164,7 +162,7 @@ func (bw *BackupWidget) loadSnapshots() {
 			bw.ui.Refresh()
 			bw.ui.StatusLabel.SetText(fmt.Sprintf(i18n.Current.LoadedSnapshots, len(bw.snapshots)))
 			if bw.onSnapshotsLoaded != nil {
-				bw.onSnapshotsLoaded(len(bw.snapshots))
+				bw.onSnapshotsLoaded(len(bw.snapshots), snapshotListHasConnected(bw.snapshots))
 			}
 		})
 

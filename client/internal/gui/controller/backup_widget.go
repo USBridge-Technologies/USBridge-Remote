@@ -16,7 +16,7 @@ import (
 // BackupWidget is a widget for displaying the snapshot list
 type BackupWidget struct {
 	onStorageInfoUpdate func(usedPct float64, available, total int64) // Callback for main window
-	onSnapshotsLoaded   func(count int)
+	onSnapshotsLoaded   func(count int, snapshotMounted bool)
 	window              fyne.Window
 	ui                  *view.BackupWidgetUI
 
