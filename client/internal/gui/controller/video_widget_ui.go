@@ -1162,19 +1162,26 @@ func (vw *VideoWidget) StopVideo() {
 
 // HandleConnectionLost stops local video/input resources without contacting the server.
 func (vw *VideoWidget) HandleConnectionLost() {
+	// Stop reconcile retries *before* Disconnect: onStateChanged("disconnected")
+	// otherwise schedules another Moonlight connect against the dead host.
+	vw.MarkUserStopped()
+	vw.setDesiredStreaming(false)
 	resetVideoInfoCache()
+
+	vw.isStreaming = false
+	vw.isVideoConnected = false
+	vw.isMouseConnected = false
+	vw.hideConnectingSpinner()
+	vw.stopRenderTicker()
+	// Tear down the overlay/mouse pump first so the window starts accepting
+	// clicks even if Moonlight's graceful ENet disconnect later blocks ~2s.
+	vw.clearVideo()
 
 	if vw.videoClient != nil {
 		if err := vw.videoClient.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Failed to disconnect video client after transport loss: %v", err)
 		}
 	}
-
-	vw.isStreaming = false
-	vw.isVideoConnected = false
-	vw.isMouseConnected = false
-	vw.hideConnectingSpinner()
-	vw.clearVideo()
 
 	fyne.Do(func() {
 		vw.updateButtons()
@@ -1219,10 +1226,18 @@ func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 	return true
 }
 
-// clearVideo clears the video.
+func (vw *VideoWidget) stopRenderTicker() {
+	if vw.renderTickerStop != nil {
+		close(vw.renderTickerStop)
+		vw.renderTickerStop = nil
+	}
+}
+
 func (vw *VideoWidget) clearVideo() {
 	vw.clearVideoMu.Lock()
 	defer vw.clearVideoMu.Unlock()
+
+	vw.stopRenderTicker()
 
 	vw.frameMutex.Lock()
 	lastFrame := vw.currentFrame // saved for darkened pause display (Fyne canvas path)
@@ -1370,9 +1385,7 @@ func (vw *VideoWidget) startRenderTicker(fps ...int) {
 	if len(fps) > 0 && fps[0] > 0 {
 		targetFPS = fps[0]
 	}
-	if vw.renderTickerStop != nil {
-		close(vw.renderTickerStop)
-	}
+	vw.stopRenderTicker()
 	stop := make(chan struct{})
 	vw.renderTickerStop = stop
 

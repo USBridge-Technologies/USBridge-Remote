@@ -32,6 +32,16 @@ var vkWinMouseCheckPending int32 // atomic
 var vkWinPressOnButton bool      // suppress matching release when press hit a UI button
 var vkWinMouseLogAt time.Time    // throttle coordinate logging to once per 2s
 
+type vkWinMouseEv struct {
+	typ, x, y, btn int
+}
+
+var (
+	vkWinMouseDoPending int32
+	vkWinMousePendingMu sync.Mutex
+	vkWinMousePending   []vkWinMouseEv
+)
+
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
 	quit := make(chan struct{})
@@ -45,41 +55,72 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 			case <-quit:
 				return
 			case <-ticker.C:
+				var batch []vkWinMouseEv
 				for {
 					typ, ex, ey, btn, ok := service.VKVideoNextEvent()
 					if !ok {
 						break
 					}
-					evTyp, evX, evY, evBtn := typ, ex, ey, btn
-					fyne.Do(func() {
-						if !service.VKVideoIsActive() {
-							return
-						}
-						s := scale
-						if fsWin := vkWinFullscreenWin; fsWin != nil {
-							if fsWin.Canvas() != nil {
-								s = fsWin.Canvas().Scale()
-							}
-						} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
-							s = vw.parentWindow.Canvas().Scale()
-						}
-						x := float32(evX) / s
-						y := float32(evY) / s
-						// Log at most once per 2s to diagnose coordinate mapping.
-						if evTyp == 1 {
-							if now := time.Now(); now.Sub(vkWinMouseLogAt) >= 2*time.Second {
-								vkWinMouseLogAt = now
-								standalone := vw.fullscreenDialog != nil && vw.fullscreenDialog.windowlessVKFullscreen
-								logrus.Infof("[ABS/Win] mouse: raw=(%d,%d) scale=%.3f dp=(%.1f,%.1f) standalone=%v fsWin=%v",
-									evX, evY, s, x, y, standalone, vkWinFullscreenWin != nil)
-							}
-						}
-						vw.dispatchVKWinMouseEvent(evTyp, x, y, evBtn)
-					})
+					// Coalesce consecutive moves so a burst from the overlay
+					// queue does not enqueue one fyne.Do per sample.
+					if typ == 1 && len(batch) > 0 && batch[len(batch)-1].typ == 1 {
+						batch[len(batch)-1] = vkWinMouseEv{typ, ex, ey, btn}
+						continue
+					}
+					batch = append(batch, vkWinMouseEv{typ, ex, ey, btn})
 				}
+				if len(batch) == 0 {
+					continue
+				}
+				vw.queueVKWinMouseBatch(scale, batch)
 			}
 		}
 	}()
+}
+
+func (vw *VideoWidget) queueVKWinMouseBatch(scale float32, batch []vkWinMouseEv) {
+	vkWinMousePendingMu.Lock()
+	vkWinMousePending = append(vkWinMousePending, batch...)
+	vkWinMousePendingMu.Unlock()
+	if !atomic.CompareAndSwapInt32(&vkWinMouseDoPending, 0, 1) {
+		return
+	}
+	fyne.Do(func() {
+		vkWinMousePendingMu.Lock()
+		evs := vkWinMousePending
+		vkWinMousePending = nil
+		vkWinMousePendingMu.Unlock()
+		if service.VKVideoIsActive() && len(evs) > 0 {
+			s := scale
+			if fsWin := vkWinFullscreenWin; fsWin != nil {
+				if fsWin.Canvas() != nil {
+					s = fsWin.Canvas().Scale()
+				}
+			} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+				s = vw.parentWindow.Canvas().Scale()
+			}
+			for _, ev := range evs {
+				x := float32(ev.x) / s
+				y := float32(ev.y) / s
+				if ev.typ == 1 {
+					if now := time.Now(); now.Sub(vkWinMouseLogAt) >= 2*time.Second {
+						vkWinMouseLogAt = now
+						standalone := vw.fullscreenDialog != nil && vw.fullscreenDialog.windowlessVKFullscreen
+						logrus.Infof("[ABS/Win] mouse: raw=(%d,%d) scale=%.3f dp=(%.1f,%.1f) standalone=%v fsWin=%v",
+							ev.x, ev.y, s, x, y, standalone, vkWinFullscreenWin != nil)
+					}
+				}
+				vw.dispatchVKWinMouseEvent(ev.typ, x, y, ev.btn)
+			}
+		}
+		atomic.StoreInt32(&vkWinMouseDoPending, 0)
+		vkWinMousePendingMu.Lock()
+		more := len(vkWinMousePending) > 0
+		vkWinMousePendingMu.Unlock()
+		if more {
+			vw.queueVKWinMouseBatch(scale, nil)
+		}
+	})
 }
 
 func (vw *VideoWidget) stopVKMouseForwarding() {
@@ -88,6 +129,9 @@ func (vw *VideoWidget) stopVKMouseForwarding() {
 		vkWinMouseQuit = nil
 		logrus.Info("[VK/Win] mouse forwarding stopped")
 	}
+	vkWinMousePendingMu.Lock()
+	vkWinMousePending = nil
+	vkWinMousePendingMu.Unlock()
 }
 
 // startVKKeyForwarding polls the C key event queue (standalone fullscreen mode) and

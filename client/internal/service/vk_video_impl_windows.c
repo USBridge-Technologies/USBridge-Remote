@@ -1032,6 +1032,17 @@ void vk_video_update_frame(int x, int y, int w, int h) {
 
 static void vk_full_cleanup(void) {
     atomic_store(&g_active, 0);
+
+    // Hide/close the overlay FIRST so it stops eating mouse input even if
+    // vkDeviceWaitIdle or the render-thread join later stall (dead GPU /
+    // powered-off KVM). ShowWindow from this thread would SendMessage and
+    // can deadlock; post hide+close onto the hwnd thread instead.
+    if (g_child_hwnd) {
+        PostMessageW(g_child_hwnd, WM_USER+1, 0, 0);
+        PostMessageW(g_child_hwnd, WM_CLOSE, 0, 0);
+        g_child_hwnd = NULL;
+    }
+
     if (g_thread)  { SetEvent(g_event); WaitForSingleObject(g_thread, 3000); CloseHandle(g_thread); g_thread = NULL; }
     if (g_event)   { CloseHandle(g_event); g_event = NULL; }
 
@@ -1056,10 +1067,7 @@ static void vk_full_cleanup(void) {
     if (g_inst) { vkDestroyInstance(g_inst, NULL); g_inst = VK_NULL_HANDLE; }
     g_pdev = VK_NULL_HANDLE;
 
-    // Destroy overlay window: post WM_CLOSE to its owning thread (vk_hwnd_thread).
-    // DestroyWindow from a different thread is not allowed; WM_CLOSE triggers
-    // DestroyWindow from within vk_wnd_proc on the correct thread.
-    if (g_child_hwnd) { PostMessageW(g_child_hwnd, WM_CLOSE, 0, 0); g_child_hwnd = NULL; }
+    // Overlay HWND was already posted WM_CLOSE at the start of cleanup.
     if (g_hwnd_thread) { WaitForSingleObject(g_hwnd_thread, 3000); CloseHandle(g_hwnd_thread); g_hwnd_thread = NULL; }
     if (g_hwnd_ready)  { CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL; }
     if (g_cs_init) {

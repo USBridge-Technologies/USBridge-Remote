@@ -200,8 +200,32 @@ var connectionRecoveryRetryDelays = []time.Duration{
 	20 * time.Second,
 }
 
+// shouldAttemptConnectionRecovery is true only for Tailscale paths, where a
+// transport blip can be a real tsnet/DERP re-handshake that we should ride
+// out. A direct LAN KVM that just lost power will never come back within
+// the multi-minute recovery budget, and leaving widgets attached during
+// that wait freezes the Fyne loop (HTTP timeouts + Vulkan overlay input).
+func (mw *MainWindow) shouldAttemptConnectionRecovery() bool {
+	if mw.connectedProtocol == models.ConnectionProtocolTailscale {
+		return true
+	}
+	host := ""
+	if mw.hostEntry != nil {
+		host = mw.hostEntry.Text
+	}
+	return isLikelyTailscaleHost(host)
+}
+
 func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, lastErr error) bool {
 	if client == nil || client != mw.usbClient || !mw.isConnected {
+		return false
+	}
+	if !mw.shouldAttemptConnectionRecovery() {
+		host := ""
+		if mw.hostEntry != nil {
+			host = mw.hostEntry.Text
+		}
+		logrus.Infof("⏭️ Skipping automatic connection recovery for non-Tailscale host=%s protocol=%s", host, mw.connectedProtocol)
 		return false
 	}
 
@@ -253,6 +277,10 @@ func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
 		return
 	}
 
+	// Detach pollers / overlay / clipboard *before* any recovery wait so the
+	// Fyne loop stays responsive even if the host never comes back.
+	mw.pauseDeadConnectionIO()
+
 	if mw.tryRecoverConnectionAfterLoss(client, err) {
 		logrus.Infof("✅ Connection recovered automatically after transport loss")
 		mw.connectionLossInProgress.Store(false)
@@ -276,14 +304,50 @@ func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
 	mw.connectionLossInProgress.Store(false)
 }
 
-func (mw *MainWindow) cleanupDeadConnectionState() {
-	mw.isConnected = false
-	mw.isStreaming = false
+// pauseDeadConnectionIO stops every client that still holds a pointer to the
+// dead USBClient. cleanupDeadConnectionState used to only nil mw.usbClient
+// and tear down video — disk/backup/pcpanel/scripts/clipboard kept polling
+// the powered-off KVM (15s HTTP timeouts) and video reconcile kept retrying
+// Moonlight with desiredStreaming=true.
+func (mw *MainWindow) pauseDeadConnectionIO() {
+	if mw.clipboardSync != nil {
+		mw.clipboardSync.Stop()
+		mw.clipboardSync = nil
+	}
 
 	if mw.videoWidget != nil {
+		mw.videoWidget.MarkUserStopped()
 		mw.videoWidget.HandleConnectionLost()
 	}
 
+	fyne.Do(func() {
+		if mw.diskWidget != nil {
+			mw.diskWidget.UpdateClient(nil)
+		}
+		if mw.videoWidget != nil {
+			mw.videoWidget.UpdateClient(nil)
+		}
+		if mw.backupWidget != nil {
+			mw.backupWidget.UpdateClient(nil)
+		}
+		if mw.pcpanelWidget != nil {
+			mw.pcpanelWidget.SetClient(nil)
+		}
+		if mw.scriptsWidget != nil {
+			mw.scriptsWidget.SetClient(nil)
+		}
+	})
+}
+
+func (mw *MainWindow) cleanupDeadConnectionState() {
+	mw.isConnected = false
+	mw.isStreaming = false
+	if mw.appState != nil {
+		mw.appState.IsConnected = false
+		mw.appState.IsStreaming = false
+	}
+
+	mw.pauseDeadConnectionIO()
 	mw.usbClient = nil
 }
 

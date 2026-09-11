@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/models"
 )
 
 // newTestUSBClient points a *api.USBClient at an httptest.Server -- NewUSBClient
@@ -131,5 +132,22 @@ func TestConnectionRecoveryRetryDelaysCoverRealisticTsnetReconnect(t *testing.T)
 	const minBudget = 30 * time.Second
 	if total < minBudget {
 		t.Fatalf("total recovery budget = %v, want at least %v to outlast a real tsnet reconnect after a network path change (observed 15-30s in the field)", total, minBudget)
+	}
+}
+
+func TestShouldAttemptConnectionRecoverySkipsDirectLAN(t *testing.T) {
+	direct := &MainWindow{connectedProtocol: models.ConnectionProtocolDirect}
+	if direct.shouldAttemptConnectionRecovery() {
+		t.Fatal("direct LAN must not sit in the multi-minute Tailscale recovery loop after a hard transport loss")
+	}
+
+	autoLAN := &MainWindow{connectedProtocol: models.ConnectionProtocolAuto}
+	if autoLAN.shouldAttemptConnectionRecovery() {
+		t.Fatal("auto/LAN without a Tailscale host must not attempt long recovery")
+	}
+
+	ts := &MainWindow{connectedProtocol: models.ConnectionProtocolTailscale}
+	if !ts.shouldAttemptConnectionRecovery() {
+		t.Fatal("tailscale must still attempt recovery after a transport blip")
 	}
 }
