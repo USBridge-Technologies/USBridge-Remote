@@ -301,7 +301,7 @@ func (mw *MainWindow) recreateContainers() {
 	devicesTabTitle := "Devices"
 	controlTabTitle := "Control"
 	snapshotsTabTitle := "Snapshots"
-	scriptsTabTitle := "Scripts"
+	scriptsTabTitle := "AI & Scripts"
 
 	devicesScriptFooter := view.NewScriptFooterStatus()
 	snapshotsScriptFooter := view.NewScriptFooterStatus()

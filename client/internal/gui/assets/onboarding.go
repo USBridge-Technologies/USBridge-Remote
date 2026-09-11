@@ -30,8 +30,8 @@ var (
 	monitorTabIcon []byte
 	//go:embed disk-floppy-save-storage-data-svgrepo-com.svg
 	snapshotsTabIcon []byte
-	//go:embed play-svgrepo-com.svg
-	playTabIcon []byte
+	//go:embed robot-svgrepo-com.svg
+	robotTabIcon []byte
 	//go:embed folder-svgrepo-com.svg
 	folderIcon []byte
 	//go:embed disc-svgrepo-com.svg
@@ -235,14 +235,12 @@ var (
 	SnapshotsTabIconMuted    = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-muted.svg", recolorFillIcon(snapshotsTabIcon, "#c5c8b5"))
 	SnapshotsTabIconSelected = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-selected.svg", recolorFillIcon(snapshotsTabIcon, "#ebffbc"))
 	SnapshotsTabIconHover    = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-hover.svg", recolorFillIcon(snapshotsTabIcon, "#e0e3e7"))
-	// ScriptsTabIcon{Muted,Selected,Hover} -- play-svgrepo-com.svg (a
-	// stroked play triangle) instead of the earlier inline glyph; this
-	// header's own tab-selector never had a Scripts icon asset before (the
-	// status-panel script icon just uses fynetheme.MediaPlayIcon(), which
-	// can't be recolored the way these can).
-	ScriptsTabIconMuted    = fyne.NewStaticResource("play-svgrepo-com-muted.svg", recolorStrokeIcon(playTabIcon, "#c5c8b5", "2"))
-	ScriptsTabIconSelected = fyne.NewStaticResource("play-svgrepo-com-selected.svg", recolorStrokeIcon(playTabIcon, "#ebffbc", "2"))
-	ScriptsTabIconHover    = fyne.NewStaticResource("play-svgrepo-com-hover.svg", recolorStrokeIcon(playTabIcon, "#e0e3e7", "2"))
+	// ScriptsTabIcon{Muted,Selected,Hover} -- robot-svgrepo-com.svg, a
+	// filled robot matching the AI & Scripts tab label. Same
+	// muted/selected/hover palette as the other header tab icons.
+	ScriptsTabIconMuted    = fyne.NewStaticResource("robot-svgrepo-com-muted.svg", recolorFillIcon(robotTabIcon, "#c5c8b5"))
+	ScriptsTabIconSelected = fyne.NewStaticResource("robot-svgrepo-com-selected.svg", recolorFillIcon(robotTabIcon, "#ebffbc"))
+	ScriptsTabIconHover    = fyne.NewStaticResource("robot-svgrepo-com-hover.svg", recolorFillIcon(robotTabIcon, "#e0e3e7"))
 	FolderIcon             = fyne.NewStaticResource("folder-svgrepo-com.svg", recolorFillIcon(folderIcon, "#C9C9C9"))
 	FolderIconActive       = fyne.NewStaticResource("folder-svgrepo-com-active.svg", recolorFillIcon(folderIcon, "#93C572"))
 	DiscIcon               = fyne.NewStaticResource("disc-svgrepo-com.svg", recolorFillIcon(discIcon, "#C9C9C9"))
