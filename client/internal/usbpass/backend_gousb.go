@@ -242,6 +242,9 @@ type gousbBackend struct {
 	lastCBWDatalen  uint32
 	lastCBWTransfer uint32
 
+	lastCBWDatalen  uint32
+	lastCBWTransfer uint32
+
 	// bulkSem is a size-1 semaphore serializing the CBW/data/CSW steps of
 	// Bulk-Only Transport across the whole device: BOT is strictly one
 	// command in flight at a time on a given bulk pipe (the device has one
@@ -780,3 +783,4 @@ func (b *gousbBackend) Close() error {
 	}
 	return nil
 }
+
