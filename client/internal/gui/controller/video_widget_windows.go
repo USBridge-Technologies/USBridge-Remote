@@ -466,8 +466,14 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		if service.VKVideoCreate(hwnd, x, y, w, h) {
 			logrus.Infof("[Vulkan/Win] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)", fullscreen, x, y, w, h)
 			// If a Fyne overlay (popup/menu) is already open when we start, hide immediately.
-			if view.OverlayActive() {
+			if view.OverlayActive() || view.NavVideoHidden() {
 				service.VKVideoSetHidden(true)
+			} else {
+				// Same ShowWindow + HWND_TOPMOST poke that a Control-tab
+				// switch performs — without it the popup HWND can sit
+				// behind Fyne after SetContent/RequestFocus and the
+				// picture only appears after switching tabs.
+				vw.revealNativeVideoOverlay()
 			}
 			// Start Fyne main-loop watchdog: detects if wglSwapBuffers or Win32 message
 			// dispatch hangs after the Vulkan overlay starts presenting.
@@ -505,10 +511,36 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			logrus.Infof("[Vulkan/Win] calling onNativeReady (fullscreen=%v)", fullscreen)
 			vw.onNativeReady = nil
 			cb()
-		} else {
-			logrus.Warnf("[Vulkan/Win] onNativeReady is nil — canvas NOT cleared (fullscreen=%v)", fullscreen)
+		}
+		if vw.videoCanvas != nil {
+			vw.videoCanvas.Image = nil
+			vw.videoCanvas.Translucency = 1.0
+			vw.videoCanvas.Refresh()
 		}
 	})
+}
+
+// revealNativeVideoOverlay repeats the Hide/Show + HWND_TOPMOST sequence
+// that a Control-tab switch already performs via syncVideoOverlayForNav.
+// Call after overlay create and after the first presented frame so the
+// picture is visible without the user leaving and returning to Control.
+func (vw *VideoWidget) revealNativeVideoOverlay() {
+	if !service.VKVideoIsActive() {
+		vw.RefreshViewportGeometry()
+		return
+	}
+	if view.OverlayActive() || view.NavVideoHidden() {
+		service.VKVideoSetHidden(true)
+		return
+	}
+	if vw.videoCanvas != nil && vw.videoCanvas.Translucency < 1.0 {
+		vw.videoCanvas.Image = nil
+		vw.videoCanvas.Translucency = 1.0
+		vw.videoCanvas.Refresh()
+	}
+	service.VKVideoSetHidden(false)
+	service.VKVideoBringToTop()
+	vw.RefreshViewportGeometry()
 }
 
 func (vw *VideoWidget) stopMetalVideo() {
@@ -561,6 +593,8 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			service.VKVideoClearPendingStats()
 			if st.FirstFrame {
 				logrus.Infof("[Vulkan/Win] first frame rendered — %dx%d", st.FW, st.FH)
+				vw.noteVideoTraceFirstPaint(vw.frameCount)
+				vw.revealNativeVideoOverlay()
 			}
 			if st.FPSReady {
 				logrus.Infof("[Vulkan/Win] fps=%.1f rendered=%d submitted=%d size=%dx%d",
@@ -585,6 +619,7 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			service.GLVideoClearPendingStats()
 			if st.FirstFrame {
 				logrus.Infof("[GDI/Win] first frame rendered — %dx%d", st.FW, st.FH)
+				vw.noteVideoTraceFirstPaint(vw.frameCount)
 			}
 			if st.FPSReady {
 				logrus.Infof("[GDI/Win] fps=%.1f rendered=%d submitted=%d size=%dx%d",

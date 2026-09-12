@@ -963,7 +963,10 @@ func goMoonlightStage(s, r, e C.int) {
 }
 
 //export goMoonlightConnected
-func goMoonlightConnected() { logrus.Info("🌕 [Moonlight] connected ✅") }
+func goMoonlightConnected() {
+	logrus.Info("🌕 [Moonlight] connected ✅")
+	notifyMoonlightStreamReady()
+}
 
 //export goMoonlightTerminated
 func goMoonlightTerminated(e C.int) {

@@ -424,7 +424,19 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s (streak=%d) video_stats=%v relay=%s — forcing reconnect", traceID, time.Since(start).Round(time.Millisecond), streak, vw.safeVideoStats(), vw.safeRelayDebugInfo())
 			vw.forceReconnectStuckStream(reason)
 		case firstPaintNs == 0:
+			// Native Vulkan/Metal path never goes through the Fyne canvas
+			// renderer, so firstPaint stays 0 even while the overlay is
+			// presenting. Treat an active overlay as painted, then nudge
+			// HWND z-order the same way a Control-tab switch does — that
+			// is what made the picture appear after switching tabs.
+			if vw.isNativeVideoActive() {
+				vw.noteVideoTraceFirstPaint(vw.frameCount)
+				vw.revealNativeVideoOverlay()
+				logrus.Infof("🖼️ [VideoTrace #%d] native overlay already rendering — marked paint and nudged visibility", traceID)
+				break
+			}
 			logrus.Warnf("⚠️ [VideoTrace #%d] client receives frames but UI has not painted after %s", traceID, time.Since(start).Round(time.Millisecond))
+			vw.RefreshViewportGeometry()
 		default:
 			logrus.Infof("✅ [VideoTrace #%d] startup path complete frame=%s paint=%s", traceID, time.Unix(0, firstFrameNs).Sub(start).Round(time.Millisecond), time.Unix(0, firstPaintNs).Sub(start).Round(time.Millisecond))
 		}

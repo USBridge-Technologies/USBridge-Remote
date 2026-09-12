@@ -503,6 +503,7 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 				m.mu.Lock()
 				m.isRunning = false
 				m.mu.Unlock()
+				clearMoonlightStreamReadyHandler()
 				if cgoErr == nil {
 					logrus.Info("🌕 [Moonlight/VT] stream stopped cleanly")
 				}
@@ -520,6 +521,7 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		m.activeWrapper = nil
 		m.isRunning = false
 		m.mu.Unlock()
+		clearMoonlightStreamReadyHandler()
 		return fmt.Errorf("failed to start LiStartConnection: %v", err)
 	}
 
@@ -533,14 +535,18 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		m.activeWrapper = nil
 		m.isRunning = false
 		m.mu.Unlock()
+		clearMoonlightStreamReadyHandler()
 		return fmt.Errorf("connect aborted by disconnect (post-start)")
 	}
 
-	logrus.Infof("⏱️ [Moonlight] LiStartConnection submitted: %.0fms (total %.0fms). Waiting for first frame...", float64(time.Since(t3).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
+	logrus.Infof("⏱️ [Moonlight] LiStartConnection submitted: %.0fms (total %.0fms). Waiting for handshake...", float64(time.Since(t3).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
 
-	if m.onStateChanged != nil {
-		m.onStateChanged("connected")
-	}
+	// Do not fire "connected" here. LiStartConnection is async: at this point
+	// we are typically still in control-stream-start (ENet on UDP 47999).
+	// VideoWidget's 4s no-frame watchdog used to start on this callback and
+	// LiStopConnection a live handshake (WSAEINTR / error 10004). The real
+	// ready signal is goMoonlightConnected → notifyMoonlightStreamReady.
+	m.armStreamReadyCallback()
 
 	return nil
 }
@@ -565,6 +571,7 @@ func (m *MoonlightService) stopActiveProxy() {
 
 func (m *MoonlightService) Disconnect() error {
 	logrus.Info("🌕 Moonlight protocol: Disconnect called")
+	clearMoonlightStreamReadyHandler()
 
 	// Take a snapshot of everything we need to clean up under the lock,
 	// then do all blocking operations outside the lock.
@@ -802,6 +809,49 @@ func (m *MoonlightService) SetOnFrameReceived(callback func(image.Image)) {
 
 func (m *MoonlightService) SetOnStateChanged(callback func(string)) {
 	m.onStateChanged = callback
+}
+
+var (
+	moonlightReadyMu sync.Mutex
+	moonlightReadyFn func()
+)
+
+func setMoonlightStreamReadyHandler(fn func()) {
+	moonlightReadyMu.Lock()
+	moonlightReadyFn = fn
+	moonlightReadyMu.Unlock()
+}
+
+func clearMoonlightStreamReadyHandler() {
+	setMoonlightStreamReadyHandler(nil)
+}
+
+// notifyMoonlightStreamReady is called from goMoonlightConnected once
+// moonlight-common-c has finished RTSP/control/video/audio/input start.
+// That is the earliest moment VideoWidget's no-frame watchdog is allowed
+// to start — not LiStartConnection-submitted.
+func notifyMoonlightStreamReady() {
+	moonlightReadyMu.Lock()
+	fn := moonlightReadyFn
+	moonlightReadyMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+func (m *MoonlightService) armStreamReadyCallback() {
+	setMoonlightStreamReadyHandler(func() {
+		clearMoonlightStreamReadyHandler()
+		m.mu.Lock()
+		running := m.isRunning
+		cb := m.onStateChanged
+		m.mu.Unlock()
+		if !running || cb == nil {
+			return
+		}
+		logrus.Info("🌕 [Moonlight] handshake complete — signaling connected")
+		cb("connected")
+	})
 }
 
 func (m *MoonlightService) SetOnError(callback func(error)) {
