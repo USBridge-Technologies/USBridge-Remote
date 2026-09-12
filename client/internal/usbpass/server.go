@@ -379,7 +379,13 @@ func dispatchURB(ctx context.Context, dev *ExportedDevice, f urbFrame) []byte {
 	} else {
 		status, data = dev.Backend.HandleBulk(ctx, ep, f.direction == dirIn, int(f.transferLen), f.data)
 	}
-	return packRetSubmit(f.seq, status, data, f.numPackets)
+
+	actualLength := int32(len(data))
+	if f.direction == dirOut && status == 0 {
+		actualLength = int32(f.transferLen)
+	}
+
+	return packRetSubmit(f.seq, status, data, actualLength, f.numPackets)
 }
 
 func packRepDevlist(devs []*ExportedDevice) []byte {
@@ -423,7 +429,7 @@ func appendDeviceBody(out []byte, d *ExportedDevice, withIfaces bool) []byte {
 	return out
 }
 
-func packRetSubmit(seq uint32, status int32, data []byte, numPackets int32) []byte {
+func packRetSubmit(seq uint32, status int32, data []byte, actualLength int32, numPackets int32) []byte {
 	out := make([]byte, 0, 48+len(data))
 	out = appendU32(out, retSubmit)
 	out = appendU32(out, seq)
@@ -431,7 +437,7 @@ func packRetSubmit(seq uint32, status int32, data []byte, numPackets int32) []by
 	out = appendU32(out, 0) // direction
 	out = appendU32(out, 0) // ep
 	out = appendI32(out, status)
-	out = appendI32(out, int32(len(data)))
+	out = appendI32(out, actualLength)
 	out = appendI32(out, 0) // start_frame
 	if numPackets < 0 {
 		out = appendI32(out, -1)

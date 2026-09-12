@@ -239,6 +239,9 @@ type gousbBackend struct {
 	shortCircuitTag  [4]byte
 	shortCircuitXfer uint32
 
+	lastCBWDatalen  uint32
+	lastCBWTransfer uint32
+
 	// bulkSem is a size-1 semaphore serializing the CBW/data/CSW steps of
 	// Bulk-Only Transport across the whole device: BOT is strictly one
 	// command in flight at a time on a given bulk pipe (the device has one
@@ -635,27 +638,33 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 		if n > length {
 			n = length
 		}
-		if err != nil && n == 0 {
-			logrus.Debugf("usbpass: bulk IN ep=%d len=%d: %v", num, length, err)
-			if recoverable(err) {
-				// STALL, or our own timeout with no UNLINK yet — clear halt
-				// (see clearEndpointHalt) and retry once, with a fresh 15s
-				// window, instead of bubbling an error up to Windows, which
-				// would otherwise abort the whole SCSI command over what a
-				// real device recovers from routinely.
+		if err != nil {
+			if n > 0 && isStall(err) {
+				logrus.Debugf("usbpass: bulk IN ep=%d len=%d short read (%d bytes) with STALL, clearing halt immediately", num, length, n)
 				b.clearEndpointHalt(uint8(fullAddr))
-				retryCtx, retryCancel := freshCtx()
-				n, err = inep.ReadContext(retryCtx, buf)
-				retryCancel()
-				if n > length {
-					n = length
-				}
-				if err != nil && n == 0 {
-					logrus.Debugf("usbpass: bulk IN ep=%d len=%d after clear-halt retry: %v", num, length, err)
+				err = nil
+			} else if n == 0 {
+				logrus.Debugf("usbpass: bulk IN ep=%d len=%d: %v", num, length, err)
+				if recoverable(err) {
+					// STALL, or our own timeout with no UNLINK yet - clear halt
+					// (see clearEndpointHalt) and retry once, with a fresh 15s
+					// window, instead of bubbling an error up to Windows, which
+					// would otherwise abort the whole SCSI command over what a
+					// real device recovers from routinely.
+					b.clearEndpointHalt(uint8(fullAddr))
+					retryCtx, retryCancel := freshCtx()
+					n, err = inep.ReadContext(retryCtx, buf)
+					retryCancel()
+					if n > length {
+						n = length
+					}
+					if err != nil && n == 0 {
+						logrus.Debugf("usbpass: bulk IN ep=%d len=%d after clear-halt retry: %v", num, length, err)
+						return errnoEPIPE, nil
+					}
+				} else {
 					return errnoEPIPE, nil
 				}
-			} else {
-				return errnoEPIPE, nil
 			}
 		}
 		// A CSW is exactly 13 bytes, signature "USBS" at offset 0, status
@@ -664,11 +673,28 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 		// from a silently-wrong one.
 		isCSW := n == 13 && buf[0] == 'U' && buf[1] == 'S' && buf[2] == 'B' && buf[3] == 'S'
 		if isCSW {
-			logrus.Debugf("usbpass: CSW status=%d residue=%d", buf[12], binary.LittleEndian.Uint32(buf[8:12]))
+			actualResidue := binary.LittleEndian.Uint32(buf[8:12])
+			expectedResidue := b.lastCBWDatalen - b.lastCBWTransfer
+			logrus.Debugf("usbpass: CSW EVAL - actual=%d expected=%d transfer=%d datalen=%d", actualResidue, expectedResidue, b.lastCBWTransfer, b.lastCBWDatalen)
+			if b.lastCBWTransfer <= b.lastCBWDatalen && expectedResidue != actualResidue {
+				logrus.Debugf("usbpass: PATCHING CSW residue %d -> %d to prevent Windows phase error (transferred %d of %d)", actualResidue, expectedResidue, b.lastCBWTransfer, b.lastCBWDatalen)
+				binary.LittleEndian.PutUint32(buf[8:12], expectedResidue)
+				actualResidue = expectedResidue
+			}
+			logrus.Debugf("usbpass: CSW status=%d residue=%d", buf[12], actualResidue)
 		} else {
 			// A data-in phase, not the CSW — the CSW read is still to come
 			// as its own URB; keep the cycle open for it.
 			cycleDone = false
+			if uint32(n) < b.lastCBWDatalen {
+				logrus.Debugf("usbpass: padding IN data from %d to %d to workaround usbip-win bug", n, b.lastCBWDatalen)
+				padded := make([]byte, b.lastCBWDatalen)
+				copy(padded, buf[:n])
+				b.lastCBWTransfer += b.lastCBWDatalen
+				return 0, padded
+			}
+			b.lastCBWTransfer += uint32(n)
+			logrus.Debugf("usbpass: IN data phase returned %d bytes", n)
 		}
 		// Short reads are valid (ZLP / short packet); return what we got.
 		return 0, buf[:n]
@@ -678,8 +704,9 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 	// SCSI command instead of just an endpoint/length pair.
 	if len(outData) == 31 && outData[0] == 'U' && outData[1] == 'S' && outData[2] == 'B' && outData[3] == 'C' {
 		opcode := outData[15]
-		logrus.Debugf("usbpass: CBW opcode=%#02x cdblen=%d datalen=%d dir=%s",
-			opcode, outData[14], binary.LittleEndian.Uint32(outData[8:12]), map[bool]string{true: "in", false: "out"}[outData[12]&0x80 != 0])
+		lba := binary.BigEndian.Uint32(outData[17:21])
+		logrus.Debugf("usbpass: CBW opcode=%#02x lba=%#x cdblen=%d datalen=%d dir=%s",
+			opcode, lba, outData[14], binary.LittleEndian.Uint32(outData[8:12]), map[bool]string{true: "in", false: "out"}[outData[12]&0x80 != 0])
 		// A new CBW conclusively ends the previous command's cycle, whether
 		// or not the host actually read back a short-circuited command's
 		// data/CSW phases (confirmed live: it doesn't always) — leaving
@@ -694,7 +721,15 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 			cycleDone = false // synthesized data/CSW phases for this command are still to come
 			return 0, nil
 		}
+
+		b.lastCBWDatalen = binary.LittleEndian.Uint32(outData[8:12])
+		b.lastCBWTransfer = 0
+	} else {
+		// Bulk OUT data phase (not a CBW).
+		cycleDone = false
+		b.lastCBWTransfer += uint32(len(outData))
 	}
+
 	outep, err := b.intf.OutEndpoint(num)
 	if err != nil {
 		logrus.Debugf("usbpass: bulk OUT ep=%d: %v", num, err)
@@ -763,3 +798,5 @@ func (b *gousbBackend) Close() error {
 	}
 	return nil
 }
+
+
