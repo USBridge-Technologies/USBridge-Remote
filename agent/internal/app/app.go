@@ -69,6 +69,7 @@ type App struct {
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
 	usbBroker *usbpass.Service
+	adminSrv  *adminapi.Server
 
 	// gpuClockArmed records whether applyGPUClockLock has already launched
 	// the elevated lock daemon for this agent process, so repeated calls
