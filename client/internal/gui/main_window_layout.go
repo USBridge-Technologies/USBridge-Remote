@@ -1458,6 +1458,14 @@ func (mw *MainWindow) updateVideoIconLabel() {
 	if mw.videoIcon == nil {
 		return
 	}
+	
+	// If the user is streaming using a native overlay (Metal/Vulkan), DO NOT update
+	// the Fyne UI label. Fyne layout passes run on the OS main thread, and updating
+	// text causes a 10-20ms layout recalculation that blocks CADisplayLink and causes
+	// a micro-freeze in the video stream exactly once per second.
+	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
+		return
+	}
 
 	label := ""
 	if mw.currentVideoFPS > 0 {

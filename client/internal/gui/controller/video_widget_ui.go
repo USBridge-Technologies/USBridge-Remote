@@ -1037,7 +1037,6 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 // updateStats updates statistics.
 func (vw *VideoWidget) updateStats() {
 	vw.frameMutex.RLock()
-	lastFrameTime := vw.lastFrameTime
 	vw.frameMutex.RUnlock()
 
 	decoderStats := vw.frameDecoder.GetFrameStats()
@@ -1051,8 +1050,11 @@ func (vw *VideoWidget) updateStats() {
 		}
 	}
 
-	stats := fmt.Sprintf("FPS: %.1f | %s", fps, lastFrameTime.Format("15:04:05"))
-	vw.statsLabel.SetText(stats)
+	// Updating Fyne UI texts causes layout invalidations.
+	// We no longer update the statsLabel (which was removed) here,
+	// and we skip calling SetBadgeText in updateVideoIconLabel
+	// when streaming via Native Video.
+
 	if vw.onFPSChanged != nil {
 		vw.onFPSChanged(math.Round(fps*10) / 10)
 	}
