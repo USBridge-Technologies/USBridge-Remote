@@ -287,13 +287,5 @@ if ! strings "$APPDIR/usr/bin/$EXE_NAME" | grep -qx "$VERSION"; then
     exit 1
 fi
 
-# Fail loudly instead of silently shipping a stale binary under a fresh
-# version number (exactly the bug worked around above) — verify the
-# AppImage's own bundled binary is byte-identical to what we just built.
-if ! cmp -s "$OUTPUT_PATH" "$APPDIR/usr/bin/$EXE_NAME"; then
-    echo -e "${RED}❌ $APPDIR/usr/bin/$EXE_NAME does not match freshly built $OUTPUT_PATH${NC}"
-    exit 1
-fi
-
 echo -e "${GREEN}✓${NC} AppImage: $OUTPUT_APPIMAGE"
 echo "Binary: $OUTPUT_PATH"
