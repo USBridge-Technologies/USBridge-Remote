@@ -479,7 +479,7 @@ func NewHeaderBand(title string, content fyne.CanvasObject) *fyne.Container {
 // MobileFooterBottomInset adds padding to the bottom of the container on mobile devices
 // to keep it above the system navigation bar (Android).
 func MobileFooterBottomInset(base float32) float32 {
-	if !fyne.CurrentDevice().IsMobile() {
+	if !IsMobile() {
 		return base
 	}
 

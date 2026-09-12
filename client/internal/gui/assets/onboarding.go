@@ -121,6 +121,11 @@ var (
 	// file -- recolorStrokeIcon only recolored the circle, leaving the
 	// question mark itself black. recolorMonoIcon recolors both.
 	QuestionIconHeader = fyne.NewStaticResource("question-svgrepo-com-header.svg", recolorMonoIcon(questionIcon, "#c3c6b4", "2.6"))
+	// Teal variants match design.ColorConnectionBadgeText (#41e0c3) — the
+	// phone settings menu's row labels.
+	QuestionIconTeal   = fyne.NewStaticResource("question-svgrepo-com-teal.svg", recolorMonoIcon(questionIcon, "#41e0c3", "2.6"))
+	DiscordIconTeal    = fyne.NewStaticResource("message-chat-square-svgrepo-com-teal.svg", recolorStrokeIcon(messageChatSquareIcon, "#41e0c3", "1.9"))
+	LanguageIconTeal   = fyne.NewStaticResource("language-svgrepo-com-teal.svg", recolorFillIcon(languageIcon, "#41e0c3"))
 	DiscordIconActive  = fyne.NewStaticResource("message-chat-square-svgrepo-com-active.svg", recolorStrokeIcon(messageChatSquareIcon, "#93C572", "1.9"))
 	LanguageIconDim    = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
 	LanguageIconMuted  = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))

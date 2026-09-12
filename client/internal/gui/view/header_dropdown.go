@@ -556,6 +556,9 @@ type dropdownItem struct {
 	// minHeight overrides MinSize's own 36/32/24 row height when > 0 -- see
 	// StyledMenuOptions.RowHeight.
 	minHeight float32
+	iconRes   fyne.Resource
+	iconSide  float32
+	icon      *canvas.Image
 }
 
 func newDropdownItem(text, secondary string, selected bool, onTap func()) *dropdownItem {
@@ -584,9 +587,17 @@ func (i *dropdownItem) CreateRenderer() fyne.WidgetRenderer {
 	if i.monospace {
 		i.secondaryLabel.TextStyle.Monospace = true
 	}
+	parts := []fyne.CanvasObject{i.bg, i.label, i.secondaryLabel}
+	if i.iconRes != nil {
+		side := i.iconGlyphSize()
+		i.icon = canvas.NewImageFromResource(i.iconRes)
+		i.icon.FillMode = canvas.ImageFillContain
+		i.icon.SetMinSize(fyne.NewSize(side, side))
+		parts = []fyne.CanvasObject{i.bg, i.icon, i.label, i.secondaryLabel}
+	}
 	r := &dropdownItemRenderer{
 		item:    i,
-		objects: []fyne.CanvasObject{container.NewWithoutLayout(i.bg, i.label, i.secondaryLabel)},
+		objects: []fyne.CanvasObject{container.NewWithoutLayout(parts...)},
 	}
 	r.Refresh()
 	return r
@@ -604,6 +615,9 @@ func (i *dropdownItem) MinSize() fyne.Size {
 		padding = 16
 	}
 	width := label.MinSize().Width + padding
+	if i.iconRes != nil {
+		width += i.iconGlyphSize() + 8
+	}
 
 	if i.secondary != "" {
 		secondary := canvas.NewText(i.secondary, design.ColorTextMuted)
@@ -632,6 +646,13 @@ func (i *dropdownItem) MinSize() fyne.Size {
 		height = i.minHeight
 	}
 	return fyne.NewSize(width, height)
+}
+
+func (i *dropdownItem) iconGlyphSize() float32 {
+	if i.iconSide > 0 {
+		return i.iconSide
+	}
+	return 16
 }
 
 func (i *dropdownItem) Tapped(*fyne.PointEvent) {
@@ -805,14 +826,35 @@ func ShowStyledMenuCentered(anchor fyne.CanvasObject, items []StyledMenuItem, wi
 // as "the same style" as that dropdown without becoming one itself (see the
 // header's language menu, gui.ConnectionManager.showLanguageMenu).
 func ShowStyledMenuTeal(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, tealStyledMenuOptions(false))
+}
+
+// ShowMobileLanguageMenu is the phone language picker — same teal rows as
+// the Connections settings panel (13px / 38-tall / 220 wide), not the
+// compact 10px desktop teal menu.
+func ShowMobileLanguageMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
 	showStyledMenu(anchor, items, StyledMenuOptions{
 		TextColor: design.ColorConnectionBadgeText,
-		TextSize:  10,
-		// Default row height (36) was tuned for the default 14px text --
-		// trimmed by ~5px top/bottom (to 26) to match this menu's smaller
-		// 10px text instead of leaving it looking over-padded.
-		RowHeight: 26,
+		TextSize:  13,
+		RowHeight: 38,
+		Width:     220,
 	})
+}
+
+// ShowStyledMenuTealAbove is ShowStyledMenuTeal opening upward — footer
+// anchors (Desktop/Mobile preview) need this so the menu is not clipped
+// below the window.
+func ShowStyledMenuTealAbove(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, tealStyledMenuOptions(true))
+}
+
+func tealStyledMenuOptions(openAbove bool) StyledMenuOptions {
+	return StyledMenuOptions{
+		OpenAbove: openAbove,
+		TextColor: design.ColorConnectionBadgeText,
+		TextSize:  10,
+		RowHeight: 26,
+	}
 }
 
 func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options StyledMenuOptions) {
@@ -1002,8 +1044,19 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 // dropdown popup here (dropdownPopup.Tapped). Used by the Control header's
 // storage chip (main_window_storage_dialog.go) instead of a modal dialog.
 func ShowStyledInfoDropdown(anchor fyne.CanvasObject, content fyne.CanvasObject, minWidth float32) {
+	showStyledPanel(anchor, content, minWidth, false)
+}
+
+// showStyledPanelAbove is ShowStyledInfoDropdown opening upward — footer
+// panels (phone preview + scale slider) need this so they are not clipped
+// below the window.
+func showStyledPanelAbove(anchor fyne.CanvasObject, content fyne.CanvasObject, minWidth float32) *dropdownPopup {
+	return showStyledPanel(anchor, content, minWidth, true)
+}
+
+func showStyledPanel(anchor fyne.CanvasObject, content fyne.CanvasObject, minWidth float32, openAbove bool) *dropdownPopup {
 	if anchor == nil || content == nil {
-		return
+		return nil
 	}
 
 	menuBG := canvas.NewRectangle(design.ColorGray950)
@@ -1024,7 +1077,7 @@ func ShowStyledInfoDropdown(anchor fyne.CanvasObject, content fyne.CanvasObject,
 
 	canvasForObj := fyne.CurrentApp().Driver().CanvasForObject(anchor)
 	if canvasForObj == nil {
-		return
+		return nil
 	}
 
 	menuMin := menu.MinSize()
@@ -1041,6 +1094,12 @@ func ShowStyledInfoDropdown(anchor fyne.CanvasObject, content fyne.CanvasObject,
 		pos.X+(anchor.Size().Width-width)/2,
 		pos.Y+anchor.Size().Height+6,
 	)
+	if openAbove {
+		popupPos = fyne.NewPos(
+			pos.X+(anchor.Size().Width-width)/2,
+			pos.Y-height-6,
+		)
+	}
 	canvasSize := canvasForObj.Size()
 	if popupPos.X < 8 {
 		popupPos.X = 8
@@ -1048,13 +1107,14 @@ func ShowStyledInfoDropdown(anchor fyne.CanvasObject, content fyne.CanvasObject,
 	if popupPos.X+width > canvasSize.Width-8 {
 		popupPos.X = canvasSize.Width - width - 8
 	}
-	if popupPos.Y+height > canvasSize.Height-8 {
+	if !openAbove && popupPos.Y+height > canvasSize.Height-8 {
 		popupPos.Y = canvasSize.Height - height - 8
 	}
 	if popupPos.Y < 8 {
 		popupPos.Y = 8
 	}
 	popup.ShowAtPosition(popupPos)
+	return popup
 }
 
 func (p *dropdownPopup) CreateRenderer() fyne.WidgetRenderer {
@@ -1159,6 +1219,12 @@ func (r *dropdownItemRenderer) Layout(size fyne.Size) {
 		labelX = 8
 	} else if len(r.item.text) <= 4 && r.item.secondary == "" {
 		labelX = 12
+	}
+	if r.item.icon != nil {
+		side := r.item.iconGlyphSize()
+		r.item.icon.Resize(fyne.NewSize(side, side))
+		r.item.icon.Move(fyne.NewPos(labelX, (size.Height-side)/2))
+		labelX += side + 8
 	}
 	r.item.label.Move(fyne.NewPos(labelX, (size.Height-labelMin.Height)/2))
 	r.item.label.Resize(labelMin)

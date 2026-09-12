@@ -774,7 +774,7 @@ func (l *pcpanelDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fy
 	right := objects[1]
 
 	leftWidth := (size.Width - l.gap) / 2
-	if fyne.CurrentDevice().IsMobile() || size.Width < 360 {
+	if view.IsMobile() || size.Width < 360 {
 		leftWidth = (size.Width - l.gap) * 0.36
 	}
 	if leftWidth < 0 {

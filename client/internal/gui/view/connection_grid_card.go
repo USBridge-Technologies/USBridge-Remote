@@ -96,6 +96,9 @@ const (
 
 // NewConnectionGridCard builds one Grid-mode connection card.
 func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, actions ConnectionCardActions) fyne.CanvasObject {
+	if UseMobileConnections() && !state.Editing {
+		return newMobileConnectionGridCard(data, state, actions)
+	}
 	isAgent, isKVM := ClassifyConnectionRemoteOS(data.RemoteOS)
 	accent := design.ColorAccent // KVM and the unclassified fallback
 	if isAgent {
@@ -125,7 +128,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 		// of sitting at its own small MinSize the way DeviceRowControlsLayout
 		// (the non-editing leftTopControls' layout) would leave it.
 		leftElement := container.NewCenter(statusIndicator)
-		topRow = container.NewBorder(nil, nil, leftElement, typeBadge, wrapGridCardEntry(nameEntry, 12, design.ColorTextLight))
+		topRow = container.NewBorder(nil, nil, leftElement, typeBadge, wrapGridCardEntry(nameEntry, connectionEditNameTextSize(12), design.ColorTextLight))
 	} else {
 		nameText := NewBrandText(strings.TrimSpace(data.Name), 12, design.ColorTextLight, true)
 
@@ -201,8 +204,8 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 			StrokeWidth:  1,
 			CornerRadius: 6,
 			NormalIcon:   deleteIcon,
-			IconSize:     fyne.NewSize(13, 13),
-			ButtonSize:   fyne.NewSize(26, 26),
+			IconSize:     connectionEditActionIconSize(),
+			ButtonSize:   connectionEditActionButtonSize(),
 			OnTapped:     actions.OnDelete,
 		})
 		deleteBtn.SetDisabled(state.Disabled)
@@ -215,8 +218,8 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 			Stroke:       color.Transparent,
 			CornerRadius: 6,
 			NormalIcon:   saveIcon,
-			IconSize:     fyne.NewSize(13, 13),
-			ButtonSize:   fyne.NewSize(26, 26),
+			IconSize:     connectionEditActionIconSize(),
+			ButtonSize:   connectionEditActionButtonSize(),
 			OnTapped: func() {
 				if actions.OnSave == nil {
 					return
@@ -235,8 +238,8 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 			StrokeWidth:  1,
 			CornerRadius: 6,
 			NormalIcon:   cancelIcon,
-			IconSize:     fyne.NewSize(11, 11),
-			ButtonSize:   fyne.NewSize(26, 26),
+			IconSize:     connectionEditCancelIconSize(),
+			ButtonSize:   connectionEditActionButtonSize(),
 			OnTapped:     actions.OnCancel,
 		})
 		cancelBtn.SetDisabled(state.Disabled)
@@ -286,8 +289,12 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 
 	var content *fyne.Container
 	if editing {
-		statsBox = NewInset(statsBox, 0, 0, 3, 0)   // push down slightly by 3px
-		bottomRow = NewInset(bottomRow, 0, 0, 0, 4) // push buttons up slightly
+		statsBox = NewInset(statsBox, 0, 0, 3, 0) // push down slightly by 3px
+		btnTop := float32(0)
+		if UseMobileConnections() {
+			btnTop = 12
+		}
+		bottomRow = NewInset(bottomRow, 0, 0, btnTop, 4)
 		children = append(children, statsBox, bottomRow)
 		content = NewInset(container.NewVBox(children...), 12, 12, 6, 8)
 	} else {
@@ -410,7 +417,10 @@ var (
 // plain gray dot when RemoteOS is still empty (no successful connect yet,
 // so nothing to classify).
 func newConnectionCardStatusIndicator(remoteOS string) fyne.CanvasObject {
-	const size = float32(16)
+	return newConnectionCardStatusIndicatorSize(remoteOS, 16)
+}
+
+func newConnectionCardStatusIndicatorSize(remoteOS string, size float32) fyne.CanvasObject {
 	isAgent, isKVM := ClassifyConnectionRemoteOS(remoteOS)
 	var res fyne.Resource
 	switch {
@@ -578,8 +588,14 @@ func (t *gridCardFieldTheme) Size(name fyne.ThemeSizeName) float32 {
 	case theme.SizeNameInputBorder:
 		return 1
 	case theme.SizeNamePadding:
+		if UseMobileConnections() {
+			return 4
+		}
 		return 2
 	case theme.SizeNameInnerPadding:
+		if UseMobileConnections() {
+			return 8
+		}
 		return 5
 	case theme.SizeNameInputRadius:
 		return 4
@@ -629,17 +645,20 @@ func NewConnectionCardEditableStatsBox(includeName bool, name, lanAddress, tails
 		return sep
 	}
 
+	// Phone edit fills the row instead of the desktop 160px right-anchor,
+	// so the label-to-field gap does not stay empty.
+	entryWidth = connectionEditEntryWidth(entryWidth)
+	lanSize := connectionEditEntryTextSize(10)
+	tokenSize := connectionEditEntryTextSize(8)
+
 	var rows []fyne.CanvasObject
 	if includeName {
 		nameEntry = newConnectionCardFieldEntry(name, i18n.Current.ConnectionNameField)
-		// No copy/paste actions on Name (last "false" below) -- nothing
-		// about a connection's own name benefits from that the way an
-		// address or key does.
-		rows = append(rows, newConnectionStatEditRow(i18n.Current.ConnectionNameField, nameEntry, 10, design.ColorTextLight, false, entryWidth, false), newSep())
+		rows = append(rows, newConnectionStatEditRow(i18n.Current.ConnectionNameField, nameEntry, lanSize, design.ColorTextLight, false, entryWidth, false), newSep())
 	}
-	lanRow := newConnectionStatEditRow("LAN", lanEntry, 10, design.ColorTextLight, false, entryWidth, true)
-	tsRow := newConnectionStatEditRow("TS", tailscaleEntry, 10, tsValueColor, false, entryWidth, true)
-	tokenRow := newConnectionStatEditRow("Token", tokenEntry, 8, design.ColorTextLight, true, entryWidth, true)
+	lanRow := newConnectionStatEditRow("LAN", lanEntry, lanSize, design.ColorTextLight, false, entryWidth, true)
+	tsRow := newConnectionStatEditRow("TS", tailscaleEntry, lanSize, tsValueColor, false, entryWidth, true)
+	tokenRow := newConnectionStatEditRow("Token", tokenEntry, tokenSize, design.ColorTextLight, true, entryWidth, true)
 	rows = append(rows, lanRow, newSep(), tsRow, newSep(), tokenRow)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
@@ -708,14 +727,16 @@ func newGridCardFieldActions(entry *widget.Entry) fyne.CanvasObject {
 	// CornerRadius is small on purpose -- the default (design.RadiusMD, 8)
 	// on a button this size reads as a circle; this keeps a soft-cornered
 	// square instead.
+	actionBtn := connectionEditFieldActionButtonSize()
+	actionIcon := connectionEditFieldActionIconSize()
 	copyBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
 		HoverFill:    design.ColorSurfaceLight,
 		Stroke:       color.Transparent,
 		CornerRadius: 3,
 		NormalIcon:   copyIcon,
-		IconSize:     fyne.NewSize(9, 9),
-		ButtonSize:   fyne.NewSize(15, 15),
+		IconSize:     fyne.NewSize(actionIcon, actionIcon),
+		ButtonSize:   fyne.NewSize(actionBtn, actionBtn),
 		OnTapped: func() {
 			if entry == nil || entry.Text == "" {
 				return
@@ -729,8 +750,8 @@ func newGridCardFieldActions(entry *widget.Entry) fyne.CanvasObject {
 		Stroke:       color.Transparent,
 		CornerRadius: 3,
 		NormalIcon:   pasteIcon,
-		IconSize:     fyne.NewSize(9, 9),
-		ButtonSize:   fyne.NewSize(15, 15),
+		IconSize:     fyne.NewSize(actionIcon, actionIcon),
+		ButtonSize:   fyne.NewSize(actionBtn, actionBtn),
 		OnTapped: func() {
 			PasteClipboardIntoEntry(entry)
 		},
@@ -799,32 +820,32 @@ func (l *fixedWidthLabelLayout) Layout(objects []fyne.CanvasObject, size fyne.Si
 }
 
 func newConnectionStatEditRow(label string, entry *StyledEntry, textSize float32, textColor color.Color, stackedActions bool, width float32, showActions bool) fyne.CanvasObject {
-	return newConnectionStatEditRowCol(label, entry, textSize, textColor, stackedActions, width, showActions, connectionStatEditRowLabelWidth)
+	return newConnectionStatEditRowCol(label, entry, textSize, textColor, stackedActions, width, showActions, connectionEditLabelColWidth())
 }
 
 func newConnectionStatEditRowCol(label string, entry *StyledEntry, textSize float32, textColor color.Color, stackedActions bool, width float32, showActions bool, labelColWidth float32) fyne.CanvasObject {
 	c5c8b5Color := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
 	labelText := canvas.NewText(label, c5c8b5Color)
-	labelText.TextSize = 10
+	labelText.TextSize = connectionEditStatLabelSize()
 	labelText.TextStyle.Monospace = true
 
 	entry.TextStyle.Monospace = true
 
 	if labelColWidth <= 0 {
-		labelColWidth = connectionStatEditRowLabelWidth
+		labelColWidth = connectionEditLabelColWidth()
 	}
 	labelCol := container.New(&fixedWidthLabelLayout{Width: labelColWidth}, labelText)
 
 	// showActions is false for Name (see NewConnectionCardEditableStatsBox)
 	// -- nothing to copy/paste there the way an address or key benefits
-	// from. Still reserves connectionStatEditRowActionsWidth of blank space
-	// rather than nil -- see that constant's doc comment.
+	// from. Still reserves connectionEditActionsColWidth of blank space
+	// rather than nil -- see that helper's doc comment.
 	var actionsCol fyne.CanvasObject
 	if showActions {
 		actionsCol = container.NewCenter(newGridCardFieldActions(&entry.Entry))
 	} else {
 		spacer := canvas.NewRectangle(color.Transparent)
-		spacer.SetMinSize(fyne.NewSize(connectionStatEditRowActionsWidth, 1))
+		spacer.SetMinSize(fyne.NewSize(connectionEditActionsColWidth(), 1))
 		actionsCol = spacer
 	}
 

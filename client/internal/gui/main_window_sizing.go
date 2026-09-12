@@ -1,6 +1,10 @@
 package gui
 
-import "fyne.io/fyne/v2"
+import (
+	"usbridge-client/internal/gui/view"
+
+	"fyne.io/fyne/v2"
+)
 
 const (
 	minConfiguredWindowWidth  = 800
@@ -62,6 +66,12 @@ func (mw *MainWindow) applyInitialWindowSize() {
 		return
 	}
 
+	if view.ForceMobileDesign {
+		mw.applyPhonePreviewWindowSize()
+		return
+	}
+	mw.window.SetFixedSize(false)
+
 	var contentMin fyne.Size
 	if content := mw.window.Content(); content != nil {
 		contentMin = content.MinSize()
@@ -81,8 +91,22 @@ func (mw *MainWindow) applyInitialWindowSize() {
 	}
 }
 
+func (mw *MainWindow) applyPhonePreviewWindowSize() {
+	view.ApplyPreviewUserScale()
+	view.ReloadFyneCanvasScale()
+	p := view.CurrentPhonePreview()
+	size := fyne.NewSize(p.Width, p.Height)
+	mw.lastGoodWindowSize = size
+	mw.window.SetFixedSize(false)
+	mw.window.Resize(size)
+	mw.window.SetFixedSize(true)
+	if !mw.canRestoreWindowPlacement() {
+		mw.window.CenterOnScreen()
+	}
+}
+
 func (mw *MainWindow) ensureWindowFitsContent() {
-	if mw.window == nil {
+	if mw.window == nil || view.ForceMobileDesign {
 		return
 	}
 

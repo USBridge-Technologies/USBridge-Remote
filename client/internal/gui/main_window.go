@@ -28,13 +28,13 @@ type MainWindow struct {
 	window fyne.Window
 
 	// Widgets
-	diskWidget          *controller.DiskWidget
-	videoWidget         *controller.VideoWidget
-	backupWidget        *controller.BackupWidget
-	connectionManager   *controller.ConnectionManager
-	mainContent         *fyne.Container
-	connectionContent   *fyne.Container
-	tabs *container.AppTabs
+	diskWidget        *controller.DiskWidget
+	videoWidget       *controller.VideoWidget
+	backupWidget      *controller.BackupWidget
+	connectionManager *controller.ConnectionManager
+	mainContent       *fyne.Container
+	connectionContent *fyne.Container
+	tabs              *container.AppTabs
 	// tabHeaderButtons is the Control/Devices/Snapshots/Scripts selector now
 	// living in createMainAddressBar's own left zone (mainHeaderBarLayout)
 	// instead of mw.tabs' own native tab strip -- see applyTabVisualState,
@@ -45,13 +45,13 @@ type MainWindow struct {
 	// package uses) but is never added to the visible widget tree anymore --
 	// tabContentStack, not mw.tabs itself, is what recreateContainers
 	// actually places into mw.mainContent.
-	tabHeaderButtons    [4]*headerTabButton
-	tabContentStack     *fyne.Container
-	deviceButtonsPanel  *fyne.Container
-	deviceFooterBar     *fyne.Container
-	deviceMountBtn      fyne.CanvasObject
-	deviceUnmountBtn    fyne.CanvasObject
-	mainExitBtn         *view.HeaderActionButton
+	tabHeaderButtons   [4]*headerTabButton
+	tabContentStack    *fyne.Container
+	deviceButtonsPanel *fyne.Container
+	deviceFooterBar    *fyne.Container
+	deviceMountBtn     fyne.CanvasObject
+	deviceUnmountBtn   fyne.CanvasObject
+	mainExitBtn        *view.HeaderActionButton
 	// statusBarStorageDivider is the status-indicator strip's own divider
 	// right before mw.sdStorageProgress (main_window_status_indicator_bar.go)
 	// -- shown/hidden together with it so an agent connection with no SD
@@ -201,6 +201,7 @@ type MainWindow struct {
 	// down to its content's bare MinSize instead of its actual prior size.
 	lastGoodWindowSize fyne.Size
 	resizeGuardPending bool
+	designModeChip     *view.FooterTintChip
 	// windowPlacementStop ends the periodic save of the window's last
 	// monitor/position so the next launch can reopen on the same display.
 	windowPlacementStop chan struct{}
@@ -233,6 +234,11 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 		},
 		lifecycleOps: make(chan func(), 32),
 	}
+	view.ForceMobileDesign = a.Preferences().BoolWithFallback(view.ForceMobileDesignPrefKey, false)
+	view.ForceMobilePresetID = a.Preferences().StringWithFallback(view.ForceMobilePresetPrefKey, view.DefaultPhonePreviewID)
+	view.ForceMobilePresetID = view.PhonePreviewByID(view.ForceMobilePresetID).ID
+	view.ForceMobileScale = view.ClampPhonePreviewScale(float32(a.Preferences().FloatWithFallback(view.ForceMobileScalePrefKey, float64(view.DefaultPhonePreviewScale))))
+	view.ApplyPreviewUserScale()
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService()

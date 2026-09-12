@@ -3,6 +3,8 @@ package gui
 import (
 	"time"
 
+	"usbridge-client/internal/gui/view"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"github.com/sirupsen/logrus"
@@ -69,6 +71,11 @@ func (mw *MainWindow) wrapWithResizeGuard(content fyne.CanvasObject) fyne.Canvas
 // system mid-pass).
 func (mw *MainWindow) observeContentResize(size, minSize fyne.Size) {
 	if mw == nil {
+		return
+	}
+	if view.ForceMobileDesign {
+		p := view.CurrentPhonePreview()
+		mw.lastGoodWindowSize = fyne.NewSize(p.Width, p.Height)
 		return
 	}
 

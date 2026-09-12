@@ -64,7 +64,7 @@ func NewConnectionEditPanel(data ConnectionEditPanelData, actions ConnectionEdit
 	// a gap to the right of the icon, before the name field, not a top
 	// pad (that pushed the icon down out of vertical center within its
 	// Center wrapper).
-	topRow := container.NewBorder(nil, nil, container.NewCenter(NewInset(statusIndicator, 0, 8, 0, 0)), nil, wrapGridCardEntry(nameEntry, 13, design.ColorTextLight))
+	topRow := container.NewBorder(nil, nil, container.NewCenter(NewInset(statusIndicator, 0, 8, 0, 0)), nil, wrapGridCardEntry(nameEntry, connectionEditNameTextSize(13), design.ColorTextLight))
 
 	cancelIcon := fyne.NewStaticResource("connection-cancel-edit.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.3 1.41 1.41 6.3-6.3 6.3 6.3 1.41-1.41-6.3-6.3 6.3-6.3z"/></svg>`))
 	cancelBtn := newIconChromeButton(iconChromeButtonSpec{
@@ -75,8 +75,8 @@ func NewConnectionEditPanel(data ConnectionEditPanelData, actions ConnectionEdit
 		StrokeWidth:  1,
 		CornerRadius: 6,
 		NormalIcon:   cancelIcon,
-		IconSize:     fyne.NewSize(11, 11),
-		ButtonSize:   fyne.NewSize(26, 26),
+		IconSize:     connectionEditCancelIconSize(),
+		ButtonSize:   connectionEditActionButtonSize(),
 		OnTapped:     actions.OnCancel,
 	})
 
@@ -90,8 +90,8 @@ func NewConnectionEditPanel(data ConnectionEditPanelData, actions ConnectionEdit
 		Stroke:       color.Transparent,
 		CornerRadius: 6,
 		NormalIcon:   saveIcon,
-		IconSize:     fyne.NewSize(13, 13),
-		ButtonSize:   fyne.NewSize(26, 26),
+		IconSize:     connectionEditActionIconSize(),
+		ButtonSize:   connectionEditActionButtonSize(),
 		OnTapped: func() {
 			if actions.OnSave == nil {
 				return
@@ -109,8 +109,8 @@ func NewConnectionEditPanel(data ConnectionEditPanelData, actions ConnectionEdit
 		StrokeWidth:  1,
 		CornerRadius: 6,
 		NormalIcon:   deleteIcon,
-		IconSize:     fyne.NewSize(13, 13),
-		ButtonSize:   fyne.NewSize(26, 26),
+		IconSize:     connectionEditActionIconSize(),
+		ButtonSize:   connectionEditActionButtonSize(),
 		OnTapped:     actions.OnDelete,
 	})
 
@@ -126,15 +126,22 @@ func NewConnectionEditPanel(data ConnectionEditPanelData, actions ConnectionEdit
 	// -- that stray couple px was exactly why "above" still read bigger
 	// than "below" even at matching NewInset values) stacks with only the
 	// gap it's told to, so these 3px are the whole story now.
+	btnTop := float32(3)
+	if UseMobileConnections() {
+		btnTop = 12
+	}
 	content := NewInset(container.New(&tightStatsVBoxLayout{Gap: 0},
 		topRow,
 		NewInset(statsBox, 0, 0, 3, 0),
-		NewInset(bottomRow, 0, 0, 3, 0),
+		NewInset(bottomRow, 0, 0, btnTop, 0),
 	), 14, 14, 14, 3)
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusLG
 	bg.StrokeColor = design.ColorTailscaleChipBorder
+	if UseMobileConnections() {
+		bg.StrokeColor = design.ColorConnectionBadgeText
+	}
 	bg.StrokeWidth = 1
 
 	// No width policy applied here on purpose -- this widget just reports

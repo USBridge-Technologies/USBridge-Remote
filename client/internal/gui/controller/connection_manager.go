@@ -400,8 +400,7 @@ func (cm *ConnectionManager) startTailscaleLogout() {
 
 func (cm *ConnectionManager) handleTailscaleToggleAction() {
 	if cm.tsStatus != nil && cm.tsStatus.LoggedIn {
-		view.ShowConfirmYesLeft(
-			i18n.Current.Confirmation,
+		view.ShowConfirmToast(
 			i18n.Current.TailscaleLogoutConfirm,
 			func(confirmed bool) {
 				if confirmed {
@@ -565,7 +564,7 @@ func (cm *ConnectionManager) setConnectionPendingState(pending bool, activeIndex
 		if pending && activeIndex >= 0 && activeIndex < len(cm.connections) {
 			name = cm.connections[activeIndex].Name
 		}
-		logrus.Infof("🔌 [CONNECT-TOAST] state change: pending=%v activeIndex=%d name=%q (was pending=%v activeIndex=%d)",
+		logrus.Infof("?? [CONNECT-TOAST] state change: pending=%v activeIndex=%d name=%q (was pending=%v activeIndex=%d)",
 			pending, activeIndex, name, wasPending, wasActiveIndex)
 		cm.connectingStateSink(pending, name)
 	}
@@ -837,6 +836,20 @@ func (cm *ConnectionManager) GetContainer() fyne.CanvasObject {
 		return nil
 	}
 	return cm.ui.Container
+}
+
+func (cm *ConnectionManager) ViewMode() string {
+	if cm == nil || cm.ui == nil {
+		return "grid"
+	}
+	return cm.ui.CurrentViewMode()
+}
+
+func (cm *ConnectionManager) SetViewMode(mode string) {
+	if cm == nil || cm.ui == nil {
+		return
+	}
+	cm.ui.SetViewMode(mode)
 }
 
 func (cm *ConnectionManager) OpenQuickStartDocs() {

@@ -3,6 +3,8 @@ package gui
 import (
 	"time"
 
+	"usbridge-client/internal/gui/view"
+
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
@@ -74,6 +76,11 @@ func (mw *MainWindow) canRestoreWindowPlacement() bool {
 
 func (mw *MainWindow) persistWindowPlacement() {
 	if mw == nil || mw.app == nil || mw.window == nil {
+		return
+	}
+	if view.ForceMobileDesign {
+		// Keep the last desktop logical size so leaving Mobile preview
+		// restores the wide window, not the phone frame.
 		return
 	}
 	prefs := mw.app.Preferences()

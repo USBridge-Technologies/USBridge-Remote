@@ -38,7 +38,8 @@ func newAccountCard(content fyne.CanvasObject) fyne.CanvasObject {
 	border.CornerRadius = design.RadiusMD
 	border.StrokeColor = design.ColorConnectionBadgeBorder
 	border.StrokeWidth = 1
-	return container.NewStack(bg, view.NewInset(content, 14, 14, 12, 12), border)
+	l, r, t, b := accountDialogCardInset()
+	return container.NewStack(bg, view.NewInset(content, l, r, t, b), border)
 }
 
 // newAccountDivider is the thin low-contrast rule between a card's header

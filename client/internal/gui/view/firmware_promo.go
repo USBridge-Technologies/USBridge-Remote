@@ -58,8 +58,9 @@ var (
 
 // FirmwarePromoBanner is the Connections-screen firmware promo: CPU icon,
 // title/subtitle, available-board menu, a rotating "included" feature, and
-// a 24h Trial button. Hover reveals a top-right X that dismisses it into
-// the footer chip (see FooterPromoChip / NewFooterLabelChip).
+// a 24h Trial button. Desktop hover reveals a top-right X that dismisses
+// it into the footer chip; on the phone Connections promo the X stays
+// visible (see FooterPromoChip / NewFooterLabelChip).
 type FirmwarePromoBanner struct {
 	widget.BaseWidget
 
@@ -134,11 +135,15 @@ func (b *FirmwarePromoBanner) setHovered(hovered bool) {
 	})
 }
 
+func (b *FirmwarePromoBanner) mobilePromo() bool {
+	return UseMobileConnections() && !b.flushMargins
+}
+
 func (b *FirmwarePromoBanner) syncClose() {
 	if b.closeBtn == nil {
 		return
 	}
-	if b.hovered || b.closeHovered {
+	if b.mobilePromo() || b.hovered || b.closeHovered {
 		b.closeBtn.Show()
 	} else {
 		b.closeBtn.Hide()
@@ -255,11 +260,14 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 	}
 	b.featureLabel = canvas.NewText(featureText, firmwarePromoFeatureColor)
 	b.featureLabel.TextSize = 10
-	featureWidth := firmwarePromoFeatureMinWidth()
 	featureInner := container.New(&DeviceRowControlsLayout{Gap: 6}, b.featureIcon, b.featureLabel)
-	featureSlot := canvas.NewRectangle(color.Transparent)
-	featureSlot.SetMinSize(fyne.NewSize(featureWidth, 14))
-	featureRow := container.NewMax(featureSlot, featureInner)
+	mobilePromo := b.mobilePromo()
+	var featureRow fyne.CanvasObject = featureInner
+	if !mobilePromo {
+		featureSlot := canvas.NewRectangle(color.Transparent)
+		featureSlot.SetMinSize(fyne.NewSize(firmwarePromoFeatureMinWidth(), 14))
+		featureRow = container.NewMax(featureSlot, featureInner)
+	}
 
 	trialBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:      design.ColorConnectionAddFill,
@@ -284,35 +292,11 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 		container.NewCenter(cpu),
 		titleBlock,
 	)
-	// Scripts' half-width column cannot fit the board picker; Connections
-	// keeps the extra gap so "Radxa …" sits a bit right of the subtitle.
-	var left fyne.CanvasObject = titleCluster
-	if !b.flushMargins {
-		boards := NewHeaderDropdown(nil, "", nil)
-		boards.UltraCompact = true
-		boards.CornerRadius = 6
-		boards.BorderColor = design.ColorTailscaleChipBorder
-		boards.TextColor = design.ColorConnectionBadgeText
-		boards.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
-		boards.TextSize = 10
-		boards.HoverBorderColor = design.ColorConnectionBadgeText
-		boards.HoverFillColor = design.ColorGray900
-		boards.SetDetails(firmwarePromoBoardDetails())
-		boards.OnHover = b.setHovered
-		boards.SetOptions(firmwarePromoBoardsList)
-		boards.SetSelected(firmwarePromoBoardsList[0])
-		left = container.New(&DeviceRowControlsLayout{Gap: 22}, titleCluster, boards)
+
+	closeIcon, closeBtn := float32(10), fyne.NewSize(16, 16)
+	if mobilePromo {
+		closeIcon, closeBtn = 14, fyne.NewSize(24, 24)
 	}
-	right := container.New(&DeviceRowControlsLayout{Gap: 12}, featureRow, trialBtn)
-	row := container.NewBorder(nil, nil, left, right)
-
-	bg := canvas.NewRectangle(design.ColorGray900)
-	bg.CornerRadius = design.RadiusMD
-	border := canvas.NewRectangle(color.Transparent)
-	border.CornerRadius = design.RadiusMD
-	border.StrokeColor = design.ColorTailscaleChipBorder
-	border.StrokeWidth = 1
-
 	b.closeBtn = newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
 		HoverFill:    design.ColorSurfaceLight,
@@ -320,8 +304,8 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 		CornerRadius: 3,
 		NormalIcon:   scriptFooterCloseIcon,
 		HoverIcon:    scriptFooterCloseHoverIcon,
-		IconSize:     fyne.NewSize(10, 10),
-		ButtonSize:   fyne.NewSize(16, 16),
+		IconSize:     fyne.NewSize(closeIcon, closeIcon),
+		ButtonSize:   closeBtn,
 		OnHover: func(on bool) {
 			b.closeHovered = on
 			if on {
@@ -338,30 +322,97 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 			}
 		},
 	})
-	b.closeBtn.Hide()
-	closeSlot := container.NewBorder(
-		NewInsetExact(container.NewHBox(layout.NewSpacer(), b.closeBtn), 0, 6, 4, 0),
-		nil, nil, nil,
-	)
+	if !mobilePromo {
+		b.closeBtn.Hide()
+	}
+
+	var row fyne.CanvasObject
+	if mobilePromo {
+		// Phone: Trial + always-visible X in the title row; board picker
+		// and rotating feature sit on the second row (picker left).
+		headerRight := container.New(&DeviceRowControlsLayout{Gap: 8},
+			container.NewCenter(trialBtn),
+			container.NewCenter(b.closeBtn),
+		)
+		header := container.NewBorder(nil, nil, titleCluster, headerRight)
+		divider := canvas.NewRectangle(design.ColorTailscaleChipBorder)
+		divider.SetMinSize(fyne.NewSize(1, 1))
+		bottom := container.NewBorder(nil, nil, newFirmwarePromoBoardDropdown(b), featureRow)
+		row = container.New(&tightStatsVBoxLayout{Gap: 8}, header, divider, bottom)
+	} else {
+		// Scripts' half-width column cannot fit the board picker; Connections
+		// keeps the extra gap so "Radxa …" sits a bit right of the subtitle.
+		var left fyne.CanvasObject = titleCluster
+		if !b.flushMargins {
+			left = container.New(&DeviceRowControlsLayout{Gap: 22}, titleCluster, newFirmwarePromoBoardDropdown(b))
+		}
+		right := container.New(&DeviceRowControlsLayout{Gap: 12}, featureRow, trialBtn)
+		row = container.NewBorder(nil, nil, left, right)
+	}
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorTailscaleChipBorder
+	border.StrokeWidth = 1
+
+	var closeSlot fyne.CanvasObject
+	if mobilePromo {
+		closeSlot = canvas.NewRectangle(color.Transparent)
+	} else {
+		closeSlot = container.NewBorder(
+			NewInsetExact(container.NewHBox(layout.NewSpacer(), b.closeBtn), 0, 6, 4, 0),
+			nil, nil, nil,
+		)
+	}
 
 	// Extra right inset keeps Trial/features clear of the hover X; matching
 	// extra left inset so the strip still reads even, not shifted.
-	inner := NewInsetExact(row, 20, 28, 7, 7)
+	innerPadL, innerPadR := float32(20), float32(28)
+	if mobilePromo {
+		innerPadL, innerPadR = 12, 12
+	}
+	inner := NewInsetExact(row, innerPadL, innerPadR, 7, 7)
 	bar := container.NewStack(bg, inner, border, closeSlot)
 	// Side margins match the section header / cards so the strip lines up
 	// with them instead of hugging the window edge. Scripts' automation
 	// column is already inset, so flushMargins keeps only the top gap.
 	side := connectionsHeaderSideMargin
+	if mobilePromo {
+		side = connectionsMobileSideMargin
+	}
 	if b.flushMargins {
 		side = 0
 	}
-	content := NewInset(bar, side, side, 6, 0)
+	outer := NewInset
+	if mobilePromo {
+		outer = NewInsetExact
+	}
+	content := outer(bar, side, side, 6, 0)
 
 	b.syncClose()
 	if b.Visible() {
 		b.startRotation()
 	}
 	return widget.NewSimpleRenderer(content)
+}
+
+func newFirmwarePromoBoardDropdown(b *FirmwarePromoBanner) *HeaderDropdown {
+	boards := NewHeaderDropdown(nil, "", nil)
+	boards.UltraCompact = true
+	boards.CornerRadius = 6
+	boards.BorderColor = design.ColorTailscaleChipBorder
+	boards.TextColor = design.ColorConnectionBadgeText
+	boards.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	boards.TextSize = 10
+	boards.HoverBorderColor = design.ColorConnectionBadgeText
+	boards.HoverFillColor = design.ColorGray900
+	boards.SetDetails(firmwarePromoBoardDetails())
+	boards.OnHover = b.setHovered
+	boards.SetOptions(firmwarePromoBoardsList)
+	boards.SetSelected(firmwarePromoBoardsList[0])
+	return boards
 }
 
 func firmwarePromoFeatureMinWidth() float32 {

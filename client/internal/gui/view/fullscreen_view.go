@@ -22,7 +22,7 @@ func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keybo
 	themedKeyboard := container.NewThemeOverride(keyboardLayout, design.NewBrandTheme())
 
 	var mainContainer *fyne.Container
-	if fyne.CurrentDevice().IsMobile() {
+	if IsMobile() {
 		bg := canvas.NewRectangle(color.Black)
 		mainContentItems := []fyne.CanvasObject{bg, videoContainer}
 		mainContentItems = append(mainContentItems, container.NewBorder(nil, themedKeyboard, nil, nil))

@@ -31,6 +31,10 @@ type connectionHeaderActions struct {
 	// OnOpenAccount opens the account login/sync dialog (see
 	// MainWindow.showAccountDialog) -- fired by the login avatar button.
 	OnOpenAccount func()
+	// ViewMode / OnViewModeChange back the mobile settings menu's Grid/List
+	// rows. Desktop keeps its own header toggle and does not use these.
+	ViewMode         func() string
+	OnViewModeChange func(mode string)
 }
 
 // ConnectionHeaderHandle lets the controller push live Tailscale status and
@@ -148,9 +152,9 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 // returned handle is how the controller later pushes Tailscale status into
 // the toggle it just built.
 //
-// This is the desktop-only design for now -- there is no mobile variant of
-// this component yet. When one exists, the choice between them belongs in
-// the caller (createConnectionAddressBar), not inside this component.
+// Desktop-only: the phone variant is newMobileConnectionHeader
+// (connection_header_mobile.go). The caller (createConnectionAddressBar)
+// picks between them — do not branch inside this component.
 func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *ConnectionHeaderHandle) {
 	logoLockup := canvas.NewImageFromResource(assets.LogoUSBridgeLockup)
 	logoLockup.FillMode = canvas.ImageFillContain
@@ -261,6 +265,13 @@ type tailscaleHeaderToggle struct {
 	loading  bool
 	disabled bool
 	hovered  bool
+	// scale is 1 on desktop. The phone header sets ~1.1 so the chip
+	// grows with the rest of that bar (see newMobileConnectionHeader).
+	scale float32
+	// wholeChipTappable lets a tap anywhere on the pill fire onTapped.
+	// Desktop keeps the original "switch only" hit target; the phone
+	// chip is too small to land on the thumb alone.
+	wholeChipTappable bool
 
 	bg     *canvas.Rectangle
 	border *canvas.Rectangle
@@ -299,11 +310,22 @@ func (t *tailscaleHeaderToggle) SetDisabled(disabled bool) {
 	t.Refresh()
 }
 
+func (t *tailscaleHeaderToggle) scaleOr1() float32 {
+	if t.scale <= 0 {
+		return 1
+	}
+	return t.scale
+}
+
+func (t *tailscaleHeaderToggle) switchHitWidth() float32 {
+	return 36 * t.scaleOr1()
+}
+
 func (t *tailscaleHeaderToggle) Tapped(e *fyne.PointEvent) {
 	if t.disabled || t.loading || t.onTapped == nil {
 		return
 	}
-	if e.Position.X < t.Size().Width-36 {
+	if !t.wholeChipTappable && e.Position.X < t.Size().Width-t.switchHitWidth() {
 		return
 	}
 	t.onTapped()
@@ -321,8 +343,10 @@ func (t *tailscaleHeaderToggle) MouseIn(e *desktop.MouseEvent) {
 
 func (t *tailscaleHeaderToggle) MouseMoved(e *desktop.MouseEvent) {
 	hover := false
-	if !t.disabled && !t.loading && e.Position.X >= t.Size().Width-36 {
-		hover = true
+	if !t.disabled && !t.loading {
+		if t.wholeChipTappable || e.Position.X >= t.Size().Width-t.switchHitWidth() {
+			hover = true
+		}
 	}
 	if t.hovered != hover {
 		t.hovered = hover
@@ -339,25 +363,27 @@ func (t *tailscaleHeaderToggle) MouseOut() {
 }
 
 func (t *tailscaleHeaderToggle) MinSize() fyne.Size {
-	return fyne.NewSize(92, 24)
+	s := t.scaleOr1()
+	return fyne.NewSize(92*s, 24*s)
 }
 
 func (t *tailscaleHeaderToggle) CreateRenderer() fyne.WidgetRenderer {
+	s := t.scaleOr1()
 	t.bg = canvas.NewRectangle(design.ColorSurfaceLight)
-	t.bg.CornerRadius = 12
+	t.bg.CornerRadius = 12 * s
 
 	t.border = canvas.NewRectangle(color.Transparent)
-	t.border.CornerRadius = 12
+	t.border.CornerRadius = 12 * s
 	t.border.StrokeColor = design.ColorAccent
 	t.border.StrokeWidth = 1
 
 	t.label = canvas.NewText("Tailscale", design.ColorTextMuted)
-	t.label.TextSize = 10
+	t.label.TextSize = 10 * s
 	t.label.TextStyle = fyne.TextStyle{Bold: true}
 	t.label.Alignment = fyne.TextAlignLeading
 
 	t.track = canvas.NewRectangle(design.ColorSurfaceLight)
-	t.track.CornerRadius = 7
+	t.track.CornerRadius = 7 * s
 
 	t.thumb = canvas.NewCircle(design.ColorGray400)
 
@@ -423,20 +449,23 @@ func (r *tailscaleHeaderToggleRenderer) Layout(size fyne.Size) {
 	r.toggle.border.Move(fyne.NewPos(0, 0))
 	r.toggle.border.Resize(size)
 
-	r.toggle.label.Move(fyne.NewPos(10, (size.Height-14)/2))
-	r.toggle.label.Resize(fyne.NewSize(55, 14))
+	s := r.toggle.scaleOr1()
+	labelH := float32(14) * s
+	r.toggle.label.Move(fyne.NewPos(10*s, (size.Height-labelH)/2))
+	r.toggle.label.Resize(fyne.NewSize(55*s, labelH))
 
-	trackSize := fyne.NewSize(24, 14)
-	trackX := size.Width - trackSize.Width - 6
+	trackSize := fyne.NewSize(24*s, 14*s)
+	trackX := size.Width - trackSize.Width - 6*s
 	trackY := (size.Height - trackSize.Height) / 2
 	r.toggle.track.Move(fyne.NewPos(trackX, trackY))
 	r.toggle.track.Resize(trackSize)
 
-	thumbSize := float32(10)
-	thumbY := trackY + 2
-	thumbX := trackX + 2
+	thumbSize := float32(10) * s
+	thumbPad := float32(2) * s
+	thumbY := trackY + thumbPad
+	thumbX := trackX + thumbPad
 	if r.toggle.on {
-		thumbX = trackX + trackSize.Width - thumbSize - 2
+		thumbX = trackX + trackSize.Width - thumbSize - thumbPad
 	}
 	r.toggle.thumb.Move(fyne.NewPos(thumbX, thumbY))
 	r.toggle.thumb.Resize(fyne.NewSize(thumbSize, thumbSize))
@@ -483,6 +512,10 @@ type loginAvatarButton struct {
 	letterText string
 	onTapped   func()
 	hovered    bool
+	// side/letterSize default to the desktop 24 / 11 look. The phone
+	// header bumps both ~10% (see newMobileConnectionHeader).
+	side       float32
+	letterSize float32
 	// loggedIn switches refreshVisuals from the plain gray placeholder look
 	// to a teal-filled avatar -- set via SetState, driven by
 	// ConnectionHeaderHandle.SetAccountState (ultimately AccountManager's
@@ -500,7 +533,11 @@ func newLoginAvatarButton(letterText string, onTapped func()) *loginAvatarButton
 }
 
 func (b *loginAvatarButton) MinSize() fyne.Size {
-	return fyne.NewSize(24, 24)
+	side := b.side
+	if side <= 0 {
+		side = 24
+	}
+	return fyne.NewSize(side, side)
 }
 
 func (b *loginAvatarButton) CreateRenderer() fyne.WidgetRenderer {
@@ -508,13 +545,17 @@ func (b *loginAvatarButton) CreateRenderer() fyne.WidgetRenderer {
 	b.circle.StrokeColor = design.ColorHeaderAccentLine
 	b.circle.StrokeWidth = 1.5
 
+	letterSize := b.letterSize
+	if letterSize <= 0 {
+		letterSize = 11
+	}
 	b.letter = canvas.NewText(b.letterText, design.ColorLoginAvatarText)
-	b.letter.TextSize = 11
+	b.letter.TextSize = letterSize
 	b.letter.TextStyle = fyne.TextStyle{Bold: true}
 	b.letter.Alignment = fyne.TextAlignCenter
 
 	b.refreshVisuals()
-	return widget.NewSimpleRenderer(container.NewStack(b.circle, container.NewCenter(b.letter)))
+	return &loginAvatarButtonRenderer{btn: b}
 }
 
 func (b *loginAvatarButton) Tapped(*fyne.PointEvent) {
@@ -581,4 +622,45 @@ func (b *loginAvatarButton) refreshVisuals() {
 		b.letter.Color = letterColor
 		b.letter.Refresh()
 	}
+}
+
+// loginAvatarButtonRenderer centers the letter on canvas.Text's own
+// MinSize (same as NewCenter). A small upward nudge counters the font
+// metrics that sit the glyph low in that box — the TextSize-height
+// shortcut pushed it further down, which is what we are undoing.
+type loginAvatarButtonRenderer struct {
+	btn *loginAvatarButton
+}
+
+func (r *loginAvatarButtonRenderer) Layout(size fyne.Size) {
+	if r.btn.circle == nil || r.btn.letter == nil {
+		return
+	}
+	r.btn.circle.Move(fyne.NewPos(0, 0))
+	r.btn.circle.Resize(size)
+
+	min := r.btn.letter.MinSize()
+	x := (size.Width - min.Width) / 2
+	y := (size.Height-min.Height)/2 - 1
+	r.btn.letter.Move(fyne.NewPos(x, y))
+	r.btn.letter.Resize(min)
+}
+
+func (r *loginAvatarButtonRenderer) MinSize() fyne.Size {
+	return r.btn.MinSize()
+}
+
+func (r *loginAvatarButtonRenderer) Refresh() {
+	r.btn.refreshVisuals()
+	r.Layout(r.btn.Size())
+}
+
+func (r *loginAvatarButtonRenderer) Destroy() {}
+
+func (r *loginAvatarButtonRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.btn.circle, r.btn.letter}
+}
+
+func (r *loginAvatarButtonRenderer) BackgroundColor() color.Color {
+	return color.Transparent
 }

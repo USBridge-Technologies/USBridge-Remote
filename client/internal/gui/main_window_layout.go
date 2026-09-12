@@ -444,7 +444,7 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 // composition point: it owns nothing visual, just wires the header's
 // reported actions to the real controller calls.
 func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
-	band, handle := newConnectionHeader(connectionHeaderActions{
+	actions := connectionHeaderActions{
 		OnShowLanguageMenu: func(anchor fyne.CanvasObject) {
 			if mw.connectionManager != nil {
 				mw.connectionManager.ShowLanguageMenu(anchor)
@@ -468,7 +468,25 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 		OnOpenAccount: func() {
 			mw.showAccountDialog()
 		},
-	})
+		ViewMode: func() string {
+			if mw.connectionManager != nil {
+				return mw.connectionManager.ViewMode()
+			}
+			return "grid"
+		},
+		OnViewModeChange: func(mode string) {
+			if mw.connectionManager != nil {
+				mw.connectionManager.SetViewMode(mode)
+			}
+		},
+	}
+	var band *fyne.Container
+	var handle *ConnectionHeaderHandle
+	if view.IsMobile() {
+		band, handle = newMobileConnectionHeader(actions)
+	} else {
+		band, handle = newConnectionHeader(actions)
+	}
 
 	// The header owns the Tailscale toggle widget now; hand the controller a
 	// way to push live status into it without either side knowing the
@@ -588,12 +606,69 @@ func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 		extras = append(extras, mw.connectionManager.FirmwareFooterChip())
 		extras = append(extras, mw.connectionManager.PromoFooterChip())
 	}
-	return view.NewAppFooter(view.AppVersion(), nil, nil, extras...)
+	var modeChip fyne.CanvasObject
+	// Real phones are already mobile — the preview switch is for desktop.
+	if !fyne.CurrentDevice().IsMobile() {
+		var chip *view.FooterTintChip
+		chip = view.NewFooterTintChip(view.DesignModeFooterLabel(), design.ColorConnectionBadgeText, func() {
+			mw.showDesignModeMenu(chip)
+		})
+		mw.designModeChip = chip
+		modeChip = chip
+	}
+	return view.NewAppFooter(view.AppVersion(), modeChip, nil, extras...)
+}
+
+func (mw *MainWindow) showDesignModeMenu(anchor fyne.CanvasObject) {
+	view.ShowDesignPreviewMenu(anchor, mw.applyDesktopDesignPreview, mw.applyPhoneDesignPreview, mw.applyPhonePreviewScale)
+}
+
+func (mw *MainWindow) applyDesktopDesignPreview() {
+	view.ForceMobileDesign = false
+	if mw.app != nil {
+		mw.app.Preferences().SetBool(view.ForceMobileDesignPrefKey, false)
+	}
+	if mw.window != nil {
+		mw.window.SetFixedSize(false)
+	}
+	view.RestorePreviewUserScale()
+	view.ReloadFyneCanvasScale()
+	logrus.Info("🎨 [DESIGN] desktop layout — reloading UI")
+	mw.reloadUI()
+}
+
+func (mw *MainWindow) applyPhoneDesignPreview(preset view.PhonePreviewPreset) {
+	view.ForceMobileDesign = true
+	view.ForceMobilePresetID = preset.ID
+	if mw.app != nil {
+		mw.app.Preferences().SetBool(view.ForceMobileDesignPrefKey, true)
+		mw.app.Preferences().SetString(view.ForceMobilePresetPrefKey, preset.ID)
+	}
+	view.ApplyPreviewUserScale()
+	logrus.Infof("🎨 [DESIGN] mobile layout preset=%s %s scale=%s — reloading UI", preset.ID, preset.SizeLabel(), view.FormatPhonePreviewScale(view.ForceMobileScale))
+	mw.reloadUI()
+}
+
+func (mw *MainWindow) applyPhonePreviewScale(scale float32) {
+	view.ForceMobileScale = view.ClampPhonePreviewScale(scale)
+	if mw.app != nil {
+		mw.app.Preferences().SetFloat(view.ForceMobileScalePrefKey, float64(view.ForceMobileScale))
+	}
+	if mw.designModeChip != nil {
+		mw.designModeChip.SetLabel(view.DesignModeFooterLabel())
+	}
+	if !view.ForceMobileDesign {
+		return
+	}
+	view.ApplyPreviewUserScale()
+	view.ReloadFyneCanvasScale()
+	mw.applyPhonePreviewWindowSize()
+	logrus.Infof("🎨 [DESIGN] preview scale=%s", view.FormatPhonePreviewScale(view.ForceMobileScale))
 }
 
 func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
 	bottomInset := float32(6)
-	if fyne.CurrentDevice().IsMobile() {
+	if view.IsMobile() {
 		bottomInset = 36
 	}
 	bar := view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, bottomInset)
@@ -1664,7 +1739,7 @@ func (mw *MainWindow) showMouseModeMenu() {
 			},
 		},
 	}
-	if fyne.CurrentDevice().IsMobile() {
+	if view.IsMobile() {
 		items = append(items, view.StyledMenuItem{
 			Label:    i18n.Current.DeviceVirtualCursor,
 			Selected: currentMode == controller.MouseModeVirtualCursor,

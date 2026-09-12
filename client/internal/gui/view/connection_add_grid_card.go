@@ -144,6 +144,9 @@ func newAddConnectionPlusControl(onAdd func(), ringSize float32) fyne.CanvasObje
 
 // NewAddConnectionGridCard builds the dashed-bordered placeholder tile.
 func NewAddConnectionGridCard(actions AddConnectionCardActions) fyne.CanvasObject {
+	if UseMobileConnections() {
+		return newMobileAddConnectionGridCard(actions)
+	}
 	// plus-circle-svgrepo-com.svg's own glyph relies on two overlapping
 	// circles drawn via SVG arc commands (opposite winding, so they cancel
 	// into a ring under the default nonzero fill rule) -- reasonable in a

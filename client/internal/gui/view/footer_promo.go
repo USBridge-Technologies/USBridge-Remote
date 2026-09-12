@@ -76,6 +76,15 @@ func NewFooterTintChip(label string, tint color.Color, onTap func()) *FooterTint
 	return c
 }
 
+func (c *FooterTintChip) SetLabel(label string) {
+	c.label = label
+	if c.lbl != nil {
+		c.lbl.Text = label
+		c.lbl.Refresh()
+	}
+	c.Refresh()
+}
+
 func (c *FooterTintChip) Tapped(*fyne.PointEvent) {
 	if c.onTap != nil {
 		c.onTap()

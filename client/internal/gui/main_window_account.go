@@ -141,9 +141,7 @@ func (mw *MainWindow) showAccountDialog() {
 			body.Add(container.NewCenter(cancelBtn))
 
 		case am.LoggedIn():
-			emailText := canvas.NewText(am.Email(), design.ColorTextLight)
-			emailText.TextSize = 13
-			emailText.TextStyle = fyne.TextStyle{Bold: true}
+			emailText := newAccountEmailText(am.Email())
 
 			var identityHeader fyne.CanvasObject
 			if resettingSyncPassphrase {
@@ -157,10 +155,12 @@ func (mw *MainWindow) showAccountDialog() {
 				}
 				signedInLabel := canvas.NewText("Signed in as", color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
 				signedInLabel.TextSize = 10
-				identityHeader = container.NewHBox(
-					newAccountAvatarBadge(letter),
-					view.NewInset(container.NewVBox(signedInLabel, emailText), 10, 0, 0, 0),
-				)
+				identityCopy := view.NewInset(container.NewVBox(signedInLabel, emailText), 10, 0, 0, 0)
+				if accountDialogMobile() {
+					identityHeader = container.NewBorder(nil, nil, newAccountAvatarBadge(letter), nil, identityCopy)
+				} else {
+					identityHeader = container.NewHBox(newAccountAvatarBadge(letter), identityCopy)
+				}
 			}
 
 			var identityBody *fyne.Container
@@ -214,9 +214,16 @@ func (mw *MainWindow) showAccountDialog() {
 			}
 
 			footerBar := container.NewBorder(nil, nil, footerLeftCentered, logoutBtn)
+			if !am.HasSyncKey() && !resettingSyncPassphrase {
+				// Password-entry footer: Log out left, Set passphrase right.
+				// The other way around put the primary action on the left
+				// and made the row read backwards.
+				footerBar = container.NewBorder(nil, nil, logoutBtn, footerLeftCentered)
+			}
+			fl, fr, ft, fb := accountDialogFooterInset()
 			footerArea := container.NewVBox(
 				newAccountDivider(),
-				view.NewInset(footerBar, 21, 21, 14, 18),
+				view.NewInset(footerBar, fl, fr, ft, fb),
 			)
 			footerContainer.Objects = []fyne.CanvasObject{footerArea}
 
@@ -247,23 +254,7 @@ func (mw *MainWindow) showAccountDialog() {
 		body.Refresh()
 		footerContainer.Refresh()
 
-		if scroll != nil {
-			if am.LoggedIn() {
-				scroll.Content = view.NewInset(body, 21, 21, 14, 18)
-				if !am.HasSyncKey() {
-					scroll.SetMinSize(fyne.NewSize(0, 250))
-				} else {
-					scroll.SetMinSize(fyne.NewSize(0, 200))
-				}
-			} else if am.LoginInProgress() {
-				scroll.Content = view.NewInset(body, 21, 21, 2, 6)
-				scroll.SetMinSize(fyne.NewSize(0, 110))
-			} else {
-				scroll.Content = view.NewInset(body, 21, 21, 2, 12)
-				scroll.SetMinSize(fyne.NewSize(0, 110)) // completely tight
-			}
-			scroll.Refresh()
-		}
+		applyAccountDialogScroll(scroll, body, am.LoggedIn(), am.HasSyncKey(), am.LoginInProgress())
 	}
 	render()
 
@@ -289,22 +280,11 @@ func (mw *MainWindow) showAccountDialog() {
 	// reserves clearance so the title never runs under closeBtn, which sits
 	// on its own layer closer to the panel's actual corner (see cornerBtn
 	// below) -- same reasoning as the Add Connection dialog's own header.
-	header := container.NewVBox(topAccent, view.NewInset(title, 21, 44, 9, 4), sep)
+	tl, tr, tt, tb := accountDialogTitleInset()
+	header := container.NewVBox(topAccent, view.NewInset(title, tl, tr, tt, tb), sep)
 
-	if am.LoggedIn() {
-		scroll = container.NewVScroll(view.NewInset(body, 21, 21, 14, 18))
-		if !am.HasSyncKey() {
-			scroll.SetMinSize(fyne.NewSize(0, 250))
-		} else {
-			scroll.SetMinSize(fyne.NewSize(0, 200))
-		}
-	} else if am.LoginInProgress() {
-		scroll = container.NewVScroll(view.NewInset(body, 21, 21, 2, 6))
-		scroll.SetMinSize(fyne.NewSize(0, 110))
-	} else {
-		scroll = container.NewVScroll(view.NewInset(body, 21, 21, 2, 12))
-		scroll.SetMinSize(fyne.NewSize(0, 110))
-	}
+	scroll = container.NewVScroll(nil)
+	applyAccountDialogScroll(scroll, body, am.LoggedIn(), am.HasSyncKey(), am.LoginInProgress())
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -331,20 +311,10 @@ func (mw *MainWindow) showAccountDialog() {
 		Panel:    panel,
 		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
-			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 32)
-			maxWidth := canvasSize.Width - margin*2
-			maxHeight := canvasSize.Height - margin*2
-			if maxWidth <= 0 {
-				maxWidth = canvasSize.Width
-			}
-			if maxHeight <= 0 {
-				maxHeight = canvasSize.Height
-			}
-
-			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 420), maxWidth)
-			panelHeight := minFloat32(panelMin.Height, maxHeight)
-			return fyne.NewSize(panelWidth, panelHeight)
+			return accountDialogPanelSize(panel, canvasSize)
+		},
+		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
+			return accountDialogPanelPos(canvasSize, panelSize)
 		},
 	})
 
@@ -687,8 +657,7 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 	pill := newAccountStatusPill(map[bool]string{true: "on", false: "off"}[on], on)
 
 	if on {
-		desc := canvas.NewText("End-to-end encrypted sync of your saved connections across devices.", color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
-		desc.TextSize = 8
+		desc := newAccountSyncOnDescription()
 		textBlock := container.New(&tightVBoxLayout{}, titleText, desc)
 		shiftedPill := view.NewInset(pill, 0, 0, 2, 0)
 		return view.NewInset(container.NewBorder(nil, nil, nil, container.NewCenter(shiftedPill), textBlock), 0, 0, 4, 0), nil

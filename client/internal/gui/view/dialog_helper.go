@@ -290,6 +290,9 @@ type confirmToastButton struct {
 	textColor      color.Color
 	hoverFillColor color.Color
 	hoverTextColor color.Color
+	textSize       float32
+	padX           float32
+	padY           float32
 
 	bg     *canvas.Rectangle
 	border *canvas.Rectangle
@@ -305,6 +308,9 @@ func newConfirmToastButton(label string, fillColor, borderColor, textColor, hove
 		textColor:      textColor,
 		hoverFillColor: hoverFillColor,
 		hoverTextColor: hoverTextColor,
+		textSize:       10,
+		padX:           9,
+		padY:           3,
 	}
 	btn.ExtendBaseWidget(btn)
 	return btn
@@ -321,12 +327,24 @@ func (b *confirmToastButton) CreateRenderer() fyne.WidgetRenderer {
 		b.border.StrokeWidth = 1
 	}
 
+	textSize := b.textSize
+	if textSize <= 0 {
+		textSize = 10
+	}
+	padX, padY := b.padX, b.padY
+	if padX <= 0 {
+		padX = 9
+	}
+	if padY <= 0 {
+		padY = 3
+	}
+
 	b.label = canvas.NewText(b.labelText, b.textColor)
-	b.label.TextSize = 10
+	b.label.TextSize = textSize
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 
-	content := container.NewStack(b.bg, b.border, NewInset(container.NewCenter(b.label), 9, 9, 3, 3))
+	content := container.NewStack(b.bg, b.border, NewInset(container.NewCenter(b.label), padX, padX, padY, padY))
 	return widget.NewSimpleRenderer(content)
 }
 
@@ -401,9 +419,6 @@ func ShowConfirmToast(message string, callback func(bool), parent fyne.Window) {
 		}
 	}
 
-	text := canvas.NewText(message, design.ColorTextLight)
-	text.TextSize = 10
-
 	noBtn := newConfirmToastButton(i18n.Current.No,
 		color.Transparent, design.ColorBorder, design.ColorTextLight,
 		design.ColorSurfaceLight, design.ColorTextLight,
@@ -413,8 +428,33 @@ func ShowConfirmToast(message string, callback func(bool), parent fyne.Window) {
 		color.NRGBA{R: 0x61, G: 0xf0, B: 0xd3, A: 0xff}, design.ColorGray950,
 		func() { closePopup(true) })
 
-	buttons := container.New(&confirmToastButtonsLayout{gap: 5}, noBtn, yesBtn)
-	body := container.NewBorder(nil, nil, nil, buttons, NewInset(text, 0, 8, 0, 0))
+	mobile := UseMobileConnections()
+	var body fyne.CanvasObject
+	var insetL, insetR, insetT, insetB float32 = 9, 9, 6, 6
+	if mobile {
+		noBtn.textSize, noBtn.padX, noBtn.padY = 11, 12, 6
+		yesBtn.textSize, yesBtn.padX, yesBtn.padY = 11, 12, 6
+		canvasW := float32(0)
+		if c := parent.Canvas(); c != nil {
+			canvasW = c.Size().Width
+		}
+		if canvasW <= 0 {
+			canvasW = 390
+		}
+		textMax := canvasW - 32 - 24
+		if textMax < 160 {
+			textMax = 160
+		}
+		msg := confirmToastWrappedText(message, 13, textMax)
+		buttons := container.NewCenter(container.New(&DeviceRowControlsLayout{Gap: 8}, noBtn, yesBtn))
+		body = container.New(&tightStatsVBoxLayout{Gap: 10}, msg, buttons)
+		insetL, insetR, insetT, insetB = 12, 12, 12, 12
+	} else {
+		text := canvas.NewText(message, design.ColorTextLight)
+		text.TextSize = 10
+		buttons := container.New(&confirmToastButtonsLayout{gap: 5}, noBtn, yesBtn)
+		body = container.NewBorder(nil, nil, nil, buttons, NewInset(text, 0, 8, 0, 0))
+	}
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = confirmToastRadius
@@ -426,7 +466,7 @@ func ShowConfirmToast(message string, callback func(bool), parent fyne.Window) {
 
 	panel := container.NewStack(
 		bg,
-		NewInset(body, 9, 9, 6, 6),
+		NewInset(body, insetL, insetR, insetT, insetB),
 		border,
 	)
 
@@ -435,6 +475,9 @@ func ShowConfirmToast(message string, callback func(bool), parent fyne.Window) {
 		DimColor: color.Transparent,
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			if mobile {
+				margin = 16
+			}
 			maxWidth := canvasSize.Width - margin*2
 			if maxWidth <= 0 {
 				maxWidth = canvasSize.Width
@@ -442,13 +485,72 @@ func ShowConfirmToast(message string, callback func(bool), parent fyne.Window) {
 
 			panelMin := panel.MinSize()
 			panelWidth := minFloat32(panelMin.Width, maxWidth)
+			if mobile {
+				panelWidth = maxWidth
+			}
 			return fyne.NewSize(panelWidth, panelMin.Height)
 		},
 		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
 			bottomMargin := clampFloat32(canvasSize.Height*0.05, 24, 40)
+			if mobile {
+				bottomMargin = 56
+			}
 			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, canvasSize.Height-panelSize.Height-bottomMargin)
 		},
 	})
+}
+
+func confirmToastWrappedText(message string, textSize, maxWidth float32) fyne.CanvasObject {
+	var lines []fyne.CanvasObject
+	for _, para := range strings.Split(message, "\n") {
+		para = strings.TrimSpace(para)
+		if para == "" {
+			gap := canvas.NewRectangle(color.Transparent)
+			gap.SetMinSize(fyne.NewSize(1, textSize*0.4))
+			lines = append(lines, gap)
+			continue
+		}
+		for _, line := range wrapConfirmToastLine(para, textSize, maxWidth) {
+			t := canvas.NewText(line, design.ColorTextLight)
+			t.TextSize = textSize
+			t.Alignment = fyne.TextAlignCenter
+			lines = append(lines, container.New(&mobileFillWidthLayout{}, t))
+		}
+	}
+	if len(lines) == 0 {
+		t := canvas.NewText(message, design.ColorTextLight)
+		t.TextSize = textSize
+		t.Alignment = fyne.TextAlignCenter
+		return container.New(&mobileFillWidthLayout{}, t)
+	}
+	return container.New(&tightStatsVBoxLayout{Gap: 2}, lines...)
+}
+
+func wrapConfirmToastLine(text string, textSize, maxWidth float32) []string {
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return nil
+	}
+	var (
+		out []string
+		cur string
+	)
+	for _, word := range words {
+		trial := word
+		if cur != "" {
+			trial = cur + " " + word
+		}
+		if fyne.MeasureText(trial, textSize, fyne.TextStyle{}).Width > maxWidth && cur != "" {
+			out = append(out, cur)
+			cur = word
+			continue
+		}
+		cur = trial
+	}
+	if cur != "" {
+		out = append(out, cur)
+	}
+	return out
 }
 
 // connectingProgressBarHeight is the connecting toast's own progress

@@ -181,7 +181,7 @@ func (cm *ConnectionManager) initTailscaleMode() {
 // ShowStyledMenu (full language names, no HeaderDropdown trigger).
 func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 	currentLanguage := cm.app.Preferences().StringWithFallback("language", "en")
-	view.ShowStyledMenuTeal(anchor, []view.StyledMenuItem{
+	items := []view.StyledMenuItem{
 		{
 			Label:    "English",
 			Selected: currentLanguage == "en",
@@ -203,7 +203,12 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 				cm.setLanguage("uk")
 			},
 		},
-	})
+	}
+	if view.UseMobileConnections() {
+		view.ShowMobileLanguageMenu(anchor, items)
+		return
+	}
+	view.ShowStyledMenuTeal(anchor, items)
 }
 
 // ShowLanguageMenu is showLanguageMenu, exported for
@@ -277,7 +282,13 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 	// a footer chip instead. List's equivalent (rows has no such tile) is
 	// addConnectionCardActions() below, used only when rows itself is empty
 	// -- see connection_list_table.go's newConnectionListAddRow.
-	if !cm.addCardDismissed {
+	showAddCard := !cm.addCardDismissed
+	if view.UseMobileConnections() {
+		// Phone: the dashed add tile is only the empty-state helper.
+		// Header "+" stays the add path once any connection exists.
+		showAddCard = showAddCard && len(order) == 0
+	}
+	if showAddCard {
 		cards = append(cards, cm.newAddConnectionGridCard())
 	}
 

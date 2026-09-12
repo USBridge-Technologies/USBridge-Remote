@@ -608,6 +608,9 @@ func (r *connectionDialogRegisterRow) CreateRenderer() fyne.WidgetRenderer {
 
 	r.badgeTxt = canvas.NewText(r.badge, design.ColorConnectionBadgeText)
 	r.badgeTxt.TextSize = 8
+	if view.UseMobileConnections() {
+		r.badgeTxt.TextSize = 6.5
+	}
 	r.badgeTxt.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
 
 	r.refreshVisuals()
@@ -653,23 +656,44 @@ func (rr *connectionDialogRegisterRowRenderer) Layout(size fyne.Size) {
 	r.checkMark.Resize(fyne.NewSize(markSize, markSize))
 
 	textX := registerRowPadding + registerRowCheckSize + 12
+	mobile := view.UseMobileConnections()
 
 	badgeMin := r.badgeTxt.MinSize()
-	badgeW := badgeMin.Width + 16
+	badgePadX := float32(8)
 	badgeH := float32(18)
+	if mobile {
+		badgePadX = 5
+		badgeH = 14
+	}
+	badgeW := badgeMin.Width + badgePadX*2
 	badgeX := size.Width - registerRowPadding - badgeW
-	badgeY := (size.Height - badgeH) / 2
-	r.badgeBg.Move(fyne.NewPos(badgeX, badgeY))
-	r.badgeBg.Resize(fyne.NewSize(badgeW, badgeH))
-	r.badgeTxt.Move(fyne.NewPos(badgeX+8, badgeY+(badgeH-badgeMin.Height)/2))
-	r.badgeTxt.Resize(badgeMin)
-
-	textMaxX := badgeX - 12
 
 	labelMin := r.labelTxt.MinSize()
 	subMin := r.subTxt.MinSize()
 	totalTextH := labelMin.Height + 3 + subMin.Height
 	textY := (size.Height - totalTextH) / 2
+	if mobile {
+		textY -= 3
+		if textY < 6 {
+			textY = 6
+		}
+	}
+
+	badgeY := (size.Height - badgeH) / 2
+	if mobile {
+		// Sit with the Tailscale title so the subtitle can run under it
+		// instead of colliding with AUTO-REGISTRATION.
+		badgeY = textY - 1
+		if badgeY < 6 {
+			badgeY = 6
+		}
+	}
+	r.badgeBg.Move(fyne.NewPos(badgeX, badgeY))
+	r.badgeBg.Resize(fyne.NewSize(badgeW, badgeH))
+	r.badgeTxt.Move(fyne.NewPos(badgeX+badgePadX, badgeY+(badgeH-badgeMin.Height)/2))
+	r.badgeTxt.Resize(badgeMin)
+
+	textMaxX := badgeX - 12
 
 	r.labelTxt.Move(fyne.NewPos(textX, textY))
 	r.labelTxt.Resize(labelMin)
@@ -679,7 +703,11 @@ func (rr *connectionDialogRegisterRowRenderer) Layout(size fyne.Size) {
 	r.dot.Resize(fyne.NewSize(registerRowDotSize, registerRowDotSize))
 
 	subY := textY + labelMin.Height + 3
-	subW := maxFloat32(0, textMaxX-textX)
+	subMaxX := textMaxX
+	if mobile {
+		subMaxX = size.Width - registerRowPadding
+	}
+	subW := maxFloat32(0, subMaxX-textX)
 	r.subTxt.Move(fyne.NewPos(textX, subY))
 	r.subTxt.Resize(fyne.NewSize(subW, subMin.Height))
 }
@@ -1296,7 +1324,6 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	var d *widget.PopUp
 
 	var formContent fyne.CanvasObject = normalForm
-	var mobileFooter fyne.CanvasObject
 	if spec.onQR != nil {
 		qrBtn := newConnectionDialogWideActionButton(i18n.Current.ScanQR, assets.QRCodeTeal, design.ColorConnectionBadgeText, func() {
 			if d != nil {
@@ -1360,23 +1387,18 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		// regardless of how wide the button box around that content ends up.
 		iconRow := container.New(&gapTwoColumnsLayout{Gap: 9}, qrBtn, linkBtn)
 
-		if view.UseCompactLayout(parent.Canvas().Size().Width) {
-			// On Android/narrow browser viewports: icon row floats OUTSIDE
-			// the popup panel, below it. The panel itself stays compact and
-			// never moves when keyboard opens.
-			mobileFooter = iconRow
-		} else {
-			// On desktop: QR/Paste sit above the form, not below it -- the
-			// fast paths (scan/paste) read first, "OR ENTER MANUALLY" makes
-			// the fallback explicit before the fields that fallback fills.
-			formContent = container.NewVBox(
-				// top=14 -- iconRow sat right under the header divider with
-				// nothing between them otherwise.
-				view.NewInset(iconRow, 0, 0, 14, 0),
-				view.NewInset(newConnectionDialogManualDivider(), 0, 0, 14, 10),
-				normalForm,
-			)
+		// QR / Paste sit inside the panel, right under the title. The old
+		// compact path put them in OverlayPopup Footer (below the panel),
+		// which is why they dropped out of the dialog on the phone.
+		iconTop, dividerTop, dividerBottom := float32(14), float32(14), float32(10)
+		if view.UseMobileConnections() {
+			iconTop, dividerTop, dividerBottom = 6, 6, 6
 		}
+		formContent = container.NewVBox(
+			view.NewInset(iconRow, 0, 0, iconTop, 0),
+			view.NewInset(newConnectionDialogManualDivider(), 0, 0, dividerTop, dividerBottom),
+			normalForm,
+		)
 	}
 
 	var feedback fyne.CanvasObject
@@ -1512,7 +1534,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteBtn = btn
 	}
 
-	d = showAdaptiveConnectionDialog(parent, spec.title, spec.subtitle, spec.icon, feedback, formContent, connectBtn, saveBtn, deleteBtn, mobileFooter)
+	d = showAdaptiveConnectionDialog(parent, spec.title, spec.subtitle, spec.icon, feedback, formContent, connectBtn, saveBtn, deleteBtn)
 	return d
 }
 

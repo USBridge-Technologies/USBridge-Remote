@@ -368,7 +368,13 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 	// Side margins match connectionsHeaderSideMargin (the section header
 	// above) so List rows/Grid cards line up with the header's own edges
 	// instead of hugging the window's raw edge.
-	connectionsScroll := container.NewVScroll(NewInset(connectionsBox, connectionsHeaderSideMargin, connectionsHeaderSideMargin, 8, 12))
+	side := connectionsContentSideMargin()
+	var connectionsScroll *container.Scroll
+	if UseMobileConnections() {
+		connectionsScroll = container.NewVScroll(NewInsetExact(connectionsBox, side, side, connectionCardGridGap, 12))
+	} else {
+		connectionsScroll = container.NewVScroll(NewInset(connectionsBox, side, side, 8, 12))
+	}
 	connectionsScroll.SetMinSize(fyne.NewSize(0, 0))
 
 	var topHelpBtn fyne.CanvasObject
@@ -419,6 +425,20 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 // setViewMode is the Grid/List toggle's callback (connectionsHeaderActions.
 // OnViewModeChange). It re-renders ConnectionsBox from the cached
 // lastRows/lastCards -- no fresh data needed from the controller.
+func (ui *ConnectionManagerUI) CurrentViewMode() string {
+	if ui == nil || ui.viewMode == "" {
+		return "grid"
+	}
+	return ui.viewMode
+}
+
+func (ui *ConnectionManagerUI) SetViewMode(mode string) {
+	if ui == nil {
+		return
+	}
+	ui.setViewMode(mode)
+}
+
 func (ui *ConnectionManagerUI) setViewMode(mode string) {
 	if ui.viewMode == mode {
 		return
@@ -438,6 +458,11 @@ func (ui *ConnectionManagerUI) setViewMode(mode string) {
 func (ui *ConnectionManagerUI) applyConnectionsContent() {
 	stopCanvasAnimations(ui.ConnectionsBox)
 	ui.ConnectionsBox.RemoveAll()
+	if UseMobileConnections() {
+		ui.applyMobileConnectionsContent()
+		ui.ConnectionsBox.Refresh()
+		return
+	}
 	if ui.viewMode == "grid" && len(ui.lastCards) > 0 {
 		// Each card sits inset by half the gap on every side, so adjacent
 		// cards end up connectionCardGridGap apart without needing a custom
@@ -709,6 +734,13 @@ func (l *emptyStatePromoTitleLayout) MinSize(objects []fyne.CanvasObject) fyne.S
 // (see applyConnectionsContent/connection_list_table.go) -- the same
 // actions the controller already builds for Grid mode's own always-present
 // add tile, appended into cards there instead.
+func (ui *ConnectionManagerUI) buildConnectionsHeader(summary ConnectionsSummary) (fyne.CanvasObject, *connectionsHeaderButtons) {
+	if UseMobileConnections() {
+		return newMobileConnectionsHeader(summary, ui.headerActions, ui.activeSort)
+	}
+	return newConnectionsHeader(summary, ui.headerActions, ui.viewMode, ui.activeSort)
+}
+
 func (ui *ConnectionManagerUI) SetRows(rows []ConnectionListItem, cards []fyne.CanvasObject, summary ConnectionsSummary, editIndex int, editPanel fyne.CanvasObject, addActions AddConnectionCardActions) {
 	ui.lastRows = rows
 	ui.lastCards = cards
@@ -719,11 +751,18 @@ func (ui *ConnectionManagerUI) SetRows(rows []ConnectionListItem, cards []fyne.C
 	ui.addActions = addActions
 	ui.applyConnectionsContent()
 
-	header, buttons := newConnectionsHeader(summary, ui.headerActions, ui.viewMode, ui.activeSort)
+	header, buttons := ui.buildConnectionsHeader(summary)
 	ui.headerButtons = buttons
 
-	ui.contentArea.Objects = []fyne.CanvasObject{
-		container.NewBorder(container.NewVBox(header, ui.promoSlot), nil, nil, nil, ui.ConnectionsScroll),
+	top := container.NewVBox(header, ui.promoSlot)
+	if UseMobileConnections() {
+		ui.contentArea.Objects = []fyne.CanvasObject{
+			NewEdgeStack(top, nil, ui.ConnectionsScroll),
+		}
+	} else {
+		ui.contentArea.Objects = []fyne.CanvasObject{
+			container.NewBorder(top, nil, nil, nil, ui.ConnectionsScroll),
+		}
 	}
 	ui.ConnectionsScroll.Refresh()
 	ui.contentArea.Refresh()
@@ -2051,11 +2090,19 @@ func clampFloat32(value, minValue, maxValue float32) float32 {
 	return value
 }
 
-// ForceMobileDesign was a dev-only switch for previewing the mobile design
-// on a desktop OS. Nothing reads it any more -- this screen's last
-// isMobile-conditional branches (in SetEmptyState/SetRows/
-// NewConnectionManagerUI) were removed when the connections section header
-// (newConnectionsHeader) replaced them with one unconditional layout.
-// Left in place, exported, rather than deleted outright: flag before
-// removing, since another in-progress branch may still reference it.
+// ForceMobileDesignPrefKey persists the Connections footer Desktop/Mobile
+// preview toggle across restarts (app.Preferences).
+const ForceMobileDesignPrefKey = "force_mobile_design"
+
+// ForceMobileDesign previews the compact/mobile layout on a desktop OS.
+// Loaded from ForceMobileDesignPrefKey at startup; the footer button flips it.
 var ForceMobileDesign = false
+
+// DesignModeFooterLabel is the current preview mode, shown on the
+// Connections footer chip immediately before the version tag.
+func DesignModeFooterLabel() string {
+	if ForceMobileDesign {
+		return CurrentPhonePreview().SizeLabel() + " · " + FormatPhonePreviewScale(ForceMobileScale)
+	}
+	return "Desktop"
+}
