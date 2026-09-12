@@ -17,6 +17,7 @@ import (
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
+	"usbridge_agent/internal/usbpass"
 )
 
 // TokenBackend mirrors the operations internal/ui.Window drives on the
@@ -57,6 +58,11 @@ type TokenBackend interface {
 	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
+
+	// USB passthrough (see internal/usbpass) -- see
+	// internal/ui.TokenProvider's own copy of this same doc comment.
+	USBPassthroughStatus() usbpass.Status
+	InstallUSBDriver() error
 
 	// Account login (see internal/account) -- see internal/ui.TokenProvider's
 	// own copy of this same doc comment.
@@ -203,6 +209,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/check-rustshine-update", s.handleCheckRustShineUpdateNow)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
 	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
+	mux.HandleFunc("GET /token/usb-driver-status", s.handleUSBPassthroughStatus)
+	mux.HandleFunc("POST /token/install-usb-driver", s.handleInstallUSBDriver)
 	mux.HandleFunc("GET /token/account-status", s.handleAccountStatus)
 	mux.HandleFunc("POST /token/start-account-login", s.handleStartAccountLogin)
 	mux.HandleFunc("POST /token/cancel-account-login", s.handleCancelAccountLogin)
@@ -539,6 +547,25 @@ func (s *Server) handleCheckRustShineUpdateNow(w http.ResponseWriter, r *http.Re
 	go func() {
 		if err := s.token.CheckRustShineUpdateNow(); err != nil {
 			logrus.WithError(err).Warn("rustshine update check failed")
+		}
+	}()
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleUSBPassthroughStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.token.USBPassthroughStatus())
+}
+
+// handleInstallUSBDriver mirrors handleDownloadRustShine's own
+// fire-and-forget shape and doc comment -- installing the Linux usbip
+// package (see usbpass.driver_linux.go's pkexec call) blocks on a
+// graphical polkit prompt, far longer than this HTTP request should stay
+// open. The GUI polls /token/usb-driver-status for VhciDriver instead of
+// waiting on this response.
+func (s *Server) handleInstallUSBDriver(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		if err := s.token.InstallUSBDriver(); err != nil {
+			logrus.WithError(err).Warn("usb driver install failed")
 		}
 	}()
 	writeJSON(w, http.StatusOK, struct{}{})

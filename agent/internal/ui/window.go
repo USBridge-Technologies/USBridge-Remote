@@ -34,6 +34,7 @@ import (
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/update"
+	"usbridge_agent/internal/usbpass"
 )
 
 // TokenProvider is whatever owns the agent's config/Sunshine lifecycle —
@@ -72,6 +73,13 @@ type TokenProvider interface {
 	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
+
+	// USB passthrough (see internal/usbpass) -- gated by the same
+	// entitlement token as RustShine, staged on the same DownloadRustShine
+	// click. USBPassthroughStatus is polled for driver-install UI; see
+	// refreshRustShineUI.
+	USBPassthroughStatus() usbpass.Status
+	InstallUSBDriver() error
 
 	// Account login (see internal/account) -- a separate identity from the
 	// hardware-bound entitlement above, used only to pick which of the
@@ -176,6 +184,16 @@ type Window struct {
 	rustshineWebRTCRow   *fyne.Container
 	rustshineWebRTCCheck *widget.Check
 
+	// usbDriverRow: shown only while RustShine is active and this
+	// platform's USB passthrough driver (vhci-hcd+usbip on Linux,
+	// usbip-win2 on Windows) isn't present yet -- see
+	// refreshUSBPassthroughUI. usbDriverBtn's action differs per OS: on
+	// Linux it calls InstallUSBDriver (real pkexec install); on Windows it
+	// just opens usbip-win2's latest-release page in the browser, since
+	// that project ships its own signed installer.
+	usbDriverRow *fyne.Container
+	usbDriverBtn *widget.Button
+
 	// sunWebSunshineRow/sunWebRustshineRow are mutually exclusive: the
 	// Status panel's "web UI" row shows Sunshine's local admin UI address
 	// while Sunshine is active, or a link to the RustShine web client
@@ -250,6 +268,7 @@ type uiStatus struct {
 	tsStatus       *tailscale.Status
 	accessGranted  bool
 	moonlightCount int
+	usbStatus      usbpass.Status
 }
 
 // accountSnapshot is the comparable (== usable) subset of account.Status --
@@ -453,6 +472,25 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 			w.sunWebRustshineRow.Hide()
 			w.sunWebSunshineRow.Show()
 		}
+	}
+}
+
+// refreshUSBPassthroughUI keeps usbDriverRow in sync -- shown only while
+// RustShine is the active backend (Sunshine never gets USB passthrough,
+// see internal/usbpass's own doc comment) and this platform's driver isn't
+// present yet (st.VhciDriver false). Disappears once the driver install
+// actually takes -- InstallUSBDriver's pkexec call updates the real
+// vhci-hcd state that usbStatus is read from on the very next tick, no
+// separate "installed" signal needed.
+func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Status) {
+	if w.usbDriverRow == nil {
+		return
+	}
+	active := st.ActiveBackend == "rustshine"
+	if active && usb.Available && !usb.VhciDriver {
+		w.usbDriverRow.Show()
+	} else {
+		w.usbDriverRow.Hide()
 	}
 }
 
@@ -723,6 +761,42 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.rustshineWebRTCRow = container.NewHBox(widget.NewLabel("RustShine Web (WebRTC)"), layout.NewSpacer(), w.rustshineWebRTCCheck)
 	w.rustshineWebRTCRow.Hide()
 
+	// USB passthrough driver install -- shown only while RustShine is
+	// active and the driver isn't present yet (refreshUSBPassthroughUI).
+	// Windows opens usbip-win2's release page directly (no adminapi round
+	// trip: usbip-win2 ships its own signed installer/UAC flow); Linux
+	// goes through InstallUSBDriver, a real pkexec-elevated apt+modprobe
+	// install (see usbpass/driver_linux.go).
+	usbDriverLabel := "Install USB Driver"
+	if runtime.GOOS == "windows" {
+		usbDriverLabel = "Get USB/IP Driver"
+	}
+	w.usbDriverBtn = widget.NewButton(usbDriverLabel, func() {
+		if runtime.GOOS == "windows" {
+			if parsed, err := url.Parse("https://github.com/vadimgrn/usbip-win2/releases/latest"); err == nil {
+				_ = w.app.OpenURL(parsed)
+			}
+			return
+		}
+		if w.token == nil {
+			return
+		}
+		w.usbDriverBtn.Disable()
+		go func() {
+			err := w.token.InstallUSBDriver()
+			fyne.Do(func() {
+				if w.usbDriverBtn != nil {
+					w.usbDriverBtn.Enable()
+				}
+				if err != nil {
+					dialog.ShowError(err, win)
+				}
+			})
+		}()
+	})
+	w.usbDriverRow = container.NewHBox(widget.NewLabel("USB Passthrough Driver"), layout.NewSpacer(), w.usbDriverBtn)
+	w.usbDriverRow.Hide()
+
 	var permRows []fyne.CanvasObject
 	if !showAccessButton && !showScreenCaptureButton && !linuxCapture {
 		permRows = []fyne.CanvasObject{autostartRow, w.permInfo}
@@ -741,6 +815,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.refreshClipboardToolUI()
 	}
 	permRows = append(permRows, w.rustshineWebRTCRow)
+	permRows = append(permRows, w.usbDriverRow)
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
 	moonlightAddBtn := widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
@@ -1684,10 +1759,12 @@ func (w *Window) performRefresh() {
 				status.moonlightCount = len(clients)
 			}
 			entStatus = w.token.EntitlementStatus()
+			status.usbStatus = w.token.USBPassthroughStatus()
 		}
 		fyne.Do(func() {
 			w.refreshSupportButton(entStatus)
 			w.refreshRustShineUI(entStatus)
+			w.refreshUSBPassthroughUI(entStatus, status.usbStatus)
 			if w.streamerNameLabel != nil && w.token != nil {
 				w.streamerNameLabel.SetText(w.token.StreamerName())
 			}

@@ -1670,7 +1670,41 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 		a.setEntError(fmt.Sprintf("download failed: %v", err))
 		return err
 	}
+
+	// USB passthrough (usbridge-usb-broker) ships in the same release as
+	// RustShine and is gated by the same entitlement token, so it stages
+	// on the same click. Non-fatal: not every platform/release has a
+	// broker build yet (see StageUSBBroker's doc comment), and RustShine
+	// itself must keep working even when USB passthrough isn't available.
+	if err := entitlement.StageUSBBroker(context.Background(), a.cfg.StateDir, token, nil); err != nil {
+		log.Printf("[app] usb-broker not staged (USB passthrough unavailable): %v", err)
+	}
 	return nil
+}
+
+// USBPassthroughStatus reports the USB passthrough broker/driver status for
+// this machine (see usbpass.Service.Status's own doc comment for the
+// per-platform driver detection it does). Nil-safe: usbBroker is always
+// constructed today (New's call site in New()), but this mirrors every
+// other a.usbBroker != nil guard in this file rather than assuming that
+// stays true.
+func (a *App) USBPassthroughStatus() usbpass.Status {
+	if a.usbBroker == nil {
+		return usbpass.Status{Available: false, Platform: "disabled"}
+	}
+	return a.usbBroker.Status()
+}
+
+// InstallUSBDriver installs this platform's USB passthrough driver
+// (usbip + vhci-hcd on Linux; see usbpass.Service.InstallDrivers). Windows
+// has no equivalent call: usbip-win2 ships its own signed installer, so the
+// GUI just opens https://github.com/vadimgrn/usbip-win2/releases/latest in
+// the browser directly (ui/window.go) instead of routing through here.
+func (a *App) InstallUSBDriver() error {
+	if a.usbBroker == nil {
+		return fmt.Errorf("usb passthrough not available")
+	}
+	return a.usbBroker.InstallDrivers()
 }
 
 // ClearLicense clears the saved entitlement token and switches back to

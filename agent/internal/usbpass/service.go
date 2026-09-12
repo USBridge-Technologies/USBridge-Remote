@@ -169,13 +169,24 @@ func (s *Service) control(cmd string, extra map[string]any) (map[string]any, err
 
 func (s *Service) Status() Status {
 	st := Status{
-		Available:  runtime.GOOS == "windows",
+		Available:  runtime.GOOS == "windows" || runtime.GOOS == "linux",
 		Platform:   runtime.GOOS,
 		ListenPort: s.urbPort,
 	}
-	if runtime.GOOS != "windows" {
-		st.DriverHint = "USB passthrough v1 is Windows only"
+	if !st.Available {
+		st.DriverHint = "USB passthrough v1 is Windows/Linux only"
 		return st
+	}
+	if runtime.GOOS == "linux" {
+		// Go-side check rather than the broker's own "status" reply --
+		// vhci_driver in that reply is populated by the Windows build's
+		// pnputil probe (driver_windows.go); the Linux broker never
+		// bothered echoing it back since Go can check /sys directly.
+		if vhci, hint := s.linuxDriverStatus(); vhci {
+			st.VhciDriver = true
+		} else {
+			st.DriverHint = hint
+		}
 	}
 	if s.resolveBroker() == "" {
 		st.BrokerError = "closed usb-broker binary not staged"
@@ -190,8 +201,13 @@ func (s *Service) Status() Status {
 	if v, ok := resp["stub_driver"].(bool); ok {
 		st.StubDriver = v
 	}
-	if v, ok := resp["vhci_driver"].(bool); ok {
-		st.VhciDriver = v
+	if runtime.GOOS == "windows" {
+		if v, ok := resp["vhci_driver"].(bool); ok {
+			st.VhciDriver = v
+		}
+		if !st.VhciDriver {
+			st.DriverHint = "install attested usbip-win VHCI via pnputil"
+		}
 	}
 	if arr, ok := resp["sessions"].([]any); ok {
 		for _, x := range arr {
@@ -199,9 +215,6 @@ func (s *Service) Status() Status {
 				st.Sessions = append(st.Sessions, s)
 			}
 		}
-	}
-	if !st.VhciDriver {
-		st.DriverHint = "install attested usbip-win VHCI via pnputil"
 	}
 	return st
 }
