@@ -901,21 +901,35 @@ func (dw *DiskWidget) updateButtons() {
 		if selectedCount == 0 && hasMountedDevices {
 			disconnectLabel = i18n.Current.DisconnectAllButton
 		}
-		dw.unmountBtn.SetText(disconnectLabel)
+		
+		if dw.unmountBtn.Text != disconnectLabel {
+			dw.unmountBtn.SetText(disconnectLabel)
+		}
+		// view.DeviceActionButton might not expose Label()
 		if dw.compactUnmountBtn != nil {
 			dw.compactUnmountBtn.SetLabel(disconnectLabel)
 		}
 
 		if selectedNotMountedCount == 0 {
-			dw.mountBtn.Hide()
+			if dw.mountBtn.Visible() {
+				dw.mountBtn.Hide()
+			}
 			if dw.compactMountBtn != nil {
-				dw.compactMountBtn.Hide()
+				if dw.compactMountBtn.Visible() {
+					dw.compactMountBtn.Hide()
+				}
+				// Disabled check? Fyne doesn't export Disabled() for some widgets, but view.DeviceActionButton might.
+				// Disabling a hidden button isn't visibly changing layout, but SetDisabled doesn't hurt.
 				dw.compactMountBtn.Disable()
 			}
 		} else {
-			dw.mountBtn.Show()
+			if !dw.mountBtn.Visible() {
+				dw.mountBtn.Show()
+			}
 			if dw.compactMountBtn != nil {
-				dw.compactMountBtn.Show()
+				if !dw.compactMountBtn.Visible() {
+					dw.compactMountBtn.Show()
+				}
 				if canAdd && !controlsLocked {
 					dw.compactMountBtn.Enable()
 				} else {
@@ -925,14 +939,18 @@ func (dw *DiskWidget) updateButtons() {
 		}
 
 		if hasMountedDevices || selectedCount > 0 {
-			dw.unmountBtn.Show()
+			if !dw.unmountBtn.Visible() {
+				dw.unmountBtn.Show()
+			}
 			if controlsLocked {
 				dw.unmountBtn.Disable()
 			} else {
 				dw.unmountBtn.Enable()
 			}
 			if dw.compactUnmountBtn != nil {
-				dw.compactUnmountBtn.Show()
+				if !dw.compactUnmountBtn.Visible() {
+					dw.compactUnmountBtn.Show()
+				}
 				if controlsLocked {
 					dw.compactUnmountBtn.Disable()
 				} else {
@@ -940,9 +958,13 @@ func (dw *DiskWidget) updateButtons() {
 				}
 			}
 		} else {
-			dw.unmountBtn.Hide()
+			if dw.unmountBtn.Visible() {
+				dw.unmountBtn.Hide()
+			}
 			if dw.compactUnmountBtn != nil {
-				dw.compactUnmountBtn.Hide()
+				if dw.compactUnmountBtn.Visible() {
+					dw.compactUnmountBtn.Hide()
+				}
 				dw.compactUnmountBtn.Disable()
 			}
 		}
@@ -960,9 +982,11 @@ func (dw *DiskWidget) updateButtons() {
 		} else {
 			dw.mountBtn.Disable()
 		}
+
 		if dw.onButtonsChanged != nil {
 			dw.onButtonsChanged()
 		}
+
 	})
 }
 

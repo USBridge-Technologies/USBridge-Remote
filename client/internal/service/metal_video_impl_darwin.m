@@ -141,9 +141,29 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
 @interface MetalDisplayLinkTarget : NSObject
 - (void)displayLinkFired:(CADisplayLink *)link;
 @end
+#include <mach/mach_time.h>
+
+static uint64_t g_last_dl_time = 0;
+static uint64_t g_last_submit_time = 0;
+
 @implementation MetalDisplayLinkTarget
 - (void)displayLinkFired:(CADisplayLink __unused *)link {
     if (!atomic_load(&g_active)) return;
+    
+    // Stutter Profiler: DisplayLink stall detection
+    uint64_t now = mach_absolute_time();
+    if (g_last_dl_time != 0) {
+        mach_timebase_info_data_t tb;
+        mach_timebase_info(&tb);
+        uint64_t elapsed_ns = (now - g_last_dl_time) * tb.numer / tb.denom;
+        if (elapsed_ns > 50000000) { // 50ms
+            char msg[128];
+            snprintf(msg, sizeof(msg), "⚠️ [Profiler] AppKit/DisplayLink stalled for %llu ms (UI freeze!)", elapsed_ns / 1000000);
+            goMetalLog(msg, 2); // warn
+        }
+    }
+    g_last_dl_time = now;
+
     pthread_mutex_lock(&g_mu);
     CVPixelBufferRef buf = g_pendingBuf;
     g_pendingBuf = NULL;
@@ -179,6 +199,20 @@ double metal_video_last_fps(void) {
 int metal_video_try_submit(CVImageBufferRef img) {
     if (!atomic_load(&g_active)) return 0;
     if (!CVPixelBufferGetIOSurface(img)) return 0;
+
+    // Stutter Profiler: Decoder stall detection
+    uint64_t now = mach_absolute_time();
+    if (g_last_submit_time != 0) {
+        mach_timebase_info_data_t tb;
+        mach_timebase_info(&tb);
+        uint64_t elapsed_ns = (now - g_last_submit_time) * tb.numer / tb.denom;
+        if (elapsed_ns > 50000000) { // 50ms
+            char msg[128];
+            snprintf(msg, sizeof(msg), "⚠️ [Profiler] Moonlight Decoder/Network stalled for %llu ms (Dropped packets or host keyframe!)", elapsed_ns / 1000000);
+            goMetalLog(msg, 2); // warn
+        }
+    }
+    g_last_submit_time = now;
 
     CVPixelBufferRetain(img);
 
