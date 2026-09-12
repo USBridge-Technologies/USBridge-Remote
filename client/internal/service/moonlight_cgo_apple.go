@@ -518,17 +518,47 @@ static int vt_create_session(void) {
 
     int32_t fmt = kCVPixelFormatType_32BGRA;
     CFNumberRef cfFmt = CFNumberCreate(NULL, kCFNumberSInt32Type, &fmt);
-    const void *keys[] = { kCVPixelBufferPixelFormatTypeKey };
-    const void *vals[] = { cfFmt };
-    CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, vals, 1,
+    
+    int32_t min_buf_cnt = 24;
+    CFNumberRef cfMinBuf = CFNumberCreate(NULL, kCFNumberSInt32Type, &min_buf_cnt);
+
+    // IOSurface-backed output buffers are required for metal_video_try_submit's
+    // zero-copy fast path (see metal_video_impl_darwin.m:181, which gates on
+    // CVPixelBufferGetIOSurface(img) != NULL) -- without this key VT is free
+    // to hand back plain CPU-only CVPixelBuffers, which silently disables
+    // that fast path on every frame, every session, forcing the slow
+    // CPU-copy fallback in vt_callback below to run synchronously inside
+    // VT's own serialized decode-callback queue. Confirmed live: without
+    // this, goVTFrame's fec-debug trace showed nilBuf=false (CPU path) for
+    // every single frame, and VT's callback stopped firing entirely after
+    // ~6-8 frames despite VTDecompressionSessionDecodeFrame continuing to
+    // accept and report success on new submissions -- consistent with VT's
+    // internal buffer pool backing up behind a callback queue that can't
+    // drain fast enough once every frame requires a lock+copy+synchronous
+    // cgo round-trip before the next one can even start.
+    CFDictionaryRef ioSurfaceProps = CFDictionaryCreate(NULL, NULL, NULL, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const void *keys[] = { kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferPoolMinimumBufferCountKey };
+    const void *vals[] = { cfFmt, ioSurfaceProps, cfMinBuf };
+    CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, vals, 3,
         &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFRelease(cfFmt);
+    CFRelease(ioSurfaceProps);
+    CFRelease(cfMinBuf);
+
+    CFDictionaryRef decoderSpec = CFDictionaryCreate(NULL,
+        (const void **)&kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
+        (const void **)&kCFBooleanTrue,
+        1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 
     VTDecompressionOutputCallbackRecord cb = { vt_callback, NULL };
-    s = VTDecompressionSessionCreate(kCFAllocatorDefault, g_vt_fmt_desc, NULL, attrs, &cb, &g_vt_session);
+    s = VTDecompressionSessionCreate(kCFAllocatorDefault, g_vt_fmt_desc, decoderSpec, attrs, &cb, &g_vt_session);
     CFRelease(attrs);
+    CFRelease(decoderSpec);
     if (s != noErr) {
-        goVTLog((char*)"VT: VTDecompressionSessionCreate FAILED");
+        char errBuf[128];
+        snprintf(errBuf, sizeof(errBuf), "VT: VTDecompressionSessionCreate FAILED (status=%d)", (int)s);
+        goVTLog(errBuf);
         CFRelease(g_vt_fmt_desc); g_vt_fmt_desc = NULL;
         return -1;
     }
@@ -602,35 +632,9 @@ static void vt_handle_nal(const uint8_t *nal, int len, void *ptr) {
         // H.264: NAL type = nal[0] & 0x1F
         int nal_type = nal[0] & 0x1F;
         if (nal_type == 7) { // SPS
-            if (len <= (int)sizeof(g_sps_data)) {
-                // Apply Moonlight SPS Fixup for VideoToolbox compatibility
-                h264_stream_t* stream = h264_new();
-                read_nal_unit(stream, (uint8_t*)nal, len);
-                
-                stream->sps->num_ref_frames = 1;
-                stream->sps->vui.max_dec_frame_buffering = 1;
-                if (!stream->sps->vui.bitstream_restriction_flag) {
-                    stream->sps->vui.bitstream_restriction_flag = 1;
-                    stream->sps->vui.motion_vectors_over_pic_boundaries_flag = 1;
-                    stream->sps->vui.max_bytes_per_pic_denom = 2;
-                    stream->sps->vui.max_bits_per_mb_denom = 1;
-                    stream->sps->vui.log2_max_mv_length_horizontal = 16;
-                    stream->sps->vui.log2_max_mv_length_vertical = 16;
-                    stream->sps->vui.num_reorder_frames = 0;
-                }
-                
-                uint8_t out[1024];
-                int out_len = write_nal_unit(stream, out, sizeof(out));
-                if (out_len > 1 && out_len - 1 <= (int)sizeof(g_sps_data)) {
-                    int final_len = out_len - 1;
-                    uint8_t *final_sps = out + 1;
-                    if (g_sps_len != (size_t)final_len || memcmp(g_sps_data, final_sps, final_len) != 0) {
-                        memcpy(g_sps_data, final_sps, final_len); 
-                        g_sps_len = final_len; 
-                        ctx->new_params = 1;
-                    }
-                }
-                h264_free(stream);
+            if (len <= (int)sizeof(g_sps_data) &&
+                (g_sps_len != (size_t)len || memcmp(g_sps_data, nal, len) != 0)) {
+                memcpy(g_sps_data, nal, len); g_sps_len = len; ctx->new_params = 1;
             }
             return;
         }
