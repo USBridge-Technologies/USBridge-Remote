@@ -676,7 +676,7 @@ func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 		mw.designModeChip = chip
 		modeChip = chip
 	}
-	return view.NewAppFooter(view.AppVersion(), modeChip, nil, extras...)
+	return view.NewConnectionsAppFooter(view.AppVersion(), modeChip, nil, extras...)
 }
 
 func (mw *MainWindow) showDesignModeMenu(anchor fyne.CanvasObject) {

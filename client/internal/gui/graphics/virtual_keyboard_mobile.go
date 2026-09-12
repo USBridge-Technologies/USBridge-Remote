@@ -26,7 +26,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -61,6 +60,7 @@ type backspaceEntry struct {
 	onKey       func(fyne.KeyName)
 	onFocused   func() // called when the field gains focus (IME will open)
 	onUnfocused func() // called when the field loses focus (IME will close)
+	border      *canvas.Rectangle
 }
 
 func (e *backspaceEntry) TypedKey(key *fyne.KeyEvent) {
@@ -76,6 +76,10 @@ func (e *backspaceEntry) TypedRune(r rune) {
 
 func (e *backspaceEntry) FocusGained() {
 	e.Entry.FocusGained()
+	if e.border != nil {
+		e.border.StrokeColor = design.ColorConnectionBadgeText
+		e.border.Refresh()
+	}
 	if e.onFocused != nil {
 		e.onFocused()
 	}
@@ -83,6 +87,10 @@ func (e *backspaceEntry) FocusGained() {
 
 func (e *backspaceEntry) FocusLost() {
 	e.Entry.FocusLost()
+	if e.border != nil {
+		e.border.StrokeColor = design.ColorStatusBarBorder
+		e.border.Refresh()
+	}
 	if e.onUnfocused != nil {
 		e.onUnfocused()
 	}
@@ -256,104 +264,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
 
-	// keysSwitch swaps between the normal key panel and the F-key panel.
-	var showNormal, showFKeys func()
-	keysSwitch := container.NewStack()
-
-	// F-key panel: two fixed rows of 7 cell-widths each -- F1-F7 on row
-	// one, F8-F12 + a double-width Back on row two (5 + 2 = 7, same total
-	// width as row one, so the two rows line up like the top of a Tetris
-	// board rather than Back trailing off at some arbitrary width). Plain
-	// GridWithColumns can't do this on its own (every column in one grid
-	// is forced equal width, so there's no way to make Back span two
-	// columns' worth of width) -- each key is instead individually wrapped
-	// in its own container.NewGridWrap(size, ...), which reports that
-	// exact fixed size as its MinSize, and the row is an HBox of those
-	// (HBox packs children at their own MinSize instead of stretching them
-	// to fill the row, unlike GridWithColumns -- see this func's earlier
-	// history for why that stretch was the original overflow bug). Wider
-	// than createKey's desktop F-key convention (35x30) on purpose -- at
-	// that size 7 cells left a visible empty gap on the right of the row
-	// (confirmed live); this fills the same available width the row
-	// already had to itself instead of leaving it unused.
-	fKeySize := fyne.NewSize(44, 34)
-	backSize := fyne.NewSize(fKeySize.Width*2, fKeySize.Height)
-	newFKey := func(label string, code int) *fyne.Container {
-		btn := widget.NewButton(label, func() {
-			if vk.onKeyPress != nil {
-				vk.onKeyPress(code, 0)
-			}
-		})
-		return container.NewGridWrap(fKeySize, btn)
-	}
-	row1 := container.NewHBox(
-		newFKey("F1", 58), newFKey("F2", 59), newFKey("F3", 60), newFKey("F4", 61),
-		newFKey("F5", 62), newFKey("F6", 63), newFKey("F7", 64),
-	)
-	backBtn := widget.NewButton("Back", func() { showNormal() })
-	row2 := container.NewHBox(
-		newFKey("F8", 65), newFKey("F9", 66), newFKey("F10", 67), newFKey("F11", 68), newFKey("F12", 69),
-		container.NewGridWrap(backSize, backBtn),
-	)
-	fPanel := container.NewThemeOverride(
-		container.NewVBox(row1, row2),
-		design.NewBrandTheme(),
-	)
-
-	fBtn := widget.NewButton("Fx", func() { showFKeys() })
-
-	row1Keys := container.NewHBox(
-		vk.createKey("Esc", 41, 0),
-		vk.createKey("Tab", 43, 0),
-		vk.createModifierKey("Shift", 225),
-		fBtn,
-	)
-	row2Keys := container.NewHBox(
-		vk.createModifierKey("Ctrl", 224),
-		vk.createModifierKey("Win", 227),
-		vk.createModifierKey("Alt", 226),
-		vk.createKey("Del", 76, 0),
-	)
-	vk.shiftBtn = row1Keys.Objects[2].(*widget.Button)
-	vk.ctrlBtn = row2Keys.Objects[0].(*widget.Button)
-	vk.winBtn = row2Keys.Objects[1].(*widget.Button)
-	vk.altBtn = row2Keys.Objects[2].(*widget.Button)
-	leftKeys := container.NewVBox(row1Keys, row2Keys)
-
-	enterBtn := vk.createKey("Enter", 40, 0)
-
-	const dpadSize = 28
-	ph := func() fyne.CanvasObject {
-		r := canvas.NewRectangle(design.ColorGray950)
-		r.Resize(fyne.NewSize(dpadSize, dpadSize))
-		return r
-	}
-	upBtn := vk.createIconKey(theme.MoveUpIcon(), 82, 0)
-	upBtn.Resize(fyne.NewSize(dpadSize, dpadSize))
-	leftBtn := vk.createIconKey(theme.NavigateBackIcon(), 80, 0)
-	leftBtn.Resize(fyne.NewSize(dpadSize, dpadSize))
-	downBtn := vk.createIconKey(theme.MoveDownIcon(), 81, 0)
-	downBtn.Resize(fyne.NewSize(dpadSize, dpadSize))
-	rightBtn := vk.createIconKey(theme.NavigateNextIcon(), 79, 0)
-	rightBtn.Resize(fyne.NewSize(dpadSize, dpadSize))
-	dpad := container.NewGridWithColumns(3,
-		ph(), upBtn, ph(),
-		leftBtn, downBtn, rightBtn,
-	)
-
-	normalPanel := container.NewBorder(nil, nil, leftKeys, dpad, enterBtn)
-	keysSwitch.Objects = []fyne.CanvasObject{normalPanel}
-
-	showNormal = func() {
-		keysSwitch.Objects = []fyne.CanvasObject{normalPanel}
-		keysSwitch.Refresh()
-	}
-	showFKeys = func() {
-		keysSwitch.Objects = []fyne.CanvasObject{fPanel}
-		keysSwitch.Refresh()
-	}
-
-	clearBtn := widget.NewButtonWithIcon("", theme.ContentClearIcon(), func() {
+	clearBtn := padCompactKey(newCompactKey("×", compactKeyNormal, compactKeyHeight, func() {
 		suppress = true
 		textHint.SetText("")
 		mu.Lock()
@@ -361,20 +272,23 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		prevText = ""
 		mu.Unlock()
 		suppress = false
-	})
-	clearBtn.Importance = widget.MediumImportance
+	}))
 
-	pasteBtn := widget.NewButtonWithIcon("", theme.MediaReplayIcon(), func() {
+	pasteBtn := padCompactKey(newCompactKey("↻", compactKeyNormal, compactKeyHeight, func() {
 		runes := []rune(textHint.Text)
 		if len(runes) == 0 {
 			return
 		}
 		netChan <- netTask{runes: runes}
-	})
-	pasteBtn.Importance = widget.MediumImportance
+	}))
 
-	inputRow := container.NewBorder(nil, nil, nil, container.NewHBox(pasteBtn, clearBtn), textHint)
-	main := container.NewVBox(keysSwitch, inputRow)
+	styledEntry := wrapCompactEntry(textHint, func(b *canvas.Rectangle) {
+		textHint.border = b
+	})
+	inputRow := container.NewBorder(nil, nil, nil, container.NewHBox(pasteBtn, clearBtn), styledEntry)
+	line := canvas.NewRectangle(design.ColorHeaderAccentLine)
+	line.SetMinSize(fyne.NewSize(1, 0.5))
+	main := view.NewInsetExact(container.NewVBox(vk.createCompactSpecialKeysPanel(), inputRow), 6, 6, 6, 6)
 
 	background := canvas.NewRectangle(design.ColorGray950)
 	background.FillColor = design.ColorGray950
@@ -394,8 +308,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint.onUnfocused = func() {
 	}
 
-	paddedMain := view.NewInset(main, 4, 4, 4, 4)
-	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, paddedMain)
+	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, view.NewTopLine(main, line))
 	return container.NewMax(container.NewThemeOverride(
 		container.NewStack(background, innerLayout),
 		design.NewBrandTheme(),

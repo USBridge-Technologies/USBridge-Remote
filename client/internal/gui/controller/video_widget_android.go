@@ -252,16 +252,13 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	}
 
 	// When the system IME is open, the Vulkan SurfaceView expands above the
-	// touchpad widget by topOffset dp (the tab-bar height). Subtract that extra
-	// distance from contentRectY so v0 reaches into the video content that sits
-	// above the original touchpad top — filling the expanded area with real video
-	// instead of leaving a black strip.
+	// touchpad widget by the container's normal canvas Y (header band).
+	// Subtract that from contentRectY so v0 reaches into the video content
+	// that sits above the original touchpad top.
 	extraTopDp := float32(0)
-	if getImeExpandHeightDp() > 0 && vw.parentWindow != nil && vw.container != nil {
-		cs := vw.parentWindow.Canvas().Size()
-		topOffset := cs.Height - vw.container.Size().Height
-		if topOffset > 0 {
-			extraTopDp = topOffset
+	if getImeExpandHeightDp() > 0 && vw.container != nil {
+		if y := vw.videoContainerOrigin().Y; y > 0 {
+			extraTopDp = y
 		}
 	}
 
@@ -368,7 +365,9 @@ func (vw *VideoWidget) androidCursorScale() int {
 // videoCanvasFrame returns the Vulkan SurfaceView rect in window-local dp coords.
 //   - Fullscreen: full canvas (Vulkan expands to fill the screen).
 //   - Keyboard visible: video area above the keyboard panel.
-//   - Normal: full container area below the tab bar.
+//   - Normal: the video container's real canvas origin (not canvasH−height —
+//     that assumed the container was flush with the window bottom and covers
+//     Control's tab bar + AppFooter once those sit under the video).
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.parentWindow == nil {
 		return
@@ -409,13 +408,21 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return
 	}
 	sz := vw.container.Size()
-	topOffset := cs.Height - sz.Height
-
+	pos := vw.videoContainerOrigin()
 	videoH := sz.Height
 	if vw.contentContainer != nil && vw.contentContainer.Visible() {
 		if kh := vw.contentContainer.Size().Height; kh > 0 {
 			videoH -= kh
+			if videoH < 0 {
+				videoH = 0
+			}
 		}
 	}
-	return 0, topOffset, sz.Width, videoH
+	// Nudge the SurfaceView down a few dp so it clears the header hairline
+	// without growing past the container bottom (height shrinks by the same).
+	const headerClearance = float32(8)
+	if videoH > headerClearance {
+		return pos.X, pos.Y + headerClearance, sz.Width, videoH - headerClearance
+	}
+	return pos.X, pos.Y, sz.Width, videoH
 }

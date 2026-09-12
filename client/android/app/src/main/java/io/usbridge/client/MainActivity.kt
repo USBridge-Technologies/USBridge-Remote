@@ -183,6 +183,10 @@ class MainActivity : GoNativeActivity() {
         super.onCreate(savedInstanceState)
         instance = this
         Log.i(TAG, "MainActivity created")
+        // Parent paints status/nav to header/footer colors; re-apply after
+        // Fyne's NativeActivity setup so OEM overlays don't reset them.
+        window.statusBarColor = 0xFF181C1F.toInt()
+        window.navigationBarColor = 0xFF0B0F12.toInt()
         setupIMEListener()
 
         connectivityManager = getSystemService(ConnectivityManager::class.java)

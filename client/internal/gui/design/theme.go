@@ -2,6 +2,7 @@ package design
 
 import (
 	"image/color"
+	"runtime"
 
 	"fyne.io/fyne/v2"
 	fynetheme "fyne.io/fyne/v2/theme"
@@ -174,6 +175,13 @@ func NewBrandTheme() fyne.Theme {
 func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
 	switch name {
 	case fynetheme.ColorNameBackground:
+		// On Android NativeActivity the GL surface is fullscreen: the strip
+		// above Fyne's InteractiveArea (camera / status bar) is this clear
+		// color, not window.statusBarColor. Match ColorGray900 so it lines
+		// up with the Connections/Control header chrome.
+		if runtime.GOOS == "android" {
+			return ColorGray900
+		}
 		return ColorGray950
 	case fynetheme.ColorNameButton:
 		return ColorSurfaceLight

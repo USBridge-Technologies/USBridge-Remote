@@ -38,8 +38,9 @@ open class GoNativeActivity : NativeActivity() {
         loadLibraryFromManifest()
         preloadNativeRuntime()
         super.onCreate(savedInstanceState)
+        applySystemChrome()
         setupEntry()
-        updateLayout()
+        setupSafeAreaInsets()
     }
 
     open fun launchQRScanner() = Unit
@@ -50,16 +51,110 @@ open class GoNativeActivity : NativeActivity() {
     private external fun keyboardDelete()
     private external fun backPressed()
 
+    // Matches design.ColorGray900 (header) / ColorGray950 (footer + nav strip).
+    private val headerBarColor = 0xFF181C1F.toInt()
+    private val footerBarColor = 0xFF0B0F12.toInt()
+
+    private fun applySystemChrome() {
+        try {
+            // Edge-to-edge so cutout/status insets are reported to Fyne instead
+            // of being swallowed by a Fullscreen theme (top inset=0 under camera).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.setDecorFitsSystemWindows(false)
+            }
+            window.statusBarColor = headerBarColor
+            // Match AppFooter — the system nav band below Fyne's bottom inset
+            // reads as a continuation of the footer, not a foreign grey strip.
+            window.navigationBarColor = footerBarColor
+            @Suppress("DEPRECATION")
+            var flags = window.decorView.systemUiVisibility
+            flags = flags or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            flags = flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags = flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+            }
+            window.decorView.systemUiVisibility = flags
+        } catch (_: Throwable) {
+        }
+    }
+
+    // Fullscreen theme used to hide the status bar and report top inset=0 even
+    // with a camera cutout, so Fyne laid content under the notch. Always fold
+    // display-cutout + system-bars (incl. ignoring visibility) into the insets
+    // we push to Go / InteractiveArea.
+    private fun setupSafeAreaInsets() {
+        val decor = window.decorView
+        decor.setOnApplyWindowInsetsListener { v, insets ->
+            pushSafeAreaInsets(insets)
+            v.onApplyWindowInsets(insets)
+        }
+        decor.requestApplyInsets()
+        // First layout may arrive before the listener fires.
+        decor.post { updateLayout() }
+    }
+
     private fun updateLayout() {
         try {
-            val insets: WindowInsets = window.decorView.rootWindowInsets ?: return
-            @Suppress("DEPRECATION")
-            insetsChanged(
-                insets.systemWindowInsetTop,
-                insets.systemWindowInsetBottom,
-                insets.systemWindowInsetLeft,
-                insets.systemWindowInsetRight,
+            val insets = window.decorView.rootWindowInsets ?: return
+            pushSafeAreaInsets(insets)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun pushSafeAreaInsets(insets: WindowInsets) {
+        var top: Int
+        var bottom: Int
+        var left: Int
+        var right: Int
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bars = insets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
             )
+            val cutout = insets.getInsets(WindowInsets.Type.displayCutout())
+            top = maxOf(bars.top, cutout.top)
+            bottom = maxOf(bars.bottom, cutout.bottom)
+            left = maxOf(bars.left, cutout.left)
+            right = maxOf(bars.right, cutout.right)
+        } else {
+            @Suppress("DEPRECATION")
+            top = insets.systemWindowInsetTop
+            @Suppress("DEPRECATION")
+            bottom = insets.systemWindowInsetBottom
+            @Suppress("DEPRECATION")
+            left = insets.systemWindowInsetLeft
+            @Suppress("DEPRECATION")
+            right = insets.systemWindowInsetRight
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val cutout = insets.displayCutout
+                if (cutout != null) {
+                    top = maxOf(top, cutout.safeInsetTop)
+                    bottom = maxOf(bottom, cutout.safeInsetBottom)
+                    left = maxOf(left, cutout.safeInsetLeft)
+                    right = maxOf(right, cutout.safeInsetRight)
+                }
+            }
+        }
+        // Bottom inset stays 0: Fyne paints edge-to-edge under the nav chrome.
+        // Connections grows its own footer pad slightly; do not push the whole
+        // app up by the system safe-zone (that made every footer huge).
+        bottom = 0
+        try {
+            insetsChanged(top, bottom, left, right)
+        } catch (_: Throwable) {
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Orientation / size class changes swap which edges are status vs
+        // nav / cutout. Re-apply chrome and push fresh insets so the header
+        // does not keep a stale portrait top pad in landscape (and vice versa).
+        applySystemChrome()
+        try {
+            window.decorView.requestApplyInsets()
+            window.decorView.post { updateLayout() }
         } catch (_: Throwable) {
         }
     }
