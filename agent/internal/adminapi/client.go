@@ -16,6 +16,7 @@ import (
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
+	"usbridge_agent/internal/usbpass"
 )
 
 // Client is a thin RPC client for Server. A single Client value satisfies
@@ -309,6 +310,20 @@ func (c *Client) SetStreamBackend(kind string) error {
 
 func (c *Client) SetRustShineWebRTCEnabled(enabled bool) error {
 	return c.do(http.MethodPost, "/token/set-rustshine-webrtc-enabled", map[string]bool{"enabled": enabled}, nil)
+}
+
+func (c *Client) USBPassthroughStatus() usbpass.Status {
+	var st usbpass.Status
+	_ = c.do(http.MethodGet, "/token/usb-driver-status", nil, &st)
+	return st
+}
+
+// InstallUSBDriver mirrors DownloadRustShine's own thin-client shape
+// (fire-and-forget; the GUI polls USBPassthroughStatus for VhciDriver
+// instead of waiting on this response) -- see
+// handleInstallUSBDriver's doc comment.
+func (c *Client) InstallUSBDriver() error {
+	return c.do(http.MethodPost, "/token/install-usb-driver", nil, nil)
 }
 
 func (c *Client) AccountStatus() account.Status {

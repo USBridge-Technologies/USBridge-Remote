@@ -69,6 +69,7 @@ type App struct {
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
 	usbBroker *usbpass.Service
+	adminSrv  *adminapi.Server
 
 	// gpuClockArmed records whether applyGPUClockLock has already launched
 	// the elevated lock daemon for this agent process, so repeated calls
@@ -420,6 +421,29 @@ func resolveConfigPath() string {
 func (a *App) Run(headless bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Diagnostic-only, additive: signal.Notify fans a delivered signal out to
+	// every channel registered for it, so this doesn't steal anything from
+	// NotifyContext's own internal channel above -- it just also logs which
+	// exact signal arrived before the graceful shutdown it triggers proceeds.
+	// Added to chase a live symptom (full agent — tsnet, HTTP, the rustshine
+	// child — self-terminating cleanly with no Windows Event Log crash
+	// record, no scheduled task, and no self-update in the log) where nothing
+	// so far has identified *what* delivered the interrupt: on Windows, Go's
+	// runtime maps CTRL_C_EVENT/CTRL_BREAK_EVENT to os.Interrupt and
+	// CTRL_CLOSE_EVENT/CTRL_LOGOFF_EVENT/CTRL_SHUTDOWN_EVENT to
+	// syscall.SIGTERM -- so which one of these two fires tells us whether
+	// this is a console control event at all, or (if this line never logs
+	// when the next occurrence happens) that shutdownEngine is instead being
+	// reached via the GUI window's own close-intercept path (see
+	// ui/window.go's SetCloseIntercept, which also logs now) with no OS
+	// signal involved at all.
+	diagSigCh := make(chan os.Signal, 2)
+	signal.Notify(diagSigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-diagSigCh
+		log.Printf("[app] DIAG: OS signal received: %v (os.Interrupt=CTRL_C/CTRL_BREAK; SIGTERM=CTRL_CLOSE/CTRL_LOGOFF/CTRL_SHUTDOWN) -- this will trigger shutdownEngine via ctx cancellation", sig)
+	}()
 
 	// See NotifySessionChange's doc comment for why this needs to be
 	// reachable from outside the normal Start()->New()->Run() call chain.
@@ -1669,7 +1693,41 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 		a.setEntError(fmt.Sprintf("download failed: %v", err))
 		return err
 	}
+
+	// USB passthrough (usbridge-usb-broker) ships in the same release as
+	// RustShine and is gated by the same entitlement token, so it stages
+	// on the same click. Non-fatal: not every platform/release has a
+	// broker build yet (see StageUSBBroker's doc comment), and RustShine
+	// itself must keep working even when USB passthrough isn't available.
+	if err := entitlement.StageUSBBroker(context.Background(), a.cfg.StateDir, token, nil); err != nil {
+		log.Printf("[app] usb-broker not staged (USB passthrough unavailable): %v", err)
+	}
 	return nil
+}
+
+// USBPassthroughStatus reports the USB passthrough broker/driver status for
+// this machine (see usbpass.Service.Status's own doc comment for the
+// per-platform driver detection it does). Nil-safe: usbBroker is always
+// constructed today (New's call site in New()), but this mirrors every
+// other a.usbBroker != nil guard in this file rather than assuming that
+// stays true.
+func (a *App) USBPassthroughStatus() usbpass.Status {
+	if a.usbBroker == nil {
+		return usbpass.Status{Available: false, Platform: "disabled"}
+	}
+	return a.usbBroker.Status()
+}
+
+// InstallUSBDriver installs this platform's USB passthrough driver
+// (usbip + vhci-hcd on Linux; see usbpass.Service.InstallDrivers). Windows
+// has no equivalent call: usbip-win2 ships its own signed installer, so the
+// GUI just opens https://github.com/vadimgrn/usbip-win2/releases/latest in
+// the browser directly (ui/window.go) instead of routing through here.
+func (a *App) InstallUSBDriver() error {
+	if a.usbBroker == nil {
+		return fmt.Errorf("usb passthrough not available")
+	}
+	return a.usbBroker.InstallDrivers()
 }
 
 // ClearLicense clears the saved entitlement token and switches back to

@@ -35,6 +35,14 @@ func (s *Service) InstallDrivers() error {
 	return nil
 }
 
+// linuxDriverStatus is only meaningful on Linux (see driver_linux.go) --
+// stubbed here so service.go's Status() can call it unconditionally
+// without a build-tag switch of its own. Windows gets VhciDriver from the
+// broker's own "status" control reply instead (resp["vhci_driver"]).
+func (s *Service) linuxDriverStatus() (vhciPresent bool, hint string) {
+	return false, ""
+}
+
 func (s *Service) driverDir() string {
 	candidates := []string{
 		filepath.Join(s.BrokerDir(), "usbip-win"),

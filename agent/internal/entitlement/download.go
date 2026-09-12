@@ -168,6 +168,65 @@ func StageRustShine(ctx context.Context, stateDir, entitlementToken string, onPr
 	return nil
 }
 
+// brokerBinaryName is bin/usb-broker's build output name (its Cargo.toml
+// [[bin]] name), mirrored from usbpass.brokerName() -- duplicated rather
+// than imported for the same reason binaryName() above is (see its doc
+// comment): this package stays self-contained.
+func brokerBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "usbridge-usb-broker.exe"
+	}
+	return "usbridge-usb-broker"
+}
+
+// BrokerStagePath is exactly what usbpass.Service.resolveBroker()'s first
+// candidate resolves to (stateDir/usb-broker/<name>) -- staging here means
+// zero changes needed on that side once a download completes. Same
+// stateDir-not-exeDir reasoning as StagePath above.
+func BrokerStagePath(stateDir string) string {
+	return filepath.Join(stateDir, "usb-broker", brokerBinaryName())
+}
+
+// StageUSBBroker resolves, downloads, verifies, and extracts the
+// usbridge-usb-broker (USB passthrough) build for this platform, the same
+// way StageRustShine does for gamestream-server -- both ship in the same
+// signed rust-shine release/manifest (see usbridge-entitlement-backend's
+// Manifest.broker field), just a different backend route and a different
+// entry in that one manifest. Returns an error if this platform/release
+// combination has no broker asset at all (e.g. macOS, or a release that
+// only rebuilt gamestream-server) -- callers that consider USB passthrough
+// optional should treat that as non-fatal, see App.DownloadRustShine.
+func StageUSBBroker(ctx context.Context, stateDir, entitlementToken string, onProgress ProgressFunc) error {
+	platform := Platform()
+	if platform == "" {
+		return fmt.Errorf("entitlement: no usb-broker build for this platform (%s/%s)", runtime.GOOS, runtime.GOARCH)
+	}
+
+	info, err := ResolveUSBBrokerDownload(ctx, entitlementToken, platform)
+	if err != nil {
+		return fmt.Errorf("entitlement: resolve usb-broker download: %w", err)
+	}
+
+	dlCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+	archivePath, err := downloadArchive(dlCtx, info.URL, info.SHA256, onProgress)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(archivePath)
+
+	dest := BrokerStagePath(stateDir)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("entitlement: create usb-broker dir: %w", err)
+	}
+	if runtime.GOOS == "windows" {
+		err = extractFromZip(archivePath, brokerBinaryName(), dest)
+	} else {
+		err = extractFromTarGz(archivePath, brokerBinaryName(), dest)
+	}
+	return err
+}
+
 func downloadArchive(ctx context.Context, url, wantSHA256Hex string, onProgress ProgressFunc) (path string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

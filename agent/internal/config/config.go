@@ -13,12 +13,13 @@ import (
 )
 
 type Config struct {
-	AppName          string `yaml:"app_name"`
-	ListenHost       string `yaml:"listen_host"`
-	UsbPassthroughPort int `yaml:"usb_passthrough_port"`
-	TailscaleEnabled bool   `yaml:"tailscale_enabled"`
-	NBDMountCommand  string `yaml:"nbd_mount_command"`
-	StateDir         string `yaml:"state_dir"`
+	AppName            string `yaml:"app_name"`
+	ListenHost         string `yaml:"listen_host"`
+	HTTPPort           int    `yaml:"http_port"`
+	UsbPassthroughPort int    `yaml:"usb_passthrough_port"`
+	TailscaleEnabled   bool   `yaml:"tailscale_enabled"`
+	NBDMountCommand    string `yaml:"nbd_mount_command"`
+	StateDir           string `yaml:"state_dir"`
 	// Moonlight/Sunshine protocol
 	MasterKey    string `yaml:"master_key"`
 	SunshinePort int    `yaml:"sunshine_port"`
@@ -85,14 +86,14 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		AppName:          "USBridge Agent",
-		ListenHost:       "0.0.0.0",
+		AppName:            "USBridge Agent",
+		ListenHost:         "0.0.0.0",
 		HTTPPort:           8080,
 		UsbPassthroughPort: 8090,
-		TailscaleEnabled: true,
-		NBDMountCommand:  "",
-		StateDir:         defaultStateDir(),
-		SunshinePort:     47990,
+		TailscaleEnabled:   true,
+		NBDMountCommand:    "",
+		StateDir:           defaultStateDir(),
+		SunshinePort:       47990,
 
 		ClipboardSyncEnabled: true,
 		ClipboardMaxBytes:    200 * 1024 * 1024,

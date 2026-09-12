@@ -5,8 +5,8 @@ package usbpass
 // Pure-Go reimplementation of `usbridge-usb-broker --role client` (rust-shine
 // crates/usb-passthrough + bin/usb-broker/src/main.rs run_client/attach_to_agent).
 // The client side of that exchange carries no licensing/entitlement logic in
-// rust-shine either — require_enterprise() is only called from run_agent().
-// The enterprise/entitlement gate stays exactly where it was: on the closed
+// rust-shine either — require_licensed() is only called from run_agent().
+// The pro/enterprise entitlement gate stays exactly where it was: on the closed
 // agent binary running on the Windows side. This file only ever talks to
 // that agent as a client over AES-GCM/TCP; it never touches usbip-win2 VHCI
 // or any licensing code.
