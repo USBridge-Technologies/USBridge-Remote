@@ -549,7 +549,7 @@ func (cm *ConnectionManager) startTailscaleStatusPolling() {
 	cm.tsPollStop = make(chan struct{})
 
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 
 		for {

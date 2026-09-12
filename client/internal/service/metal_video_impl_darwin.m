@@ -236,41 +236,11 @@ void metal_video_clear_overlay(void) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Mouse event queue — same ring-buffer pattern as vk_video_impl_linux.c.
-// USBridgeMetalView enqueues all pointer events; Go polls via metal_video_next_event.
-// Thread-safe: AppKit main thread writes, CGO goroutine reads.
-// ─────────────────────────────────────────────────────────────────────────────
-
-#define METAL_EQ_CAP 512
-typedef struct { int type; float x, y; int btn; } MetalMouseEvt;
-// type: 1=move  2=button-press  3=button-release
-// btn press/release: 1=left 2=middle 3=right
-// btn 4=wheel-up 5=wheel-down encoded as type=2
-
-static MetalMouseEvt    g_meq[METAL_EQ_CAP];
-static volatile int     g_meq_head = 0, g_meq_tail = 0;
-static pthread_mutex_t  g_meq_mu   = PTHREAD_MUTEX_INITIALIZER;
-
-static void metal_eq_push(int type, float x, float y, int btn) {
-    pthread_mutex_lock(&g_meq_mu);
-    int next = (g_meq_head + 1) % METAL_EQ_CAP;
-    if (next != g_meq_tail) {
-        g_meq[g_meq_head].type = type;
-        g_meq[g_meq_head].x    = x;
-        g_meq[g_meq_head].y    = y;
-        g_meq[g_meq_head].btn  = btn;
-        g_meq_head = next;
-    }
-    pthread_mutex_unlock(&g_meq_mu);
-}
+// Forward declaration — CGO generates this export from video_widget_metal_darwin.go.
+extern void goMetalMouseEvent(int typ, float x, float y, int btn);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// USBridgeMetalView: captures all pointer events and queues them for Go.
-// Mirrors how the Linux X11 child window + XSelectInput works but in AppKit.
-// The view accepts first responder so mouseDown:/Up: are delivered without a
-// preceding click; the tracking area delivers mouseMoved: while the cursor is
-// over the video without requiring focus.
+// USBridgeMetalView: captures all pointer events and sends them directly to Go.
 // ─────────────────────────────────────────────────────────────────────────────
 @interface USBridgeMetalView : NSView
 @end
@@ -294,11 +264,11 @@ static void metal_eq_push(int type, float x, float y, int btn) {
 // NSView coordinates have origin at bottom-left; Fyne expects top-left.
 - (void)pushMoveEvent:(NSEvent *)e {
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    metal_eq_push(1, (float)pt.x, (float)(self.bounds.size.height - pt.y), 0);
+    goMetalMouseEvent(1, (float)pt.x, (float)(self.bounds.size.height - pt.y), 0);
 }
 - (void)pushButtonEvent:(int)type btn:(int)btn event:(NSEvent *)e {
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    metal_eq_push(type, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
+    goMetalMouseEvent(type, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
 }
 
 // ── mouse movement (no button held) ───────────────────────────────────────
@@ -318,7 +288,7 @@ static void metal_eq_push(int type, float x, float y, int btn) {
 - (void)scrollWheel:(NSEvent *)e {
     int btn = (e.scrollingDeltaY >= 0) ? 4 : 5; // 4=up 5=down
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    metal_eq_push(2, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
+    goMetalMouseEvent(2, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
 }
 
 @end
@@ -486,10 +456,6 @@ void metal_video_destroy(void) {
         g_display_link = nil;
     }
 
-    // Flush the mouse event queue so the polling goroutine stops seeing stale events.
-    pthread_mutex_lock(&g_meq_mu);
-    g_meq_head = g_meq_tail = 0;
-    pthread_mutex_unlock(&g_meq_mu);
     dispatch_block_t blk = ^{
         if (g_view) {
             [g_view removeFromSuperview];
@@ -517,26 +483,4 @@ void metal_video_destroy(void) {
     if ([NSThread isMainThread]) blk(); else dispatch_sync(dispatch_get_main_queue(), blk);
 }
 
-// metal_video_next_event — drain one pending pointer event from the Metal overlay view.
-// Returns 1 if an event was consumed; type values:
-//   1=move  2=button/scroll press  3=button release
-// Buttons: 1=left 2=middle 3=right 4=wheel-up 5=wheel-down.
-// Coordinates are in NSView points with top-left origin (ready for Fyne dp).
-// Thread-safe; called from the Go polling goroutine.
-int metal_video_next_event(int *type_out, float *x_out, float *y_out, int *btn_out) {
-    *type_out = 0;
-    if (!atomic_load(&g_active)) return 0;
-    pthread_mutex_lock(&g_meq_mu);
-    if (g_meq_tail == g_meq_head) {
-        pthread_mutex_unlock(&g_meq_mu);
-        return 0;
-    }
-    *type_out = g_meq[g_meq_tail].type;
-    *x_out    = g_meq[g_meq_tail].x;
-    *y_out    = g_meq[g_meq_tail].y;
-    *btn_out  = g_meq[g_meq_tail].btn;
-    g_meq_tail = (g_meq_tail + 1) % METAL_EQ_CAP;
-    pthread_mutex_unlock(&g_meq_mu);
-    return 1;
-}
 #endif // !TARGET_OS_IPHONE
