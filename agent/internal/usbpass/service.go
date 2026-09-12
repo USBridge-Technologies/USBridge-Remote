@@ -125,6 +125,12 @@ func (s *Service) Start() error {
 	}
 	cmd := exec.Command(exe, args...)
 	cmd.Dir = filepath.Dir(exe)
+	// usbridge-usb-broker.exe is a console-subsystem binary; launched from
+	// this (GUI-subsystem) agent process without this, Windows allocates it
+	// a brand new, visible console window that just sits there for the
+	// broker's whole lifetime -- confirmed live. hideBrokerWindow is a
+	// no-op on non-Windows (see exec_others.go).
+	hideBrokerWindow(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

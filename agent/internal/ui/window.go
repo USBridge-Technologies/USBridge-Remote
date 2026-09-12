@@ -1125,6 +1125,14 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	win.SetContent(container.NewStack(stackLayers...))
 	win.SetCloseIntercept(func() {
+		// Diagnostic-only log, added to chase a live symptom where the whole
+		// engine (tsnet, HTTP, the rustshine child) shuts down cleanly with
+		// no OS-signal or Event Log evidence of why. If this line logs right
+		// before that shutdown, the trigger is a Fyne/GLFW-level window
+		// close request (WM_CLOSE or equivalent) rather than an OS signal
+		// (see app.go's Run, which now logs those separately) -- narrowing
+		// which of the two `onClose`/`cancel` call sites is actually firing.
+		log.Printf("[ui] DIAG: window close intercepted -- calling onClose (engine shutdown)")
 		if onClose != nil {
 			onClose()
 		}

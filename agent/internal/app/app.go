@@ -422,6 +422,29 @@ func (a *App) Run(headless bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// Diagnostic-only, additive: signal.Notify fans a delivered signal out to
+	// every channel registered for it, so this doesn't steal anything from
+	// NotifyContext's own internal channel above -- it just also logs which
+	// exact signal arrived before the graceful shutdown it triggers proceeds.
+	// Added to chase a live symptom (full agent — tsnet, HTTP, the rustshine
+	// child — self-terminating cleanly with no Windows Event Log crash
+	// record, no scheduled task, and no self-update in the log) where nothing
+	// so far has identified *what* delivered the interrupt: on Windows, Go's
+	// runtime maps CTRL_C_EVENT/CTRL_BREAK_EVENT to os.Interrupt and
+	// CTRL_CLOSE_EVENT/CTRL_LOGOFF_EVENT/CTRL_SHUTDOWN_EVENT to
+	// syscall.SIGTERM -- so which one of these two fires tells us whether
+	// this is a console control event at all, or (if this line never logs
+	// when the next occurrence happens) that shutdownEngine is instead being
+	// reached via the GUI window's own close-intercept path (see
+	// ui/window.go's SetCloseIntercept, which also logs now) with no OS
+	// signal involved at all.
+	diagSigCh := make(chan os.Signal, 2)
+	signal.Notify(diagSigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-diagSigCh
+		log.Printf("[app] DIAG: OS signal received: %v (os.Interrupt=CTRL_C/CTRL_BREAK; SIGTERM=CTRL_CLOSE/CTRL_LOGOFF/CTRL_SHUTDOWN) -- this will trigger shutdownEngine via ctx cancellation", sig)
+	}()
+
 	// See NotifySessionChange's doc comment for why this needs to be
 	// reachable from outside the normal Start()->New()->Run() call chain.
 	currentInstance.mu.Lock()
