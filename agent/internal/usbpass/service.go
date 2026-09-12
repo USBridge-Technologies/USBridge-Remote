@@ -114,7 +114,7 @@ func (s *Service) Start() error {
 		args = append(args, "--allow-unlicensed")
 	} else {
 		// Forward the same token file RustShine already uses. The broker
-		// (rust-shine) is what checks enterprise — Go never inspects the token.
+		// (rust-shine) is what checks pro/enterprise — Go never inspects the token.
 		token := filepath.Join(s.stateDir, "rustshine", "entitlement.token")
 		if st, err := os.Stat(token); err == nil && !st.IsDir() {
 			args = append(args, "--entitlement-file", token)
