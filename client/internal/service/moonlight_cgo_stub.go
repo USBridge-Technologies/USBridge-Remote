@@ -42,3 +42,9 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 ) {
 }
 func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {}
+func (w *MoonlightCgoWrapper) SendMoonlightPenEvent(
+	eventType, toolType, penButtons uint8,
+	x, y, pressureOrDistance float32,
+	rotation uint16, tilt uint8,
+) {
+}

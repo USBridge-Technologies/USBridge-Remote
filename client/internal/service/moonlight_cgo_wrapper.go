@@ -29,6 +29,9 @@ extern void do_send_multi_controller(
     short leftStickX, short leftStickY,
     short rightStickX, short rightStickY);
 extern void do_send_utf8_text(const char *text, unsigned int len);
+extern void do_send_pen(unsigned char eventType, unsigned char toolType, unsigned char penButtons,
+                        float x, float y, float pressureOrDistance,
+                        unsigned short rotation, unsigned char tilt);
 extern void do_get_rtp_video_stats(uint32_t *out);
 */
 import "C"
@@ -384,6 +387,21 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 		C.uchar(leftTrigger), C.uchar(rightTrigger),
 		C.short(leftStickX), C.short(leftStickY),
 		C.short(rightStickX), C.short(rightStickY),
+	)
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightPenEvent(
+	eventType, toolType, penButtons uint8,
+	x, y, pressureOrDistance float32,
+	rotation uint16, tilt uint8,
+) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_pen(
+		C.uchar(eventType), C.uchar(toolType), C.uchar(penButtons),
+		C.float(x), C.float(y), C.float(pressureOrDistance),
+		C.ushort(rotation), C.uchar(tilt),
 	)
 }
 

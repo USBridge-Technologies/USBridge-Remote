@@ -678,6 +678,16 @@ func (m *MoonlightService) SendMoonlightControllerEvent(controllerNumber uint16,
 	}
 }
 
+func (m *MoonlightService) SendMoonlightPenEvent(
+	eventType, toolType, penButtons uint8,
+	x, y, pressureOrDistance float32,
+	rotation uint16, tilt uint8,
+) {
+	if m.activeWrapper != nil {
+		m.activeWrapper.SendMoonlightPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance, rotation, tilt)
+	}
+}
+
 func (m *MoonlightService) IsInputActive() bool {
 	return m.activeWrapper != nil && m.activeWrapper.IsInputActive()
 }

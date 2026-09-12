@@ -47,11 +47,14 @@ type DiskWidget struct {
 	// list from the agent (e.g. "24A9:205A 2-3"). Used with
 	// usbpass.ActiveBusIDs for the green mounted marker.
 	usbPassSessions []string
-	sdSpaceInfo    *models.ISOSpaceInfo
+	sdSpaceInfo     *models.ISOSpaceInfo
 
 	// Gamepad capture
 	activeCaptures    map[string]*platform.GamepadCapture
 	moonlightProvider moonlightProvider
+
+	// Pen/tablet capture (macOS only for now — see platform.ListPenTablets)
+	activePenCaptures map[string]*platform.PenCapture
 
 	onStorageInfoUpdate   func(usedPct float64, available, total int64)
 	userImages            []*models.DiskInfo
@@ -850,6 +853,7 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 			dw.sdSpaceInfo = nil
 			dw.updateSDStorageInfo()
 			dw.stopAllGamepadCaptures()
+			dw.stopAllPenCaptures()
 			dw.combineDrives()
 			dw.requestDevicesRefresh()
 		})

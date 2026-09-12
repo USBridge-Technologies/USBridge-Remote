@@ -317,3 +317,9 @@ void do_send_multi_controller(
 void do_send_utf8_text(const char *text, unsigned int len) {
     LiSendUtf8TextEvent(text, len);
 }
+void do_send_pen(unsigned char eventType, unsigned char toolType, unsigned char penButtons,
+                  float x, float y, float pressureOrDistance,
+                  unsigned short rotation, unsigned char tilt) {
+    LiSendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance,
+        0.0f, 0.0f, rotation, tilt);
+}

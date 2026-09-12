@@ -539,6 +539,12 @@ static void do_send_multi_controller(
     LiSendMultiControllerEvent(cn, am, b, lt, rt, lx, ly, rx, ry);
 }
 static void do_send_utf8_text(const char *text, unsigned int len) { LiSendUtf8TextEvent(text, len); }
+static void do_send_pen(unsigned char eventType, unsigned char toolType, unsigned char penButtons,
+                         float x, float y, float pressureOrDistance,
+                         unsigned short rotation, unsigned char tilt)
+{
+    LiSendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance, 0.0f, 0.0f, rotation, tilt);
+}
 */
 import "C"
 
@@ -811,6 +817,21 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 		C.short(rightStickX), C.short(rightStickY),
 	)
 }
+func (w *MoonlightCgoWrapper) SendMoonlightPenEvent(
+	eventType, toolType, penButtons uint8,
+	x, y, pressureOrDistance float32,
+	rotation uint16, tilt uint8,
+) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_pen(
+		C.uchar(eventType), C.uchar(toolType), C.uchar(penButtons),
+		C.float(x), C.float(y), C.float(pressureOrDistance),
+		C.ushort(rotation), C.uchar(tilt),
+	)
+}
+
 func (w *MoonlightCgoWrapper) IsInputActive() bool { return liStartConnectionActive.Load() }
 
 // NegotiatedVideoCodecName returns the codec moonlight-common-c actually

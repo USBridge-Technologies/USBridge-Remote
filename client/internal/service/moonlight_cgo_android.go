@@ -631,6 +631,11 @@ void do_send_scroll(signed char c) { LiSendScrollEvent(c); }
 void do_send_multi_controller(unsigned short cn, unsigned short am, unsigned short b, unsigned char lt, unsigned char rt, short lx, short ly, short rx, short ry) {
     LiSendMultiControllerEvent(cn, am, b, lt, rt, lx, ly, rx, ry);
 }
+void do_send_pen(unsigned char eventType, unsigned char toolType, unsigned char penButtons,
+                  float x, float y, float pressureOrDistance,
+                  unsigned short rotation, unsigned char tilt) {
+    LiSendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance, 0.0f, 0.0f, rotation, tilt);
+}
 */
 import "C"
 
@@ -944,6 +949,20 @@ func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {
 	cs := C.CString(text)
 	defer C.free(unsafe.Pointer(cs))
 	C.do_send_utf8_text(cs, C.uint(len(text)))
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightPenEvent(
+	eventType, toolType, penButtons uint8,
+	x, y, pressureOrDistance float32,
+	rotation uint16, tilt uint8,
+) {
+	if liStartConnectionActive.Load() {
+		C.do_send_pen(
+			C.uchar(eventType), C.uchar(toolType), C.uchar(penButtons),
+			C.float(x), C.float(y), C.float(pressureOrDistance),
+			C.ushort(rotation), C.uchar(tilt),
+		)
+	}
 }
 
 //export goMoonlightStage

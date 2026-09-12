@@ -86,6 +86,12 @@ type MoonlightInputSender interface {
 	SendMoonlightMouseButton(action int8, button int)
 	SendMoonlightScroll(clicks int8)
 	SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16)
+	// SendMoonlightPenEvent sends one pen/tablet sample via LiSendPenEvent.
+	// x/y/pressureOrDistance are normalized 0.0..1.0 (see LiSendPenEvent's own
+	// doc comment in Limelight.h); tilt is combined Z tilt in degrees
+	// (0..90, LI_TILT_UNKNOWN=0xFF), rotation is LI_ROT_UNKNOWN=0xFFFF when
+	// the device doesn't report barrel rotation.
+	SendMoonlightPenEvent(eventType, toolType, penButtons uint8, x, y, pressureOrDistance float32, rotation uint16, tilt uint8)
 	// SendMoonlightUtf8Text sends a UTF-8 text event via LiSendUtf8TextEvent.
 	// Use for IME / soft-keyboard rune input where no VK code is available.
 	SendMoonlightUtf8Text(text string)

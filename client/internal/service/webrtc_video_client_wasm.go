@@ -409,6 +409,15 @@ func (c *WebRTCVideoClient) SendMoonlightControllerEvent(controllerNumber uint16
 	// either, so there's nothing that would call this in practice.
 }
 
+func (c *WebRTCVideoClient) SendMoonlightPenEvent(
+	eventType, toolType, penButtons uint8,
+	x, y, pressureOrDistance float32,
+	rotation uint16, tilt uint8,
+) {
+	// Not implemented yet -- no browser-side pen/tablet capture exists (see
+	// SendMoonlightControllerEvent's doc comment for the same reasoning).
+}
+
 func (c *WebRTCVideoClient) SendMoonlightUtf8Text(text string) {
 	c.sendInput(webrtcweb.EncodeUtf8Text(text))
 }
