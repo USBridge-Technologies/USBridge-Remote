@@ -1,4 +1,4 @@
-//go:build !usbpass_gousb
+//go:build !usbpass_gousb && !darwin
 
 package usbpass
 

@@ -76,6 +76,9 @@ func ListLocal() ([]models.USBPassthroughDevice, error) {
 	if runtime.GOOS == "linux" {
 		return listSysfs()
 	}
+	if runtime.GOOS == "darwin" {
+		return listHIDDarwin()
+	}
 	if exe == "" {
 		return nil, fmt.Errorf("usb-broker not staged")
 	}

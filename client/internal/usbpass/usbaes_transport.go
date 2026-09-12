@@ -1,12 +1,16 @@
-//go:build linux || windows
+//go:build linux || windows || darwin
 
 package usbpass
 
 // AES-256-GCM framing for the USB passthrough control plane, byte-for-byte
 // compatible with rust-shine's crates/usb-passthrough/src/transport.rs
-// (AeadStream). Only Linux and Windows ship real USB passthrough today;
-// other platforms (hardware KVM, macOS — HID only) get the stub in
-// usbaes_attach_stub.go instead of linking this file.
+// (AeadStream). Linux and Windows export raw USB via libusb
+// (backend_gousb.go); macOS exports HID devices via the non-exclusive
+// IOHIDManager tap in hidbridge_darwin.go instead (see its doc comment for
+// why libusb can't claim a HID interface there) — this control-plane
+// exchange with the agent is identical either way, so all three platforms
+// link this file. Only a platform with neither (hardware KVM, etc.) gets
+// the stub in usbaes_attach_stub.go.
 
 import (
 	"crypto/aes"
