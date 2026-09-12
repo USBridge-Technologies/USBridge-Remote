@@ -61,6 +61,9 @@ type SnapshotsSectionData struct {
 // NewSnapshotsSection builds the Snapshots tab: connections-style header
 // pinned above a scrolling table (or promo card).
 func NewSnapshotsSection(data SnapshotsSectionData) fyne.CanvasObject {
+	if IsMobile() {
+		return newMobileSnapshotsSection(data)
+	}
 	header := newSnapshotsHeader(data)
 	top := header
 	if data.Banner != nil {

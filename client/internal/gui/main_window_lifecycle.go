@@ -77,6 +77,9 @@ func (mw *MainWindow) showMainContent() {
 			return
 		}
 		mw.window.SetContent(mw.wrapWithResizeGuard(mw.mainContent))
+		if view.ForceMobileDesign {
+			mw.applyPhonePreviewWindowSize()
+		}
 		mw.onMainContent = true
 		mw.mainContent.Refresh()
 		mw.window.Canvas().Refresh(mw.mainContent)

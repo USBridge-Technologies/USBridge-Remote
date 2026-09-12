@@ -708,5 +708,16 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	}
 	sz := vw.container.Size()
 	pos := vw.videoContainerOrigin()
-	return pos.X, pos.Y, sz.Width, sz.Height
+	h = sz.Height
+	// Docked compact keyboard lives in contentContainer under the video.
+	// Without this subtract the native overlay covers the keys.
+	if vw.contentContainer != nil && vw.contentContainer.Visible() {
+		if kh := vw.contentContainer.Size().Height; kh > 0 {
+			h -= kh
+			if h < 0 {
+				h = 0
+			}
+		}
+	}
+	return pos.X, pos.Y, sz.Width, h
 }

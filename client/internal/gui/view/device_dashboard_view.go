@@ -36,6 +36,10 @@ func (l *DeviceDashboardColumnsLayout) Layout(objects []fyne.CanvasObject, size 
 	if len(objects) < 2 {
 		return
 	}
+	if IsMobile() {
+		stackDashboardColumns(l.Gap, size, objects[0], objects[1])
+		return
+	}
 	narrow, wide := objects[0], objects[1]
 	ratio := l.Ratio
 	if ratio <= 0 {
@@ -60,9 +64,43 @@ func (l *DeviceDashboardColumnsLayout) MinSize(objects []fyne.CanvasObject) fyne
 	if len(objects) < 2 {
 		return fyne.NewSize(0, 0)
 	}
+	if IsMobile() {
+		// Width 1: a phone column must not inherit the desktop two-column
+		// MinSize or Fyne grows the preview window when this tab is shown.
+		return stackedDashboardMinSize(l.Gap, objects[0], objects[1])
+	}
 	narrowMin := objects[0].MinSize()
 	wideMin := objects[1].MinSize()
 	return fyne.NewSize(narrowMin.Width+l.Gap+wideMin.Width, maxFloat32(narrowMin.Height, wideMin.Height))
+}
+
+func stackDashboardColumns(gap float32, size fyne.Size, objects ...fyne.CanvasObject) {
+	y := float32(0)
+	for _, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		h := obj.MinSize().Height
+		obj.Move(fyne.NewPos(0, y))
+		obj.Resize(fyne.NewSize(size.Width, h))
+		y += h + gap
+	}
+}
+
+func stackedDashboardMinSize(gap float32, objects ...fyne.CanvasObject) fyne.Size {
+	var height float32
+	n := 0
+	for _, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		if n > 0 {
+			height += gap
+		}
+		height += obj.MinSize().Height
+		n++
+	}
+	return fyne.NewSize(1, height)
 }
 
 func visibleDashboardObjects(objects []fyne.CanvasObject) []fyne.CanvasObject {
@@ -88,6 +126,10 @@ func (l *DeviceDashboardPairLayout) Layout(objects []fyne.CanvasObject, size fyn
 	if len(visible) == 0 {
 		return
 	}
+	if IsMobile() {
+		stackDashboardColumns(l.Gap, size, visible...)
+		return
+	}
 	if len(visible) == 1 {
 		visible[0].Move(fyne.NewPos(0, 0))
 		visible[0].Resize(size)
@@ -110,6 +152,9 @@ func (l *DeviceDashboardPairLayout) MinSize(objects []fyne.CanvasObject) fyne.Si
 	visible := visibleDashboardObjects(objects)
 	if len(visible) == 0 {
 		return fyne.NewSize(0, 0)
+	}
+	if IsMobile() {
+		return stackedDashboardMinSize(l.Gap, visible...)
 	}
 	if len(visible) == 1 {
 		return visible[0].MinSize()

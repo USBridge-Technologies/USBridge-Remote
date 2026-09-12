@@ -49,6 +49,10 @@ type headerTabButton struct {
 	onTapped     func()
 	selected     bool
 	hovered      bool
+	// iconOnly drops the label (compact header). stacked is the phone
+	// footer tab: icon above a small label.
+	iconOnly bool
+	stacked  bool
 
 	icon *canvas.Image
 	text *canvas.Text
@@ -105,7 +109,11 @@ func (b *headerTabButton) CreateRenderer() fyne.WidgetRenderer {
 	// button's own width (and everything after it) slightly on every tab
 	// switch, so every state stays the same regular weight now; only the
 	// color changes.
-	b.text = view.NewBrandText(b.label, headerTabButtonTextSize, headerTabButtonMuted, false)
+	textSize := headerTabButtonTextSize
+	if b.stacked {
+		textSize = 8
+	}
+	b.text = view.NewBrandText(b.label, textSize, headerTabButtonMuted, false)
 
 	r := &headerTabButtonRenderer{
 		button:  b,
@@ -151,6 +159,35 @@ func (r *headerTabButtonRenderer) contentSize() (iconSize, textSize fyne.Size) {
 }
 
 func (r *headerTabButtonRenderer) Layout(size fyne.Size) {
+	if r.button.stacked {
+		if r.button.text != nil {
+			r.button.text.Show()
+		}
+		iconSize := fyne.NewSize(18, 18)
+		textSize := r.button.text.MinSize()
+		r.button.icon.Resize(iconSize)
+		totalH := iconSize.Height + 2 + textSize.Height
+		y := (size.Height - totalH) / 2
+		if y < 0 {
+			y = 0
+		}
+		r.button.icon.Move(fyne.NewPos((size.Width-iconSize.Width)/2, y))
+		r.button.text.Resize(textSize)
+		r.button.text.Move(fyne.NewPos((size.Width-textSize.Width)/2, y+iconSize.Height+2))
+		return
+	}
+	if r.button.iconOnly {
+		if r.button.text != nil {
+			r.button.text.Hide()
+		}
+		iconSize := fyne.NewSize(headerTabButtonIconSize, headerTabButtonIconSize)
+		r.button.icon.Resize(iconSize)
+		r.button.icon.Move(fyne.NewPos((size.Width-iconSize.Width)/2, (size.Height-iconSize.Height)/2))
+		return
+	}
+	if r.button.text != nil {
+		r.button.text.Show()
+	}
 	iconSize, textSize := r.contentSize()
 	rowHeight := iconSize.Height
 	if textSize.Height > rowHeight {
@@ -176,6 +213,18 @@ func (r *headerTabButtonRenderer) Layout(size fyne.Size) {
 }
 
 func (r *headerTabButtonRenderer) MinSize() fyne.Size {
+	if r.button.stacked {
+		w := float32(64)
+		if r.button.text != nil {
+			if tw := r.button.text.MinSize().Width + 4; tw > w {
+				w = tw
+			}
+		}
+		return fyne.NewSize(w, 48)
+	}
+	if r.button.iconOnly {
+		return fyne.NewSize(28, 28)
+	}
 	iconSize, textSize := r.contentSize()
 	rowHeight := iconSize.Height
 	if textSize.Height > rowHeight {
@@ -221,7 +270,7 @@ func (mw *MainWindow) buildTabHeaderButtons() fyne.CanvasObject {
 		{assets.MonitorTabIconMuted, assets.MonitorTabIconSelected, assets.MonitorTabIconHover, "Control", mw.controlTabIndex},
 		{assets.USBTabIconMuted, assets.USBTabIconSelected, assets.USBTabIconHover, "Devices", mw.devicesTabIndex},
 		{assets.SnapshotsTabIconMuted, assets.SnapshotsTabIconSelected, assets.SnapshotsTabIconHover, "Snapshots", mw.snapshotsTabIndex},
-		{assets.ScriptsTabIconMuted, assets.ScriptsTabIconSelected, assets.ScriptsTabIconHover, "AI & Scripts", mw.scriptsTabIndex},
+		{assets.ScriptsTabIconMuted, assets.ScriptsTabIconSelected, assets.ScriptsTabIconHover, scriptsTabLabel(), mw.scriptsTabIndex},
 	}
 
 	objs := make([]fyne.CanvasObject, 0, len(specs))
@@ -232,9 +281,19 @@ func (mw *MainWindow) buildTabHeaderButtons() fyne.CanvasObject {
 				mw.tabs.Select(mw.tabs.Items[idx])
 			}
 		})
+		btn.iconOnly = false
+		btn.stacked = useMobileControl()
 		mw.tabHeaderButtons[i] = btn
 		objs = append(objs, btn)
 	}
 
-	return container.New(&centeredInlineLayout{gap: 16, minGap: 8}, objs...)
+	gap, minGap := mobileControlTabGaps()
+	tabs := container.New(&centeredInlineLayout{gap: gap, minGap: minGap}, objs...)
+	if useMobileControl() {
+		// Width 1 so the footer always stretches this row to the phone
+		// width; the group then centers in that full bar (keyboard is
+		// an overlay and does not take a slot).
+		return view.NewMobileFillWidth(tabs)
+	}
+	return tabs
 }

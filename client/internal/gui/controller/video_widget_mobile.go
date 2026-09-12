@@ -94,7 +94,5 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 }
 
 func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
-	if vw.virtualKeyboard == nil || !vw.virtualKeyboard.IsVisible() {
-		vw.platformHandleVirtualKeyboard()
-	}
+	// Compact panel is toggled from the Control footer keyboard button.
 }

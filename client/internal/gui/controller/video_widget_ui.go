@@ -74,21 +74,12 @@ func (vw *VideoWidget) handleStartVideo() {
 			}
 		})
 
-		if vw.startDialog == nil {
-			if vw.parentWindow == nil {
-				logrus.Warn("⚠️ Parent window not set")
-				fyne.Do(func() {
-					vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
-				})
-				return
-			}
-			vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
-			vw.startDialog.SetLiveCodecProvider(func() (string, bool) {
-				if vw.videoClient == nil {
-					return "", false
-				}
-				return vw.videoClient.NegotiatedVideoCodecName()
+		if vw.parentWindow == nil {
+			logrus.Warn("⚠️ Parent window not set")
+			fyne.Do(func() {
+				vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
 			})
+			return
 		}
 
 		preferredConfig, preferredErr := vw.resolvePreferredVideoConfig()
@@ -149,6 +140,7 @@ func (vw *VideoWidget) handleStartVideo() {
 		}
 
 		fyne.Do(func() {
+			vw.ensureStartDialog()
 			vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
 			vw.startDialog.SetDeviceLabel("")
 			vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
@@ -1042,6 +1034,10 @@ func (vw *VideoWidget) ShowFullscreen() {
 // HandleVirtualKeyboard handles opening/closing the virtual keyboard.
 func (vw *VideoWidget) HandleVirtualKeyboard() {
 	vw.platformHandleVirtualKeyboard()
+}
+
+func (vw *VideoWidget) IsVirtualKeyboardVisible() bool {
+	return vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible()
 }
 
 // updateStats updates statistics.

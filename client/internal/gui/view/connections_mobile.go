@@ -127,6 +127,13 @@ func newMobileConnectionsHeader(summary ConnectionsSummary, actions connectionsH
 	return NewInsetExact(content, connectionsMobileSideMargin, connectionsMobileSideMargin, 6, 0), &connectionsHeaderButtons{add: addBtn}
 }
 
+// NewMobileFillWidth stretches one child to the available width and
+// reports MinSize.Width=1 so a wide desktop table/card cannot grow the
+// phone preview window.
+func NewMobileFillWidth(obj fyne.CanvasObject) fyne.CanvasObject {
+	return container.New(&mobileFillWidthLayout{}, obj)
+}
+
 // mobileFillWidthLayout stretches one child to the available width so
 // desktop-sized cards (fixed 280 MinSize) fill a phone column without
 // forcing the window itself to 280+margins.

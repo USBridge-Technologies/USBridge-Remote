@@ -285,26 +285,29 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoResolutionText = canvas.NewText("", design.ColorStatusBarResolutionText)
 	mw.videoResolutionText.TextSize = statusIndicatorFPSTextSize
 
-	// fps/resolution are both tappable now -- each opens a quick picker
-	// (styled like every other header dropdown, view.ShowStyledMenuTeal)
-	// sourced from the same capture-mode data the video settings dialog
-	// itself uses (see showVideoFPSMenu/showVideoResolutionMenu), applying
-	// the change directly without opening that dialog.
-	var fpsBtn, resBtn *statusBarTextButton
-	fpsBtn = newStatusBarTextButton(mw.videoFPSText, func() {
-		mw.showVideoFPSMenu(fpsBtn)
-	})
-	resBtn = newStatusBarTextButton(mw.videoResolutionText, func() {
-		mw.showVideoResolutionMenu(resBtn)
-	})
-
-	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2},
+	videoItems := []fyne.CanvasObject{
 		container.NewGridWrap(statusBarIconBoxSize, mw.videoIcon),
-		newFixedWidthFPSText(mw.videoFPSText, fpsBtn),
-		newStatusBarDot(),
-		resBtn,
-		container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon),
-	)
+	}
+	if !useMobileControl() {
+		// fps/resolution are both tappable -- each opens a quick picker
+		// (styled like every other header dropdown, view.ShowStyledMenuTeal)
+		// sourced from the same capture-mode data the video settings dialog
+		// itself uses (see showVideoFPSMenu/showVideoResolutionMenu).
+		var fpsBtn, resBtn *statusBarTextButton
+		fpsBtn = newStatusBarTextButton(mw.videoFPSText, func() {
+			mw.showVideoFPSMenu(fpsBtn)
+		})
+		resBtn = newStatusBarTextButton(mw.videoResolutionText, func() {
+			mw.showVideoResolutionMenu(resBtn)
+		})
+		videoItems = append(videoItems,
+			newFixedWidthFPSText(mw.videoFPSText, fpsBtn),
+			newStatusBarDot(),
+			resBtn,
+		)
+	}
+	videoItems = append(videoItems, container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon))
+	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2}, videoItems...)
 	mw.videoStatusGroup.Hide()
 
 	peripheralsSized := container.NewThemeOverride(mw.statusPanel, &statusBarPeripheralTheme{Theme: design.NewBrandTheme()})

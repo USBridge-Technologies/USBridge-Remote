@@ -39,10 +39,10 @@ func (cm *ConnectionManager) createInterface() {
 	cm.firmwareBanner = view.NewFirmwarePromoBanner()
 	cm.firmwareBanner.SetOnDismiss(cm.dismissFirmwarePromo)
 	cm.firmwareBanner.SetOnTrial(cm.openFirmwarePromo)
-	cm.firmwareChip = view.NewFooterLabelChip("software")
+	cm.firmwareChip = view.NewFooterLabelChip("Hardware Agent")
 	cm.firmwareChip.SetOnOpen(cm.openFirmwarePromo)
 	cm.firmwareChip.SetOnRestore(cm.restoreFirmwarePromo)
-	cm.agentChip = view.NewFooterTintChip("Agent", design.ColorConnectionBadgeText, cm.showAgentCatalog)
+	cm.agentChip = view.NewFooterTintChip("Software Agent", design.ColorConnectionBadgeText, cm.showAgentCatalog)
 	cm.ui = view.NewConnectionManagerUI(
 		cm.handleQRScan,
 		cm.showAddDialog,
@@ -91,6 +91,22 @@ func (cm *ConnectionManager) AgentFooterChip() fyne.CanvasObject {
 	return cm.agentChip
 }
 
+// ShowAgentCatalog opens the desktop Software Agent editions dialog.
+func (cm *ConnectionManager) ShowAgentCatalog() {
+	if cm == nil {
+		return
+	}
+	cm.showAgentCatalog()
+}
+
+// OpenHardwareAgentPage opens the firmware / hardware-agent landing page.
+func (cm *ConnectionManager) OpenHardwareAgentPage() {
+	if cm == nil {
+		return
+	}
+	cm.openFirmwarePromo()
+}
+
 func (cm *ConnectionManager) showAgentCatalog() {
 	if cm.window == nil {
 		return
@@ -101,6 +117,10 @@ func (cm *ConnectionManager) showAgentCatalog() {
 	github := newScriptDialogLimeButton("GitHub", nil, func() {
 		cm.openExternalLink(view.AgentCatalogGitHubURL, "software agent GitHub")
 	})
+	hint := view.AgentCatalogFooterHint
+	if view.IsMobile() {
+		hint = ""
+	}
 	showBrandedOverlayDialog(brandedOverlayDialogSpec{
 		parent:       cm.window,
 		title:        view.AgentCatalogTitle,
@@ -108,7 +128,7 @@ func (cm *ConnectionManager) showAgentCatalog() {
 		body:         view.NewAgentCatalogBody(),
 		rightButtons: []fyne.CanvasObject{github, website},
 		tightFooter:  true,
-		footerHint:   view.AgentCatalogFooterHint,
+		footerHint:   hint,
 		panelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
 			return agentCatalogPanelSize(canvasSize)
 		},
@@ -117,6 +137,9 @@ func (cm *ConnectionManager) showAgentCatalog() {
 
 func agentCatalogPanelSize(canvasSize fyne.Size) fyne.Size {
 	margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+	if view.IsMobile() {
+		margin = clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 16, 22)
+	}
 	maxW := canvasSize.Width - margin*2
 	maxH := canvasSize.Height - margin*2
 	if maxW < 0 {

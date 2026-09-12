@@ -63,7 +63,11 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardBackupHover, backupBind = view.NewDeviceDashboardHoverCell()
 
 	plusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
-	addImageBtn := view.NewDeviceDashboardHeaderButton("Mount New ISO", plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
+	addLabel := "Mount New ISO"
+	if view.IsMobile() {
+		addLabel = "Mount"
+	}
+	addImageBtn := view.NewDeviceDashboardHeaderButton(addLabel, plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
 	addImageBtn.OnHover = dw.dashboardStorageHover
 	dw.dashboardAddImageBtn = addImageBtn
 
@@ -78,12 +82,14 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardBackupCard = dashboardBackupCard
 	dw.dashboardBackupCard.Hide() // only shown once the MTP backup flash exists -- see refreshDashboard
 
+	dw.dashboardAudioGap = view.NewDeviceDashboardCardGap()
+	dw.dashboardAudioCard = view.NewDeviceDashboardCard(view.DeviceDashboardAudioIconSVG, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind)
 	narrowColumn := container.NewVBox(
 		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", nil, dw.dashboardHID, hidBind),
 		view.NewDeviceDashboardCardGap(),
 		view.NewDeviceDashboardCard(view.DeviceDashboardVideoIconSVG, "Video Pipe & EDID", "", nil, dw.dashboardVideo, videoBind),
-		view.NewDeviceDashboardCardGap(),
-		view.NewDeviceDashboardCard(view.DeviceDashboardAudioIconSVG, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind),
+		dw.dashboardAudioGap,
+		dw.dashboardAudioCard,
 	)
 	// Wrapped in a Scroll from the start (rather than only once there
 	// happen to be enough drives) so refreshDashboard can just adjust its
@@ -94,8 +100,17 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	// right padding on the row list itself (not the Scroll) keeps its own
 	// mode-picker/Delete/Upload/mount buttons clear of where the vertical
 	// scrollbar thumb overlays once scrolling is actually active.
-	dw.dashboardStorageScroll = container.NewVScroll(view.NewInsetExact(dw.dashboardStorage, 0, 10, 0, 0))
-	dw.dashboardEmulationScroll = container.NewVScroll(view.NewInsetExact(dw.dashboardEmulation, 0, 10, 0, 0))
+	storageInset := view.NewInsetExact(dw.dashboardStorage, 0, 10, 0, 0)
+	emulationInset := view.NewInsetExact(dw.dashboardEmulation, 0, 10, 0, 0)
+	if view.IsMobile() {
+		// No inner VScroll on the phone -- it eats the page wheel when
+		// the pointer is over the card (USB Emulation especially).
+		dw.dashboardStorageScroll = storageInset
+		dw.dashboardEmulationScroll = emulationInset
+	} else {
+		dw.dashboardStorageScroll = container.NewVScroll(storageInset)
+		dw.dashboardEmulationScroll = container.NewVScroll(emulationInset)
+	}
 
 	pairRow := container.New(&view.DeviceDashboardPairLayout{Gap: 12}, dw.dashboardNetworkCard, dw.dashboardBackupCard)
 	dw.dashboardPairRow = pairRow
@@ -105,9 +120,13 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardPairSection = container.NewVBox(view.NewDeviceDashboardCardGap(), pairRow, dw.dashboardFirmwarePromo)
 	dw.dashboardPairSection.Hide()
 
+	storageTitle := deviceDashboardStorageTitle
+	if view.IsMobile() {
+		storageTitle = "Mass Storage"
+	}
 	storageCard := view.NewDeviceDashboardCard(
 		view.DeviceDashboardStorageIconSVG,
-		deviceDashboardStorageTitle,
+		storageTitle,
 		"",
 		addImageBtn,
 		dw.dashboardStorageScroll,
@@ -135,7 +154,15 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	// the wide column's storage list can easily exceed the tab's visible
 	// height. Footer sits outside the scroll so the lime busy spinner,
 	// Disconnect All, and version stay pinned to the bottom of the tab.
-	scroll := container.NewVScroll(view.NewInset(columns, 18, 18, 16, 8))
+	insetL, insetR, insetT, insetB := float32(18), float32(18), float32(16), float32(8)
+	if view.IsMobile() {
+		insetL, insetR, insetT, insetB = 12, 12, 10, 8
+	}
+	var padded fyne.CanvasObject = view.NewInset(columns, insetL, insetR, insetT, insetB)
+	if view.IsMobile() {
+		padded = view.NewMobileFillWidth(padded)
+	}
+	scroll := container.NewVScroll(padded)
 	dw.dashboardFooterDisconnect = view.NewDeviceDashboardFooterTextButton(i18n.Current.DisconnectAllButton, func() {
 		if dw.controlsLocked() {
 			return
@@ -149,8 +176,14 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.firmwareChip = view.NewFooterLabelChip("software")
 	dw.firmwareChip.SetOnOpen(dw.openFirmwarePromo)
 	dw.firmwareChip.SetOnRestore(dw.restoreFirmwarePromo)
-	footer := view.NewAppFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner, dw.dashboardScriptFooter, dw.firmwareChip)
-	dw.dashboardContainer = view.NewEdgeStack(nil, footer, scroll)
+	var tabBody fyne.CanvasObject = scroll
+	var footer fyne.CanvasObject
+	if view.IsMobile() {
+		tabBody = view.NewMobileFillWidth(scroll)
+	} else {
+		footer = view.NewAppFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner, dw.dashboardScriptFooter, dw.firmwareChip)
+	}
+	dw.dashboardContainer = view.NewEdgeStack(nil, footer, tabBody)
 	dw.refreshDashboard()
 	return dw.dashboardContainer
 }
@@ -309,12 +342,16 @@ func (dw *DiskWidget) refreshDashboard() {
 				nil, drive.Size,
 			))
 		default:
+			storageIcon := icon
+			if view.IsMobile() {
+				storageIcon = nil
+			}
 			if drive.IsUploading {
-				storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, nil, nil, nil, nil, view.NewDeviceDashboardUploadProgress(drive.UploadProgress), drive.Size))
+				storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(storageIcon, name, drive.IsMounted, nil, nil, nil, nil, view.NewDeviceDashboardUploadProgress(drive.UploadProgress), drive.Size))
 				continue
 			}
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
-			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, dw.newDashboardConnectSlot(idx, drive, dw.dashboardStorageHover), nil, drive.Size))
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(storageIcon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, dw.newDashboardConnectSlot(idx, drive, dw.dashboardStorageHover), nil, drive.Size))
 		}
 	}
 
@@ -358,7 +395,22 @@ func (dw *DiskWidget) refreshDashboard() {
 
 	setDashboardRows(dw.dashboardHID, hidRows, "No keyboard, mouse, or gamepad devices")
 	setDashboardRows(dw.dashboardVideo, videoRows, "No capture devices")
-	setDashboardRows(dw.dashboardAudio, audioRows, "No audio devices")
+	if view.IsMobile() && len(audioRows) == 0 {
+		if dw.dashboardAudioCard != nil {
+			dw.dashboardAudioCard.Hide()
+		}
+		if dw.dashboardAudioGap != nil {
+			dw.dashboardAudioGap.Hide()
+		}
+	} else {
+		if dw.dashboardAudioCard != nil {
+			dw.dashboardAudioCard.Show()
+		}
+		if dw.dashboardAudioGap != nil {
+			dw.dashboardAudioGap.Show()
+		}
+		setDashboardRows(dw.dashboardAudio, audioRows, "No audio devices")
+	}
 	setDashboardRows(dw.dashboardStorage, storageRows, "No storage or ISO media")
 	if dw.dashboardEmulation != nil {
 		setDashboardRows(dw.dashboardEmulation, emulationRows, "No USB devices")
@@ -415,7 +467,7 @@ func (dw *DiskWidget) refreshDashboard() {
 		dw.firmwareChip.SetActive(softwareAgent && promoDismissed)
 	}
 
-	if dw.dashboardStorageScroll != nil {
+	if storageScroll, ok := dw.dashboardStorageScroll.(*container.Scroll); ok {
 		// Past dashboardStorageVisibleRows, cap the Scroll's own height at
 		// exactly that many rows (dashboardStorageCapHeight) so the rest
 		// become internally scrollable instead of pushing the Video/Audio/
@@ -427,14 +479,14 @@ func (dw *DiskWidget) refreshDashboard() {
 		if height <= 0 {
 			height = dw.dashboardStorage.MinSize().Height
 		}
-		dw.dashboardStorageScroll.SetMinSize(fyne.NewSize(0, height))
+		storageScroll.SetMinSize(fyne.NewSize(0, height))
 	}
-	if dw.dashboardEmulationScroll != nil && dw.dashboardEmulation != nil {
+	if emulationScroll, ok := dw.dashboardEmulationScroll.(*container.Scroll); ok && dw.dashboardEmulation != nil {
 		height := dashboardStorageCapHeight(emulationRows)
 		if height <= 0 {
 			height = dw.dashboardEmulation.MinSize().Height
 		}
-		dw.dashboardEmulationScroll.SetMinSize(fyne.NewSize(0, height))
+		emulationScroll.SetMinSize(fyne.NewSize(0, height))
 	}
 
 	// Container.Show()/Hide()/SetMinSize() alone don't force a relayout --
@@ -443,6 +495,9 @@ func (dw *DiskWidget) refreshDashboard() {
 	// until something else happened to refresh it.
 	if dw.dashboardWideColumn != nil {
 		dw.dashboardWideColumn.Refresh()
+	}
+	if dw.dashboardContainer != nil {
+		dw.dashboardContainer.Refresh()
 	}
 	dw.syncDashboardBackupSpace()
 	dw.syncDashboardFooter()

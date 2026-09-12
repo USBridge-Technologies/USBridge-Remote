@@ -74,6 +74,8 @@ func newMobileConnectionOverflowButton(actions connectionHeaderActions) fyne.Can
 		}
 		view.ShowMobileSettingsMenu(btn, mode,
 			actions.OnViewModeChange,
+			actions.OnOpenHardwareAgent,
+			actions.OnOpenSoftwareAgent,
 			actions.OnOpenInfo,
 			actions.OnOpenCommunity,
 			func() {

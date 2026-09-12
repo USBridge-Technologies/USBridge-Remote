@@ -50,6 +50,7 @@ type VideoStartDialog struct {
 	jpegHint         *widget.Label
 	deviceLabel      *widget.Label
 	vsyncCheck       *videoDialogCheckbox
+	vsyncHint        *videoDialogWrapText
 	aiVisionCheck    *videoDialogCheckbox
 	aiVisionHint     *videoDialogWrapText
 	// color444Check/color444Hint: the RustShine Pro 4:4:4 color upgrade.
@@ -912,6 +913,33 @@ const (
 // plus this, not videoDialogBodyInsetLR alone.
 const videoDialogBodyInsetQuirk = float32(4)
 
+// videoDialogCanvasPanelWidth is the panel width PanelSize will actually
+// pick for a given canvas -- the 408 desktop floor, clamped to the canvas
+// minus the same 4% / 20-28px margin. On a phone (or the desktop phone
+// preview) that clamp is what makes the dialog narrower than 408, so hint
+// wrapping has to use this width, not the desktop constant.
+func videoDialogCanvasPanelWidth(canvasSize fyne.Size) float32 {
+	if canvasSize.Width <= 0 {
+		return videoDialogPanelWidth
+	}
+	margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+	maxWidth := canvasSize.Width - margin*2
+	if maxWidth <= 0 {
+		maxWidth = canvasSize.Width
+	}
+	if maxWidth <= 0 {
+		return videoDialogPanelWidth
+	}
+	return minFloat32(videoDialogPanelWidth, maxWidth)
+}
+
+func videoDialogEffectivePanelWidth(parent fyne.Window) float32 {
+	if parent == nil || parent.Canvas() == nil {
+		return videoDialogPanelWidth
+	}
+	return videoDialogCanvasPanelWidth(parent.Canvas().Size())
+}
+
 // videoDialogToggleDescWidth is the width a toggle row's description text
 // actually ends up with once fully laid out -- plain rows (VSync, 4:4:4) vs.
 // AI Vision's own boxed row, which loses an extra 12px of exact padding on
@@ -920,7 +948,14 @@ const videoDialogBodyInsetQuirk = float32(4)
 // construction/SetSpans time, since it wraps eagerly rather than lazily on
 // some future Resize.
 func videoDialogToggleDescWidth(boxed bool) float32 {
-	width := videoDialogPanelWidth - (videoDialogBodyInsetLR+videoDialogBodyInsetQuirk)*2 - videoDialogToggleIndent
+	return videoDialogToggleDescWidthFor(videoDialogPanelWidth, boxed)
+}
+
+func videoDialogToggleDescWidthFor(panelW float32, boxed bool) float32 {
+	if panelW <= 0 {
+		panelW = videoDialogPanelWidth
+	}
+	width := panelW - (videoDialogBodyInsetLR+videoDialogBodyInsetQuirk)*2 - videoDialogToggleIndent
 	if boxed {
 		width -= videoDialogBoxedInsetLR * 2
 	} else {
@@ -928,6 +963,9 @@ func videoDialogToggleDescWidth(boxed bool) float32 {
 		// videoDialogToggleAlignLeft so their checkboxes line up with AI
 		// Vision's own boxed row -- see its use in createInterface.
 		width -= videoDialogToggleAlignLeft
+	}
+	if width < 64 {
+		return 64
 	}
 	return width
 }
@@ -955,18 +993,18 @@ type videoDialogWrapSpan struct {
 // after a presize trick or a runtime SetText could easily end up displayed
 // with stale bounds from an earlier (often placeholder-width-only) pass.
 //
-// This widget sidesteps that whole mechanism: since this dialog's panel
-// width is fixed, wrapping is computed eagerly, directly from a known
-// width, in SetSpans itself (not lazily on some future Resize/Refresh) --
-// there is no cache to go stale. CreateRenderer's Layout just repositions
-// the same already-wrapped lines, which is idempotent no matter how many
-// times or when it runs.
+// This widget sidesteps that whole mechanism: wrapping is computed
+// eagerly from a known width in SetSpans (so the first MinSize is already
+// correct), and again from Resize if the allocated width later differs --
+// on a phone the panel is narrower than the 408 desktop floor, so a wrap
+// computed only for 408 would paint past the dialog edge.
 type videoDialogWrapText struct {
 	widget.BaseWidget
 
 	textSize float32
 	italic   bool
 	width    float32
+	spans    []videoDialogWrapSpan
 
 	lineHeight float32
 	lines      [][]*canvas.Text
@@ -983,6 +1021,44 @@ func newVideoDialogWrapText(width, textSize float32, italic bool, spans ...video
 // repositions every line -- used by the 4:4:4 row, whose description text
 // changes at runtime (see refreshModeUI).
 func (t *videoDialogWrapText) SetSpans(spans ...videoDialogWrapSpan) {
+	t.spans = append([]videoDialogWrapSpan(nil), spans...)
+	t.wrapStoredSpans()
+	t.Refresh()
+}
+
+// SetWrapWidth re-wraps the stored spans to a new target width -- used
+// when the dialog opens on a canvas narrower than the desktop 408 floor.
+func (t *videoDialogWrapText) SetWrapWidth(width float32) {
+	if width <= 1 {
+		return
+	}
+	diff := width - t.width
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff < 0.5 {
+		return
+	}
+	t.width = width
+	t.wrapStoredSpans()
+	t.Refresh()
+}
+
+func (t *videoDialogWrapText) Resize(size fyne.Size) {
+	if size.Width > 1 {
+		diff := size.Width - t.width
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > 0.5 {
+			t.width = size.Width
+			t.wrapStoredSpans()
+		}
+	}
+	t.BaseWidget.Resize(size)
+}
+
+func (t *videoDialogWrapText) wrapStoredSpans() {
 	style := fyne.TextStyle{Italic: t.italic}
 	t.lineHeight = fyne.MeasureText("M", t.textSize, style).Height
 	spaceWidth := fyne.MeasureText(" ", t.textSize, style).Width
@@ -992,7 +1068,7 @@ func (t *videoDialogWrapText) SetSpans(spans ...videoDialogWrapSpan) {
 		width float32
 	}
 	var words []word
-	for _, span := range spans {
+	for _, span := range t.spans {
 		wordStyle := style
 		wordStyle.Monospace = span.Monospace
 		for _, w := range strings.Fields(span.Text) {
@@ -1025,7 +1101,6 @@ func (t *videoDialogWrapText) SetSpans(spans ...videoDialogWrapSpan) {
 	}
 	t.lines = lines
 	t.layoutLines()
-	t.Refresh()
 }
 
 // layoutLines positions every already-wrapped word at its final (x, y) --
@@ -1351,11 +1426,13 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.deviceLabel = widget.NewLabel("")
 	vsd.deviceLabel.Wrapping = fyne.TextWrapWord
 	vsd.vsyncCheck = newVideoDialogCheckbox(true, nil)
+	hintPanelW := videoDialogEffectivePanelWidth(vsd.parent)
+	vsd.vsyncHint = newVideoDialogDescription(i18n.Current.EnableVSyncHint, videoDialogToggleDescWidthFor(hintPanelW, false))
 	vsyncRow := newVideoDialogToggleRow(
 		vsd.vsyncCheck,
 		newVideoDialogRowTitle(i18n.Current.EnableVSync),
 		newVideoDialogBadge(i18n.Current.EnableVSyncBadge, design.ColorConnectionBadgeText),
-		newVideoDialogDescription(i18n.Current.EnableVSyncHint, videoDialogToggleDescWidth(false)),
+		vsd.vsyncHint,
 	)
 
 	// AI Vision: off by default, takes effect immediately (not gated behind
@@ -1364,7 +1441,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.aiVisionCheck = newVideoDialogCheckbox(service.AIVisionEnabled(), func(checked bool) {
 		service.SetAIVisionEnabled(checked)
 	})
-	vsd.aiVisionHint = newVideoDialogHighlightDescription(i18n.Current.AIVisionHint, "ui.parse()", videoDialogToggleDescWidth(true))
+	vsd.aiVisionHint = newVideoDialogHighlightDescription(i18n.Current.AIVisionHint, "ui.parse()", videoDialogToggleDescWidthFor(hintPanelW, true))
 	aiVisionRow := newVideoDialogBoxedToggleRow(
 		vsd.aiVisionCheck,
 		newVideoDialogIconTitle(videoDialogRobotSVG, i18n.Current.AIVision),
@@ -1394,7 +1471,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.setSelectedModeID(models.VideoModeH265)
 		vsd.color444Check.SetChecked(true)
 	}
-	vsd.color444Hint = newVideoDialogWrapText(videoDialogToggleDescWidth(false), videoDialogHintTextSize, true)
+	vsd.color444Hint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW, false), videoDialogHintTextSize, true)
 	vsd.color444TitleText = newVideoDialogRowTitle(i18n.Current.Color444)
 	color444Row := newVideoDialogToggleRow(
 		vsd.color444Check,
@@ -1575,7 +1652,7 @@ func (vsd *VideoStartDialog) createInterface() {
 			}
 
 			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, videoDialogPanelWidth), maxWidth)
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, videoDialogCanvasPanelWidth(canvasSize)), maxWidth)
 			panelHeight := minFloat32(maxFloat32(panelMin.Height, 520), maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
 		},
@@ -1731,7 +1808,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		selectedMode = models.VideoModeH264
 	}
 	logrus.Infof("🎬 [VideoStartDialog] preselecting codec=%s (source=%s)", selectedMode, source)
-	vsd.refreshAvailableModes()
+	vsd.refreshAvailableModesAndSelect(false)
 	vsd.setSelectedModeID(selectedMode)
 
 	if bitrate, ok := parseBitrate(defaultBitrate); ok {
@@ -1742,7 +1819,19 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 
 	vsd.refreshFPSOptions()
 	vsd.setDefaultFPS(defaultFPS)
-	vsd.refreshModeUI()
+}
+
+func (vsd *VideoStartDialog) syncHintWrapWidths() {
+	panelW := videoDialogEffectivePanelWidth(vsd.parent)
+	if vsd.vsyncHint != nil {
+		vsd.vsyncHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+	}
+	if vsd.aiVisionHint != nil {
+		vsd.aiVisionHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, true))
+	}
+	if vsd.color444Hint != nil {
+		vsd.color444Hint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+	}
 }
 
 func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest)) {
@@ -1750,10 +1839,10 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
 	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
+	vsd.syncHintWrapWidths()
 	if vsd.dialog != nil && vsd.parent != nil {
 		vsd.dialog.Move(fyne.NewPos(0, 0))
 		vsd.dialog.Resize(vsd.parent.Canvas().Size())
-		vsd.dialog.Refresh()
 	}
 	if !vsd.dialogShown {
 		vsd.dialogShown = true
@@ -2125,6 +2214,10 @@ func formatFPSRange(values []int) string {
 }
 
 func (vsd *VideoStartDialog) refreshAvailableModes() {
+	vsd.refreshAvailableModesAndSelect(true)
+}
+
+func (vsd *VideoStartDialog) refreshAvailableModesAndSelect(applySelection bool) {
 	selectedCaptureMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
 	selectedFormat := ""
 	if ok {
@@ -2152,6 +2245,10 @@ func (vsd *VideoStartDialog) refreshAvailableModes() {
 	}
 	vsd.modeButtonsRow.Objects = buttons
 	vsd.modeButtonsRow.Refresh()
+
+	if !applySelection {
+		return
+	}
 
 	if selectedAllowed {
 		vsd.setSelectedModeID(previous)

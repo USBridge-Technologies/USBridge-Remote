@@ -103,7 +103,7 @@ type ConnectionManager struct {
 	accountStateSink func(loggedIn bool, email string)
 
 	// connectingStateSink pushes connectionPending's own start/stop into a
-	// bottom "Connecting to X…" toast with a progress bar (see
+	// bottom "Connecting to X..." toast with a progress bar (see
 	// gui.MainWindow's wiring) -- fired from setConnectionPendingState, the
 	// single choke point every connectionPending transition (both the Grid/
 	// List Connect button and MainWindow's own clearConnectionPending) goes
@@ -220,15 +220,15 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 	}
 	// Centralizes "open the login link in a browser": tsnet can produce an
 	// AuthURL from any first touch of the server (WarmUpPeer, WaitUntilReady,
-	// HTTPClient, TailnetIPv4 — not just the explicit Sign-In button), and
+	// HTTPClient, TailnetIPv4 -- not just the explicit Sign-In button), and
 	// only tsnet's own internal auto-login attempts it once per server
-	// lifetime. Keying the open off "a genuinely new URL appeared" — rather
-	// than each caller racing its own poll loop against Status() — is what
+	// lifetime. Keying the open off "a genuinely new URL appeared" -- rather
+	// than each caller racing its own poll loop against Status() -- is what
 	// makes the login reliably surface instead of sometimes silently timing
 	// out with nothing ever opened.
 	cm.ts.SetAuthURLHandler(func(authURL string) {
 		if runtime.GOOS == "android" {
-			// Android already opens it via the JNI opener inside setLatestAuthURL —
+			// Android already opens it via the JNI opener inside setLatestAuthURL --
 			// calling openExternalLink too would pop a second browser/intent.
 			return
 		}
@@ -286,7 +286,7 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 }
 
 // startTailscaleLogin handles a tap on the toggle while it's off. The intent
-// is fixed at "get me connected" — it must never fall through to a logout,
+// is fixed at "get me connected" -- it must never fall through to a logout,
 // even if resuming tsnet's persisted session (below) happens to land it in a
 // LoggedIn state by the time the check runs.
 func (cm *ConnectionManager) startTailscaleLogin() {
@@ -303,7 +303,7 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 		// Show the spinner immediately on tap. The resume attempt below
 		// (Start + WaitUntilReady, up to 8s) previously ran silently before
 		// any state update reached the UI, so the toggle looked dead/unresponsive
-		// for up to 8 seconds — as if the tap had done nothing — until this
+		// for up to 8 seconds -- as if the tap had done nothing -- until this
 		// same "starting login" state finally got set afterwards.
 		cm.setTailscaleStateAsync(
 			"Tailscale: checking saved session",
@@ -313,13 +313,13 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 		)
 
 		// Status() reports a default "not logged in, not running" result
-		// whenever the tsnet server hasn't been explicitly started yet — and
+		// whenever the tsnet server hasn't been explicitly started yet -- and
 		// this button, unlike Connect (which starts tsnet via
 		// WaitUntilReady/HTTPClient before ever checking status), could
 		// previously be the very first thing to touch tsnet. That made it
 		// look like there was never a saved session, so it always fell
 		// through to StartLogin/StartLoginInteractive and forced a brand new
-		// browser sign-in — even when a valid Tailscale session was already
+		// browser sign-in -- even when a valid Tailscale session was already
 		// persisted on disk from a previous run. Start tsnet and give it a
 		// moment to resume that persisted session first, exactly like
 		// Connect does, so this button only prompts for a fresh login when
@@ -333,12 +333,12 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 
 		status, err := cm.ts.Status(context.Background())
 		if err == nil && status != nil && status.LoggedIn {
-			// The persisted session was resumed successfully — already
+			// The persisted session was resumed successfully -- already
 			// connected, nothing more to do. This must NOT trigger a
 			// logout: that was a real regression where resuming a valid
 			// session right here made it look, one line down, like the
 			// user had asked to sign out.
-			logrus.Info("tailscale client ui: login button pressed — session already resumed, nothing to do")
+			logrus.Info("tailscale client ui: login button pressed -- session already resumed, nothing to do")
 			cm.refreshTailscaleStatus()
 			return
 		}
@@ -352,7 +352,7 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 		logrus.Info("tailscale client ui: login button pressed")
 		// The actual "open the login link in a browser" happens in the
 		// AuthURLHandler registered in NewConnectionManager, once tsnet
-		// actually produces a URL — not off this call's return value, since
+		// actually produces a URL -- not off this call's return value, since
 		// tsnet may have already silently started (and even completed) the
 		// interactive login via some earlier, unrelated call (WarmUpPeer,
 		// WaitUntilReady, ...) before this button was ever clicked.
@@ -370,7 +370,7 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 }
 
 // startTailscaleLogout handles a tap on the toggle while it's on, after the
-// user has confirmed the sign-out dialog. Intent is fixed at "disconnect" —
+// user has confirmed the sign-out dialog. Intent is fixed at "disconnect" --
 // unlike startTailscaleLogin, it never re-derives what to do from a status
 // check.
 func (cm *ConnectionManager) startTailscaleLogout() {
@@ -544,7 +544,7 @@ func (cm *ConnectionManager) setConnectionPendingState(pending bool, activeIndex
 	// (main_window_layout.go) redundantly calls SetConnectionPending(true)
 	// on every refresh for as long as MainWindow's own isConnectionPending
 	// flag is set, which used to make this re-fire the sink every time too
-	// (tearing the "Connecting to X…" toast down and immediately rebuilding
+	// (tearing the "Connecting to X..." toast down and immediately rebuilding
 	// it) even though nothing about the pending state actually changed.
 	wasPending := cm.connectionPending
 	wasActiveIndex := cm.activeConnectionIndex
@@ -662,6 +662,13 @@ func (cm *ConnectionManager) OpenInfoPage() {
 // ConnectionHeaderHandle.SetTailscaleState).
 func (cm *ConnectionManager) SetTailscaleStatusSink(sink func(status, authLabel string)) {
 	cm.tsStatusSink = sink
+	// Language reload tears down the header and builds a new toggle at
+	// on=false. Replay the last known header on this same call so the
+	// first frame is already signed-in (or loading) instead of flashing
+	// off and then back on when refreshTailscaleStatus returns.
+	if status, auth, ok := lastTailscaleHeader(); ok && sink != nil {
+		sink(status, auth)
+	}
 }
 
 // SetConnectingStateSink registers where the "connecting" toast's
@@ -736,7 +743,7 @@ func (cm *ConnectionManager) refreshTailscaleStatus() {
 		// This function also runs off a 5s background ticker, and used to
 		// stomp over that in-flight state with whatever tsnet's status
 		// happened to be mid-transition (e.g. still NeedsLogin a moment
-		// before StartLogin's AuthURL arrives) — flipping the spinner back
+		// before StartLogin's AuthURL arrives) -- flipping the spinner back
 		// to a plain toggle for a second or two before the browser opened.
 		// The auth goroutine itself calls refreshTailscaleStatus once it's
 		// actually done, so skipping here just avoids the race.
@@ -782,12 +789,33 @@ func (cm *ConnectionManager) refreshTailscaleStatus() {
 }
 
 func (cm *ConnectionManager) setTailscaleStateAsync(header, subHeader, addr, button string) {
+	rememberTailscaleHeader(header, button)
 	if cm.tsStatusSink == nil {
 		return
 	}
 	fyne.Do(func() {
 		cm.tsStatusSink(header, button)
 	})
+}
+
+// lastTailscaleHeader survives ConnectionManager rebuilds (language
+// reload recreates the manager but keeps the same tsnet session).
+var lastTailscaleHeaderMu sync.Mutex
+var lastTailscaleHeaderStatus, lastTailscaleHeaderAuth string
+var lastTailscaleHeaderOK bool
+
+func rememberTailscaleHeader(status, auth string) {
+	lastTailscaleHeaderMu.Lock()
+	lastTailscaleHeaderStatus = status
+	lastTailscaleHeaderAuth = auth
+	lastTailscaleHeaderOK = strings.TrimSpace(status) != ""
+	lastTailscaleHeaderMu.Unlock()
+}
+
+func lastTailscaleHeader() (status, auth string, ok bool) {
+	lastTailscaleHeaderMu.Lock()
+	defer lastTailscaleHeaderMu.Unlock()
+	return lastTailscaleHeaderStatus, lastTailscaleHeaderAuth, lastTailscaleHeaderOK
 }
 
 func (cm *ConnectionManager) notifyConnectionsState() {

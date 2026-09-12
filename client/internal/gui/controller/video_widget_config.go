@@ -509,6 +509,19 @@ func (vw *VideoWidget) ApplyVideoResolution(width, height int) error {
 	return vw.applyVideoDeviceConfig(cfg, true)
 }
 
+func (vw *VideoWidget) ensureStartDialog() {
+	if vw.startDialog != nil || vw.parentWindow == nil {
+		return
+	}
+	vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
+	vw.startDialog.SetLiveCodecProvider(func() (string, bool) {
+		if vw.videoClient == nil {
+			return "", false
+		}
+		return vw.videoClient.NegotiatedVideoCodecName()
+	})
+}
+
 func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply bool, showFullscreen bool) {
 	if vw.usbClient == nil || vw.parentWindow == nil {
 		logrus.Warn("⚠️ cannot show video settings: usbClient or parentWindow is nil")
@@ -518,6 +531,14 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 	logrus.Infof("⚙️ opening video settings for device: %s", devicePath)
 
 	go func() {
+		// Own tick: hide Vulkan first so the click is not stuck behind a
+		// still-updating overlay while the dialog is built.
+		fyne.Do(func() {
+			if view.OnOverlayShow != nil {
+				view.OnOverlayShow()
+			}
+		})
+
 		devices, err := vw.GetAvailableVideoDevices()
 		if err != nil {
 			logrus.Warnf("⚠️ failed to load video devices: %v", err)
@@ -540,6 +561,11 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 
 		if device.Path == "" {
 			logrus.Warnf("⚠️ video device %s not found and path is empty", devicePath)
+			fyne.Do(func() {
+				if view.OnOverlayHide != nil {
+					view.OnOverlayHide()
+				}
+			})
 			return
 		}
 
@@ -589,16 +615,16 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 		}
 
 		fyne.Do(func() {
+			started := time.Now()
 			logrus.Infof("📦 showing video start dialog for %s", device.Path)
-			if vw.startDialog == nil {
-				vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
-			}
+			vw.ensureStartDialog()
 
 			vw.startDialog.Configure(info, cfg.VideoWidth, cfg.VideoHeight, cfg.VideoFPS, cfg.VideoBitrate)
 			vw.startDialog.SetDeviceLabel(device.Path)
 			vw.startDialog.SetPrimaryAction(i18n.Current.Apply)
 			_ = showFullscreen
 			vw.startDialog.SetExtraAction("", nil)
+			logrus.Infof("📦 video start dialog ready in %s", time.Since(started).Round(time.Millisecond))
 
 			vw.startDialog.Show(func(request *models.VideoStartRequest) {
 				applied := models.VideoDeviceConfig{

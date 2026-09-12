@@ -15,7 +15,7 @@ import (
 // ShowMobileSettingsMenu is the phone Connections gear panel: a larger
 // Grid/List segmented control (same look as the desktop header toggle)
 // plus icon rows for Info / Community / Language.
-func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode func(string), onInfo, onCommunity, onLanguage func()) {
+func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode func(string), onHardwareAgent, onSoftwareAgent, onInfo, onCommunity, onLanguage func()) {
 	if anchor == nil {
 		return
 	}
@@ -31,29 +31,71 @@ func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode fu
 	}
 
 	row := func(label string, icon fyne.Resource, onTap func()) *dropdownItem {
-		item := newDropdownItem(label, "", false, func() {
+		return newMobileSettingsRow(label, icon, func() {
 			hideThen(onTap)
 		})
-		item.textColor = design.ColorConnectionBadgeText
-		item.textSize = 13
-		item.minHeight = 38
-		item.iconRes = icon
-		item.iconSide = 16
-		return item
 	}
 
-	toggle := newMobileSettingsViewModeToggle(mode, onViewMode)
+	toggle := newMobileSettingsViewModeToggle(mode, func(next string) {
+		hideThen(func() {
+			if onViewMode != nil {
+				onViewMode(next)
+			}
+		})
+	})
 	rule := canvas.NewRectangle(color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff})
 	rule.SetMinSize(fyne.NewSize(1, 1))
 
 	content := container.NewVBox(
 		NewInset(toggle, 2, 2, 2, 6),
 		rule,
+		row("Hardware Agent", assets.HardwareAgentIconTeal, onHardwareAgent),
+		row("Software Agent", assets.SoftwareAgentIconTeal, onSoftwareAgent),
 		row("Info", assets.QuestionIconTeal, onInfo),
 		row("Community", assets.DiscordIconTeal, onCommunity),
 		row("Language", assets.LanguageIconTeal, onLanguage),
 	)
-	popup = showStyledPanel(anchor, content, 220, false)
+	popup = showStyledPanel(anchor, content, 236, false)
+}
+
+// ShowMobileControlSettingsMenu is the phone Control gear panel: same
+// 13px / 38-tall / 220-wide teal rows as Connections, plus Power Reset
+// and Account (no Grid/List toggle).
+func ShowMobileControlSettingsMenu(anchor fyne.CanvasObject, onPowerReset, onHardwareAgent, onSoftwareAgent, onInfo, onCommunity, onLanguage, onAccount func()) {
+	if anchor == nil {
+		return
+	}
+
+	var popup *dropdownPopup
+	hideThen := func(fn func()) {
+		if popup != nil {
+			popup.Hide()
+		}
+		if fn != nil {
+			fn()
+		}
+	}
+
+	content := container.NewVBox(
+		newMobileSettingsRow("Power Reset", assets.PowerResetIconTeal, func() { hideThen(onPowerReset) }),
+		newMobileSettingsRow("Hardware Agent", assets.HardwareAgentIconTeal, func() { hideThen(onHardwareAgent) }),
+		newMobileSettingsRow("Software Agent", assets.SoftwareAgentIconTeal, func() { hideThen(onSoftwareAgent) }),
+		newMobileSettingsRow("Info", assets.QuestionIconTeal, func() { hideThen(onInfo) }),
+		newMobileSettingsRow("Community", assets.DiscordIconTeal, func() { hideThen(onCommunity) }),
+		newMobileSettingsRow("Language", assets.LanguageIconTeal, func() { hideThen(onLanguage) }),
+		newMobileSettingsRow("Account", assets.AccountIconTeal, func() { hideThen(onAccount) }),
+	)
+	popup = showStyledPanel(anchor, content, 236, false)
+}
+
+func newMobileSettingsRow(label string, icon fyne.Resource, onTap func()) *dropdownItem {
+	item := newDropdownItem(label, "", false, onTap)
+	item.textColor = design.ColorConnectionBadgeText
+	item.textSize = 13
+	item.minHeight = 38
+	item.iconRes = icon
+	item.iconSide = 16
+	return item
 }
 
 func newMobileSettingsViewModeToggle(initialMode string, onChange func(mode string)) fyne.CanvasObject {

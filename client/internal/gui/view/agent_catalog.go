@@ -104,24 +104,99 @@ func NewAgentCatalogBody() *AgentCatalogBody {
 func (b *AgentCatalogBody) CreateRenderer() fyne.WidgetRenderer {
 	b.rows = make([]*agentEditionRow, 0, len(agentCatalogEditions))
 	leftItems := make([]fyne.CanvasObject, 0, len(agentCatalogEditions)*2-1)
+	gridItems := make([]fyne.CanvasObject, 0, len(agentCatalogEditions))
 	for i, ed := range agentCatalogEditions {
 		idx := i
 		row := newAgentEditionRow(ed.Title, ed.Tag, ed.Pro, func() { b.selectEdition(idx) })
 		b.rows = append(b.rows, row)
+		gridItems = append(gridItems, row)
 		if i > 0 {
 			leftItems = append(leftItems, newAgentListSeparator())
 		}
 		leftItems = append(leftItems, row)
 	}
-	left := container.New(&tightStatsVBoxLayout{Gap: 0}, leftItems...)
 	b.right = container.NewMax(newAgentFeaturePane(agentCatalogEditions[0]))
 	b.selectEdition(0)
 
+	if IsMobile() {
+		grid := container.New(&agentCatalogMobileGridLayout{Gap: 6}, gridItems...)
+		rule := canvas.NewRectangle(design.ColorConnectionsSectionUnderline)
+		rule.SetMinSize(fyne.NewSize(1, 1))
+		body := container.New(&tightStatsVBoxLayout{Gap: 8},
+			grid,
+			rule,
+			NewMobileFillWidth(b.right),
+		)
+		return widget.NewSimpleRenderer(NewMobileFillWidth(body))
+	}
+
+	left := container.New(&tightStatsVBoxLayout{Gap: 0}, leftItems...)
 	sep := canvas.NewRectangle(design.ColorConnectionsSectionUnderline)
 	sep.SetMinSize(fyne.NewSize(1, 1))
 	rightPad := NewInsetExact(b.right, 16, 0, 0, 0)
 	cols := container.New(&agentCatalogSplitLayout{Gap: 14, Ratio: 2.1}, left, sep, rightPad)
 	return widget.NewSimpleRenderer(cols)
+}
+
+// agentCatalogMobileGridLayout is a 2-column edition picker for the phone
+// catalog -- list on top, feature copy underneath (see CreateRenderer).
+type agentCatalogMobileGridLayout struct {
+	Gap float32
+}
+
+func (l *agentCatalogMobileGridLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	var cellH float32
+	n := 0
+	for _, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		n++
+		if h := obj.MinSize().Height; h > cellH {
+			cellH = h
+		}
+	}
+	if n == 0 {
+		return fyne.NewSize(1, 0)
+	}
+	rows := (n + 1) / 2
+	return fyne.NewSize(1, float32(rows)*cellH+float32(maxInt(rows-1, 0))*l.Gap)
+}
+
+func (l *agentCatalogMobileGridLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	visible := make([]fyne.CanvasObject, 0, len(objects))
+	for _, obj := range objects {
+		if obj != nil && obj.Visible() {
+			visible = append(visible, obj)
+		}
+	}
+	if len(visible) == 0 {
+		return
+	}
+	cols := 2
+	slotW := (size.Width - l.Gap) / float32(cols)
+	if slotW < 0 {
+		slotW = 0
+	}
+	var cellH float32
+	for _, obj := range visible {
+		if h := obj.MinSize().Height; h > cellH {
+			cellH = h
+		}
+	}
+	for i, obj := range visible {
+		col := i % cols
+		row := i / cols
+		obj.Move(fyne.NewPos(float32(col)*(slotW+l.Gap), float32(row)*(cellH+l.Gap)))
+		obj.Resize(fyne.NewSize(slotW, cellH))
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func newAgentListSeparator() fyne.CanvasObject {
@@ -201,6 +276,17 @@ type agentEditionRow struct {
 
 	name *canvas.Text
 	qual *canvas.Text
+	bg   *canvas.Rectangle
+}
+
+func (r *agentEditionRow) mobileButtonLabel() string {
+	if r.title == "Sunshine" {
+		return r.title
+	}
+	if r.tag != "" {
+		return r.tag
+	}
+	return r.title
 }
 
 func newAgentEditionRow(title, tag string, pro bool, onTap func()) *agentEditionRow {
@@ -237,7 +323,37 @@ func (r *agentEditionRow) MouseOut() {
 }
 
 func (r *agentEditionRow) refreshVisuals() {
-	if r.name == nil || r.qual == nil {
+	if r.name == nil {
+		return
+	}
+	if r.bg != nil {
+		switch {
+		case r.selected:
+			r.bg.FillColor = design.ColorSurfaceLight
+			r.bg.StrokeColor = design.ColorConnectionBadgeBorder
+		case r.hovered:
+			r.bg.FillColor = design.ColorBorder
+			r.bg.StrokeColor = design.ColorHeaderAccentLine
+		default:
+			r.bg.FillColor = design.ColorGray900
+			r.bg.StrokeColor = design.ColorHeaderAccentLine
+		}
+		r.bg.StrokeWidth = 1
+		r.bg.Refresh()
+		switch {
+		case r.pro:
+			r.name.Color = design.ColorPro
+		case r.selected:
+			r.name.Color = design.ColorConnectionBadgeText
+		case r.hovered:
+			r.name.Color = design.ColorTextLight
+		default:
+			r.name.Color = design.ColorConnectionsSectionTitle
+		}
+		r.name.Refresh()
+		return
+	}
+	if r.qual == nil {
 		return
 	}
 	switch {
@@ -264,6 +380,20 @@ func (r *agentEditionRow) CreateRenderer() fyne.WidgetRenderer {
 	r.name.TextSize = 10
 	r.qual = canvas.NewText(" ("+r.tag+")", design.ColorConnectionsSectionMutedText)
 	r.qual.TextSize = 10
+	if IsMobile() {
+		r.bg = canvas.NewRectangle(design.ColorGray900)
+		r.bg.CornerRadius = 6
+		r.bg.StrokeWidth = 1
+		r.name.Text = r.mobileButtonLabel()
+		r.name.TextSize = 10
+		r.name.TextStyle.Bold = true
+		r.name.Alignment = fyne.TextAlignCenter
+		r.qual = nil
+		heightLock := canvas.NewRectangle(color.Transparent)
+		heightLock.SetMinSize(fyne.NewSize(1, 24))
+		r.refreshVisuals()
+		return widget.NewSimpleRenderer(container.NewMax(r.bg, heightLock, container.NewCenter(r.name)))
+	}
 	line := container.New(&DeviceRowControlsLayout{Gap: 0}, r.name, r.qual)
 	var inner fyne.CanvasObject = line
 	if r.pro {
@@ -300,8 +430,14 @@ func newAgentFeaturePane(ed agentEdition) fyne.CanvasObject {
 		left = container.New(&DeviceRowControlsLayout{Gap: 8}, title, container.NewCenter(badge))
 	}
 	var titleRow fyne.CanvasObject = left
-	if ed.Tag == "Free" || ed.Kind == agentEditionProPlus {
-		titleRow = container.NewBorder(nil, nil, left, newAgentBasicChip())
+	showBasic := ed.Tag == "Free" || ed.Kind == agentEditionProPlus
+	if showBasic {
+		chip := newAgentBasicChip()
+		if IsMobile() {
+			titleRow = container.New(&DeviceRowControlsLayout{Gap: 6}, left, container.NewCenter(chip))
+		} else {
+			titleRow = container.NewBorder(nil, nil, left, chip)
+		}
 	}
 
 	items := make([]fyne.CanvasObject, 0, 8)
@@ -315,7 +451,11 @@ func newAgentFeaturePane(ed agentEdition) fyne.CanvasObject {
 			items = append(items, newAgentPlainFeature(feat))
 		}
 	}
-	return container.NewVBox(items...)
+	pane := container.NewVBox(items...)
+	if IsMobile() {
+		return NewMobileFillWidth(pane)
+	}
+	return pane
 }
 
 func newAgentBasicChip() fyne.CanvasObject {
@@ -326,7 +466,39 @@ func newAgentBasicChip() fyne.CanvasObject {
 	bg.CornerRadius = 20
 	bg.StrokeColor = design.ColorConnectionBadgeBorder
 	bg.StrokeWidth = 1
-	return container.NewStack(bg, NewInset(container.NewCenter(label), 8, 8, 2, 2))
+	pad := float32(8)
+	vpad := float32(2)
+	if IsMobile() {
+		pad, vpad = 6, 1
+	}
+	inner := NewInsetExact(container.NewCenter(label), pad, pad, vpad, vpad)
+	return container.New(&agentBasicChipLayout{}, bg, inner)
+}
+
+// agentBasicChipLayout sizes the chip to its label -- Stack would stretch
+// the pill across the whole title row.
+type agentBasicChipLayout struct{}
+
+func (l *agentBasicChipLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+	return objects[1].MinSize()
+}
+
+func (l *agentBasicChipLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+	min := objects[1].MinSize()
+	y := (size.Height - min.Height) / 2
+	if y < 0 {
+		y = 0
+	}
+	for _, o := range objects {
+		o.Move(fyne.NewPos(0, y))
+		o.Resize(min)
+	}
 }
 
 func newAgentPlainFeature(text string) fyne.CanvasObject {

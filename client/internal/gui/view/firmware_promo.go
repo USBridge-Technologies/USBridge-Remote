@@ -136,7 +136,7 @@ func (b *FirmwarePromoBanner) setHovered(hovered bool) {
 }
 
 func (b *FirmwarePromoBanner) mobilePromo() bool {
-	return UseMobileConnections() && !b.flushMargins
+	return UseMobileConnections()
 }
 
 func (b *FirmwarePromoBanner) syncClose() {

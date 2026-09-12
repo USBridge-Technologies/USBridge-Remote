@@ -301,8 +301,14 @@ func (w *ScriptsTabWidget) build() {
 	w.firmwareChip.SetOnOpen(w.openFirmwarePromo)
 	w.firmwareChip.SetOnRestore(w.restoreFirmwarePromo)
 	w.body = container.NewMax()
-	footer := view.NewAppFooter(view.AppVersion(), nil, w.busySpinner, w.connectingHint, w.footerChip, w.firmwareChip)
-	w.outerContainer = view.NewEdgeStack(nil, footer, w.body)
+	var tabBody fyne.CanvasObject = w.body
+	var footer fyne.CanvasObject
+	if view.IsMobile() {
+		tabBody = view.NewMobileFillWidth(w.body)
+	} else {
+		footer = view.NewAppFooter(view.AppVersion(), nil, w.busySpinner, w.connectingHint, w.footerChip, w.firmwareChip)
+	}
+	w.outerContainer = view.NewEdgeStack(nil, footer, tabBody)
 	w.lockedMessage = "Not connected"
 	if app := fyne.CurrentApp(); app != nil {
 		w.applyLocalUIParseSetting(app.Preferences().Bool(localUIParseEnabledPrefKey))

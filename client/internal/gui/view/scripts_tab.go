@@ -96,6 +96,9 @@ type ScriptsSectionData struct {
 // NewScriptsSection builds sticky dual headers over a scrolling two-column
 // body: MCP grid-style card on the left, scripts table on the right.
 func NewScriptsSection(data ScriptsSectionData) fyne.CanvasObject {
+	if IsMobile() {
+		return newMobileScriptsSection(data)
+	}
 	cols := &DeviceDashboardColumnsLayout{Gap: scriptsColumnGap, Ratio: scriptsColumnRatio}
 	headerRow := container.New(&scriptsSplitColumnsLayout{Gap: scriptsColumnGap, Ratio: scriptsColumnRatio},
 		newScriptsMCPHeader(),
@@ -127,6 +130,13 @@ func (l *scriptsSplitColumnsLayout) Layout(objects []fyne.CanvasObject, size fyn
 	if len(objects) < 3 {
 		return
 	}
+	if IsMobile() {
+		left, sep, right := objects[0], objects[1], objects[2]
+		sep.Resize(fyne.NewSize(0, 0))
+		sep.Move(fyne.NewPos(0, 0))
+		stackDashboardColumns(l.Gap, size, left, right)
+		return
+	}
 	left, sep, right := objects[0], objects[1], objects[2]
 	ratio := l.Ratio
 	if ratio <= 0 {
@@ -153,6 +163,9 @@ func (l *scriptsSplitColumnsLayout) Layout(objects []fyne.CanvasObject, size fyn
 func (l *scriptsSplitColumnsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	if len(objects) < 3 {
 		return fyne.NewSize(0, 0)
+	}
+	if IsMobile() {
+		return stackedDashboardMinSize(l.Gap, objects[0], objects[2])
 	}
 	leftMin := objects[0].MinSize()
 	rightMin := objects[2].MinSize()
@@ -278,6 +291,9 @@ func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
 	url := strings.TrimSpace(data.URL)
 	if url == "" {
 		url = "none"
+	}
+	if IsMobile() && url != "none" && len(url) > 28 {
+		url = url[:14] + "..." + url[len(url)-10:]
 	}
 	urlColor := color.Color(scriptsMCPURLColor)
 	if url == "none" {

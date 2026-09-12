@@ -325,13 +325,27 @@ func (mw *MainWindow) recreateContainers() {
 		mw.scriptsWidget.AttachFooterStatus(snapshotsScriptFooter)
 		mw.scriptsWidget.AttachFooterStatus(controlScriptFooter)
 	}
-	controlContent := view.NewEdgeStack(nil, view.NewAppFooter(view.AppVersion(), nil, controlConnecting, controlScriptFooter), mw.videoWidget.GetContainer())
+	var controlBottom fyne.CanvasObject
+	if !useMobileControl() {
+		controlBottom = view.NewAppFooter(view.AppVersion(), nil, controlConnecting, controlScriptFooter)
+	}
+	controlContent := view.NewEdgeStack(nil, controlBottom, mw.videoWidget.GetContainer())
+	devicesContent := mw.diskWidget.GetDashboardContainer()
+	snapshotsContent := mw.createBackupFlashTab()
+	var scriptsContent fyne.CanvasObject = mw.scriptsWidget.GetContainer()
+	if view.IsMobile() {
+		// Desktop two-column / table MinSize is wider than a phone frame.
+		// Ignore that width so opening these tabs cannot grow the window.
+		devicesContent = view.NewMobileFillWidth(devicesContent)
+		snapshotsContent = view.NewMobileFillWidth(snapshotsContent)
+		scriptsContent = view.NewMobileFillWidth(scriptsContent)
+	}
 
 	mw.tabs = container.NewAppTabs(
 		container.NewTabItem(controlTabTitle, container.NewThemeOverride(controlContent, design.NewBrandTheme())),
-		container.NewTabItem(devicesTabTitle, container.NewThemeOverride(mw.diskWidget.GetDashboardContainer(), design.NewBrandTheme())),
-		container.NewTabItem(snapshotsTabTitle, container.NewThemeOverride(mw.createBackupFlashTab(), design.NewBrandTheme())),
-		container.NewTabItem(scriptsTabTitle, container.NewThemeOverride(mw.scriptsWidget.GetContainer(), design.NewBrandTheme())),
+		container.NewTabItem(devicesTabTitle, container.NewThemeOverride(devicesContent, design.NewBrandTheme())),
+		container.NewTabItem(snapshotsTabTitle, container.NewThemeOverride(snapshotsContent, design.NewBrandTheme())),
+		container.NewTabItem(scriptsTabTitle, container.NewThemeOverride(scriptsContent, design.NewBrandTheme())),
 	)
 	mw.applyTabVisualState(0)
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
@@ -384,12 +398,21 @@ func (mw *MainWindow) recreateContainers() {
 		mw.tabs.Items[3].Content,
 	)
 
+	var mainBottom fyne.CanvasObject
+	if useMobileControl() && mw.mobileTabFooter != nil {
+		// Tab bar on top, the same thin version footer as Connections
+		// underneath (version on the right).
+		mainBottom = container.NewVBox(
+			mw.mobileTabFooter,
+			view.NewAppFooterNoLine(view.AppVersion(), nil, controlConnecting, controlScriptFooter),
+		)
+	}
 	mainBg := canvas.NewRectangle(design.ColorGray950)
 	mw.mainContent = container.NewStack(
 		mainBg,
 		view.NewEdgeStack(
 			mainAddressBar,
-			nil,
+			mainBottom,
 			container.NewStack(mw.tabContentStack, deviceFooterOverlay),
 		),
 	)
@@ -437,6 +460,7 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 		}
 		btn.SetSelected(i == activeIndex)
 	}
+	mw.syncMobileKeyboardButton(activeIndex == mw.controlTabIndex())
 }
 
 // createConnectionAddressBar creates the connection screen's header bar (see
@@ -458,6 +482,16 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 		OnOpenInfo: func() {
 			if mw.connectionManager != nil {
 				mw.connectionManager.OpenInfoPage()
+			}
+		},
+		OnOpenHardwareAgent: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.OpenHardwareAgentPage()
+			}
+		},
+		OnOpenSoftwareAgent: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.ShowAgentCatalog()
 			}
 		},
 		OnToggleTailscale: func() {
@@ -548,6 +582,16 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 				mw.connectionManager.OpenInfoPage()
 			}
 		},
+		OnOpenHardwareAgent: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.OpenHardwareAgentPage()
+			}
+		},
+		OnOpenSoftwareAgent: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.ShowAgentCatalog()
+			}
+		},
 		OnOpenAccount: func() {
 			mw.showAccountDialog()
 		},
@@ -556,10 +600,10 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	// connectionProtocolLabel) -- it just sizes itself to its own icon+text
 	// content now (view.HeaderActionButton.MinSize), so it sits here
 	// directly instead of behind an overlay layout.
-	rightGroup := container.NewHBox(
+	rightGroup := fyne.CanvasObject(container.NewHBox(
 		settingsBtn,
 		mw.mainExitBtn,
-	)
+	))
 	middleGroup := mw.buildStatusIndicatorBar()
 	// Clip, not Scroll: on a narrow/mobile window this row can genuinely
 	// run out of horizontal space for the SD-progress + status readout,
@@ -577,9 +621,23 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	// mw.pcpanelWidget's own container used to sit here (the power/reset
 	// button) -- it's the gear menu's "Power Reset" row now (see
 	// OnPowerReset above), freeing this left zone for the tab selector.
+	tabs := mw.buildTabHeaderButtons()
+	left := fyne.CanvasObject(tabs)
+	if useMobileControl() {
+		// Phone: settings left, status strip in the middle, Exit right.
+		// Tabs live in the bigger connected footer.
+		left = settingsBtn
+		// Stretch Exit to the same 28px header-button height it had when
+		// it sat in an HBox with the gear (its own MinSize is only the
+		// 12px icon + label).
+		exitHeight := canvas.NewRectangle(color.Transparent)
+		exitHeight.SetMinSize(fyne.NewSize(0, headerCompactButtonSize.Height))
+		rightGroup = container.NewMax(exitHeight, mw.mainExitBtn)
+		mw.mobileTabFooter = mw.createMobileConnectedFooter(tabs)
+	}
 	row := container.New(
 		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
-		mw.buildTabHeaderButtons(),
+		left,
 		middleClip,
 		rightGroup,
 	)
@@ -602,8 +660,10 @@ func newHeaderPassiveIndicator(icon fyne.Resource, size fyne.Size) fyne.CanvasOb
 func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 	var extras []fyne.CanvasObject
 	if mw.connectionManager != nil {
-		extras = append(extras, mw.connectionManager.AgentFooterChip())
-		extras = append(extras, mw.connectionManager.FirmwareFooterChip())
+		if !view.IsMobile() {
+			extras = append(extras, mw.connectionManager.AgentFooterChip())
+			extras = append(extras, mw.connectionManager.FirmwareFooterChip())
+		}
 		extras = append(extras, mw.connectionManager.PromoFooterChip())
 	}
 	var modeChip fyne.CanvasObject
@@ -736,6 +796,9 @@ func newProtocolIndicator(protocol string) fyne.CanvasObject {
 // itself instead.
 func connectionProtocolLabel(protocol string) string {
 	if protocol == models.ConnectionProtocolTailscale {
+		if useMobileControl() {
+			return "TS"
+		}
 		return "Tailscale"
 	}
 	return "LAN"
@@ -872,7 +935,12 @@ func (l *mainHeaderBarLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	centerMin := headerCenterContentMinSize(objects[1])
 	rightMin := objects[2].MinSize()
 	height := maxFloat32(leftMin.Height, maxFloat32(centerMin.Height, rightMin.Height))
-	return fyne.NewSize(leftMin.Width+centerMin.Width+rightMin.Width+l.edgeInset*2+l.sideGap*2, height)
+	width := leftMin.Width + rightMin.Width + l.edgeInset*2 + l.sideGap*2
+	// Phone: the status strip is clipped and must not drive window width.
+	if !useMobileControl() {
+		width += centerMin.Width
+	}
+	return fyne.NewSize(width, height)
 }
 
 // headerCenterContentMinSize reports the natural size of the header bar's

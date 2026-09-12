@@ -227,16 +227,21 @@ type edgeStackLayout struct {
 }
 
 func (l *edgeStackLayout) split(objects []fyne.CanvasObject) (top, bottom, content fyne.CanvasObject) {
+	if len(objects) == 0 {
+		return
+	}
 	idx := 0
 	if l.hasTop {
 		top = objects[idx]
 		idx++
 	}
-	if l.hasBottom {
-		bottom = objects[idx]
+	if idx < len(objects) {
+		content = objects[idx]
 		idx++
 	}
-	content = objects[idx]
+	if l.hasBottom && idx < len(objects) {
+		bottom = objects[idx]
+	}
 	return
 }
 
@@ -288,16 +293,20 @@ func (l *edgeStackLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 // NewEdgeStack stacks an optional top (its own MinSize height), an optional
 // bottom (its own MinSize height), and content filling the rest, with no
 // gap between any of them -- top/bottom may be nil to omit that edge.
+// Bottom is painted last so a footer hairline stays above cards that
+// bleed a pixel past their layout box.
 func NewEdgeStack(top, bottom, content fyne.CanvasObject) *fyne.Container {
-	l := &edgeStackLayout{hasTop: top != nil, hasBottom: bottom != nil}
+	hasTop := usableCanvasObject(top)
+	hasBottom := usableCanvasObject(bottom)
+	l := &edgeStackLayout{hasTop: hasTop, hasBottom: hasBottom}
 	objects := make([]fyne.CanvasObject, 0, 3)
-	if top != nil {
+	if hasTop {
 		objects = append(objects, top)
 	}
-	if bottom != nil {
+	objects = append(objects, content)
+	if hasBottom {
 		objects = append(objects, bottom)
 	}
-	objects = append(objects, content)
 	return container.New(l, objects...)
 }
 

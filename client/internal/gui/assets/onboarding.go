@@ -126,6 +126,12 @@ var (
 	QuestionIconTeal   = fyne.NewStaticResource("question-svgrepo-com-teal.svg", recolorMonoIcon(questionIcon, "#41e0c3", "2.6"))
 	DiscordIconTeal    = fyne.NewStaticResource("message-chat-square-svgrepo-com-teal.svg", recolorStrokeIcon(messageChatSquareIcon, "#41e0c3", "1.9"))
 	LanguageIconTeal   = fyne.NewStaticResource("language-svgrepo-com-teal.svg", recolorFillIcon(languageIcon, "#41e0c3"))
+	PowerResetIconTeal = fyne.NewStaticResource("power-reset-teal.svg", recolorFillIcon(powerOffFillIcon, "#41e0c3"))
+	AccountIconTeal    = fyne.NewStaticResource("account-teal.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#41e0c3"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8V22h19.2v-2.8c0-3.2-6.4-4.8-9.6-4.8z"/></svg>`))
+	// Same CPU chip as the firmware promo (USBridgeOSIconAccent), teal
+	// to match the rest of the phone settings rows.
+	HardwareAgentIconTeal = fyne.NewStaticResource("hardware-agent-teal.svg", recolorFillIcon(cpuIcon, "#41e0c3"))
+	SoftwareAgentIconTeal = fyne.NewStaticResource("software-agent-teal.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#41e0c3"><path d="M3 5h18v14H3V5zm2 4v8h14V9H5z"/></svg>`))
 	DiscordIconActive  = fyne.NewStaticResource("message-chat-square-svgrepo-com-active.svg", recolorStrokeIcon(messageChatSquareIcon, "#93C572", "1.9"))
 	LanguageIconDim    = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
 	LanguageIconMuted  = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
@@ -280,6 +286,9 @@ var (
 	KeyboardIcon               = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com.svg", recolorStrokeIcon(keyboardIcon, "#C9C9C9", "1.8"))
 	KeyboardIconActive         = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-active.svg", recolorStrokeIcon(keyboardIcon, "#93C572", "1.8"))
 	KeyboardIconStatusBar      = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-statusbar.svg", recolorStrokeIcon(keyboardIcon, "#c4e77a", "1.8"))
+	// KeyboardIconFooterActive is the mobile Control footer toggle while
+	// the compact keyboard is open -- #ebffbc, same selected-tab lime.
+	KeyboardIconFooterActive = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-footer-active.svg", recolorStrokeIcon(keyboardIcon, "#ebffbc", "1.8"))
 	MouseIcon                  = fyne.NewStaticResource("mouse-svgrepo-com.svg", recolorFillIcon(mouseIcon, "#C9C9C9"))
 	MouseIconActive            = fyne.NewStaticResource("mouse-svgrepo-com-active.svg", recolorFillIcon(mouseIcon, "#93C572"))
 	MouseIconStatusBar         = fyne.NewStaticResource("mouse-svgrepo-com-statusbar.svg", recolorFillIcon(mouseIcon, "#c4e77a"))

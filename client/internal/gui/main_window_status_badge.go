@@ -45,6 +45,12 @@ type headerStatusBadgeButton struct {
 	// light background. nil keeps the icon unchanged on hover, so a caller
 	// that never calls SetHoverIcon is unaffected.
 	hoverIconRes fyne.Resource
+	// selected/selectedFill/selectedIcon are a sticky pressed look (the
+	// mobile footer keyboard toggle) -- fill + icon stay on until cleared,
+	// independent of hover.
+	selected     bool
+	selectedFill color.Color
+	selectedIcon fyne.Resource
 
 	bg        *canvas.Rectangle
 	icon      *canvas.Image
@@ -77,6 +83,20 @@ func (b *headerStatusBadgeButton) SetHoverStyle(hoverColor color.Color, radius f
 // hoverIconRes field doc comment.
 func (b *headerStatusBadgeButton) SetHoverIcon(icon fyne.Resource) {
 	b.hoverIconRes = icon
+	b.Refresh()
+}
+
+func (b *headerStatusBadgeButton) SetSelectedStyle(fill color.Color, icon fyne.Resource) {
+	b.selectedFill = fill
+	b.selectedIcon = icon
+	b.Refresh()
+}
+
+func (b *headerStatusBadgeButton) SetSelected(on bool) {
+	if b.selected == on {
+		return
+	}
+	b.selected = on
 	b.Refresh()
 }
 
@@ -229,7 +249,9 @@ func (r *headerStatusBadgeButtonRenderer) Refresh() {
 	r.button.bg.CornerRadius = radius
 
 	r.button.bg.FillColor = color.Transparent
-	if r.button.hovered {
+	if r.button.selected && r.button.selectedFill != nil {
+		r.button.bg.FillColor = r.button.selectedFill
+	} else if r.button.hovered {
 		r.button.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
 		if r.button.hoverColor != nil {
 			r.button.bg.FillColor = r.button.hoverColor
@@ -238,7 +260,9 @@ func (r *headerStatusBadgeButtonRenderer) Refresh() {
 	r.button.bg.Refresh()
 
 	r.button.icon.Resource = r.button.iconRes
-	if r.button.hovered && r.button.hoverIconRes != nil {
+	if r.button.selected && r.button.selectedIcon != nil {
+		r.button.icon.Resource = r.button.selectedIcon
+	} else if r.button.hovered && r.button.hoverIconRes != nil {
 		r.button.icon.Resource = r.button.hoverIconRes
 	}
 	r.button.icon.Refresh()

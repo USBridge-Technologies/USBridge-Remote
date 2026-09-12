@@ -26,9 +26,17 @@ type BackupWidgetUI struct {
 func NewBackupWidgetUI() *BackupWidgetUI {
 	spinner := NewDeviceDashboardBusyHint("connecting device")
 	body := container.NewMax()
-	footerHost := container.NewMax(NewAppFooter(AppVersion(), nil, spinner))
+	var footerHost *fyne.Container
+	var footer fyne.CanvasObject
+	var tabBody fyne.CanvasObject = body
+	if IsMobile() {
+		tabBody = NewMobileFillWidth(body)
+	} else {
+		footerHost = container.NewMax(NewAppFooter(AppVersion(), nil, spinner))
+		footer = footerHost
+	}
 	return &BackupWidgetUI{
-		Container:   NewEdgeStack(nil, footerHost, body),
+		Container:   NewEdgeStack(nil, footer, tabBody),
 		body:        body,
 		footerHost:  footerHost,
 		BusySpinner: spinner,
@@ -67,7 +75,7 @@ func (ui *BackupWidgetUI) SetBusy(busy bool) {
 }
 
 func (ui *BackupWidgetUI) rebuildFooter() {
-	if ui == nil || ui.footerHost == nil {
+	if ui == nil || ui.footerHost == nil || IsMobile() {
 		return
 	}
 	var extra []fyne.CanvasObject
@@ -80,7 +88,11 @@ func (ui *BackupWidgetUI) rebuildFooter() {
 	if ui.firmwareChip != nil {
 		extra = append(extra, ui.firmwareChip)
 	}
-	ui.footerHost.Objects = []fyne.CanvasObject{NewAppFooter(AppVersion(), nil, ui.BusySpinner, extra...)}
+	footer := NewAppFooter(AppVersion(), nil, ui.BusySpinner, extra...)
+	if IsMobile() {
+		footer = NewMobileFillWidth(footer)
+	}
+	ui.footerHost.Objects = []fyne.CanvasObject{footer}
 	ui.footerHost.Refresh()
 }
 

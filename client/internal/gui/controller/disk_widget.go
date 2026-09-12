@@ -18,7 +18,6 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -45,6 +44,8 @@ type DiskWidget struct {
 	dashboardHID         *fyne.Container
 	dashboardVideo       *fyne.Container
 	dashboardAudio       *fyne.Container
+	dashboardAudioCard   fyne.CanvasObject
+	dashboardAudioGap    fyne.CanvasObject
 	dashboardStorage     *fyne.Container
 	dashboardEmulation   *fyne.Container
 	dashboardNetworkRows *fyne.Container
@@ -118,8 +119,8 @@ type DiskWidget struct {
 	// dashboardStorageScroll wraps dashboardStorage (the Storage card's own
 	// row list) so it can become internally scrollable once there are more
 	// rows than fit comfortably -- see refreshDashboard's own height cap.
-	dashboardStorageScroll   *container.Scroll
-	dashboardEmulationScroll *container.Scroll
+	dashboardStorageScroll   fyne.CanvasObject
+	dashboardEmulationScroll fyne.CanvasObject
 
 	// Data
 	localDrives    []*models.LocalDrive

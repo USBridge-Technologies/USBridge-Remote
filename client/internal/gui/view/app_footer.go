@@ -28,6 +28,17 @@ const AppFooterOuterHeight = AppFooterRowHeight + 4 + 6 + 0.5
 // hairline sits on top -- the same stroke the app header wears underneath.
 // rightBtn, spinner, and extraLeft may be nil.
 func NewAppFooter(version string, rightBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
+	return newAppFooter(version, true, rightBtn, spinner, extraLeft...)
+}
+
+// NewAppFooterNoLine is NewAppFooter without the top hairline -- used when
+// this strip sits directly under another bar that already has its own line
+// (mobile Control tab footer + version).
+func NewAppFooterNoLine(version string, rightBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
+	return newAppFooter(version, false, rightBtn, spinner, extraLeft...)
+}
+
+func newAppFooter(version string, withLine bool, rightBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
 	leftParts := make([]fyne.CanvasObject, 0, 1+len(extraLeft))
 	if usableCanvasObject(spinner) {
 		leftParts = append(leftParts, spinner)
@@ -62,16 +73,23 @@ func NewAppFooter(version string, rightBtn, spinner fyne.CanvasObject, extraLeft
 	}
 	heightLock := canvas.NewRectangle(color.Transparent)
 	heightLock.SetMinSize(fyne.NewSize(0, AppFooterRowHeight))
-	return newAppFooterStrip(NewInsetExact(container.NewMax(heightLock, row), 18, 18, 4, 6))
+	return newAppFooterStrip(NewInsetExact(container.NewMax(heightLock, row), 18, 18, 4, 6), withLine)
 }
 
-func newAppFooterStrip(inner fyne.CanvasObject) fyne.CanvasObject {
-	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
-	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
+func newAppFooterStrip(inner fyne.CanvasObject, withLine bool) fyne.CanvasObject {
 	// Square fill to the window's own bottom edge -- without this the
 	// footer is just a hairline + inset content, and a maximized Win11
 	// window shows leftover rounded "ears" of whatever sits behind it.
 	bg := canvas.NewRectangle(design.ColorGray950)
 	bg.CornerRadius = 0
+	if !withLine {
+		return container.NewStack(bg, inner)
+	}
+	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
+	lineH := float32(0.5)
+	if IsMobile() {
+		lineH = 1
+	}
+	accentLine.SetMinSize(fyne.NewSize(1, lineH))
 	return container.NewStack(bg, NewTopLine(inner, accentLine))
 }

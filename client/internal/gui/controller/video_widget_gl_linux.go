@@ -220,7 +220,16 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	}
 	sz := vw.container.Size()
 	pos := vw.videoContainerOrigin()
-	return pos.X, pos.Y, sz.Width, sz.Height
+	h = sz.Height
+	if vw.contentContainer != nil && vw.contentContainer.Visible() {
+		if kh := vw.contentContainer.Size().Height; kh > 0 {
+			h -= kh
+			if h < 0 {
+				h = 0
+			}
+		}
+	}
+	return pos.X, pos.Y, sz.Width, h
 }
 
 // ── Vulkan mouse event forwarding ─────────────────────────────────────────────

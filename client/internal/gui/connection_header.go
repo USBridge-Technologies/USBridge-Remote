@@ -27,6 +27,8 @@ type connectionHeaderActions struct {
 	OnShowLanguageMenu func(anchor fyne.CanvasObject)
 	OnOpenCommunity    func()
 	OnOpenInfo         func()
+	OnOpenHardwareAgent func()
+	OnOpenSoftwareAgent func()
 	OnToggleTailscale  func()
 	// OnOpenAccount opens the account login/sync dialog (see
 	// MainWindow.showAccountDialog) -- fired by the login avatar button.
@@ -94,11 +96,13 @@ var gearIconHeader = fyne.NewStaticResource("gear-header.svg", []byte(`<svg xmln
 // freeing that space for the Control/Devices/Snapshots/Scripts selector
 // (mainWindowLayout's own tabHeaderButtons).
 type headerSettingsMenuActions struct {
-	OnPowerReset       func()
-	OnShowLanguageMenu func(anchor fyne.CanvasObject)
-	OnOpenCommunity    func()
-	OnOpenInfo         func()
-	OnOpenAccount      func()
+	OnPowerReset        func()
+	OnShowLanguageMenu  func(anchor fyne.CanvasObject)
+	OnOpenCommunity     func()
+	OnOpenInfo          func()
+	OnOpenHardwareAgent func()
+	OnOpenSoftwareAgent func()
+	OnOpenAccount       func()
 }
 
 // newHeaderSettingsMenuButton builds a single gear-icon button that opens a
@@ -113,6 +117,22 @@ type headerSettingsMenuActions struct {
 func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasObject {
 	var btn *headerStatusBadgeButton
 	btn = newHeaderStatusBadgeButton(gearIconHeader, func() {
+		if view.IsMobile() {
+			view.ShowMobileControlSettingsMenu(btn,
+				actions.OnPowerReset,
+				actions.OnOpenHardwareAgent,
+				actions.OnOpenSoftwareAgent,
+				actions.OnOpenInfo,
+				actions.OnOpenCommunity,
+				func() {
+					if actions.OnShowLanguageMenu != nil {
+						actions.OnShowLanguageMenu(btn)
+					}
+				},
+				actions.OnOpenAccount,
+			)
+			return
+		}
 		view.ShowStyledMenuTeal(btn, []view.StyledMenuItem{
 			{Label: "Power Reset", OnTap: func() {
 				if actions.OnPowerReset != nil {
