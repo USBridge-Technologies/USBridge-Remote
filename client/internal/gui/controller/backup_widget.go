@@ -35,6 +35,10 @@ type BackupWidget struct {
 	isClosing             atomic.Bool
 	refreshStop           chan struct{}
 	stopRefreshOnce       sync.Once
+
+	firmwareBanner         *view.FirmwarePromoBanner
+	firmwareChip           *view.FooterPromoChip
+	firmwarePromoDismissed bool
 }
 
 // NewBackupWidget creates a new backup widget
@@ -147,26 +151,58 @@ func (bw *BackupWidget) updateStatusAsync(status string) {
 	})
 }
 
-// openHardwarePromo opens the USBridge KVM hardware page, used by the
-// Snapshots empty-state placeholder shown for non-USBridge agents.
-func (bw *BackupWidget) openHardwarePromo() {
-	const promoURL = "https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0"
+const snapshotsFirmwarePromoDismissedPrefKey = "snapshots.firmware_promo.dismissed"
 
-	uri, err := url.Parse(promoURL)
+func (bw *BackupWidget) openFirmwarePromo() {
+	uri, err := url.Parse(view.FirmwarePromoURL)
 	if err != nil {
-		logrus.Errorf("failed to parse hardware promo URL %q: %v", promoURL, err)
+		logrus.Errorf("failed to parse firmware promo URL %q: %v", view.FirmwarePromoURL, err)
 		return
 	}
-
 	fyneApp := fyne.CurrentApp()
 	if fyneApp == nil {
-		logrus.Errorf("failed to open hardware promo URL: fyne app is nil")
+		logrus.Errorf("failed to open firmware promo URL: fyne app is nil")
 		return
 	}
-
 	go func() {
 		if err := fyneApp.OpenURL(uri); err != nil {
-			logrus.Errorf("failed to open hardware promo URL %q: %v", promoURL, err)
+			logrus.Errorf("failed to open firmware promo URL %q: %v", view.FirmwarePromoURL, err)
 		}
 	}()
+}
+
+func (bw *BackupWidget) firmwarePromoDismissedPref() bool {
+	app := fyne.CurrentApp()
+	if app == nil {
+		return false
+	}
+	return app.Preferences().BoolWithFallback(snapshotsFirmwarePromoDismissedPrefKey, false)
+}
+
+func (bw *BackupWidget) setFirmwarePromoDismissed(on bool) {
+	bw.firmwarePromoDismissed = on
+	if app := fyne.CurrentApp(); app != nil {
+		app.Preferences().SetBool(snapshotsFirmwarePromoDismissedPrefKey, on)
+	}
+}
+
+func (bw *BackupWidget) dismissFirmwarePromo() {
+	bw.setFirmwarePromoDismissed(true)
+	if bw.ui != nil {
+		bw.ui.Refresh()
+	}
+}
+
+func (bw *BackupWidget) restoreFirmwarePromo() {
+	bw.setFirmwarePromoDismissed(false)
+	if bw.ui != nil {
+		bw.ui.Refresh()
+	}
+}
+
+func (bw *BackupWidget) syncFirmwareChip() {
+	softwareAgent := bw.usbClient != nil && !isUSBridgeAgentOS(bw.agentOS)
+	if bw.firmwareChip != nil {
+		bw.firmwareChip.SetActive(softwareAgent && bw.firmwarePromoDismissed)
+	}
 }

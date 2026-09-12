@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"image/color"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/sirupsen/logrus"
 )
 
 // ScriptsTabWidget provides the fourth "Scripts" tab combining MCP Proxy controls
@@ -38,6 +40,13 @@ type ScriptsTabWidget struct {
 	connectingHint  *view.DeviceDashboardBusySpinner
 	footerChip      *view.ScriptFooterStatus
 	footerChips     []*view.ScriptFooterStatus
+
+	firmwareBanner         *view.FirmwarePromoBanner
+	firmwareChip           *view.FooterPromoChip
+	firmwarePromoDismissed bool
+	// agentPromo is the software-agent Scripts half: firmware banner
+	// instead of the hardware table. MCP stays fully usable.
+	agentPromo bool
 
 	scripts          []models.ScriptInfo
 	lastStatus       map[string]models.ScriptRunStatus
@@ -126,6 +135,7 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 	}
 
 	fyne.Do(func() {
+		w.agentPromo = false
 		w.lockedMessage = ""
 		w.newScriptEnabled = false
 		w.rebuild()
@@ -151,7 +161,7 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 			if w.isClosing.Load() {
 				return
 			}
-			fyne.Do(func() { w.showScriptsLocked("Scripts are available on USBridge hardware only.") })
+			fyne.Do(func() { w.showScriptsAgentPromo() })
 			return
 		}
 
@@ -164,7 +174,28 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 // and disables New Script -- SD/eMMC storage doesn't exist on a software
 // Agent. The MCP card stays fully usable regardless of agent type.
 func (w *ScriptsTabWidget) showScriptsLocked(msg string) {
+	w.agentPromo = false
 	w.lockedMessage = msg
+	w.newScriptEnabled = false
+	w.scripts = nil
+	w.rowUpdaters = make(map[string]func(bool, string))
+	w.mu.Lock()
+	w.lastStatus = make(map[string]models.ScriptRunStatus)
+	w.ignoreErrorUntilRun = make(map[string]bool)
+	w.footerWasRunning = false
+	w.footerShowDone = false
+	w.footerDismissed = false
+	w.mu.Unlock()
+	w.rebuild()
+	w.syncFooterStatus()
+}
+
+// showScriptsAgentPromo swaps the Scripts table for the firmware banner
+// (or nothing, if the user already dismissed it). + New stays gray and
+// unclickable. The MCP card is left alone.
+func (w *ScriptsTabWidget) showScriptsAgentPromo() {
+	w.agentPromo = true
+	w.lockedMessage = ""
 	w.newScriptEnabled = false
 	w.scripts = nil
 	w.rowUpdaters = make(map[string]func(bool, string))
@@ -261,8 +292,16 @@ func (w *ScriptsTabWidget) build() {
 	w.connectingHint = view.NewDeviceDashboardBusyHint("connecting device")
 	w.footerChip = view.NewScriptFooterStatus()
 	w.footerChip.SetOnDismiss(w.dismissFooterHint)
+	w.firmwarePromoDismissed = w.firmwarePromoDismissedPref()
+	w.firmwareBanner = view.NewFirmwarePromoBanner()
+	w.firmwareBanner.SetFlushMargins(true)
+	w.firmwareBanner.SetOnDismiss(w.dismissFirmwarePromo)
+	w.firmwareBanner.SetOnTrial(w.openFirmwarePromo)
+	w.firmwareChip = view.NewFooterLabelChip("software")
+	w.firmwareChip.SetOnOpen(w.openFirmwarePromo)
+	w.firmwareChip.SetOnRestore(w.restoreFirmwarePromo)
 	w.body = container.NewMax()
-	footer := view.NewAppFooter(view.AppVersion(), nil, w.busySpinner, w.connectingHint, w.footerChip)
+	footer := view.NewAppFooter(view.AppVersion(), nil, w.busySpinner, w.connectingHint, w.footerChip, w.firmwareChip)
 	w.outerContainer = view.NewEdgeStack(nil, footer, w.body)
 	w.lockedMessage = "Not connected"
 	if app := fyne.CurrentApp(); app != nil {
@@ -277,6 +316,58 @@ func (w *ScriptsTabWidget) rebuild() {
 	}
 	w.body.Objects = []fyne.CanvasObject{view.NewScriptsSection(w.sectionData())}
 	w.body.Refresh()
+	w.syncFirmwareChip()
+}
+
+const scriptsFirmwarePromoDismissedPrefKey = "scripts.firmware_promo.dismissed"
+
+func (w *ScriptsTabWidget) openFirmwarePromo() {
+	uri, err := url.Parse(view.FirmwarePromoURL)
+	if err != nil {
+		logrus.Errorf("failed to parse firmware promo URL %q: %v", view.FirmwarePromoURL, err)
+		return
+	}
+	fyneApp := fyne.CurrentApp()
+	if fyneApp == nil {
+		logrus.Errorf("failed to open firmware promo URL: fyne app is nil")
+		return
+	}
+	go func() {
+		if err := fyneApp.OpenURL(uri); err != nil {
+			logrus.Errorf("failed to open firmware promo URL %q: %v", view.FirmwarePromoURL, err)
+		}
+	}()
+}
+
+func (w *ScriptsTabWidget) firmwarePromoDismissedPref() bool {
+	app := fyne.CurrentApp()
+	if app == nil {
+		return false
+	}
+	return app.Preferences().BoolWithFallback(scriptsFirmwarePromoDismissedPrefKey, false)
+}
+
+func (w *ScriptsTabWidget) setFirmwarePromoDismissed(on bool) {
+	w.firmwarePromoDismissed = on
+	if app := fyne.CurrentApp(); app != nil {
+		app.Preferences().SetBool(scriptsFirmwarePromoDismissedPrefKey, on)
+	}
+}
+
+func (w *ScriptsTabWidget) dismissFirmwarePromo() {
+	w.setFirmwarePromoDismissed(true)
+	w.rebuild()
+}
+
+func (w *ScriptsTabWidget) restoreFirmwarePromo() {
+	w.setFirmwarePromoDismissed(false)
+	w.rebuild()
+}
+
+func (w *ScriptsTabWidget) syncFirmwareChip() {
+	if w.firmwareChip != nil {
+		w.firmwareChip.SetActive(w.agentPromo && w.firmwarePromoDismissed)
+	}
 }
 
 func (w *ScriptsTabWidget) rebuildSoon() {
@@ -344,7 +435,7 @@ func (w *ScriptsTabWidget) sectionData() view.ScriptsSectionData {
 		})
 	}
 
-	return view.ScriptsSectionData{
+	data := view.ScriptsSectionData{
 		MCP: view.ScriptsMCPData{
 			URL:     url,
 			Running: w.mcpProxy.Running(),
@@ -373,6 +464,13 @@ func (w *ScriptsTabWidget) sectionData() view.ScriptsSectionData {
 		Rows:          rows,
 		LockedMessage: locked,
 	}
+	if w.agentPromo && !w.firmwarePromoDismissed && w.firmwareBanner != nil {
+		w.firmwareBanner.Show()
+		data.Banner = w.firmwareBanner
+	} else if w.firmwareBanner != nil {
+		w.firmwareBanner.Hide()
+	}
+	return data
 }
 
 func scriptSourceLabel(path string) string {
@@ -556,6 +654,7 @@ func (w *ScriptsTabWidget) refreshScriptsList() {
 			w.scripts = scripts
 			w.lockedMessage = ""
 			w.newScriptEnabled = true
+			w.agentPromo = false
 			w.mu.Unlock()
 			w.rebuild()
 		})

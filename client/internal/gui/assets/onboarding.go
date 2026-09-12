@@ -329,14 +329,14 @@ var (
 	// the USBridge logo mark itself, since a wordmark/logo doesn't read as
 	// a device-type icon next to Linux/Windows/macOS's own OS glyphs.
 	USBridgeOSIcon = fyne.NewStaticResource("USBridge-os.svg", recolorFillIcon(cpuIcon, "#C9C9C9"))
-	// USBridgeOSIconAccent/*OSIconAgent: the Grid-mode connection card's
-	// status icon colored by category instead of the neutral gray above --
-	// KVM (the USBridge hardware itself) in #93c572 (design.ColorAccent's
-	// "salad" green), a software Agent's OS glyph in #41e0c3 (design.
-	// ColorConnectionBadgeText's teal). Kept as separate resources rather
-	// than recoloring at runtime since every other icon here is baked the
-	// same way.
-	USBridgeOSIconAccent = fyne.NewStaticResource("USBridge-os-accent.svg", recolorFillIcon(cpuIcon, "#93c572"))
+	// USBridgeOSIconAccent/*OSIconAgent: the Grid/List KVM chip and the
+	// firmware-promo CPU glyph, colored by category instead of the
+	// neutral gray above -- KVM (the USBridge hardware itself) in
+	// #c4e77a (this app's lime), a software Agent's OS glyph in #41e0c3
+	// (design.ColorConnectionBadgeText's teal). Kept as separate
+	// resources rather than recoloring at runtime since every other
+	// icon here is baked the same way.
+	USBridgeOSIconAccent = fyne.NewStaticResource("USBridge-os-accent.svg", recolorFillIcon(cpuIcon, "#c4e77a"))
 	LinuxOSIconAgent     = fyne.NewStaticResource("linux-os-agent.svg", recolorMonoIcon(linuxOSIcon, "#41e0c3", "1.8"))
 	WindowsOSIconAgent   = fyne.NewStaticResource("windows-os-agent.svg", recolorMonoIcon(windowsOSIcon, "#41e0c3", "1.8"))
 	MacOSIconAgent       = fyne.NewStaticResource("macos-os-agent.svg", recolorMonoIcon(macosOSIcon, "#41e0c3", "1.8"))

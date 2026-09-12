@@ -188,9 +188,9 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 	if editing {
 		// Protocol picker and Connect hide while editing (see
 		// ConnectionCardActions.OnSave/OnDelete's doc comment) -- Delete,
-		// Save and Cancel take their place as a small right-aligned icon
-		// row (in that order) instead of full-width buttons, since that's
-		// all this action needs.
+		// Cancel (X) and Confirm take their place as a small right-aligned
+		// icon row (in that order) instead of full-width buttons, since
+		// that's all this action needs.
 		deleteIcon := fyne.NewStaticResource("connection-delete.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`))
 		deleteBtn = newIconChromeButton(iconChromeButtonSpec{
 			NormalFill:   color.Transparent,
@@ -240,7 +240,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 		})
 		cancelBtn.SetDisabled(state.Disabled)
 
-		bottomRow = container.NewBorder(nil, nil, nil, container.New(&DeviceRowControlsLayout{Gap: 8}, deleteBtn, saveBtn, cancelBtn))
+		bottomRow = container.NewBorder(nil, nil, nil, container.New(&DeviceRowControlsLayout{Gap: 8}, deleteBtn, cancelBtn, saveBtn))
 	} else {
 		protocolDropdown = NewHeaderDropdown(data.ProtocolOptions, data.ProtocolBadge, actions.OnProtocolChange)
 		protocolDropdown.UltraCompact = true
@@ -404,10 +404,10 @@ var (
 
 // newConnectionCardStatusIndicator is the small mark to the left of the
 // card's title: the same per-connection icon the List row shows (same OS/KVM
-// classification as osIconResource), but colored by category instead of
-// List's neutral gray -- KVM in accent's "salad" green, a known Agent OS in
-// the teal Agent color -- or a plain gray dot when RemoteOS is still empty
-// (no successful connect yet, so nothing to classify).
+// classification as osIconResource), colored by category -- KVM in this
+// app's lime (#c4e77a), a known Agent OS in the teal Agent color -- or a
+// plain gray dot when RemoteOS is still empty (no successful connect yet,
+// so nothing to classify).
 func newConnectionCardStatusIndicator(remoteOS string) fyne.CanvasObject {
 	const size = float32(16)
 	isAgent, isKVM := ClassifyConnectionRemoteOS(remoteOS)

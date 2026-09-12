@@ -113,7 +113,7 @@ func NewConnectionEditPanel(data ConnectionEditPanelData, actions ConnectionEdit
 		OnTapped:     actions.OnDelete,
 	})
 
-	actionsBox := container.New(&DeviceRowControlsLayout{Gap: 8}, deleteBtn, saveBtn, cancelBtn)
+	actionsBox := container.New(&DeviceRowControlsLayout{Gap: 8}, deleteBtn, cancelBtn, saveBtn)
 	bottomRow := container.NewBorder(nil, nil, nil, actionsBox)
 
 	// A little breathing room between name/info-box/buttons -- 3px above

@@ -8,9 +8,18 @@ import (
 )
 
 func (bw *BackupWidget) createInterface() {
+	bw.firmwarePromoDismissed = bw.firmwarePromoDismissedPref()
+	bw.firmwareBanner = view.NewFirmwarePromoBanner()
+	bw.firmwareBanner.SetOnDismiss(bw.dismissFirmwarePromo)
+	bw.firmwareBanner.SetOnTrial(bw.openFirmwarePromo)
+	bw.firmwareChip = view.NewFooterLabelChip("software")
+	bw.firmwareChip.SetOnOpen(bw.openFirmwarePromo)
+	bw.firmwareChip.SetOnRestore(bw.restoreFirmwarePromo)
 	bw.ui = view.NewBackupWidgetUI()
+	bw.ui.SetFirmwareChip(bw.firmwareChip)
 	bw.ui.SetOnRebuild(func() {
 		bw.ui.SetSection(view.NewSnapshotsSection(bw.snapshotsSectionData()))
+		bw.syncFirmwareChip()
 	})
 	bw.ui.Refresh()
 }
@@ -20,13 +29,22 @@ func (bw *BackupWidget) snapshotsSectionData() view.SnapshotsSectionData {
 		if bw.ui != nil {
 			bw.ui.SetBusy(false)
 		}
-		return view.SnapshotsSectionData{
+		data := view.SnapshotsSectionData{
 			SnapshotCount: 0,
 			MountLabel:    "Mount backup flash",
 			MountEnabled:  false,
-			OnMount:       bw.currentFlashAction(),
-			Promo:         view.NewEmptyStatePromoCard(bw.openHardwarePromo),
+			MountInactive: true,
 		}
+		if !bw.firmwarePromoDismissed && bw.firmwareBanner != nil {
+			bw.firmwareBanner.Show()
+			data.Banner = bw.firmwareBanner
+		} else if bw.firmwareBanner != nil {
+			bw.firmwareBanner.Hide()
+		}
+		return data
+	}
+	if bw.firmwareBanner != nil {
+		bw.firmwareBanner.Hide()
 	}
 
 	mounting := bw.isMounting.Load()

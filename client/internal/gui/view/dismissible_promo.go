@@ -12,11 +12,11 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
 var (
-	deviceFirmwarePromoCPUIcon = fyne.NewStaticResource("device_firmware_promo_cpu.svg", []byte(strings.ReplaceAll(string(assets.USBridgeOSIconAccent.Content()), "#93c572", "#c4e77a")))
 	deviceFirmwarePromoWebIcon = fyne.NewStaticResource("device_firmware_promo_web.svg", []byte(strings.ReplaceAll(string(assets.LanguageIcon.Content()), "#F5F5F5", "#4c6803")))
 )
 
@@ -25,8 +25,8 @@ const (
 	deviceFirmwarePromoSubtitle = "Turn your board into a hardware KVM"
 )
 
-// DeviceFirmwarePromo is the Devices-tab stand-in for Network, Backup
-// Flash, and ISO Media on a software agent: one card with a shared title,
+// DeviceFirmwarePromo is the Devices-tab stand-in for Network and Backup
+// Flash on a software agent: one card with a shared title,
 // a small website button, a hover-only X, and three compact feature
 // plaques inside. Shown only while connected to a software agent (not
 // hardware KVM). Border stays idle until hover — same as the other
@@ -102,7 +102,7 @@ func (p *DeviceFirmwarePromo) syncChrome() {
 }
 
 func (p *DeviceFirmwarePromo) CreateRenderer() fyne.WidgetRenderer {
-	cpu := canvas.NewImageFromResource(deviceFirmwarePromoCPUIcon)
+	cpu := canvas.NewImageFromResource(assets.USBridgeOSIconAccent)
 	cpu.FillMode = canvas.ImageFillContain
 	cpu.SetMinSize(fyne.NewSize(16, 16))
 
@@ -156,10 +156,11 @@ func (p *DeviceFirmwarePromo) CreateRenderer() fyne.WidgetRenderer {
 	p.closeBtn.Hide()
 	// Fixed-width slot so the website button never jumps left when the
 	// hover X appears -- Hide() on the X itself would collapse the row.
+	// The X itself is overlaid on the card (see closeOverlay) so it can
+	// sit a bit higher and further right than this header slot.
 	closeReserve := canvas.NewRectangle(color.Transparent)
 	closeReserve.SetMinSize(fyne.NewSize(16, 16))
-	closeSlot := container.NewStack(closeReserve, p.closeBtn)
-	headerRight := container.New(&DeviceRowControlsLayout{Gap: 4}, webBtn, closeSlot)
+	headerRight := container.New(&DeviceRowControlsLayout{Gap: 4}, webBtn, closeReserve)
 	header := container.NewBorder(nil, nil, titleCluster, headerRight)
 
 	plaques := container.New(&DeviceDashboardPairLayout{Gap: 8},
@@ -177,8 +178,13 @@ func (p *DeviceFirmwarePromo) CreateRenderer() fyne.WidgetRenderer {
 	// covers the empty card area the interactive controls don't occupy.
 	overlay := newConnectionCardOverlay(nil, p.setHovered)
 
+	closeOverlay := container.NewBorder(
+		NewInsetExact(container.NewHBox(layout.NewSpacer(), p.closeBtn), 0, 4, 4, 0),
+		nil, nil, nil,
+	)
+
 	p.syncChrome()
-	return widget.NewSimpleRenderer(container.NewStack(overlay, p.border, inner))
+	return widget.NewSimpleRenderer(container.NewStack(overlay, p.border, inner, closeOverlay))
 }
 
 func newFirmwareFeaturePlaque(icon fyne.Resource, label string) fyne.CanvasObject {
@@ -187,5 +193,10 @@ func newFirmwareFeaturePlaque(icon fyne.Resource, label string) fyne.CanvasObjec
 	img.SetMinSize(fyne.NewSize(12, 12))
 	text := canvas.NewText(label, design.ColorTextLight)
 	text.TextSize = 10
-	return container.NewCenter(container.New(&DeviceRowControlsLayout{Gap: 6}, img, text))
+	row := container.New(&DeviceRowControlsLayout{Gap: 6}, img, text)
+	outline := canvas.NewRectangle(color.Transparent)
+	outline.CornerRadius = 6
+	outline.StrokeColor = design.ColorTailscaleChipBorder
+	outline.StrokeWidth = 1
+	return container.NewStack(outline, NewInsetExact(container.NewCenter(row), 10, 10, 6, 6))
 }

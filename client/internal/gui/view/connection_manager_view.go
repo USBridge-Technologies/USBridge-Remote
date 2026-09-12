@@ -861,7 +861,7 @@ func osIconResource(os string) fyne.Resource {
 	normalized := strings.ToLower(strings.TrimSpace(os))
 	switch {
 	case strings.Contains(normalized, "usbridge"):
-		return assets.USBridgeOSIcon
+		return assets.USBridgeOSIconAccent
 	case strings.Contains(normalized, "linux"):
 		return assets.LinuxOSIcon
 	case strings.Contains(normalized, "windows"):

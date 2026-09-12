@@ -11,10 +11,10 @@ import (
 )
 
 var (
-	placementUser32          = windows.NewLazySystemDLL("user32.dll")
-	procGetWindowRect        = placementUser32.NewProc("GetWindowRect")
-	procSetWindowPos         = placementUser32.NewProc("SetWindowPos")
-	procGetSystemMetrics     = placementUser32.NewProc("GetSystemMetrics")
+	placementUser32      = windows.NewLazySystemDLL("user32.dll")
+	procGetWindowRect    = placementUser32.NewProc("GetWindowRect")
+	procSetWindowPos     = placementUser32.NewProc("SetWindowPos")
+	procGetSystemMetrics = placementUser32.NewProc("GetSystemMetrics")
 )
 
 const (

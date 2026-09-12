@@ -19,6 +19,7 @@ type BackupWidgetUI struct {
 	footerHost      *fyne.Container
 	scriptFooter    *ScriptFooterStatus
 	connectingHint  *DeviceDashboardBusySpinner
+	firmwareChip    *FooterPromoChip
 	onRebuild       func()
 }
 
@@ -76,6 +77,9 @@ func (ui *BackupWidgetUI) rebuildFooter() {
 	if ui.scriptFooter != nil {
 		extra = append(extra, ui.scriptFooter)
 	}
+	if ui.firmwareChip != nil {
+		extra = append(extra, ui.firmwareChip)
+	}
 	ui.footerHost.Objects = []fyne.CanvasObject{NewAppFooter(AppVersion(), nil, ui.BusySpinner, extra...)}
 	ui.footerHost.Refresh()
 }
@@ -93,6 +97,14 @@ func (ui *BackupWidgetUI) SetConnectingHint(hint *DeviceDashboardBusySpinner) {
 		return
 	}
 	ui.connectingHint = hint
+	ui.rebuildFooter()
+}
+
+func (ui *BackupWidgetUI) SetFirmwareChip(chip *FooterPromoChip) {
+	if ui == nil {
+		return
+	}
+	ui.firmwareChip = chip
 	ui.rebuildFooter()
 }
 

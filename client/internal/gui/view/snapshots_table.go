@@ -48,20 +48,27 @@ type SnapshotsSectionData struct {
 	MountEnabled  bool
 	MountLoading  bool
 	FlashMounted  bool
+	// MountInactive is the software-agent treatment: the + button stays
+	// visible but gray and unclickable (backup flash lives on the board).
+	MountInactive bool
 	OnMount       func()
 	Rows          []SnapshotTableRow
-	// Promo, when set, replaces the table -- used for non-USBridge agents
-	// (NewEmptyStatePromoCard), same empty-hardware treatment the old list had.
-	Promo fyne.CanvasObject
+	// Banner, when set, sits under the header -- the same USBridge
+	// Firmware strip Connections uses, shown on a software agent.
+	Banner fyne.CanvasObject
 }
 
 // NewSnapshotsSection builds the Snapshots tab: connections-style header
 // pinned above a scrolling table (or promo card).
 func NewSnapshotsSection(data SnapshotsSectionData) fyne.CanvasObject {
 	header := newSnapshotsHeader(data)
+	top := header
+	if data.Banner != nil {
+		top = container.NewVBox(header, data.Banner)
+	}
 	var body fyne.CanvasObject
-	if data.Promo != nil {
-		body = data.Promo
+	if data.Banner != nil {
+		body = canvas.NewRectangle(color.Transparent)
 	} else {
 		body = NewSnapshotsListTable(data.Rows)
 	}
@@ -70,7 +77,7 @@ func NewSnapshotsSection(data SnapshotsSectionData) fyne.CanvasObject {
 	// than the leftover viewport -- same idea as Devices' storage list.
 	padded := NewInsetExact(body, connectionsHeaderSideMargin, connectionsHeaderSideMargin+10, 8, 12)
 	scroll := container.NewVScroll(container.New(&snapshotsBodyTopLayout{}, padded))
-	return container.NewBorder(header, nil, nil, nil, scroll)
+	return container.NewBorder(top, nil, nil, nil, scroll)
 }
 
 // snapshotsBodyTopLayout gives its child the child's own MinSize height and
@@ -128,6 +135,8 @@ func newSnapshotsHeader(data SnapshotsSectionData) fyne.CanvasObject {
 func newSnapshotsMountButton(data SnapshotsSectionData) *iconChromeButton {
 	plusSVG := `<svg viewBox="0 0 24 24" fill="#4c6803"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`
 	plusIcon := fyne.NewStaticResource("snapshots-mount.svg", []byte(plusSVG))
+	plusIdle := fyne.NewStaticResource("snapshots-mount-idle.svg", []byte(
+		`<svg viewBox="0 0 24 24" fill="#8f9381"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`))
 
 	label := data.MountLabel
 	if label == "" {
@@ -151,6 +160,17 @@ func newSnapshotsMountButton(data SnapshotsSectionData) *iconChromeButton {
 		LoadingIcon:        plusIcon,
 		LoadingLabelColor:  color.Black,
 		MuteDisabledVisual: true,
+	}
+	if data.MountInactive {
+		spec.NormalFill = design.ColorSurfaceLight
+		spec.HoverFill = design.ColorSurfaceLight
+		spec.DisabledFill = design.ColorSurfaceLight
+		spec.LabelColor = design.ColorConnectionsSectionMutedText
+		spec.NormalIcon = plusIdle
+		spec.HoverIcon = plusIdle
+		spec.DisabledIcon = plusIdle
+		spec.MuteDisabledVisual = false
+		spec.OnTapped = nil
 	}
 	if data.FlashMounted {
 		spec.NormalFill = color.Transparent

@@ -18,9 +18,9 @@ import (
 
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
 // column (HID & Input Hub, Video Pipe & EDID, Audio Pipeline) stacked above
-// one another, and a wide right column (Virtual Mass Storage & ISO Media
-// on hardware KVM, USB Emulation on a software agent; then a short
-// Network + Backups pair, or the firmware promo on an agent), all styled
+// one another, and a wide right column (Virtual Mass Storage & ISO Media,
+// then USB Emulation, then a short Network + Backups pair or the firmware
+// promo on an agent), all styled
 // after the Connections grid's own cards (see view.NewDeviceDashboardCard),
 // including their own teal-on-hover border.
 //
@@ -44,6 +44,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardVideo = container.NewVBox()
 	dw.dashboardAudio = container.NewVBox()
 	dw.dashboardStorage = container.NewVBox()
+	dw.dashboardEmulation = container.NewVBox()
 	dw.dashboardNetworkRows = container.NewVBox()
 	dw.dashboardBackup = container.NewVBox()
 
@@ -52,11 +53,12 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	// row's buttons/toggles from scratch on every call, and each of those
 	// needs the SAME onHover reference the card it lives in was bound to,
 	// not a fresh one every refresh.
-	var hidBind, videoBind, audioBind, storageBind, networkBind, backupBind func(func(bool))
+	var hidBind, videoBind, audioBind, storageBind, emulationBind, networkBind, backupBind func(func(bool))
 	dw.dashboardHIDHover, hidBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardVideoHover, videoBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardAudioHover, audioBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardStorageHover, storageBind = view.NewDeviceDashboardHoverCell()
+	dw.dashboardEmulationHover, emulationBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardNetworkHover, networkBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardBackupHover, backupBind = view.NewDeviceDashboardHoverCell()
 
@@ -93,6 +95,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	// mode-picker/Delete/Upload/mount buttons clear of where the vertical
 	// scrollbar thumb overlays once scrolling is actually active.
 	dw.dashboardStorageScroll = container.NewVScroll(view.NewInsetExact(dw.dashboardStorage, 0, 10, 0, 0))
+	dw.dashboardEmulationScroll = container.NewVScroll(view.NewInsetExact(dw.dashboardEmulation, 0, 10, 0, 0))
 
 	pairRow := container.New(&view.DeviceDashboardPairLayout{Gap: 12}, dw.dashboardNetworkCard, dw.dashboardBackupCard)
 	dw.dashboardPairRow = pairRow
@@ -102,18 +105,27 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardPairSection = container.NewVBox(view.NewDeviceDashboardCardGap(), pairRow, dw.dashboardFirmwarePromo)
 	dw.dashboardPairSection.Hide()
 
-	storageCard, setStorageTitle := view.NewDeviceDashboardCardWithTitle(
+	storageCard := view.NewDeviceDashboardCard(
 		view.DeviceDashboardStorageIconSVG,
-		deviceDashboardStorageTitleHardware,
+		deviceDashboardStorageTitle,
 		"",
 		addImageBtn,
 		dw.dashboardStorageScroll,
 		storageBind,
 	)
-	dw.setDashboardStorageTitle = setStorageTitle
+	emulationCard := view.NewDeviceDashboardCard(
+		view.DeviceDashboardUSBIconSVG,
+		deviceDashboardEmulationTitle,
+		"",
+		nil,
+		dw.dashboardEmulationScroll,
+		emulationBind,
+	)
 
 	dw.dashboardWideColumn = container.NewVBox(
 		storageCard,
+		view.NewDeviceDashboardCardGap(),
+		emulationCard,
 		dw.dashboardPairSection,
 	)
 
@@ -164,8 +176,8 @@ func (dw *DiskWidget) AttachConnectingHint(hint *view.DeviceDashboardBusySpinner
 
 const (
 	devicesFirmwarePromoDismissedPrefKey = "devices.firmware_promo.dismissed"
-	deviceDashboardStorageTitleHardware  = "Virtual Mass Storage & ISO Media"
-	deviceDashboardStorageTitleAgent     = "USB Emulation"
+	deviceDashboardStorageTitle          = "Virtual Mass Storage & ISO Media"
+	deviceDashboardEmulationTitle        = "USB Emulation"
 )
 
 func (dw *DiskWidget) firmwarePromoDismissed() bool {
@@ -235,7 +247,7 @@ func (dw *DiskWidget) refreshDashboard() {
 		dw.dashboardAddImageBtn.SetEnabled(!dw.controlsLocked() || pickerOpen)
 	}
 
-	var hidRows, videoRows, audioRows, storageRows, networkRows, backupRows []fyne.CanvasObject
+	var hidRows, videoRows, audioRows, storageRows, emulationRows, networkRows, backupRows []fyne.CanvasObject
 	type hidDrive struct {
 		idx   int
 		drive DriveItem
@@ -290,6 +302,12 @@ func (dw *DiskWidget) refreshDashboard() {
 				dw.newDashboardConnectSlot(idx, drive, dw.dashboardBackupHover),
 				nil, dw.dashboardBackupChips(drive.Size)...,
 			))
+		case drive.IsUSBPassthrough:
+			emulationRows = append(emulationRows, view.NewDeviceDashboardStorageRow(
+				icon, name, drive.IsMounted, nil, nil, nil,
+				dw.newDashboardConnectSlot(idx, drive, dw.dashboardEmulationHover),
+				nil, drive.Size,
+			))
 		default:
 			if drive.IsUploading {
 				storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, nil, nil, nil, nil, view.NewDeviceDashboardUploadProgress(drive.UploadProgress), drive.Size))
@@ -342,17 +360,13 @@ func (dw *DiskWidget) refreshDashboard() {
 	setDashboardRows(dw.dashboardVideo, videoRows, "No capture devices")
 	setDashboardRows(dw.dashboardAudio, audioRows, "No audio devices")
 	setDashboardRows(dw.dashboardStorage, storageRows, "No storage or ISO media")
+	if dw.dashboardEmulation != nil {
+		setDashboardRows(dw.dashboardEmulation, emulationRows, "No USB devices")
+	}
 
 	softwareAgent := !isUSBridgeAgentOS(dw.agentOS)
 	promoDismissed := dw.firmwarePromoDismissed()
 	showPromo := softwareAgent && !promoDismissed
-	if dw.setDashboardStorageTitle != nil {
-		if softwareAgent {
-			dw.setDashboardStorageTitle(deviceDashboardStorageTitleAgent)
-		} else {
-			dw.setDashboardStorageTitle(deviceDashboardStorageTitleHardware)
-		}
-	}
 
 	setDashboardRows(dw.dashboardNetworkRows, networkRows, "No network bridge devices")
 	if dw.dashboardBackup != nil {
@@ -414,6 +428,13 @@ func (dw *DiskWidget) refreshDashboard() {
 			height = dw.dashboardStorage.MinSize().Height
 		}
 		dw.dashboardStorageScroll.SetMinSize(fyne.NewSize(0, height))
+	}
+	if dw.dashboardEmulationScroll != nil && dw.dashboardEmulation != nil {
+		height := dashboardStorageCapHeight(emulationRows)
+		if height <= 0 {
+			height = dw.dashboardEmulation.MinSize().Height
+		}
+		dw.dashboardEmulationScroll.SetMinSize(fyne.NewSize(0, height))
 	}
 
 	// Container.Show()/Hide()/SetMinSize() alone don't force a relayout --
@@ -529,6 +550,11 @@ func driveIconResource(drive DriveItem) fyne.Resource {
 		iconRes = assets.AudioIcon
 		if drive.IsMounted {
 			iconRes = view.DeviceDashboardAudioIconActive
+		}
+	case "usbpass":
+		iconRes = assets.USBTabIcon
+		if drive.IsMounted {
+			iconRes = view.DeviceDashboardUSBIconActive
 		}
 	default:
 		iconRes = assets.DiscIcon
@@ -707,6 +733,9 @@ func dashboardNetworkTitle(title string) (name, chip string) {
 // busy fill "Mount New ISO" uses -- instead of disappearing.
 func (dw *DiskWidget) newDashboardConnectSlot(idx int, drive DriveItem, hover func(bool)) fyne.CanvasObject {
 	locked := dw.controlsLocked()
+	if drive.USBPassthrough != nil && drive.USBPassthrough.Protected && !drive.IsMounted {
+		locked = true
+	}
 	if drive.IsMounted {
 		btn := view.NewDeviceDashboardDisconnectButton(func() {
 			dw.toggleDriveMount(idx)

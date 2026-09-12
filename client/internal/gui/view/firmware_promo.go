@@ -75,6 +75,9 @@ type FirmwarePromoBanner struct {
 	featureIdx   int
 	featureAnim  *fyne.Animation
 	rotStop      chan struct{}
+	// flushMargins skips the Connections-header side inset so the strip
+	// can sit inside an already-padded column (Scripts' automation half).
+	flushMargins bool
 }
 
 var _ desktop.Hoverable = (*FirmwarePromoBanner)(nil)
@@ -91,6 +94,10 @@ func (b *FirmwarePromoBanner) SetOnDismiss(fn func()) {
 
 func (b *FirmwarePromoBanner) SetOnTrial(fn func()) {
 	b.onTrial = fn
+}
+
+func (b *FirmwarePromoBanner) SetFlushMargins(on bool) {
+	b.flushMargins = on
 }
 
 func (b *FirmwarePromoBanner) Show() {
@@ -238,20 +245,6 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 	subtitle.TextSize = 9
 	titleBlock := container.New(&tightStatsVBoxLayout{Gap: 1}, title, subtitle)
 
-	boards := NewHeaderDropdown(nil, "", nil)
-	boards.UltraCompact = true
-	boards.CornerRadius = 6
-	boards.BorderColor = design.ColorTailscaleChipBorder
-	boards.TextColor = design.ColorConnectionBadgeText
-	boards.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
-	boards.TextSize = 10
-	boards.HoverBorderColor = design.ColorConnectionBadgeText
-	boards.HoverFillColor = design.ColorGray900
-	boards.SetDetails(firmwarePromoBoardDetails)
-	boards.OnHover = b.setHovered
-	boards.SetOptions(firmwarePromoBoardsList)
-	boards.SetSelected(firmwarePromoBoardsList[0])
-
 	b.featureIcon = canvas.NewImageFromResource(firmwarePromoCheckIcon)
 	b.featureIcon.FillMode = canvas.ImageFillContain
 	b.featureIcon.SetMinSize(fyne.NewSize(12, 12))
@@ -286,9 +279,25 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 		container.NewCenter(cpu),
 		titleBlock,
 	)
-	// Extra gap before the board list so "Radxa …" sits a bit right of the
-	// title instead of tight against the subtitle.
-	left := container.New(&DeviceRowControlsLayout{Gap: 22}, titleCluster, boards)
+	// Scripts' half-width column cannot fit the board picker; Connections
+	// keeps the extra gap so "Radxa …" sits a bit right of the subtitle.
+	var left fyne.CanvasObject = titleCluster
+	if !b.flushMargins {
+		boards := NewHeaderDropdown(nil, "", nil)
+		boards.UltraCompact = true
+		boards.CornerRadius = 6
+		boards.BorderColor = design.ColorTailscaleChipBorder
+		boards.TextColor = design.ColorConnectionBadgeText
+		boards.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+		boards.TextSize = 10
+		boards.HoverBorderColor = design.ColorConnectionBadgeText
+		boards.HoverFillColor = design.ColorGray900
+		boards.SetDetails(firmwarePromoBoardDetails)
+		boards.OnHover = b.setHovered
+		boards.SetOptions(firmwarePromoBoardsList)
+		boards.SetSelected(firmwarePromoBoardsList[0])
+		left = container.New(&DeviceRowControlsLayout{Gap: 22}, titleCluster, boards)
+	}
 	right := container.New(&DeviceRowControlsLayout{Gap: 12}, featureRow, trialBtn)
 	row := container.NewBorder(nil, nil, left, right)
 
@@ -335,8 +344,13 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 	inner := NewInsetExact(row, 20, 28, 7, 7)
 	bar := container.NewStack(bg, inner, border, closeSlot)
 	// Side margins match the section header / cards so the strip lines up
-	// with them instead of hugging the window edge.
-	content := NewInset(bar, connectionsHeaderSideMargin, connectionsHeaderSideMargin, 6, 0)
+	// with them instead of hugging the window edge. Scripts' automation
+	// column is already inset, so flushMargins keeps only the top gap.
+	side := connectionsHeaderSideMargin
+	if b.flushMargins {
+		side = 0
+	}
+	content := NewInset(bar, side, side, 6, 0)
 
 	b.syncClose()
 	if b.Visible() {

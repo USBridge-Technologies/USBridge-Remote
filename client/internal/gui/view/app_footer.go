@@ -68,5 +68,10 @@ func NewAppFooter(version string, rightBtn, spinner fyne.CanvasObject, extraLeft
 func newAppFooterStrip(inner fyne.CanvasObject) fyne.CanvasObject {
 	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
 	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
-	return NewTopLine(inner, accentLine)
+	// Square fill to the window's own bottom edge -- without this the
+	// footer is just a hairline + inset content, and a maximized Win11
+	// window shows leftover rounded "ears" of whatever sits behind it.
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bg.CornerRadius = 0
+	return container.NewStack(bg, NewTopLine(inner, accentLine))
 }

@@ -25,8 +25,8 @@ import (
 // DeviceDashboardColumnsLayout arranges exactly two children side by side --
 // a narrow column and a wide one, the wide column Ratio times as wide as
 // the narrow one, with Gap pixels between them. The Devices tab's own
-// narrow-left/wide-right split (HID/Video/Audio cards vs. the single big
-// Storage card).
+// narrow-left/wide-right split (HID/Video/Audio cards vs. Storage +
+// USB Emulation).
 type DeviceDashboardColumnsLayout struct {
 	Gap   float32
 	Ratio float32
@@ -261,9 +261,7 @@ func NewDeviceDashboardCard(icon fyne.Resource, title string, description string
 }
 
 // NewDeviceDashboardCardWithTitle is NewDeviceDashboardCard plus a setter
-// for the header label. Devices' storage card uses it to show
-// "Virtual Mass Storage & ISO Media" on hardware KVM and "USB Emulation"
-// on a software agent.
+// for the header label.
 func NewDeviceDashboardCardWithTitle(icon fyne.Resource, title string, description string, headerRight fyne.CanvasObject, content fyne.CanvasObject, bindHover func(func(bool))) (fyne.CanvasObject, func(string)) {
 	iconImg := canvas.NewImageFromResource(icon)
 	iconImg.FillMode = canvas.ImageFillContain
@@ -1046,6 +1044,8 @@ var DeviceDashboardCameraIconActive = fyne.NewStaticResource("device_dashboard_c
 // size). Backups uses SnapshotsTabIcon (the floppy the Snapshots tab uses).
 var DeviceDashboardNetworkIconSVG = fyne.NewStaticResource("device_dashboard_network.svg", []byte(strings.ReplaceAll(string(assets.LanguageIcon.Content()), "#F5F5F5", "#c4e77a")))
 var DeviceDashboardBackupsIconSVG = fyne.NewStaticResource("device_dashboard_backups.svg", []byte(strings.ReplaceAll(string(assets.SnapshotsTabIcon.Content()), "#F5F5F5", "#c4e77a")))
+var DeviceDashboardUSBIconSVG = fyne.NewStaticResource("device_dashboard_usb.svg", []byte(strings.ReplaceAll(string(assets.USBTabIcon.Content()), "#F5F5F5", "#c4e77a")))
+var DeviceDashboardUSBIconActive = fyne.NewStaticResource("device_dashboard_usb_active.svg", []byte(strings.ReplaceAll(string(assets.USBTabIconActive.Content()), "#93C572", "#c4e77a")))
 
 // DeviceDashboardNetworkIconActive is a mounted Network row's own icon --
 // assets.NetworkIconActive's #93C572 recolored to this dashboard's lime,

@@ -46,6 +46,7 @@ type DiskWidget struct {
 	dashboardVideo       *fyne.Container
 	dashboardAudio       *fyne.Container
 	dashboardStorage     *fyne.Container
+	dashboardEmulation   *fyne.Container
 	dashboardNetworkRows *fyne.Container
 	dashboardBackup      *fyne.Container
 	// dashboardNetworkCard is only shown once a real RNDIS device exists --
@@ -55,14 +56,13 @@ type DiskWidget struct {
 	dashboardNetworkCard fyne.CanvasObject
 	dashboardBackupCard  fyne.CanvasObject
 	// dashboardPairSection is the one-row Network+Backups pair under
-	// Storage (plus the gap above it) -- shown if either card has rows,
-	// or on a software agent as a dismissible firmware promo.
+	// USB Emulation (plus the gap above it) -- shown if either card has
+	// rows, or on a software agent as a dismissible firmware promo.
 	dashboardPairSection   fyne.CanvasObject
 	dashboardPairRow       fyne.CanvasObject
-	dashboardFirmwarePromo     *view.DeviceFirmwarePromo
-	setDashboardStorageTitle   func(string)
-	firmwareChip               *view.FooterPromoChip
-	dashboardWideColumn        *fyne.Container
+	dashboardFirmwarePromo *view.DeviceFirmwarePromo
+	firmwareChip           *view.FooterPromoChip
+	dashboardWideColumn    *fyne.Container
 	// dashboardXHover is card X's own onHover cell (view.NewDeviceDashboardHoverCell),
 	// created once in GetDashboardContainer and reused by every refreshDashboard
 	// call so each rebuilt row's own buttons/toggles can still be wired to
@@ -72,9 +72,10 @@ type DiskWidget struct {
 	dashboardHIDHover     func(bool)
 	dashboardVideoHover   func(bool)
 	dashboardAudioHover   func(bool)
-	dashboardStorageHover func(bool)
-	dashboardNetworkHover func(bool)
-	dashboardBackupHover  func(bool)
+	dashboardStorageHover   func(bool)
+	dashboardEmulationHover func(bool)
+	dashboardNetworkHover   func(bool)
+	dashboardBackupHover    func(bool)
 
 	// dashboardAddImageBtn is Storage's own "Mount New ISO" header button --
 	// kept so refreshDashboard can darken it (SetBusy) while its own file
@@ -117,7 +118,8 @@ type DiskWidget struct {
 	// dashboardStorageScroll wraps dashboardStorage (the Storage card's own
 	// row list) so it can become internally scrollable once there are more
 	// rows than fit comfortably -- see refreshDashboard's own height cap.
-	dashboardStorageScroll *container.Scroll
+	dashboardStorageScroll   *container.Scroll
+	dashboardEmulationScroll *container.Scroll
 
 	// Data
 	localDrives    []*models.LocalDrive

@@ -88,6 +88,9 @@ type ScriptsSectionData struct {
 	OnNewSD       func()
 	Rows          []ScriptTableRow
 	LockedMessage string
+	// Banner, when set, replaces the scripts table -- the same USBridge
+	// Firmware strip Connections uses, shown only in this automation half.
+	Banner fyne.CanvasObject
 }
 
 // NewScriptsSection builds sticky dual headers over a scrolling two-column
@@ -211,13 +214,19 @@ func newScriptsNewButtons(data ScriptsSectionData) fyne.CanvasObject {
 	border.CornerRadius = 8
 	border.StrokeColor = design.ColorTailscaleChipBorder
 	border.StrokeWidth = 1
+	if !data.NewEnabled {
+		bg.FillColor = design.ColorSurfaceLight
+		border.StrokeColor = color.Transparent
+	}
 	return container.NewStack(bg, border, NewInsetExact(row, 3, 3, 3, 3))
 }
 
 func newScriptsCreateButton(label string, onTap func(), enabled bool) *iconChromeButton {
 	plusSVG := `<svg viewBox="0 0 24 24" fill="#4c6803"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`
 	plusIcon := fyne.NewStaticResource("scripts-new-"+label+".svg", []byte(plusSVG))
-	btn := newIconChromeButton(iconChromeButtonSpec{
+	plusIdle := fyne.NewStaticResource("scripts-new-idle-"+label+".svg", []byte(
+		`<svg viewBox="0 0 24 24" fill="#8f9381"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`))
+	spec := iconChromeButtonSpec{
 		NormalFill:         design.ColorConnectionAddFill,
 		HoverFill:          design.ColorConnectionAddFillHover,
 		DisabledFill:       connectionActionBlockedFill,
@@ -232,7 +241,18 @@ func newScriptsCreateButton(label string, onTap func(), enabled bool) *iconChrom
 		OnTapped:           onTap,
 		MuteDisabledVisual: false,
 		CornerRadius:       6,
-	})
+	}
+	if !enabled {
+		spec.NormalFill = design.ColorSurfaceLight
+		spec.HoverFill = design.ColorSurfaceLight
+		spec.DisabledFill = design.ColorSurfaceLight
+		spec.LabelColor = design.ColorConnectionsSectionMutedText
+		spec.NormalIcon = plusIdle
+		spec.HoverIcon = plusIdle
+		spec.DisabledIcon = plusIdle
+		spec.OnTapped = nil
+	}
+	btn := newIconChromeButton(spec)
 	btn.SetText(label)
 	btn.SetDisabled(!enabled)
 	return btn
@@ -423,6 +443,9 @@ func newScriptsMCPStartButton(data ScriptsMCPData) *iconChromeButton {
 }
 
 func newScriptsTableBody(data ScriptsSectionData) fyne.CanvasObject {
+	if data.Banner != nil {
+		return data.Banner
+	}
 	if strings.TrimSpace(data.LockedMessage) != "" {
 		return newScriptsLockedCard(data.LockedMessage)
 	}
