@@ -1261,8 +1261,8 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	registerCheck := newConnectionDialogRegisterRow(
 		spec.tailscaleRegisterValue && tailscaleRegisterUISupported(),
 		"Tailscale",
-		"After connection, the redirect will open on the web.",
-		"AUTO-REGISTRATION",
+		i18n.Current.TailscaleRedirectHint,
+		i18n.Current.AutoRegistrationBadge,
 		nil,
 	)
 	registerCheckContainer := container.NewVBox(registerCheck)
@@ -1298,7 +1298,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	var formContent fyne.CanvasObject = normalForm
 	var mobileFooter fyne.CanvasObject
 	if spec.onQR != nil {
-		qrBtn := newConnectionDialogWideActionButton("Scan QR", assets.QRCodeTeal, design.ColorConnectionBadgeText, func() {
+		qrBtn := newConnectionDialogWideActionButton(i18n.Current.ScanQR, assets.QRCodeTeal, design.ColorConnectionBadgeText, func() {
 			if d != nil {
 				d.Hide()
 			}
@@ -1317,7 +1317,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			formSwap.Refresh()
 			pasteActive = false
 			if linkBtn != nil {
-				linkBtn.SetLabel("Paste Link")
+				linkBtn.SetLabel(i18n.Current.PasteLink)
 				linkBtn.SetIcon(assets.LinkIconLime)
 			}
 			if d != nil {
@@ -1336,7 +1336,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			formSwap.Refresh()
 			pasteActive = true
 			if linkBtn != nil {
-				linkBtn.SetLabel("Manual")
+				linkBtn.SetLabel(i18n.Current.ManualEntry)
 				linkBtn.SetIcon(assets.PencilIconLime)
 			}
 			if d != nil {
@@ -1344,7 +1344,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			}
 		}
 
-		linkBtn = newConnectionDialogWideActionButton("Paste Link", assets.LinkIconLime, design.ColorConnectionAddFill, func() {
+		linkBtn = newConnectionDialogWideActionButton(i18n.Current.PasteLink, assets.LinkIconLime, design.ColorConnectionAddFill, func() {
 			if pasteActive {
 				showNormalFields()
 			} else {
@@ -1548,7 +1548,7 @@ func newConnectionDialogManualDivider() fyne.CanvasObject {
 	line := canvas.NewRectangle(color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff})
 	line.SetMinSize(fyne.NewSize(1, 1))
 
-	label := canvas.NewText("OR ENTER MANUALLY", color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
+	label := canvas.NewText(i18n.Current.OrEnterManually, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
 	label.TextSize = 9
 	label.TextStyle = fyne.TextStyle{Monospace: true}
 
@@ -1764,7 +1764,7 @@ func (cm *ConnectionManager) showAddDialog() {
 func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, masterKey, protocol string, scanned, startWithPasteLink bool) {
 	feedbackText := ""
 	if scanned {
-		feedbackText = qrScanSuccessText
+		feedbackText = "\u2713 " + i18n.Current.QRScanSuccess
 	}
 	masterKey = strings.TrimSpace(masterKey)
 
@@ -1772,7 +1772,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
 		title:                  i18n.Current.AddConnectionTitle,
-		subtitle:               "Pair a hardware or software agent using its IP address and master key.",
+		subtitle:               i18n.Current.AddConnectionSubtitle,
 		connectLabel:           i18n.Current.DeepLinkConnect,
 		connectIcon:            nil,
 		saveLabel:              i18n.Current.DeepLinkSave,

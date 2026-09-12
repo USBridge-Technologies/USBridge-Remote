@@ -377,6 +377,15 @@ func (dw *DiskWidget) handleMount() {
 			return
 		}
 
+		// Software-agent /api/device/start historically ignored merge=true and
+		// replaced the whole set with this payload. A one-card keyboard/mouse
+		// toggle then dropped the sibling HID. Keep already-mounted HID in the
+		// batch so both survive even against those agents.
+		if keep := dw.keepMountedHIDRequests(selectedDrives); len(keep) > 0 {
+			deviceRequests = append(keep, deviceRequests...)
+			logrus.Infof("📎 [MOUNT] including %d already-mounted HID device(s) in merge batch", len(keep))
+		}
+
 		// Determine NBD export names for the mounting animation
 		mountingExportNames := dw.nbdExportNamesForRequests(deviceRequests)
 
@@ -1069,6 +1078,50 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 			}
 		}
 	}
+}
+
+// keepMountedHIDRequests rebuilds start requests for keyboard/mouse/gamepad
+// already shown as mounted, skipping kinds that are in this mount batch.
+func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.DeviceStartRequest {
+	skip := make(map[string]bool, 3)
+	for _, d := range selected {
+		switch {
+		case d.IsKeyboard:
+			skip["keyboard"] = true
+		case d.IsMouse:
+			skip["mouse"] = true
+		case d.IsGamepad:
+			skip["gamepad"] = true
+		}
+	}
+
+	var out []models.DeviceStartRequest
+	for _, d := range dw.allDrives {
+		if !d.IsMounted {
+			continue
+		}
+		kind := ""
+		switch {
+		case d.IsKeyboard:
+			kind = "keyboard"
+		case d.IsMouse:
+			kind = "mouse"
+		case d.IsGamepad:
+			kind = "gamepad"
+		default:
+			continue
+		}
+		if skip[kind] {
+			continue
+		}
+		req, err := dw.buildDeviceRequestForDrive(d, true)
+		if err != nil || req == nil {
+			logrus.Warnf("⚠️ [MOUNT] skip keep-mounted %s: %v", d.Name, err)
+			continue
+		}
+		out = append(out, *req)
+	}
+	return out
 }
 
 // buildDeviceRequestForDrive builds a DeviceStartRequest for an already-mounted device

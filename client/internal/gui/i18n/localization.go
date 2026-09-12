@@ -43,6 +43,43 @@ type LocalizedStrings struct {
 	// connection's own saved name.
 	ConnectingToConnection string
 
+	// Connections screen copy. Technical labels (LAN, TS, Token, QR, KVM,
+	// Agent, OS, USBridge, Firmware, master key, IP) stay in English.
+	ConnectionsHeaderSubtitle    string
+	ViewModeGrid                 string
+	ViewModeList                 string
+	AddNewConnectTitle           string
+	AddConnectHintLine1          string
+	AddConnectHintLine2          string
+	ScanQR                       string
+	PasteLink                    string
+	ManualEntry                  string
+	OrEnterManually              string
+	AddConnectionSubtitle        string
+	TailscaleRedirectHint        string
+	AutoRegistrationBadge        string
+	QRScanSuccess                string
+	ConnectionColOS              string
+	ConnectionColName            string
+	ConnectionColState           string
+	ConnectionColNetwork         string
+	ConnectionColRouteBridge     string
+	ConnectionColActions         string
+	ConnectionNameField          string
+	ConnectionLANPlaceholder     string
+	ConnectionTSPlaceholder      string
+	AwaitingConnection           string
+	FirmwarePromoTitle           string
+	FirmwarePromoSubtitle        string
+	FirmwarePromoTrial           string
+	FirmwarePromoFeatureBIOS     string
+	FirmwarePromoFeatureLatency  string
+	FirmwarePromoFeatureScripts  string
+	FirmwarePromoFeatureSnapshot string
+	FirmwarePromoFeatureL0       string
+	FirmwarePromoSDCardOnly      string
+	FirmwarePromoSDCardEMMC      string
+
 	// Video Widget
 	VideoNotStarted      string
 	StartVideoButton     string
@@ -422,30 +459,64 @@ func EN() *LocalizedStrings {
 		TabSnapshots:            "💾 Snapshots",
 
 		// Connection Manager
-		ConnectionManager:         "🔌 Connection Manager",
-		SavedConnections:          "Connections",
-		ConnectionManagement:      "💾 Connection Management",
-		AddressAndTokenHint:       "💡 Address and Master Key are entered in the bar above",
-		ConnectionHeroEyebrow:     "USBRIDGE ACCESS",
-		ConnectionPanelHint:       "Launch a saved profile or create a new one.",
-		ConnectionNameLabel:       "Name for saving:",
-		ConnectionNamePlaceholder: "Connection name (e.g.: My PC)",
-		SaveButton:                "💾 Save",
-		DeleteButton:              "Delete",
-		EditButton:                "✏️",
-		QRScannerButton:           "📷 QR",
-		EditConnectionTitle:       "Edit connection",
-		AddConnectionTitle:        "Add connection",
-		AddNewDeviceTitle:         "Add a new device",
-		NoSavedConnections:        "No saved connections yet",
-		NoSavedConnectionsHint:    "Use QR or add a connection below to get started.",
-		OnboardingStepConnect:     "Plug usb-c into target host for power and hid. Connect video path from target hdmi to capture dongle.",
-		OnboardingStepIP:          "Navigate to settings -> internet to connect your network.",
-		OnboardingStepScan:        "Navigate to the Master Key section and scan the QR code. You can also enter the IP and Master Key manually.",
-		DeleteConnectionTitle:     "Delete connection",
-		DeleteConnectionConfirm:   "Are you sure you want to delete connection \"%s\"?",
-		TailscaleRegisterLabel:    "Register in Tailscale",
-		ConnectingToConnection:    "Connecting to \"%s\"…",
+		ConnectionManager:            "🔌 Connection Manager",
+		SavedConnections:             "Connections",
+		ConnectionManagement:         "💾 Connection Management",
+		AddressAndTokenHint:          "💡 Address and Master Key are entered in the bar above",
+		ConnectionHeroEyebrow:        "USBRIDGE ACCESS",
+		ConnectionPanelHint:          "Launch a saved profile or create a new one.",
+		ConnectionNameLabel:          "Name for saving:",
+		ConnectionNamePlaceholder:    "Connection name (e.g.: My PC)",
+		SaveButton:                   "💾 Save",
+		DeleteButton:                 "Delete",
+		EditButton:                   "✏️",
+		QRScannerButton:              "📷 QR",
+		EditConnectionTitle:          "Edit connection",
+		AddConnectionTitle:           "Add connection",
+		AddNewDeviceTitle:            "Add a new device",
+		NoSavedConnections:           "No saved connections yet",
+		NoSavedConnectionsHint:       "Use QR or add a connection below to get started.",
+		OnboardingStepConnect:        "Plug usb-c into target host for power and hid. Connect video path from target hdmi to capture dongle.",
+		OnboardingStepIP:             "Navigate to settings -> internet to connect your network.",
+		OnboardingStepScan:           "Navigate to the Master Key section and scan the QR code. You can also enter the IP and Master Key manually.",
+		DeleteConnectionTitle:        "Delete connection",
+		DeleteConnectionConfirm:      "Are you sure you want to delete connection \"%s\"?",
+		TailscaleRegisterLabel:       "Register in Tailscale",
+		ConnectingToConnection:       "Connecting to \"%s\"…",
+		ConnectionsHeaderSubtitle:    "Your active remote desktop and hardware control sessions.",
+		ViewModeGrid:                 "Grid",
+		ViewModeList:                 "List",
+		AddNewConnectTitle:           "Add New Connect",
+		AddConnectHintLine1:          "Scan a QR code or paste a link",
+		AddConnectHintLine2:          "to add a hardware or software agent",
+		ScanQR:                       "Scan QR",
+		PasteLink:                    "Paste Link",
+		ManualEntry:                  "Manual",
+		OrEnterManually:              "OR ENTER MANUALLY",
+		AddConnectionSubtitle:        "Pair a hardware or software agent using its IP address and master key.",
+		TailscaleRedirectHint:        "After connection, the redirect will open on the web.",
+		AutoRegistrationBadge:        "AUTO-REGISTRATION",
+		QRScanSuccess:                "QR code successfully scanned",
+		ConnectionColOS:              "OS",
+		ConnectionColName:            "NAME",
+		ConnectionColState:           "STATE",
+		ConnectionColNetwork:         "NETWORK",
+		ConnectionColRouteBridge:     "ROUTE BRIDGE",
+		ConnectionColActions:         "ACTIONS",
+		ConnectionNameField:          "Name",
+		ConnectionLANPlaceholder:     "LAN address",
+		ConnectionTSPlaceholder:      "Tailscale address",
+		AwaitingConnection:           "Awaiting connection...",
+		FirmwarePromoTitle:           "USBridge Firmware",
+		FirmwarePromoSubtitle:        "Turn your board into a hardware KVM",
+		FirmwarePromoTrial:           "24h Trial",
+		FirmwarePromoFeatureBIOS:     "BIOS-in-terminal (OCR)",
+		FirmwarePromoFeatureLatency:  "Ultra-low latency video",
+		FirmwarePromoFeatureScripts:  "Automation scripts",
+		FirmwarePromoFeatureSnapshot: "Immutable snapshot",
+		FirmwarePromoFeatureL0:       "0-layer host access",
+		FirmwarePromoSDCardOnly:      "SD Card only",
+		FirmwarePromoSDCardEMMC:      "SD Card / eMMC",
 
 		// Video Widget
 		VideoNotStarted:      "Video not started",
@@ -844,6 +915,40 @@ func ES() *LocalizedStrings {
 	locale.DeleteConnectionTitle = "Eliminar conexion"
 	locale.DeleteConnectionConfirm = "Seguro que deseas eliminar la conexion \"%s\"?"
 	locale.ConnectingToConnection = "Conectando a \"%s\"…"
+	locale.ConnectionsHeaderSubtitle = "Tus sesiones activas de escritorio remoto y control de hardware."
+	locale.ViewModeGrid = "Grid"
+	locale.ViewModeList = "Lista"
+	locale.AddNewConnectTitle = "Nueva conexion"
+	locale.AddConnectHintLine1 = "Escanea un codigo QR o pega un enlace"
+	locale.AddConnectHintLine2 = "para agregar un agent de hardware o software"
+	locale.ScanQR = "Escanear QR"
+	locale.PasteLink = "Pegar enlace"
+	locale.ManualEntry = "Manual"
+	locale.OrEnterManually = "O INTRODUCIR MANUALMENTE"
+	locale.AddConnectionSubtitle = "Empareja un agent de hardware o software con su IP y master key."
+	locale.TailscaleRedirectHint = "Tras conectar, la redireccion se abrira en el navegador."
+	locale.AutoRegistrationBadge = "AUTO-REGISTRO"
+	locale.QRScanSuccess = "Codigo QR escaneado"
+	locale.ConnectionColOS = "OS"
+	locale.ConnectionColName = "NOMBRE"
+	locale.ConnectionColState = "ESTADO"
+	locale.ConnectionColNetwork = "RED"
+	locale.ConnectionColRouteBridge = "RUTA"
+	locale.ConnectionColActions = "ACCIONES"
+	locale.ConnectionNameField = "Nombre"
+	locale.ConnectionLANPlaceholder = "Direccion LAN"
+	locale.ConnectionTSPlaceholder = "Direccion Tailscale"
+	locale.AwaitingConnection = "Esperando conexion..."
+	locale.FirmwarePromoTitle = "USBridge Firmware"
+	locale.FirmwarePromoSubtitle = "Convierte tu placa en un KVM de hardware"
+	locale.FirmwarePromoTrial = "Prueba 24h"
+	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
+	locale.FirmwarePromoFeatureLatency = "Video de ultra baja latencia"
+	locale.FirmwarePromoFeatureScripts = "Scripts de automatizacion"
+	locale.FirmwarePromoFeatureSnapshot = "Snapshot inmutable"
+	locale.FirmwarePromoFeatureL0 = "Acceso host de capa 0"
+	locale.FirmwarePromoSDCardOnly = "Solo SD Card"
+	locale.FirmwarePromoSDCardEMMC = "SD Card / eMMC"
 	locale.Devices = "Dispositivos"
 	locale.DevicesSectionStorage = "Almacenamiento"
 	locale.DevicesSectionBackup = "Dispositivo de respaldo"
@@ -988,6 +1093,40 @@ func UKProper() *LocalizedStrings {
 	locale.DeleteConnectionTitle = "Видалити з'єднання"
 	locale.DeleteConnectionConfirm = "Ви впевнені, що хочете видалити з'єднання \"%s\"?"
 	locale.ConnectingToConnection = "Підключення до \"%s\"…"
+	locale.ConnectionsHeaderSubtitle = "Ваші активні сесії віддаленого робочого столу та керування обладнанням."
+	locale.ViewModeGrid = "Сітка"
+	locale.ViewModeList = "Список"
+	locale.AddNewConnectTitle = "Нове з'єднання"
+	locale.AddConnectHintLine1 = "Відскануйте QR-код або вставте посилання"
+	locale.AddConnectHintLine2 = "щоб додати hardware або software agent"
+	locale.ScanQR = "Сканувати QR"
+	locale.PasteLink = "Вставити посилання"
+	locale.ManualEntry = "Вручну"
+	locale.OrEnterManually = "АБО ВВЕСТИ ВРУЧНУ"
+	locale.AddConnectionSubtitle = "Прив'яжіть hardware або software agent за IP та master key."
+	locale.TailscaleRedirectHint = "Після підключення перенаправлення відкриється в браузері."
+	locale.AutoRegistrationBadge = "АВТОРЕЄСТРАЦІЯ"
+	locale.QRScanSuccess = "QR-код відскановано"
+	locale.ConnectionColOS = "OS"
+	locale.ConnectionColName = "НАЗВА"
+	locale.ConnectionColState = "СТАН"
+	locale.ConnectionColNetwork = "МЕРЕЖА"
+	locale.ConnectionColRouteBridge = "МАРШРУТ"
+	locale.ConnectionColActions = "ДІЇ"
+	locale.ConnectionNameField = "Назва"
+	locale.ConnectionLANPlaceholder = "Адреса LAN"
+	locale.ConnectionTSPlaceholder = "Адреса Tailscale"
+	locale.AwaitingConnection = "Очікування з'єднання..."
+	locale.FirmwarePromoTitle = "USBridge Firmware"
+	locale.FirmwarePromoSubtitle = "Перетворіть плату на апаратний KVM"
+	locale.FirmwarePromoTrial = "Пробний період 24h"
+	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
+	locale.FirmwarePromoFeatureLatency = "Відео з ультранизькою затримкою"
+	locale.FirmwarePromoFeatureScripts = "Скрипти автоматизації"
+	locale.FirmwarePromoFeatureSnapshot = "Незмінний snapshot"
+	locale.FirmwarePromoFeatureL0 = "Доступ host на шарі 0"
+	locale.FirmwarePromoSDCardOnly = "Лише SD Card"
+	locale.FirmwarePromoSDCardEMMC = "SD Card / eMMC"
 	locale.Devices = "Пристрої"
 	locale.DevicesSectionStorage = "Сховище"
 	locale.DevicesSectionBackup = "Резервний пристрій"

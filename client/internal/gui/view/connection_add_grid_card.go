@@ -25,6 +25,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -183,10 +184,10 @@ func NewAddConnectionGridCard(actions AddConnectionCardActions) fyne.CanvasObjec
 	})
 	addControl := container.NewStack(addRingSized, container.NewCenter(plusImg), addBtn)
 
-	title := NewBrandText("Add New Connect", 13, design.ColorTextLight, true)
+	title := NewBrandText(i18n.Current.AddNewConnectTitle, 13, design.ColorTextLight, true)
 
-	subtitleLine1 := canvas.NewText("Scan a QR code or paste a link", addConnectionCardMutedColor)
-	subtitleLine2 := canvas.NewText("to add a hardware or software agent", addConnectionCardMutedColor)
+	subtitleLine1 := canvas.NewText(i18n.Current.AddConnectHintLine1, addConnectionCardMutedColor)
+	subtitleLine2 := canvas.NewText(i18n.Current.AddConnectHintLine2, addConnectionCardMutedColor)
 	for _, line := range []*canvas.Text{subtitleLine1, subtitleLine2} {
 		line.TextSize = 10
 		line.Alignment = fyne.TextAlignCenter
@@ -225,7 +226,7 @@ func NewAddConnectionGridCard(actions AddConnectionCardActions) fyne.CanvasObjec
 		ButtonSize:      fyne.NewSize(0, 26),
 		OnTapped:        actions.OnQR,
 	})
-	qrBtn.SetText("Scan QR")
+	qrBtn.SetText(i18n.Current.ScanQR)
 
 	pasteBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:      color.Transparent,
@@ -244,7 +245,7 @@ func NewAddConnectionGridCard(actions AddConnectionCardActions) fyne.CanvasObjec
 		ButtonSize:      fyne.NewSize(0, 26),
 		OnTapped:        actions.OnPasteLink,
 	})
-	pasteBtn.SetText("Paste Link")
+	pasteBtn.SetText(i18n.Current.PasteLink)
 
 	buttonsRow := container.New(&DeviceRowControlsLayout{Gap: 10}, qrBtn, pasteBtn)
 

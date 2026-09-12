@@ -19,6 +19,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -162,7 +163,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 			default:
 				// No RemoteOS yet -- this connection has never successfully
 				// connected, so there's nothing real to classify.
-				platformLabel = "Awaiting connection..."
+				platformLabel = i18n.Current.AwaitingConnection
 			}
 		}
 		chipsRow = NewInset(newConnectionCardChipsRow(platformLabel, strings.TrimSpace(data.CapabilityText), accent), 0, 0, 4, 8)
@@ -271,7 +272,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 			LoadingIcon:        deviceDashboardConnectIconSVG,
 			LoadingLabelColor:  color.Black,
 		})
-		connectBtn.SetText("Connect")
+		connectBtn.SetText(i18n.Current.ConnectButton)
 		connectBtn.SetDisabled(state.Disabled)
 		connectBtn.SetLoading(state.Loading)
 
@@ -613,8 +614,8 @@ func wrapGridCardEntry(entry *StyledEntry, textSize float32, textColor color.Col
 //     different look), so both pass includeName=false and get a nil
 //     nameEntry back, same as if this parameter didn't exist for them.
 func NewConnectionCardEditableStatsBox(includeName bool, name, lanAddress, tailscaleAddress, masterKey string, entryWidth float32) (box fyne.CanvasObject, nameEntry, lanEntry, tailscaleEntry, tokenEntry *StyledEntry) {
-	lanEntry = newConnectionCardFieldEntry(lanAddress, "LAN address")
-	tailscaleEntry = newConnectionCardFieldEntry(tailscaleAddress, "Tailscale address")
+	lanEntry = newConnectionCardFieldEntry(lanAddress, i18n.Current.ConnectionLANPlaceholder)
+	tailscaleEntry = newConnectionCardFieldEntry(tailscaleAddress, i18n.Current.ConnectionTSPlaceholder)
 	tokenEntry = newConnectionCardFieldEntry(masterKey, "Token")
 	tokenEntry.MultiLine = true
 	tokenEntry.Wrapping = fyne.TextWrapBreak
@@ -630,11 +631,11 @@ func NewConnectionCardEditableStatsBox(includeName bool, name, lanAddress, tails
 
 	var rows []fyne.CanvasObject
 	if includeName {
-		nameEntry = newConnectionCardFieldEntry(name, "Name")
+		nameEntry = newConnectionCardFieldEntry(name, i18n.Current.ConnectionNameField)
 		// No copy/paste actions on Name (last "false" below) -- nothing
 		// about a connection's own name benefits from that the way an
 		// address or key does.
-		rows = append(rows, newConnectionStatEditRow("Name", nameEntry, 10, design.ColorTextLight, false, entryWidth, false), newSep())
+		rows = append(rows, newConnectionStatEditRow(i18n.Current.ConnectionNameField, nameEntry, 10, design.ColorTextLight, false, entryWidth, false), newSep())
 	}
 	lanRow := newConnectionStatEditRow("LAN", lanEntry, 10, design.ColorTextLight, false, entryWidth, true)
 	tsRow := newConnectionStatEditRow("TS", tailscaleEntry, 10, tsValueColor, false, entryWidth, true)

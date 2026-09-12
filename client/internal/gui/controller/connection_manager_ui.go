@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
@@ -41,6 +42,7 @@ func (cm *ConnectionManager) createInterface() {
 	cm.firmwareChip = view.NewFooterLabelChip("software")
 	cm.firmwareChip.SetOnOpen(cm.openFirmwarePromo)
 	cm.firmwareChip.SetOnRestore(cm.restoreFirmwarePromo)
+	cm.agentChip = view.NewFooterTintChip("Agent", design.ColorConnectionBadgeText, cm.showAgentCatalog)
 	cm.ui = view.NewConnectionManagerUI(
 		cm.handleQRScan,
 		cm.showAddDialog,
@@ -78,6 +80,54 @@ func (cm *ConnectionManager) FirmwareFooterChip() fyne.CanvasObject {
 		return nil
 	}
 	return cm.firmwareChip
+}
+
+// AgentFooterChip is the Connections footer's always-visible turquoise
+// "Agent" action -- opens the software-agent catalog dialog.
+func (cm *ConnectionManager) AgentFooterChip() fyne.CanvasObject {
+	if cm == nil {
+		return nil
+	}
+	return cm.agentChip
+}
+
+func (cm *ConnectionManager) showAgentCatalog() {
+	if cm.window == nil {
+		return
+	}
+	website := newScriptDialogTealButton("Download", nil, func() {
+		cm.openExternalLink(view.AgentCatalogWebsiteURL, "software agent page")
+	})
+	github := newScriptDialogLimeButton("GitHub", nil, func() {
+		cm.openExternalLink(view.AgentCatalogGitHubURL, "software agent GitHub")
+	})
+	showBrandedOverlayDialog(brandedOverlayDialogSpec{
+		parent:       cm.window,
+		title:        view.AgentCatalogTitle,
+		subtitle:     view.AgentCatalogSubtitle,
+		body:         view.NewAgentCatalogBody(),
+		rightButtons: []fyne.CanvasObject{github, website},
+		tightFooter:  true,
+		footerHint:   view.AgentCatalogFooterHint,
+		panelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
+			return agentCatalogPanelSize(canvasSize)
+		},
+	})
+}
+
+func agentCatalogPanelSize(canvasSize fyne.Size) fyne.Size {
+	margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+	maxW := canvasSize.Width - margin*2
+	maxH := canvasSize.Height - margin*2
+	if maxW < 0 {
+		maxW = canvasSize.Width
+	}
+	if maxH < 0 {
+		maxH = canvasSize.Height
+	}
+	w := minFloat32(maxW, 640)
+	h := minFloat32(maxH, 420)
+	return fyne.NewSize(w, h)
 }
 
 func (cm *ConnectionManager) openFirmwarePromo() {

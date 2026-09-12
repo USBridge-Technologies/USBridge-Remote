@@ -36,6 +36,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -64,10 +65,10 @@ type ConnectionListItem struct {
 // whichever pair is active (via connectionsTableRowLayout) so columns line
 // up.
 var (
-	connectionListColumnLabels = []string{"OS", "NAME", "STATE", "NETWORK", "ROUTE BRIDGE", "ACTIONS"}
+	connectionListColumnKeys   = []string{"os", "name", "state", "network", "route", "actions"}
 	connectionListColumnWidths = []float32{32, 130, 70, 0, 100, 150}
 
-	connectionListCompactColumnLabels = []string{"OS", "NAME", "STATE"}
+	connectionListCompactColumnKeys   = []string{"os", "name", "state"}
 	connectionListCompactColumnWidths = []float32{32, 0, 70}
 
 	// connectionListAddOnlyColumn{Labels,Widths} is the table's shape when
@@ -77,7 +78,7 @@ var (
 	// connection, so those drop; OS is replaced by the same "+" control
 	// NewAddConnectionGridCard opens its Add Connection dialog with (see
 	// newConnectionListAddRow), not a status dot.
-	connectionListAddOnlyColumnLabels = []string{"", "NAME", "ACTIONS"}
+	connectionListAddOnlyColumnKeys   = []string{"", "name", "actions"}
 	connectionListAddOnlyColumnWidths = []float32{40, 0, 150}
 )
 
@@ -128,9 +129,9 @@ func NewConnectionsListSplit(items []ConnectionListItem, editIndex int, editPane
 // actually stack these rows, so it lands exactly where the row ends up
 // once rendered, not just an estimate.
 func buildConnectionsListTable(items []ConnectionListItem, compact bool, highlightIndex int) (table fyne.CanvasObject, highlightY, highlightHeight float32) {
-	labels, widths := connectionListColumnLabels, connectionListColumnWidths
+	labels, widths := connectionListColumnKeys, connectionListColumnWidths
 	if compact {
-		labels, widths = connectionListCompactColumnLabels, connectionListCompactColumnWidths
+		labels, widths = connectionListCompactColumnKeys, connectionListCompactColumnWidths
 	}
 
 	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
@@ -176,7 +177,7 @@ func buildConnectionsListTable(items []ConnectionListItem, compact bool, highlig
 // (connectionListAddOnlyColumnLabels/Widths) and a single row --
 // newConnectionListAddRow -- instead of one per saved connection.
 func buildConnectionsListAddOnlyTable(actions AddConnectionCardActions) fyne.CanvasObject {
-	labels, widths := connectionListAddOnlyColumnLabels, connectionListAddOnlyColumnWidths
+	labels, widths := connectionListAddOnlyColumnKeys, connectionListAddOnlyColumnWidths
 
 	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
 	div := canvas.NewRectangle(dividerColor)
@@ -207,16 +208,14 @@ func buildConnectionsListAddOnlyTable(actions AddConnectionCardActions) fyne.Can
 // addConnectionCardMutedColor/addConnectionCardHoverColor this package's
 // Grid add-tile already uses) just resized to a table row.
 func newConnectionListAddRow(actions AddConnectionCardActions, widths []float32) fyne.CanvasObject {
-	const addRowLabel = "Add New Connect"
-
 	// 30 vs. NewAddConnectionGridCard's 48 -- roughly 35% smaller, sized to
 	// fit a table row instead of a full card.
 	const connectionListAddPlusSize float32 = 30
 	addCell := container.NewCenter(newAddConnectionPlusControl(actions.OnAdd, connectionListAddPlusSize))
 
-	title := NewBrandText(addRowLabel, 11, design.ColorTextLight, true)
-	subtitleLine1 := canvas.NewText("Scan a QR code or paste a link", addConnectionCardMutedColor)
-	subtitleLine2 := canvas.NewText("to add a hardware or software agent", addConnectionCardMutedColor)
+	title := NewBrandText(i18n.Current.AddNewConnectTitle, 11, design.ColorTextLight, true)
+	subtitleLine1 := canvas.NewText(i18n.Current.AddConnectHintLine1, addConnectionCardMutedColor)
+	subtitleLine2 := canvas.NewText(i18n.Current.AddConnectHintLine2, addConnectionCardMutedColor)
 	subtitleLine1.TextSize = 9
 	subtitleLine2.TextSize = 9
 	subtitle := container.New(&tightStatsVBoxLayout{Gap: 0}, subtitleLine1, subtitleLine2)
@@ -238,7 +237,7 @@ func newConnectionListAddRow(actions AddConnectionCardActions, widths []float32)
 		ButtonSize:      fyne.NewSize(0, 23),
 		OnTapped:        actions.OnQR,
 	})
-	qrBtn.SetText("Scan QR")
+	qrBtn.SetText(i18n.Current.ScanQR)
 
 	pasteBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:      color.Transparent,
@@ -256,24 +255,43 @@ func newConnectionListAddRow(actions AddConnectionCardActions, widths []float32)
 		ButtonSize:      fyne.NewSize(0, 23),
 		OnTapped:        actions.OnPasteLink,
 	})
-	pasteBtn.SetText("Paste Link")
+	pasteBtn.SetText(i18n.Current.PasteLink)
 
 	actionsCell := container.NewBorder(nil, nil, nil, container.New(&DeviceRowControlsLayout{Gap: 6}, qrBtn, pasteBtn))
 
 	return container.New(&connectionsTableRowLayout{Widths: widths, Gap: connectionListColumnGap}, addCell, nameCell, actionsCell)
 }
 
-func newConnectionListHeaderRow(labels []string, widths []float32) fyne.CanvasObject {
-	cells := make([]fyne.CanvasObject, len(labels))
-	for i, l := range labels {
-		t := canvas.NewText(l, design.ColorConnectionsSectionSubtitle)
+func connectionListHeaderLabel(key string) string {
+	switch key {
+	case "os":
+		return i18n.Current.ConnectionColOS
+	case "name":
+		return i18n.Current.ConnectionColName
+	case "state":
+		return i18n.Current.ConnectionColState
+	case "network":
+		return i18n.Current.ConnectionColNetwork
+	case "route":
+		return i18n.Current.ConnectionColRouteBridge
+	case "actions":
+		return i18n.Current.ConnectionColActions
+	default:
+		return ""
+	}
+}
+
+func newConnectionListHeaderRow(keys []string, widths []float32) fyne.CanvasObject {
+	cells := make([]fyne.CanvasObject, len(keys))
+	for i, key := range keys {
+		t := canvas.NewText(connectionListHeaderLabel(key), design.ColorConnectionsSectionSubtitle)
 		t.TextSize = 9
 		t.TextStyle.Monospace = true
 
-		switch l {
-		case "OS", "STATE", "SOURCE":
+		switch key {
+		case "os", "state":
 			t.Alignment = fyne.TextAlignCenter
-		case "ROUTE BRIDGE", "ACTIONS":
+		case "route", "actions":
 			t.Alignment = fyne.TextAlignTrailing
 		}
 
@@ -357,7 +375,7 @@ func connectionListPlatformLabel(isAgent, isKVM bool) string {
 	case isAgent:
 		return "Opensource/Pro"
 	default:
-		return "Awaiting connection..."
+		return i18n.Current.AwaitingConnection
 	}
 }
 
@@ -435,7 +453,7 @@ func newConnectionListActionsCell(item ConnectionListItem) fyne.CanvasObject {
 		LoadingIcon:        deviceDashboardConnectIconSVG,
 		LoadingLabelColor:  color.Black,
 	})
-	connectBtn.SetText("Connect")
+	connectBtn.SetText(i18n.Current.ConnectButton)
 	connectBtn.SetDisabled(item.State.Disabled)
 	connectBtn.SetLoading(item.State.Loading)
 

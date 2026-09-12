@@ -584,6 +584,7 @@ func newHeaderPassiveIndicator(icon fyne.Resource, size fyne.Size) fyne.CanvasOb
 func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 	var extras []fyne.CanvasObject
 	if mw.connectionManager != nil {
+		extras = append(extras, mw.connectionManager.AgentFooterChip())
 		extras = append(extras, mw.connectionManager.FirmwareFooterChip())
 		extras = append(extras, mw.connectionManager.PromoFooterChip())
 	}
@@ -1279,18 +1280,30 @@ func (mw *MainWindow) updateStatusBar() {
 					}
 					if controller.IsStorageDeviceType(device.Type, device.Name) {
 						cdromConnected = true
+						logrus.Infof("📌 [STATUS] storage match device=%q type=%q name=%q", device.Device, device.Type, device.Name)
 					}
 					if controller.IsBackupDeviceType(device.Type, device.Name, device.ProductName) {
 						backupConnected = true
+						logrus.Infof("📌 [STATUS] backup match device=%q type=%q name=%q", device.Device, device.Type, device.Name)
 					}
 					if controller.IsSnapshotDeviceType(device.Type, device.Name, device.ProductName) {
 						snapshotConnected = true
+						logrus.Infof("📌 [STATUS] snapshot match device=%q type=%q name=%q", device.Device, device.Type, device.Name)
 					}
 				}
 			}
 		}
 
-		if mw.backupWidget != nil && !snapshotConnected {
+		if err == nil && controller.IsSoftwareAgentOS(deviceInfo.AgentOS) {
+			if cdromConnected || backupConnected || snapshotConnected {
+				logrus.Infof("📌 [STATUS] hiding disk/backup/snapshot icons on software agent (agentOS=%q)", deviceInfo.AgentOS)
+			}
+			cdromConnected = false
+			backupConnected = false
+			snapshotConnected = false
+		}
+
+		if mw.backupWidget != nil && !snapshotConnected && (err != nil || !controller.IsSoftwareAgentOS(deviceInfo.AgentOS)) {
 			snapshotsResp, err := client.GetSnapshots()
 			if err == nil {
 				for _, snapshot := range snapshotsResp.Snapshots {

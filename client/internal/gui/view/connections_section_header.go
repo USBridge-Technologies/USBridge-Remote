@@ -129,11 +129,6 @@ const headerAddButtonHeight float32 = 29
 // (connectionsViewModeToggleGap).
 const connectionsHeaderButtonGap float32 = 10
 
-// connectionsHeaderSubtitle sits directly under the section title. Plain
-// English literal for now rather than routed through i18n -- the copy is
-// still being sketched out, not ready to lock into translation files yet.
-const connectionsHeaderSubtitle = "Your active remote desktop and hardware control sessions."
-
 // newConnectionsHeader builds the bar shown above the saved-connections
 // list (populated or empty): section title + subtitle + category-count
 // badges on the left, view-mode toggle + Add/QR/paste-link actions on the
@@ -177,7 +172,7 @@ func newConnectionsHeader(summary ConnectionsSummary, actions connectionsHeaderA
 	}
 	titleRow := container.NewHBox(titleItems...)
 
-	subtitle := canvas.NewText(connectionsHeaderSubtitle, design.ColorConnectionsSectionSubtitle)
+	subtitle := canvas.NewText(i18n.Current.ConnectionsHeaderSubtitle, design.ColorConnectionsSectionSubtitle)
 	subtitle.TextSize = 10
 
 	left := container.NewVBox(titleRow, subtitle)
@@ -385,7 +380,7 @@ func newConnectionsViewModeToggle(initialMode string, onChange func(mode string)
 		ButtonSize:   fyne.NewSize(0, connectionsViewModeToggleSize),
 		CornerRadius: connectionsViewModeButtonRadius,
 	})
-	gridBtn.SetText("Grid")
+	gridBtn.SetText(i18n.Current.ViewModeGrid)
 	listBtn = newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   design.ColorSurfaceLight,
 		HoverFill:    design.ColorBorder,
@@ -395,7 +390,7 @@ func newConnectionsViewModeToggle(initialMode string, onChange func(mode string)
 		ButtonSize:   fyne.NewSize(0, connectionsViewModeToggleSize),
 		CornerRadius: connectionsViewModeButtonRadius,
 	})
-	listBtn.SetText("List")
+	listBtn.SetText(i18n.Current.ViewModeList)
 	gridBtn.SetOnTapped(func() {
 		setActive(false)
 		if onChange != nil {

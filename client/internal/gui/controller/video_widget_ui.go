@@ -671,12 +671,22 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 
 		if isConnectedStorageDevice(device) {
 			storageConnected = true
+			logrus.Infof("💿 [HID] storage-like device device=%q type=%q name=%q status=%q",
+				device.Device, device.Type, device.Name, device.Status)
 		}
 	}
 
 	if storageConnected {
-		logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
-		return nil
+		// Software-agent HID is OS-level input, not a USB gadget composite.
+		// Skipping here left stale nbd/local rows on the agent forever and
+		// also blocked keyboard/mouse auto-connect.
+		if !isUSBridgeAgentOS(deviceInfo.AgentOS) {
+			logrus.Infof("💿 Control HID auto-connect: ignoring leftover storage on software agent (agentOS=%q)", deviceInfo.AgentOS)
+			storageConnected = false
+		} else {
+			logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
+			return nil
+		}
 	}
 
 	if xinputGamepadConnected {

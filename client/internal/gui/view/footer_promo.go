@@ -52,6 +52,74 @@ func NewFooterLabelChip(label string) *FooterPromoChip {
 	return newFooterPromoChip(label)
 }
 
+// FooterTintChip is a always-visible footer text action (Connections'
+// "Agent" button) -- same 14px row as the promo chips, tinted rather than
+// lime, with no expand/restore affordance.
+var (
+	_ fyne.Tappable     = (*FooterTintChip)(nil)
+	_ desktop.Hoverable = (*FooterTintChip)(nil)
+)
+
+type FooterTintChip struct {
+	widget.BaseWidget
+
+	label   string
+	tint    color.Color
+	onTap   func()
+	hovered bool
+	lbl     *canvas.Text
+}
+
+func NewFooterTintChip(label string, tint color.Color, onTap func()) *FooterTintChip {
+	c := &FooterTintChip{label: label, tint: tint, onTap: onTap}
+	c.ExtendBaseWidget(c)
+	return c
+}
+
+func (c *FooterTintChip) Tapped(*fyne.PointEvent) {
+	if c.onTap != nil {
+		c.onTap()
+	}
+}
+
+func (c *FooterTintChip) TappedSecondary(*fyne.PointEvent) {}
+
+func (c *FooterTintChip) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (c *FooterTintChip) MouseIn(*desktop.MouseEvent) {
+	c.hovered = true
+	c.refreshVisuals()
+}
+
+func (c *FooterTintChip) MouseMoved(*desktop.MouseEvent) {}
+
+func (c *FooterTintChip) MouseOut() {
+	c.hovered = false
+	c.refreshVisuals()
+}
+
+func (c *FooterTintChip) refreshVisuals() {
+	if c.lbl == nil {
+		return
+	}
+	if c.hovered {
+		c.lbl.Color = design.ColorTextLight
+	} else {
+		c.lbl.Color = c.tint
+	}
+	c.lbl.Refresh()
+}
+
+func (c *FooterTintChip) CreateRenderer() fyne.WidgetRenderer {
+	c.lbl = canvas.NewText(c.label, c.tint)
+	c.lbl.TextSize = 9
+	c.lbl.TextStyle.Bold = true
+	c.refreshVisuals()
+	return widget.NewSimpleRenderer(c.lbl)
+}
+
 func newFooterPromoChip(label string) *FooterPromoChip {
 	c := &FooterPromoChip{label: label}
 	c.ExtendBaseWidget(c)

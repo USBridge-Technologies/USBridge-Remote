@@ -52,6 +52,10 @@ var (
 	ColorConnectionBadgeFill   = color.NRGBA{R: 0x1c, G: 0x20, B: 0x23, A: 0xff}
 	ColorConnectionBadgeText   = color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0xff} // was #30d4bd
 
+	// ColorPro is the purple used for Pro markers (4:4:4 star, Agent
+	// catalog Pro/Enterprise rows) -- #9c58f9.
+	ColorPro = color.NRGBA{R: 0x9c, G: 0x58, B: 0xf9, A: 0xff}
+
 	// ColorConnectionAddFill/Hover are the connections section header's "+"
 	// button -- deliberately light-on-dark inverted from every other button
 	// in this app (see iconChromeButtonSpec.LabelColor). Hover shade is a

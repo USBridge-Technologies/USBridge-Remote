@@ -121,6 +121,7 @@ type ConnectionManager struct {
 	firmwarePromoDismissed bool
 	firmwareBanner         *view.FirmwarePromoBanner
 	firmwareChip           *view.FooterPromoChip
+	agentChip              *view.FooterTintChip
 
 	// Account owns the account login + sync passphrase this connections
 	// list is end-to-end synced under -- see account_manager.go and

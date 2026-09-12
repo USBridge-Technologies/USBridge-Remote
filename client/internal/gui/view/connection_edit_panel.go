@@ -23,6 +23,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -55,7 +56,7 @@ func NewConnectionEditPanel(data ConnectionEditPanelData, actions ConnectionEdit
 	statusIndicator := newConnectionEditPanelStatusIndicator(data.RemoteOS)
 
 	nameEntry := NewStyledEntry()
-	nameEntry.SetPlaceHolder("Name")
+	nameEntry.SetPlaceHolder(i18n.Current.ConnectionNameField)
 	nameEntry.SetText(strings.TrimSpace(data.Name))
 	nameEntry.TextStyle = fyne.TextStyle{Bold: true}
 

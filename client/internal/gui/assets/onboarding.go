@@ -32,6 +32,8 @@ var (
 	snapshotsTabIcon []byte
 	//go:embed robot-svgrepo-com.svg
 	robotTabIcon []byte
+	//go:embed star-svgrepo-com.svg
+	starIcon []byte
 	//go:embed folder-svgrepo-com.svg
 	folderIcon []byte
 	//go:embed disc-svgrepo-com.svg
@@ -242,6 +244,9 @@ var (
 	SnapshotsTabIconMuted    = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-muted.svg", recolorFillIcon(snapshotsTabIcon, "#c5c8b5"))
 	SnapshotsTabIconSelected = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-selected.svg", recolorFillIcon(snapshotsTabIcon, "#ebffbc"))
 	SnapshotsTabIconHover    = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-hover.svg", recolorFillIcon(snapshotsTabIcon, "#e0e3e7"))
+	// StarProIcon is the 4:4:4 / Agent-catalog Pro glyph -- stroke #9c58f9
+	// (design.ColorPro). Same path as video_start_dialog's inline star.
+	StarProIcon = fyne.NewStaticResource("star-svgrepo-com.svg", recolorStrokeIcon(starIcon, "#9c58f9", "2"))
 	// ScriptsTabIcon{Muted,Selected,Hover} -- robot-svgrepo-com.svg, a
 	// filled robot matching the AI & Scripts tab label. Same
 	// muted/selected/hover palette as the other header tab icons.

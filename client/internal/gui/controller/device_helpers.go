@@ -71,9 +71,8 @@ func IsMTPGadget(deviceType, deviceKey string) bool {
 }
 
 // IsSnapshotDeviceType checks if the device represents a storage snapshot.
+// NBD is a mounted ISO/image, not a snapshot — treating every nbd as a
+// snapshot lit the header snapshot icon whenever any disk was up.
 func IsSnapshotDeviceType(deviceType string, deviceName string, productName string) bool {
-	if deviceType == "nbd" {
-		return true
-	}
 	return IsSnapshotMTPDevice(deviceType, deviceName)
 }

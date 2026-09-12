@@ -12,6 +12,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -25,28 +26,26 @@ import (
 // banner CTA and the footer's "software" chip both open it.
 const FirmwarePromoURL = "https://www.usbridge.io/kvm-software"
 
-const (
-	firmwarePromoTitle    = "USBridge Firmware"
-	firmwarePromoSubtitle = "Turn your board into a hardware KVM"
-	firmwarePromoTrial    = "24h Trial"
-)
-
 var firmwarePromoBoardsList = []string{
 	"Radxa Zero 3W / 3E",
 	"Radxa Cubie A7Z",
 }
 
-var firmwarePromoBoardDetails = map[string]string{
-	"Radxa Zero 3W / 3E": "SD Card / eMMC",
-	"Radxa Cubie A7Z":    "SD Card only",
+func firmwarePromoBoardDetails() map[string]string {
+	return map[string]string{
+		"Radxa Zero 3W / 3E": i18n.Current.FirmwarePromoSDCardEMMC,
+		"Radxa Cubie A7Z":    i18n.Current.FirmwarePromoSDCardOnly,
+	}
 }
 
-var firmwarePromoFeatures = []string{
-	"BIOS-in-terminal (OCR)",
-	"Ultra-low latency video",
-	"Automation scripts",
-	"Immutable snapshot",
-	"0-layer host access",
+func firmwarePromoFeatures() []string {
+	return []string{
+		i18n.Current.FirmwarePromoFeatureBIOS,
+		i18n.Current.FirmwarePromoFeatureLatency,
+		i18n.Current.FirmwarePromoFeatureScripts,
+		i18n.Current.FirmwarePromoFeatureSnapshot,
+		i18n.Current.FirmwarePromoFeatureL0,
+	}
 }
 
 const firmwarePromoFeatureInterval = 2800 * time.Millisecond
@@ -180,10 +179,11 @@ func (b *FirmwarePromoBanner) stopRotation() {
 }
 
 func (b *FirmwarePromoBanner) advanceFeature() {
-	if !b.Visible() || b.featureLabel == nil || len(firmwarePromoFeatures) == 0 {
+	features := firmwarePromoFeatures()
+	if !b.Visible() || b.featureLabel == nil || len(features) == 0 {
 		return
 	}
-	next := (b.featureIdx + 1) % len(firmwarePromoFeatures)
+	next := (b.featureIdx + 1) % len(features)
 	if b.featureAnim != nil {
 		b.featureAnim.Stop()
 	}
@@ -199,7 +199,7 @@ func (b *FirmwarePromoBanner) advanceFeature() {
 		}
 		if !swapped {
 			b.featureIdx = next
-			b.featureLabel.Text = firmwarePromoFeatures[b.featureIdx]
+			b.featureLabel.Text = features[b.featureIdx]
 			swapped = true
 		}
 		b.applyFeatureAlpha((done - 0.5) * 2)
@@ -240,15 +240,20 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 	cpu.FillMode = canvas.ImageFillContain
 	cpu.SetMinSize(fyne.NewSize(18, 18))
 
-	title := NewBrandText(firmwarePromoTitle, 12, design.ColorConnectionsSectionTitle, true)
-	subtitle := canvas.NewText(firmwarePromoSubtitle, design.ColorConnectionsSectionSubtitle)
+	title := NewBrandText(i18n.Current.FirmwarePromoTitle, 12, design.ColorConnectionsSectionTitle, true)
+	subtitle := canvas.NewText(i18n.Current.FirmwarePromoSubtitle, design.ColorConnectionsSectionSubtitle)
 	subtitle.TextSize = 9
 	titleBlock := container.New(&tightStatsVBoxLayout{Gap: 1}, title, subtitle)
 
 	b.featureIcon = canvas.NewImageFromResource(firmwarePromoCheckIcon)
 	b.featureIcon.FillMode = canvas.ImageFillContain
 	b.featureIcon.SetMinSize(fyne.NewSize(12, 12))
-	b.featureLabel = canvas.NewText(firmwarePromoFeatures[b.featureIdx], firmwarePromoFeatureColor)
+	features := firmwarePromoFeatures()
+	featureText := ""
+	if len(features) > 0 {
+		featureText = features[b.featureIdx%len(features)]
+	}
+	b.featureLabel = canvas.NewText(featureText, firmwarePromoFeatureColor)
 	b.featureLabel.TextSize = 10
 	featureWidth := firmwarePromoFeatureMinWidth()
 	featureInner := container.New(&DeviceRowControlsLayout{Gap: 6}, b.featureIcon, b.featureLabel)
@@ -273,7 +278,7 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 			}
 		},
 	})
-	trialBtn.SetText(firmwarePromoTrial)
+	trialBtn.SetText(i18n.Current.FirmwarePromoTrial)
 
 	titleCluster := container.New(&DeviceRowControlsLayout{Gap: 10},
 		container.NewCenter(cpu),
@@ -292,7 +297,7 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 		boards.TextSize = 10
 		boards.HoverBorderColor = design.ColorConnectionBadgeText
 		boards.HoverFillColor = design.ColorGray900
-		boards.SetDetails(firmwarePromoBoardDetails)
+		boards.SetDetails(firmwarePromoBoardDetails())
 		boards.OnHover = b.setHovered
 		boards.SetOptions(firmwarePromoBoardsList)
 		boards.SetSelected(firmwarePromoBoardsList[0])
@@ -361,7 +366,7 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 
 func firmwarePromoFeatureMinWidth() float32 {
 	max := float32(0)
-	for _, text := range firmwarePromoFeatures {
+	for _, text := range firmwarePromoFeatures() {
 		measure := canvas.NewText(text, firmwarePromoFeatureColor)
 		measure.TextSize = 10
 		if w := measure.MinSize().Width; w > max {

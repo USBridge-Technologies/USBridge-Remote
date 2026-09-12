@@ -41,6 +41,12 @@ type brandedOverlayDialogSpec struct {
 	rightButtons  []fyne.CanvasObject
 	panelSize     func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
 	compactFooter bool
+	// tightFooter is a shorter button strip than compactFooter -- the Agent
+	// catalog uses it so Download/GitHub don't dominate the panel.
+	tightFooter bool
+	// footerHint, when set, replaces the Cancel label on the left of the
+	// button row with a muted one-line note (the Agent catalog uses this).
+	footerHint string
 	// beforeClose, if set, runs instead of closing when the user taps X or
 	// Cancel. Call proceed() to actually dismiss (Save/Run still close directly).
 	beforeClose func(proceed func())
@@ -91,14 +97,23 @@ func showBrandedOverlayDialog(spec brandedOverlayDialogSpec) (*widget.PopUp, fun
 		}
 	}
 	rightGroup := container.New(&view.DeviceRowControlsLayout{Gap: connectionDialogButtonsGap}, rightItems...)
-	buttons := container.NewBorder(nil, nil, container.NewCenter(cancelBtn), rightGroup)
+	var leftFooter fyne.CanvasObject = container.NewCenter(cancelBtn)
+	if spec.footerHint != "" {
+		hint := canvas.NewText(spec.footerHint, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
+		hint.TextSize = 9
+		leftFooter = container.NewCenter(hint)
+	}
+	buttons := container.NewBorder(nil, nil, leftFooter, rightGroup)
 	footerTop, panelBottom := float32(14), float32(16)
-	if spec.compactFooter {
+	footerSide := float32(18)
+	if spec.tightFooter {
+		footerTop, panelBottom, footerSide = 3, 6, 12
+	} else if spec.compactFooter {
 		footerTop, panelBottom = 8, 12
 	}
 	footerBlock := container.NewVBox(
 		sepFooter,
-		view.NewInset(buttons, 12, 18, footerTop, 0),
+		view.NewInset(buttons, footerSide, footerSide, footerTop, 0),
 	)
 
 	bg := canvas.NewRectangle(design.ColorGray900)
