@@ -4,6 +4,7 @@ package autostart
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,12 +13,29 @@ import (
 
 const launchAgentLabel = "io.usbridge.agent"
 
+// trayLaunchAgentLabel is a second, separate LaunchAgent that launches the
+// same binary with --tray instead of --headless -- unlike Linux/systemd,
+// launchd LaunchAgents already run as the logged-in user by definition (no
+// LocalSystem-style profile mismatch is possible here), so this is purely
+// an additive convenience: a visible tray icon for the headless engine the
+// primary LaunchAgent above starts, with no elevation or state-dir
+// alignment concerns at all.
+const trayLaunchAgentLabel = "io.usbridge.agent.tray"
+
 func plistPath() (string, error) {
+	return launchAgentPath(launchAgentLabel)
+}
+
+func trayPlistPath() (string, error) {
+	return launchAgentPath(trayLaunchAgentLabel)
+}
+
+func launchAgentPath(label string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(homeDir, "Library", "LaunchAgents", launchAgentLabel+".plist"), nil
+	return filepath.Join(homeDir, "Library", "LaunchAgents", label+".plist"), nil
 }
 
 func IsEnabled() bool {
@@ -34,26 +52,17 @@ func escapeXML(s string) string {
 	return replacer.Replace(s)
 }
 
-func Enable() error {
-	exe, args, err := LaunchTarget()
-	if err != nil {
-		return err
-	}
-	path, err := plistPath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
+// launchAgentContent renders a minimal RunAtLoad LaunchAgent plist that
+// execs exe with args -- shared by the primary (--headless engine) and tray
+// (--tray helper) LaunchAgents, which differ only in label and arguments.
+func launchAgentContent(label, exe string, args []string) string {
 	var argsXML strings.Builder
 	argsXML.WriteString("\t\t<string>" + escapeXML(exe) + "</string>\n")
 	for _, a := range args {
 		argsXML.WriteString("\t\t<string>" + escapeXML(a) + "</string>\n")
 	}
 
-	content := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -66,16 +75,55 @@ func Enable() error {
 	<true/>
 </dict>
 </plist>
-`, launchAgentLabel, argsXML.String())
+`, label, argsXML.String())
+}
 
+func writeLaunchAgent(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return err
 	}
-
 	// Activate immediately instead of waiting for the next login. Ignore the
 	// error: launchctl exits non-zero if it's already loaded, which isn't a
 	// real failure here.
 	_ = exec.Command("launchctl", "load", "-w", path).Run()
+	return nil
+}
+
+func removeLaunchAgent(path string) error {
+	_ = exec.Command("launchctl", "unload", "-w", path).Run()
+	err := os.Remove(path)
+	if err != nil && os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func Enable() error {
+	exe, args, err := LaunchTarget()
+	if err != nil {
+		return err
+	}
+	path, err := plistPath()
+	if err != nil {
+		return err
+	}
+	if err := writeLaunchAgent(path, launchAgentContent(launchAgentLabel, exe, args)); err != nil {
+		return err
+	}
+
+	// Best-effort, non-fatal: the primary LaunchAgent above is the real
+	// autostart guarantee (the engine survives without this). This just
+	// gives it a visible tray icon at login -- see trayLaunchAgentLabel's
+	// doc comment. No elevation or state-dir alignment needed: both
+	// LaunchAgents already run as this same logged-in user.
+	if trayPath, err := trayPlistPath(); err == nil {
+		if err := writeLaunchAgent(trayPath, launchAgentContent(trayLaunchAgentLabel, exe, []string{"--tray"})); err != nil {
+			log.Printf("[autostart] warning: could not install tray LaunchAgent: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -84,12 +132,12 @@ func Disable() error {
 	if err != nil {
 		return err
 	}
-	_ = exec.Command("launchctl", "unload", "-w", path).Run()
-	err = os.Remove(path)
-	if err != nil && os.IsNotExist(err) {
-		return nil
+	if trayPath, trayErr := trayPlistPath(); trayErr == nil {
+		if err := removeLaunchAgent(trayPath); err != nil {
+			log.Printf("[autostart] warning: could not remove tray LaunchAgent: %v", err)
+		}
 	}
-	return err
+	return removeLaunchAgent(path)
 }
 
 // RefreshX11SessionEnv is a Linux/SDDM-only concept (see its doc comment on

@@ -32,6 +32,7 @@ One lightweight binary for Windows, macOS, and Linux. It shares the exact same c
 - **Wayland Native**: On Linux, switching Sunshine to KMS capture only needs a single `pkexec` grant. It sets `CAP_SYS_ADMIN` on the binary and persists across reboots—meaning the annoying portal permission dialog never comes back.
 - **One-Click Clipboard Setup on Linux**: If neither `xclip` nor `wl-clipboard` is present, the Permissions column offers a one-click, distro-aware install (a "?" button previews the exact `pkexec` command first). On Wayland, both tools get installed and written to together, since desktop compositors don't always mirror the clipboard between native Wayland apps and XWayland ones.
 - **Unified Dashboard**: The control window neatly displays your LAN/Tailscale addresses, streaming backend status (including copy-to-clipboard, quick launch, and informational tooltips for WebRTC client links), permission statuses, and Tailscale sign-in all in one place.
+- **System Tray**: Closing the window minimizes to a tray icon instead of quitting — the icon itself reflects live status (idle/streaming/needs attention), and its menu gives one-click access to reopening the window, restarting streaming, toggling autostart, and quitting for real. A tray icon stays visible even when the engine is running headless in the background (see [Launch at Login](#-launch-at-login-autostart) below).
 
 ## 🚀 Quick Start
 
@@ -68,6 +69,19 @@ USBRIDGE_SUNSHINE_VERSION=<tag> # Pin to a specific Sunshine release version
 
 > **macOS Note:** Grant Screen Recording + Accessibility when prompted, then always launch from the same installed path (`~/Applications/USBridgeAgent.app`). Development builds aren't ad-hoc signed, so re-signing on every rebuild looks like a completely new app to macOS, causing both prompts to return.
 
+## 🗂️ System Tray
+
+Clicking the window's close button minimizes the Agent to a tray icon instead of quitting it — the first time this happens you'll see a one-off "still running in the tray" notification. The icon itself reflects live status (idle / streaming to N client(s) / needs attention), and its menu gives you:
+
+- **Open USBridge Agent** — reopens the window (also triggered by clicking the tray icon itself on most platforms).
+- **Restart Streaming**
+- **Autostart at Boot** — the same toggle as the main window, mirrored here for convenience.
+- **Quit** — the only thing that actually exits the process / stops the engine you're currently looking at.
+
+**Linux (X11 & Wayland):** the tray uses the standard freedesktop StatusNotifierItem protocol, which works out of the box on X11 and on any Wayland compositor that implements it (KDE Plasma, XFCE, Sway with waybar/nwg-panel, etc.). **GNOME ships no tray host at all by default** — install the ["AppIndicator and KStatusNotifierItem Support"](https://extensions.gnome.org/extension/615/appindicator-support/) extension (or newer GNOME's "Tray Icons: Reloaded") to see it. If the Agent detects no tray host is reachable on your session, it automatically falls back to the old behavior (closing the window quits the app) rather than leaving you with an invisible, unquittable process.
+
+**Tray visible even when running headless:** when "Launch at Login" is enabled (see below), a second, lightweight helper also starts at graphical login and attaches to the already-running headless engine — so you always have a visible tray icon and a way to open the window, even though the actual engine (HTTP/Sunshine/Tailscale) is running silently in the background with no window of its own. On Windows this is launched directly by the `USBridgeAgent` service into your active desktop session (no separate autostart entry needed); on Linux/macOS it's a small additional per-user autostart entry (`~/.config/autostart/usbridge-agent-tray.desktop`, or a second LaunchAgent on macOS) installed/removed alongside the main one.
+
 ## ⚙️ Launch at Login (Autostart)
 
 The "Launch at Login" checkbox has no stored on/off state of its own. It directly reflects whatever your OS's actual autostart mechanism currently reports (`systemctl is-enabled usbridge-agent.service` on Linux). It starts unchecked on a fresh machine and only becomes enabled when you check it.
@@ -76,17 +90,21 @@ Checking it registers **the exact executable you're currently running** as the c
 - **AppImage**: The outer `$APPIMAGE` path (the `.AppImage` file itself, not its ephemeral mount point).
 - **Plain binary**: Evaluates via `os.Executable()`.
 
-It always appends the `--headless` flag, ensuring autostart brings up the HTTP, Sunshine, and Tailscale engines silently in the background on every boot. Opening the app normally afterwards simply attaches the GUI to the already-running background instance.
+It always appends the `--headless` flag, ensuring autostart brings up the HTTP, Sunshine, and Tailscale engines silently in the background on every boot. Opening the app normally afterwards simply attaches the GUI to the already-running background instance — or see [System Tray](#-system-tray) above for the automatic, no-click way to get that same GUI/tray back at login.
 
 **Linux specifics:**
-On Linux, this installs a **system-wide** (not `--user`) systemd unit at `/etc/systemd/system/usbridge-agent.service` via `pkexec`. This is done deliberately so it can start before any graphical session exists—which is crucial for KMS capture (reading DRM/KMS directly with no compositor or portal required). Re-checking the box from a different path overwrites the unit with the new path; un-checking it removes the unit entirely.
+On Linux, this installs a **system-wide** (not `--user`) systemd unit at `/etc/systemd/system/usbridge-agent.service` via `pkexec`. This is done deliberately so it can start before any graphical session exists—which is crucial for KMS capture (reading DRM/KMS directly with no compositor or portal required). Re-checking the box from a different path overwrites the unit with the new path; un-checking it removes the unit entirely (along with the tray helper's own autostart entry).
 
 If you move or rename the binary without toggling the checkbox, the installed unit will point at a missing path. Simply toggle it off and on again from the new location, or fix it manually:
 ```bash
 sudo systemctl disable --now usbridge-agent.service
 sudo rm -f /etc/systemd/system/usbridge-agent.service
 sudo systemctl daemon-reload
+rm -f ~/.config/autostart/usbridge-agent-tray.desktop
 ```
+
+**Windows specifics:**
+The `USBridgeAgent` service always runs as `LocalSystem` — deliberately, so it can capture and inject input straight through the lock/sign-in screen, not just an unlocked desktop (see [Platform Notes](docs/README.md#platform-notes-from-the-top-level-readme) for why). A `LocalSystem` service can't show UI in your desktop session on its own, so instead of a separate autostart entry, the service re-homes a small tray-only copy of itself into your active session directly (the same session-broker mechanism the streaming backend already uses to reach your desktop) whenever you log on or the service (re)starts while you're already logged in.
 
 ## 🎮 Lock GPU Clocks (Windows + NVIDIA)
 

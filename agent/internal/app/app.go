@@ -114,6 +114,31 @@ type App struct {
 	accPollCancel context.CancelFunc
 }
 
+// StartOptions configures Start -- see main.go's flag definitions for the
+// user-facing meaning of each field.
+type StartOptions struct {
+	// Headless runs the engine (HTTP server, Sunshine, tsnet) with no GUI
+	// at all -- see Start's doc comment.
+	Headless bool
+	// Tray, when this launch ends up showing a GUI (either owning the
+	// engine or attaching to one already running), starts that window
+	// hidden -- minimized to the tray -- instead of shown. Used by the
+	// login-time tray helper (see internal/autostart's per-platform
+	// Enable) so it never visibly pops a window at login; a no-op if this
+	// session turns out to have no usable tray host at all (see
+	// ui.Window's startHidden field doc).
+	Tray bool
+	// Attach, if non-empty, dials this exact admin-socket path directly and
+	// attaches a thin-client GUI to it, bypassing the normal config-path
+	// discovery below entirely. Windows-only in practice: a LocalSystem
+	// service already knows its own socket path, which lives under a
+	// different profile (SYSTEM's) than whatever interactive user session
+	// this process gets launched into via sessionlaunch -- see
+	// service_windows.go's SessionChange handling, which is the only
+	// caller that ever sets this.
+	Attach string
+}
+
 // Start is the sole entry point from main(). It decides, based on mode and
 // whether another instance's admin socket is already reachable, whether
 // this process owns the engine (HTTP server, Sunshine, tsnet) or just
@@ -122,7 +147,15 @@ type App struct {
 // a `--headless` systemd/launchd/autostart service and as the normal GUI
 // app without ever running two engines (and two Sunshine/tsnet instances)
 // at once on the same machine.
-func Start(headless bool, version string) error {
+func Start(opts StartOptions, version string) error {
+	if opts.Attach != "" {
+		client, err := adminapi.Dial(opts.Attach)
+		if err != nil {
+			return fmt.Errorf("attach to admin socket %s: %w", opts.Attach, err)
+		}
+		return runThinClientGUI(client, opts.Tray)
+	}
+
 	cfgPath := resolveConfigPath()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -138,11 +171,11 @@ func Start(headless bool, version string) error {
 
 	socketPath := adminapi.SocketPath(cfg.StateDir)
 	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
-		if headless {
+		if opts.Headless {
 			client.Close()
 			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
 		}
-		return runThinClientGUI(client)
+		return runThinClientGUI(client, opts.Tray)
 	}
 
 	// Mandatory startup update check — only here, not on a thin-GUI attach
@@ -154,7 +187,7 @@ func Start(headless bool, version string) error {
 	// instead asks via a confirm dialog once the window exists — see
 	// internal/ui's ShowAndRun, which runs the same Check/DownloadAndApply
 	// pair gated on the user's answer.
-	if headless {
+	if opts.Headless {
 		update.CheckAndApply(context.Background(), version)
 	}
 
@@ -162,14 +195,16 @@ func Start(headless bool, version string) error {
 	if err != nil {
 		return err
 	}
-	return instance.Run(headless)
+	return instance.Run(opts.Headless, opts.Tray)
 }
 
 // runThinClientGUI shows the GUI backed by an already-running headless
 // instance's admin socket instead of starting a second engine. Closing the
 // window here does NOT stop the headless instance — only a process actually
-// owning the engine (see App.Run/shutdownEngine) does that.
-func runThinClientGUI(client *adminapi.Client) error {
+// owning the engine (see App.Run/shutdownEngine) does that. startHidden is
+// forwarded to ui.Window.SetStartHidden -- see StartOptions.Tray's doc
+// comment.
+func runThinClientGUI(client *adminapi.Client, startHidden bool) error {
 	cfg, err := client.CurrentConfig()
 	if err != nil {
 		client.Close()
@@ -196,7 +231,9 @@ func runThinClientGUI(client *adminapi.Client) error {
 	// to notice and pick up the change.
 	localPerms := permissions.New()
 	token := &thinClientToken{Client: client, perms: localPerms}
-	ui.NewWindow(fyneApp, cfg, localPerms, client, token).ShowAndRun(func() {
+	win := ui.NewWindow(fyneApp, cfg, localPerms, client, token)
+	win.SetStartHidden(startHidden)
+	win.ShowAndRun(func() {
 		client.Close()
 	})
 	return nil
@@ -265,6 +302,23 @@ func NotifySessionChange() {
 	if err := a.RestartSunshine(); err != nil {
 		log.Printf("[app] restart after session change failed: %v", err)
 	}
+}
+
+// AdminSocketPath returns the currently running instance's admin-socket
+// path, or ok=false if no instance has started yet (e.g. this races the
+// service's own startup). Windows-only caller: service_windows.go hands
+// this to LaunchTrayHelperInActiveSession as an explicit --attach target,
+// since a LocalSystem service's own config/state dir lives under a
+// different profile than whatever interactive session that helper actually
+// runs in -- see StartOptions.Attach's doc comment for the full picture.
+func AdminSocketPath() (string, bool) {
+	currentInstance.mu.Lock()
+	a := currentInstance.a
+	currentInstance.mu.Unlock()
+	if a == nil {
+		return "", false
+	}
+	return adminapi.SocketPath(a.cfg.StateDir), true
 }
 
 func New() (*App, error) {
@@ -418,7 +472,9 @@ func resolveConfigPath() string {
 // then either blocks headlessly on ctx.Done() (headless==true — no Fyne
 // driver ever touched, so no display connection is required) or shows the
 // GUI window backed directly by this same in-process engine (headless==false).
-func (a *App) Run(headless bool) error {
+// startHidden is forwarded to ui.Window.SetStartHidden when a window is
+// shown at all -- see StartOptions.Tray's doc comment.
+func (a *App) Run(headless, startHidden bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -517,6 +573,7 @@ func (a *App) Run(headless bool) error {
 	go a.handleShutdown(ctx, cancel)
 	win := ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a)
 	win.SetOwnsEngine(true)
+	win.SetStartHidden(startHidden)
 	win.ShowAndRun(cancel)
 	return nil
 }

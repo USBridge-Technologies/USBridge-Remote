@@ -4,6 +4,7 @@ package autostart
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"os/user"
@@ -413,6 +414,17 @@ WantedBy=multi-user.target
 	if err != nil {
 		return fmt.Errorf("install systemd service: %s", friendlyPkexecError(err, out))
 	}
+
+	// Best-effort, non-fatal: the systemd unit above is the real autostart
+	// guarantee (the engine survives without this). This just gives it a
+	// visible tray icon at graphical login -- see trayDesktopEntryContent's
+	// doc comment. Needs no elevation: the systemd unit already runs as
+	// this same user (User=%s above), so it and a per-user XDG autostart
+	// entry resolve the exact same config/state dir and admin socket, and
+	// this thin GUI just dials straight into it (see app.Start).
+	if err := installTrayAutostart(exe); err != nil {
+		log.Printf("[autostart] warning: could not install tray autostart entry: %v", err)
+	}
 	return nil
 }
 
@@ -424,8 +436,95 @@ func Disable() error {
 	ensurePolkitAuthAgent()
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()
+	if removeErr := removeTrayAutostart(); removeErr != nil {
+		log.Printf("[autostart] warning: could not remove tray autostart entry: %v", removeErr)
+	}
 	if err != nil {
 		return fmt.Errorf("remove systemd service: %s", friendlyPkexecError(err, out))
 	}
 	return nil
+}
+
+// trayAutostartFile is the per-user XDG autostart entry that launches the
+// tray-only helper (cmd/usbridge_agent's --tray flag) at graphical login --
+// separate from the systemd unit's own ExecStart (which always passes
+// --headless) because the two processes play different roles: the unit
+// above is the actual engine (HTTP/Sunshine/tsnet), started at boot before
+// any login exists; this is just a status window/tray icon that attaches to
+// it, and only makes sense once a graphical session exists at all.
+const trayAutostartFile = "usbridge-agent-tray.desktop"
+
+// trayAutostartDir resolves the per-user XDG autostart directory, honoring
+// $XDG_CONFIG_HOME the same way every other XDG-compliant autostart
+// consumer (desktop environments included) does, falling back to
+// ~/.config/autostart per the base-dir spec's default.
+func trayAutostartDir() (string, error) {
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+		return filepath.Join(xdg, "autostart"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "autostart"), nil
+}
+
+// trayDesktopEntryContent renders the XDG autostart .desktop file that
+// launches exe with --tray. NoDisplay=true keeps it out of application
+// menus/launchers (it's an autostart-only entry, not something a user would
+// ever want to launch a second copy of by hand).
+func trayDesktopEntryContent(exe string) string {
+	return fmt.Sprintf(`[Desktop Entry]
+Type=Application
+Name=USBridge Agent (tray)
+Comment=Tray icon for the USBridge Agent background service
+Exec=%s
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+`, xdgExecValue(exe, []string{"--tray"}))
+}
+
+// xdgExecValue renders exe+args as a single Desktop Entry Exec= value,
+// quoting each argument per the Desktop Entry Specification's Exec key
+// rules only when actually needed (a path with no special characters, the
+// overwhelmingly common case, is left bare for readability).
+func xdgExecValue(exe string, args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, xdgQuoteExecArg(exe))
+	for _, a := range args {
+		parts = append(parts, xdgQuoteExecArg(a))
+	}
+	return strings.Join(parts, " ")
+}
+
+func xdgQuoteExecArg(s string) string {
+	if !strings.ContainsAny(s, " \t\"'\\$`") {
+		return s
+	}
+	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", `$`, `\$`)
+	return `"` + replacer.Replace(s) + `"`
+}
+
+func installTrayAutostart(exe string) error {
+	dir, err := trayAutostartDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, trayAutostartFile), []byte(trayDesktopEntryContent(exe)), 0o644)
+}
+
+func removeTrayAutostart() error {
+	dir, err := trayAutostartDir()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(dir, trayAutostartFile))
+	if err != nil && os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
