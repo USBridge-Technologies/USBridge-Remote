@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -23,6 +24,17 @@ type HeaderActionButtonSpec struct {
 	IconSize      fyne.Size
 	SpinnerFrames []fyne.Resource
 	Text          string
+
+	// HoverFill/HoverStroke/HoverForeground override Fill/Stroke/Foreground
+	// while the button is hovered -- nil keeps that same resting color, so
+	// a caller that never sets these (every one besides the Exit button)
+	// gets the exact old no-hover-change look. HoverIcon likewise swaps
+	// Icon's resource while hovered (an SVG's color is baked in at asset
+	// build time, so Foreground alone can't retint it).
+	HoverFill       color.Color
+	HoverStroke     color.Color
+	HoverForeground color.Color
+	HoverIcon       fyne.Resource
 }
 
 type HeaderActionButton struct {
@@ -30,6 +42,7 @@ type HeaderActionButton struct {
 
 	onTapped func()
 	spec     HeaderActionButtonSpec
+	hovered  bool
 
 	bg          *canvas.Rectangle
 	border      *canvas.Rectangle
@@ -72,6 +85,17 @@ func (b *HeaderActionButton) Disabled() bool {
 	return b.spec.Disabled
 }
 
+// SetText updates just the label (e.g. the Exit button's own LAN/Tailscale
+// text -- see main_window_layout.go's updateStatusBarUI, called whenever
+// mw.connectedProtocol changes) without touching Fill/Stroke/Icon/etc., so
+// a caller doesn't have to reconstruct and reapply the whole spec just to
+// change this one field.
+func (b *HeaderActionButton) SetText(text string) {
+	b.spec.Text = text
+	b.syncVisuals()
+	b.Refresh()
+}
+
 func (b *HeaderActionButton) Tapped(*fyne.PointEvent) {
 	if b.spec.Disabled || b.onTapped == nil {
 		return
@@ -81,8 +105,64 @@ func (b *HeaderActionButton) Tapped(*fyne.PointEvent) {
 
 func (b *HeaderActionButton) TappedSecondary(*fyne.PointEvent) {}
 
+func (b *HeaderActionButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.syncVisuals()
+}
+
+func (b *HeaderActionButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *HeaderActionButton) MouseOut() {
+	b.hovered = false
+	b.syncVisuals()
+}
+
+// headerActionButtonTextSize/Gap/PadX/PadY size this button's content when
+// it's showing icon+text together (e.g. the Exit button's own LAN/Tailscale
+// label -- see main_window_layout.go's createMainAddressBar) -- small
+// enough that the whole button stays compact rather than the old fixed
+// 36x36 square every caller got regardless of content.
+const (
+	headerActionButtonTextSize = float32(9)
+	headerActionButtonGap      = float32(6)
+	headerActionButtonPadX     = float32(10)
+	// headerActionButtonPadY was 2 -- 0 shaves ~4px off the button's total
+	// height (this term counts twice, top and bottom).
+	headerActionButtonPadY = float32(0)
+)
+
+// MinSize sizes the button to its actual content (icon and/or text, side by
+// side, plus padding) instead of a fixed square -- a button with both grows
+// as wide as its label needs (see spec.Text), not just its icon's own
+// width, and a shorter/taller icon changes the button's height too instead
+// of always reporting the same fixed value regardless of spec.IconSize.
 func (b *HeaderActionButton) MinSize() fyne.Size {
-	return fyne.NewSize(36, 36)
+	iconSize := b.spec.IconSize
+	if iconSize.Width <= 0 || iconSize.Height <= 0 {
+		iconSize = fyne.NewSize(22, 22)
+	}
+	hasIcon := b.spec.Icon != nil || len(b.spec.SpinnerFrames) > 0
+	hasText := b.spec.Text != ""
+
+	var width, height float32
+	if hasIcon {
+		width += iconSize.Width
+		height = iconSize.Height
+	}
+	if hasText {
+		textSize := fyne.MeasureText(b.spec.Text, headerActionButtonTextSize, fyne.TextStyle{Bold: true})
+		if hasIcon {
+			width += headerActionButtonGap
+		}
+		width += textSize.Width
+		if textSize.Height > height {
+			height = textSize.Height
+		}
+	}
+	if !hasIcon && !hasText {
+		width, height = 22, 22
+	}
+	return fyne.NewSize(width+headerActionButtonPadX*2, height+headerActionButtonPadY*2)
 }
 
 func (b *HeaderActionButton) CreateRenderer() fyne.WidgetRenderer {
@@ -103,11 +183,18 @@ func (b *HeaderActionButton) CreateRenderer() fyne.WidgetRenderer {
 	b.icon.SetMinSize(iconSize)
 
 	b.label = canvas.NewText("", b.spec.Foreground)
-	b.label.TextSize = 18
+	b.label.TextSize = headerActionButtonTextSize
 	b.label.TextStyle.Bold = true
 
-	content := container.NewCenter(container.NewStack(b.icon, b.label))
-	renderer := widget.NewSimpleRenderer(container.NewMax(b.bg, content, b.border))
+	// DeviceRowControlsLayout (label then icon, left to right, skipping
+	// whichever one is hidden) instead of the old Stack -- icon and label
+	// used to be mutually exclusive (see syncVisuals' old forced
+	// b.icon.Hide() whenever spec.Text was set) and so could just sit on
+	// top of each other; now both can show at once. Label first, icon last
+	// -- the Exit button's own "LAN"/"Tailscale" text reads before its
+	// icon, not after.
+	content := container.NewCenter(container.New(&DeviceRowControlsLayout{Gap: headerActionButtonGap}, b.label, b.icon))
+	renderer := widget.NewSimpleRenderer(container.NewStack(b.bg, content, b.border))
 	b.syncVisuals()
 	return renderer
 }
@@ -117,15 +204,28 @@ func (b *HeaderActionButton) syncVisuals() {
 		return
 	}
 
-	b.bg.FillColor = b.spec.Fill
+	fill, stroke, foreground := b.spec.Fill, b.spec.Stroke, b.spec.Foreground
+	if b.hovered {
+		if b.spec.HoverFill != nil {
+			fill = b.spec.HoverFill
+		}
+		if b.spec.HoverStroke != nil {
+			stroke = b.spec.HoverStroke
+		}
+		if b.spec.HoverForeground != nil {
+			foreground = b.spec.HoverForeground
+		}
+	}
+
+	b.bg.FillColor = fill
 	b.bg.Refresh()
 
-	b.border.StrokeColor = b.spec.Stroke
+	b.border.StrokeColor = stroke
 	b.border.StrokeWidth = b.spec.StrokeWidth
 	b.border.Refresh()
 
 	b.label.Text = b.spec.Text
-	b.label.Color = b.spec.Foreground
+	b.label.Color = foreground
 	if b.spec.Text != "" {
 		b.label.Show()
 	} else {
@@ -139,8 +239,12 @@ func (b *HeaderActionButton) syncVisuals() {
 		b.startSpinner()
 	} else {
 		b.stopSpinner()
-		b.icon.Resource = b.spec.Icon
-		if b.spec.Icon != nil {
+		icon := b.spec.Icon
+		if b.hovered && b.spec.HoverIcon != nil {
+			icon = b.spec.HoverIcon
+		}
+		b.icon.Resource = icon
+		if icon != nil {
 			b.icon.Show()
 		} else {
 			b.icon.Hide()
@@ -151,10 +255,6 @@ func (b *HeaderActionButton) syncVisuals() {
 		b.icon.SetMinSize(b.spec.IconSize)
 	} else {
 		b.icon.SetMinSize(fyne.NewSize(22, 22))
-	}
-
-	if b.spec.Text != "" {
-		b.icon.Hide()
 	}
 }
 
@@ -213,4 +313,7 @@ func (b *HeaderActionButton) stopSpinner() {
 	}
 }
 
-var _ fyne.Tappable = (*HeaderActionButton)(nil)
+var (
+	_ fyne.Tappable     = (*HeaderActionButton)(nil)
+	_ desktop.Hoverable = (*HeaderActionButton)(nil)
+)

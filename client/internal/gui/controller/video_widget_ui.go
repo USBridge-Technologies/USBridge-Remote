@@ -74,21 +74,12 @@ func (vw *VideoWidget) handleStartVideo() {
 			}
 		})
 
-		if vw.startDialog == nil {
-			if vw.parentWindow == nil {
-				logrus.Warn("⚠️ Parent window not set")
-				fyne.Do(func() {
-					vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
-				})
-				return
-			}
-			vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
-			vw.startDialog.SetLiveCodecProvider(func() (string, bool) {
-				if vw.videoClient == nil {
-					return "", false
-				}
-				return vw.videoClient.NegotiatedVideoCodecName()
+		if vw.parentWindow == nil {
+			logrus.Warn("⚠️ Parent window not set")
+			fyne.Do(func() {
+				vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
 			})
+			return
 		}
 
 		preferredConfig, preferredErr := vw.resolvePreferredVideoConfig()
@@ -149,6 +140,7 @@ func (vw *VideoWidget) handleStartVideo() {
 		}
 
 		fyne.Do(func() {
+			vw.ensureStartDialog()
 			vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
 			vw.startDialog.SetDeviceLabel("")
 			vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
@@ -671,12 +663,22 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 
 		if isConnectedStorageDevice(device) {
 			storageConnected = true
+			logrus.Infof("💿 [HID] storage-like device device=%q type=%q name=%q status=%q",
+				device.Device, device.Type, device.Name, device.Status)
 		}
 	}
 
 	if storageConnected {
-		logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
-		return nil
+		// Software-agent HID is OS-level input, not a USB gadget composite.
+		// Skipping here left stale nbd/local rows on the agent forever and
+		// also blocked keyboard/mouse auto-connect.
+		if !isUSBridgeAgentOS(deviceInfo.AgentOS) {
+			logrus.Infof("💿 Control HID auto-connect: ignoring leftover storage on software agent (agentOS=%q)", deviceInfo.AgentOS)
+			storageConnected = false
+		} else {
+			logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
+			return nil
+		}
 	}
 
 	if xinputGamepadConnected {
@@ -787,7 +789,7 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 }
 
 func (vw *VideoWidget) BootstrapControlSessionAsync() {
-	if vw.userStoppedVideo.Load() {
+	if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
 		// The user explicitly pressed stop; this call is one of
 		// scheduleControlBootstrap's timers (main_window_lifecycle.go), which
 		// fire on a schedule tied to which tab is visible, not to user intent
@@ -1034,6 +1036,10 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 	vw.platformHandleVirtualKeyboard()
 }
 
+func (vw *VideoWidget) IsVirtualKeyboardVisible() bool {
+	return vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible()
+}
+
 // updateStats updates statistics.
 func (vw *VideoWidget) updateStats() {
 	vw.frameMutex.RLock()
@@ -1096,6 +1102,17 @@ func (vw *VideoWidget) SetOnFPSChanged(fn func(float64)) {
 	vw.onFPSChanged = fn
 }
 
+// SetOnResolutionChanged wires a callback fired with the newly applied
+// capture width/height every time applyVideoDeviceConfig actually applies
+// one -- both the header's own quick-pick menu (ApplyVideoResolution) and
+// the Video Parameters dialog's Apply button funnel through there. Without
+// this, the header's resolution label had no way to learn about a change:
+// it read a static, never-updated models.AppConfig field instead (see
+// MainWindow.updateVideoIconLabel).
+func (vw *VideoWidget) SetOnResolutionChanged(fn func(width, height int)) {
+	vw.onResolutionChanged = fn
+}
+
 // UpdateClient updates the USB client.
 func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.usbClient = usbClient
@@ -1153,19 +1170,26 @@ func (vw *VideoWidget) StopVideo() {
 
 // HandleConnectionLost stops local video/input resources without contacting the server.
 func (vw *VideoWidget) HandleConnectionLost() {
+	// Stop reconcile retries *before* Disconnect: onStateChanged("disconnected")
+	// otherwise schedules another Moonlight connect against the dead host.
+	vw.MarkUserStopped()
+	vw.setDesiredStreaming(false)
 	resetVideoInfoCache()
+
+	vw.isStreaming = false
+	vw.isVideoConnected = false
+	vw.isMouseConnected = false
+	vw.hideConnectingSpinner()
+	vw.stopRenderTicker()
+	// Tear down the overlay/mouse pump first so the window starts accepting
+	// clicks even if Moonlight's graceful ENet disconnect later blocks ~2s.
+	vw.clearVideo()
 
 	if vw.videoClient != nil {
 		if err := vw.videoClient.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Failed to disconnect video client after transport loss: %v", err)
 		}
 	}
-
-	vw.isStreaming = false
-	vw.isVideoConnected = false
-	vw.isMouseConnected = false
-	vw.hideConnectingSpinner()
-	vw.clearVideo()
 
 	fyne.Do(func() {
 		vw.updateButtons()
@@ -1210,10 +1234,18 @@ func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 	return true
 }
 
-// clearVideo clears the video.
+func (vw *VideoWidget) stopRenderTicker() {
+	if vw.renderTickerStop != nil {
+		close(vw.renderTickerStop)
+		vw.renderTickerStop = nil
+	}
+}
+
 func (vw *VideoWidget) clearVideo() {
 	vw.clearVideoMu.Lock()
 	defer vw.clearVideoMu.Unlock()
+
+	vw.stopRenderTicker()
 
 	vw.frameMutex.Lock()
 	lastFrame := vw.currentFrame // saved for darkened pause display (Fyne canvas path)
@@ -1361,9 +1393,7 @@ func (vw *VideoWidget) startRenderTicker(fps ...int) {
 	if len(fps) > 0 && fps[0] > 0 {
 		targetFPS = fps[0]
 	}
-	if vw.renderTickerStop != nil {
-		close(vw.renderTickerStop)
-	}
+	vw.stopRenderTicker()
 	stop := make(chan struct{})
 	vw.renderTickerStop = stop
 

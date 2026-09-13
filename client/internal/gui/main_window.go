@@ -16,6 +16,7 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
@@ -27,19 +28,42 @@ type MainWindow struct {
 	window fyne.Window
 
 	// Widgets
-	diskWidget          *controller.DiskWidget
-	videoWidget         *controller.VideoWidget
-	backupWidget        *controller.BackupWidget
-	connectionManager   *controller.ConnectionManager
-	mainContent         *fyne.Container
-	connectionContent   *fyne.Container
-	tabs                *container.AppTabs
-	deviceButtonsPanel  *fyne.Container
-	deviceFooterBar     *fyne.Container
-	deviceMountBtn      fyne.CanvasObject
-	deviceUnmountBtn    fyne.CanvasObject
-	mainExitBtn         *view.HeaderActionButton
-	connectionFooterBar *fyne.Container
+	diskWidget        *controller.DiskWidget
+	videoWidget       *controller.VideoWidget
+	backupWidget      *controller.BackupWidget
+	connectionManager *controller.ConnectionManager
+	mainContent       *fyne.Container
+	connectionContent *fyne.Container
+	tabs              *container.AppTabs
+	// tabHeaderButtons is the Control/Devices/Snapshots/Scripts selector --
+	// desktop: left zone of createMainAddressBar; mobile: the bigger
+	// connected footer (see createMobileConnectedFooter).
+	tabHeaderButtons   [4]*headerTabButton
+	tabContentStack    *fyne.Container
+	mobileTabFooter      fyne.CanvasObject
+	mobileKeyboardBtn    fyne.CanvasObject
+	mobileKeyboardToggle *headerStatusBadgeButton
+	deviceButtonsPanel *fyne.Container
+	deviceFooterBar    *fyne.Container
+	deviceMountBtn     fyne.CanvasObject
+	deviceUnmountBtn   fyne.CanvasObject
+	mainExitBtn        *view.HeaderActionButton
+	// statusBarStorageDivider is the status-indicator strip's own divider
+	// right before mw.sdStorageProgress (main_window_status_indicator_bar.go)
+	// -- shown/hidden together with it so an agent connection with no SD
+	// card doesn't leave a dangling divider with nothing after it.
+	statusBarStorageDivider fyne.CanvasObject
+	// statusBarPeripheralsDivider is that same strip's divider between the
+	// video group and the peripherals group -- see syncStatusBarDividers.
+	statusBarPeripheralsDivider fyne.CanvasObject
+	// statusBarIndicatorsDivider is the divider *inside* the peripherals
+	// group, between mw.statusBarButtonsGroup (audio/keyboard/mouse/rndis/
+	// script -- real actions) and mw.statusBarIndicatorsGroup (SD card, SD
+	// disk, gamepad, snapshots -- display-only, never react to clicks) --
+	// see syncStatusBarDividers.
+	statusBarIndicatorsDivider fyne.CanvasObject
+	statusBarButtonsGroup      *fyne.Container
+	statusBarIndicatorsGroup   *fyne.Container
 
 	// Services
 	nbdServer        *service.NBDServer
@@ -61,10 +85,31 @@ type MainWindow struct {
 	lastTailscaleAuthURL     string
 	tailscalePollCancel      context.CancelFunc
 	currentVideoFPS          float64
-	currentStorageDir        string
-	currentStorageTotal      int64
-	currentStorageAvailable  int64
-	storageStatus            *models.StorageStatusData
+	// currentVideoWidth/Height mirror the resolution actually applied via
+	// VideoWidget.SetOnResolutionChanged -- the header's own resolution
+	// label (updateVideoIconLabel) reads these instead of the static,
+	// never-updated mw.config.VideoWidth/Height.
+	currentVideoWidth       int
+	currentVideoHeight      int
+	currentStorageDir       string
+	currentStorageTotal     int64
+	currentStorageAvailable int64
+	storageStatus           *models.StorageStatusData
+
+	// connectingToast is the bottom "Connecting to X…" toast (see
+	// handleConnectingStateChange) -- nil whenever the toast isn't showing.
+	// Only ever set/read from handleConnectingStateChange, itself always
+	// hopped onto the Fyne goroutine via fyne.Do, so no separate lock.
+	connectingToast *view.ConnectingToastHandle
+
+	// suppressConnectingToastClose tells the next handleConnectingStateChange
+	// call (fired by clearConnectionPending -> SetConnectionPending(false))
+	// to leave connectingToast open instead of closing it -- set right
+	// before that call by a connect failure that wants to transform the
+	// toast into an inline error (view.ConnectingToastHandle.ShowError)
+	// rather than close it and pop a separate error dialog. Same
+	// Fyne-goroutine-only invariant as connectingToast.
+	suppressConnectingToastClose bool
 
 	// Connection/Disconnection button
 	connectionBtn    *view.HeaderActionButton
@@ -91,20 +136,41 @@ type MainWindow struct {
 	connectionIcon *widget.Button
 	nbdIcon        *widget.Button
 	videoIcon      *headerStatusBadgeButton
+	// videoFPSText/videoResolutionText/videoStatusGroup back the Control
+	// header's status-indicator strip (main_window_status_indicator_bar.go):
+	// the fps/resolution text next to videoIcon, and the container the three
+	// are grouped in -- shown/hidden together with videoIcon itself (see
+	// updateStatusBarUI).
+	videoFPSText        *canvas.Text
+	videoResolutionText *canvas.Text
+	videoStatusGroup    *fyne.Container
+	// fullscreenIcon is that same group's own fullscreen button, right
+	// after videoResolutionText -- shown/hidden together with the rest of
+	// the group (only makes sense while actually streaming). Tapping
+	// mw.videoIcon itself used to open a menu with a "Fullscreen" item
+	// alongside "Settings" -- now that fullscreen is its own button, that
+	// menu would only ever have one item, so mw.videoIcon's own tap goes
+	// straight to ShowCurrentVideoSettings instead (see showVideoMenu's
+	// removal in main_window_layout.go).
+	fullscreenIcon *headerStatusBadgeButton
 	audioIcon      *headerStatusBadgeButton
 	captureIcon    *widget.Button
-	keyboardIcon   *widget.Button
-	mouseIcon      *widget.Button
-	rndisIcon      *widget.Button
-	gamepadIcon    *widget.Button
-	cdromIcon      *widget.Button
-	backupIcon          fyne.CanvasObject
-	snapshotIcon        *widget.Button
-	scriptIcon          *widget.Button
-	runningScriptPath   string
-	runningScriptName   string
-	statusPanel         *fyne.Container
-	protocolPanel       *fyne.Container
+	keyboardIcon   *headerStatusBadgeButton
+	mouseIcon      *headerStatusBadgeButton
+	rndisIcon      *headerStatusBadgeButton
+	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are that strip's own
+	// *passive* indicators (main_window_status_indicator_bar.go's
+	// "indicators" sub-group) -- bare newHeaderPassiveIndicator images, not
+	// widget.Button, so they never react to hover/click (they used to
+	// double as tab-switch shortcuts, which the header shouldn't do).
+	gamepadIcon       fyne.CanvasObject
+	cdromIcon         fyne.CanvasObject
+	backupIcon        fyne.CanvasObject
+	snapshotIcon      fyne.CanvasObject
+	scriptIcon        *widget.Button
+	runningScriptPath string
+	runningScriptName string
+	statusPanel       *fyne.Container
 
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool
@@ -123,7 +189,27 @@ type MainWindow struct {
 	// never overrides an explicit user mute (toggleAudioMuted) set before
 	// or during that screen.
 	audioMutedByNav bool
-	onReadyCallback          func()
+	onReadyCallback func()
+
+	// lastGoodWindowSize/resizeGuardPending back the windowResizeGuard
+	// workaround (main_window_resize_guard.go) for a real Windows-only
+	// Fyne/GLFW bug: minimizing then restoring this window can snap it
+	// down to its content's bare MinSize instead of its actual prior size.
+	lastGoodWindowSize fyne.Size
+	resizeGuardPending bool
+	designModeChip     *view.FooterTintChip
+	// windowPlacementStop ends the periodic save of the window's last
+	// monitor/position so the next launch can reopen on the same display.
+	windowPlacementStop chan struct{}
+
+	// onMainContent tracks which screen is showing (true: mainContent,
+	// false: connectionContent) -- syncVideoOverlayForNav/syncAudioMuteForNav
+	// used to tell this apart via `mw.window.Content() == mw.mainContent`,
+	// which broke once SetContent started wrapping content in
+	// wrapWithResizeGuard (window.Content() then returns that wrapper, never
+	// mw.mainContent/mw.connectionContent themselves). Zero value (false)
+	// matches the real startup order: connectionContent is shown first.
+	onMainContent bool
 }
 
 func NewMainWindow(cfg *models.AppConfig) *MainWindow {
@@ -144,11 +230,18 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 		},
 		lifecycleOps: make(chan func(), 32),
 	}
+	view.ForceMobileDesign = a.Preferences().BoolWithFallback(view.ForceMobileDesignPrefKey, false)
+	view.ForceMobilePresetID = a.Preferences().StringWithFallback(view.ForceMobilePresetPrefKey, view.DefaultPhonePreviewID)
+	view.ForceMobilePresetID = view.PhonePreviewByID(view.ForceMobilePresetID).ID
+	view.ForceMobileScale = view.ClampPhonePreviewScale(float32(a.Preferences().FloatWithFallback(view.ForceMobileScalePrefKey, float64(view.DefaultPhonePreviewScale))))
+	view.ApplyPreviewUserScale()
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService()
 	vc := newPlatformVideoClient(cfg)
-	if ts, ok := vc.(interface{ SetTailscaleService(*service.TailscaleService) }); ok {
+	if ts, ok := vc.(interface {
+		SetTailscaleService(*service.TailscaleService)
+	}); ok {
 		ts.SetTailscaleService(mw.tailscaleService)
 	}
 	mw.videoClient = vc
@@ -186,6 +279,10 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	)
 
 	go mw.runLifecycleLoop()
+
+	// Stamp the configured size onto the window object before anyone
+	// calls Show, so GLFW's first HWND is not the driver's tiny default.
+	mw.applyInitialWindowSize()
 
 	return mw
 }

@@ -86,6 +86,15 @@ type CaptureSelector struct {
 	selected bool
 	disabled bool
 	onTapped func()
+	// OnHover, when set, is called with the pointer's hover state -- the
+	// Devices dashboard wires this to the card's own onHover cell so the
+	// teal border doesn't flicker while the pointer is on the radio.
+	OnHover func(bool)
+	// ActiveColor is the selected-state ring and inner dot. Nil keeps the
+	// old list's design.ColorAccent; the dashboard passes turquoise.
+	ActiveColor color.Color
+
+	hovered bool
 
 	outer *canvas.Circle
 	inner *canvas.Circle
@@ -266,6 +275,33 @@ func (s *CaptureSelector) Tapped(*fyne.PointEvent) {
 	s.onTapped()
 }
 
+func (s *CaptureSelector) TappedSecondary(*fyne.PointEvent) {}
+
+func (s *CaptureSelector) MouseIn(*desktop.MouseEvent) {
+	s.hovered = true
+	s.Refresh()
+	if s.OnHover != nil {
+		s.OnHover(true)
+	}
+}
+
+func (s *CaptureSelector) MouseMoved(*desktop.MouseEvent) {}
+
+func (s *CaptureSelector) MouseOut() {
+	s.hovered = false
+	s.Refresh()
+	if s.OnHover != nil {
+		s.OnHover(false)
+	}
+}
+
+func (s *CaptureSelector) Cursor() desktop.Cursor {
+	if s.disabled {
+		return desktop.DefaultCursor
+	}
+	return desktop.PointerCursor
+}
+
 func (s *CaptureSelector) SetSelected(selected bool) {
 	s.selected = selected
 	s.Refresh()
@@ -287,10 +323,9 @@ type captureSelectorRenderer struct {
 func (r *captureSelectorRenderer) Layout(size fyne.Size) {
 	outerSize := fyne.NewSize(18, 18)
 	innerSize := fyne.NewSize(8, 8)
-	offsetX := float32(-3)
-	r.selector.outer.Move(fyne.NewPos((size.Width-outerSize.Width)/2+offsetX, (size.Height-outerSize.Height)/2))
+	r.selector.outer.Move(fyne.NewPos((size.Width-outerSize.Width)/2, (size.Height-outerSize.Height)/2))
 	r.selector.outer.Resize(outerSize)
-	r.selector.inner.Move(fyne.NewPos((size.Width-innerSize.Width)/2+offsetX, (size.Height-innerSize.Height)/2))
+	r.selector.inner.Move(fyne.NewPos((size.Width-innerSize.Width)/2, (size.Height-innerSize.Height)/2))
 	r.selector.inner.Resize(innerSize)
 }
 
@@ -299,21 +334,31 @@ func (r *captureSelectorRenderer) MinSize() fyne.Size {
 }
 
 func (r *captureSelectorRenderer) Refresh() {
-	stroke := design.ColorTextMuted
-	dot := design.ColorAccent
-	if r.selector.disabled {
+	s := r.selector
+	var active color.Color = s.ActiveColor
+	if active == nil {
+		active = design.ColorAccent
+	}
+	var stroke color.Color = design.ColorTextMuted
+	dot := active
+	switch {
+	case s.disabled:
 		stroke = design.ColorBorder
 		dot = design.ColorBorder
+	case s.selected:
+		stroke = active
+	case s.hovered:
+		stroke = design.ColorTextLight
 	}
-	r.selector.outer.StrokeColor = stroke
-	r.selector.inner.FillColor = dot
-	if r.selector.selected {
-		r.selector.inner.Show()
+	s.outer.StrokeColor = stroke
+	s.inner.FillColor = dot
+	if s.selected {
+		s.inner.Show()
 	} else {
-		r.selector.inner.Hide()
+		s.inner.Hide()
 	}
-	r.selector.outer.Refresh()
-	r.selector.inner.Refresh()
+	s.outer.Refresh()
+	s.inner.Refresh()
 }
 
 func (r *captureSelectorRenderer) Objects() []fyne.CanvasObject {

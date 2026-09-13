@@ -1,6 +1,10 @@
 package gui
 
-import "fyne.io/fyne/v2"
+import (
+	"usbridge-client/internal/gui/view"
+
+	"fyne.io/fyne/v2"
+)
 
 const (
 	minConfiguredWindowWidth  = 800
@@ -62,21 +66,47 @@ func (mw *MainWindow) applyInitialWindowSize() {
 		return
 	}
 
+	if view.ForceMobileDesign {
+		mw.applyPhonePreviewWindowSize()
+		return
+	}
+	mw.window.SetFixedSize(false)
+
 	var contentMin fyne.Size
 	if content := mw.window.Content(); content != nil {
 		contentMin = content.MinSize()
 	}
 
-	mw.window.Resize(windowSizeToLogical(
-		mw.config.WindowWidth,
-		mw.config.WindowHeight,
-		contentMin,
-	))
-	mw.window.CenterOnScreen()
+	width, height := mw.config.WindowWidth, mw.config.WindowHeight
+	if lw, lh, ok := mw.savedLogicalWindowSize(); ok {
+		width, height = lw, lh
+	}
+
+	mw.window.Resize(windowSizeToLogical(width, height, contentMin))
+	// CenterOnScreen uses Fyne/GLFW's "current" monitor, which on first
+	// Show is the primary. Skip it when we have a last-session frame so
+	// the window can reopen on the same display the user left it on.
+	if !mw.canRestoreWindowPlacement() {
+		mw.window.CenterOnScreen()
+	}
+}
+
+func (mw *MainWindow) applyPhonePreviewWindowSize() {
+	view.ApplyPreviewUserScale()
+	view.ReloadFyneCanvasScale()
+	p := view.CurrentPhonePreview()
+	size := fyne.NewSize(p.Width, p.Height)
+	mw.lastGoodWindowSize = size
+	mw.window.SetFixedSize(false)
+	mw.window.Resize(size)
+	mw.window.SetFixedSize(true)
+	if !mw.canRestoreWindowPlacement() {
+		mw.window.CenterOnScreen()
+	}
 }
 
 func (mw *MainWindow) ensureWindowFitsContent() {
-	if mw.window == nil {
+	if mw.window == nil || view.ForceMobileDesign {
 		return
 	}
 

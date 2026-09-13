@@ -3,8 +3,64 @@ package controller
 import (
 	"time"
 
+	"usbridge-client/internal/gui/view"
+
 	"fyne.io/fyne/v2"
 )
+
+// videoContainerOrigin is the video container's top-left in window-canvas
+// dp. Native overlays used to derive Y as canvasH − containerH, which is
+// only correct when the container is flush with the canvas bottom. Control's
+// AppFooter sits below the video, so that formula shifts the overlay down by
+// the footer height (gap above, overlay covering the footer).
+//
+// AbsolutePositionForObject often reports (0,0) for a frame when the
+// overlay first starts — that paints over the header until the next
+// layout tick. Reject that, reuse the last settled origin, or estimate
+// with the footer height so the first frame already sits under the chrome.
+func (vw *VideoWidget) videoContainerOrigin() fyne.Position {
+	if vw.container == nil {
+		return fyne.NewPos(0, 0)
+	}
+	sz := vw.container.Size()
+	var canvasH float32
+	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+		canvasH = vw.parentWindow.Canvas().Size().Height
+	}
+
+	if app := fyne.CurrentApp(); app != nil {
+		if drv := app.Driver(); drv != nil {
+			pos := drv.AbsolutePositionForObject(vw.container)
+			if videoOriginLooksSettled(pos, sz, canvasH) {
+				vw.lastVideoCanvasOrigin = pos
+				return pos
+			}
+		}
+	}
+	if vw.lastVideoCanvasOrigin.Y > 0 {
+		return vw.lastVideoCanvasOrigin
+	}
+	if canvasH > 0 && sz.Height > 0 {
+		y := canvasH - sz.Height - view.AppFooterOuterHeight
+		if y < 0 {
+			y = 0
+		}
+		return fyne.NewPos(0, y)
+	}
+	return fyne.NewPos(0, 0)
+}
+
+func videoOriginLooksSettled(pos fyne.Position, sz fyne.Size, canvasH float32) bool {
+	if sz.Width <= 0 || sz.Height <= 0 {
+		return false
+	}
+	// (0,0) while the container is shorter than the canvas means the
+	// driver has not placed the widget yet — the header is still above it.
+	if pos.Y <= 1 && canvasH > 0 && sz.Height+8 < canvasH {
+		return false
+	}
+	return true
+}
 
 func (vw *VideoWidget) activeViewportWrapper() *TouchpadWrapper {
 	if vw.fullscreenDialog != nil && vw.fullscreenDialog.isFullscreen && vw.fullscreenDialog.touchpadWrapper != nil {

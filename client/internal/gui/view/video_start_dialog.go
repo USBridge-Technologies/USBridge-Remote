@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -36,37 +36,40 @@ type VideoStartDialog struct {
 	resolutionLabels map[string]models.VideoCaptureMode
 	resolutionHints  map[string]string
 
-	currentModeID     string
-	modeButtons       map[string]*videoCodecButton
-	modeButtonsRow    *fyne.Container
-	modeDescription   *canvas.Text
-	resolutionSelect  *videoDialogSelect
-	resolutionMeta    *canvas.Text
-	fpsSelect         *videoDialogSelect
-	fpsMeta           *canvas.Text
-	bitrateSlider     *widget.Slider
-	bitrateValueLabel *widget.Label
-	bitrateBlock      *fyne.Container
-	bitrateHintsRow   *fyne.Container
-	modeDetailsSlot   *fyne.Container
-	jpegHint          *widget.Label
-	deviceLabel       *widget.Label
-	vsyncCheck        *widget.Check
-	aiVisionCheck     *widget.Check
-	aiVisionHint      *widget.Label
-	// color444Check/color444Hint: the RustShine Pro 4:4:4 color upgrade,
-	// placed right below the resolution picker and above the AI Vision
-	// checkbox. Only shown when the currently selected codec is H.265 AND
-	// the agent's own video-info response says color444Available (hardware
-	// probe AND license tier, see models.VideoStatus.Color444Available's
-	// doc comment) -- see refreshModeUI.
-	color444Check     *widget.Check
-	color444Hint      *widget.Label
+	currentModeID    string
+	modeButtons      map[string]*videoCodecButton
+	modeButtonsRow   *fyne.Container
+	modeDescription  *canvas.Text
+	resolutionSelect *HeaderDropdown
+	resolutionMeta   *canvas.Text
+	fpsSelect        *HeaderDropdown
+	fpsMeta          *canvas.Text
+	bitrateSlider    *videoDialogBitrateSlider
+	bitrateBlock     *fyne.Container
+	modeDetailsSlot  *fyne.Container
+	jpegHint         *widget.Label
+	deviceLabel      *widget.Label
+	vsyncCheck       *videoDialogCheckbox
+	vsyncHint        *videoDialogWrapText
+	aiVisionCheck    *videoDialogCheckbox
+	aiVisionHint     *videoDialogWrapText
+	// color444Check/color444Hint: the RustShine Pro 4:4:4 color upgrade.
+	// Unlike AI Vision this row is always shown, on any codec -- it just
+	// reads as an inactive/grayed item (dim title, disabled checkbox, a
+	// badge explaining why) when it doesn't currently apply, rather than
+	// disappearing outright. It's enabled only when the selected codec is
+	// H.265 AND the agent's own video-info response says color444Available
+	// (hardware probe AND license tier, see
+	// models.VideoStatus.Color444Available's doc comment) -- see
+	// refreshModeUI, which drives all of this via setColor444TitleEnabled.
+	color444Check     *videoDialogCheckbox
+	color444Hint      *videoDialogWrapText
+	color444TitleText *canvas.Text
 	color444Available bool
 
-	startBtn  *widget.Button
-	cancelBtn *widget.Button
-	extraBtn  *widget.Button
+	startBtn  *videoDialogPillButton
+	cancelBtn *videoDialogPillButton
+	extraBtn  *videoDialogPillButton
 
 	onApply func(request *models.VideoStartRequest)
 
@@ -86,19 +89,8 @@ func (vsd *VideoStartDialog) SetLiveCodecProvider(provider func() (string, bool)
 	vsd.liveCodecProvider = provider
 }
 
-type videoDialogButtonsLayout struct {
-	gap float32
-}
-
 type videoCodecButtonsLayout struct {
 	gap float32
-}
-
-type bitrateBlockLayout struct {
-	headerHeight float32
-	sliderTop    float32
-	sliderHeight float32
-	hintsTop     float32
 }
 
 type videoCodecButton struct {
@@ -111,51 +103,6 @@ type videoCodecButton struct {
 
 	bg    *canvas.Rectangle
 	label *canvas.Text
-}
-
-type videoDialogSelect struct {
-	widget.BaseWidget
-
-	options     []string
-	selected    string
-	placeHolder string
-	onSelected  func(string)
-	details     map[string]string
-	hovered     bool
-
-	bg     *canvas.Rectangle
-	border *canvas.Rectangle
-	label  *canvas.Text
-	icon   *canvas.Image
-}
-
-func (l *videoDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 2 {
-		return
-	}
-	left := objects[0]
-	right := objects[1]
-	width := (size.Width - l.gap) / 2
-	if width < 0 {
-		width = 0
-	}
-	left.Move(fyne.NewPos(0, 0))
-	left.Resize(fyne.NewSize(width, size.Height))
-	right.Move(fyne.NewPos(width+l.gap, 0))
-	right.Resize(fyne.NewSize(width, size.Height))
-}
-
-func (l *videoDialogButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 2 {
-		return fyne.NewSize(0, 0)
-	}
-	left := objects[0].MinSize()
-	right := objects[1].MinSize()
-	height := left.Height
-	if right.Height > height {
-		height = right.Height
-	}
-	return fyne.NewSize(left.Width+right.Width+l.gap, height)
 }
 
 func (l *videoCodecButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -193,55 +140,6 @@ func (l *videoCodecButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size
 		if min.Height > height {
 			height = min.Height
 		}
-	}
-
-	return fyne.NewSize(width, height)
-}
-
-func (l *bitrateBlockLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 3 {
-		return
-	}
-
-	header := objects[0]
-	slider := objects[1]
-	hints := objects[2]
-
-	header.Move(fyne.NewPos(0, 0))
-	header.Resize(fyne.NewSize(size.Width, l.headerHeight))
-
-	slider.Move(fyne.NewPos(0, l.sliderTop))
-	slider.Resize(fyne.NewSize(size.Width, l.sliderHeight))
-
-	hintsHeight := size.Height - l.hintsTop
-	if hintsHeight < 0 {
-		hintsHeight = 0
-	}
-	hints.Move(fyne.NewPos(0, l.hintsTop))
-	hints.Resize(fyne.NewSize(size.Width, hintsHeight))
-}
-
-func (l *bitrateBlockLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 3 {
-		return fyne.NewSize(0, 0)
-	}
-
-	headerMin := objects[0].MinSize()
-	sliderMin := objects[1].MinSize()
-	hintsMin := objects[2].MinSize()
-
-	width := headerMin.Width
-	if sliderMin.Width > width {
-		width = sliderMin.Width
-	}
-	if hintsMin.Width > width {
-		width = hintsMin.Width
-	}
-
-	height := l.hintsTop + hintsMin.Height
-	minHeight := l.sliderTop + sliderMin.Height
-	if minHeight > height {
-		height = minHeight
 	}
 
 	return fyne.NewSize(width, height)
@@ -286,7 +184,11 @@ func (b *videoCodecButton) Cursor() desktop.Cursor {
 }
 
 func (b *videoCodecButton) MinSize() fyne.Size {
-	return fyne.NewSize(90, 36)
+	// Slightly smaller than before (was 90x36) -- these now sit inside
+	// their own bordered card (see the codec card wrapper in
+	// createInterface) instead of directly in the body, which left them
+	// looking oversized for the tight padding around that card.
+	return fyne.NewSize(84, 30)
 }
 
 func (b *videoCodecButton) CreateRenderer() fyne.WidgetRenderer {
@@ -294,8 +196,11 @@ func (b *videoCodecButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg.CornerRadius = design.RadiusMD
 	b.bg.StrokeWidth = 1
 
+	// Matches the Apply/Cancel footer buttons' own text size
+	// (videoDialogPillTextSize) -- was 13, which read oversized next to
+	// everything else in this dialog.
 	b.label = canvas.NewText(b.text, design.ColorTextLight)
-	b.label.TextSize = 13
+	b.label.TextSize = videoDialogPillTextSize
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 
@@ -309,15 +214,22 @@ func (b *videoCodecButton) refreshVisuals() {
 	}
 
 	if b.active {
-		b.bg.FillColor = design.ColorAccent
-		b.bg.StrokeColor = design.ColorAccent
-		b.label.Color = design.ColorBackground
+		// Selected codec reads like the dialog's own teal Apply button
+		// (design.ColorConnectionBadgeText fill, dark text) -- ties codec
+		// selection to the same accent color used elsewhere in this dialog.
+		b.bg.FillColor = design.ColorConnectionBadgeText
+		b.bg.StrokeColor = color.Transparent
+		b.label.Color = design.ColorGray950
 	} else {
-		b.bg.FillColor = design.ColorSurfaceLight
-		b.bg.StrokeColor = design.ColorBorder
+		// Unselected look matches the Add Connection dialog's Scan QR/Paste
+		// Link pills: transparent fill, muted border, hover fills dark gray
+		// and the border lights up teal.
+		b.bg.FillColor = color.Transparent
+		b.bg.StrokeColor = design.ColorTailscaleChipBorder
 		b.label.Color = design.ColorTextLight
 		if b.hovered {
-			b.bg.FillColor = design.ColorGray900
+			b.bg.FillColor = color.NRGBA{R: 0x26, G: 0x2a, B: 0x2e, A: 0xff}
+			b.bg.StrokeColor = design.ColorConnectionBadgeText
 		}
 	}
 
@@ -325,173 +237,1156 @@ func (b *videoCodecButton) refreshVisuals() {
 	b.label.Refresh()
 }
 
-func newVideoDialogSelect(placeHolder string, onSelected func(string)) *videoDialogSelect {
-	selectWidget := &videoDialogSelect{
-		placeHolder: placeHolder,
-		onSelected:  onSelected,
+// videoDialogHintColor/videoDialogHintTextSize style the small caption line
+// shown under a field (codec description, resolution/FPS meta) -- muted gray,
+// smaller than the field's own label.
+var videoDialogHintColor = color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
+
+const videoDialogHintTextSize = float32(8)
+
+// newVideoDialogFieldLabel is this dialog's field caption ("Codec",
+// "Resolution", "Frame Rate") -- matches the Bitrate card's own caption
+// style (uppercase, bold, muted olive) so every field label in this dialog
+// reads as one family.
+func newVideoDialogFieldLabel(text string) *canvas.Text {
+	label := canvas.NewText(strings.ToUpper(text), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
+	label.TextSize = 9
+	label.TextStyle.Bold = true
+	return label
+}
+
+// newVideoDialogPicker builds a small teal pill dropdown matching the
+// per-connection AUTO/TS/LAN protocol picker's own look (an UltraCompact
+// HeaderDropdown -- see connection_grid_card.go's protocolDropdown), reused
+// here for the resolution and FPS pickers so this dialog's controls read as
+// one family with the rest of the app instead of a bespoke widget.
+func newVideoDialogPicker(onSelected func(string)) *HeaderDropdown {
+	d := NewHeaderDropdown(nil, "", onSelected)
+	d.UltraCompact = true
+	d.CornerRadius = 6
+	d.BorderColor = design.ColorTailscaleChipBorder
+	d.TextColor = design.ColorConnectionBadgeText
+	d.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	d.TextSize = 10
+	d.HoverBorderColor = design.ColorConnectionBadgeText
+	d.HoverFillColor = design.ColorGray900
+	return d
+}
+
+// videoDialogPillButton is the small compact bordered pill button used for
+// this dialog's Cancel/Apply/extra footer actions -- matching the look of
+// the Add Connection dialog's own footer buttons (Cancel, Save), whose
+// widget lives in the controller package and isn't exported for reuse here.
+type videoDialogPillButton struct {
+	widget.BaseWidget
+
+	text     string
+	OnTapped func()
+	hovered  bool
+	disabled bool
+
+	fillColor         color.Color
+	hoverFillColor    color.Color
+	disabledFillColor color.Color
+	borderColor       color.Color
+	hoverBorderColor  color.Color
+	textColor         color.Color
+	hoverTextColor    color.Color
+	disabledTextColor color.Color
+
+	bg     *canvas.Rectangle
+	border *canvas.Rectangle
+	label  *canvas.Text
+}
+
+const (
+	videoDialogPillTextSize = float32(9.5)
+	videoDialogPillHeight   = float32(32)
+	videoDialogPillPadX     = float32(15)
+)
+
+// newVideoDialogCancelButton matches the Add Connection dialog's Cancel
+// button: no fill/border, muted gray text that lightens on hover.
+func newVideoDialogCancelButton(text string, onTap func()) *videoDialogPillButton {
+	b := &videoDialogPillButton{
+		text:           text,
+		OnTapped:       onTap,
+		fillColor:      color.Transparent,
+		borderColor:    color.Transparent,
+		textColor:      color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff},
+		hoverTextColor: design.ColorTextLight,
 	}
-	selectWidget.ExtendBaseWidget(selectWidget)
-	return selectWidget
+	b.ExtendBaseWidget(b)
+	return b
 }
 
-func (s *videoDialogSelect) SetOptions(options []string) {
-	s.options = append([]string(nil), options...)
-	s.Refresh()
-}
-
-func (s *videoDialogSelect) SetDetails(details map[string]string) {
-	s.details = make(map[string]string, len(details))
-	for key, value := range details {
-		s.details[key] = value
+// newVideoDialogApplyButton matches the Add Connection dialog's Save
+// button: a solid teal pill with dark text, lightening on hover.
+func newVideoDialogApplyButton(text string, onTap func()) *videoDialogPillButton {
+	b := &videoDialogPillButton{
+		text:           text,
+		OnTapped:       onTap,
+		fillColor:      design.ColorConnectionBadgeText,
+		borderColor:    color.Transparent,
+		textColor:      design.ColorGray950,
+		hoverFillColor: color.NRGBA{R: 0x61, G: 0xf0, B: 0xd3, A: 0xff},
+		hoverTextColor: design.ColorGray950,
+		// Mirrors connectionDialogTealDisabled: a darker shade of this same
+		// teal instead of switching to a neutral gray while disabled.
+		disabledFillColor: color.NRGBA{R: 0x31, G: 0xa6, B: 0x94, A: 0xff},
+		disabledTextColor: design.ColorGray950,
 	}
+	b.ExtendBaseWidget(b)
+	return b
 }
 
-func (s *videoDialogSelect) SetSelected(value string) {
-	s.selected = value
-	s.Refresh()
+// newVideoDialogExtraButton is the optional extra footer action (see
+// SetExtraAction) -- a neutral bordered pill, same border/hover treatment as
+// the unselected codec buttons.
+func newVideoDialogExtraButton() *videoDialogPillButton {
+	b := &videoDialogPillButton{
+		fillColor:        color.Transparent,
+		borderColor:      design.ColorTailscaleChipBorder,
+		textColor:        design.ColorTextLight,
+		hoverFillColor:   color.NRGBA{R: 0x26, G: 0x2a, B: 0x2e, A: 0xff},
+		hoverBorderColor: design.ColorConnectionBadgeText,
+		hoverTextColor:   design.ColorTextLight,
+	}
+	b.ExtendBaseWidget(b)
+	return b
 }
 
-func (s *videoDialogSelect) Selected() string {
-	return s.selected
+func (b *videoDialogPillButton) SetText(text string) {
+	b.text = text
+	if b.label != nil {
+		b.label.Text = text
+		b.label.Refresh()
+	}
+	b.Refresh()
 }
 
-func (s *videoDialogSelect) Tapped(*fyne.PointEvent) {
-	if len(s.options) == 0 {
+func (b *videoDialogPillButton) Enable() {
+	if !b.disabled {
 		return
 	}
+	b.disabled = false
+	b.refreshVisuals()
+}
 
-	items := make([]StyledMenuItem, 0, len(s.options))
-	for _, option := range s.options {
-		value := option
-		items = append(items, StyledMenuItem{
-			Label:          value,
-			SecondaryLabel: s.details[value],
-			Selected:       value == s.selected,
-			OnTap: func() {
-				s.SetSelected(value)
-				if s.onSelected != nil {
-					s.onSelected(value)
-				}
-			},
-		})
+func (b *videoDialogPillButton) Disable() {
+	if b.disabled {
+		return
 	}
+	b.disabled = true
+	b.refreshVisuals()
+}
 
-	menuWidth := s.Size().Width
-	if menuWidth < 220 {
-		menuWidth = 220
+func (b *videoDialogPillButton) Tapped(*fyne.PointEvent) {
+	if b.disabled || b.OnTapped == nil {
+		return
 	}
-	ShowStyledMenuCentered(s, items, menuWidth, 280)
+	b.OnTapped()
 }
 
-func (s *videoDialogSelect) TappedSecondary(*fyne.PointEvent) {}
+func (b *videoDialogPillButton) TappedSecondary(*fyne.PointEvent) {}
 
-func (s *videoDialogSelect) MouseIn(*desktop.MouseEvent) {
-	s.hovered = true
-	s.Refresh()
+func (b *videoDialogPillButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
 }
 
-func (s *videoDialogSelect) MouseMoved(*desktop.MouseEvent) {}
+func (b *videoDialogPillButton) MouseMoved(*desktop.MouseEvent) {}
 
-func (s *videoDialogSelect) MouseOut() {
-	s.hovered = false
-	s.Refresh()
+func (b *videoDialogPillButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
 }
 
-func (s *videoDialogSelect) Cursor() desktop.Cursor {
+func (b *videoDialogPillButton) Cursor() desktop.Cursor {
 	return desktop.PointerCursor
 }
 
-func (s *videoDialogSelect) MinSize() fyne.Size {
-	return fyne.NewSize(220, 42)
+func (b *videoDialogPillButton) MinSize() fyne.Size {
+	measure := canvas.NewText(b.text, color.Black)
+	measure.TextSize = videoDialogPillTextSize
+	measure.TextStyle.Bold = true
+	width := measure.MinSize().Width + videoDialogPillPadX*2
+	return fyne.NewSize(width, videoDialogPillHeight)
 }
 
-func (s *videoDialogSelect) CreateRenderer() fyne.WidgetRenderer {
-	s.bg = canvas.NewRectangle(color.Transparent)
-	s.bg.CornerRadius = design.RadiusMD
+func (b *videoDialogPillButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(color.Transparent)
+	b.bg.CornerRadius = design.RadiusMD
 
-	s.border = canvas.NewRectangle(color.Transparent)
-	s.border.CornerRadius = design.RadiusMD
-	s.border.StrokeColor = design.ColorBorder
-	s.border.StrokeWidth = 1
+	b.border = canvas.NewRectangle(color.Transparent)
+	b.border.CornerRadius = design.RadiusMD
+	b.border.StrokeWidth = 1
 
-	s.label = canvas.NewText("", design.ColorTextLight)
-	s.label.TextSize = 14
+	b.label = canvas.NewText(b.text, b.textColor)
+	b.label.TextSize = videoDialogPillTextSize
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
 
-	s.icon = canvas.NewImageFromResource(theme.Icon(theme.IconNameArrowDropDown))
-	s.icon.FillMode = canvas.ImageFillContain
-	s.icon.SetMinSize(fyne.NewSize(16, 16))
-
-	s.refreshVisuals()
-	return &videoDialogSelectRenderer{selectWidget: s}
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(container.NewStack(b.bg, container.NewCenter(b.label), b.border))
 }
 
-func (s *videoDialogSelect) refreshVisuals() {
-	if s.bg == nil || s.border == nil || s.label == nil || s.icon == nil {
+func (b *videoDialogPillButton) refreshVisuals() {
+	if b.bg == nil || b.border == nil || b.label == nil {
 		return
 	}
 
-	text := s.selected
-	textColor := design.ColorTextLight
-	if text == "" {
-		text = s.placeHolder
-		textColor = design.ColorTextMuted
+	fill := b.fillColor
+	border := b.borderColor
+	text := b.textColor
+
+	switch {
+	case b.disabled:
+		if b.disabledFillColor != nil {
+			fill = b.disabledFillColor
+		}
+		if b.disabledTextColor != nil {
+			text = b.disabledTextColor
+		}
+	case b.hovered:
+		if b.hoverFillColor != nil {
+			fill = b.hoverFillColor
+		}
+		if b.hoverBorderColor != nil {
+			border = b.hoverBorderColor
+		}
+		if b.hoverTextColor != nil {
+			text = b.hoverTextColor
+		}
 	}
 
-	var fill color.Color = color.Transparent
-	if s.hovered {
-		fill = design.ColorSurfaceLight
+	b.bg.FillColor = fill
+	b.border.StrokeColor = border
+	if border == nil || border == color.Transparent {
+		b.border.StrokeWidth = 0
+	} else {
+		b.border.StrokeWidth = 1
 	}
+	b.label.Color = text
 
-	s.label.Text = text
-	s.label.Color = textColor
-	s.bg.FillColor = fill
-	s.bg.Refresh()
-	s.border.Refresh()
-	s.label.Refresh()
-	s.icon.Refresh()
+	b.bg.Refresh()
+	b.border.Refresh()
+	b.label.Refresh()
 }
 
-type videoDialogSelectRenderer struct {
-	selectWidget *videoDialogSelect
+// videoDialogCornerButtonLayout pins its one child (the header's close X) a
+// fixed offset from the panel's own top-right corner, decoupled from the
+// title's own margin -- matching the Add Connection dialog's cornerBtn.
+type videoDialogCornerButtonLayout struct {
+	Top   float32
+	Right float32
 }
 
-func (r *videoDialogSelectRenderer) Layout(size fyne.Size) {
-	s := r.selectWidget
-	s.bg.Resize(size)
-	s.border.Resize(size)
-
-	labelMin := s.label.MinSize()
-	labelWidth := size.Width - 52
-	if labelWidth < 20 {
-		labelWidth = 20
+func (l *videoDialogCornerButtonLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
 	}
-	s.label.Move(fyne.NewPos(14, (size.Height-labelMin.Height)/2))
-	s.label.Resize(fyne.NewSize(labelWidth, labelMin.Height))
-
-	iconSize := fyne.NewSize(16, 16)
-	s.icon.Resize(iconSize)
-	s.icon.Move(fyne.NewPos(size.Width-28, (size.Height-iconSize.Height)/2))
+	obj := objects[0]
+	min := obj.MinSize()
+	obj.Resize(min)
+	obj.Move(fyne.NewPos(size.Width-l.Right-min.Width, l.Top))
 }
 
-func (r *videoDialogSelectRenderer) MinSize() fyne.Size {
-	return r.selectWidget.MinSize()
+func (l *videoDialogCornerButtonLayout) MinSize([]fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(0, 0)
 }
 
-func (r *videoDialogSelectRenderer) Refresh() {
-	r.selectWidget.refreshVisuals()
-	r.Layout(r.selectWidget.Size())
-	canvas.Refresh(r.selectWidget)
+// newVideoDialogTopAccentBar is the thin teal-to-lime fade hairline the Add
+// Connection dialog carries along its top edge -- faded to transparent at
+// both ends so it doesn't butt into the panel's rounded corners.
+func newVideoDialogTopAccentBar() fyne.CanvasObject {
+	teal := design.ColorConnectionBadgeText
+	lime := design.ColorConnectionAddFill
+	tealTransparent := color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0}
+	limeTransparent := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0}
+	accentLeftFade := canvas.NewHorizontalGradient(tealTransparent, teal)
+	accentLeftFade.SetMinSize(fyne.NewSize(70, 2))
+	accentRightFade := canvas.NewHorizontalGradient(lime, limeTransparent)
+	accentRightFade.SetMinSize(fyne.NewSize(70, 2))
+	accentMid := canvas.NewHorizontalGradient(teal, lime)
+	return container.NewBorder(nil, nil, accentLeftFade, accentRightFade, accentMid)
 }
 
-func (r *videoDialogSelectRenderer) BackgroundColor() color.Color {
+// videoDialogVSpace is a fixed-height, invisible spacer for bodyContent's
+// VBox -- a plain zero-width rectangle with a forced MinSize, not
+// layout.NewSpacer() (which VBoxLayout instead stretches to fill any extra
+// room), so it reserves exactly height pixels of breathing room and no
+// more.
+func videoDialogVSpace(height float32) fyne.CanvasObject {
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(0, height))
+	return spacer
+}
+
+// videoDialogBitrateSlider is a small custom slider matching this dialog's
+// own look (a thin gray track, a glowing teal thumb) -- Fyne's themed
+// widget.Slider has no way to recolor the track/thumb independently of the
+// app theme, so this draws them directly instead.
+type videoDialogBitrateSlider struct {
+	widget.BaseWidget
+
+	Min, Max, Step float64
+	Value          float64
+	OnChanged      func(float64)
+
+	track *canvas.Rectangle
+	glow  *canvas.Circle
+	thumb *canvas.Circle
+}
+
+const (
+	bitrateSliderThumbRadius = float32(6)
+	bitrateSliderGlowRadius  = float32(9)
+	bitrateSliderTrackHeight = float32(3)
+	bitrateSliderHeight      = float32(20)
+)
+
+func newVideoDialogBitrateSlider(min, max, step float64) *videoDialogBitrateSlider {
+	s := &videoDialogBitrateSlider{Min: min, Max: max, Step: step, Value: min}
+	s.ExtendBaseWidget(s)
+	return s
+}
+
+// SetValue clamps value to [Min, Max] and, if it actually changes Value,
+// redraws the thumb and fires OnChanged -- mirrors widget.Slider.SetValue's
+// own contract closely enough that Configure()'s existing call site needs no
+// changes.
+func (s *videoDialogBitrateSlider) SetValue(value float64) {
+	if value < s.Min {
+		value = s.Min
+	}
+	if value > s.Max {
+		value = s.Max
+	}
+	if value == s.Value {
+		return
+	}
+	s.Value = value
+	s.Refresh()
+	if s.OnChanged != nil {
+		s.OnChanged(s.Value)
+	}
+}
+
+func (s *videoDialogBitrateSlider) valueFraction() float32 {
+	if s.Max <= s.Min {
+		return 0
+	}
+	f := (s.Value - s.Min) / (s.Max - s.Min)
+	if f < 0 {
+		f = 0
+	}
+	if f > 1 {
+		f = 1
+	}
+	return float32(f)
+}
+
+func (s *videoDialogBitrateSlider) setValueFromX(x float32) {
+	usable := s.Size().Width - bitrateSliderThumbRadius*2
+	if usable <= 0 {
+		return
+	}
+	rel := (x - bitrateSliderThumbRadius) / usable
+	if rel < 0 {
+		rel = 0
+	}
+	if rel > 1 {
+		rel = 1
+	}
+	value := s.Min + float64(rel)*(s.Max-s.Min)
+	if s.Step > 0 {
+		value = math.Round(value/s.Step) * s.Step
+	}
+	s.SetValue(value)
+}
+
+func (s *videoDialogBitrateSlider) Tapped(e *fyne.PointEvent) {
+	s.setValueFromX(e.Position.X)
+}
+
+func (s *videoDialogBitrateSlider) TappedSecondary(*fyne.PointEvent) {}
+
+func (s *videoDialogBitrateSlider) Dragged(e *fyne.DragEvent) {
+	s.setValueFromX(e.Position.X)
+}
+
+func (s *videoDialogBitrateSlider) DragEnd() {}
+
+func (s *videoDialogBitrateSlider) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (s *videoDialogBitrateSlider) MinSize() fyne.Size {
+	return fyne.NewSize(120, bitrateSliderHeight)
+}
+
+func (s *videoDialogBitrateSlider) CreateRenderer() fyne.WidgetRenderer {
+	s.track = canvas.NewRectangle(color.NRGBA{R: 0x31, G: 0x35, B: 0x39, A: 0xff})
+	s.track.CornerRadius = bitrateSliderTrackHeight / 2
+
+	s.glow = canvas.NewCircle(color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0x33})
+	s.thumb = canvas.NewCircle(design.ColorConnectionBadgeText)
+
+	return &videoDialogBitrateSliderRenderer{slider: s}
+}
+
+type videoDialogBitrateSliderRenderer struct {
+	slider *videoDialogBitrateSlider
+}
+
+func (r *videoDialogBitrateSliderRenderer) Layout(size fyne.Size) {
+	s := r.slider
+	trackY := (size.Height - bitrateSliderTrackHeight) / 2
+	// The track spans the full control width (not inset by the thumb
+	// radius) so its left/right edges line up with the label row above and
+	// the Low/High hint row below -- only the thumb's own travel range is
+	// inset, so it doesn't get visually clipped at either end.
+	s.track.Move(fyne.NewPos(0, trackY))
+	s.track.Resize(fyne.NewSize(size.Width, bitrateSliderTrackHeight))
+
+	thumbRange := size.Width - bitrateSliderThumbRadius*2
+	if thumbRange < 0 {
+		thumbRange = 0
+	}
+	cx := bitrateSliderThumbRadius + s.valueFraction()*thumbRange
+	cy := size.Height / 2
+
+	s.glow.Move(fyne.NewPos(cx-bitrateSliderGlowRadius, cy-bitrateSliderGlowRadius))
+	s.glow.Resize(fyne.NewSize(bitrateSliderGlowRadius*2, bitrateSliderGlowRadius*2))
+
+	s.thumb.Move(fyne.NewPos(cx-bitrateSliderThumbRadius, cy-bitrateSliderThumbRadius))
+	s.thumb.Resize(fyne.NewSize(bitrateSliderThumbRadius*2, bitrateSliderThumbRadius*2))
+}
+
+func (r *videoDialogBitrateSliderRenderer) MinSize() fyne.Size {
+	return r.slider.MinSize()
+}
+
+func (r *videoDialogBitrateSliderRenderer) Refresh() {
+	r.Layout(r.slider.Size())
+	canvas.Refresh(r.slider)
+}
+
+func (r *videoDialogBitrateSliderRenderer) BackgroundColor() color.Color {
 	return color.Transparent
 }
 
-func (r *videoDialogSelectRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.selectWidget.bg, r.selectWidget.border, r.selectWidget.label, r.selectWidget.icon}
+func (r *videoDialogBitrateSliderRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.slider.track, r.slider.glow, r.slider.thumb}
 }
 
-func (r *videoDialogSelectRenderer) Destroy() {}
+func (r *videoDialogBitrateSliderRenderer) Destroy() {}
+
+// videoDialogBorderColor is the muted olive border shared by this dialog's
+// bordered cards (the bitrate card, the boxed toggle rows) and small badges.
+var videoDialogBorderColor = color.NRGBA{R: 0x33, G: 0x37, B: 0x2f, A: 0xff}
+
+// videoDialogCancelIconSVG is the same muted-gray X glyph the Add
+// Connection dialog's own header close button uses (see
+// connectionDialogCancelIconRes in controller/connection_manager_dialogs.go
+// -- that copy is unexported and controller-package-private, so this
+// dialog needs its own identical resource rather than theme.CancelIcon(),
+// whose default stroke-style X reads differently).
+var videoDialogCancelIconSVG = fyne.NewStaticResource("video_dialog_cancel.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#8f9381"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`))
+
+// videoDialogCheckmarkSVG is a small dark checkmark glyph, drawn onto
+// videoDialogCheckbox's teal fill when checked.
+var videoDialogCheckmarkSVG = fyne.NewStaticResource("video_dialog_checkmark.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0b0f12" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12L10 18L20 6"/></svg>`))
+
+// videoDialogCrossmarkSVG is a small muted-gray cross, drawn instead of the
+// checkmark when a checkbox is disabled and unchecked -- e.g. the 4:4:4 row
+// on a non-H.265 codec, where an empty box read as ambiguous ("is this off,
+// or just not rendered yet?") rather than clearly unavailable.
+var videoDialogCrossmarkSVG = fyne.NewStaticResource("video_dialog_crossmark.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8f9381" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5L19 19M19 5L5 19"/></svg>`))
+
+const (
+	videoDialogCheckboxSize   = float32(16)
+	videoDialogCheckboxRadius = float32(4)
+	videoDialogCheckboxMark   = float32(9)
+)
+
+// videoDialogCheckbox is a small custom checkbox matching this dialog's own
+// look (rounded teal square, a checkmark sized to fit) -- Fyne's themed
+// widget.Check has no way to recolor, resize, or round its box
+// independently of the app theme. Mirrors widget.Check's own API surface
+// (Checked field, OnChanged, SetChecked, Enable/Disable) closely enough
+// that this dialog's Configure/handleStart call sites needed no changes.
+type videoDialogCheckbox struct {
+	widget.BaseWidget
+
+	Checked   bool
+	OnChanged func(bool)
+
+	// OnTapWhileDisabled, when set, fires instead of the normal toggle when
+	// the checkbox is tapped while disabled -- the 4:4:4 row uses this to
+	// let a tap switch the codec to H.265 and turn itself on in one action,
+	// rather than silently doing nothing.
+	OnTapWhileDisabled func()
+
+	disabled bool
+	hovered  bool
+
+	bg    *canvas.Rectangle
+	check *canvas.Image
+	cross *canvas.Image
+}
+
+func newVideoDialogCheckbox(checked bool, onChanged func(bool)) *videoDialogCheckbox {
+	c := &videoDialogCheckbox{Checked: checked, OnChanged: onChanged}
+	c.ExtendBaseWidget(c)
+	return c
+}
+
+func (c *videoDialogCheckbox) SetChecked(checked bool) {
+	if c.Checked == checked {
+		return
+	}
+	c.Checked = checked
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) Enable() {
+	if !c.disabled {
+		return
+	}
+	c.disabled = false
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) Disable() {
+	if c.disabled {
+		return
+	}
+	c.disabled = true
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) Disabled() bool {
+	return c.disabled
+}
+
+func (c *videoDialogCheckbox) Tapped(*fyne.PointEvent) {
+	if c.disabled {
+		if c.OnTapWhileDisabled != nil {
+			c.OnTapWhileDisabled()
+		}
+		return
+	}
+	c.Checked = !c.Checked
+	c.Refresh()
+	if c.OnChanged != nil {
+		c.OnChanged(c.Checked)
+	}
+}
+
+func (c *videoDialogCheckbox) TappedSecondary(*fyne.PointEvent) {}
+
+func (c *videoDialogCheckbox) MouseIn(*desktop.MouseEvent) {
+	c.hovered = true
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) MouseMoved(*desktop.MouseEvent) {}
+
+func (c *videoDialogCheckbox) MouseOut() {
+	c.hovered = false
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (c *videoDialogCheckbox) MinSize() fyne.Size {
+	return fyne.NewSize(videoDialogCheckboxSize, videoDialogCheckboxSize)
+}
+
+func (c *videoDialogCheckbox) CreateRenderer() fyne.WidgetRenderer {
+	c.bg = canvas.NewRectangle(color.Transparent)
+	c.bg.CornerRadius = videoDialogCheckboxRadius
+	c.bg.StrokeWidth = 1
+
+	c.check = canvas.NewImageFromResource(videoDialogCheckmarkSVG)
+	c.check.FillMode = canvas.ImageFillContain
+
+	c.cross = canvas.NewImageFromResource(videoDialogCrossmarkSVG)
+	c.cross.FillMode = canvas.ImageFillContain
+
+	r := &videoDialogCheckboxRenderer{cb: c}
+	r.applyColors()
+	return r
+}
+
+type videoDialogCheckboxRenderer struct {
+	cb *videoDialogCheckbox
+}
+
+func (r *videoDialogCheckboxRenderer) Layout(size fyne.Size) {
+	cb := r.cb
+	boxPos := fyne.NewPos((size.Width-videoDialogCheckboxSize)/2, (size.Height-videoDialogCheckboxSize)/2)
+	cb.bg.Move(boxPos)
+	cb.bg.Resize(fyne.NewSize(videoDialogCheckboxSize, videoDialogCheckboxSize))
+
+	markPos := fyne.NewPos(boxPos.X+(videoDialogCheckboxSize-videoDialogCheckboxMark)/2, boxPos.Y+(videoDialogCheckboxSize-videoDialogCheckboxMark)/2)
+	cb.check.Move(markPos)
+	cb.check.Resize(fyne.NewSize(videoDialogCheckboxMark, videoDialogCheckboxMark))
+	cb.cross.Move(markPos)
+	cb.cross.Resize(fyne.NewSize(videoDialogCheckboxMark, videoDialogCheckboxMark))
+}
+
+func (r *videoDialogCheckboxRenderer) applyColors() {
+	cb := r.cb
+	switch {
+	case cb.disabled:
+		cb.bg.FillColor = color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff}
+		cb.bg.StrokeColor = videoDialogBorderColor
+		cb.check.Translucency = 0.6
+		cb.check.Hidden = !cb.Checked
+		cb.cross.Hidden = cb.Checked
+	case cb.Checked:
+		cb.bg.FillColor = design.ColorConnectionBadgeText
+		cb.bg.StrokeColor = color.Transparent
+		cb.check.Translucency = 0
+		cb.check.Hidden = false
+		cb.cross.Hidden = true
+	default:
+		fill := color.Color(color.Transparent)
+		if cb.hovered {
+			fill = color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff}
+		}
+		cb.bg.FillColor = fill
+		cb.bg.StrokeColor = videoDialogBorderColor
+		cb.check.Hidden = true
+		cb.cross.Hidden = true
+	}
+}
+
+func (r *videoDialogCheckboxRenderer) MinSize() fyne.Size {
+	return r.cb.MinSize()
+}
+
+func (r *videoDialogCheckboxRenderer) Refresh() {
+	r.applyColors()
+	r.Layout(r.cb.Size())
+	r.cb.bg.Refresh()
+	r.cb.check.Refresh()
+	r.cb.cross.Refresh()
+}
+
+func (r *videoDialogCheckboxRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *videoDialogCheckboxRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.cb.bg, r.cb.check, r.cb.cross}
+}
+
+func (r *videoDialogCheckboxRenderer) Destroy() {}
+
+// videoDialogCardBG is the same slightly-lightened card background as the
+// bitrate card, reused for the boxed AI Vision/4:4:4 toggle rows so every
+// bordered card in this dialog reads as one family.
+var videoDialogCardBG = color.NRGBA{R: 0x1e, G: 0x22, B: 0x25, A: 0xff}
+
+// videoDialogPanelWidth/videoDialogBodyInsetLR/videoDialogBoxedInsetLR mirror
+// the actual layout constants used below (the panel's width floor in
+// PanelSize, bodyContent's own NewInset, and newVideoDialogBoxedToggleRow's
+// own NewInset) -- kept as named constants here so videoDialogToggleDescWidth
+// can derive the real usable width instead of a second, easily-drifting copy
+// of the same numbers.
+const (
+	videoDialogPanelWidth   = float32(408)
+	videoDialogBodyInsetLR  = float32(18)
+	videoDialogBoxedInsetLR = float32(10)
+)
+
+// videoDialogBodyInsetQuirk is NewInset's own extra theme.Padding() (4px by
+// default) added on top of every non-zero side it's given -- see NewInset's
+// doc comment. bodyContent (below) is wrapped with NewInset, not
+// NewInsetExact, so its real left/right inset is videoDialogBodyInsetLR
+// plus this, not videoDialogBodyInsetLR alone.
+const videoDialogBodyInsetQuirk = float32(4)
+
+// videoDialogCanvasPanelWidth is the panel width PanelSize will actually
+// pick for a given canvas -- the 408 desktop floor, clamped to the canvas
+// minus the same 4% / 20-28px margin. On a phone (or the desktop phone
+// preview) that clamp is what makes the dialog narrower than 408, so hint
+// wrapping has to use this width, not the desktop constant.
+func videoDialogCanvasPanelWidth(canvasSize fyne.Size) float32 {
+	if canvasSize.Width <= 0 {
+		return videoDialogPanelWidth
+	}
+	margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+	maxWidth := canvasSize.Width - margin*2
+	if maxWidth <= 0 {
+		maxWidth = canvasSize.Width
+	}
+	if maxWidth <= 0 {
+		return videoDialogPanelWidth
+	}
+	return minFloat32(videoDialogPanelWidth, maxWidth)
+}
+
+func videoDialogEffectivePanelWidth(parent fyne.Window) float32 {
+	if parent == nil || parent.Canvas() == nil {
+		return videoDialogPanelWidth
+	}
+	return videoDialogCanvasPanelWidth(parent.Canvas().Size())
+}
+
+// videoDialogToggleDescWidth is the width a toggle row's description text
+// actually ends up with once fully laid out -- plain rows (VSync, 4:4:4) vs.
+// AI Vision's own boxed row, which loses an extra 12px of exact padding on
+// each side (see newVideoDialogBoxedToggleRow's own NewInsetExact). Each
+// videoDialogWrapText description needs this width up front, at
+// construction/SetSpans time, since it wraps eagerly rather than lazily on
+// some future Resize.
+func videoDialogToggleDescWidth(boxed bool) float32 {
+	return videoDialogToggleDescWidthFor(videoDialogPanelWidth, boxed)
+}
+
+func videoDialogToggleDescWidthFor(panelW float32, boxed bool) float32 {
+	if panelW <= 0 {
+		panelW = videoDialogPanelWidth
+	}
+	width := panelW - (videoDialogBodyInsetLR+videoDialogBodyInsetQuirk)*2 - videoDialogToggleIndent
+	if boxed {
+		width -= videoDialogBoxedInsetLR * 2
+	} else {
+		// Plain rows (VSync, 4:4:4) are shifted right by
+		// videoDialogToggleAlignLeft so their checkboxes line up with AI
+		// Vision's own boxed row -- see its use in createInterface.
+		width -= videoDialogToggleAlignLeft
+	}
+	if width < 64 {
+		return 64
+	}
+	return width
+}
+
+// videoDialogWrapSpan is one differently-styled run of text within a
+// videoDialogWrapText -- e.g. a teal monospace "ui.parse()" inline in an
+// otherwise plain, muted sentence.
+type videoDialogWrapSpan struct {
+	Text      string
+	Color     color.Color
+	Monospace bool
+}
+
+// videoDialogWrapText renders one or more styled spans as manually
+// word-wrapped canvas.Text lines, instead of widget.Label/widget.RichText.
+//
+// It replaces three separate failed attempts at getting a toggle row's
+// description positioned correctly under its title (HBox, then
+// container.NewBorder, then container.NewVBox+NewInset, then a hand-rolled
+// widget.BaseWidget wrapping widget.Label/RichText) -- every one of those
+// relied on Label/RichText recomputing their own wrapped line bounds at the
+// right moment relative to *two* separate "skip if size unchanged" guards
+// (widget.BaseWidget.Resize and RichText.Resize both no-op when the new
+// size equals the current one), so a description that needed a fresh wrap
+// after a presize trick or a runtime SetText could easily end up displayed
+// with stale bounds from an earlier (often placeholder-width-only) pass.
+//
+// This widget sidesteps that whole mechanism: wrapping is computed
+// eagerly from a known width in SetSpans (so the first MinSize is already
+// correct), and again from Resize if the allocated width later differs --
+// on a phone the panel is narrower than the 408 desktop floor, so a wrap
+// computed only for 408 would paint past the dialog edge.
+type videoDialogWrapText struct {
+	widget.BaseWidget
+
+	textSize float32
+	italic   bool
+	width    float32
+	spans    []videoDialogWrapSpan
+
+	lineHeight float32
+	lines      [][]*canvas.Text
+}
+
+func newVideoDialogWrapText(width, textSize float32, italic bool, spans ...videoDialogWrapSpan) *videoDialogWrapText {
+	t := &videoDialogWrapText{textSize: textSize, italic: italic, width: width}
+	t.ExtendBaseWidget(t)
+	t.SetSpans(spans...)
+	return t
+}
+
+// SetSpans replaces the wrapped content and immediately recomputes and
+// repositions every line -- used by the 4:4:4 row, whose description text
+// changes at runtime (see refreshModeUI).
+func (t *videoDialogWrapText) SetSpans(spans ...videoDialogWrapSpan) {
+	t.spans = append([]videoDialogWrapSpan(nil), spans...)
+	t.wrapStoredSpans()
+	t.Refresh()
+}
+
+// SetWrapWidth re-wraps the stored spans to a new target width -- used
+// when the dialog opens on a canvas narrower than the desktop 408 floor.
+func (t *videoDialogWrapText) SetWrapWidth(width float32) {
+	if width <= 1 {
+		return
+	}
+	diff := width - t.width
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff < 0.5 {
+		return
+	}
+	t.width = width
+	t.wrapStoredSpans()
+	t.Refresh()
+}
+
+func (t *videoDialogWrapText) Resize(size fyne.Size) {
+	if size.Width > 1 {
+		diff := size.Width - t.width
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > 0.5 {
+			t.width = size.Width
+			t.wrapStoredSpans()
+		}
+	}
+	t.BaseWidget.Resize(size)
+}
+
+func (t *videoDialogWrapText) wrapStoredSpans() {
+	style := fyne.TextStyle{Italic: t.italic}
+	t.lineHeight = fyne.MeasureText("M", t.textSize, style).Height
+	spaceWidth := fyne.MeasureText(" ", t.textSize, style).Width
+
+	type word struct {
+		txt   *canvas.Text
+		width float32
+	}
+	var words []word
+	for _, span := range t.spans {
+		wordStyle := style
+		wordStyle.Monospace = span.Monospace
+		for _, w := range strings.Fields(span.Text) {
+			txt := canvas.NewText(w, span.Color)
+			txt.TextSize = t.textSize
+			txt.TextStyle = wordStyle
+			words = append(words, word{txt: txt, width: fyne.MeasureText(w, t.textSize, wordStyle).Width})
+		}
+	}
+
+	var lines [][]*canvas.Text
+	var cur []*canvas.Text
+	curWidth := float32(0)
+	for _, w := range words {
+		add := w.width
+		if len(cur) > 0 {
+			add += spaceWidth
+		}
+		if len(cur) > 0 && curWidth+add > t.width {
+			lines = append(lines, cur)
+			cur = nil
+			curWidth = 0
+			add = w.width
+		}
+		cur = append(cur, w.txt)
+		curWidth += add
+	}
+	if len(cur) > 0 {
+		lines = append(lines, cur)
+	}
+	t.lines = lines
+	t.layoutLines()
+}
+
+// layoutLines positions every already-wrapped word at its final (x, y) --
+// called eagerly from SetSpans (so the widget is correctly laid out even
+// before Fyne ever calls its renderer) and again, redundantly but
+// harmlessly, from the renderer's own Layout.
+func (t *videoDialogWrapText) layoutLines() {
+	style := fyne.TextStyle{Italic: t.italic}
+	spaceWidth := fyne.MeasureText(" ", t.textSize, style).Width
+	y := float32(0)
+	for _, line := range t.lines {
+		x := float32(0)
+		for _, word := range line {
+			size := word.MinSize()
+			word.Move(fyne.NewPos(x, y))
+			word.Resize(size)
+			x += size.Width + spaceWidth
+		}
+		y += t.lineHeight
+	}
+}
+
+func (t *videoDialogWrapText) MinSize() fyne.Size {
+	if len(t.lines) == 0 {
+		return fyne.NewSize(t.width, 0)
+	}
+	return fyne.NewSize(t.width, float32(len(t.lines))*t.lineHeight)
+}
+
+func (t *videoDialogWrapText) CreateRenderer() fyne.WidgetRenderer {
+	return &videoDialogWrapTextRenderer{t: t}
+}
+
+type videoDialogWrapTextRenderer struct {
+	t *videoDialogWrapText
+}
+
+func (r *videoDialogWrapTextRenderer) Layout(fyne.Size) {
+	r.t.layoutLines()
+}
+
+func (r *videoDialogWrapTextRenderer) MinSize() fyne.Size {
+	return r.t.MinSize()
+}
+
+func (r *videoDialogWrapTextRenderer) Refresh() {
+	canvas.Refresh(r.t)
+}
+
+func (r *videoDialogWrapTextRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *videoDialogWrapTextRenderer) Objects() []fyne.CanvasObject {
+	objs := make([]fyne.CanvasObject, 0, len(r.t.lines)*4)
+	for _, line := range r.t.lines {
+		for _, w := range line {
+			objs = append(objs, w)
+		}
+	}
+	return objs
+}
+
+func (r *videoDialogWrapTextRenderer) Destroy() {}
+
+// newVideoDialogDescription is a wrapped, muted description line under a
+// toggle's title -- the VSync/4:4:4 rows' own plain (non-italic) style.
+func newVideoDialogDescription(text string, width float32) *videoDialogWrapText {
+	return newVideoDialogWrapText(width, videoDialogHintTextSize, false, videoDialogWrapSpan{Text: text, Color: videoDialogHintColor})
+}
+
+// newVideoDialogHighlightDescription is a wrapped, muted, italic
+// description that highlights every occurrence of code inline as teal
+// monospace -- the AI Vision row's own style, so it can reference a literal
+// API call (e.g. "ui.parse()") inline without breaking the sentence into
+// separate, hard-to-translate string fields.
+func newVideoDialogHighlightDescription(text, code string, width float32) *videoDialogWrapText {
+	spans := make([]videoDialogWrapSpan, 0, 3)
+	rest := text
+	for {
+		idx := strings.Index(rest, code)
+		if idx < 0 {
+			if rest != "" {
+				spans = append(spans, videoDialogWrapSpan{Text: rest, Color: videoDialogHintColor})
+			}
+			break
+		}
+		if idx > 0 {
+			spans = append(spans, videoDialogWrapSpan{Text: rest[:idx], Color: videoDialogHintColor})
+		}
+		spans = append(spans, videoDialogWrapSpan{Text: code, Color: design.ColorConnectionBadgeText, Monospace: true})
+		rest = rest[idx+len(code):]
+	}
+	return newVideoDialogWrapText(width, videoDialogHintTextSize, true, spans...)
+}
+
+// newVideoDialogMutableBadge is the small uppercase pill shown next to a
+// toggle's title (e.g. "RECOMMENDED", "EXPERIMENTAL", "PRO") -- it also
+// returns the label so a caller that needs to change the badge's wording or
+// color later (the 4:4:4 row, see setColor444State) can. Everyone else uses
+// newVideoDialogBadge, which just discards that second value.
+//
+// Uses NewInsetExact, not NewInset -- NewInset's own extra theme.Padding()
+// on top of what's asked (see its doc comment) was silently turning the "1"
+// top/bottom padding asked for here into an effective 5, which is why this
+// badge kept looking taller than intended.
+func newVideoDialogMutableBadge(text string, textColor color.Color) (fyne.CanvasObject, *canvas.Text) {
+	bg := canvas.NewRectangle(color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff})
+	bg.CornerRadius = 4
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = 4
+	border.StrokeColor = videoDialogBorderColor
+	border.StrokeWidth = 1
+	label := canvas.NewText(strings.ToUpper(text), textColor)
+	label.TextSize = 7
+	label.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	return container.NewStack(bg, border, NewInsetExact(label, 6, 6, 1, 1)), label
+}
+
+func newVideoDialogBadge(text string, textColor color.Color) fyne.CanvasObject {
+	badge, _ := newVideoDialogMutableBadge(text, textColor)
+	return badge
+}
+
+// newVideoDialogRowTitle is a toggle row's bold title text -- a plain
+// constructor (rather than building it inline in newVideoDialogToggleRow)
+// so a caller that needs to gray the title out later (the 4:4:4 row) can
+// keep its own reference.
+func newVideoDialogRowTitle(text string) *canvas.Text {
+	title := canvas.NewText(text, design.ColorTextLight)
+	title.TextSize = 10
+	title.TextStyle.Bold = true
+	return title
+}
+
+// videoDialogRobotSVG is a small robot glyph shown before the AI Vision
+// row's title -- recolored to match its own "Experimental" badge
+// (design.ColorConnectionAddFill, #c4e77a), the same way
+// videoDialogCheckmarkSVG/videoDialogCrossmarkSVG inline their own fixed
+// stroke colors rather than pulling from the app theme.
+var videoDialogRobotSVG = fyne.NewStaticResource("video_dialog_robot.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" fill="#c4e77a" viewBox="0 0 24 24"><path d="M9,15a1,1,0,1,0,1,1A1,1,0,0,0,9,15ZM2,14a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,2,14Zm20,0a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,22,14ZM17,7H13V5.72A2,2,0,0,0,14,4a2,2,0,0,0-4,0,2,2,0,0,0,1,1.72V7H7a3,3,0,0,0-3,3v9a3,3,0,0,0,3,3H17a3,3,0,0,0,3-3V10A3,3,0,0,0,17,7ZM13.72,9l-.5,2H10.78l-.5-2ZM18,19a1,1,0,0,1-1,1H7a1,1,0,0,1-1-1V10A1,1,0,0,1,7,9H8.22L9,12.24A1,1,0,0,0,10,13h4a1,1,0,0,0,1-.76L15.78,9H17a1,1,0,0,1,1,1Zm-3-4a1,1,0,1,0,1,1A1,1,0,0,0,15,15Z"/></svg>`))
+
+// videoDialogProColor is the purple used for the 4:4:4 row's star icon and
+// its "Pro" badge -- must match the hex inlined into videoDialogStarSVG
+// below (SVG resources can't reference a Go color value).
+var videoDialogProColor = color.NRGBA{R: 0x9c, G: 0x58, B: 0xf9, A: 0xff}
+
+// videoDialogStarSVG is a small star glyph shown before the 4:4:4 row's
+// title, colored to match videoDialogProColor -- a distinct "Pro" indicator
+// from AI Vision's lime robot.
+var videoDialogStarSVG = fyne.NewStaticResource("video_dialog_star.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#9c58f9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2691 4.41115C11.5006 3.89177 11.6164 3.63208 11.7776 3.55211C11.9176 3.48263 12.082 3.48263 12.222 3.55211C12.3832 3.63208 12.499 3.89177 12.7305 4.41115L14.5745 8.54808C14.643 8.70162 14.6772 8.77839 14.7302 8.83718C14.777 8.8892 14.8343 8.93081 14.8982 8.95929C14.9705 8.99149 15.0541 9.00031 15.2213 9.01795L19.7256 9.49336C20.2911 9.55304 20.5738 9.58288 20.6997 9.71147C20.809 9.82316 20.8598 9.97956 20.837 10.1342C20.8108 10.3122 20.5996 10.5025 20.1772 10.8832L16.8125 13.9154C16.6877 14.0279 16.6252 14.0842 16.5857 14.1527C16.5507 14.2134 16.5288 14.2807 16.5215 14.3503C16.5132 14.429 16.5306 14.5112 16.5655 14.6757L17.5053 19.1064C17.6233 19.6627 17.6823 19.9408 17.5989 20.1002C17.5264 20.2388 17.3934 20.3354 17.2393 20.3615C17.0619 20.3915 16.8156 20.2495 16.323 19.9654L12.3995 17.7024C12.2539 17.6184 12.1811 17.5765 12.1037 17.56C12.0352 17.5455 11.9644 17.5455 11.8959 17.56C11.8185 17.5765 11.7457 17.6184 11.6001 17.7024L7.67662 19.9654C7.18404 20.2495 6.93775 20.3915 6.76034 20.3615C6.60623 20.3354 6.47319 20.2388 6.40075 20.1002C6.31736 19.9408 6.37635 19.6627 6.49434 19.1064L7.4341 14.6757C7.46898 14.5112 7.48642 14.429 7.47814 14.3503C7.47081 14.2807 7.44894 14.2134 7.41394 14.1527C7.37439 14.0842 7.31195 14.0279 7.18708 13.9154L3.82246 10.8832C3.40005 10.5025 3.18884 10.3122 3.16258 10.1342C3.13978 9.97956 3.19059 9.82316 3.29993 9.71147C3.42581 9.58288 3.70856 9.55304 4.27406 9.49336L8.77835 9.01795C8.94553 9.00031 9.02911 8.99149 9.10139 8.95929C9.16534 8.93081 9.2226 8.8892 9.26946 8.83718C9.32241 8.77839 9.35663 8.70162 9.42508 8.54808L11.2691 4.41115Z"/></svg>`))
+
+// newVideoDialogInlineIcon is a small, fixed-size icon glyph meant to sit
+// immediately before a toggle row's title text.
+func newVideoDialogInlineIcon(icon fyne.Resource) *canvas.Image {
+	img := canvas.NewImageFromResource(icon)
+	img.FillMode = canvas.ImageFillContain
+	img.SetMinSize(fyne.NewSize(11, 11))
+	return img
+}
+
+// newVideoDialogIconTitle is a toggle row's title with a small icon glyph
+// immediately before the text, both on the row's first line -- the AI
+// Vision row's own style. Unlike the wrapped descriptions above, this is a
+// fixed-size, non-wrapping pair (icon + one line of text), so a plain HBox
+// is fine here -- none of videoDialogWrapText's reasons for existing apply
+// to content that never needs to reflow.
+func newVideoDialogIconTitle(icon fyne.Resource, text string) fyne.CanvasObject {
+	return container.NewHBox(newVideoDialogInlineIcon(icon), newVideoDialogRowTitle(text))
+}
+
+// newVideoDialogIconTitleText is newVideoDialogIconTitle's variant for a
+// title the caller already built and needs to keep mutating later -- the
+// 4:4:4 row's own title, grayed in and out by setColor444State.
+func newVideoDialogIconTitleText(icon fyne.Resource, title *canvas.Text) fyne.CanvasObject {
+	return container.NewHBox(newVideoDialogInlineIcon(icon), title)
+}
+
+// videoDialogToggleIndent is the description line's left indent -- how far
+// the checkbox's own width plus the title's own gap reaches. Exposed as a
+// constant since videoDialogToggleDescWidth (used to eagerly wrap
+// descriptions to their final width, see videoDialogWrapText) needs to
+// subtract exactly what videoDialogToggleLayout will actually use.
+const videoDialogToggleIndent = videoDialogCheckboxSize + videoDialogToggleGap
+
+const (
+	videoDialogToggleGap     = float32(8) // checkbox -> title, and title -> badge
+	videoDialogToggleDescGap = float32(2) // title row -> description
+)
+
+// videoDialogToggleAlignLeft shifts every toggle row right by this amount,
+// so a plain row's checkbox lines up with the boxed AI Vision row's own
+// checkbox -- its card's own left padding (videoDialogBoxedInsetLR) would
+// otherwise push just that one row's checkbox further right than VSync's
+// and 4:4:4's.
+const videoDialogToggleAlignLeft = videoDialogBoxedInsetLR
+
+// videoDialogToggleLayout is a plain fyne.Layout (not a widget) for one
+// checkbox+title+badge+description row -- not a composition of generic
+// Fyne containers. Generic containers (HBox/VBox/Border/NewInset) kept
+// introducing their own padding/gap here that this dialog didn't ask for
+// (theme.Padding() between HBox children, NewInset's own extra Border
+// padding on top of its spacer rectangles -- see NewInset's doc comment)
+// and repeatedly threw the description out of alignment with its own
+// title. A plain fyne.Layout, used via container.New, gives full, exact
+// control over every position -- and, unlike an earlier attempt at this
+// same fix that wrapped a widget.BaseWidget around a hand-rolled renderer,
+// doesn't add its own extra layer of widget.BaseWidget/cache.Renderer
+// machinery for Fyne to schedule around; container.New's caller-visible
+// *fyne.Container already does the minimum necessary itself.
+//
+// Objects must always be exactly [check, title, badge, description].
+type videoDialogToggleLayout struct{}
+
+func (l *videoDialogToggleLayout) titleRowHeight(objs []fyne.CanvasObject) float32 {
+	check, title, badge := objs[0], objs[1], objs[2]
+	return maxFloat32(check.MinSize().Height, maxFloat32(title.MinSize().Height, badge.MinSize().Height))
+}
+
+func (l *videoDialogToggleLayout) indentX(objs []fyne.CanvasObject) float32 {
+	return objs[0].MinSize().Width + videoDialogToggleGap
+}
+
+func (l *videoDialogToggleLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
+	title, badge, desc := objs[1], objs[2], objs[3]
+	indent := l.indentX(objs)
+	titleRowWidth := indent + title.MinSize().Width + videoDialogToggleGap + badge.MinSize().Width
+	descSize := desc.MinSize()
+	width := maxFloat32(titleRowWidth, indent+descSize.Width)
+	height := l.titleRowHeight(objs) + videoDialogToggleDescGap + descSize.Height
+	return fyne.NewSize(width, height)
+}
+
+func (l *videoDialogToggleLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	check, title, badge, desc := objs[0], objs[1], objs[2], objs[3]
+	rowHeight := l.titleRowHeight(objs)
+
+	checkSize := check.MinSize()
+	check.Move(fyne.NewPos(0, (rowHeight-checkSize.Height)/2))
+	check.Resize(checkSize)
+
+	indent := l.indentX(objs)
+	titleSize := title.MinSize()
+	title.Move(fyne.NewPos(indent, (rowHeight-titleSize.Height)/2))
+	title.Resize(titleSize)
+
+	badgeSize := badge.MinSize()
+	badgeX := indent + titleSize.Width + videoDialogToggleGap
+	badge.Move(fyne.NewPos(badgeX, (rowHeight-badgeSize.Height)/2))
+	badge.Resize(badgeSize)
+
+	descY := rowHeight + videoDialogToggleDescGap
+	descWidth := maxFloat32(0, size.Width-indent)
+	descHeight := maxFloat32(0, size.Height-descY)
+	desc.Move(fyne.NewPos(indent, descY))
+	desc.Resize(fyne.NewSize(descWidth, descHeight))
+}
+
+// newVideoDialogToggleRow lays out one checkbox row in the reference
+// design: the checkbox and a bold title + badge share the first line, and
+// the description sits on its own line below, indented to the title's own
+// left edge.
+func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasObject, badge fyne.CanvasObject, description fyne.CanvasObject) *fyne.Container {
+	return container.New(&videoDialogToggleLayout{}, check, titleText, badge, description)
+}
+
+// newVideoDialogBoxedToggleRow wraps newVideoDialogToggleRow's content in
+// its own bordered card (same bg/border as the bitrate card) -- AI Vision's
+// own "special" treatment. Every other toggle in this dialog (VSync, 4:4:4)
+// stays a plain inline row instead -- boxing every row made the whole
+// section too tall to fit comfortably.
+func newVideoDialogBoxedToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasObject, badge fyne.CanvasObject, description fyne.CanvasObject) *fyne.Container {
+	cardBG := canvas.NewRectangle(design.ColorGray950)
+	cardBG.CornerRadius = design.RadiusMD
+	cardBorder := canvas.NewRectangle(color.Transparent)
+	cardBorder.CornerRadius = design.RadiusMD
+	cardBorder.StrokeColor = videoDialogBorderColor
+	cardBorder.StrokeWidth = 1
+	row := newVideoDialogToggleRow(check, titleText, badge, description)
+	// NewInsetExact, not NewInset -- this padding needs to match
+	// videoDialogToggleDescWidth's own subtraction exactly (see that
+	// function's doc comment); NewInset's extra, undocumented
+	// theme.Padding() on top of what's asked would silently widen the gap
+	// between this formula and the row's real available width.
+	return container.NewStack(cardBG, cardBorder, NewInsetExact(row, videoDialogBoxedInsetLR, videoDialogBoxedInsetLR, 8, 8))
+}
 
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 	vsd := &VideoStartDialog{
@@ -504,135 +1399,225 @@ func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 }
 
 func (vsd *VideoStartDialog) createInterface() {
-	vsd.modeDescription = canvas.NewText("", design.ColorTextMuted)
-	vsd.modeDescription.TextSize = 12
+	vsd.modeDescription = canvas.NewText("", videoDialogHintColor)
+	vsd.modeDescription.TextSize = videoDialogHintTextSize
 	vsd.modeDescription.Alignment = fyne.TextAlignCenter
 	vsd.modeButtonsRow = container.New(&videoCodecButtonsLayout{gap: 10})
 
-	vsd.resolutionSelect = newVideoDialogSelect("Select resolution", func(string) {
+	vsd.resolutionSelect = newVideoDialogPicker(func(string) {
 		vsd.refreshAvailableModes()
 		vsd.refreshFPSOptions()
 	})
-	vsd.resolutionMeta = canvas.NewText("", design.ColorTextMuted)
-	vsd.resolutionMeta.TextSize = 11
+	vsd.resolutionMeta = canvas.NewText("", videoDialogHintColor)
+	vsd.resolutionMeta.TextSize = videoDialogHintTextSize
 	vsd.resolutionMeta.Alignment = fyne.TextAlignCenter
 
-	vsd.fpsSelect = newVideoDialogSelect("Select fps", nil)
-	vsd.fpsMeta = canvas.NewText(i18n.Current.FramesPerSecond, design.ColorTextMuted)
-	vsd.fpsMeta.TextSize = 11
+	vsd.fpsSelect = newVideoDialogPicker(nil)
+	vsd.fpsMeta = canvas.NewText(i18n.Current.FramesPerSecond, videoDialogHintColor)
+	vsd.fpsMeta.TextSize = videoDialogHintTextSize
 	vsd.fpsMeta.Alignment = fyne.TextAlignCenter
 
-	vsd.bitrateSlider = widget.NewSlider(1000, 150000)
-	vsd.bitrateSlider.Step = 1000
+	vsd.bitrateSlider = newVideoDialogBitrateSlider(1000, 150000, 1000)
 	vsd.bitrateSlider.Value = 20000
-	vsd.bitrateValueLabel = widget.NewLabel("")
-	vsd.bitrateSlider.OnChanged = func(value float64) {
-		vsd.bitrateValueLabel.SetText(fmt.Sprintf("%.1f %s", value/1000, i18n.Current.UnitMbps))
-	}
-
-	lowQualityLabel := canvas.NewText("Low Quality", design.ColorTextMuted)
-	lowQualityLabel.TextSize = 11
-	highBandwidthLabel := canvas.NewText("High Bandwidth", design.ColorTextMuted)
-	highBandwidthLabel.TextSize = 11
-	bitrateHintSpacer := canvas.NewRectangle(color.Transparent)
-	vsd.bitrateHintsRow = NewInset(
-		container.NewBorder(nil, nil, lowQualityLabel, highBandwidthLabel, bitrateHintSpacer),
-		12, 12, 0, 0,
-	)
 
 	vsd.jpegHint = widget.NewLabel(i18n.Current.VideoJPEGRTPHint)
 	vsd.jpegHint.Wrapping = fyne.TextWrapWord
 	vsd.jpegHint.Alignment = fyne.TextAlignCenter
 	vsd.deviceLabel = widget.NewLabel("")
 	vsd.deviceLabel.Wrapping = fyne.TextWrapWord
-	vsd.vsyncCheck = widget.NewCheck(i18n.Current.EnableVSync, nil)
-	vsd.vsyncCheck.SetChecked(true)
+	vsd.vsyncCheck = newVideoDialogCheckbox(true, nil)
+	hintPanelW := videoDialogEffectivePanelWidth(vsd.parent)
+	vsd.vsyncHint = newVideoDialogDescription(i18n.Current.EnableVSyncHint, videoDialogToggleDescWidthFor(hintPanelW, false))
+	vsyncRow := newVideoDialogToggleRow(
+		vsd.vsyncCheck,
+		newVideoDialogRowTitle(i18n.Current.EnableVSync),
+		newVideoDialogBadge(i18n.Current.EnableVSyncBadge, design.ColorConnectionBadgeText),
+		vsd.vsyncHint,
+	)
 
 	// AI Vision: off by default, takes effect immediately (not gated behind
 	// Start/Apply) since it's a pure local-rendering overlay -- see
 	// service.SetAIVisionEnabled's doc comment.
-	vsd.aiVisionCheck = widget.NewCheck(i18n.Current.AIVision, func(checked bool) {
+	vsd.aiVisionCheck = newVideoDialogCheckbox(service.AIVisionEnabled(), func(checked bool) {
 		service.SetAIVisionEnabled(checked)
 	})
-	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
-	vsd.aiVisionHint = widget.NewLabel(i18n.Current.AIVisionHint)
-	vsd.aiVisionHint.Wrapping = fyne.TextWrapWord
-	vsd.aiVisionHint.TextStyle = fyne.TextStyle{Italic: true}
+	vsd.aiVisionHint = newVideoDialogHighlightDescription(i18n.Current.AIVisionHint, "ui.parse()", videoDialogToggleDescWidthFor(hintPanelW, true))
+	aiVisionRow := newVideoDialogBoxedToggleRow(
+		vsd.aiVisionCheck,
+		newVideoDialogIconTitle(videoDialogRobotSVG, i18n.Current.AIVision),
+		newVideoDialogBadge(i18n.Current.AIVisionBadge, design.ColorConnectionAddFill),
+		vsd.aiVisionHint,
+	)
 
 	// RustShine Pro 4:4:4 color: off by default, takes effect on the next
 	// Start (unlike AI Vision, this is a real renegotiation with the
 	// server, not a pure local overlay) -- see models.VideoStartRequest.Color444's
-	// doc comment. Visibility/enabled state is entirely driven by
-	// refreshModeUI (codec == H.265 and the agent currently offers it).
-	vsd.color444Check = widget.NewCheck(i18n.Current.Color444, nil)
-	vsd.color444Hint = widget.NewLabel("")
-	vsd.color444Hint.Wrapping = fyne.TextWrapWord
-	vsd.color444Hint.TextStyle = fyne.TextStyle{Italic: true}
-	vsd.color444Check.Hide()
-	vsd.color444Hint.Hide()
+	// doc comment. Always shown (any codec) -- refreshModeUI grays it out via
+	// setColor444TitleEnabled instead of hiding it outright when it doesn't
+	// apply. Its text changes at runtime (see refreshModeUI), unlike
+	// VSync/AI Vision's static copy -- built with no spans yet here, since
+	// videoDialogWrapText.SetSpans is what actually fills it in, called by
+	// refreshModeUI before this dialog is ever shown.
+	vsd.color444Check = newVideoDialogCheckbox(false, nil)
+	vsd.color444Check.OnTapWhileDisabled = func() {
+		// Tapping the checkbox while it's grayed out because H.265 isn't
+		// selected is treated as "turn this on": switch the codec for the
+		// user instead of making them hunt for the codec buttons above.
+		// Only when RustShine Pro/hardware actually supports it, though --
+		// if it's unavailable outright, switching codecs wouldn't help.
+		if !vsd.color444Available || vsd.selectedModeID() == models.VideoModeH265 {
+			return
+		}
+		vsd.setSelectedModeID(models.VideoModeH265)
+		vsd.color444Check.SetChecked(true)
+	}
+	vsd.color444Hint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW, false), videoDialogHintTextSize, true)
+	vsd.color444TitleText = newVideoDialogRowTitle(i18n.Current.Color444)
+	color444Row := newVideoDialogToggleRow(
+		vsd.color444Check,
+		newVideoDialogIconTitleText(videoDialogStarSVG, vsd.color444TitleText),
+		newVideoDialogBadge(i18n.Current.Color444Badge, videoDialogProColor),
+		vsd.color444Hint,
+	)
 
-	vsd.startBtn = widget.NewButton(i18n.Current.StartVideo, vsd.handleStart)
-	vsd.startBtn.Importance = widget.HighImportance
-	vsd.cancelBtn = widget.NewButton(i18n.Current.Cancel, vsd.handleCancel)
-	vsd.extraBtn = widget.NewButton("", nil)
+	// vsyncRow/color444Row are plain rows with no left padding of their own,
+	// unlike aiVisionRow's own card (see newVideoDialogBoxedToggleRow) --
+	// without this, its own left inset would push just its checkbox further
+	// right than these two, breaking the visual column of checkboxes down
+	// the whole section.
+	vsyncRow = NewInsetExact(vsyncRow, videoDialogToggleAlignLeft, 0, 0, 0)
+	color444Row = NewInsetExact(color444Row, videoDialogToggleAlignLeft, 0, 0, 0)
+
+	vsd.startBtn = newVideoDialogApplyButton(i18n.Current.StartVideo, vsd.handleStart)
+	vsd.cancelBtn = newVideoDialogCancelButton(i18n.Current.Cancel, vsd.handleCancel)
+	vsd.extraBtn = newVideoDialogExtraButton()
 	vsd.extraBtn.Hide()
 
-	bitrateHeader := container.NewBorder(nil, nil,
-		widget.NewLabel(i18n.Current.Bitrate),
-		vsd.bitrateValueLabel,
-		nil,
+	// Bitrate card: bg #1e2225 / border #33372f, a "TARGET BITRATE" caption
+	// with the live value in its own small pill (bg #0b0f12, same border),
+	// the teal-thumbed slider, and Low/High bound hints -- see the
+	// reference screenshot this restyle matches.
+	bitrateValueNumber := canvas.NewText("", color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
+	bitrateValueNumber.TextSize = 10
+	bitrateValueNumber.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	bitrateValueUnit := canvas.NewText(i18n.Current.UnitMbps, color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
+	bitrateValueUnit.TextSize = 8
+	bitrateValueUnit.TextStyle = fyne.TextStyle{Monospace: true}
+	vsd.bitrateSlider.OnChanged = func(value float64) {
+		bitrateValueNumber.Text = fmt.Sprintf("%.1f", value/1000)
+		bitrateValueNumber.Refresh()
+	}
+
+	valuePillBG := canvas.NewRectangle(design.ColorGray950)
+	valuePillBG.CornerRadius = 6
+	valuePillBorder := canvas.NewRectangle(color.Transparent)
+	valuePillBorder.CornerRadius = 6
+	valuePillBorder.StrokeColor = videoDialogBorderColor
+	valuePillBorder.StrokeWidth = 1
+	valuePill := container.NewStack(valuePillBG, valuePillBorder,
+		NewInset(container.NewHBox(bitrateValueNumber, bitrateValueUnit), 10, 10, 2, 2),
 	)
-	vsd.bitrateBlock = container.New(&bitrateBlockLayout{
-		headerHeight: 28,
-		sliderTop:    20,
-		sliderHeight: 44,
-		hintsTop:     54,
-	}, bitrateHeader, vsd.bitrateSlider, vsd.bitrateHintsRow)
+
+	bitrateLabel := canvas.NewText(strings.ToUpper(i18n.Current.Bitrate), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
+	bitrateLabel.TextSize = 9
+	bitrateLabel.TextStyle.Bold = true
+	bitrateHeaderRow := container.NewBorder(nil, nil, bitrateLabel, valuePill, nil)
+
+	lowHint := canvas.NewText(fmt.Sprintf("Low Latency (%.1f %s)", vsd.bitrateSlider.Min/1000, i18n.Current.UnitMbps), videoDialogHintColor)
+	lowHint.TextSize = videoDialogHintTextSize
+	highHint := canvas.NewText(fmt.Sprintf("High Fidelity (%.1f %s)", vsd.bitrateSlider.Max/1000, i18n.Current.UnitMbps), videoDialogHintColor)
+	highHint.TextSize = videoDialogHintTextSize
+	bitrateHintsRow := container.NewBorder(nil, nil, lowHint, highHint, nil)
+
+	bitrateCardBG := canvas.NewRectangle(videoDialogCardBG)
+	bitrateCardBG.CornerRadius = design.RadiusMD
+	bitrateCardBorder := canvas.NewRectangle(color.Transparent)
+	bitrateCardBorder.CornerRadius = design.RadiusMD
+	bitrateCardBorder.StrokeColor = videoDialogBorderColor
+	bitrateCardBorder.StrokeWidth = 1
+	bitrateCardContent := NewInset(container.NewVBox(bitrateHeaderRow, vsd.bitrateSlider, bitrateHintsRow), 14, 14, 10, 10)
+	vsd.bitrateBlock = container.NewStack(bitrateCardBG, bitrateCardContent, bitrateCardBorder)
+
+	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
+
 	modeDetailsMinHeight := maxFloat32(vsd.bitrateBlock.MinSize().Height, vsd.jpegHint.MinSize().Height)
 	modeDetailsReserve := canvas.NewRectangle(color.Transparent)
 	modeDetailsReserve.SetMinSize(fyne.NewSize(0, modeDetailsMinHeight))
 	vsd.modeDetailsSlot = container.NewStack(modeDetailsReserve, vsd.bitrateBlock)
 
-	title := NewBrandText(i18n.Current.VideoParameters, 19, design.ColorTextLight, true)
-	title.Alignment = fyne.TextAlignCenter
+	// Header/footer chrome (top accent bar, corner-pinned close X, hairline
+	// separators, left-aligned title, right-grouped footer buttons) mirrors
+	// the Add Connection dialog's own panel -- see showAdaptiveConnectionDialog
+	// in controller/connection_manager_dialogs.go, whose pieces live in the
+	// controller package and aren't reusable here directly.
+	title := NewBrandText(i18n.Current.VideoParameters, 13, design.ColorTextLight, true)
 	closeBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill: color.Transparent,
 		HoverFill:  design.ColorSurfaceLight,
-		NormalIcon: theme.CancelIcon(),
-		HoverIcon:  theme.CancelIcon(),
-		IconSize:   fyne.NewSize(14, 14),
+		NormalIcon: videoDialogCancelIconSVG,
+		HoverIcon:  videoDialogCancelIconSVG,
+		IconSize:   fyne.NewSize(18, 18),
 		ButtonSize: fyne.NewSize(28, 28),
 		OnTapped:   vsd.handleCancel,
 	})
-	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(title))
 
-	bodyContent := container.NewVBox(
-		titleBar,
-		widget.NewLabel("Codec"),
-		vsd.modeButtonsRow,
-		container.NewCenter(vsd.modeDescription),
+	headerSepLine := color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff}
+	headerSep := canvas.NewRectangle(headerSepLine)
+	headerSep.SetMinSize(fyne.NewSize(0, 1))
+	footerSep := canvas.NewRectangle(headerSepLine)
+	footerSep.SetMinSize(fyne.NewSize(0, 1))
+
+	headerBlock := container.NewVBox(newVideoDialogTopAccentBar(), NewInset(title, 21, 44, 9, 4), headerSep)
+
+	resolutionFPSRow := container.NewGridWithColumns(2,
 		container.NewVBox(
-			widget.NewLabelWithStyle(i18n.Current.Resolution, fyne.TextAlignLeading, fyne.TextStyle{}),
+			newVideoDialogFieldLabel(i18n.Current.Resolution),
 			vsd.resolutionSelect,
 			container.NewCenter(vsd.resolutionMeta),
 		),
 		container.NewVBox(
-			widget.NewLabel(i18n.Current.FrameRate),
+			newVideoDialogFieldLabel(i18n.Current.FrameRate),
 			vsd.fpsSelect,
 			container.NewCenter(vsd.fpsMeta),
 		),
-		vsd.modeDetailsSlot,
-		vsd.vsyncCheck,
-		vsd.color444Check,
-		vsd.color444Hint,
-		vsd.aiVisionCheck,
-		vsd.aiVisionHint,
 	)
-	footer := container.NewVBox(
-		vsd.extraBtn,
-		NewInset(container.New(&videoDialogButtonsLayout{gap: 12}, vsd.cancelBtn, vsd.startBtn), 0, 0, 8, 0),
+
+	// Codec buttons get their own small bordered card (same border color as
+	// everywhere else in this dialog) instead of sitting bare in the body --
+	// see videoCodecButton.MinSize's own comment for why the buttons
+	// themselves shrank slightly to fit it.
+	codecCardBG := canvas.NewRectangle(design.ColorGray950)
+	codecCardBG.CornerRadius = design.RadiusMD
+	codecCardBorder := canvas.NewRectangle(color.Transparent)
+	codecCardBorder.CornerRadius = design.RadiusMD
+	codecCardBorder.StrokeColor = videoDialogBorderColor
+	codecCardBorder.StrokeWidth = 1
+	codecCard := container.NewStack(codecCardBG, codecCardBorder, NewInsetExact(vsd.modeButtonsRow, 4, 4, 4, 4))
+
+	bodyContent := container.NewVBox(
+		newVideoDialogFieldLabel("Codec"),
+		codecCard,
+		container.NewCenter(vsd.modeDescription),
+		resolutionFPSRow,
+		NewInsetExact(vsd.modeDetailsSlot, 0, 0, 2, 0), // was flush against resolutionFPSRow above
+		videoDialogVSpace(8),                           // breathing room before VSync
+		vsyncRow,
+		aiVisionRow,
+		color444Row,
+		videoDialogVSpace(8), // breathing room after 4:4:4 Color
 	)
-	form := container.NewBorder(nil, footer, nil, nil, bodyContent)
+
+	// Cancel sits opposite Apply/extra, same as the Add Connection footer --
+	// DeviceRowControlsLayout skips extraBtn entirely while it's hidden, so
+	// the group collapses to just Apply when no extra action is set.
+	footerButtons := container.NewBorder(nil, nil, container.NewCenter(vsd.cancelBtn), container.New(&DeviceRowControlsLayout{Gap: 12}, vsd.extraBtn, vsd.startBtn))
+	// NewInsetExact, not NewInset -- was 12/18/14/0 through NewInset (whose
+	// own +4px-per-side quirk made the top inset an effective 18), trimmed
+	// down to shrink the whole footer band by roughly 20px total together
+	// with the panel's own bottom margin below.
+	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerButtons, 12, 18, 6, 0))
+
+	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInset(bodyContent, videoDialogBodyInsetLR, videoDialogBodyInsetLR, 12, 0))
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -640,9 +1625,16 @@ func (vsd *VideoStartDialog) createInterface() {
 	border.CornerRadius = design.RadiusMD
 	border.StrokeColor = design.ColorBorder
 	border.StrokeWidth = 1
+	cornerBtn := container.New(&videoDialogCornerButtonLayout{Top: 12, Right: 12}, closeBtn)
+	// A small bottom margin here (matching showAdaptiveConnectionDialog's
+	// own panel) keeps the footer buttons from sitting flush against the
+	// panel's bottom rounded corner -- trimmed down (was 16, +4 quirk via
+	// NewInset) together with footerBlock's own inset above, to cut the
+	// whole footer band down by roughly 20px total.
 	panel := container.NewStack(
 		bg,
-		NewInset(form, 18, 18, 16, 16),
+		NewInsetExact(form, 0, 0, 0, 8),
+		cornerBtn,
 		border,
 	)
 	vsd.dialog = NewOverlayPopup(vsd.parent, OverlayPopupSpec{
@@ -660,12 +1652,11 @@ func (vsd *VideoStartDialog) createInterface() {
 			}
 
 			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 460), maxWidth)
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, videoDialogCanvasPanelWidth(canvasSize)), maxWidth)
 			panelHeight := minFloat32(maxFloat32(panelMin.Height, 520), maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
 		},
 	})
-	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
 }
 func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth, defaultHeight, defaultFPS int, defaultBitrate string) {
 	vsd.streamModes = nil
@@ -748,6 +1739,11 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	})
 
 	resolutionOptions := make([]string, 0, len(vsd.captureModes))
+	// resolutionShortLabels abbreviates the closed picker's display text
+	// (e.g. "1920x1080" instead of the full "1920 x 1080 (YUYV)" option/key)
+	// so the pill stays narrow enough for the Resolution/FPS row to sit side
+	// by side -- the popup's own rows still show the full option text.
+	resolutionShortLabels := make(map[string]string, len(vsd.captureModes))
 	defaultResolutionLabel := ""
 	hasMultipleFormats := false
 	formatsSeen := map[string]bool{}
@@ -760,6 +1756,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		label := formatResolutionBaseLabel(captureMode)
 		vsd.resolutionLabels[label] = captureMode
 		vsd.resolutionHints[label] = resolutionDescriptor(captureMode.Width, captureMode.Height)
+		resolutionShortLabels[label] = fmt.Sprintf("%dx%d", captureMode.Width, captureMode.Height)
 		resolutionOptions = append(resolutionOptions, label)
 		if captureMode.Width == defaultWidth && captureMode.Height == defaultHeight {
 			// Prefer the entry that matches the currently active capture format on the server.
@@ -779,6 +1776,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	}
 	vsd.resolutionSelect.SetOptions(resolutionOptions)
 	vsd.resolutionSelect.SetDetails(vsd.resolutionHints)
+	vsd.resolutionSelect.SetShortLabels(resolutionShortLabels)
 
 	if defaultResolutionLabel == "" && len(resolutionOptions) > 0 {
 		defaultResolutionLabel = resolutionOptions[0]
@@ -810,7 +1808,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		selectedMode = models.VideoModeH264
 	}
 	logrus.Infof("🎬 [VideoStartDialog] preselecting codec=%s (source=%s)", selectedMode, source)
-	vsd.refreshAvailableModes()
+	vsd.refreshAvailableModesAndSelect(false)
 	vsd.setSelectedModeID(selectedMode)
 
 	if bitrate, ok := parseBitrate(defaultBitrate); ok {
@@ -821,7 +1819,19 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 
 	vsd.refreshFPSOptions()
 	vsd.setDefaultFPS(defaultFPS)
-	vsd.refreshModeUI()
+}
+
+func (vsd *VideoStartDialog) syncHintWrapWidths() {
+	panelW := videoDialogEffectivePanelWidth(vsd.parent)
+	if vsd.vsyncHint != nil {
+		vsd.vsyncHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+	}
+	if vsd.aiVisionHint != nil {
+		vsd.aiVisionHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, true))
+	}
+	if vsd.color444Hint != nil {
+		vsd.color444Hint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+	}
 }
 
 func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest)) {
@@ -829,10 +1839,10 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
 	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
+	vsd.syncHintWrapWidths()
 	if vsd.dialog != nil && vsd.parent != nil {
 		vsd.dialog.Move(fyne.NewPos(0, 0))
 		vsd.dialog.Resize(vsd.parent.Canvas().Size())
-		vsd.dialog.Refresh()
 	}
 	if !vsd.dialogShown {
 		vsd.dialogShown = true
@@ -877,7 +1887,7 @@ func (vsd *VideoStartDialog) Hide() {
 }
 
 func (vsd *VideoStartDialog) refreshFPSOptions() {
-	mode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
+	mode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
 	if !ok {
 		return
 	}
@@ -901,7 +1911,7 @@ func (vsd *VideoStartDialog) refreshFPSOptions() {
 		options = []string{"30"}
 	}
 	vsd.fpsSelect.SetOptions(options)
-	if vsd.fpsSelect.Selected() == "" {
+	if vsd.fpsSelect.Selected == "" {
 		vsd.fpsSelect.SetSelected(options[0])
 	}
 }
@@ -910,7 +1920,7 @@ func (vsd *VideoStartDialog) setDefaultFPS(defaultFPS int) {
 	if defaultFPS <= 0 {
 		return
 	}
-	for _, option := range vsd.fpsSelect.options {
+	for _, option := range vsd.fpsSelect.Options {
 		if option == strconv.Itoa(defaultFPS) {
 			vsd.fpsSelect.SetSelected(option)
 			return
@@ -944,27 +1954,43 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 	}
 	vsd.modeDetailsSlot.Refresh()
 
-	// RustShine Pro 4:4:4 color: only meaningful for H.265 (this project's
+	// RustShine 4:4:4 color: only meaningful for H.265 (this project's
 	// hardware encode path has no H.264/AV1 4:4:4 profile, see
-	// service.moonlightVideoFormat's doc comment) -- hidden entirely for
-	// every other codec rather than shown-disabled, since it's not a
-	// choice that could ever apply there.
-	if modeID == models.VideoModeH265 {
-		vsd.color444Check.Show()
-		vsd.color444Check.Enable()
-		if vsd.color444Available {
-			vsd.color444Hint.SetText(i18n.Current.Color444Hint)
-		} else {
-			vsd.color444Check.SetChecked(false)
-			vsd.color444Check.Disable()
-			vsd.color444Hint.SetText(i18n.Current.Color444UnavailableHint)
-		}
-		vsd.color444Hint.Show()
-	} else {
+	// service.moonlightVideoFormat's doc comment). The row itself always
+	// stays visible on every codec -- rather than disappearing when it
+	// doesn't apply, it grays out (title + checkbox) while its description
+	// explains why (requires H.265, or requires RustShine Pro); the "Pro"
+	// badge itself stays constant (see its construction in createInterface)
+	// since it was already saying the same thing the title used to say too
+	// ("4:4:4 Color (RustShine Pro)") -- one "Pro" is enough.
+	switch {
+	case modeID != models.VideoModeH265:
 		vsd.color444Check.SetChecked(false)
-		vsd.color444Check.Hide()
-		vsd.color444Hint.Hide()
+		vsd.color444Check.Disable()
+		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444RequiresH265Hint, Color: videoDialogHintColor})
+		vsd.setColor444TitleEnabled(false)
+	case vsd.color444Available:
+		vsd.color444Check.Enable()
+		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444Hint, Color: videoDialogHintColor})
+		vsd.setColor444TitleEnabled(true)
+	default:
+		vsd.color444Check.SetChecked(false)
+		vsd.color444Check.Disable()
+		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444UnavailableHint, Color: videoDialogHintColor})
+		vsd.setColor444TitleEnabled(false)
 	}
+}
+
+// setColor444TitleEnabled grays or restores the 4:4:4 row's title -- see
+// refreshModeUI's callers. The "Pro" badge next to it doesn't change here;
+// it's always shown, in a fixed color, regardless of codec/availability.
+func (vsd *VideoStartDialog) setColor444TitleEnabled(enabled bool) {
+	if enabled {
+		vsd.color444TitleText.Color = design.ColorTextLight
+	} else {
+		vsd.color444TitleText.Color = videoDialogHintColor
+	}
+	vsd.color444TitleText.Refresh()
 }
 
 func localizedVideoModeDescription(modeID string) string {
@@ -1141,12 +2167,12 @@ func (vsd *VideoStartDialog) handleStart() {
 	vsd.cancelBtn.Disable()
 	vsd.startBtn.SetText("⏳ " + i18n.Current.Starting)
 
-	selectedMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
+	selectedMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
 	if !ok {
 		selectedMode = models.VideoCaptureMode{Width: 800, Height: 600, FPS: []int{30}}
 	}
 
-	fps, err := strconv.Atoi(vsd.fpsSelect.Selected())
+	fps, err := strconv.Atoi(vsd.fpsSelect.Selected)
 	if err != nil || fps <= 0 {
 		fps = 30
 	}
@@ -1188,7 +2214,11 @@ func formatFPSRange(values []int) string {
 }
 
 func (vsd *VideoStartDialog) refreshAvailableModes() {
-	selectedCaptureMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
+	vsd.refreshAvailableModesAndSelect(true)
+}
+
+func (vsd *VideoStartDialog) refreshAvailableModesAndSelect(applySelection bool) {
+	selectedCaptureMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
 	selectedFormat := ""
 	if ok {
 		selectedFormat = normalizePixelFormat(selectedCaptureMode.PixelFormat)
@@ -1215,6 +2245,10 @@ func (vsd *VideoStartDialog) refreshAvailableModes() {
 	}
 	vsd.modeButtonsRow.Objects = buttons
 	vsd.modeButtonsRow.Refresh()
+
+	if !applySelection {
+		return
+	}
 
 	if selectedAllowed {
 		vsd.setSelectedModeID(previous)

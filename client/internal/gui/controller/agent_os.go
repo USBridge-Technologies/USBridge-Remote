@@ -10,3 +10,10 @@ func isUSBridgeAgentOS(agentOS string) bool {
 	trimmed := strings.ToLower(strings.TrimSpace(agentOS))
 	return trimmed == "" || strings.Contains(trimmed, "usbridge")
 }
+
+// IsSoftwareAgentOS is true for a Windows/Linux/macOS software agent, not
+// USBridge KVM hardware. Empty/unknown stays hardware so a missing OS
+// string cannot lock out a real board.
+func IsSoftwareAgentOS(agentOS string) bool {
+	return !isUSBridgeAgentOS(agentOS)
+}

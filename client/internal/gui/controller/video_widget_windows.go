@@ -32,6 +32,16 @@ var vkWinMouseCheckPending int32 // atomic
 var vkWinPressOnButton bool      // suppress matching release when press hit a UI button
 var vkWinMouseLogAt time.Time    // throttle coordinate logging to once per 2s
 
+type vkWinMouseEv struct {
+	typ, x, y, btn int
+}
+
+var (
+	vkWinMouseDoPending int32
+	vkWinMousePendingMu sync.Mutex
+	vkWinMousePending   []vkWinMouseEv
+)
+
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
 	quit := make(chan struct{})
@@ -45,41 +55,72 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 			case <-quit:
 				return
 			case <-ticker.C:
+				var batch []vkWinMouseEv
 				for {
 					typ, ex, ey, btn, ok := service.VKVideoNextEvent()
 					if !ok {
 						break
 					}
-					evTyp, evX, evY, evBtn := typ, ex, ey, btn
-					fyne.Do(func() {
-						if !service.VKVideoIsActive() {
-							return
-						}
-						s := scale
-						if fsWin := vkWinFullscreenWin; fsWin != nil {
-							if fsWin.Canvas() != nil {
-								s = fsWin.Canvas().Scale()
-							}
-						} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
-							s = vw.parentWindow.Canvas().Scale()
-						}
-						x := float32(evX) / s
-						y := float32(evY) / s
-						// Log at most once per 2s to diagnose coordinate mapping.
-						if evTyp == 1 {
-							if now := time.Now(); now.Sub(vkWinMouseLogAt) >= 2*time.Second {
-								vkWinMouseLogAt = now
-								standalone := vw.fullscreenDialog != nil && vw.fullscreenDialog.windowlessVKFullscreen
-								logrus.Infof("[ABS/Win] mouse: raw=(%d,%d) scale=%.3f dp=(%.1f,%.1f) standalone=%v fsWin=%v",
-									evX, evY, s, x, y, standalone, vkWinFullscreenWin != nil)
-							}
-						}
-						vw.dispatchVKWinMouseEvent(evTyp, x, y, evBtn)
-					})
+					// Coalesce consecutive moves so a burst from the overlay
+					// queue does not enqueue one fyne.Do per sample.
+					if typ == 1 && len(batch) > 0 && batch[len(batch)-1].typ == 1 {
+						batch[len(batch)-1] = vkWinMouseEv{typ, ex, ey, btn}
+						continue
+					}
+					batch = append(batch, vkWinMouseEv{typ, ex, ey, btn})
 				}
+				if len(batch) == 0 {
+					continue
+				}
+				vw.queueVKWinMouseBatch(scale, batch)
 			}
 		}
 	}()
+}
+
+func (vw *VideoWidget) queueVKWinMouseBatch(scale float32, batch []vkWinMouseEv) {
+	vkWinMousePendingMu.Lock()
+	vkWinMousePending = append(vkWinMousePending, batch...)
+	vkWinMousePendingMu.Unlock()
+	if !atomic.CompareAndSwapInt32(&vkWinMouseDoPending, 0, 1) {
+		return
+	}
+	fyne.Do(func() {
+		vkWinMousePendingMu.Lock()
+		evs := vkWinMousePending
+		vkWinMousePending = nil
+		vkWinMousePendingMu.Unlock()
+		if service.VKVideoIsActive() && len(evs) > 0 {
+			s := scale
+			if fsWin := vkWinFullscreenWin; fsWin != nil {
+				if fsWin.Canvas() != nil {
+					s = fsWin.Canvas().Scale()
+				}
+			} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+				s = vw.parentWindow.Canvas().Scale()
+			}
+			for _, ev := range evs {
+				x := float32(ev.x) / s
+				y := float32(ev.y) / s
+				if ev.typ == 1 {
+					if now := time.Now(); now.Sub(vkWinMouseLogAt) >= 2*time.Second {
+						vkWinMouseLogAt = now
+						standalone := vw.fullscreenDialog != nil && vw.fullscreenDialog.windowlessVKFullscreen
+						logrus.Infof("[ABS/Win] mouse: raw=(%d,%d) scale=%.3f dp=(%.1f,%.1f) standalone=%v fsWin=%v",
+							ev.x, ev.y, s, x, y, standalone, vkWinFullscreenWin != nil)
+					}
+				}
+				vw.dispatchVKWinMouseEvent(ev.typ, x, y, ev.btn)
+			}
+		}
+		atomic.StoreInt32(&vkWinMouseDoPending, 0)
+		vkWinMousePendingMu.Lock()
+		more := len(vkWinMousePending) > 0
+		vkWinMousePendingMu.Unlock()
+		if more {
+			vw.queueVKWinMouseBatch(scale, nil)
+		}
+	})
 }
 
 func (vw *VideoWidget) stopVKMouseForwarding() {
@@ -88,6 +129,9 @@ func (vw *VideoWidget) stopVKMouseForwarding() {
 		vkWinMouseQuit = nil
 		logrus.Info("[VK/Win] mouse forwarding stopped")
 	}
+	vkWinMousePendingMu.Lock()
+	vkWinMousePending = nil
+	vkWinMousePendingMu.Unlock()
 }
 
 // startVKKeyForwarding polls the C key event queue (standalone fullscreen mode) and
@@ -422,8 +466,14 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		if service.VKVideoCreate(hwnd, x, y, w, h) {
 			logrus.Infof("[Vulkan/Win] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)", fullscreen, x, y, w, h)
 			// If a Fyne overlay (popup/menu) is already open when we start, hide immediately.
-			if view.OverlayActive() {
+			if view.OverlayActive() || view.NavVideoHidden() {
 				service.VKVideoSetHidden(true)
+			} else {
+				// Same ShowWindow + HWND_TOPMOST poke that a Control-tab
+				// switch performs — without it the popup HWND can sit
+				// behind Fyne after SetContent/RequestFocus and the
+				// picture only appears after switching tabs.
+				vw.revealNativeVideoOverlay()
 			}
 			// Start Fyne main-loop watchdog: detects if wglSwapBuffers or Win32 message
 			// dispatch hangs after the Vulkan overlay starts presenting.
@@ -461,10 +511,36 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			logrus.Infof("[Vulkan/Win] calling onNativeReady (fullscreen=%v)", fullscreen)
 			vw.onNativeReady = nil
 			cb()
-		} else {
-			logrus.Warnf("[Vulkan/Win] onNativeReady is nil — canvas NOT cleared (fullscreen=%v)", fullscreen)
+		}
+		if vw.videoCanvas != nil {
+			vw.videoCanvas.Image = nil
+			vw.videoCanvas.Translucency = 1.0
+			vw.videoCanvas.Refresh()
 		}
 	})
+}
+
+// revealNativeVideoOverlay repeats the Hide/Show + HWND_TOPMOST sequence
+// that a Control-tab switch already performs via syncVideoOverlayForNav.
+// Call after overlay create and after the first presented frame so the
+// picture is visible without the user leaving and returning to Control.
+func (vw *VideoWidget) revealNativeVideoOverlay() {
+	if !service.VKVideoIsActive() {
+		vw.RefreshViewportGeometry()
+		return
+	}
+	if view.OverlayActive() || view.NavVideoHidden() {
+		service.VKVideoSetHidden(true)
+		return
+	}
+	if vw.videoCanvas != nil && vw.videoCanvas.Translucency < 1.0 {
+		vw.videoCanvas.Image = nil
+		vw.videoCanvas.Translucency = 1.0
+		vw.videoCanvas.Refresh()
+	}
+	service.VKVideoSetHidden(false)
+	service.VKVideoBringToTop()
+	vw.RefreshViewportGeometry()
 }
 
 func (vw *VideoWidget) stopMetalVideo() {
@@ -517,6 +593,8 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			service.VKVideoClearPendingStats()
 			if st.FirstFrame {
 				logrus.Infof("[Vulkan/Win] first frame rendered — %dx%d", st.FW, st.FH)
+				vw.noteVideoTraceFirstPaint(vw.frameCount)
+				vw.revealNativeVideoOverlay()
 			}
 			if st.FPSReady {
 				logrus.Infof("[Vulkan/Win] fps=%.1f rendered=%d submitted=%d size=%dx%d",
@@ -541,6 +619,7 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			service.GLVideoClearPendingStats()
 			if st.FirstFrame {
 				logrus.Infof("[GDI/Win] first frame rendered — %dx%d", st.FW, st.FH)
+				vw.noteVideoTraceFirstPaint(vw.frameCount)
 			}
 			if st.FPSReady {
 				logrus.Infof("[GDI/Win] fps=%.1f rendered=%d submitted=%d size=%dx%d",
@@ -618,16 +697,27 @@ func (vw *VideoWidget) getMetalLastFrame() *image.RGBA { return nil }
 
 // videoCanvasFrame returns the video canvas rect in window-local dp coordinates.
 //
-// Fyne widget positions are relative to their parent container, not the window,
-// so vw.videoCanvas.Position() is always near (0,0) within its tab container.
-// We derive the absolute y-offset the same way Mac Metal does: the video container
-// fills everything below the toolbar, so y = canvasHeight - containerHeight.
+// Fyne widget positions are relative to their parent, not the window, so
+// vw.videoCanvas.Position() is always near (0,0) inside its tab. The
+// container's canvas origin comes from videoContainerOrigin — not
+// canvasH − height, which assumed the video was flush with the window
+// bottom and broke once Control grew a footer under it.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.container == nil || vw.parentWindow == nil {
 		return
 	}
 	sz := vw.container.Size()
-	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - sz.Height
-	return 0, topOffset, sz.Width, sz.Height
+	pos := vw.videoContainerOrigin()
+	h = sz.Height
+	// Docked compact keyboard lives in contentContainer under the video.
+	// Without this subtract the native overlay covers the keys.
+	if vw.contentContainer != nil && vw.contentContainer.Visible() {
+		if kh := vw.contentContainer.Size().Height; kh > 0 {
+			h -= kh
+			if h < 0 {
+				h = 0
+			}
+		}
+	}
+	return pos.X, pos.Y, sz.Width, h
 }

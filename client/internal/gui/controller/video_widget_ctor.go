@@ -48,14 +48,10 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 				}
 				vw.isVideoConnected = true
 				// Starts the no-frame watchdog (see beginVideoTrace/
-				// forceReconnectStuckStream): Sunshine can accept a connection
-				// (RTSP/control/audio/input all negotiate successfully) and then
-				// never actually deliver a video frame, with no error surfaced
-				// anywhere — moonlight-common-c's own 10s watchdogs don't reliably
-				// catch it. Timed from "connected" rather than from the start of
-				// the whole connect attempt, since Sunshine's own launch/negotiate
-				// can itself take several seconds and would otherwise race a timer
-				// started too early.
+				// forceReconnectStuckStream) only after moonlight-common-c
+				// reports the stream is actually up (goMoonlightConnected).
+				// Firing this on LiStartConnection-submitted used to kill a
+				// live ENet handshake at 4s (WSAEINTR) against RustShine.
 				vw.beginVideoTrace("connected")
 			}
 		})

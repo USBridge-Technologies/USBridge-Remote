@@ -27,7 +27,14 @@ import (
 
 const (
 	pcpanelLedPollInterval = 5 * time.Second
-	addressBarButtonSize   = 36 // Square buttons: width = height = line height
+	// addressBarButtonSize sizes this widget's own header button (the power
+	// indicator/menu trigger) -- 28, not the original 36, to match
+	// headerCompactButtonSize (gui/connection_header.go), the connections
+	// screen's own header buttons. At 36 this button alone made the header
+	// row (main_window_layout.go's createMainAddressBar) taller than the
+	// connections screen's header despite both going through near-identical
+	// band padding.
+	addressBarButtonSize = 28 // Square buttons: width = height = line height
 )
 
 var (
@@ -345,11 +352,15 @@ type pcpanelActionButtonRenderer struct {
 func (r *pcpanelActionButtonRenderer) Layout(size fyne.Size) {
 	r.button.bg.Resize(size)
 
-	indicatorSize := fyne.NewSize(24, 24)
+	// Scaled down along with addressBarButtonSize's own 36->28 shrink (24/18
+	// at 36px left only ~2px of margin around the indicator circle at 28px --
+	// visibly cramped next to this same row's other, more breathing-room'd
+	// 28px buttons).
+	indicatorSize := fyne.NewSize(20, 20)
 	r.button.indicator.Resize(indicatorSize)
 	r.button.indicator.Move(fyne.NewPos((size.Width-indicatorSize.Width)/2, (size.Height-indicatorSize.Height)/2))
 
-	iconSize := fyne.NewSize(18, 18)
+	iconSize := fyne.NewSize(15, 15)
 	r.button.icon.Resize(iconSize)
 	r.button.icon.Move(fyne.NewPos((size.Width-iconSize.Width)/2, (size.Height-iconSize.Height)/2))
 }
@@ -763,7 +774,7 @@ func (l *pcpanelDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fy
 	right := objects[1]
 
 	leftWidth := (size.Width - l.gap) / 2
-	if fyne.CurrentDevice().IsMobile() || size.Width < 360 {
+	if view.IsMobile() || size.Width < 360 {
 		leftWidth = (size.Width - l.gap) * 0.36
 	}
 	if leftWidth < 0 {
@@ -986,6 +997,16 @@ func (p *PCPanelWidget) onActionClick() {
 		return
 	}
 	p.showPowerActionDialog()
+}
+
+// ShowPowerMenu opens the same Power controls popup the header's own
+// power/reset button used to trigger directly (see p.actionBtn) -- now the
+// "Power Reset" entry in the gear-icon settings menu instead
+// (gui.newHeaderSettingsMenuButton), since this widget's container no
+// longer sits in the header at all. A no-op with nothing connected, exactly
+// like the old button was: it just never rendered enabled/visible then.
+func (p *PCPanelWidget) ShowPowerMenu() {
+	p.onActionClick()
 }
 
 func (p *PCPanelWidget) showPowerActionDialog() {
@@ -1345,10 +1366,29 @@ type transparentEntryTheme struct {
 func (t *transparentEntryTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
 	case theme.ColorNameInputBackground, theme.ColorNameInputBorder,
-		theme.ColorNameForeground, theme.ColorNamePlaceHolder:
+		theme.ColorNameForeground, theme.ColorNamePlaceHolder,
+		theme.ColorNameFocus, theme.ColorNameShadow:
 		return color.Transparent
+	case theme.ColorNamePrimary:
+		return design.ColorConnectionBadgeText
 	}
 	return t.Theme.Color(name, variant)
+}
+
+const scriptEditorTextSize float32 = 11
+
+func (t *transparentEntryTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNameText:
+		return scriptEditorTextSize
+	case theme.SizeNameInputBorder:
+		return 0
+	case theme.SizeNameInnerPadding:
+		return 2
+	case theme.SizeNamePadding:
+		return 1
+	}
+	return t.Theme.Size(name)
 }
 
 func starlarkHighlight(code string) []widget.RichTextSegment {

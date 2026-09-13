@@ -1,0 +1,299 @@
+package gui
+
+// main_window_tabs_header.go -- the Control/Devices/Snapshots/Scripts
+// selector now living in createMainAddressBar's own left zone instead of
+// mw.tabs' native tab strip (see MainWindow.tabHeaderButtons' own doc
+// comment for why mw.tabs itself is never actually shown anymore, and
+// applyTabVisualState for what drives both these buttons' selected look and
+// mw.tabs.Items[i].Content's visibility).
+
+import (
+	"image/color"
+
+	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/view"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/widget"
+)
+
+// headerTabButtonMuted/Selected/Hover are this button's own icon+text color
+// scheme -- no background fill at all (unlike this header's other buttons),
+// just these three text/icon colors. Selected state is color only; there is
+// no underline, so icon+text stay optically centered in the header row.
+var (
+	headerTabButtonMuted    = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	headerTabButtonSelected = color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
+	headerTabButtonHover    = color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff}
+)
+
+const (
+	headerTabButtonIconSize = float32(15)
+	headerTabButtonTextSize = float32(10)
+	headerTabButtonGap      = float32(4)
+)
+
+// headerTabButton is one entry in the header's tab selector -- an icon next
+// to a text label, colored (not backgrounded) for its normal/hovered/
+// selected state.
+type headerTabButton struct {
+	widget.BaseWidget
+
+	iconMuted    fyne.Resource
+	iconSelected fyne.Resource
+	iconHover    fyne.Resource
+	label        string
+	onTapped     func()
+	selected     bool
+	hovered      bool
+	// iconOnly drops the label (compact header). stacked is the phone
+	// footer tab: icon above a small label.
+	iconOnly bool
+	stacked  bool
+
+	icon *canvas.Image
+	text *canvas.Text
+}
+
+func newHeaderTabButton(iconMuted, iconSelected, iconHover fyne.Resource, label string, onTapped func()) *headerTabButton {
+	b := &headerTabButton{
+		iconMuted:    iconMuted,
+		iconSelected: iconSelected,
+		iconHover:    iconHover,
+		label:        label,
+		onTapped:     onTapped,
+	}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+// SetSelected reflects applyTabVisualState's own activeIndex onto this
+// button's color.
+func (b *headerTabButton) SetSelected(selected bool) {
+	if b.selected == selected {
+		return
+	}
+	b.selected = selected
+	b.refreshVisuals()
+}
+
+func (b *headerTabButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *headerTabButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *headerTabButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *headerTabButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *headerTabButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *headerTabButton) CreateRenderer() fyne.WidgetRenderer {
+	b.icon = canvas.NewImageFromResource(b.iconMuted)
+	b.icon.FillMode = canvas.ImageFillContain
+	b.icon.SetMinSize(fyne.NewSize(headerTabButtonIconSize, headerTabButtonIconSize))
+
+	// Never bold -- toggling weight by selected state used to shift each
+	// button's own width (and everything after it) slightly on every tab
+	// switch, so every state stays the same regular weight now; only the
+	// color changes.
+	textSize := headerTabButtonTextSize
+	if b.stacked {
+		textSize = 8
+	}
+	b.text = view.NewBrandText(b.label, textSize, headerTabButtonMuted, false)
+
+	r := &headerTabButtonRenderer{
+		button:  b,
+		objects: []fyne.CanvasObject{b.icon, b.text},
+	}
+	b.refreshVisuals()
+	return r
+}
+
+func (b *headerTabButton) refreshVisuals() {
+	if b.icon == nil || b.text == nil {
+		return
+	}
+
+	textColor := headerTabButtonMuted
+	iconRes := b.iconMuted
+	switch {
+	case b.selected:
+		textColor = headerTabButtonSelected
+		iconRes = b.iconSelected
+	case b.hovered:
+		textColor = headerTabButtonHover
+		if b.iconHover != nil {
+			iconRes = b.iconHover
+		}
+	}
+
+	b.text.Color = textColor
+	b.text.Refresh()
+	b.icon.Resource = iconRes
+	b.icon.Refresh()
+}
+
+type headerTabButtonRenderer struct {
+	button  *headerTabButton
+	objects []fyne.CanvasObject
+}
+
+func (r *headerTabButtonRenderer) contentSize() (iconSize, textSize fyne.Size) {
+	iconSize = fyne.NewSize(headerTabButtonIconSize, headerTabButtonIconSize)
+	textSize = r.button.text.MinSize()
+	return
+}
+
+func (r *headerTabButtonRenderer) Layout(size fyne.Size) {
+	if r.button.stacked {
+		if r.button.text != nil {
+			r.button.text.Show()
+		}
+		iconSize := fyne.NewSize(18, 18)
+		textSize := r.button.text.MinSize()
+		r.button.icon.Resize(iconSize)
+		totalH := iconSize.Height + 2 + textSize.Height
+		y := (size.Height - totalH) / 2
+		if y < 0 {
+			y = 0
+		}
+		r.button.icon.Move(fyne.NewPos((size.Width-iconSize.Width)/2, y))
+		r.button.text.Resize(textSize)
+		r.button.text.Move(fyne.NewPos((size.Width-textSize.Width)/2, y+iconSize.Height+2))
+		return
+	}
+	if r.button.iconOnly {
+		if r.button.text != nil {
+			r.button.text.Hide()
+		}
+		iconSize := fyne.NewSize(headerTabButtonIconSize, headerTabButtonIconSize)
+		r.button.icon.Resize(iconSize)
+		r.button.icon.Move(fyne.NewPos((size.Width-iconSize.Width)/2, (size.Height-iconSize.Height)/2))
+		return
+	}
+	if r.button.text != nil {
+		r.button.text.Show()
+	}
+	iconSize, textSize := r.contentSize()
+	rowHeight := iconSize.Height
+	if textSize.Height > rowHeight {
+		rowHeight = textSize.Height
+	}
+	rowWidth := iconSize.Width + headerTabButtonGap + textSize.Width
+
+	x := (size.Width - rowWidth) / 2
+	if x < 0 {
+		x = 0
+	}
+	rowY := (size.Height - rowHeight) / 2
+	if rowY < 0 {
+		rowY = 0
+	}
+
+	r.button.icon.Move(fyne.NewPos(x, rowY+(rowHeight-iconSize.Height)/2))
+	r.button.icon.Resize(iconSize)
+
+	textX := x + iconSize.Width + headerTabButtonGap
+	r.button.text.Move(fyne.NewPos(textX, rowY+(rowHeight-textSize.Height)/2))
+	r.button.text.Resize(textSize)
+}
+
+func (r *headerTabButtonRenderer) MinSize() fyne.Size {
+	if r.button.stacked {
+		w := float32(64)
+		if r.button.text != nil {
+			if tw := r.button.text.MinSize().Width + 4; tw > w {
+				w = tw
+			}
+		}
+		return fyne.NewSize(w, 48)
+	}
+	if r.button.iconOnly {
+		return fyne.NewSize(28, 28)
+	}
+	iconSize, textSize := r.contentSize()
+	rowHeight := iconSize.Height
+	if textSize.Height > rowHeight {
+		rowHeight = textSize.Height
+	}
+	rowWidth := iconSize.Width + headerTabButtonGap + textSize.Width
+	return fyne.NewSize(rowWidth, rowHeight)
+}
+
+func (r *headerTabButtonRenderer) Refresh() {
+	r.button.refreshVisuals()
+	r.Layout(r.button.Size())
+	canvas.Refresh(r.button)
+}
+
+func (r *headerTabButtonRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *headerTabButtonRenderer) Objects() []fyne.CanvasObject {
+	return r.objects
+}
+
+func (r *headerTabButtonRenderer) Destroy() {}
+
+var (
+	_ fyne.Tappable     = (*headerTabButton)(nil)
+	_ desktop.Hoverable = (*headerTabButton)(nil)
+	_ fyne.Widget       = (*headerTabButton)(nil)
+)
+
+// buildTabHeaderButtons builds the Control/Devices/Snapshots/Scripts row and
+// fills mw.tabHeaderButtons, wiring each button to select the matching
+// mw.tabs item -- the exact same jump every existing icon (mouseIcon,
+// gamepadIcon, snapshotIcon, ...) already makes, just now the primary way to
+// switch tabs at all rather than a shortcut into a native tab strip.
+func (mw *MainWindow) buildTabHeaderButtons() fyne.CanvasObject {
+	specs := [4]struct {
+		iconMuted, iconSelected, iconHover fyne.Resource
+		label                              string
+		index                              func() int
+	}{
+		{assets.MonitorTabIconMuted, assets.MonitorTabIconSelected, assets.MonitorTabIconHover, "Control", mw.controlTabIndex},
+		{assets.USBTabIconMuted, assets.USBTabIconSelected, assets.USBTabIconHover, "Devices", mw.devicesTabIndex},
+		{assets.SnapshotsTabIconMuted, assets.SnapshotsTabIconSelected, assets.SnapshotsTabIconHover, "Snapshots", mw.snapshotsTabIndex},
+		{assets.ScriptsTabIconMuted, assets.ScriptsTabIconSelected, assets.ScriptsTabIconHover, scriptsTabLabel(), mw.scriptsTabIndex},
+	}
+
+	objs := make([]fyne.CanvasObject, 0, len(specs))
+	for i, spec := range specs {
+		idx := spec.index()
+		btn := newHeaderTabButton(spec.iconMuted, spec.iconSelected, spec.iconHover, spec.label, func() {
+			if mw.tabs != nil && len(mw.tabs.Items) > idx {
+				mw.tabs.Select(mw.tabs.Items[idx])
+			}
+		})
+		btn.iconOnly = false
+		btn.stacked = useMobileControl()
+		mw.tabHeaderButtons[i] = btn
+		objs = append(objs, btn)
+	}
+
+	gap, minGap := mobileControlTabGaps()
+	tabs := container.New(&centeredInlineLayout{gap: gap, minGap: minGap}, objs...)
+	if useMobileControl() {
+		// Width 1 so the footer always stretches this row to the phone
+		// width; the group then centers in that full bar (keyboard is
+		// an overlay and does not take a slot).
+		return view.NewMobileFillWidth(tabs)
+	}
+	return tabs
+}

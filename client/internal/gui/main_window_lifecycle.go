@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"os"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -43,28 +44,29 @@ func (mw *MainWindow) handleHostChanged(host string) {
 
 // showConnectionManager displays the connection manager.
 func (mw *MainWindow) showConnectionManager() {
-	fyne.Do(func() {
-		if mw.connectionContent == nil {
-			logrus.Warn("showConnectionManager: connectionContent is nil")
-			return
-		}
-		if mw.deviceButtonsPanel != nil {
-			mw.deviceButtonsPanel.Hide()
-		}
-		// Refresh the list before making it visible so newly-resolved
-		// Tailscale addresses (set by RememberResolvedTailscaleHost while
-		// the main content was shown) are not stuck showing "TS: none".
-		if mw.connectionManager != nil {
-			mw.connectionManager.RefreshList()
-		}
-		mw.window.SetContent(mw.connectionContent)
-		if content := mw.window.Content(); content != nil {
-			content.Refresh()
-			mw.window.Canvas().Refresh(content)
-		}
-		mw.syncVideoOverlayForNav()
-		mw.syncAudioMuteForNav()
-	})
+	fyne.Do(mw.showConnectionManagerNow)
+}
+
+func (mw *MainWindow) showConnectionManagerNow() {
+	if mw.connectionContent == nil {
+		logrus.Warn("showConnectionManager: connectionContent is nil")
+		return
+	}
+	if mw.deviceButtonsPanel != nil {
+		mw.deviceButtonsPanel.Hide()
+	}
+	// Refresh the list before making it visible so newly-resolved
+	// Tailscale addresses (set by RememberResolvedTailscaleHost while
+	// the main content was shown) are not stuck showing "TS: none".
+	if mw.connectionManager != nil {
+		mw.connectionManager.RefreshList()
+	}
+	mw.window.SetContent(mw.wrapWithResizeGuard(mw.connectionContent))
+	mw.onMainContent = false
+	mw.connectionContent.Refresh()
+	mw.window.Canvas().Refresh(mw.connectionContent)
+	mw.syncVideoOverlayForNav()
+	mw.syncAudioMuteForNav()
 }
 
 // showMainContent displays the main interface.
@@ -74,11 +76,13 @@ func (mw *MainWindow) showMainContent() {
 			logrus.Warn("showMainContent: mainContent is nil")
 			return
 		}
-		mw.window.SetContent(mw.mainContent)
-		if content := mw.window.Content(); content != nil {
-			content.Refresh()
-			mw.window.Canvas().Refresh(content)
+		mw.window.SetContent(mw.wrapWithResizeGuard(mw.mainContent))
+		if view.ForceMobileDesign {
+			mw.applyPhonePreviewWindowSize()
 		}
+		mw.onMainContent = true
+		mw.mainContent.Refresh()
+		mw.window.Canvas().Refresh(mw.mainContent)
 		mw.updateDeviceButtonsVisibility()
 		mw.syncVideoOverlayForNav()
 		mw.syncAudioMuteForNav()
@@ -100,7 +104,7 @@ func (mw *MainWindow) syncAudioMuteForNav() {
 	if !ok {
 		return
 	}
-	onConnectionManager := mw.window.Content() == mw.connectionContent
+	onConnectionManager := !mw.onMainContent
 
 	if onConnectionManager && !ms.GetAudioMuted() {
 		ms.SetAudioMuted(true)
@@ -133,7 +137,7 @@ func (mw *MainWindow) syncVideoOverlayForNav() {
 		return
 	}
 	shouldBeVisible := mw.tabs != nil &&
-		mw.window.Content() == mw.mainContent &&
+		mw.onMainContent &&
 		mw.tabs.SelectedIndex() == mw.controlTabIndex()
 
 	// Drift-proof nav signal for wasm (see view.NavVideoHidden's doc
@@ -157,6 +161,9 @@ func (mw *MainWindow) scheduleControlBootstrap() {
 	}
 
 	runBootstrap := func(reason string) {
+		if mw.isClosing.Load() {
+			return
+		}
 		if mw.videoWidget == nil || mw.tabs == nil {
 			return
 		}
@@ -194,6 +201,13 @@ func (mw *MainWindow) handleClose() {
 			return
 		}
 
+		mw.stopWindowPlacementAutosave()
+
+		if mw.scriptsWidget != nil {
+			logrus.Info("[shutdown] handleClose: stopping scripts widget")
+			mw.scriptsWidget.Shutdown()
+		}
+
 		needsDisconnect := mw.isConnected ||
 			mw.usbClient != nil ||
 			(mw.videoWidget != nil && mw.videoWidget.IsStreaming()) ||
@@ -204,7 +218,24 @@ func (mw *MainWindow) handleClose() {
 			mw.handleDisconnect()
 		}
 
+		if mw.backupWidget != nil {
+			mw.backupWidget.Shutdown()
+		}
+		if mw.diskWidget != nil {
+			mw.diskWidget.Shutdown()
+		}
+
 		fyne.Do(func() {
+			mw.persistWindowPlacement()
+			// CloseIntercept must be cleared before Quit/Close: Fyne's
+			// Quit closes windows by going through this intercept, and
+			// handleClose already consumed the first close (and returns
+			// immediately on re-entry via shutdownInProgress). Leaving
+			// the intercept in place meant Quit waited forever for a
+			// window that never actually closed.
+			if mw.window != nil {
+				mw.window.SetCloseIntercept(nil)
+			}
 			if mw.app != nil {
 				logrus.Info("[shutdown] handleClose: quitting app")
 				mw.app.Quit()
@@ -212,8 +243,14 @@ func (mw *MainWindow) handleClose() {
 			}
 
 			logrus.Info("[shutdown] handleClose: closing window")
-			mw.window.SetCloseIntercept(nil)
 			mw.window.Close()
+		})
+		// If Fyne's loop stays busy (queued fyne.Do from video reconcile,
+		// native overlay teardown, etc.), ShowAndRun never returns and the
+		// process sits after "quitting app". Force the process out.
+		time.AfterFunc(2*time.Second, func() {
+			logrus.Warn("[shutdown] Quit did not exit the process, forcing exit")
+			os.Exit(0)
 		})
 	})
 }
@@ -225,27 +262,29 @@ func (mw *MainWindow) SetOnReadyCallback(cb func()) {
 
 // Show displays the window.
 func (mw *MainWindow) Show() {
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-
-		fyne.Do(func() {
-			// createInterface and connectionManager creation moved to NewMainWindow
-			mw.recreateContainers()
-			mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
-			mw.setupEventHandlers()
-			mw.setDefaultValues()
-			mw.showConnectionManager()
-			mw.applyInitialWindowSize()
-			mw.updateStatusBar()
-			mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromDeepLink, mw.handleSaveFromDeepLink)
-			mw.checkDeepLink()
-			mw.startDeepLinkMonitoring()
-			mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
-			if mw.onReadyCallback != nil {
-				go mw.onReadyCallback()
-			}
-		})
-	}()
+	// Build content and apply the configured size on this thread before
+	// ShowAndRun maps the HWND. The old 200ms + fyne.Do path left GLFW
+	// showing its default-sized window for a beat, then jumping to the
+	// real size — a Windows Fyne/GLFW quirk we work around here rather
+	// than patching Fyne. Resize happens before the first Show;
+	// CenterOnScreen is skipped when a last-session monitor position exists.
+	mw.recreateContainers()
+	if mw.connectionManager != nil {
+		mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
+	}
+	mw.setupEventHandlers()
+	mw.setDefaultValues()
+	mw.showConnectionManagerNow()
+	mw.applyInitialWindowSize()
+	mw.scheduleWindowPlacementRestore()
+	mw.startWindowPlacementAutosave()
+	mw.updateStatusBar()
+	mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromDeepLink, mw.handleSaveFromDeepLink)
+	mw.checkDeepLink()
+	mw.startDeepLinkMonitoring()
+	if mw.onReadyCallback != nil {
+		go mw.onReadyCallback()
+	}
 
 	mw.window.ShowAndRun()
 }
@@ -281,7 +320,6 @@ func (mw *MainWindow) reloadUI() {
 	mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
 
 	mw.recreateContainers()
-	mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
 	mw.window.SetTitle(i18n.Current.AppTitle)
 
 	if wasConnected {
