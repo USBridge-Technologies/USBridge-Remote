@@ -13,24 +13,33 @@ import (
 )
 
 const (
-	usbipVersion   = 0x0111
-	opReqDevlist   = 0x8005
-	opRepDevlist   = 0x0005
-	opReqImport    = 0x8003
-	opRepImport    = 0x0003
-	cmdSubmit      = 0x00000001
-	cmdUnlink      = 0x00000002
-	retSubmit      = 0x00000003
-	retUnlink      = 0x00000004
-	dirOut         = 0
-	dirIn          = 1
-	errnoEPIPE     = -32
+	usbipVersion    = 0x0111
+	opReqDevlist    = 0x8005
+	opRepDevlist    = 0x0005
+	opReqImport     = 0x8003
+	opRepImport     = 0x0003
+	cmdSubmit       = 0x00000001
+	cmdUnlink       = 0x00000002
+	retSubmit       = 0x00000003
+	retUnlink       = 0x00000004
+	dirOut          = 0
+	dirIn           = 1
+	errnoEPIPE      = -32
 	errnoECONNRESET = -104
 )
 
 // ExportedDevice is one device advertised on the USB/IP wire.
 type ExportedDevice struct {
-	BusID      string
+	BusID string
+	// InstanceID carries the passthrough list's
+	// models.USBPassthroughDevice.InstanceID through to TryClaimGousb. Only
+	// darwin's hidbridge_darwin.go reads it today (see
+	// hidEntryIDFromInstanceID) -- needed to disambiguate one interface of a
+	// composite HID device that shares a VID:PID with its siblings, which
+	// BusID/Busnum/Devnum (hashed from that same InstanceID) can't do since
+	// the hash collapses distinctness rather than preserving it. Zero value
+	// is harmless everywhere else.
+	InstanceID string
 	Path       string
 	Busnum     uint32
 	Devnum     uint32
@@ -64,12 +73,12 @@ type DeviceBackend interface {
 
 // Server is an in-process USB/IP v1.1.1 export listener.
 type Server struct {
-	mu       sync.Mutex
-	ln       net.Listener
-	devices  []*ExportedDevice
-	conns    []net.Conn
-	closing  bool
-	wg       sync.WaitGroup
+	mu      sync.Mutex
+	ln      net.Listener
+	devices []*ExportedDevice
+	conns   []net.Conn
+	closing bool
+	wg      sync.WaitGroup
 }
 
 // StartExport binds addr (e.g. "0.0.0.0:3240") and serves devices.
