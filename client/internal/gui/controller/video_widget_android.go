@@ -296,39 +296,39 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 }
 
 // centerViewportOnVirtualCursor pans the viewport so the virtual cursor is
-// centred on screen (RustDesk-style follow).  Only effective when zoom > 1.
+// centred on screen (RustDesk-style follow). Only effective when zoom > 1.
+//
+// Disabled while the user owns the viewport via two-finger pan/zoom
+// (viewportManualControl / multiTouch) — callers already skip this. Even when
+// armed, never wipe pan on a fitting axis (that yanked vertical letterbox pan
+// back to center) and never pull a manual overflow pan toward the cursor
+// unless the cursor actually moved (handled by clearing viewportManualControl).
 func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	if vw.zoomScale <= 1.001 {
+		return
+	}
+	if vw.viewportManualControl || vw.multiTouchActive {
 		return
 	}
 	cw := vw.baseContentRectW * vw.zoomScale
 	ch := vw.baseContentRectH * vw.zoomScale
 
-	// X: cursor-centering pan.
-	var idealPanX, maxPanX float32
 	if cw > vw.touchpadSizeW {
-		idealPanX = cw * (0.5 - u)
-		maxPanX = (cw - vw.touchpadSizeW) / 2
+		idealPanX := cw * (0.5 - u)
+		maxPanX := (cw - vw.touchpadSizeW) / 2
 		zoneX := vw.touchpadSizeW * 0.15
 		vw.panOffsetX = softClampEdgePan(idealPanX, -maxPanX, maxPanX, zoneX)
-	} else {
-		vw.panOffsetX = 0
 	}
+	// If width still fits, leave panOffsetX alone (do not force 0).
 
-	// Y: cursor-centering pan (only when content taller than screen).
-	// Same "delta from centered" convention as the X pan above and as
-	// recalculateViewport's own default -- see that function's doc
-	// comment on why this can't be an independent [0, maxPanY] range
-	// biased toward the bottom edge.
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
 		idealPanY := ch * (0.5 - v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
 		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY, maxPanY, zoneY)
-	} else {
-		vw.panOffsetY = 0
 	}
+	// If height still fits, leave panOffsetY alone (do not force 0).
 
 	vw.recalculateViewport()
 }

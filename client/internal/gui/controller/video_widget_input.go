@@ -1399,67 +1399,62 @@ func (vw *VideoWidget) recalculateViewport() {
 	vw.debugLogViewport("recalc")
 }
 
-// snapViewportThresholdFrac is how close (as a fraction of the view size on
-// that axis) the release pan must be to a snap target before we magnetize.
-// Keep this tight: only "almost aligned but not quite", not after every drag.
+// snapViewportThresholdFrac is how close (fraction of view width) the release
+// pan must be to a left/right flush target before we magnetize.
 const snapViewportThresholdFrac = float32(0.03) // 3%
 
-// snapViewportAlignment magnetizes pan to center or flush edges after a
-// two-finger gesture ends, so the user does not need to aim precisely.
-// Returns true if panOffset changed.
+// snapViewportAlignment squares up horizontal edges after a two-finger gesture
+// ends — only at 1x zoom, only left/right, never vertical or "center between
+// the pillarbox". Zoomed pan must not be touched (cursor-follow / old center
+// snap was fighting drag and pulling toward the right edge).
 func (vw *VideoWidget) snapViewportAlignment() bool {
 	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
 		return false
 	}
+	if vw.zoomScale > 1.001 {
+		return false
+	}
 	vw.recalculateViewport()
 
-	availableH := vw.touchpadSizeH - vw.bottomInset
-	if availableH < 0 {
-		availableH = 0
-	}
 	contentW := vw.contentRectW
-	contentH := vw.contentRectH
-	changed := false
-
-	if contentW > 0 {
-		thresh := vw.touchpadSizeW * snapViewportThresholdFrac
-		targets := viewportSnapTargets(vw.touchpadSizeW, contentW)
-		if snapped, ok := snapToNearestOffset(vw.panOffsetX, targets, thresh); ok {
-			vw.panOffsetX = snapped
-			changed = true
-		}
+	if contentW <= 0 {
+		return false
 	}
-	if contentH > 0 && availableH > 0 && !vw.bottomAnchorContentVertically {
-		thresh := availableH * snapViewportThresholdFrac
-		targets := viewportSnapTargets(availableH, contentH)
-		if snapped, ok := snapToNearestOffset(vw.panOffsetY, targets, thresh); ok {
-			vw.panOffsetY = snapped
-			changed = true
-		}
+	targets := viewportHorizontalEdgeTargets(vw.touchpadSizeW, contentW)
+	if len(targets) == 0 {
+		return false
 	}
-
-	if changed {
-		vw.recalculateViewport()
+	thresh := vw.touchpadSizeW * snapViewportThresholdFrac
+	snapped, ok := snapToNearestOffset(vw.panOffsetX, targets, thresh)
+	if !ok {
+		return false
 	}
-	return changed
+	vw.panOffsetX = snapped
+	vw.recalculateViewport()
+	return true
 }
 
-// viewportSnapTargets returns panOffset values for center and flush edges.
-// panOffset is a delta from the centered position (see recalculateViewport).
-func viewportSnapTargets(view, content float32) []float32 {
-	// Always offer center.
-	targets := []float32{0}
-	if content > view {
-		maxPan := (content - view) / 2
-		// +maxPan → content flush to view start (left/top)
-		// -maxPan → content flush to view end (right/bottom)
-		targets = append(targets, maxPan, -maxPan)
-		return targets
+// viewportHorizontalEdgeTargets returns panOffset values that flush the
+// content to the left or right of the view. panOffset is relative to center
+// (see recalculateViewport). Center-between-edges is intentionally omitted.
+func viewportHorizontalEdgeTargets(viewW, contentW float32) []float32 {
+	if viewW <= 0 || contentW <= 0 {
+		return nil
 	}
-	center := (view - content) / 2
-	// content at 0 (flush start) / content at view-content (flush end)
-	targets = append(targets, -center, view-content-center)
-	return targets
+	// Zoomed overflow is handled by refusing snap when zoom>1; at 1x content
+	// should fit. If it somehow overflows, edge flush is ±maxPan — skip to
+	// avoid the old "always magnetize to an edge" feel while zoomed.
+	if contentW > viewW+0.5 {
+		return nil
+	}
+	center := (viewW - contentW) / 2
+	left := -center                // contentX = 0
+	right := viewW - contentW - center // contentX = viewW - contentW
+	if almostEqual(left, right) {
+		// Full-bleed width: both edges are the same pose (pan = 0).
+		return []float32{0}
+	}
+	return []float32{left, right}
 }
 
 func snapToNearestOffset(val float32, targets []float32, thresh float32) (float32, bool) {
@@ -1480,7 +1475,6 @@ func snapToNearestOffset(val float32, targets []float32, thresh float32) (float3
 	if !found {
 		return val, false
 	}
-	// Already on target — no change.
 	if almostEqual(val, best) {
 		return val, false
 	}
@@ -1564,4 +1558,29 @@ func clampFloat(value, minValue, maxValue float32) float32 {
 
 func almostEqual(a, b float32) bool {
 	return math.Abs(float64(a-b)) < 0.001
+}
+
+// placeVirtualCursorAtViewCenterLocked writes virtualCursorU/V so the cursor
+// sits on whatever remote point is currently under the centre of the view.
+// Used when resuming from two-finger pan/zoom (RustDesk-style): move the
+// mouse to us, do not yank the picture back to the old mouse side.
+// Caller must hold vcMu.
+func (vw *VideoWidget) placeVirtualCursorAtViewCenterLocked(minU, maxU, minV, maxV float32) {
+	vw.recalculateViewport()
+	cw, ch := vw.contentRectW, vw.contentRectH
+	if cw <= 0 || ch <= 0 {
+		vw.virtualCursorU = clampFloat(0.5, minU, maxU)
+		vw.virtualCursorV = clampFloat(0.5, minV, maxV)
+		return
+	}
+	availableH := vw.touchpadSizeH - vw.bottomInset
+	if availableH < 0 {
+		availableH = 0
+	}
+	sx := vw.touchpadSizeW / 2
+	sy := availableH / 2
+	u := (sx - vw.contentRectX) / cw
+	v := (sy - vw.contentRectY) / ch
+	vw.virtualCursorU = clampFloat(u, minU, maxU)
+	vw.virtualCursorV = clampFloat(v, minV, maxV)
 }

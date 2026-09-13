@@ -1183,15 +1183,24 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 		maxV = frameY + frameH
 	}
 
+	// After two-finger pan/zoom: RustDesk-style resume — move the cursor into
+	// the centre of whatever is on screen, instead of yanking the viewport
+	// back to where the cursor used to be (sharp jump to the old side).
+	// Small slop is enough now that resume no longer jerks the picture.
+	const resumeCursorFollowSlop = float32(2)
+	resuming := vw.viewportManualControl &&
+		(math.Abs(float64(rawDx)) >= float64(resumeCursorFollowSlop) ||
+			math.Abs(float64(rawDy)) >= float64(resumeCursorFollowSlop))
+	if resuming {
+		vw.placeVirtualCursorAtViewCenterLocked(minU, maxU, minV, maxV)
+		vw.viewportManualControl = false
+	}
+
 	if cw > 0 {
 		vw.virtualCursorU = clampFloat(vw.virtualCursorU+rawDx/cw, minU, maxU)
 	}
 	if ch > 0 {
 		vw.virtualCursorV = clampFloat(vw.virtualCursorV+rawDy/ch, minV, maxV)
-	}
-	// Resume cursor-follow viewport after a manual two-finger pan/zoom.
-	if rawDx != 0 || rawDy != 0 {
-		vw.viewportManualControl = false
 	}
 	vw.vcMu.Unlock()
 	// Only mark as dragging after significant movement so that touch noise

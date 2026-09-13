@@ -180,45 +180,109 @@ func TestApplyViewportGesture_PanDyStillMovesVideo(t *testing.T) {
 	}
 }
 
-func TestSnapViewportAlignment_SnapsNearCenter(t *testing.T) {
-	vw := newTestViewportWidget(1000, 500, 0)
-	vw.zoomScale = 2 // overflow both axes; maxPanX = 500
-	vw.panOffsetX = 20 // within 3% of 1000 = 30 of center
-	vw.panOffsetY = -15
-	vw.recalculateViewport()
-
-	if !vw.snapViewportAlignment() {
-		t.Fatal("expected snap near center")
-	}
-	if vw.panOffsetX != 0 || vw.panOffsetY != 0 {
-		t.Errorf("pan after snap = (%v,%v), want (0,0)", vw.panOffsetX, vw.panOffsetY)
-	}
-}
-
-func TestSnapViewportAlignment_SnapsNearEdge(t *testing.T) {
-	vw := newTestViewportWidget(1000, 500, 0)
-	vw.zoomScale = 2 // maxPanX = 500
-	vw.panOffsetX = 500 - 20 // near left-flush (+maxPan), within 3%
+func TestSnapViewportAlignment_SnapsNearLeftEdgeAt1x(t *testing.T) {
+	// Pillarbox: content narrower than view → distinct left/right targets.
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 500
+	vw.baseContentRectW = 600
+	vw.baseContentRectH = 500
+	vw.zoomScale = 1
+	// left flush pan = -center = -(1000-600)/2 = -200
+	vw.panOffsetX = -200 + 20 // within 3% of 1000
 	vw.recalculateViewport()
 
 	if !vw.snapViewportAlignment() {
 		t.Fatal("expected snap near left edge")
 	}
-	if vw.panOffsetX != 500 {
-		t.Errorf("panOffsetX = %v, want 500 (left flush)", vw.panOffsetX)
+	if vw.panOffsetX != -200 {
+		t.Errorf("panOffsetX = %v, want -200 (left flush)", vw.panOffsetX)
 	}
 }
 
-func TestSnapViewportAlignment_DoesNotSnapWhenFar(t *testing.T) {
+func TestSnapViewportAlignment_DoesNotSnapVertical(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 800
+	vw.baseContentRectW = 1000
+	vw.baseContentRectH = 400
+	vw.zoomScale = 1
+	vw.panOffsetY = -10 // near vertical center, must NOT snap
+	vw.recalculateViewport()
+
+	if vw.snapViewportAlignment() {
+		t.Fatal("vertical axis must not snap")
+	}
+	if vw.panOffsetY != -10 {
+		t.Errorf("panOffsetY changed to %v, want -10", vw.panOffsetY)
+	}
+}
+
+func TestSnapViewportAlignment_DoesNotSnapWhenZoomed(t *testing.T) {
 	vw := newTestViewportWidget(1000, 500, 0)
 	vw.zoomScale = 2
-	vw.panOffsetX = 80 // 8% of view — outside the 3% magnet
+	vw.panOffsetX = 20
+	vw.panOffsetY = -100
+	vw.recalculateViewport()
+
+	if vw.snapViewportAlignment() {
+		t.Fatal("snap must be disabled while zoomed")
+	}
+	if vw.panOffsetX != 20 || vw.panOffsetY != -100 {
+		t.Errorf("pan changed while zoomed: (%v,%v)", vw.panOffsetX, vw.panOffsetY)
+	}
+}
+
+func TestSnapViewportAlignment_DoesNotSnapToCenterBetweenEdges(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 500
+	vw.baseContentRectW = 600
+	vw.baseContentRectH = 500
+	vw.zoomScale = 1
+	vw.panOffsetX = 0 // true center between left(-200) and right(+200)
+	vw.recalculateViewport()
+
+	if vw.snapViewportAlignment() {
+		t.Fatal("center-between-edges must not magnetize")
+	}
+}
+
+func TestSnapViewportAlignment_DoesNotSnapWhenFarFromEdge(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 500
+	vw.baseContentRectW = 600
+	vw.baseContentRectH = 500
+	vw.zoomScale = 1
+	vw.panOffsetX = -200 + 80 // 8% away from left — outside 3%
 	vw.recalculateViewport()
 
 	if vw.snapViewportAlignment() {
 		t.Fatalf("did not expect snap, got panOffsetX=%v", vw.panOffsetX)
 	}
-	if vw.panOffsetX != 80 {
-		t.Errorf("panOffsetX changed to %v, want 80", vw.panOffsetX)
+}
+
+func TestPlaceVirtualCursorAtViewCenter_UsesVisibleCentre(t *testing.T) {
+	vw := newTestViewportWidget(1000, 500, 0)
+	vw.zoomScale = 2 // content 2000x1000
+	vw.panOffsetX = 500 // left-flush: viewing left side of remote
+	vw.recalculateViewport()
+
+	vw.vcMu.Lock()
+	vw.placeVirtualCursorAtViewCenterLocked(0, 1, 0, 1)
+	u, v := vw.virtualCursorU, vw.virtualCursorV
+	vw.vcMu.Unlock()
+
+	// Screen centre maps near the left portion of the remote frame, not 0.5.
+	if u > 0.35 {
+		t.Errorf("virtualCursorU = %v, want left-of-centre after left-flush pan", u)
+	}
+	if v < 0.4 || v > 0.6 {
+		t.Errorf("virtualCursorV = %v, want ~0.5", v)
+	}
+	// Viewport must not have been moved by placing the cursor.
+	if vw.panOffsetX != 500 {
+		t.Errorf("panOffsetX changed to %v, want 500", vw.panOffsetX)
 	}
 }
