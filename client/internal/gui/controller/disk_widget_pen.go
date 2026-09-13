@@ -32,10 +32,18 @@ const (
 
 // penCaptureTracker holds the per-device state needed to turn a stream of
 // absolute PenCaptureState samples into the edge-triggered DOWN/UP/HOVER/MOVE
-// sequence LiSendPenEvent expects (see forwardPenState).
+// sequence LiSendPenEvent expects (see forwardPenState). maxX/maxY/
+// maxPressure are resolved once per device via platform.PenRangeFor at
+// capture start -- different Wacom models sharing the same byte layout
+// still report very different logical-max ranges (see PenRangeFor's doc
+// comment), so this can't be the package-level PenMaxX/Y/Pressure
+// constants shared across every device.
 type penCaptureTracker struct {
 	inRange bool
 	tipDown bool
+
+	maxX, maxY  uint32
+	maxPressure uint16
 }
 
 // syncPenCaptures compares currently connected Wacom-family pen tablets
@@ -67,7 +75,8 @@ func (dw *DiskWidget) syncPenCaptures() {
 			continue
 		}
 		logrus.Infof("🖊️ [PEN] starting capture for %s (%s, vid=%04x pid=%04x)", t.ID, t.Name, t.VID, t.PID)
-		tracker := &penCaptureTracker{}
+		maxX, maxY, maxPressure := platform.PenRangeFor(t.PID)
+		tracker := &penCaptureTracker{maxX: maxX, maxY: maxY, maxPressure: maxPressure}
 		capturedID := t.ID
 		cap, err := platform.StartPenCapture(t.ID, func(state platform.PenCaptureState) {
 			dw.forwardPenState(capturedID, tracker, state)
@@ -124,9 +133,9 @@ func (dw *DiskWidget) forwardPenState(id string, tracker *penCaptureTracker, sta
 		penButtons |= liPenButtonTertiary
 	}
 
-	x := float32(state.X) / float32(platform.PenMaxX)
-	y := float32(state.Y) / float32(platform.PenMaxY)
-	pressure := float32(state.Pressure) / float32(platform.PenMaxPressure)
+	x := float32(state.X) / float32(tracker.maxX)
+	y := float32(state.Y) / float32(tracker.maxY)
+	pressure := float32(state.Pressure) / float32(tracker.maxPressure)
 
 	tilt := uint8(liTiltUnknown)
 	if state.TiltX != 0 || state.TiltY != 0 {

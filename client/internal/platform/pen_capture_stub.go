@@ -37,6 +37,13 @@ const (
 	PenMaxPressure = 4095
 )
 
+// PenRangeFor mirrors pen_capture_darwin.go's per-model lookup; always the
+// default on this platform since ListPenTablets never returns anything to
+// look up a model for.
+func PenRangeFor(_ uint16) (maxX, maxY uint32, maxPressure uint16) {
+	return PenMaxX, PenMaxY, PenMaxPressure
+}
+
 // PenCapture is a no-op placeholder on this platform.
 type PenCapture struct{}
 

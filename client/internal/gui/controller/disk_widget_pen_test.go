@@ -25,11 +25,11 @@ func (f *fakePenSender) IsInputActive() bool { return f.active }
 func (f *fakePenSender) SendMoonlightPenEvent(eventType, toolType, penButtons uint8, x, y, pressureOrDistance float32, rotation uint16, tilt uint8) {
 	f.calls = append(f.calls, penCall{eventType, toolType, penButtons, x, y, pressureOrDistance, rotation, tilt})
 }
-func (f *fakePenSender) SendMoonlightKey(int16, int8, int8)                                 {}
-func (f *fakePenSender) SendMoonlightMouseMove(int16, int16)                                {}
-func (f *fakePenSender) SendMoonlightMousePosition(int16, int16, int16, int16)              {}
-func (f *fakePenSender) SendMoonlightMouseButton(int8, int)                                 {}
-func (f *fakePenSender) SendMoonlightScroll(int8)                                           {}
+func (f *fakePenSender) SendMoonlightKey(int16, int8, int8)                    {}
+func (f *fakePenSender) SendMoonlightMouseMove(int16, int16)                   {}
+func (f *fakePenSender) SendMoonlightMousePosition(int16, int16, int16, int16) {}
+func (f *fakePenSender) SendMoonlightMouseButton(int8, int)                    {}
+func (f *fakePenSender) SendMoonlightScroll(int8)                              {}
 func (f *fakePenSender) SendMoonlightControllerEvent(uint16, uint16, uint16, uint8, uint8, int16, int16, int16, int16) {
 }
 func (f *fakePenSender) SendMoonlightUtf8Text(string) {}
@@ -45,7 +45,7 @@ func newTestDiskWidgetWithSender(sender *fakePenSender) *DiskWidget {
 func TestForwardPenStateDropsInputWhenSessionInactive(t *testing.T) {
 	sender := &fakePenSender{active: false}
 	dw := newTestDiskWidgetWithSender(sender)
-	tracker := &penCaptureTracker{}
+	tracker := &penCaptureTracker{maxX: platform.PenMaxX, maxY: platform.PenMaxY, maxPressure: platform.PenMaxPressure}
 
 	dw.forwardPenState("id", tracker, platform.PenCaptureState{InRange: true, TipSwitch: true})
 
@@ -57,7 +57,7 @@ func TestForwardPenStateDropsInputWhenSessionInactive(t *testing.T) {
 func TestForwardPenStateEventTypeTransitions(t *testing.T) {
 	sender := &fakePenSender{active: true}
 	dw := newTestDiskWidgetWithSender(sender)
-	tracker := &penCaptureTracker{}
+	tracker := &penCaptureTracker{maxX: platform.PenMaxX, maxY: platform.PenMaxY, maxPressure: platform.PenMaxPressure}
 
 	// 1. Hovering in range, tip up -> HOVER.
 	dw.forwardPenState("id", tracker, platform.PenCaptureState{InRange: true, TipSwitch: false})
@@ -89,7 +89,7 @@ func TestForwardPenStateEventTypeTransitions(t *testing.T) {
 func TestForwardPenStateNoSpuriousCancelAfterLift(t *testing.T) {
 	sender := &fakePenSender{active: true}
 	dw := newTestDiskWidgetWithSender(sender)
-	tracker := &penCaptureTracker{}
+	tracker := &penCaptureTracker{maxX: platform.PenMaxX, maxY: platform.PenMaxY, maxPressure: platform.PenMaxPressure}
 
 	dw.forwardPenState("id", tracker, platform.PenCaptureState{InRange: true, TipSwitch: true})  // DOWN
 	dw.forwardPenState("id", tracker, platform.PenCaptureState{InRange: true, TipSwitch: false}) // UP, still in range
@@ -104,7 +104,7 @@ func TestForwardPenStateNoSpuriousCancelAfterLift(t *testing.T) {
 func TestForwardPenStateToolTypeAndButtons(t *testing.T) {
 	sender := &fakePenSender{active: true}
 	dw := newTestDiskWidgetWithSender(sender)
-	tracker := &penCaptureTracker{}
+	tracker := &penCaptureTracker{maxX: platform.PenMaxX, maxY: platform.PenMaxY, maxPressure: platform.PenMaxPressure}
 
 	dw.forwardPenState("id", tracker, platform.PenCaptureState{InRange: true, Eraser: true})
 	if got := sender.calls[0].toolType; got != liToolTypeEraser {
@@ -122,7 +122,7 @@ func TestForwardPenStateToolTypeAndButtons(t *testing.T) {
 func TestForwardPenStateNormalizesCoordinatesAndPressure(t *testing.T) {
 	sender := &fakePenSender{active: true}
 	dw := newTestDiskWidgetWithSender(sender)
-	tracker := &penCaptureTracker{}
+	tracker := &penCaptureTracker{maxX: platform.PenMaxX, maxY: platform.PenMaxY, maxPressure: platform.PenMaxPressure}
 
 	dw.forwardPenState("id", tracker, platform.PenCaptureState{
 		InRange: true, TipSwitch: true,
@@ -144,7 +144,7 @@ func TestForwardPenStateNormalizesCoordinatesAndPressure(t *testing.T) {
 func TestForwardPenStateTiltAndRotationUnknownSentinels(t *testing.T) {
 	sender := &fakePenSender{active: true}
 	dw := newTestDiskWidgetWithSender(sender)
-	tracker := &penCaptureTracker{}
+	tracker := &penCaptureTracker{maxX: platform.PenMaxX, maxY: platform.PenMaxY, maxPressure: platform.PenMaxPressure}
 
 	// No tilt/rotation reported (a standard pen with no Art Pen features) ->
 	// both sentinels.
