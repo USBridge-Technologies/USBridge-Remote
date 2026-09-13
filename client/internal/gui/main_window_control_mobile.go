@@ -99,6 +99,29 @@ func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
 	mw.restoreMainHeader()
 }
 
+type keyboardSafeAreaBypassLayout struct {
+	safeTop float32
+}
+
+func (l *keyboardSafeAreaBypassLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	for _, o := range objects {
+		o.Move(fyne.NewPos(0, -l.safeTop))
+		o.Resize(fyne.NewSize(size.Width, size.Height+l.safeTop))
+	}
+}
+
+func (l *keyboardSafeAreaBypassLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	min := fyne.NewSize(0, 0)
+	for _, o := range objects {
+		min = min.Max(o.MinSize())
+	}
+	min.Height -= l.safeTop
+	if min.Height < 0 {
+		min.Height = 0
+	}
+	return min
+}
+
 func (mw *MainWindow) showSpecialKeysInMainHeader() {
 	if mw.mainHeaderHost == nil || mw.videoWidget == nil {
 		return
@@ -118,7 +141,24 @@ func (mw *MainWindow) showSpecialKeysInMainHeader() {
 			mw.videoWidget.CloseAllKeyboards()
 		}
 	})
-	mw.mainHeaderHost.Objects = []fyne.CanvasObject{view.NewHeaderBand("", kl)}
+
+	var safeTop float32 = 0
+	if content := mw.window.Content(); content != nil {
+		if app := fyne.CurrentApp(); app != nil {
+			if drv := app.Driver(); drv != nil {
+				root := drv.AbsolutePositionForObject(content)
+				safeTop = root.Y
+			}
+		}
+	}
+
+	band := view.NewHeaderBand("", kl)
+	var obj fyne.CanvasObject = band
+	if safeTop > 0 {
+		obj = container.New(&keyboardSafeAreaBypassLayout{safeTop: safeTop}, band)
+	}
+
+	mw.mainHeaderHost.Objects = []fyne.CanvasObject{obj}
 	mw.mainHeaderHost.Refresh()
 	mw.videoWidget.InvalidateOverlayGeometry()
 	mw.refreshMainHeaderLayout()

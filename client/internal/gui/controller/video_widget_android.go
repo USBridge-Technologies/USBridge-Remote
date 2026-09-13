@@ -170,16 +170,8 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	}
 	if imeOpen {
 		setImeExpandHeightDp(imeHeightDp)
-		if vw.parentWindow != nil {
-			vw.parentWindow.SetFullScreen(true)
-		}
 	} else {
 		setImeExpandHeightDp(0)
-		if vw.parentWindow != nil {
-			if vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen() {
-				vw.parentWindow.SetFullScreen(false)
-			}
-		}
 	}
 	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
 	// Bottom-align fitted video while the system IME is open. Special keys
