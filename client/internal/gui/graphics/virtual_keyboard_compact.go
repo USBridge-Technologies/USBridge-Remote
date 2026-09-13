@@ -3,6 +3,7 @@ package graphics
 import (
 	"image/color"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
 
@@ -33,6 +34,7 @@ func padCompactKey(key fyne.CanvasObject) fyne.CanvasObject {
 type compactKey struct {
 	widget.BaseWidget
 	label   string
+	icon    fyne.Resource
 	kind    compactKeyKind
 	minW    float32
 	active  bool
@@ -41,10 +43,17 @@ type compactKey struct {
 	bg      *canvas.Rectangle
 	border  *canvas.Rectangle
 	text    *canvas.Text
+	iconImg *canvas.Image
 }
 
 func newCompactKey(label string, kind compactKeyKind, minW float32, onTap func()) *compactKey {
 	k := &compactKey{label: label, kind: kind, minW: minW, onTap: onTap}
+	k.ExtendBaseWidget(k)
+	return k
+}
+
+func newCompactIconKey(icon fyne.Resource, minW float32, onTap func()) *compactKey {
+	k := &compactKey{icon: icon, kind: compactKeyNormal, minW: minW, onTap: onTap}
 	k.ExtendBaseWidget(k)
 	return k
 }
@@ -88,16 +97,25 @@ func (k *compactKey) CreateRenderer() fyne.WidgetRenderer {
 	k.border = canvas.NewRectangle(color.Transparent)
 	k.border.CornerRadius = compactKeyRadius
 	k.border.StrokeWidth = compactKeyStroke
-	k.text = canvas.NewText(k.label, design.ColorConnectionsSectionMutedText)
-	k.text.TextSize = compactKeyTextSize
-	k.text.TextStyle.Bold = true
-	k.text.Alignment = fyne.TextAlignCenter
+	var face fyne.CanvasObject
+	if k.icon != nil {
+		k.iconImg = canvas.NewImageFromResource(k.icon)
+		k.iconImg.FillMode = canvas.ImageFillContain
+		k.iconImg.SetMinSize(fyne.NewSize(18, 18))
+		face = container.NewCenter(k.iconImg)
+	} else {
+		k.text = canvas.NewText(k.label, design.ColorConnectionsSectionMutedText)
+		k.text.TextSize = compactKeyTextSize
+		k.text.TextStyle.Bold = true
+		k.text.Alignment = fyne.TextAlignCenter
+		face = container.NewCenter(k.text)
+	}
 	k.syncVisuals()
-	return widget.NewSimpleRenderer(container.NewStack(k.bg, container.NewCenter(k.text), k.border))
+	return widget.NewSimpleRenderer(container.NewStack(k.bg, face, k.border))
 }
 
 func (k *compactKey) syncVisuals() {
-	if k.bg == nil || k.border == nil || k.text == nil {
+	if k.bg == nil || k.border == nil {
 		return
 	}
 	fill := color.Color(design.ColorStatusBarFill)
@@ -117,9 +135,11 @@ func (k *compactKey) syncVisuals() {
 	k.bg.Refresh()
 	k.border.StrokeColor = stroke
 	k.border.Refresh()
-	k.text.Text = k.label
-	k.text.Color = fg
-	k.text.Refresh()
+	if k.text != nil {
+		k.text.Text = k.label
+		k.text.Color = fg
+		k.text.Refresh()
+	}
 }
 
 type compactKBEntry struct {
@@ -340,7 +360,7 @@ func (vk *VirtualKeyboard) buildLandscapeCompactKeys(rebuild func()) fyne.Canvas
 	return container.NewVBox(row1, row2)
 }
 
-// buildCompactArrowRow is ← ↑ ↓ → in one horizontal cluster (not a 2×3 d-pad).
+// buildCompactArrowRow is ← ↑ ↓ → plus dismiss (keyboard+slash) after →.
 func (vk *VirtualKeyboard) buildCompactArrowRow() fyne.CanvasObject {
 	const aw = compactKeyHeight
 	return container.NewHBox(
@@ -348,6 +368,11 @@ func (vk *VirtualKeyboard) buildCompactArrowRow() fyne.CanvasObject {
 		padCompactKey(newCompactKey("↑", compactKeyNormal, aw, func() { vk.handleKeyPress(82, 0) })),
 		padCompactKey(newCompactKey("↓", compactKeyNormal, aw, func() { vk.handleKeyPress(81, 0) })),
 		padCompactKey(newCompactKey("→", compactKeyNormal, aw, func() { vk.handleKeyPress(79, 0) })),
+		padCompactKey(newCompactIconKey(assets.KeyboardIconDismiss, aw, func() {
+			if vk.onDismiss != nil {
+				vk.onDismiss()
+			}
+		})),
 	)
 }
 

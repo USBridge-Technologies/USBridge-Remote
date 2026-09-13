@@ -17,6 +17,7 @@ package graphics
 extern void deliverIMEHeightFromJNI(jint imeHeightPx, jint screenHeightPx);
 extern void deliverLanguageFromJNI(char* lang);
 extern void deliverIMETextFromJNI(jint deleteCount, char* text);
+extern void deliverIMEUserDismissedFromJNI(void);
 
 __attribute__((used))
 JNIEXPORT void JNICALL Java_io_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv *env, jclass clazz, jint imeHeightPx, jint screenHeightPx) {
@@ -37,6 +38,11 @@ JNIEXPORT void JNICALL Java_io_usbridge_client_KeyboardBridge_onIMETextInput(JNI
     (*env)->ReleaseStringUTFChars(env, text, nativeString);
 }
 
+__attribute__((used))
+JNIEXPORT void JNICALL Java_io_usbridge_client_KeyboardBridge_onIMEUserDismissed(JNIEnv *env, jclass clazz) {
+    deliverIMEUserDismissedFromJNI();
+}
+
 // keepIMEBridgeSymbolsReferenced - dummy reference to prevent the linker from removing JNI symbols
 void keepIMEBridgeSymbolsReferenced(void) {
     extern void Java_io_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv*, jclass, jint, jint);
@@ -47,6 +53,9 @@ void keepIMEBridgeSymbolsReferenced(void) {
 
     extern void Java_io_usbridge_client_KeyboardBridge_onIMETextInput(JNIEnv*, jclass, jint, jstring);
     (void)Java_io_usbridge_client_KeyboardBridge_onIMETextInput;
+
+    extern void Java_io_usbridge_client_KeyboardBridge_onIMEUserDismissed(JNIEnv*, jclass);
+    (void)Java_io_usbridge_client_KeyboardBridge_onIMEUserDismissed;
 }
 
 static void jni_setStickyIME(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, int enabled) {
@@ -99,6 +108,9 @@ var (
 
 	imeTextHandlerMu sync.Mutex
 	imeTextHandler   func(deleteCount int, text string)
+
+	imeUserDismissedMu      sync.Mutex
+	imeUserDismissedHandler func()
 )
 
 // SetIMETextHandler registers the sticky soft-IME text sink (VideoWidget).
@@ -106,6 +118,14 @@ func SetIMETextHandler(fn func(deleteCount int, text string)) {
 	imeTextHandlerMu.Lock()
 	imeTextHandler = fn
 	imeTextHandlerMu.Unlock()
+}
+
+// SetIMEUserDismissedHandler registers the Android Back / user-dismiss sink
+// for the sticky soft-IME + special-keys stack.
+func SetIMEUserDismissedHandler(fn func()) {
+	imeUserDismissedMu.Lock()
+	imeUserDismissedHandler = fn
+	imeUserDismissedMu.Unlock()
 }
 
 //export deliverIMETextFromJNI
@@ -122,6 +142,18 @@ func deliverIMETextFromJNI(deleteCount C.jint, textStr *C.char) {
 	fyne.Do(func() {
 		fn(del, text)
 	})
+}
+
+//export deliverIMEUserDismissedFromJNI
+func deliverIMEUserDismissedFromJNI() {
+	logrus.Info("⌨️ [IME-JNI] user dismissed soft IME (Back)")
+	imeUserDismissedMu.Lock()
+	fn := imeUserDismissedHandler
+	imeUserDismissedMu.Unlock()
+	if fn == nil {
+		return
+	}
+	fyne.Do(fn)
 }
 
 // GetLastIMEH returns the last cached IME margin (including NavBar)

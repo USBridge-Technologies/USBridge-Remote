@@ -29,3 +29,6 @@ func SetStickySystemIME(_ bool) {}
 
 // SetIMETextHandler is Android-only.
 func SetIMETextHandler(_ func(deleteCount int, text string)) {}
+
+// SetIMEUserDismissedHandler is Android-only.
+func SetIMEUserDismissedHandler(_ func()) {}

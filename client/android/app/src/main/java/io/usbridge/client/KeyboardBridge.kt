@@ -23,6 +23,13 @@ object KeyboardBridge {
     @JvmStatic
     external fun onIMETextInput(deleteCount: Int, text: String)
 
+    /**
+     * System Back (or equivalent) dismissed the soft IME while our sticky
+     * stack was open — Go must collapse special-keys + clear the footer toggle.
+     */
+    @JvmStatic
+    external fun onIMEUserDismissed()
+
     @JvmStatic
     fun requestLanguageReport() {
         MainActivity.getInstance()?.requestLanguageReport()

@@ -50,6 +50,8 @@ type VirtualKeyboard struct {
 	// landscape packing, Fn / F-key row). Set by createCompactKeysChrome.
 	rebuildCompactKeys func()
 	compactFnOn        bool
+	// onDismiss closes the special-keys + system IME stack (mobile header).
+	onDismiss func()
 }
 
 // NewVirtualKeyboard creates a new virtual keyboard.
@@ -357,6 +359,11 @@ func (vk *VirtualKeyboard) UpdatePosition(windowSize fyne.Size) {
 
 	vk.toggleBtn.Move(fyne.NewPos(x, y))
 	vk.toggleBtn.Resize(btnSize)
+}
+
+// SetOnDismiss registers the special-keys hide control callback (mobile).
+func (vk *VirtualKeyboard) SetOnDismiss(fn func()) {
+	vk.onDismiss = fn
 }
 
 // SetVisibleState sets visibility state without showing a separate window.

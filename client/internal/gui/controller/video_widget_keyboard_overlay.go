@@ -24,6 +24,9 @@ func (vw *VideoWidget) ensureVirtualKeyboard() {
 		return
 	}
 	vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
+	vw.virtualKeyboard.SetOnDismiss(func() {
+		vw.CloseAllKeyboards()
+	})
 	vw.virtualKeyboard.SetOnIMEChanged(func(imeHeightDp float32) {
 		fyne.Do(func() {
 			vw.onIMEHeightChanged(imeHeightDp)
@@ -167,7 +170,7 @@ func (vw *VideoWidget) setKeyboardCollapseFABVisible(on bool) {
 	if vw.collapseFAB == nil {
 		return
 	}
-	// Mobile collapse control lives in the main header next to special keys.
+	// Mobile dismiss lives after → in the special-keys header strip.
 	if vw.specialKeysInMainHeader() {
 		on = false
 	}

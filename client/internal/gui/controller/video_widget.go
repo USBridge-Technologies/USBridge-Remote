@@ -155,13 +155,16 @@ type VideoWidget struct {
 	viewportPanDragActive    bool
 	onViewportPanModeChanged func(bool)
 	systemIMESticky          atomic.Bool
-	keyboardModifierState    atomic.Int32
-	suppressRuneUntilNS      atomic.Int64
-	softIMEMu                sync.Mutex
-	softIMELastRune          rune
-	softIMELastAt            time.Time
-	moonlightKeyMu           sync.Mutex
-	moonlightHeldVKs         map[int16]bool // tracks VK codes currently held in Moonlight session
+	// imeStackArmedAt is set when the sticky+special-keys stack opens; used to
+	// ignore the brief IME-height=0 window while the soft keyboard is animating up.
+	imeStackArmedAt       time.Time
+	keyboardModifierState atomic.Int32
+	suppressRuneUntilNS   atomic.Int64
+	softIMEMu             sync.Mutex
+	softIMELastRune       rune
+	softIMELastAt         time.Time
+	moonlightKeyMu        sync.Mutex
+	moonlightHeldVKs      map[int16]bool // tracks VK codes currently held in Moonlight session
 
 	// Mouse/touchpad
 	lastMouseX         float32

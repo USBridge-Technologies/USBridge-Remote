@@ -37,10 +37,9 @@ type MainWindow struct {
 	// mainHeaderHost swaps the connected Control header between the normal
 	// status row and the special-keys strip (mobile: keys cannot draw over
 	// Vulkan, so they replace this header instead of floating on video).
-	mainHeaderHost         *fyne.Container
-	mainHeaderNormal       fyne.CanvasObject
-	headerKeyboardCollapse fyne.CanvasObject
-	tabs                   *container.AppTabs
+	mainHeaderHost   *fyne.Container
+	mainHeaderNormal fyne.CanvasObject
+	tabs             *container.AppTabs
 	// tabHeaderButtons is the Control/Devices/Snapshots/Scripts selector --
 	// desktop: left zone of createMainAddressBar; mobile: the bigger
 	// connected footer (see createMobileConnectedFooter).

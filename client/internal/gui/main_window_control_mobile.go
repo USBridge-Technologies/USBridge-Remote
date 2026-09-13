@@ -85,8 +85,8 @@ func (mw *MainWindow) wireMobileKeyboardStackCallbacks() {
 }
 
 // applyMainHeaderForKeyboardStack replaces the connected header with special
-// keys + collapse while the keyboard stack is open (Vulkan cannot be drawn
-// over; the header sits above the native surface).
+// keys while the keyboard stack is open (Vulkan cannot be drawn over; the
+// header sits above the native surface). Dismiss lives after → in the keys.
 func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
 	if !useMobileControl() || mw.mainHeaderHost == nil || mw.mainHeaderNormal == nil {
 		return
@@ -97,23 +97,6 @@ func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
 		return
 	}
 	mw.restoreMainHeader()
-}
-
-func (mw *MainWindow) ensureHeaderKeyboardCollapse() fyne.CanvasObject {
-	if mw.headerKeyboardCollapse != nil {
-		return mw.headerKeyboardCollapse
-	}
-	const btnSize float32 = 32
-	btn := newHeaderStatusBadgeButton(theme.MoveDownIcon(), func() {
-		if mw.videoWidget != nil {
-			mw.videoWidget.CloseAllKeyboards()
-		}
-	})
-	btn.SetIconSize(fyne.NewSize(16, 16))
-	btn.SetBadgeText("")
-	btn.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
-	mw.headerKeyboardCollapse = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), btn)
-	return mw.headerKeyboardCollapse
 }
 
 func (mw *MainWindow) showSpecialKeysInMainHeader() {
@@ -130,9 +113,12 @@ func (mw *MainWindow) showSpecialKeysInMainHeader() {
 		mw.restoreMainHeader()
 		return
 	}
-	collapse := mw.ensureHeaderKeyboardCollapse()
-	row := container.NewBorder(nil, nil, nil, view.NewInsetExact(collapse, 4, 0, 2, 2), kl)
-	mw.mainHeaderHost.Objects = []fyne.CanvasObject{view.NewHeaderBand("", row)}
+	vk.SetOnDismiss(func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.CloseAllKeyboards()
+		}
+	})
+	mw.mainHeaderHost.Objects = []fyne.CanvasObject{view.NewHeaderBand("", kl)}
 	mw.mainHeaderHost.Refresh()
 	mw.videoWidget.InvalidateOverlayGeometry()
 	mw.refreshMainHeaderLayout()

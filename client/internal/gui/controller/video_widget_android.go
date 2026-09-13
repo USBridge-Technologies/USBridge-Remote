@@ -160,6 +160,14 @@ func (vw *VideoWidget) HandleAppForegrounded() {
 func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	const minRealIMEDp = 100
 	imeOpen := imeHeightDp > minRealIMEDp
+	// System Back / GBoard ↓ often hide the soft IME without Activity.onBackPressed.
+	// If our stack is still open after the open animation, collapse it with the IME.
+	if !imeOpen && time.Since(vw.imeStackArmedAt) > 450*time.Millisecond {
+		if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
+			logrus.Info("⌨️ System IME closed — collapsing keyboard stack")
+			vw.CloseAllKeyboards()
+		}
+	}
 	if imeOpen {
 		setImeExpandHeightDp(imeHeightDp)
 	} else {
@@ -432,15 +440,18 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 		if on {
 			graphics.SetStickySystemIME(true)
 			graphics.SetIMETextHandler(vw.handleNativeIMEText)
+			graphics.SetIMEUserDismissedHandler(vw.CloseAllKeyboards)
 		}
 		return
 	}
 	vw.systemIMESticky.Store(on)
 	if on {
+		vw.imeStackArmedAt = time.Now()
 		vw.ensureIMEKeyboardTarget()
 		// Native EditText owns the soft keyboard. Text goes KeyboardBridge
 		// onIMETextInput (LCP diff) → UTF-8 — not Fyne keyboardTyped.
 		graphics.SetIMETextHandler(vw.handleNativeIMEText)
+		graphics.SetIMEUserDismissedHandler(vw.CloseAllKeyboards)
 		graphics.SetStickySystemIME(true)
 		if vw.touchpadWrapper != nil && vw.parentWindow != nil {
 			vw.parentWindow.Canvas().Focus(vw.touchpadWrapper)
@@ -466,6 +477,7 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 		return
 	}
 	graphics.SetIMETextHandler(nil)
+	graphics.SetIMEUserDismissedHandler(nil)
 	graphics.SetStickySystemIME(false)
 	setImeExpandHeightDp(0)
 	service.VKVideoAndroidSetAlignBottom(false)

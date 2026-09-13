@@ -1061,6 +1061,7 @@ func (vw *VideoWidget) OpenKeyboardStack() {
 	if vw.virtualKeyboard == nil {
 		return
 	}
+	vw.imeStackArmedAt = time.Now()
 	if !vw.IsVirtualKeyboardVisible() {
 		vw.showSpecialKeysOverlay()
 	}

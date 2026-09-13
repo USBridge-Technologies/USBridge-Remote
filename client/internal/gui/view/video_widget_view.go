@@ -22,7 +22,7 @@ type VideoWidgetUI struct {
 	// z-order-on-top covers any Fyne strip inside the video rect).
 	KeyboardOverlay *fyne.Container
 	// CollapseFAB dismisses the keyboard stack on desktop/web (over video).
-	// Mobile uses the collapse control in the main header next to the keys.
+	// Mobile dismiss sits after → in the special-keys strip (header swap).
 	CollapseFAB *fyne.Container
 	// SpinnerIcon/SpinnerOverlay: the Moonlight-style "connecting" spinner
 	// shown centered over the video area between starting a session and

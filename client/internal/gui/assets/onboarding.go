@@ -294,7 +294,10 @@ var (
 	KeyboardIconStatusBar   = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-statusbar.svg", recolorStrokeIcon(keyboardIcon, "#c4e77a", "1.8"))
 	// KeyboardIconFooterActive is the mobile Control footer toggle while
 	// the compact keyboard is open -- #ebffbc, same selected-tab lime.
-	KeyboardIconFooterActive   = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-footer-active.svg", recolorStrokeIcon(keyboardIcon, "#ebffbc", "1.8"))
+	KeyboardIconFooterActive = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-footer-active.svg", recolorStrokeIcon(keyboardIcon, "#ebffbc", "1.8"))
+	// KeyboardIconDismiss is the special-keys hide control: keyboard glyph
+	// with a diagonal strike (collapse the soft-IME stack).
+	KeyboardIconDismiss        = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-dismiss.svg", strikethroughStrokeIcon(keyboardIcon, "#C9C9C9", "1.8"))
 	MouseIcon                  = fyne.NewStaticResource("mouse-svgrepo-com.svg", recolorFillIcon(mouseIcon, "#C9C9C9"))
 	MouseIconActive            = fyne.NewStaticResource("mouse-svgrepo-com-active.svg", recolorFillIcon(mouseIcon, "#93C572"))
 	MouseIconStatusBar         = fyne.NewStaticResource("mouse-svgrepo-com-statusbar.svg", recolorFillIcon(mouseIcon, "#c4e77a"))
@@ -423,6 +426,17 @@ func recolorStrokeIcon(source []byte, stroke string, width string) []byte {
 	svg = strokeWidthPattern.ReplaceAllString(svg, fmt.Sprintf(`stroke-width="%s"`, width))
 	svg = strings.ReplaceAll(svg, "stroke:black", "stroke:"+stroke)
 	return []byte(svg)
+}
+
+// strikethroughStrokeIcon recolors a stroke icon and draws a diagonal slash
+// across the 24×24 viewBox (hide-keyboard / dismiss affordance).
+func strikethroughStrokeIcon(source []byte, stroke string, width string) []byte {
+	svg := string(recolorStrokeIcon(source, stroke, width))
+	slash := fmt.Sprintf(
+		`<path d="M5 5L19 19" stroke="%s" stroke-width="%s" stroke-linecap="round"/>`,
+		stroke, width,
+	)
+	return []byte(strings.Replace(svg, "</svg>", slash+"</svg>", 1))
 }
 
 func recolorMonoIcon(source []byte, color string, strokeWidth string) []byte {
