@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -131,12 +132,52 @@ func (s *Service) Start() error {
 	// broker's whole lifetime -- confirmed live. hideBrokerWindow is a
 	// no-op on non-Windows (see exec_others.go).
 	hideBrokerWindow(cmd)
+	// cmd.Stdout/Stderr were left nil, which per os/exec's own doc comment
+	// means Go connects them to the null device -- so the broker's own
+	// error!() logging (rust-shine's main.rs logs the entitlement-check
+	// failure reason via tracing before exiting 1) was being thrown away
+	// unconditionally, regardless of what it actually printed. Confirmed
+	// live: the agent never had a chance to see it. A dedicated file next
+	// to the broker binary captures it from here on.
+	var logFile *os.File
+	if f, err := os.OpenFile(filepath.Join(cmd.Dir, "broker.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
+		logFile = f
+		cmd.Stdout = f
+		cmd.Stderr = f
+	} else {
+		log.Printf("[usbpass] warning: could not open broker.log: %v", err)
+	}
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			logFile.Close()
+		}
 		return err
 	}
 	s.cmd = cmd
 	s.exe = exe
-	go func() { _ = cmd.Wait() }()
+	// cmd.Wait()'s result used to be discarded outright, which meant a
+	// broker that exits immediately after a successful fork (e.g. the
+	// entitlement/enterprise gate inside rust-shine rejecting) was
+	// completely invisible here: cmd.Start() had already returned nil, so
+	// Start() reported success, and the Process!=nil guard above then
+	// permanently refused to ever launch it again for the rest of this
+	// agent's lifetime, even though the OS process was long dead. Logging
+	// the outcome and clearing s.cmd lets both the log and a later Start()
+	// call (e.g. a user retry) see reality.
+	go func() {
+		err := cmd.Wait()
+		if logFile != nil {
+			logFile.Close()
+		}
+		s.mu.Lock()
+		if s.cmd == cmd {
+			s.cmd = nil
+		}
+		s.mu.Unlock()
+		if err != nil {
+			log.Printf("[usbpass] broker exited: %v", err)
+		}
+	}()
 	return nil
 }
 
