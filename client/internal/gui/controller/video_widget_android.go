@@ -170,8 +170,16 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	}
 	if imeOpen {
 		setImeExpandHeightDp(imeHeightDp)
+		if vw.parentWindow != nil {
+			vw.parentWindow.SetFullScreen(true)
+		}
 	} else {
 		setImeExpandHeightDp(0)
+		if vw.parentWindow != nil {
+			if vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen() {
+				vw.parentWindow.SetFullScreen(false)
+			}
+		}
 	}
 	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
 	// Bottom-align fitted video while the system IME is open. Special keys
@@ -179,6 +187,16 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	service.VKVideoAndroidSetAlignBottom(imeOpen)
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
+
+	// Invalidate again after a short delay to prevent a black strip from the
+	// asynchronous Vulkan size recalculation caused by the fullscreen safe-area removal.
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		fyne.Do(func() {
+			vw.InvalidateOverlayGeometry()
+			vw.forceCanvasRefresh.Store(true)
+		})
+	}()
 	if tw := vw.touchpadWrapper; tw != nil {
 		if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
 			vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
