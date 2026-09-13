@@ -38,23 +38,44 @@ func (vw *VideoWidget) ensureMobileVirtualKeyboard() {
 	vw.ensureVirtualKeyboard()
 }
 
+// specialKeysInMainHeader reports whether special keys replace the app
+// header instead of floating over the video. Mobile Vulkan/Metal use
+// z-order-on-top surfaces that cover all Fyne drawing in the video rect.
+func (vw *VideoWidget) specialKeysInMainHeader() bool {
+	return view.IsMobile()
+}
+
 func (vw *VideoWidget) showSpecialKeysOverlay() {
 	vw.ensureVirtualKeyboard()
-	if vw.virtualKeyboard == nil || vw.keyboardOverlay == nil {
+	if vw.virtualKeyboard == nil {
+		return
+	}
+	if !vw.specialKeysInMainHeader() && vw.keyboardOverlay == nil {
 		return
 	}
 	vw.virtualKeyboard.RegisterAsIMETarget()
 	vw.virtualKeyboard.SetVisibleState(true)
-	vw.layoutSpecialKeysOverlay()
-	vw.keyboardOverlay.Show()
+	if vw.specialKeysInMainHeader() {
+		// MainWindow swaps the header band; keep the video overlay empty so
+		// the keyboard layout has a single parent.
+		if vw.keyboardOverlay != nil {
+			vw.keyboardOverlay.Objects = nil
+			vw.keyboardOverlay.Hide()
+			vw.keyboardOverlay.Refresh()
+		}
+	} else {
+		vw.layoutSpecialKeysOverlay()
+		vw.keyboardOverlay.Show()
+	}
 	if vw.contentContainer != nil {
 		vw.contentContainer.Hide()
 	}
 	if vw.container != nil {
 		vw.container.Refresh()
 	}
+	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
-	logrus.Info("⌨️ Special-keys overlay shown")
+	logrus.Info("⌨️ Special-keys shown")
 }
 
 func (vw *VideoWidget) hideSpecialKeysOverlay() {
@@ -72,11 +93,16 @@ func (vw *VideoWidget) hideSpecialKeysOverlay() {
 	if vw.container != nil {
 		vw.container.Refresh()
 	}
+	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
-	logrus.Info("⌨️ Special-keys overlay hidden")
+	logrus.Info("⌨️ Special-keys hidden")
 }
 
 func (vw *VideoWidget) layoutSpecialKeysOverlay() {
+	if vw.specialKeysInMainHeader() {
+		vw.InvalidateOverlayGeometry()
+		return
+	}
 	if vw.virtualKeyboard == nil || vw.keyboardOverlay == nil || vw.parentWindow == nil {
 		return
 	}
@@ -91,6 +117,29 @@ func (vw *VideoWidget) layoutSpecialKeysOverlay() {
 	kl.Resize(fyne.NewSize(canvasW, h))
 	vw.keyboardOverlay.Objects = []fyne.CanvasObject{kl}
 	vw.keyboardOverlay.Refresh()
+	vw.InvalidateOverlayGeometry()
+}
+
+// specialKeysOverlayHeightDp is the top inset reserved when special keys
+// float over the video (desktop/web). On mobile the keys replace the main
+// header, so the native surface needs no keys inset.
+func (vw *VideoWidget) specialKeysOverlayHeightDp() float32 {
+	if vw == nil || vw.specialKeysInMainHeader() || !vw.IsVirtualKeyboardVisible() || vw.virtualKeyboard == nil {
+		return 0
+	}
+	const minKeysBand = float32(72)
+	kl := vw.virtualKeyboard.GetKeyboardLayout()
+	if kl == nil {
+		return minKeysBand
+	}
+	h := kl.MinSize().Height
+	if sz := kl.Size().Height; sz > h {
+		h = sz
+	}
+	if h < minKeysBand {
+		return minKeysBand
+	}
+	return h
 }
 
 func (vw *VideoWidget) initKeyboardCollapseFAB() {
@@ -117,6 +166,10 @@ func (vw *VideoWidget) initKeyboardCollapseFAB() {
 func (vw *VideoWidget) setKeyboardCollapseFABVisible(on bool) {
 	if vw.collapseFAB == nil {
 		return
+	}
+	// Mobile collapse control lives in the main header next to special keys.
+	if vw.specialKeysInMainHeader() {
+		on = false
 	}
 	if on {
 		vw.collapseFAB.Show()

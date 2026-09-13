@@ -265,14 +265,14 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
 
-	// Overlay mode: special keys float on the video. System IME provides
-	// letter typing (sticky / FocusInput). Keep a 1×1 focus entry shown so
-	// Canvas.Focus can open the OS keyboard (a Hidden entry is not focusable).
-	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 6, 6, 4, 6)
-	textHint.Resize(fyne.NewSize(1, 1))
-	textHint.Move(fyne.NewPos(0, 0))
-
-	background := canvas.NewRectangle(color.Transparent)
+	// Header chrome: visible input on top, then two special-key rows.
+	// Do not Stack the Entry under the keys — Entry would fill the whole
+	// panel and look like a sunken field behind the buttons.
+	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 2, 2, 2, 2)
+	input := wrapCompactEntry(textHint, func(b *canvas.Rectangle) { textHint.border = b })
+	inputH := canvas.NewRectangle(color.Transparent)
+	inputH.SetMinSize(fyne.NewSize(0, compactInputHeight))
+	inputRow := container.NewMax(inputH, input)
 
 	vk.imeSpacer = &imeSpacerLayout{height: 0}
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
@@ -283,8 +283,10 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}
 	textHint.onUnfocused = func() {}
 
+	body := container.NewVBox(inputRow, keys)
+	background := canvas.NewRectangle(design.ColorGray900)
 	return container.NewMax(container.NewThemeOverride(
-		container.NewStack(background, keys, textHint),
+		container.NewStack(background, view.NewInsetExact(body, 8, 8, 6, 6)),
 		design.NewBrandTheme(),
 	))
 }

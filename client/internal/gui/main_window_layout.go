@@ -639,7 +639,16 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		middleClip,
 		rightGroup,
 	)
-	return view.NewHeaderBand("", row)
+	normal := view.NewHeaderBand("", row)
+	mw.mainHeaderNormal = normal
+	if useMobileControl() {
+		// Mobile: keyboard stack replaces this band with special keys +
+		// collapse (see applyMainHeaderForKeyboardStack).
+		mw.mainHeaderHost = container.NewMax(normal)
+		return mw.mainHeaderHost
+	}
+	mw.mainHeaderHost = nil
+	return normal
 }
 
 func headerGapSpacer(width float32) fyne.CanvasObject {

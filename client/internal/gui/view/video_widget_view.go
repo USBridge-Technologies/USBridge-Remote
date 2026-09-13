@@ -17,12 +17,12 @@ type VideoWidgetUI struct {
 	InfoLabel        *widget.Label
 	StatsLabel       *widget.Label
 	ContentContainer *fyne.Container
-	// KeyboardOverlay hosts the transparent special-keys strip at the top of
-	// the video area. It must not live in ContentContainer (Border bottom),
-	// or Fyne would shrink the video around it.
+	// KeyboardOverlay hosts special keys over the video on desktop/web.
+	// On mobile the keys replace the main header instead (Vulkan/Metal
+	// z-order-on-top covers any Fyne strip inside the video rect).
 	KeyboardOverlay *fyne.Container
-	// CollapseFAB dismisses the keyboard stack; shown over the video while
-	// the stack is open.
+	// CollapseFAB dismisses the keyboard stack on desktop/web (over video).
+	// Mobile uses the collapse control in the main header next to the keys.
 	CollapseFAB *fyne.Container
 	// SpinnerIcon/SpinnerOverlay: the Moonlight-style "connecting" spinner
 	// shown centered over the video area between starting a session and
@@ -92,9 +92,9 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, keyboardCapture fyne.CanvasObj
 	if keyboardCapture != nil {
 		videoObjects = append(videoObjects, keyboardCapture)
 	}
-	// Special-keys strip (top) and collapse FAB (right) sit above the video
-	// pixels but do not participate in Border layout height — only the
-	// system IME may shrink the native video surface.
+	// Special-keys strip (top) and collapse FAB (right) remain in the video
+	// Max-stack for desktop/web. Mobile leaves these empty and swaps the
+	// main header instead (see MainWindow.applyMainHeaderForKeyboardStack).
 	keysLayer := container.NewBorder(keyboardOverlay, nil, nil, nil, nil)
 	fabLayer := container.NewBorder(nil, nil, nil, collapseFAB, nil)
 	videoObjects = append(videoObjects, keysLayer, fabLayer, spinnerOverlay)

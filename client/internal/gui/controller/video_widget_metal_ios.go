@@ -162,15 +162,20 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
 
 	if ime := getImeExpandHeightDp(); ime > 0 {
-		// Clip = area above the system IME only. Special-keys overlay floats on
-		// the video and must not shrink this rect.
-		videoH := canvasH - ime
+		// Clip = area above the system IME. Special-keys take a top inset so
+		// the Fyne strip stays visible above the Metal overlay.
+		keysH := vw.specialKeysOverlayHeightDp()
+		videoH := canvasH - ime - keysH
 		if videoH > 0 {
-			return 0, 0, szMain.Width, videoH
+			return 0, keysH, szMain.Width, videoH
 		}
 	}
 
 	szVideo := vw.touchpadWrapper.Size()
+	keysH := vw.specialKeysOverlayHeightDp()
+	if keysH > 0 && szVideo.Height > keysH {
+		return 0, topOffset + keysH, szVideo.Width, szVideo.Height - keysH
+	}
 	return 0, topOffset, szVideo.Width, szVideo.Height
 }
 

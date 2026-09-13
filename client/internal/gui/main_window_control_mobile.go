@@ -77,8 +77,77 @@ func (mw *MainWindow) wireMobileKeyboardStackCallbacks() {
 		return
 	}
 	mw.videoWidget.SetOnKeyboardStackChanged(func() {
-		mw.syncMobileKeyboardToggleLook()
+		fyne.Do(func() {
+			mw.syncMobileKeyboardToggleLook()
+			mw.applyMainHeaderForKeyboardStack()
+		})
 	})
+}
+
+// applyMainHeaderForKeyboardStack replaces the connected header with special
+// keys + collapse while the keyboard stack is open (Vulkan cannot be drawn
+// over; the header sits above the native surface).
+func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
+	if !useMobileControl() || mw.mainHeaderHost == nil || mw.mainHeaderNormal == nil {
+		return
+	}
+	open := mw.videoWidget != nil && mw.videoWidget.IsVirtualKeyboardVisible()
+	if open {
+		mw.showSpecialKeysInMainHeader()
+		return
+	}
+	mw.restoreMainHeader()
+}
+
+func (mw *MainWindow) ensureHeaderKeyboardCollapse() fyne.CanvasObject {
+	if mw.headerKeyboardCollapse != nil {
+		return mw.headerKeyboardCollapse
+	}
+	const btnSize float32 = 32
+	btn := newHeaderStatusBadgeButton(theme.MoveDownIcon(), func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.CloseAllKeyboards()
+		}
+	})
+	btn.SetIconSize(fyne.NewSize(16, 16))
+	btn.SetBadgeText("")
+	btn.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	mw.headerKeyboardCollapse = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), btn)
+	return mw.headerKeyboardCollapse
+}
+
+func (mw *MainWindow) showSpecialKeysInMainHeader() {
+	if mw.mainHeaderHost == nil || mw.videoWidget == nil {
+		return
+	}
+	vk := mw.videoWidget.GetVirtualKeyboard()
+	if vk == nil {
+		mw.restoreMainHeader()
+		return
+	}
+	kl := vk.GetKeyboardLayout()
+	if kl == nil {
+		mw.restoreMainHeader()
+		return
+	}
+	collapse := mw.ensureHeaderKeyboardCollapse()
+	row := container.NewBorder(nil, nil, nil, view.NewInsetExact(collapse, 4, 0, 2, 2), kl)
+	mw.mainHeaderHost.Objects = []fyne.CanvasObject{view.NewHeaderBand("", row)}
+	mw.mainHeaderHost.Refresh()
+	mw.videoWidget.InvalidateOverlayGeometry()
+	mw.refreshMainHeaderLayout()
+}
+
+func (mw *MainWindow) restoreMainHeader() {
+	if mw.mainHeaderHost == nil || mw.mainHeaderNormal == nil {
+		return
+	}
+	mw.mainHeaderHost.Objects = []fyne.CanvasObject{mw.mainHeaderNormal}
+	mw.mainHeaderHost.Refresh()
+	if mw.videoWidget != nil {
+		mw.videoWidget.InvalidateOverlayGeometry()
+	}
+	mw.refreshMainHeaderLayout()
 }
 
 func (mw *MainWindow) wireMobileViewportPanCallbacks() {
@@ -180,6 +249,9 @@ func (mw *MainWindow) refreshVirtualKeyboardCompactLayout() {
 	}
 	if vk := mw.videoWidget.GetVirtualKeyboard(); vk != nil {
 		vk.RefreshCompactLayout()
+	}
+	if mw.videoWidget.IsVirtualKeyboardVisible() {
+		mw.applyMainHeaderForKeyboardStack()
 	}
 }
 

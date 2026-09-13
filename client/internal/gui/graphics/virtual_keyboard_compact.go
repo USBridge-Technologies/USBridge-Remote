@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	compactKeyHeight   = float32(30)
-	compactKeyTextSize = float32(10)
+	compactKeyHeight   = float32(36)
+	compactKeyTextSize = float32(11)
 	compactKeyRadius   = float32(6)
 	compactKeyStroke   = float32(1)
+	compactInputHeight = float32(34)
 )
 
 type compactKeyKind int
@@ -222,10 +223,9 @@ func (vk *VirtualKeyboard) createCompactSpecialKeysPanel() fyne.CanvasObject {
 	return vk.createCompactKeysChrome()
 }
 
-// createCompactKeysChrome builds an adaptive special-keys panel: portrait
-// keeps the two-row left cluster + Enter + dpad; landscape packs into two
-// short rows. Fn toggles an F1–F12 row (third row in landscape, extra row
-// above the keys in portrait).
+// createCompactKeysChrome builds an adaptive special-keys panel: two compact
+// rows in portrait and landscape. Arrows are a single ← ↑ ↓ → cluster. Fn
+// toggles an F1–F12 row above the keys.
 func (vk *VirtualKeyboard) createCompactKeysChrome() fyne.CanvasObject {
 	host := container.NewMax()
 	var rebuild func()
@@ -302,21 +302,20 @@ func (vk *VirtualKeyboard) buildPortraitCompactKeys(rebuild func()) fyne.CanvasO
 		padCompactKey(newCompactKey("Esc", compactKeyNormal, 40, func() { vk.handleKeyPress(41, 0) })),
 		padCompactKey(newCompactKey("Tab", compactKeyNormal, 40, func() { vk.handleKeyPress(43, 0) })),
 		padCompactKey(shiftKey),
-		padCompactKey(fnKey),
-	)
-	row2 := container.NewHBox(
 		padCompactKey(ctrlKey),
 		padCompactKey(winKey),
 		padCompactKey(altKey),
-		padCompactKey(newCompactKey("Del", compactKeyNormal, 40, func() { vk.handleKeyPress(76, 0) })),
+		padCompactKey(fnKey),
 	)
-	leftKeys := container.NewVBox(row1, row2)
-	enterBtn := padCompactKey(newCompactKey("Enter", compactKeyNormal, 56, func() { vk.handleKeyPress(40, 0) }))
-	return container.NewBorder(nil, nil, leftKeys, vk.buildCompactDPad(), enterBtn)
+	row2 := container.NewHBox(
+		padCompactKey(newCompactKey("Del", compactKeyNormal, 44, func() { vk.handleKeyPress(76, 0) })),
+		padCompactKey(newCompactKey("Enter", compactKeyNormal, 56, func() { vk.handleKeyPress(40, 0) })),
+		vk.buildCompactArrowRow(),
+	)
+	return container.NewVBox(row1, row2)
 }
 
 func (vk *VirtualKeyboard) buildLandscapeCompactKeys(rebuild func()) fyne.CanvasObject {
-	// Two short rows so the panel stays low; Fn opens F-keys as a third row.
 	shiftKey, ctrlKey, winKey, altKey, fnKey := vk.buildCompactModifierKeys(rebuild)
 	shiftKey.minW = 42
 	ctrlKey.minW = 34
@@ -333,30 +332,22 @@ func (vk *VirtualKeyboard) buildLandscapeCompactKeys(rebuild func()) fyne.Canvas
 		padCompactKey(altKey),
 		padCompactKey(newCompactKey("Del", compactKeyNormal, kw, func() { vk.handleKeyPress(76, 0) })),
 		padCompactKey(fnKey),
-		padCompactKey(newCompactKey("↑", compactKeyNormal, compactKeyHeight, func() { vk.handleKeyPress(82, 0) })),
 	)
 	row2 := container.NewHBox(
 		padCompactKey(newCompactKey("Enter", compactKeyNormal, 72, func() { vk.handleKeyPress(40, 0) })),
-		padCompactKey(newCompactKey("←", compactKeyNormal, compactKeyHeight, func() { vk.handleKeyPress(80, 0) })),
-		padCompactKey(newCompactKey("↓", compactKeyNormal, compactKeyHeight, func() { vk.handleKeyPress(81, 0) })),
-		padCompactKey(newCompactKey("→", compactKeyNormal, compactKeyHeight, func() { vk.handleKeyPress(79, 0) })),
+		vk.buildCompactArrowRow(),
 	)
 	return container.NewVBox(row1, row2)
 }
 
-func (vk *VirtualKeyboard) buildCompactDPad() fyne.CanvasObject {
-	ph := func() fyne.CanvasObject {
-		r := canvas.NewRectangle(color.Transparent)
-		r.SetMinSize(fyne.NewSize(compactKeyHeight, compactKeyHeight))
-		return r
-	}
-	return container.NewGridWithColumns(3,
-		ph(),
-		padCompactKey(newCompactKey("↑", compactKeyNormal, compactKeyHeight, func() { vk.handleKeyPress(82, 0) })),
-		ph(),
-		padCompactKey(newCompactKey("←", compactKeyNormal, compactKeyHeight, func() { vk.handleKeyPress(80, 0) })),
-		padCompactKey(newCompactKey("↓", compactKeyNormal, compactKeyHeight, func() { vk.handleKeyPress(81, 0) })),
-		padCompactKey(newCompactKey("→", compactKeyNormal, compactKeyHeight, func() { vk.handleKeyPress(79, 0) })),
+// buildCompactArrowRow is ← ↑ ↓ → in one horizontal cluster (not a 2×3 d-pad).
+func (vk *VirtualKeyboard) buildCompactArrowRow() fyne.CanvasObject {
+	const aw = compactKeyHeight
+	return container.NewHBox(
+		padCompactKey(newCompactKey("←", compactKeyNormal, aw, func() { vk.handleKeyPress(80, 0) })),
+		padCompactKey(newCompactKey("↑", compactKeyNormal, aw, func() { vk.handleKeyPress(82, 0) })),
+		padCompactKey(newCompactKey("↓", compactKeyNormal, aw, func() { vk.handleKeyPress(81, 0) })),
+		padCompactKey(newCompactKey("→", compactKeyNormal, aw, func() { vk.handleKeyPress(79, 0) })),
 	)
 }
 
@@ -403,10 +394,11 @@ func (vk *VirtualKeyboard) buildCompactFKeysRow(rebuild func()) fyne.CanvasObjec
 }
 
 // createCompactSpecialKeysLayout is the desktop mobile-preview special-keys
-// strip (no system IME bridge). Transparent so it can float on the video.
+// strip (no system IME bridge). Solid header-matching fill; input sits above
+// the two key rows when used from createKeyboardLayout.
 func (vk *VirtualKeyboard) createCompactSpecialKeysLayout() *fyne.Container {
 	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 6, 6, 4, 6)
-	background := canvas.NewRectangle(color.Transparent)
+	background := canvas.NewRectangle(design.ColorGray900)
 	return container.NewMax(container.NewThemeOverride(
 		container.NewStack(background, keys),
 		design.NewBrandTheme(),

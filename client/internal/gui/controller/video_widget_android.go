@@ -165,8 +165,8 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	} else {
 		setImeExpandHeightDp(0)
 	}
-	// Bottom-align fitted video while the system IME is open (special-keys
-	// overlay floats on top and must not change align).
+	// Bottom-align fitted video while the system IME is open. Special keys
+	// live in the main header on mobile (no native-video keys inset).
 	service.VKVideoAndroidSetAlignBottom(imeOpen)
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
@@ -385,34 +385,33 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return 0, 0, cs.Width, cs.Height
 	}
 
-	// When the Android system IME is open, expand the video to the soft-keyboard
-	// top. Special-keys overlay floats on the video and must not shrink this rect.
-	if getImeExpandHeightDp() > 0 {
-		if vw.container == nil {
-			return
-		}
-		sz := vw.container.Size()
-		imeH := getImeExpandHeightDp()
-		videoH := cs.Height - imeH
-		if videoH <= 0 {
-			return
-		}
-		return 0, 0, sz.Width, videoH
-	}
-
 	if vw.container == nil {
 		return
 	}
 	sz := vw.container.Size()
 	pos := vw.videoContainerOrigin()
-	videoH := sz.Height
 	// Nudge the SurfaceView down a few dp so it clears the header hairline
 	// without growing past the container bottom (height shrinks by the same).
 	const headerClearance = float32(8)
-	if videoH > headerClearance {
-		return pos.X, pos.Y + headerClearance, sz.Width, videoH - headerClearance
+	keysH := vw.specialKeysOverlayHeightDp()
+	top := headerClearance + keysH
+
+	// With setZOrderOnTop(true) Fyne cannot paint over Vulkan pixels. Mobile
+	// special keys replace the main header (above the surface); any residual
+	// keysH inset is for non-header overlay paths only.
+	videoTop := pos.Y + top
+	videoBottom := pos.Y + sz.Height
+	if imeH := getImeExpandHeightDp(); imeH > 0 {
+		imeTop := cs.Height - imeH
+		if imeTop < videoBottom {
+			videoBottom = imeTop
+		}
 	}
-	return pos.X, pos.Y, sz.Width, videoH
+	videoH := videoBottom - videoTop
+	if videoH <= 0 {
+		return
+	}
+	return pos.X, videoTop, sz.Width, videoH
 }
 
 func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
