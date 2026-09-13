@@ -649,9 +649,7 @@ class MainActivity : GoNativeActivity() {
         setKeyboardIgnoresTopSafeArea(enabled)
         runOnUiThread {
             if (enabled) {
-                // Delay showing the soft keyboard to allow the immersive status bar
-                // change and layout update to settle; otherwise the system aborts it.
-                window.decorView.postDelayed({
+                window.decorView.post {
                     if (stickyIME) {
                         try {
                             org.golang.app.GoNativeActivity.showKeyboard(0)
@@ -659,7 +657,7 @@ class MainActivity : GoNativeActivity() {
                             Log.e(TAG, "❌ [IME] sticky show failed: ${e.message}")
                         }
                     }
-                }, 100)
+                }
             } else {
                 try {
                     org.golang.app.GoNativeActivity.hideKeyboard()

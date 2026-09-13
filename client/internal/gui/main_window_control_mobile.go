@@ -82,6 +82,10 @@ func (mw *MainWindow) wireMobileKeyboardStackCallbacks() {
 			mw.applyMainHeaderForKeyboardStack()
 		})
 	})
+	mw.videoWidget.SetOnKeyboardChromeSync(func() {
+		mw.syncMobileKeyboardToggleLook()
+		mw.applyMainHeaderForKeyboardStack()
+	})
 }
 
 // applyMainHeaderForKeyboardStack replaces the connected header with special
@@ -124,35 +128,12 @@ func (mw *MainWindow) showSpecialKeysInMainHeader() {
 	band := view.NewSpecialKeysHeaderBand(kl)
 	mw.mainHeaderHost.Objects = []fyne.CanvasObject{band}
 	mw.mainHeaderHost.Refresh()
+	mw.refreshMainHeaderLayout()
 	reserve := band.MinSize().Height
 	if h := mw.mainHeaderHost.Size().Height; h > reserve {
 		reserve = h
 	}
 	mw.videoWidget.SetSpecialKeysHeaderReserve(reserve)
-	mw.videoWidget.InvalidateOverlayGeometry()
-	mw.refreshMainHeaderLayout()
-
-	// Insets flip to top=0 asynchronously after setStickyIME; re-layout once
-	// Fyne has dropped the safe pad so the band actually sits at y=0.
-	for _, delay := range []time.Duration{80 * time.Millisecond, 220 * time.Millisecond} {
-		d := delay
-		time.AfterFunc(d, func() {
-			fyne.Do(func() {
-				if mw.videoWidget == nil || !mw.videoWidget.IsVirtualKeyboardVisible() {
-					return
-				}
-				mw.refreshMainHeaderLayout()
-				if mw.mainHeaderHost != nil {
-					r := mw.mainHeaderHost.Size().Height
-					if r <= 0 {
-						r = band.MinSize().Height
-					}
-					mw.videoWidget.SetSpecialKeysHeaderReserve(r)
-				}
-				mw.videoWidget.InvalidateOverlayGeometry()
-			})
-		})
-	}
 }
 
 func (mw *MainWindow) restoreMainHeader() {
@@ -163,7 +144,6 @@ func (mw *MainWindow) restoreMainHeader() {
 	mw.mainHeaderHost.Refresh()
 	if mw.videoWidget != nil {
 		mw.videoWidget.SetSpecialKeysHeaderReserve(0)
-		mw.videoWidget.InvalidateOverlayGeometry()
 	}
 	mw.refreshMainHeaderLayout()
 }

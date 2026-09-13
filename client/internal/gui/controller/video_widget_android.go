@@ -159,51 +159,62 @@ func (vw *VideoWidget) HandleAppForegrounded() {
 // NavBar is ~20-50dp; real system keyboard is >150dp. Only expand for the real keyboard.
 func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	const minRealIMEDp = 100
+	const imeHeightSnapDp = 24
 	imeOpen := imeHeightDp > minRealIMEDp
+	if imeOpen {
+		vw.imeConfirmedOpen.Store(true)
+		rememberImeHeightDp(imeHeightDp)
+	}
 	// System Back / GBoard ↓ often hide the soft IME without Activity.onBackPressed.
-	// If our stack is still open after the open animation, collapse it with the IME.
-	if !imeOpen && time.Since(vw.imeStackArmedAt) > 450*time.Millisecond {
+	// Only collapse after a real IME was confirmed — a nav-bar-sized height
+	// during show (or a delayed/aborted GBoard) used to flash special keys
+	// and immediately CloseAllKeyboards.
+	if !imeOpen && vw.imeConfirmedOpen.Load() && time.Since(vw.imeStackArmedAt) > 450*time.Millisecond {
 		if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
 			logrus.Info("⌨️ System IME closed — collapsing keyboard stack")
-			vw.CloseAllKeyboards()
+			fyne.Do(func() { vw.CloseAllKeyboards() })
+			return
 		}
 	}
-	if imeOpen {
-		setImeExpandHeightDp(imeHeightDp)
-	} else {
-		setImeExpandHeightDp(0)
+	if !imeOpen && !vw.imeConfirmedOpen.Load() && vw.IsSystemIMESticky() &&
+		time.Since(vw.imeStackArmedAt) > 350*time.Millisecond &&
+		vw.imeShowRetryUsed.CompareAndSwap(false, true) {
+		logrus.Info("⌨️ System IME not visible after arm — retrying sticky show")
+		graphics.SetStickySystemIME(true)
 	}
+	if !imeOpen {
+		return
+	}
+	cur := getImeExpandHeightDp()
+	delta := imeHeightDp - cur
+	if delta < 0 {
+		delta = -delta
+	}
+	if cur > minRealIMEDp && delta < imeHeightSnapDp {
+		return
+	}
+	setImeExpandHeightDp(imeHeightDp)
 	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
-	// Special keys in the main header: top-align so letterbox sits near the
-	// IME, not as a black band under the keys. Otherwise bottom-align to IME.
-	switch {
-	case imeOpen && vw.specialKeysInMainHeader() && vw.IsVirtualKeyboardVisible():
-		service.VKVideoAndroidSetAlignTop(true)
-	case imeOpen:
+	vw.applyImmediateKeyboardViewport()
+}
+
+func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {
+	imeOpen := getImeExpandHeightDp() > 100
+	if imeOpen {
+		// Same as the IME-only path: sit the picture on the keyboard and
+		// leave letterbox under the special-keys header. AlignTop used to
+		// flush the frame into the keys, which cropped the remote top and
+		// left no black band to pan the desktop down into.
 		service.VKVideoAndroidSetAlignBottom(true)
-	default:
+		service.VKVideoAndroidSetAlignTop(false)
+	} else {
 		service.VKVideoAndroidSetAlignBottom(false)
 		service.VKVideoAndroidSetAlignTop(false)
 	}
-	vw.InvalidateOverlayGeometry()
-	vw.forceCanvasRefresh.Store(true)
-
-	// Invalidate again after a short delay so Vulkan picks up the layout
-	// after the top safe-area inset is cleared for the keyboard stack.
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		fyne.Do(func() {
-			vw.InvalidateOverlayGeometry()
-			vw.forceCanvasRefresh.Store(true)
-		})
-	}()
 	if tw := vw.touchpadWrapper; tw != nil {
 		if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
 			vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
 		}
-	}
-	if imeOpen && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
-		vw.focusViewportOnVirtualCursorForKeyboard()
 	}
 }
 
@@ -225,10 +236,10 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		scale = vw.parentWindow.Canvas().Scale()
 	}
 	pw, ph := int(w*scale), int(h*scale)
-	if pw != vkLastRenderedW || ph != vkLastRenderedH {
-		vkLastRenderedW, vkLastRenderedH = pw, ph
-		service.VKVideoAndroidForceRecreateSwapchain()
-	}
+	// Size changes recreate the swapchain from surfaceChanged. Forcing it
+	// here raced the SurfaceView layout and built 1890 then 2002 then 1807
+	// then 1060 on every keyboard open.
+	vkLastRenderedW, vkLastRenderedH = pw, ph
 	service.VKVideoAndroidUpdateRect(int(x*scale), int(y*scale), pw, ph)
 	vw.updateNativeViewportAndCursor()
 }
@@ -446,7 +457,9 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	// special keys replace the main header (above the surface); any residual
 	// keysH inset is for non-header overlay paths only.
 	videoTop := pos.Y + top
-	if r := vw.specialKeysHeaderReserve; r > 0 && videoTop < r {
+	if r := vw.specialKeysHeaderReserve; r > 0 {
+		// Pin to the special-keys band in window coords so a later safe-area
+		// inset flip does not slide Vulkan over the keys and then drop it.
 		videoTop = r
 	}
 	videoBottom := pos.Y + sz.Height
@@ -471,7 +484,9 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 		if on {
 			graphics.SetStickySystemIME(true)
 			graphics.SetIMETextHandler(vw.handleNativeIMEText)
-			graphics.SetIMEUserDismissedHandler(vw.CloseAllKeyboards)
+			graphics.SetIMEUserDismissedHandler(func() {
+				fyne.Do(func() { vw.CloseAllKeyboards() })
+			})
 		}
 		return
 	}
@@ -482,36 +497,12 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 		// Native EditText owns the soft keyboard. Text goes KeyboardBridge
 		// onIMETextInput (LCP diff) → UTF-8 — not Fyne keyboardTyped.
 		graphics.SetIMETextHandler(vw.handleNativeIMEText)
-		graphics.SetIMEUserDismissedHandler(vw.CloseAllKeyboards)
+		graphics.SetIMEUserDismissedHandler(func() {
+			fyne.Do(func() { vw.CloseAllKeyboards() })
+		})
 		graphics.SetStickySystemIME(true)
 		if vw.touchpadWrapper != nil && vw.parentWindow != nil {
 			vw.parentWindow.Canvas().Focus(vw.touchpadWrapper)
-		}
-		if vw.specialKeysInMainHeader() && vw.IsVirtualKeyboardVisible() {
-			service.VKVideoAndroidSetAlignTop(true)
-		}
-		vw.InvalidateOverlayGeometry()
-		vw.forceCanvasRefresh.Store(true)
-		// Top inset → 0 is async; remeasure Vulkan after Fyne drops the pad.
-		for _, delay := range []time.Duration{100 * time.Millisecond, 280 * time.Millisecond} {
-			d := delay
-			time.AfterFunc(d, func() {
-				fyne.Do(func() {
-					if !vw.systemIMESticky.Load() {
-						return
-					}
-					if vw.specialKeysInMainHeader() && vw.IsVirtualKeyboardVisible() {
-						service.VKVideoAndroidSetAlignTop(true)
-					}
-					vw.InvalidateOverlayGeometry()
-					vw.forceCanvasRefresh.Store(true)
-					if tw := vw.touchpadWrapper; tw != nil {
-						if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
-							vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
-						}
-					}
-				})
-			})
 		}
 		logrus.Info("⌨️ System IME sticky ON (native diff → UTF-8)")
 		return
@@ -522,8 +513,6 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	setImeExpandHeightDp(0)
 	service.VKVideoAndroidSetAlignBottom(false)
 	service.VKVideoAndroidSetAlignTop(false)
-	vw.InvalidateOverlayGeometry()
-	vw.forceCanvasRefresh.Store(true)
 	logrus.Info("⌨️ System IME sticky OFF")
 }
 

@@ -42,3 +42,5 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
 }
+
+func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {}

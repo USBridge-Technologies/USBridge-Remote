@@ -1074,19 +1074,24 @@ func (vw *VideoWidget) OpenKeyboardStack() {
 		return
 	}
 	vw.imeStackArmedAt = time.Now()
+	vw.imeConfirmedOpen.Store(false)
+	vw.imeShowRetryUsed.Store(false)
 	if !vw.IsVirtualKeyboardVisible() {
 		vw.showSpecialKeysOverlay()
 	}
+	// Header must land before GBoard: fyne.Do would delay it a frame and the
+	// system IME would paint first. This callback is sync (footer tap is
+	// already on the UI thread).
+	if vw.onKeyboardChromeSync != nil {
+		vw.onKeyboardChromeSync()
+	} else if vw.onKeyboardStackChanged != nil {
+		vw.onKeyboardStackChanged()
+	}
+	vw.applyImmediateKeyboardViewport()
 	if !vw.IsSystemIMESticky() {
 		vw.SetSystemIMESticky(true)
 	}
 	vw.setKeyboardCollapseFABVisible(true)
-	vw.focusViewportOnVirtualCursorForKeyboard()
-	if vw.onKeyboardStackChanged != nil {
-		vw.onKeyboardStackChanged()
-	}
-	// Header swap + IME animation change available height after this returns.
-	vw.scheduleKeyboardCaretFocus()
 }
 
 // CloseAllKeyboards hides the special-keys overlay and dismisses sticky system IME.
@@ -1101,11 +1106,13 @@ func (vw *VideoWidget) CloseAllKeyboards() {
 	vw.keyboardViewportLift = false
 	vw.bottomInset = 0
 	vw.SetSpecialKeysHeaderReserve(0)
-	vw.recalculateViewport()
-	vw.updateNativeViewportAndCursor()
-	if vw.onKeyboardStackChanged != nil {
+	vw.imeConfirmedOpen.Store(false)
+	if vw.onKeyboardChromeSync != nil {
+		vw.onKeyboardChromeSync()
+	} else if vw.onKeyboardStackChanged != nil {
 		vw.onKeyboardStackChanged()
 	}
+	vw.applyImmediateKeyboardViewport()
 }
 
 // ToggleKeyboardStack opens or closes the combined IME + special-keys stack.
@@ -1120,6 +1127,18 @@ func (vw *VideoWidget) ToggleKeyboardStack() {
 // SetOnKeyboardStackChanged registers a UI refresh when the keyboard stack opens/closes.
 func (vw *VideoWidget) SetOnKeyboardStackChanged(fn func()) {
 	vw.onKeyboardStackChanged = fn
+}
+
+// SetOnKeyboardChromeSync applies the special-keys header synchronously on
+// the UI thread so Vulkan can reserve space before the system IME appears.
+func (vw *VideoWidget) SetOnKeyboardChromeSync(fn func()) {
+	vw.onKeyboardChromeSync = fn
+}
+
+// SetOnKeyboardViewportSettle runs once after IME/header animation, just
+// before Vulkan applies the final overlay rect.
+func (vw *VideoWidget) SetOnKeyboardViewportSettle(fn func()) {
+	vw.onKeyboardViewportSettle = fn
 }
 
 // SetViewportPanMode arms/disarms one-finger video pan (mobile Control footer).

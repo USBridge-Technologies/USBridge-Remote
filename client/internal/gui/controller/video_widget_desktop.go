@@ -54,3 +54,13 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	// Desktop / phone-preview: track the flag for footer selected look; no OS IME.
 	vw.systemIMESticky.Store(on)
 }
+
+func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {}
+
+func (vw *VideoWidget) applyImmediateKeyboardViewport() {
+	if vw == nil {
+		return
+	}
+	vw.InvalidateOverlayGeometry()
+	vw.forceCanvasRefresh.Store(true)
+}

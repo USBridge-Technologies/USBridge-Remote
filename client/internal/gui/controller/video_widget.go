@@ -150,8 +150,10 @@ type VideoWidget struct {
 	startDialog            *view.VideoStartDialog
 	pairingPINDialog       dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
 	parentWindow           fyne.Window
-	virtualKeyboard        *graphics.VirtualKeyboard
-	onKeyboardStackChanged func()
+	virtualKeyboard          *graphics.VirtualKeyboard
+	onKeyboardStackChanged   func()
+	onKeyboardChromeSync     func()
+	onKeyboardViewportSettle func()
 	// viewportPanMode is armed by the mobile Control footer move button.
 	// While true, one-finger drag pans the video instead of moving the cursor.
 	// Stays armed until the button is tapped again (TouchUp/DragEnd must not
@@ -162,7 +164,12 @@ type VideoWidget struct {
 	systemIMESticky          atomic.Bool
 	// imeStackArmedAt is set when the sticky+special-keys stack opens; used to
 	// ignore the brief IME-height=0 window while the soft keyboard is animating up.
-	imeStackArmedAt       time.Time
+	imeStackArmedAt time.Time
+	// imeConfirmedOpen is set once Android reports a real IME height (>100dp).
+	// Auto-collapse on height=navBar must not run until this is true, or a
+	// delayed/aborted GBoard show looks like "opened and immediately skipped".
+	imeConfirmedOpen atomic.Bool
+	imeShowRetryUsed atomic.Bool
 	keyboardModifierState atomic.Int32
 	suppressRuneUntilNS   atomic.Int64
 	softIMEMu             sync.Mutex
