@@ -61,7 +61,12 @@ func (vw *VideoWidget) videoContainerOrigin() fyne.Position {
 	}
 	if vw.lastVideoCanvasOrigin.Y > 0 {
 		// Drop a stale cache after rotate / resize (estimate moved a lot).
-		if estimated <= 0 || absFloat32(vw.lastVideoCanvasOrigin.Y-estimated) < 64 {
+		// Reduced from 64 to 20 so status-bar / safe-area height changes (which
+		// are typically ~24-48dp) correctly bust the cache instead of leaving
+		// a black strip where the safe zone used to be.
+		if estimated <= 0 || absFloat32(vw.lastVideoCanvasOrigin.Y-estimated) > 20 {
+			vw.lastVideoCanvasOrigin = fyne.NewPos(0, 0)
+		} else {
 			return vw.lastVideoCanvasOrigin
 		}
 	}
