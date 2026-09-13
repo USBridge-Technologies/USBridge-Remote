@@ -134,7 +134,7 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
-	
+
 	logrus.Debugf("⌨️ [INPUT][DOWN] key=%q physical=%+v", event.Name, event.Physical)
 	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
 		for {
@@ -1344,68 +1344,51 @@ func (vw *VideoWidget) recalculateViewport() {
 	if scale < 1 {
 		scale = 1
 	}
+	// Soft-snap near 1x without wiping an explicit pan.
+	if scale <= 1.001 {
+		scale = 1
+		vw.zoomScale = 1
+	}
 
 	contentW := baseW * scale
 	contentH := baseH * scale
 
-	// Center horizontally relative to the whole screen
-	contentX := (vw.touchpadSizeW - contentW) / 2
+	// panOffset is a delta from the centered position.
+	//
+	// Overflow (content > view): hard clamp so edges never reveal empty/black.
+	// Fit (content ≤ view), including zoomed-but-still-letterboxed: free pan with
+	// a min-visible floor. Previously we forced pan=0 on fitting axes whenever
+	// zoom>1 — that snapped zoom-after-pan back to center and made post-zoom
+	// drag feel broken on portrait (height often still fits after moderate zoom).
+	const minVisible = float32(0.3)
 
-	// Vertical positioning logic:
-	var contentY float32
-	if contentH > availableH {
-		// Video is larger than the available area. Default (panOffsetY ==
-		// 0): center it vertically -- the same reference point used when
-		// the video fits (the "else" branch below), and matching the X
-		// axis a few lines down, which already centers by default
-		// (contentX starts at (touchpadSizeW-contentW)/2, panOffsetX
-		// clamped symmetrically to ±maxPanX). panOffsetY is a delta from
-		// that centered position, only pushed toward the top or bottom
-		// edge by an explicit user pan or an off-center pinch-zoom anchor
-		// (applyViewportGesture) -- and even then, clamped so it never
-		// reveals empty space past the video's own top/bottom edge.
-		//
-		// Previously this defaulted to bottom-anchored (contentY =
-		// availableH-contentH, panOffsetY clamped to [0, maxPanY]) --
-		// confirmed live as the cause of a jarring jump the instant a
-		// pinch-zoom pushed contentH past availableH: the video would
-		// snap from centered straight to "see the bottom of the source
-		// picture" with no user-initiated pan to justify it.
-		maxPanY := (contentH - availableH) / 2
-		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY, maxPanY)
-		contentY = (availableH-contentH)/2 + vw.panOffsetY
-	} else if vw.bottomAnchorContentVertically {
-		// wasm only (see the field's own doc comment): anchor flush
-		// against the bottom of the available area, right above the
-		// keyboard panel, instead of centering -- keeps the video's own
-		// position stable as availableH changes (IME open/close), so any
-		// extra/freed height only ever reveals or hides space *above* the
-		// video, never moves the video itself.
-		contentY = availableH - contentH
-		vw.panOffsetY = 0
-	} else {
-		// Video is smaller than the available area - center it within it
-		contentY = (availableH - contentH) / 2
-		vw.panOffsetY = 0
-	}
-
+	centerX := (vw.touchpadSizeW - contentW) / 2
 	if contentW > vw.touchpadSizeW {
 		maxPanX := (contentW - vw.touchpadSizeW) / 2
 		vw.panOffsetX = clampFloat(vw.panOffsetX, -maxPanX, maxPanX)
-		contentX += vw.panOffsetX
 	} else {
-		vw.panOffsetX = 0
+		minX := -contentW * (1 - minVisible)
+		maxX := vw.touchpadSizeW - contentW*minVisible
+		contentX := clampFloat(centerX+vw.panOffsetX, minX, maxX)
+		vw.panOffsetX = contentX - centerX
 	}
+	contentX := centerX + vw.panOffsetX
 
-	if scale <= 1.001 && vw.bottomInset == 0 {
-		scale = 1
-		vw.zoomScale = 1
-		vw.panOffsetX = 0
+	var contentY float32
+	centerY := (availableH - contentH) / 2
+	if vw.bottomAnchorContentVertically && contentH <= availableH {
+		// wasm only: keep flush above the IME panel; no free letterbox pan.
+		contentY = availableH - contentH
 		vw.panOffsetY = 0
-		contentW = baseW
-		contentH = baseH
-		contentX = (vw.touchpadSizeW - contentW) / 2
-		contentY = (vw.touchpadSizeH - contentH) / 2
+	} else if contentH > availableH {
+		maxPanY := (contentH - availableH) / 2
+		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY, maxPanY)
+		contentY = centerY + vw.panOffsetY
+	} else {
+		minY := -contentH * (1 - minVisible)
+		maxY := availableH - contentH*minVisible
+		contentY = clampFloat(centerY+vw.panOffsetY, minY, maxY)
+		vw.panOffsetY = contentY - centerY
 	}
 
 	vw.contentRectX = contentX
@@ -1414,6 +1397,94 @@ func (vw *VideoWidget) recalculateViewport() {
 	vw.contentRectH = contentH
 
 	vw.debugLogViewport("recalc")
+}
+
+// snapViewportThresholdFrac is how close (as a fraction of the view size on
+// that axis) the release pan must be to a snap target before we magnetize.
+// Keep this tight: only "almost aligned but not quite", not after every drag.
+const snapViewportThresholdFrac = float32(0.03) // 3%
+
+// snapViewportAlignment magnetizes pan to center or flush edges after a
+// two-finger gesture ends, so the user does not need to aim precisely.
+// Returns true if panOffset changed.
+func (vw *VideoWidget) snapViewportAlignment() bool {
+	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
+		return false
+	}
+	vw.recalculateViewport()
+
+	availableH := vw.touchpadSizeH - vw.bottomInset
+	if availableH < 0 {
+		availableH = 0
+	}
+	contentW := vw.contentRectW
+	contentH := vw.contentRectH
+	changed := false
+
+	if contentW > 0 {
+		thresh := vw.touchpadSizeW * snapViewportThresholdFrac
+		targets := viewportSnapTargets(vw.touchpadSizeW, contentW)
+		if snapped, ok := snapToNearestOffset(vw.panOffsetX, targets, thresh); ok {
+			vw.panOffsetX = snapped
+			changed = true
+		}
+	}
+	if contentH > 0 && availableH > 0 && !vw.bottomAnchorContentVertically {
+		thresh := availableH * snapViewportThresholdFrac
+		targets := viewportSnapTargets(availableH, contentH)
+		if snapped, ok := snapToNearestOffset(vw.panOffsetY, targets, thresh); ok {
+			vw.panOffsetY = snapped
+			changed = true
+		}
+	}
+
+	if changed {
+		vw.recalculateViewport()
+	}
+	return changed
+}
+
+// viewportSnapTargets returns panOffset values for center and flush edges.
+// panOffset is a delta from the centered position (see recalculateViewport).
+func viewportSnapTargets(view, content float32) []float32 {
+	// Always offer center.
+	targets := []float32{0}
+	if content > view {
+		maxPan := (content - view) / 2
+		// +maxPan → content flush to view start (left/top)
+		// -maxPan → content flush to view end (right/bottom)
+		targets = append(targets, maxPan, -maxPan)
+		return targets
+	}
+	center := (view - content) / 2
+	// content at 0 (flush start) / content at view-content (flush end)
+	targets = append(targets, -center, view-content-center)
+	return targets
+}
+
+func snapToNearestOffset(val float32, targets []float32, thresh float32) (float32, bool) {
+	if thresh < 0 {
+		thresh = 0
+	}
+	best := val
+	bestDist := thresh + 1
+	found := false
+	for _, t := range targets {
+		d := float32(math.Abs(float64(val - t)))
+		if d <= thresh && (!found || d < bestDist) {
+			best = t
+			bestDist = d
+			found = true
+		}
+	}
+	if !found {
+		return val, false
+	}
+	// Already on target — no change.
+	if almostEqual(val, best) {
+		return val, false
+	}
+	return best, true
 }
 
 func (vw *VideoWidget) GetViewportRect() (float32, float32, float32, float32) {
@@ -1427,7 +1498,7 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 		return
 	}
 
-	oldX, _, oldW, oldH := vw.GetViewportRect()
+	oldX, oldY, oldW, oldH := vw.GetViewportRect()
 	if oldW <= 0 || oldH <= 0 {
 		return
 	}
@@ -1436,9 +1507,11 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 	if nextZoom < 1 {
 		nextZoom = 1
 	}
-	// On 60fps gesture updates (like iOS), per-frame scale is very close to 1.0.
-	// Lower the deadzone threshold so we don't swallow smooth pinch gestures.
-	if scaleFactor <= 0 || math.Abs(float64(scaleFactor-1)) < 0.001 {
+	// Pan gestures produce noisy per-frame scale (~0.99..1.01). Applying that
+	// every frame accumulates zoom, switches fit→overflow clamps, and snaps
+	// pan back toward center while fingers are still down. Require a real pinch.
+	const zoomDeadzone = 0.02
+	if scaleFactor <= 0 || math.Abs(float64(scaleFactor-1)) < zoomDeadzone {
 		scaleFactor = 1
 	}
 	if scaleFactor > 0 && scaleFactor != 1 {
@@ -1448,35 +1521,31 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 	vw.zoomScale = nextZoom
 	vw.recalculateViewport()
 
-	if scaleFactor > 0 && !almostEqual(scaleFactor, 1) {
-		localFocusX := clampFloat(focusX, 0, vw.touchpadSizeW)
-		u := clampFloat((localFocusX-oldX)/oldW, 0, 1)
-
-		newW := vw.contentRectW
-		if newW > vw.touchpadSizeW {
-			baseX := (vw.touchpadSizeW - newW) / 2
-			vw.panOffsetX = localFocusX - u*newW - baseX
+	zoomed := scaleFactor > 0 && !almostEqual(scaleFactor, 1)
+	if zoomed {
+		// Keep the content point under the pinch focus stable on both axes
+		// (including fit→overflow), so a prior pan is not lost on zoom.
+		availableH := vw.touchpadSizeH - vw.bottomInset
+		if availableH < 0 {
+			availableH = 0
 		}
-		// Deliberately NOT anchoring vertically to the pinch focus point
-		// the way the X axis (and an earlier version of this function)
-		// does. Two-finger pinches naturally land wherever the user's
-		// hands happen to rest -- often well below screen center on a
-		// phone -- and anchoring to that point on every scale step made
-		// the picture visibly crawl toward whatever's under the fingers
-		// as zoom increased, reported live as the video "jumping down".
-		// recalculateViewport's own default (centered, panOffsetY == 0)
-		// already is the desired behavior here: zoom always stays
-		// centered, and the only way to look at the video's top/bottom
-		// edge is an explicit two-finger drag (panDy below), which
-		// recalculateViewport's symmetric clamp keeps from ever revealing
-		// empty space past either edge. So: no panOffsetY assignment here
-		// at all -- leave it exactly as recalculateViewport already set
-		// it a few lines up (0, unless a previous drag pushed it off
-		// center).
+		localFocusX := clampFloat(focusX, 0, vw.touchpadSizeW)
+		localFocusY := clampFloat(focusY, 0, availableH)
+		u := clampFloat((localFocusX-oldX)/oldW, 0, 1)
+		v := clampFloat((localFocusY-oldY)/oldH, 0, 1)
+		newW := vw.contentRectW
+		newH := vw.contentRectH
+		baseX := (vw.touchpadSizeW - newW) / 2
+		baseY := (availableH - newH) / 2
+		vw.panOffsetX = localFocusX - u*newW - baseX
+		vw.panOffsetY = localFocusY - v*newH - baseY
 	}
 
 	vw.panOffsetX += panDx
 	vw.panOffsetY += panDy
+	// Any two-finger viewport gesture owns pan/zoom until the user moves the
+	// virtual cursor again (blocks cursor-follow from snapping back to center).
+	vw.viewportManualControl = true
 	vw.recalculateViewport()
 }
 
@@ -1484,6 +1553,7 @@ func (vw *VideoWidget) resetViewport() {
 	vw.zoomScale = 1
 	vw.panOffsetX = 0
 	vw.panOffsetY = 0
+	vw.viewportManualControl = false
 	vw.recalculateViewport()
 	vw.updateNativeViewportAndCursor()
 }

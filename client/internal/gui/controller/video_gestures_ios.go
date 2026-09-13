@@ -39,6 +39,11 @@ func deliverViewportGestureStateFromObjC(active C.int) {
 	iosScrollAccumY = 0
 	vw.lastMultiTouchAt = time.Now()
 	vw.cancelLocalTouchState()
+	fyne.Do(func() {
+		vw.snapViewportAlignment()
+		vw.updateNativeViewportAndCursor()
+		vw.refreshViewportViews()
+	})
 }
 
 //export deliverViewportGestureUpdateFromObjC

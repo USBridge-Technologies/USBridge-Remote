@@ -62,12 +62,20 @@ func deliverViewportGestureStateFromJNI(active C.jboolean) {
 	vw.multiTouchActive = isActive
 	if isActive {
 		vw.lastMultiTouchAt = time.Now()
+		vw.viewportManualControl = true
 		vw.cancelLocalTouchState()
 		return
 	}
 	scrollAccumY = 0
 	vw.lastMultiTouchAt = time.Now()
 	vw.cancelLocalTouchState()
+	// Soft-snap to center / edges if the release pan is close, then re-push
+	// so the settled offset sticks (no layout path snapping elsewhere).
+	fyne.Do(func() {
+		vw.snapViewportAlignment()
+		vw.updateNativeViewportAndCursor()
+		vw.refreshViewportViews()
+	})
 }
 
 //export deliverViewportGestureUpdateFromJNI
@@ -104,8 +112,9 @@ func deliverViewportGestureUpdateFromJNI(scaleFactor, focusX, focusY, panDx, pan
 
 		vw.UpdateTouchpadAndContentRect(wrapperSize.Width, wrapperSize.Height, vw.GetCurrentFrame())
 		vw.applyViewportGesture(float32(scaleFactor), localFocusX, localFocusY, float32(panDx)/scale, float32(panDy)/scale)
+		// Push Vulkan viewport only — avoid touchpad Refresh/layout every MOVE,
+		// which was fighting pan and helping snap the picture back to center.
 		vw.updateNativeViewportAndCursor()
-		vw.refreshViewportViews()
 	})
 }
 

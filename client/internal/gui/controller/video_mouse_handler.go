@@ -1189,6 +1189,10 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 	if ch > 0 {
 		vw.virtualCursorV = clampFloat(vw.virtualCursorV+rawDy/ch, minV, maxV)
 	}
+	// Resume cursor-follow viewport after a manual two-finger pan/zoom.
+	if rawDx != 0 || rawDy != 0 {
+		vw.viewportManualControl = false
+	}
 	vw.vcMu.Unlock()
 	// Only mark as dragging after significant movement so that touch noise
 	// doesn't prevent tap detection in TouchUp.

@@ -245,42 +245,41 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	}
 
 	if isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
-		vw.vcMu.Lock()
-		targetU := vw.virtualCursorU
-		targetV := vw.virtualCursorV
-		vw.vcMu.Unlock()
+		// Two-finger pan/zoom owns the viewport until the user moves the
+		// virtual cursor again. Auto-centering while zoomed was overwriting
+		// panOffset every push and snapping the picture back to center.
+		if !vw.multiTouchActive && !vw.viewportManualControl {
+			vw.vcMu.Lock()
+			targetU := vw.virtualCursorU
+			targetV := vw.virtualCursorV
+			vw.vcMu.Unlock()
 
-		// Center the viewport mathematically on the raw cursor with spring easing
-		vw.centerViewportOnVirtualCursor(targetU, targetV)
+			vw.centerViewportOnVirtualCursor(targetU, targetV)
 
-		// After updating tw.panX and tw.panY, we must refresh vw.contentRectX/Y
-		// so the viewport coordinates below reflect the new pan.
-		if tw := vw.activeViewportWrapper(); tw != nil {
-			vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			// After updating pan, refresh contentRect so UV below matches.
+			if tw := vw.activeViewportWrapper(); tw != nil {
+				vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			}
 		}
 	}
 
-	// When the system IME is open, the Vulkan SurfaceView expands above the
-	// touchpad widget by the container's normal canvas Y (header band).
-	// Subtract that from contentRectY so v0 reaches into the video content
-	// that sits above the original touchpad top.
-	extraTopDp := float32(0)
-	if getImeExpandHeightDp() > 0 && vw.container != nil {
-		if y := vw.videoContainerOrigin().Y; y > 0 {
-			extraTopDp = y
-		}
-	}
+	// RustDesk-style zoom: always blit the full frame into an aspect-fit dest
+	// scaled by zoomScale, then pan that dest. UV crop + stretch was deforming
+	// the picture (horizontal squash) and jumping size when leaving fit mode.
+	u0, v0, u1, v1 := float32(0), float32(0), float32(1), float32(1)
 
-	// Compute visible UV rect from Go viewport state.
-	cw, ch := vw.contentRectW, vw.contentRectH
-	var u0, v0, u1, v1 float32
-	if cw <= 0 || ch <= 0 {
-		u0, v0, u1, v1 = 0, 0, 1, 1
-	} else {
-		u0 = clampFloat(-vw.contentRectX/cw, 0, 1)
-		v0 = clampFloat(-(vw.contentRectY+extraTopDp)/ch, 0, 1)
-		u1 = clampFloat((vw.touchpadSizeW-vw.contentRectX)/cw, 0, 1)
-		v1 = clampFloat((vw.touchpadSizeH-vw.contentRectY)/ch, 0, 1)
+	scale := float32(1)
+	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+		scale = vw.parentWindow.Canvas().Scale()
+	}
+	if scale <= 0 {
+		scale = 1
+	}
+	blitPanX := vw.panOffsetX * scale
+	blitPanY := vw.panOffsetY * scale
+	zoom := vw.zoomScale
+	if zoom < 1 {
+		zoom = 1
 	}
 
 	// Write viewport + cursor in a single mutex-protected call so the C render
@@ -293,7 +292,7 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 		uc, vc = vw.virtualCursorU, vw.virtualCursorV
 		vw.vcMu.Unlock()
 	}
-	service.VKVideoAndroidSetViewportAndCursor(u0, v0, u1, v1, uc, vc, cursorVisible)
+	service.VKVideoAndroidSetViewportAndCursor(u0, v0, u1, v1, uc, vc, cursorVisible, blitPanX, blitPanY, zoom)
 }
 
 // centerViewportOnVirtualCursor pans the viewport so the virtual cursor is

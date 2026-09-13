@@ -231,16 +231,21 @@ type VideoWidget struct {
 	bottomAnchorContentVertically bool
 	multiTouchActive              bool
 	lastMultiTouchAt              time.Time
-	scrollDragAxis                string
-	scrollDragLastX               float32
-	scrollDragLastY               float32
-	lastTouchX                    int // last sent touch coordinates (to avoid duplicating in MouseMoved)
-	lastTouchY                    int
-	lastAbsX                      int // last sent absolute (touch_position) coordinates, to avoid spamming
-	lastAbsY                      int
-	lastAbsSentTime               time.Time // time of the last absolute send (for debounce)
-	absSendMu                     sync.Mutex
-	absButtons                    uint8 // bitmask of buttons for absolute mode
+	// viewportManualControl is set by two-finger pan/zoom. While true,
+	// virtual-cursor auto-centering must not overwrite panOffset — otherwise
+	// zoom-after-pan snaps to center and pan-after-zoom is impossible.
+	// Cleared when the user moves the virtual cursor again.
+	viewportManualControl bool
+	scrollDragAxis        string
+	scrollDragLastX       float32
+	scrollDragLastY       float32
+	lastTouchX            int // last sent touch coordinates (to avoid duplicating in MouseMoved)
+	lastTouchY            int
+	lastAbsX              int // last sent absolute (touch_position) coordinates, to avoid spamming
+	lastAbsY              int
+	lastAbsSentTime       time.Time // time of the last absolute send (for debounce)
+	absSendMu             sync.Mutex
+	absButtons            uint8 // bitmask of buttons for absolute mode
 	// Stats for periodic log (atomics — written from capture goroutine, read from log timer).
 	statAbsMoonlight  atomic.Int64 // absolute events sent via Moonlight LiSendMousePositionEvent
 	statAbsWS         atomic.Int64 // absolute events sent via WebSocket

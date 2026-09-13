@@ -5,38 +5,42 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Stateful two-finger gesture tracker with mode locked at gesture start.
+ * Stateful two-finger gesture tracker (RustDesk-style canvas grab).
  *
- * Mode is decided ONCE when the second finger touches down, based on initial finger distance:
+ * After the second finger lands, the gesture locks into either:
+ *   - PAN: centroid drag moves the video; scale is forced to 1 so finger-distance
+ *     noise cannot accumulate zoom and re-clamp pan back to center
+ *   - PINCH: distance change drives zoom (centroid pan still forwarded)
  *
- *   PAN_ZOOM (fingers far apart, >= panZoomThresholdPx)
- *     → centroid pan + pinch zoom only.
- *
- *   SCROLL (fingers close, < panZoomThresholdPx)
- *     → vertical scroll wheel only.
- *
- * The two branches are mutually exclusive — a close-together gesture never also triggers
- * zoom/resize, and a far-apart gesture never also triggers scroll.
- * The mode never changes mid-gesture, eliminating the per-frame flip-flopping that caused
- * scroll/zoom/pan to conflict with each other.
+ * Locking the sub-mode once prevents mid-gesture flip-flops that made the
+ * picture jerk and snap to center while fingers were still down.
  */
 class TwoFingerGestureTracker(
-    /** Distance threshold (physical pixels) that separates SCROLL from PAN_ZOOM. */
+    /**
+     * Kept for call-site compatibility; unused (two-finger is always canvas pan/zoom).
+     */
+    @Suppress("UNUSED_PARAMETER")
     private val panZoomThresholdPx: Float,
     /** Called with true when a two-finger gesture begins, false when it ends. */
     private val onActiveChanged: (Boolean) -> Unit,
-    /** Called every frame in PAN_ZOOM mode with (scaleFactor, focusX, focusY, panDx, panDy). */
+    /** Called every frame with (scaleFactor, focusX, focusY, panDx, panDy). */
     private val onPanZoom: (scale: Float, focusX: Float, focusY: Float, dx: Float, dy: Float) -> Unit,
-    /** Called every frame in SCROLL mode with the raw centroid-Y delta (positive = fingers moved down). */
+    /**
+     * Unused: previously fired for close-finger vertical drag as a scroll wheel.
+     * Retained so MainActivity wiring stays stable.
+     */
+    @Suppress("UNUSED_PARAMETER")
     private val onScroll: (scrollDy: Float) -> Unit,
 ) {
-    private enum class Mode { NONE, PAN_ZOOM, SCROLL }
+    private enum class Mode { NONE, ACTIVE }
+    private enum class SubMode { UNDECIDED, PAN, PINCH }
 
     private var mode = Mode.NONE
-    private var lastDist  = 0f
+    private var subMode = SubMode.UNDECIDED
+    private var lastDist = 0f
     private var lastCentX = 0f
     private var lastCentY = 0f
-    private var active    = false
+    private var active = false
 
     fun onTouchEvent(ev: MotionEvent) {
         when (ev.actionMasked) {
@@ -61,42 +65,56 @@ class TwoFingerGestureTracker(
     // ── private ──────────────────────────────────────────────────────────────
 
     private fun activate(ev: MotionEvent) {
-        lastDist  = dist(ev)
+        lastDist = dist(ev)
         lastCentX = centX(ev)
         lastCentY = centY(ev)
-        mode = if (lastDist >= panZoomThresholdPx) Mode.PAN_ZOOM else Mode.SCROLL
-        if (!active) { active = true; onActiveChanged(true) }
+        mode = Mode.ACTIVE
+        subMode = SubMode.UNDECIDED
+        if (!active) {
+            active = true
+            onActiveChanged(true)
+        }
     }
 
     private fun update(ev: MotionEvent) {
-        if (mode == Mode.NONE) { activate(ev); return }
-
-        val curDist  = dist(ev)
-        val curCentX = centX(ev)
-        val curCentY = centY(ev)
-        val scale    = if (lastDist > 0f && curDist > 0f) curDist / lastDist else 1f
-        val dx = curCentX - lastCentX
-        val dy = curCentY - lastCentY
-
-        when (mode) {
-            Mode.PAN_ZOOM ->
-                onPanZoom(scale, curCentX, curCentY, dx, dy)
-
-            Mode.SCROLL ->
-                onScroll(dy)
-
-            Mode.NONE -> {}
+        if (mode == Mode.NONE) {
+            activate(ev)
+            return
         }
 
-        lastDist  = curDist
+        val curDist = dist(ev)
+        val curCentX = centX(ev)
+        val curCentY = centY(ev)
+        val scale = if (lastDist > 0f && curDist > 0f) curDist / lastDist else 1f
+        val dx = curCentX - lastCentX
+        val dy = curCentY - lastCentY
+        val distDelta = abs(curDist - lastDist)
+        val panMag = sqrt(dx * dx + dy * dy)
+
+        // Decide once the fingers have moved enough to tell pan from pinch.
+        if (subMode == SubMode.UNDECIDED && (panMag > 10f || distDelta > 10f)) {
+            subMode = if (panMag >= distDelta * 1.2f) SubMode.PAN else SubMode.PINCH
+        }
+
+        val outScale = when (subMode) {
+            SubMode.PAN -> 1f // ignore distance noise during grab-and-drag
+            SubMode.PINCH, SubMode.UNDECIDED -> scale
+        }
+        onPanZoom(outScale, curCentX, curCentY, dx, dy)
+
+        lastDist = curDist
         lastCentX = curCentX
         lastCentY = curCentY
     }
 
     private fun deactivate() {
         mode = Mode.NONE
+        subMode = SubMode.UNDECIDED
         lastDist = 0f
-        if (active) { active = false; onActiveChanged(false) }
+        if (active) {
+            active = false
+            onActiveChanged(false)
+        }
     }
 
     private fun dist(ev: MotionEvent): Float {

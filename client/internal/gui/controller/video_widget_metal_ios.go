@@ -270,16 +270,18 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 // to keep the cursor centred on screen, then repositions the Metal overlay.
 func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	if isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
-		vw.vcMu.Lock()
-		targetU := vw.virtualCursorU
-		targetV := vw.virtualCursorV
-		vw.vcMu.Unlock()
+		if !vw.multiTouchActive && !vw.viewportManualControl {
+			vw.vcMu.Lock()
+			targetU := vw.virtualCursorU
+			targetV := vw.virtualCursorV
+			vw.vcMu.Unlock()
 
-		vw.centerViewportOnVirtualCursor(targetU, targetV)
+			vw.centerViewportOnVirtualCursor(targetU, targetV)
 
-		// Recompute contentRect after the pan change.
-		if tw := vw.activeViewportWrapper(); tw != nil {
-			vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			// Recompute contentRect after the pan change.
+			if tw := vw.activeViewportWrapper(); tw != nil {
+				vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			}
 		}
 	}
 	vw.updateMetalVideoFrame()

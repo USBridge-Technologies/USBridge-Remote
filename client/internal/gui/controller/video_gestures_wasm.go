@@ -536,6 +536,9 @@ func onTouchEnd(this js.Value, args []js.Value) interface{} {
 			vw.multiTouchActive = false
 			vw.lastMultiTouchAt = time.Now()
 			vw.cancelLocalTouchState()
+			vw.snapViewportAlignment()
+			vw.updateNativeViewportAndCursor()
+			vw.refreshViewportViews()
 		}
 		return nil
 	}
