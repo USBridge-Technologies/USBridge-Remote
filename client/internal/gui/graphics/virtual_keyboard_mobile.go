@@ -61,6 +61,54 @@ type backspaceEntry struct {
 	onFocused   func() // called when the field gains focus (IME will open)
 	onUnfocused func() // called when the field loses focus (IME will close)
 	border      *canvas.Rectangle
+	content     fyne.CanvasObject
+}
+
+func (e *backspaceEntry) CreateRenderer() fyne.WidgetRenderer {
+	r := e.Entry.CreateRenderer()
+	if e.content != nil {
+		return &backspaceEntryRenderer{renderer: r, entry: e}
+	}
+	return r
+}
+
+type backspaceEntryRenderer struct {
+	renderer fyne.WidgetRenderer
+	entry    *backspaceEntry
+}
+
+func (r *backspaceEntryRenderer) Destroy() {
+	r.renderer.Destroy()
+}
+
+func (r *backspaceEntryRenderer) Layout(size fyne.Size) {
+	r.renderer.Layout(size)
+	if r.entry.content != nil {
+		r.entry.content.Resize(size)
+		r.entry.content.Move(fyne.NewPos(0, 0))
+	}
+}
+
+func (r *backspaceEntryRenderer) MinSize() fyne.Size {
+	if r.entry.content != nil {
+		return r.entry.content.MinSize()
+	}
+	return r.renderer.MinSize()
+}
+
+func (r *backspaceEntryRenderer) Objects() []fyne.CanvasObject {
+	objs := r.renderer.Objects()
+	if r.entry.content != nil {
+		for _, o := range objs {
+			o.Hide()
+		}
+		return append(objs, r.entry.content)
+	}
+	return objs
+}
+
+func (r *backspaceEntryRenderer) Refresh() {
+	r.renderer.Refresh()
 }
 
 func (e *backspaceEntry) TypedKey(key *fyne.KeyEvent) {
@@ -268,9 +316,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	// the native EditText (sticky) → keyboardTyped → touchpad UTF-8 — no
 	// visible buffer the user has to type into and clear.
 	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 2, 2, 2, 2)
-	textHint.Resize(fyne.NewSize(1, 1))
-	textHint.Move(fyne.NewPos(0, 0))
-	textHint.Hide()
+	textHint.content = view.NewInsetExact(keys, 8, 8, 6, 6)
 
 	vk.imeSpacer = &imeSpacerLayout{height: 0}
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
@@ -283,7 +329,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	background := canvas.NewRectangle(design.ColorGray900)
 	return container.NewMax(container.NewThemeOverride(
-		container.NewStack(background, view.NewInsetExact(keys, 8, 8, 6, 6)),
+		container.NewStack(background, textHint),
 		design.NewBrandTheme(),
 	))
 }

@@ -44,16 +44,17 @@ type compactKey struct {
 	border  *canvas.Rectangle
 	text    *canvas.Text
 	iconImg *canvas.Image
+	vk      *VirtualKeyboard
 }
 
-func newCompactKey(label string, kind compactKeyKind, minW float32, onTap func()) *compactKey {
-	k := &compactKey{label: label, kind: kind, minW: minW, onTap: onTap}
+func newCompactKey(vk *VirtualKeyboard, label string, kind compactKeyKind, minW float32, onTap func()) *compactKey {
+	k := &compactKey{vk: vk, label: label, kind: kind, minW: minW, onTap: onTap}
 	k.ExtendBaseWidget(k)
 	return k
 }
 
-func newCompactIconKey(icon fyne.Resource, minW float32, onTap func()) *compactKey {
-	k := &compactKey{icon: icon, kind: compactKeyNormal, minW: minW, onTap: onTap}
+func newCompactIconKey(vk *VirtualKeyboard, icon fyne.Resource, minW float32, onTap func()) *compactKey {
+	k := &compactKey{vk: vk, icon: icon, kind: compactKeyNormal, minW: minW, onTap: onTap}
 	k.ExtendBaseWidget(k)
 	return k
 }
@@ -279,7 +280,7 @@ func (vk *VirtualKeyboard) RefreshCompactLayout() {
 }
 
 func (vk *VirtualKeyboard) newCompactFnKey(rebuild func()) *compactKey {
-	fnKey := newCompactKey("Fn", compactKeyNormal, 36, nil)
+	fnKey := newCompactKey(vk, "Fn", compactKeyNormal, 36, nil)
 	fnKey.onTap = func() {
 		vk.compactFnOn = !vk.compactFnOn
 		fnKey.SetActive(vk.compactFnOn)
@@ -292,19 +293,19 @@ func (vk *VirtualKeyboard) newCompactFnKey(rebuild func()) *compactKey {
 }
 
 func (vk *VirtualKeyboard) buildCompactModifierKeys(rebuild func()) (shiftKey, ctrlKey, winKey, altKey, fnKey *compactKey) {
-	shiftKey = newCompactKey("Shift", compactKeyNormal, 48, func() {
+	shiftKey = newCompactKey(vk, "Shift", compactKeyNormal, 48, func() {
 		vk.toggleModifier(225)
 		shiftKey.SetActive(vk.shiftPressed)
 	})
-	ctrlKey = newCompactKey("Ctrl", compactKeyNormal, 40, func() {
+	ctrlKey = newCompactKey(vk, "Ctrl", compactKeyNormal, 40, func() {
 		vk.toggleModifier(224)
 		ctrlKey.SetActive(vk.ctrlPressed)
 	})
-	winKey = newCompactKey("Win", compactKeyNormal, 40, func() {
+	winKey = newCompactKey(vk, "Win", compactKeyNormal, 40, func() {
 		vk.toggleModifier(227)
 		winKey.SetActive(vk.winPressed)
 	})
-	altKey = newCompactKey("Alt", compactKeyNormal, 40, func() {
+	altKey = newCompactKey(vk, "Alt", compactKeyNormal, 40, func() {
 		vk.toggleModifier(226)
 		altKey.SetActive(vk.altPressed)
 	})
@@ -319,8 +320,8 @@ func (vk *VirtualKeyboard) buildCompactModifierKeys(rebuild func()) (shiftKey, c
 func (vk *VirtualKeyboard) buildPortraitCompactKeys(rebuild func()) fyne.CanvasObject {
 	shiftKey, ctrlKey, winKey, altKey, fnKey := vk.buildCompactModifierKeys(rebuild)
 	row1 := container.NewHBox(
-		padCompactKey(newCompactKey("Esc", compactKeyNormal, 40, func() { vk.handleKeyPress(41, 0) })),
-		padCompactKey(newCompactKey("Tab", compactKeyNormal, 40, func() { vk.handleKeyPress(43, 0) })),
+		padCompactKey(newCompactKey(vk, "Esc", compactKeyNormal, 40, func() { vk.handleKeyPress(41, 0) })),
+		padCompactKey(newCompactKey(vk, "Tab", compactKeyNormal, 40, func() { vk.handleKeyPress(43, 0) })),
 		padCompactKey(shiftKey),
 		padCompactKey(ctrlKey),
 		padCompactKey(winKey),
@@ -328,8 +329,8 @@ func (vk *VirtualKeyboard) buildPortraitCompactKeys(rebuild func()) fyne.CanvasO
 		padCompactKey(fnKey),
 	)
 	row2 := container.NewHBox(
-		padCompactKey(newCompactKey("Del", compactKeyNormal, 44, func() { vk.handleKeyPress(76, 0) })),
-		padCompactKey(newCompactKey("Enter", compactKeyNormal, 56, func() { vk.handleKeyPress(40, 0) })),
+		padCompactKey(newCompactKey(vk, "Del", compactKeyNormal, 44, func() { vk.handleKeyPress(76, 0) })),
+		padCompactKey(newCompactKey(vk, "Enter", compactKeyNormal, 56, func() { vk.handleKeyPress(40, 0) })),
 		vk.buildCompactArrowRow(),
 	)
 	return container.NewVBox(row1, row2)
@@ -344,17 +345,17 @@ func (vk *VirtualKeyboard) buildLandscapeCompactKeys(rebuild func()) fyne.Canvas
 	fnKey.minW = 34
 	const kw = float32(34)
 	row1 := container.NewHBox(
-		padCompactKey(newCompactKey("Esc", compactKeyNormal, kw, func() { vk.handleKeyPress(41, 0) })),
-		padCompactKey(newCompactKey("Tab", compactKeyNormal, kw, func() { vk.handleKeyPress(43, 0) })),
+		padCompactKey(newCompactKey(vk, "Esc", compactKeyNormal, kw, func() { vk.handleKeyPress(41, 0) })),
+		padCompactKey(newCompactKey(vk, "Tab", compactKeyNormal, kw, func() { vk.handleKeyPress(43, 0) })),
 		padCompactKey(shiftKey),
 		padCompactKey(ctrlKey),
 		padCompactKey(winKey),
 		padCompactKey(altKey),
-		padCompactKey(newCompactKey("Del", compactKeyNormal, kw, func() { vk.handleKeyPress(76, 0) })),
+		padCompactKey(newCompactKey(vk, "Del", compactKeyNormal, kw, func() { vk.handleKeyPress(76, 0) })),
 		padCompactKey(fnKey),
 	)
 	row2 := container.NewHBox(
-		padCompactKey(newCompactKey("Enter", compactKeyNormal, 72, func() { vk.handleKeyPress(40, 0) })),
+		padCompactKey(newCompactKey(vk, "Enter", compactKeyNormal, 72, func() { vk.handleKeyPress(40, 0) })),
 		vk.buildCompactArrowRow(),
 	)
 	return container.NewVBox(row1, row2)
@@ -364,11 +365,11 @@ func (vk *VirtualKeyboard) buildLandscapeCompactKeys(rebuild func()) fyne.Canvas
 func (vk *VirtualKeyboard) buildCompactArrowRow() fyne.CanvasObject {
 	const aw = compactKeyHeight
 	return container.NewHBox(
-		padCompactKey(newCompactKey("←", compactKeyNormal, aw, func() { vk.handleKeyPress(80, 0) })),
-		padCompactKey(newCompactKey("↑", compactKeyNormal, aw, func() { vk.handleKeyPress(82, 0) })),
-		padCompactKey(newCompactKey("↓", compactKeyNormal, aw, func() { vk.handleKeyPress(81, 0) })),
-		padCompactKey(newCompactKey("→", compactKeyNormal, aw, func() { vk.handleKeyPress(79, 0) })),
-		padCompactKey(newCompactIconKey(assets.KeyboardIconDismiss, aw, func() {
+		padCompactKey(newCompactKey(vk, "←", compactKeyNormal, aw, func() { vk.handleKeyPress(80, 0) })),
+		padCompactKey(newCompactKey(vk, "↑", compactKeyNormal, aw, func() { vk.handleKeyPress(82, 0) })),
+		padCompactKey(newCompactKey(vk, "↓", compactKeyNormal, aw, func() { vk.handleKeyPress(81, 0) })),
+		padCompactKey(newCompactKey(vk, "→", compactKeyNormal, aw, func() { vk.handleKeyPress(79, 0) })),
+		padCompactKey(newCompactIconKey(vk, assets.KeyboardIconDismiss, aw, func() {
 			if vk.onDismiss != nil {
 				vk.onDismiss()
 			}
@@ -384,14 +385,14 @@ func (vk *VirtualKeyboard) buildCompactFKeysRow(rebuild func()) fyne.CanvasObjec
 		kw = 28
 	}
 	makeKey := func(label string, code int) fyne.CanvasObject {
-		return padCompactKey(newCompactKey(label, compactKeyNormal, kw, func() { vk.handleKeyPress(code, 0) }))
+		return padCompactKey(newCompactKey(vk, label, compactKeyNormal, kw, func() { vk.handleKeyPress(code, 0) }))
 	}
 	if view.IsLandscape() {
 		objs := make([]fyne.CanvasObject, 0, 13)
 		for i := range labels {
 			objs = append(objs, makeKey(labels[i], codes[i]))
 		}
-		objs = append(objs, padCompactKey(newCompactKey("⌫Fn", compactKeyNormal, 40, func() {
+		objs = append(objs, padCompactKey(newCompactKey(vk, "⌫Fn", compactKeyNormal, 40, func() {
 			vk.compactFnOn = false
 			if rebuild != nil {
 				rebuild()
@@ -408,7 +409,7 @@ func (vk *VirtualKeyboard) buildCompactFKeysRow(rebuild func()) fyne.CanvasObjec
 	row2 := container.NewHBox(
 		makeKey(labels[7], codes[7]), makeKey(labels[8], codes[8]), makeKey(labels[9], codes[9]),
 		makeKey(labels[10], codes[10]), makeKey(labels[11], codes[11]),
-		padCompactKey(newCompactKey("Back", compactKeyNormal, 48, func() {
+		padCompactKey(newCompactKey(vk, "Back", compactKeyNormal, 48, func() {
 			vk.compactFnOn = false
 			if rebuild != nil {
 				rebuild()
