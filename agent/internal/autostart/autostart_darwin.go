@@ -78,7 +78,7 @@ func launchAgentContent(label, exe string, args []string) string {
 `, label, argsXML.String())
 }
 
-func writeLaunchAgent(path, content string, activateNow bool) error {
+func writeLaunchAgent(label, path, content string, activateNow bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -88,8 +88,22 @@ func writeLaunchAgent(path, content string, activateNow bool) error {
 	if activateNow {
 		// Activate immediately instead of waiting for the next login. Ignore
 		// the error: launchctl exits non-zero if it's already loaded, which
-		// isn't a real failure here.
+		// isn't a real failure here. "-w" also clears launchd's persistent
+		// per-label Disabled override (see below) as a side effect.
 		_ = exec.Command("launchctl", "load", "-w", path).Run()
+	} else {
+		// Skipping "load -w" to avoid an immediate start must not skip
+		// clearing the Disabled override that "-w" would otherwise clear:
+		// removeLaunchAgent's "unload -w" (below) persists Disabled=true
+		// for this label in launchd's overrides database, independent of
+		// the plist file. If a label was ever disabled that way and later
+		// re-enabled through this branch, the override survives even a
+		// real reboot+login -- launchd's automatic ~/Library/LaunchAgents
+		// scan silently skips disabled labels regardless of RunAtLoad or
+		// the plist being perfectly valid. "launchctl enable" clears the
+		// override without loading or starting anything, so the next real
+		// login's scan picks it up normally.
+		_ = exec.Command("launchctl", "enable", fmt.Sprintf("gui/%d/%s", os.Getuid(), label)).Run()
 	}
 	return nil
 }
@@ -112,7 +126,7 @@ func Enable() error {
 	if err != nil {
 		return err
 	}
-	if err := writeLaunchAgent(path, launchAgentContent(launchAgentLabel, exe, args), true); err != nil {
+	if err := writeLaunchAgent(launchAgentLabel, path, launchAgentContent(launchAgentLabel, exe, args), true); err != nil {
 		return err
 	}
 
@@ -133,7 +147,7 @@ func Enable() error {
 	// login, so skipping the immediate activation only defers this helper's
 	// first appearance to that login instead of losing it.
 	if trayPath, err := trayPlistPath(); err == nil {
-		if err := writeLaunchAgent(trayPath, launchAgentContent(trayLaunchAgentLabel, exe, []string{"--tray"}), false); err != nil {
+		if err := writeLaunchAgent(trayLaunchAgentLabel, trayPath, launchAgentContent(trayLaunchAgentLabel, exe, []string{"--tray"}), false); err != nil {
 			log.Printf("[autostart] warning: could not install tray LaunchAgent: %v", err)
 		}
 	}
