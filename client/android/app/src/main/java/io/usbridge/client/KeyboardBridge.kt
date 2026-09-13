@@ -15,6 +15,14 @@ object KeyboardBridge {
     @JvmStatic
     external fun onLanguageChanged(lang: String)
 
+    /**
+     * Sticky soft-IME text path (RustDesk-style): net deletes + insert string.
+     * Bypasses Fyne keyboardTyped Press/Release which doubles characters and
+     * mishandles GBoard composition (whole word resent each key).
+     */
+    @JvmStatic
+    external fun onIMETextInput(deleteCount: Int, text: String)
+
     @JvmStatic
     fun requestLanguageReport() {
         MainActivity.getInstance()?.requestLanguageReport()

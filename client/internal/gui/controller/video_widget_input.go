@@ -134,6 +134,18 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
+	// Soft IME: characters come only via TypedRune → UTF-8. KeyDown from
+	// keyboardTyped's Latin Code would double-insert (VK + rune).
+	if vw.IsSystemIMESticky() {
+		switch event.Name {
+		case fyne.KeyBackspace, fyne.KeyDelete, fyne.KeyReturn, fyne.KeyEnter,
+			fyne.KeyTab, fyne.KeyEscape,
+			fyne.KeyUp, fyne.KeyDown, fyne.KeyLeft, fyne.KeyRight:
+			// keep editing / nav keys; everything else is TypedRune UTF-8
+		default:
+			return
+		}
+	}
 
 	logrus.Debugf("⌨️ [INPUT][DOWN] key=%q physical=%+v", event.Name, event.Physical)
 	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
@@ -172,6 +184,15 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 	if event == nil {
 		return
+	}
+	if vw.IsSystemIMESticky() {
+		switch event.Name {
+		case fyne.KeyBackspace, fyne.KeyDelete, fyne.KeyReturn, fyne.KeyEnter,
+			fyne.KeyTab, fyne.KeyEscape,
+			fyne.KeyUp, fyne.KeyDown, fyne.KeyLeft, fyne.KeyRight:
+		default:
+			return
+		}
 	}
 	logrus.Debugf("⌨️ [INPUT][UP] key=%q physical=%+v", event.Name, event.Physical)
 	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
@@ -358,6 +379,15 @@ func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
 	if mi == nil {
 		return
 	}
+	// Sticky soft IME is owned by KeyboardBridge.onIMETextInput — ignore
+	// Fyne keyboardTyped runes (Press/Release doubles + composition junk).
+	if vw.IsSystemIMESticky() {
+		return
+	}
+	if r > 127 {
+		vw.sendSoftIMERune(r)
+		return
+	}
 	if !vw.isWindowsAgent() {
 		if hidCode, hidMods := input.GetRuneKeyCodeWithModifiers(r); hidCode != 0 {
 			vk := hidKeyToVK(hidCode)
@@ -366,6 +396,29 @@ func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
 			vw.enqueueSend(func() { mi.SendMoonlightKey(vk, service.LiKeyActionUp, mods) })
 			return
 		}
+	}
+	vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(string(r)) })
+}
+
+// sendSoftIMERune sends one Unicode character to the host, collapsing the
+// duplicate TypedRune that Fyne delivers for keyboardTyped Press+Release.
+func (vw *VideoWidget) sendSoftIMERune(r rune) {
+	if r == 0 {
+		return
+	}
+	now := time.Now()
+	vw.softIMEMu.Lock()
+	if r == vw.softIMELastRune && now.Sub(vw.softIMELastAt) < 45*time.Millisecond {
+		vw.softIMEMu.Unlock()
+		return
+	}
+	vw.softIMELastRune = r
+	vw.softIMELastAt = now
+	vw.softIMEMu.Unlock()
+
+	mi := vw.moonlightInput()
+	if mi == nil {
+		return
 	}
 	vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(string(r)) })
 }
@@ -1376,16 +1429,26 @@ func (vw *VideoWidget) recalculateViewport() {
 
 	var contentY float32
 	centerY := (availableH - contentH) / 2
+	// While the keyboard stack is open, allow extra upward pan so a caret at
+	// the remote bottom edge can sit well above the system IME (black gap
+	// under the picture is OK — better than typing under the keyboard).
+	extraUp := float32(0)
+	if vw.keyboardViewportLift {
+		extraUp = availableH * keyboardFocusExtraLiftFrac
+		if extraUp < keyboardFocusExtraLiftMinDp {
+			extraUp = keyboardFocusExtraLiftMinDp
+		}
+	}
 	if vw.bottomAnchorContentVertically && contentH <= availableH {
 		// wasm only: keep flush above the IME panel; no free letterbox pan.
 		contentY = availableH - contentH
 		vw.panOffsetY = 0
 	} else if contentH > availableH {
 		maxPanY := (contentH - availableH) / 2
-		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY, maxPanY)
+		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY-extraUp, maxPanY)
 		contentY = centerY + vw.panOffsetY
 	} else {
-		minY := -contentH * (1 - minVisible)
+		minY := -contentH*(1-minVisible) - extraUp
 		maxY := availableH - contentH*minVisible
 		contentY = clampFloat(centerY+vw.panOffsetY, minY, maxY)
 		vw.panOffsetY = contentY - centerY
@@ -1448,7 +1511,7 @@ func viewportHorizontalEdgeTargets(viewW, contentW float32) []float32 {
 		return nil
 	}
 	center := (viewW - contentW) / 2
-	left := -center                // contentX = 0
+	left := -center                    // contentX = 0
 	right := viewW - contentW - center // contentX = viewW - contentW
 	if almostEqual(left, right) {
 		// Full-bleed width: both edges are the same pose (pan = 0).
@@ -1611,4 +1674,168 @@ func (vw *VideoWidget) placeVirtualCursorAtViewCenterLocked(minU, maxU, minV, ma
 	v := (sy - vw.contentRectY) / ch
 	vw.virtualCursorU = clampFloat(u, minU, maxU)
 	vw.virtualCursorV = clampFloat(v, minV, maxV)
+}
+
+const (
+	keyboardFocusMinZoom = float32(2.25)
+	keyboardFocusMaxZoom = float32(4.5)
+	// Place the caret in the upper third of the visible strip (not true
+	// centre) so there is room below it before the system IME.
+	keyboardFocusYFrac          = float32(0.28)
+	keyboardFocusClearanceDp    = float32(64)
+	keyboardFocusMinAvailH      = float32(120)
+	keyboardFocusExtraLiftFrac  = float32(0.5)
+	keyboardFocusExtraLiftMinDp = float32(96)
+)
+
+// syncKeyboardBottomInsetFromIME sets bottomInset to the overlap between the
+// video container and the system IME so pan/zoom math uses the visible area
+// above the keyboard (not the full touchpad, which still extends under the IME).
+func (vw *VideoWidget) syncKeyboardBottomInsetFromIME(imeHeightDp float32) {
+	const minRealIMEDp = 100
+	if vw == nil || imeHeightDp < minRealIMEDp {
+		vw.bottomInset = 0
+		return
+	}
+	overlap := imeHeightDp
+	if vw.parentWindow != nil && vw.container != nil {
+		cs := vw.parentWindow.Canvas().Size()
+		pos := vw.videoContainerOrigin()
+		sz := vw.container.Size()
+		imeTop := cs.Height - imeHeightDp
+		videoBottom := pos.Y + sz.Height
+		if videoBottom > imeTop {
+			overlap = videoBottom - imeTop
+		} else {
+			overlap = 0
+		}
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	// Extra clearance so the caret focus band sits clearly above the IME,
+	// not flush against its top edge.
+	inset := overlap + keyboardFocusClearanceDp
+	maxInset := vw.touchpadSizeH - keyboardFocusMinAvailH
+	if vw.touchpadSizeH > 0 && maxInset > 0 && inset > maxInset {
+		inset = maxInset
+	}
+	vw.bottomInset = inset
+}
+
+// focusViewportOnVirtualCursorForKeyboard hard-zooms and pans so the virtual
+// caret sits in the upper part of the visible video area (above the IME).
+func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
+	if vw == nil {
+		return
+	}
+	vw.keyboardViewportLift = true
+	if tw := vw.activeViewportWrapper(); tw != nil {
+		if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
+			vw.touchpadSizeW = sz.Width
+			vw.touchpadSizeH = sz.Height
+		}
+	}
+	vw.viewportManualControl = false
+
+	vw.vcMu.Lock()
+	u, v := vw.virtualCursorU, vw.virtualCursorV
+	vw.vcMu.Unlock()
+	if u <= 0 && v <= 0 {
+		u, v = 0.5, 0.5
+	}
+	u = clampFloat(u, 0, 1)
+	v = clampFloat(v, 0, 1)
+
+	availH := vw.touchpadSizeH - vw.bottomInset
+	if availH < keyboardFocusMinAvailH {
+		availH = vw.touchpadSizeH
+		if availH > keyboardFocusMinAvailH*2 {
+			// Keep a synthetic inset so we still aim into the upper band.
+			vw.bottomInset = availH * 0.35
+			availH = vw.touchpadSizeH - vw.bottomInset
+		}
+	}
+	if vw.touchpadSizeW <= 0 || availH <= 0 {
+		return
+	}
+
+	baseW := vw.baseContentRectW
+	baseH := vw.baseContentRectH
+	if baseW <= 0 || baseH <= 0 {
+		baseW = vw.touchpadSizeW
+		baseH = availH
+	}
+
+	zoom := vw.zoomScale
+	if zoom < keyboardFocusMinZoom {
+		zoom = keyboardFocusMinZoom
+	}
+	if zoom > keyboardFocusMaxZoom {
+		zoom = keyboardFocusMaxZoom
+	}
+	for zoom < keyboardFocusMaxZoom {
+		if baseW*zoom > vw.touchpadSizeW*1.02 || baseH*zoom > availH*1.02 {
+			break
+		}
+		zoom *= 1.12
+	}
+	vw.zoomScale = zoom
+	vw.zoomScaleResidual = 1
+
+	cw := baseW * zoom
+	ch := baseH * zoom
+	// Target screen Y = keyboardFocusYFrac * availH (upper third), not mid-screen.
+	centerY := (availH - ch) / 2
+	idealPanX := cw * (0.5 - u)
+	idealPanY := availH*(keyboardFocusYFrac-0.5) + ch*(0.5-v)
+
+	extraUp := availH * keyboardFocusExtraLiftFrac
+	if extraUp < keyboardFocusExtraLiftMinDp {
+		extraUp = keyboardFocusExtraLiftMinDp
+	}
+
+	if cw > vw.touchpadSizeW {
+		maxPanX := (cw - vw.touchpadSizeW) / 2
+		vw.panOffsetX = clampFloat(idealPanX, -maxPanX, maxPanX)
+	} else {
+		vw.panOffsetX = idealPanX
+	}
+	if ch > availH {
+		maxPanY := (ch - availH) / 2
+		vw.panOffsetY = clampFloat(idealPanY, -maxPanY-extraUp, maxPanY)
+	} else {
+		// Letterboxed: still allow a strong upward lift past the normal floor.
+		minY := -ch*0.7 - extraUp
+		maxY := availH - ch*0.3
+		contentY := clampFloat(centerY+idealPanY, minY, maxY)
+		vw.panOffsetY = contentY - centerY
+	}
+
+	vw.recalculateViewport()
+	vw.updateNativeViewportAndCursor()
+	vw.forceCanvasRefresh.Store(true)
+	logrus.Infof("⌨️ Keyboard caret focus: uv=(%.2f,%.2f) zoom=%.2f pan=(%.0f,%.0f) inset=%.0f focusY=%.2f",
+		u, v, vw.zoomScale, vw.panOffsetX, vw.panOffsetY, vw.bottomInset, keyboardFocusYFrac)
+}
+
+// scheduleKeyboardCaretFocus re-runs hard focus after layout/IME settle.
+func (vw *VideoWidget) scheduleKeyboardCaretFocus() {
+	if vw == nil {
+		return
+	}
+	for _, delay := range []time.Duration{80 * time.Millisecond, 220 * time.Millisecond, 450 * time.Millisecond} {
+		d := delay
+		time.AfterFunc(d, func() {
+			fyne.Do(func() {
+				if vw == nil {
+					return
+				}
+				if !vw.IsVirtualKeyboardVisible() && !vw.IsSystemIMESticky() {
+					return
+				}
+				vw.focusViewportOnVirtualCursorForKeyboard()
+			})
+		})
+	}
 }

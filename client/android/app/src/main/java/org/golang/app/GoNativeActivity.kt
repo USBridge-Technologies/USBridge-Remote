@@ -31,6 +31,8 @@ open class GoNativeActivity : NativeActivity() {
     private var defaultKeyListener: android.text.method.KeyListener? = null
     private var ignoreKey = false
     private var keyboardUp = false
+    /** Last EditText contents while sticky IME is active (for LCP diff). */
+    private var lastStickyText = " "
 
     init {
         goNativeActivity = this
@@ -231,10 +233,15 @@ open class GoNativeActivity : NativeActivity() {
             edit.setText(" ")
             edit.setSelection(edit.text.length)
             ignoreKey = false
+            lastStickyText = " "
 
             edit.addTextChangedListener(object : TextWatcher {
                 override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
                     if (ignoreKey || count <= 0) {
+                        return
+                    }
+                    // Sticky IME uses afterTextChanged diff → KeyboardBridge.
+                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
                         return
                     }
                     keyboardTyped(s.subSequence(start, start + count).toString())
@@ -244,19 +251,47 @@ open class GoNativeActivity : NativeActivity() {
                     if (ignoreKey || count <= 0) {
                         return
                     }
+                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+                        return
+                    }
                     repeat(count) {
                         keyboardDelete()
                     }
                 }
 
                 override fun afterTextChanged(s: Editable) {
-                    if (s.length >= 1) {
+                    if (ignoreKey) {
                         return
                     }
-                    ignoreKey = true
-                    edit.setText(" ")
-                    edit.setSelection(edit.text.length)
-                    ignoreKey = false
+                    if (s.length < 1) {
+                        ignoreKey = true
+                        edit.setText(" ")
+                        edit.setSelection(edit.text.length)
+                        ignoreKey = false
+                        lastStickyText = " "
+                        return
+                    }
+                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() != true) {
+                        return
+                    }
+                    val cur = s.toString()
+                    val prev = lastStickyText
+                    var i = 0
+                    val lim = minOf(prev.length, cur.length)
+                    while (i < lim && prev[i] == cur[i]) {
+                        i++
+                    }
+                    val del = prev.length - i
+                    val ins = cur.substring(i)
+                    lastStickyText = cur
+                    if (del > 0 || ins.isNotEmpty()) {
+                        Log.i(TAG, "⌨️ stickyIME diff del=$del ins='$ins' (prev='$prev' cur='$cur')")
+                        try {
+                            io.usbridge.client.KeyboardBridge.onIMETextInput(del, ins)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "onIMETextInput failed", e)
+                        }
+                    }
                 }
             })
 
@@ -289,6 +324,13 @@ open class GoNativeActivity : NativeActivity() {
             }
 
             edit.imeOptions = imeOptions or EditorInfo.IME_FLAG_NO_FULLSCREEN
+            // Visible-password + no-suggestions strongly reduces GBoard composition
+            // (whole-word replaces) that caused duplicated host input.
+            if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+                inputType = InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
+                    InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            }
             edit.inputType = inputType
             edit.keyListener = if (keys != null) {
                 DigitsKeyListener.getInstance(keys)
@@ -297,7 +339,11 @@ open class GoNativeActivity : NativeActivity() {
             }
             edit.setOnEditorActionListener(TextView.OnEditorActionListener { _, actionId, _: KeyEvent? ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    keyboardTyped("\n")
+                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+                        io.usbridge.client.KeyboardBridge.onIMETextInput(0, "\n")
+                    } else {
+                        keyboardTyped("\n")
+                    }
                 }
                 false
             })
@@ -306,6 +352,7 @@ open class GoNativeActivity : NativeActivity() {
             edit.setText(" ")
             edit.setSelection(edit.text.length)
             ignoreKey = false
+            lastStickyText = " "
 
             edit.visibility = View.VISIBLE
             edit.bringToFront()

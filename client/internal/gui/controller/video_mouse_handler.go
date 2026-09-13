@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
@@ -162,30 +163,30 @@ func (t *TouchpadWrapper) SetSkipWindowFocus(skip bool) {
 	t.skipWindowFocus.Store(skip)
 }
 
-// FocusGained implements fyne.Focusable
+// FocusGained implements fyne.Focusable.
 func (t *TouchpadWrapper) FocusGained() {}
 
-// FocusLost implements fyne.Focusable. While system-IME sticky mode is on,
-// re-claim focus shortly after so soft-keyboard runes keep routing here
-// (unless a Fyne overlay/menu currently owns the interaction).
+// FocusLost implements fyne.Focusable. While sticky system IME is on, keep the
+// native soft keyboard up (re-show) without bouncing Fyne focus to an Entry —
+// video drags must not dismiss the IME.
 func (t *TouchpadWrapper) FocusLost() {
 	vw := t.videoWidget
-	if vw == nil || !vw.IsSystemIMESticky() || t.window == nil {
+	if vw == nil || !vw.IsSystemIMESticky() {
 		return
 	}
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(80 * time.Millisecond)
 		fyne.Do(func() {
-			if vw == nil || !vw.IsSystemIMESticky() || t.window == nil {
+			if vw == nil || !vw.IsSystemIMESticky() {
 				return
 			}
 			if view.OverlayActive() {
 				return
 			}
-			if focused := t.window.Canvas().Focused(); focused != nil && focused != t {
-				return
+			graphics.SetStickySystemIME(true)
+			if t.window != nil {
+				t.window.Canvas().Focus(t)
 			}
-			t.window.Canvas().Focus(t)
 		})
 	}()
 }

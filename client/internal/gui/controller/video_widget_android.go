@@ -165,6 +165,7 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	} else {
 		setImeExpandHeightDp(0)
 	}
+	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
 	// Bottom-align fitted video while the system IME is open. Special keys
 	// live in the main header on mobile (no native-video keys inset).
 	service.VKVideoAndroidSetAlignBottom(imeOpen)
@@ -174,6 +175,9 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 		if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
 			vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
 		}
+	}
+	if imeOpen && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
+		vw.focusViewportOnVirtualCursorForKeyboard()
 	}
 }
 
@@ -321,10 +325,19 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
-		idealPanY := ch * (0.5 - v)
+		focusY := float32(0.5)
+		extraUp := float32(0)
+		if vw.keyboardViewportLift {
+			focusY = keyboardFocusYFrac
+			extraUp = availH * keyboardFocusExtraLiftFrac
+			if extraUp < keyboardFocusExtraLiftMinDp {
+				extraUp = keyboardFocusExtraLiftMinDp
+			}
+		}
+		idealPanY := availH*(focusY-0.5) + ch*(0.5-v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
-		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY, maxPanY, zoneY)
+		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY-extraUp, maxPanY, zoneY)
 	}
 	// If height still fits, leave panOffsetY alone (do not force 0).
 
@@ -418,20 +431,28 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	if on == vw.systemIMESticky.Load() {
 		if on {
 			graphics.SetStickySystemIME(true)
-			vw.focusTouchpadForSystemIME()
+			graphics.SetIMETextHandler(vw.handleNativeIMEText)
 		}
 		return
 	}
 	vw.systemIMESticky.Store(on)
 	if on {
 		vw.ensureIMEKeyboardTarget()
+		// Native EditText owns the soft keyboard. Text goes KeyboardBridge
+		// onIMETextInput (LCP diff) → UTF-8 — not Fyne keyboardTyped.
+		graphics.SetIMETextHandler(vw.handleNativeIMEText)
 		graphics.SetStickySystemIME(true)
-		vw.focusTouchpadForSystemIME()
+		if vw.touchpadWrapper != nil && vw.parentWindow != nil {
+			vw.parentWindow.Canvas().Focus(vw.touchpadWrapper)
+		}
 		vw.InvalidateOverlayGeometry()
 		vw.forceCanvasRefresh.Store(true)
-		// IME height arrives asynchronously — refresh geometry again once it settles.
 		time.AfterFunc(200*time.Millisecond, func() {
 			fyne.Do(func() {
+				if !vw.systemIMESticky.Load() {
+					return
+				}
+				graphics.SetStickySystemIME(true)
 				vw.InvalidateOverlayGeometry()
 				vw.forceCanvasRefresh.Store(true)
 				if tw := vw.touchpadWrapper; tw != nil {
@@ -441,9 +462,10 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 				}
 			})
 		})
-		logrus.Info("⌨️ System IME sticky ON")
+		logrus.Info("⌨️ System IME sticky ON (native diff → UTF-8)")
 		return
 	}
+	graphics.SetIMETextHandler(nil)
 	graphics.SetStickySystemIME(false)
 	setImeExpandHeightDp(0)
 	service.VKVideoAndroidSetAlignBottom(false)
@@ -452,16 +474,28 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	logrus.Info("⌨️ System IME sticky OFF")
 }
 
+// handleNativeIMEText applies sticky soft-IME diffs from KeyboardBridge.
+func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
+	mi := vw.moonlightInput()
+	if mi == nil {
+		return
+	}
+	logrus.Infof("⌨️ [IME-TEXT] del=%d add=%q", deleteCount, text)
+	for i := 0; i < deleteCount; i++ {
+		vw.enqueueSend(func() {
+			mi.SendMoonlightKey(0x08, service.LiKeyActionDown, 0)
+			mi.SendMoonlightKey(0x08, service.LiKeyActionUp, 0)
+		})
+	}
+	if text != "" {
+		t := text
+		vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(t) })
+	}
+}
+
 func (vw *VideoWidget) ensureIMEKeyboardTarget() {
 	vw.ensureMobileVirtualKeyboard()
 	if vw.virtualKeyboard != nil {
 		vw.virtualKeyboard.RegisterAsIMETarget()
 	}
-}
-
-func (vw *VideoWidget) focusTouchpadForSystemIME() {
-	if vw.parentWindow == nil || vw.touchpadWrapper == nil {
-		return
-	}
-	vw.parentWindow.Canvas().Focus(vw.touchpadWrapper)
 }

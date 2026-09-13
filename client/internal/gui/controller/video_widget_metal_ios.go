@@ -311,10 +311,19 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	// [0, maxPanY] range biased toward the bottom edge.
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
-		idealPanY := ch * (0.5 - v)
+		focusY := float32(0.5)
+		extraUp := float32(0)
+		if vw.keyboardViewportLift {
+			focusY = keyboardFocusYFrac
+			extraUp = availH * keyboardFocusExtraLiftFrac
+			if extraUp < keyboardFocusExtraLiftMinDp {
+				extraUp = keyboardFocusExtraLiftMinDp
+			}
+		}
+		idealPanY := availH*(focusY-0.5) + ch*(0.5-v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
-		vw.panOffsetY = iosSoftClamp(idealPanY, -maxPanY, maxPanY, zoneY)
+		vw.panOffsetY = iosSoftClamp(idealPanY, -maxPanY-extraUp, maxPanY, zoneY)
 	} else {
 		vw.panOffsetY = 0
 	}
@@ -420,8 +429,12 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	} else {
 		setImeExpandHeightDp(0)
 	}
+	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
 	lastMetalClipH = 0 // force cache miss → immediate layout update
 	vw.forceCanvasRefresh.Store(true)
+	if imeOpen && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
+		vw.focusViewportOnVirtualCursorForKeyboard()
+	}
 }
 
 // iosCursorImagePixels rasterizes cursor-pointer.svg at 3× (54×72 px) —

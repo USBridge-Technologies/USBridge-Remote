@@ -26,3 +26,6 @@ func GetLastIMEH() float32 {
 
 // SetStickySystemIME is Android-only.
 func SetStickySystemIME(_ bool) {}
+
+// SetIMETextHandler is Android-only.
+func SetIMETextHandler(_ func(deleteCount int, text string)) {}

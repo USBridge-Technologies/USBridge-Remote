@@ -77,6 +77,9 @@ type VideoWidget struct {
 	videoRestartPending   bool
 	moveQueueMu           sync.Mutex
 	bottomInset           float32 // Bottom inset (e.g. for the keyboard) that pushes the video upward
+	// keyboardViewportLift allows extra upward pan while the keyboard stack
+	// is open so a bottom-of-screen caret can sit above the system IME.
+	keyboardViewportLift bool
 
 	pendingMoveX          int
 	pendingMoveY          int
@@ -154,6 +157,9 @@ type VideoWidget struct {
 	systemIMESticky          atomic.Bool
 	keyboardModifierState    atomic.Int32
 	suppressRuneUntilNS      atomic.Int64
+	softIMEMu                sync.Mutex
+	softIMELastRune          rune
+	softIMELastAt            time.Time
 	moonlightKeyMu           sync.Mutex
 	moonlightHeldVKs         map[int16]bool // tracks VK codes currently held in Moonlight session
 
@@ -211,8 +217,8 @@ type VideoWidget struct {
 	// zoom advancing in jerks then stalling). Reset when the two-finger
 	// gesture ends.
 	zoomScaleResidual float32
-	panOffsetX            float32
-	panOffsetY            float32
+	panOffsetX        float32
+	panOffsetY        float32
 	// bottomAnchorContentVertically switches recalculateViewport's "content
 	// shorter than available area" branch from vertically centering the
 	// video to anchoring it flush against the bottom of the available

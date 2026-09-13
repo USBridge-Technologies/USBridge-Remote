@@ -14,7 +14,6 @@
 package graphics
 
 import (
-	"image/color"
 	"strings"
 	"sync"
 	"time"
@@ -265,14 +264,13 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
 
-	// Header chrome: visible input on top, then two special-key rows.
-	// Do not Stack the Entry under the keys — Entry would fill the whole
-	// panel and look like a sunken field behind the buttons.
+	// Special-keys only in the header. Soft IME typing is RustDesk-style via
+	// the native EditText (sticky) → keyboardTyped → touchpad UTF-8 — no
+	// visible buffer the user has to type into and clear.
 	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 2, 2, 2, 2)
-	input := wrapCompactEntry(textHint, func(b *canvas.Rectangle) { textHint.border = b })
-	inputH := canvas.NewRectangle(color.Transparent)
-	inputH.SetMinSize(fyne.NewSize(0, compactInputHeight))
-	inputRow := container.NewMax(inputH, input)
+	textHint.Resize(fyne.NewSize(1, 1))
+	textHint.Move(fyne.NewPos(0, 0))
+	textHint.Hide()
 
 	vk.imeSpacer = &imeSpacerLayout{height: 0}
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
@@ -283,10 +281,9 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}
 	textHint.onUnfocused = func() {}
 
-	body := container.NewVBox(inputRow, keys)
 	background := canvas.NewRectangle(design.ColorGray900)
 	return container.NewMax(container.NewThemeOverride(
-		container.NewStack(background, view.NewInsetExact(body, 8, 8, 6, 6)),
+		container.NewStack(background, view.NewInsetExact(keys, 8, 8, 6, 6)),
 		design.NewBrandTheme(),
 	))
 }

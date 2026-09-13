@@ -308,9 +308,11 @@ class MainActivity : GoNativeActivity() {
 
                 if (visibleImeHeight == 0 && wasKeyboardVisible) {
                     if (stickyIME) {
-                        // System/auto mode: keep the soft keyboard up until Go turns sticky off.
+                        // Keep the soft keyboard up until Go turns sticky off.
+                        // Re-show promptly — video SurfaceView touches used to
+                        // steal focus and dismiss the IME mid-drag.
                         Log.d(TAG, "⌨️ [IME] hidden while sticky — re-showing soft input")
-                        decorView.postDelayed({
+                        decorView.post {
                             if (stickyIME) {
                                 try {
                                     org.golang.app.GoNativeActivity.showKeyboard(0)
@@ -318,7 +320,16 @@ class MainActivity : GoNativeActivity() {
                                     Log.e(TAG, "❌ [IME] sticky re-show failed: ${e.message}")
                                 }
                             }
-                        }, 80)
+                        }
+                        decorView.postDelayed({
+                            if (stickyIME) {
+                                try {
+                                    org.golang.app.GoNativeActivity.showKeyboard(0)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "❌ [IME] sticky re-show delayed failed: ${e.message}")
+                                }
+                            }
+                        }, 120)
                     } else {
                         // The IME just hid (user pressed ↓ or the collapse button).
                         // Sync GoNativeActivity's state: keyboardUp=false and textEdit=GONE.

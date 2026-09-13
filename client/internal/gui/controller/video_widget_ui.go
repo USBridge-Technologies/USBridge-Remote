@@ -1068,9 +1068,12 @@ func (vw *VideoWidget) OpenKeyboardStack() {
 		vw.SetSystemIMESticky(true)
 	}
 	vw.setKeyboardCollapseFABVisible(true)
+	vw.focusViewportOnVirtualCursorForKeyboard()
 	if vw.onKeyboardStackChanged != nil {
 		vw.onKeyboardStackChanged()
 	}
+	// Header swap + IME animation change available height after this returns.
+	vw.scheduleKeyboardCaretFocus()
 }
 
 // CloseAllKeyboards hides the special-keys overlay and dismisses sticky system IME.
@@ -1082,6 +1085,10 @@ func (vw *VideoWidget) CloseAllKeyboards() {
 		vw.hideSpecialKeysOverlay()
 	}
 	vw.setKeyboardCollapseFABVisible(false)
+	vw.keyboardViewportLift = false
+	vw.bottomInset = 0
+	vw.recalculateViewport()
+	vw.updateNativeViewportAndCursor()
 	if vw.onKeyboardStackChanged != nil {
 		vw.onKeyboardStackChanged()
 	}

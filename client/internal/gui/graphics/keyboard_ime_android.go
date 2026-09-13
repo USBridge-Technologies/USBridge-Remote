@@ -16,6 +16,7 @@ package graphics
 
 extern void deliverIMEHeightFromJNI(jint imeHeightPx, jint screenHeightPx);
 extern void deliverLanguageFromJNI(char* lang);
+extern void deliverIMETextFromJNI(jint deleteCount, char* text);
 
 __attribute__((used))
 JNIEXPORT void JNICALL Java_io_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv *env, jclass clazz, jint imeHeightPx, jint screenHeightPx) {
@@ -29,6 +30,13 @@ JNIEXPORT void JNICALL Java_io_usbridge_client_KeyboardBridge_onLanguageChanged(
     (*env)->ReleaseStringUTFChars(env, lang, nativeString);
 }
 
+__attribute__((used))
+JNIEXPORT void JNICALL Java_io_usbridge_client_KeyboardBridge_onIMETextInput(JNIEnv *env, jclass clazz, jint deleteCount, jstring text) {
+    const char *nativeString = (*env)->GetStringUTFChars(env, text, 0);
+    deliverIMETextFromJNI(deleteCount, (char*)nativeString);
+    (*env)->ReleaseStringUTFChars(env, text, nativeString);
+}
+
 // keepIMEBridgeSymbolsReferenced - dummy reference to prevent the linker from removing JNI symbols
 void keepIMEBridgeSymbolsReferenced(void) {
     extern void Java_io_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv*, jclass, jint, jint);
@@ -36,6 +44,9 @@ void keepIMEBridgeSymbolsReferenced(void) {
 
     extern void Java_io_usbridge_client_KeyboardBridge_onLanguageChanged(JNIEnv*, jclass, jstring);
     (void)Java_io_usbridge_client_KeyboardBridge_onLanguageChanged;
+
+    extern void Java_io_usbridge_client_KeyboardBridge_onIMETextInput(JNIEnv*, jclass, jint, jstring);
+    (void)Java_io_usbridge_client_KeyboardBridge_onIMETextInput;
 }
 
 static void jni_setStickyIME(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, int enabled) {
@@ -72,6 +83,7 @@ import "C"
 
 import (
 	"fmt"
+	"sync"
 	"time"
 	"usbridge-client/internal/input"
 
@@ -84,7 +96,33 @@ var (
 	lastIMEH        float32 // last nav-bar/IME margin in Fyne dp units
 	pendingIMEPx    int     // raw px value pending Fyne canvas initialization
 	pendingScreenPx int
+
+	imeTextHandlerMu sync.Mutex
+	imeTextHandler   func(deleteCount int, text string)
 )
+
+// SetIMETextHandler registers the sticky soft-IME text sink (VideoWidget).
+func SetIMETextHandler(fn func(deleteCount int, text string)) {
+	imeTextHandlerMu.Lock()
+	imeTextHandler = fn
+	imeTextHandlerMu.Unlock()
+}
+
+//export deliverIMETextFromJNI
+func deliverIMETextFromJNI(deleteCount C.jint, textStr *C.char) {
+	del := int(deleteCount)
+	text := C.GoString(textStr)
+	logrus.Infof("⌨️ [IME-TEXT-JNI] del=%d add=%q", del, text)
+	imeTextHandlerMu.Lock()
+	fn := imeTextHandler
+	imeTextHandlerMu.Unlock()
+	if fn == nil {
+		return
+	}
+	fyne.Do(func() {
+		fn(del, text)
+	})
+}
 
 // GetLastIMEH returns the last cached IME margin (including NavBar)
 func GetLastIMEH() float32 {
