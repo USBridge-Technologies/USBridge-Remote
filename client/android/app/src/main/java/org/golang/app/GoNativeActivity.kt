@@ -59,6 +59,13 @@ open class GoNativeActivity : NativeActivity() {
     private val headerBarColor = 0xFF181C1F.toInt()
     private val footerBarColor = 0xFF0B0F12.toInt()
 
+    /**
+     * While the mobile keyboard stack is open, report top/side insets as 0 and
+     * hide the status bar so special keys sit in that band (safe-area lift).
+     */
+    @Volatile
+    private var keyboardIgnoresTopSafeArea = false
+
     private fun applySystemChrome() {
         try {
             // Edge-to-edge so cutout/status insets are reported to Fyne instead
@@ -90,18 +97,26 @@ open class GoNativeActivity : NativeActivity() {
     }
 
     // Landscape: hide status + nav bars (immersive sticky) so our Fyne chrome
-    // owns the full screen. Portrait keeps system bars for the camera cutout.
+    // owns the full screen. Portrait keeps system bars for the camera cutout,
+    // except while the keyboard stack ignores the top safe area.
     private fun applyImmersiveSystemBars(landscape: Boolean) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val controller = window.insetsController ?: return
-                val types = WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars()
+                val status = WindowInsets.Type.statusBars()
+                val nav = WindowInsets.Type.navigationBars()
                 if (landscape) {
-                    controller.hide(types)
+                    controller.hide(status or nav)
+                    controller.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else if (keyboardIgnoresTopSafeArea) {
+                    // Free the status/cutout band for special keys; keep nav.
+                    controller.hide(status)
+                    controller.show(nav)
                     controller.systemBarsBehavior =
                         WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 } else {
-                    controller.show(types)
+                    controller.show(status or nav)
                 }
                 return
             }
@@ -111,6 +126,10 @@ open class GoNativeActivity : NativeActivity() {
                 flags = flags or View.SYSTEM_UI_FLAG_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                     View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            } else if (keyboardIgnoresTopSafeArea) {
+                flags = flags or View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                flags = flags and View.SYSTEM_UI_FLAG_HIDE_NAVIGATION.inv()
             } else {
                 flags = flags and View.SYSTEM_UI_FLAG_FULLSCREEN.inv() and
                     View.SYSTEM_UI_FLAG_HIDE_NAVIGATION.inv() and
@@ -121,6 +140,28 @@ open class GoNativeActivity : NativeActivity() {
         } catch (_: Throwable) {
         }
     }
+
+    /**
+     * Open keyboard stack: zero top/side safe insets and hide the status bar
+     * so special keys own that band. Close stack: restore normal insets/bars.
+     */
+    fun setKeyboardIgnoresTopSafeArea(ignore: Boolean) {
+        runOnUiThread {
+            if (keyboardIgnoresTopSafeArea == ignore) {
+                return@runOnUiThread
+            }
+            keyboardIgnoresTopSafeArea = ignore
+            Log.i(TAG, "⌨️ keyboardIgnoresTopSafeArea=$ignore")
+            applyImmersiveSystemBars(isLandscape())
+            try {
+                window.decorView.requestApplyInsets()
+            } catch (_: Throwable) {
+            }
+            updateLayout()
+        }
+    }
+
+    fun isKeyboardIgnoresTopSafeArea(): Boolean = keyboardIgnoresTopSafeArea
 
     // Fullscreen theme used to hide the status bar and report top inset=0 even
     // with a camera cutout, so Fyne laid content under the notch. Always fold
@@ -189,6 +230,13 @@ open class GoNativeActivity : NativeActivity() {
             left = 0
             right = 0
             bottom = 0
+        }
+        // Keyboard stack open: drop top/side safe pad so special keys rise into
+        // the former status-bar / cutout band (status bar is hidden separately).
+        if (keyboardIgnoresTopSafeArea) {
+            top = 0
+            left = 0
+            right = 0
         }
         try {
             insetsChanged(top, bottom, left, right)

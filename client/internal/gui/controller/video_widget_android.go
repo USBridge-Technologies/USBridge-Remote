@@ -180,8 +180,8 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
 
-	// Invalidate again after a short delay to prevent a black strip from the
-	// asynchronous Vulkan size recalculation caused by the fullscreen safe-area removal.
+	// Invalidate again after a short delay so Vulkan picks up the layout
+	// after the top safe-area inset is cleared for the keyboard stack.
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		fyne.Do(func() {
@@ -468,21 +468,24 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 		}
 		vw.InvalidateOverlayGeometry()
 		vw.forceCanvasRefresh.Store(true)
-		time.AfterFunc(200*time.Millisecond, func() {
-			fyne.Do(func() {
-				if !vw.systemIMESticky.Load() {
-					return
-				}
-				graphics.SetStickySystemIME(true)
-				vw.InvalidateOverlayGeometry()
-				vw.forceCanvasRefresh.Store(true)
-				if tw := vw.touchpadWrapper; tw != nil {
-					if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
-						vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+		// Top inset → 0 is async; remeasure Vulkan after Fyne drops the pad.
+		for _, delay := range []time.Duration{100 * time.Millisecond, 280 * time.Millisecond} {
+			d := delay
+			time.AfterFunc(d, func() {
+				fyne.Do(func() {
+					if !vw.systemIMESticky.Load() {
+						return
 					}
-				}
+					vw.InvalidateOverlayGeometry()
+					vw.forceCanvasRefresh.Store(true)
+					if tw := vw.touchpadWrapper; tw != nil {
+						if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
+							vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+						}
+					}
+				})
 			})
-		})
+		}
 		logrus.Info("⌨️ System IME sticky ON (native diff → UTF-8)")
 		return
 	}

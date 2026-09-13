@@ -87,6 +87,8 @@ func (mw *MainWindow) wireMobileKeyboardStackCallbacks() {
 // applyMainHeaderForKeyboardStack replaces the connected header with special
 // keys while the keyboard stack is open (Vulkan cannot be drawn over; the
 // header sits above the native surface). Dismiss lives after → in the keys.
+// Native sticky IME zeros the top safe inset so this band rises into the
+// former status-bar / cutout space.
 func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
 	if !useMobileControl() || mw.mainHeaderHost == nil || mw.mainHeaderNormal == nil {
 		return
@@ -97,29 +99,6 @@ func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
 		return
 	}
 	mw.restoreMainHeader()
-}
-
-type keyboardSafeAreaBypassLayout struct {
-	safeTop float32
-}
-
-func (l *keyboardSafeAreaBypassLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	for _, o := range objects {
-		o.Move(fyne.NewPos(0, -l.safeTop))
-		o.Resize(fyne.NewSize(size.Width, size.Height+l.safeTop))
-	}
-}
-
-func (l *keyboardSafeAreaBypassLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	min := fyne.NewSize(0, 0)
-	for _, o := range objects {
-		min = min.Max(o.MinSize())
-	}
-	min.Height -= l.safeTop
-	if min.Height < 0 {
-		min.Height = 0
-	}
-	return min
 }
 
 func (mw *MainWindow) showSpecialKeysInMainHeader() {
@@ -142,26 +121,26 @@ func (mw *MainWindow) showSpecialKeysInMainHeader() {
 		}
 	})
 
-	var safeTop float32 = 0
-	if content := mw.window.Content(); content != nil {
-		if app := fyne.CurrentApp(); app != nil {
-			if drv := app.Driver(); drv != nil {
-				root := drv.AbsolutePositionForObject(content)
-				safeTop = root.Y
-			}
-		}
-	}
-
 	band := view.NewHeaderBand("", kl)
-	var obj fyne.CanvasObject = band
-	if safeTop > 0 {
-		obj = container.New(&keyboardSafeAreaBypassLayout{safeTop: safeTop}, band)
-	}
-
-	mw.mainHeaderHost.Objects = []fyne.CanvasObject{obj}
+	mw.mainHeaderHost.Objects = []fyne.CanvasObject{band}
 	mw.mainHeaderHost.Refresh()
 	mw.videoWidget.InvalidateOverlayGeometry()
 	mw.refreshMainHeaderLayout()
+
+	// Insets flip to top=0 asynchronously after setStickyIME; re-layout once
+	// Fyne has dropped the safe pad so the band actually sits at y=0.
+	for _, delay := range []time.Duration{80 * time.Millisecond, 220 * time.Millisecond} {
+		d := delay
+		time.AfterFunc(d, func() {
+			fyne.Do(func() {
+				if mw.videoWidget == nil || !mw.videoWidget.IsVirtualKeyboardVisible() {
+					return
+				}
+				mw.refreshMainHeaderLayout()
+				mw.videoWidget.InvalidateOverlayGeometry()
+			})
+		})
+	}
 }
 
 func (mw *MainWindow) restoreMainHeader() {

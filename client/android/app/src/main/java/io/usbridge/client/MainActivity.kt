@@ -644,6 +644,9 @@ class MainActivity : GoNativeActivity() {
     fun setStickyIME(enabled: Boolean) {
         stickyIME = enabled
         Log.i(TAG, "⌨️ [IME] sticky=$enabled")
+        // Drop Fyne top/side safe pad + hide status bar so special keys rise
+        // into that band. Restored when sticky turns off.
+        setKeyboardIgnoresTopSafeArea(enabled)
         runOnUiThread {
             if (enabled) {
                 try {
@@ -666,7 +669,7 @@ class MainActivity : GoNativeActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (stickyIME) {
+        if (stickyIME || isKeyboardIgnoresTopSafeArea()) {
             // Let Go CloseAllKeyboards → setStickyIME(false) so special-keys
             // and the footer keyboard toggle clear together with the soft IME.
             // Do not clear stickyIME locally first: that used to leave Go's
@@ -676,6 +679,7 @@ class MainActivity : GoNativeActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "❌ [IME] onIMEUserDismissed failed: ${e.message}")
                 stickyIME = false
+                setKeyboardIgnoresTopSafeArea(false)
                 org.golang.app.GoNativeActivity.hideKeyboard()
             }
             return
