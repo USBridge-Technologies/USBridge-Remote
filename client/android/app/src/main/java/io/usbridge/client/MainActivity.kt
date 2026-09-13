@@ -125,11 +125,15 @@ class MainActivity : GoNativeActivity() {
     @Volatile
     private var vpnPermissionState: Int = 0
 
+    /** When true, re-show the soft keyboard if Android dismisses it (system/auto mode). */
+    @Volatile
+    private var stickyIME: Boolean = false
+
     private val gyroSensorManager: GyroSensorManager by lazy { GyroSensorManager(this) }
 
-    // Two-finger gesture tracker — mode (PAN_ZOOM vs SCROLL) is locked at gesture start.
-    // Threshold is 30% of the smaller screen dimension: fingers closer than this → scroll
-    // wheel only, farther apart → pan+zoom (resize) only. The two never fire together.
+    // Two-finger: mode locked at second-finger down by spacing.
+    // Close → scroll only; far → pinch zoom only. Never both in one gesture.
+    // One-finger canvas pan is the Control footer move button.
     private val gestureTracker: TwoFingerGestureTracker by lazy {
         val dm = resources.displayMetrics
         val minDimensionPx = minOf(dm.widthPixels, dm.heightPixels)
@@ -183,6 +187,10 @@ class MainActivity : GoNativeActivity() {
         super.onCreate(savedInstanceState)
         instance = this
         Log.i(TAG, "MainActivity created")
+        // Parent paints status/nav to header/footer colors; re-apply after
+        // Fyne's NativeActivity setup so OEM overlays don't reset them.
+        window.statusBarColor = 0xFF181C1F.toInt()
+        window.navigationBarColor = 0xFF0B0F12.toInt()
         setupIMEListener()
 
         connectivityManager = getSystemService(ConnectivityManager::class.java)
@@ -299,20 +307,25 @@ class MainActivity : GoNativeActivity() {
                 Log.d(TAG, "⌨️ [IME] height changed: imeHeight=$imeHeight (visible=$visibleImeHeight, navBar=$navBarHeight) screenHeight=$screenHeight")
 
                 if (visibleImeHeight == 0 && wasKeyboardVisible) {
-                    // The IME just hid (user pressed ↓ or the collapse button).
-                    // Sync GoNativeActivity's state: keyboardUp=false and textEdit=GONE.
-                    // Without this: the "Back" button sees keyboardUp=true and doesn't exit
-                    // fullscreen; and in normal mode Fyne doesn't know the keyboard is gone and
-                    // doesn't relayout.
-                    Log.d(TAG, "⌨️ [IME] hidden — resetting keyboardUp via hideKeyboard()")
-                    org.golang.app.GoNativeActivity.hideKeyboard()
-
-                    // Clear focus from the input field so Fyne relayouts.
-                    // Without this, in normal mode the layout doesn't return to place until the
-                    // window is clicked.
+                    // Soft IME went away (system Back, GBoard ↓, focus loss, …).
+                    // Always collapse our sticky + special-keys stack in Go —
+                    // do not re-show: Back used to clear only the soft IME and
+                    // leave the header keys + footer toggle stuck on.
+                    Log.i(TAG, "⌨️ [IME] soft keyboard hidden — dismissing Go keyboard stack")
+                    stickyIME = false
+                    try {
+                        org.golang.app.GoNativeActivity.hideKeyboard()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ [IME] hideKeyboard failed: ${e.message}")
+                    }
                     currentFocus?.let {
                         Log.d(TAG, "⌨️ [IME] clearing focus from ${it.javaClass.simpleName}")
                         it.clearFocus()
+                    }
+                    try {
+                        KeyboardBridge.onIMEUserDismissed()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ [IME] onIMEUserDismissed failed: ${e.message}")
                     }
                 } else if (imeHeight == 0 && isInitialLayout) {
                     // First launch: Fyne uses the full canvas including the nav bar.
@@ -358,6 +371,19 @@ class MainActivity : GoNativeActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Consume Back before the IME swallows it, so sticky+special-keys
+        // collapse together (IME alone would only hide GBoard).
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN && stickyIME) {
+            Log.i(TAG, "⌨️ [IME] KEYCODE_BACK while sticky — dismissing Go keyboard stack")
+            try {
+                KeyboardBridge.onIMEUserDismissed()
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ [IME] onIMEUserDismissed failed: ${e.message}")
+                stickyIME = false
+                org.golang.app.GoNativeActivity.hideKeyboard()
+            }
+            return true
+        }
         // In GyroMouse mode intercept volume buttons as LMB/RMB instead of changing volume.
         if (GyroBridge.isGyroMouseModeActive()) {
             when (event.keyCode) {
@@ -609,6 +635,53 @@ class MainActivity : GoNativeActivity() {
         runOnUiThread {
             reportLanguage()
         }
+    }
+
+    /**
+     * Sticky system soft keyboard: show and keep open until setStickyIME(false).
+     * Used by the Control footer "System keyboard" mode.
+     */
+    fun setStickyIME(enabled: Boolean) {
+        stickyIME = enabled
+        Log.i(TAG, "⌨️ [IME] sticky=$enabled")
+        runOnUiThread {
+            if (enabled) {
+                try {
+                    org.golang.app.GoNativeActivity.showKeyboard(0)
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [IME] sticky show failed: ${e.message}")
+                }
+            } else {
+                try {
+                    org.golang.app.GoNativeActivity.hideKeyboard()
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [IME] sticky hide failed: ${e.message}")
+                }
+                currentFocus?.clearFocus()
+            }
+        }
+    }
+
+    fun isStickyIME(): Boolean = stickyIME
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (stickyIME) {
+            // Let Go CloseAllKeyboards → setStickyIME(false) so special-keys
+            // and the footer keyboard toggle clear together with the soft IME.
+            // Do not clear stickyIME locally first: that used to leave Go's
+            // stack open after Back only hid GBoard.
+            try {
+                KeyboardBridge.onIMEUserDismissed()
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ [IME] onIMEUserDismissed failed: ${e.message}")
+                stickyIME = false
+                org.golang.app.GoNativeActivity.hideKeyboard()
+            }
+            return
+        }
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
     }
 
     fun getVpnPermissionState(): Int = vpnPermissionState

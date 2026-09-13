@@ -22,7 +22,7 @@ extern void android_vk_force_recreate_swapchain(void);
 extern void android_vk_set_viewport(float u0, float v0, float u1, float v1);
 extern void android_vk_set_align_bottom(int bottom);
 extern void android_vk_set_cursor(float uc, float vc, int visible);
-extern void android_vk_set_viewport_and_cursor(float u0, float v0, float u1, float v1, float uc, float vc, int visible);
+extern void android_vk_set_viewport_and_cursor(float u0, float v0, float u1, float v1, float uc, float vc, int visible, float blit_pan_x, float blit_pan_y, float zoom_scale);
 extern void android_vk_set_cursor_scale(int scale);
 extern void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h);
 extern void android_vk_get_stats(float *fps, int *fps_ready,
@@ -123,17 +123,20 @@ func VKVideoAndroidSetCursor(uc, vc float32, visible bool) {
 	C.android_vk_set_cursor(C.float(uc), C.float(vc), vis)
 }
 
-// VKVideoAndroidSetViewportAndCursor updates viewport UV and cursor position in
-// one mutex-protected call, guaranteeing the render thread always sees a
-// consistent snapshot (never viewport from frame N with cursor from frame N+1).
-func VKVideoAndroidSetViewportAndCursor(u0, v0, u1, v1, uc, vc float32, visible bool) {
+// VKVideoAndroidSetViewportAndCursor updates full-frame viewport, uniform zoom,
+// letterbox/zoom pan (physical pixels), and cursor in one mutex-protected call.
+func VKVideoAndroidSetViewportAndCursor(u0, v0, u1, v1, uc, vc float32, visible bool, blitPanX, blitPanY, zoomScale float32) {
 	vis := C.int(0)
 	if visible {
 		vis = 1
 	}
+	if zoomScale < 1 {
+		zoomScale = 1
+	}
 	C.android_vk_set_viewport_and_cursor(
 		C.float(u0), C.float(v0), C.float(u1), C.float(v1),
-		C.float(uc), C.float(vc), vis)
+		C.float(uc), C.float(vc), vis,
+		C.float(blitPanX), C.float(blitPanY), C.float(zoomScale))
 }
 
 // VKVideoAndroidSetCursorScale reinitialises the cursor bitmap at the given

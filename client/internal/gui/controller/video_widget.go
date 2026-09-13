@@ -28,7 +28,9 @@ type VideoWidget struct {
 	statusLabel      *widget.Label
 	infoLabel        *widget.Label
 	statsLabel       *widget.Label
-	contentContainer *fyne.Container // Container for video and keyboard
+	contentContainer *fyne.Container // legacy bottom slot (unused by mobile keyboard overlay)
+	keyboardOverlay  *fyne.Container // transparent special-keys strip over video
+	collapseFAB      *fyne.Container // dismiss keyboard stack
 	ui               *view.VideoWidgetUI
 	statsTickerStop  chan struct{}
 
@@ -75,6 +77,9 @@ type VideoWidget struct {
 	videoRestartPending   bool
 	moveQueueMu           sync.Mutex
 	bottomInset           float32 // Bottom inset (e.g. for the keyboard) that pushes the video upward
+	// keyboardViewportLift allows extra upward pan while the keyboard stack
+	// is open so a bottom-of-screen caret can sit above the system IME.
+	keyboardViewportLift bool
 
 	pendingMoveX          int
 	pendingMoveY          int
@@ -136,13 +141,28 @@ type VideoWidget struct {
 	frameContentH              float32      // normalized height of the active frame area
 
 	// Dialogs
-	fullscreenDialog      *FullscreenDialog
-	startDialog           *view.VideoStartDialog
-	pairingPINDialog      dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
-	parentWindow          fyne.Window
-	virtualKeyboard       *graphics.VirtualKeyboard
+	fullscreenDialog       *FullscreenDialog
+	startDialog            *view.VideoStartDialog
+	pairingPINDialog       dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
+	parentWindow           fyne.Window
+	virtualKeyboard        *graphics.VirtualKeyboard
+	onKeyboardStackChanged func()
+	// viewportPanMode is armed by the mobile Control footer move button.
+	// While true, one-finger drag pans the video instead of moving the cursor.
+	// Stays armed until the button is tapped again (TouchUp/DragEnd must not
+	// clear it — Android can deliver those mid-stroke).
+	viewportPanMode          bool
+	viewportPanDragActive    bool
+	onViewportPanModeChanged func(bool)
+	systemIMESticky          atomic.Bool
+	// imeStackArmedAt is set when the sticky+special-keys stack opens; used to
+	// ignore the brief IME-height=0 window while the soft keyboard is animating up.
+	imeStackArmedAt       time.Time
 	keyboardModifierState atomic.Int32
 	suppressRuneUntilNS   atomic.Int64
+	softIMEMu             sync.Mutex
+	softIMELastRune       rune
+	softIMELastAt         time.Time
 	moonlightKeyMu        sync.Mutex
 	moonlightHeldVKs      map[int16]bool // tracks VK codes currently held in Moonlight session
 
@@ -195,8 +215,13 @@ type VideoWidget struct {
 	baseContentRectW      float32
 	baseContentRectH      float32
 	zoomScale             float32
-	panOffsetX            float32
-	panOffsetY            float32
+	// zoomScaleResidual multiplies sub-deadzone per-frame pinch factors so a
+	// slow continuous pinch is not discarded frame-by-frame (that felt like
+	// zoom advancing in jerks then stalling). Reset when the two-finger
+	// gesture ends.
+	zoomScaleResidual float32
+	panOffsetX        float32
+	panOffsetY        float32
 	// bottomAnchorContentVertically switches recalculateViewport's "content
 	// shorter than available area" branch from vertically centering the
 	// video to anchoring it flush against the bottom of the available
@@ -230,16 +255,21 @@ type VideoWidget struct {
 	bottomAnchorContentVertically bool
 	multiTouchActive              bool
 	lastMultiTouchAt              time.Time
-	scrollDragAxis                string
-	scrollDragLastX               float32
-	scrollDragLastY               float32
-	lastTouchX                    int // last sent touch coordinates (to avoid duplicating in MouseMoved)
-	lastTouchY                    int
-	lastAbsX                      int // last sent absolute (touch_position) coordinates, to avoid spamming
-	lastAbsY                      int
-	lastAbsSentTime               time.Time // time of the last absolute send (for debounce)
-	absSendMu                     sync.Mutex
-	absButtons                    uint8 // bitmask of buttons for absolute mode
+	// viewportManualControl is set by two-finger pan/zoom or footer pan-drag.
+	// While true, virtual-cursor auto-centering must not overwrite panOffset —
+	// otherwise zoom-after-pan snaps to center and pan-after-zoom is impossible.
+	// Cleared when the user moves the virtual cursor again.
+	viewportManualControl bool
+	scrollDragAxis        string
+	scrollDragLastX       float32
+	scrollDragLastY       float32
+	lastTouchX            int // last sent touch coordinates (to avoid duplicating in MouseMoved)
+	lastTouchY            int
+	lastAbsX              int // last sent absolute (touch_position) coordinates, to avoid spamming
+	lastAbsY              int
+	lastAbsSentTime       time.Time // time of the last absolute send (for debounce)
+	absSendMu             sync.Mutex
+	absButtons            uint8 // bitmask of buttons for absolute mode
 	// Stats for periodic log (atomics — written from capture goroutine, read from log timer).
 	statAbsMoonlight  atomic.Int64 // absolute events sent via Moonlight LiSendMousePositionEvent
 	statAbsWS         atomic.Int64 // absolute events sent via WebSocket

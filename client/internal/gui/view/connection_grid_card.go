@@ -684,8 +684,8 @@ func NewScriptCreateFieldsBox() (box fyne.CanvasObject, nameEntry, descEntry *St
 	sep.SetMinSize(fyne.NewSize(1, 1))
 
 	labelW := fyne.MeasureText("Description", 10, fyne.TextStyle{Monospace: true}).Width + 8
-	if labelW < connectionStatEditRowLabelWidth {
-		labelW = connectionStatEditRowLabelWidth
+	if labelW < connectionEditLabelColWidth() {
+		labelW = connectionEditLabelColWidth()
 	}
 
 	nameRow := newConnectionStatEditRowCol("Name", nameEntry, 10, design.ColorTextLight, false, 0, false, labelW)
@@ -770,20 +770,9 @@ func newGridCardFieldActions(entry *widget.Entry) fyne.CanvasObject {
 // whatever room is left instead (NewConnectionCardEditableStatsBox's dialog
 // caller, which has plenty of room and would otherwise leave a large gap
 // between the label and a fixed-160px entry).
-// connectionStatEditRowLabelWidth is every row's label column width in a
-// stats box (LAN/TS/Token, and Name when included) -- fixed rather than
-// each label's own natural width, which varies ("Token" is nearly twice
-// "TS"'s width), so without this the entry box next to it started at a
-// different X per row instead of all lining up. +8 for the same trailing
-// gap NewInset used to add on top of the label's own width -- a
-// container.NewStack(spacer, label) sizes to the *larger* of the two, so
-// "Token" (the one label wide enough that label+8 actually exceeded the
-// bare-text spacer width) ended up with a wider column than every other
-// row, the one row still visibly off after the first pass at this fix.
-// fixedWidthLabelLayout below reports exactly this width regardless of the
-// label's own size, instead of relying on that Stack-picks-the-larger-one
-// coincidence to hold for every label.
-var connectionStatEditRowLabelWidth = fyne.MeasureText("Token", 10, fyne.TextStyle{Monospace: true}).Width + 8
+// Label column width for stats rows (LAN/TS/Token/Name) is computed lazily
+// by connectionEditLabelColWidth() -- never at package init. On Android
+// fyne.MeasureText panics before the driver exists (instant app exit).
 
 // connectionStatEditRowActionsWidth is the copy/paste icon pair's width
 // (newGridCardFieldActions: two 15px buttons, no gap between them) --
@@ -795,9 +784,8 @@ const connectionStatEditRowActionsWidth = 30
 // fixedWidthLabelLayout renders its one child (the label) left-anchored at
 // its own natural size, vertically centered, but reports width as exactly
 // Width regardless of the label's own MinSize -- see
-// connectionStatEditRowLabelWidth's doc comment for why this needs to be a
-// real fixed-width layout instead of a spacer sized alongside the label in
-// a Stack.
+// connectionEditLabelColWidth for why the column must be fixed-width
+// instead of a spacer sized alongside the label in a Stack.
 type fixedWidthLabelLayout struct {
 	Width float32
 }

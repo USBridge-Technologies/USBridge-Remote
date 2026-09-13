@@ -6,7 +6,6 @@ import (
 	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/view"
 
-	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,39 +37,20 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 }
 
 func (vw *VideoWidget) toggleEmbeddedVirtualKeyboard() {
-	if vw.contentContainer == nil {
+	if vw.IsVirtualKeyboardVisible() {
+		vw.hideSpecialKeysOverlay()
+		vw.setKeyboardCollapseFABVisible(false)
 		return
 	}
-	if vw.virtualKeyboard == nil {
-		if vw.parentWindow == nil {
-			logrus.Warn("⚠️ Parent window is not set")
-			return
-		}
-		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
-	}
-
-	if vw.virtualKeyboard.IsVisible() {
-		vw.virtualKeyboard.Hide()
-		vw.contentContainer.Hide()
-		vw.container.Refresh()
-		vw.forceCanvasRefresh.Store(true)
-		logrus.Info("⌨️ Virtual keyboard hidden (embedded)")
-		return
-	}
-
-	keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()
-	vw.virtualKeyboard.SetVisibleState(true)
-	canvasSize := vw.parentWindow.Canvas().Size()
-	keyboardLayout.Resize(fyne.NewSize(canvasSize.Width, keyboardLayout.MinSize().Height))
-	keyboardLayout.Move(fyne.NewPos(0, 0))
-	vw.contentContainer.Objects = []fyne.CanvasObject{keyboardLayout}
-	vw.contentContainer.Resize(keyboardLayout.Size())
-	vw.contentContainer.Show()
-	vw.container.Refresh()
-	vw.forceCanvasRefresh.Store(true)
-	logrus.Info("⌨️ Virtual keyboard shown (embedded compact panel)")
+	vw.showSpecialKeysOverlay()
+	vw.setKeyboardCollapseFABVisible(true)
 }
 
 func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
 	// Not applicable for desktop, only show by default on mobile
+}
+
+func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
+	// Desktop / phone-preview: track the flag for footer selected look; no OS IME.
+	vw.systemIMESticky.Store(on)
 }

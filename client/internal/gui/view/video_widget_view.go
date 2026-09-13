@@ -17,6 +17,13 @@ type VideoWidgetUI struct {
 	InfoLabel        *widget.Label
 	StatsLabel       *widget.Label
 	ContentContainer *fyne.Container
+	// KeyboardOverlay hosts special keys over the video on desktop/web.
+	// On mobile the keys replace the main header instead (Vulkan/Metal
+	// z-order-on-top covers any Fyne strip inside the video rect).
+	KeyboardOverlay *fyne.Container
+	// CollapseFAB dismisses the keyboard stack on desktop/web (over video).
+	// Mobile dismiss sits after → in the special-keys strip (header swap).
+	CollapseFAB *fyne.Container
 	// SpinnerIcon/SpinnerOverlay: the Moonlight-style "connecting" spinner
 	// shown centered over the video area between starting a session and
 	// the first real frame arriving -- see video_widget_spinner.go, which
@@ -42,6 +49,12 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, keyboardCapture fyne.CanvasObj
 
 	contentContainer := container.NewStack()
 	contentContainer.Hide()
+
+	keyboardOverlay := container.NewStack()
+	keyboardOverlay.Hide()
+
+	collapseFAB := container.NewStack()
+	collapseFAB.Hide()
 
 	// videoBackground: a solid, always-present dark backdrop for the video
 	// area. Before this existed, "dark background while connecting" was
@@ -79,8 +92,15 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, keyboardCapture fyne.CanvasObj
 	if keyboardCapture != nil {
 		videoObjects = append(videoObjects, keyboardCapture)
 	}
-	videoObjects = append(videoObjects, spinnerOverlay)
+	// Special-keys strip (top) and collapse FAB (right) remain in the video
+	// Max-stack for desktop/web. Mobile leaves these empty and swaps the
+	// main header instead (see MainWindow.applyMainHeaderForKeyboardStack).
+	keysLayer := container.NewBorder(keyboardOverlay, nil, nil, nil, nil)
+	fabLayer := container.NewBorder(nil, nil, nil, collapseFAB, nil)
+	videoObjects = append(videoObjects, keysLayer, fabLayer, spinnerOverlay)
 	videoContainer := container.NewMax(videoObjects...)
+	// contentContainer kept for compatibility but unused by the mobile
+	// keyboard stack (overlay path). Left hidden so it never shrinks video.
 	mainContainer := container.NewBorder(nil, contentContainer, nil, nil, videoContainer)
 
 	return &VideoWidgetUI{
@@ -90,6 +110,8 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, keyboardCapture fyne.CanvasObj
 		InfoLabel:        infoLabel,
 		StatsLabel:       statsLabel,
 		ContentContainer: contentContainer,
+		KeyboardOverlay:  keyboardOverlay,
+		CollapseFAB:      collapseFAB,
 		SpinnerIcon:      spinnerIcon,
 		SpinnerOverlay:   spinnerOverlay,
 	}

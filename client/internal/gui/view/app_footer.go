@@ -17,10 +17,38 @@ import (
 // appears or disappears.
 const AppFooterRowHeight = float32(14)
 
-// AppFooterOuterHeight is NewAppFooter's full strip: the 14px row, 4/6
-// insets, and the 0.5px hairline. Native video overlays subtract this
-// from canvasH − containerH when AbsolutePosition has not settled yet.
-const AppFooterOuterHeight = AppFooterRowHeight + 4 + 6 + 0.5
+// Compact mobile pad under version/chips (Control and other tabs). Android
+// reports bottom inset=0 so this sits near the screen edge.
+const appFooterMobileBottomPad = float32(2)
+
+// Connections keeps a taller footer on mobile so the version clears the
+// gesture/nav buttons without enabling Fyne's system bottom safe-inset
+// (which inflated every screen's chrome).
+const connectionsMobileBottomPad = float32(18)
+
+func appFooterVPads() (top, bottom float32) {
+	top = 4
+	bottom = 6
+	if IsMobile() {
+		bottom = appFooterMobileBottomPad
+	}
+	return
+}
+
+func appFooterLineHeight() float32 {
+	if IsMobile() {
+		return 1
+	}
+	return 0.5
+}
+
+// AppFooterOuterHeight is NewAppFooter's full strip height (row + pads +
+// hairline). Native video overlays subtract this from canvasH − containerH
+// when AbsolutePosition has not settled yet.
+func AppFooterOuterHeight() float32 {
+	top, bottom := appFooterVPads()
+	return AppFooterRowHeight + top + bottom + appFooterLineHeight()
+}
 
 // NewAppFooter is the one bottom strip used on every main screen: optional
 // left chips (busy spinner, script status), optional right action
@@ -28,17 +56,30 @@ const AppFooterOuterHeight = AppFooterRowHeight + 4 + 6 + 0.5
 // hairline sits on top -- the same stroke the app header wears underneath.
 // rightBtn, spinner, and extraLeft may be nil.
 func NewAppFooter(version string, rightBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
-	return newAppFooter(version, true, rightBtn, spinner, extraLeft...)
+	top, bottom := appFooterVPads()
+	return newAppFooter(version, true, top, bottom, rightBtn, spinner, extraLeft...)
+}
+
+// NewConnectionsAppFooter is NewAppFooter with a taller mobile bottom pad so
+// the Connections version sits above the nav/gesture area without turning
+// on the system bottom safe-inset for the whole app.
+func NewConnectionsAppFooter(version string, rightBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
+	top, bottom := appFooterVPads()
+	if IsMobile() {
+		bottom = connectionsMobileBottomPad
+	}
+	return newAppFooter(version, true, top, bottom, rightBtn, spinner, extraLeft...)
 }
 
 // NewAppFooterNoLine is NewAppFooter without the top hairline -- used when
 // this strip sits directly under another bar that already has its own line
 // (mobile Control tab footer + version).
 func NewAppFooterNoLine(version string, rightBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
-	return newAppFooter(version, false, rightBtn, spinner, extraLeft...)
+	top, bottom := appFooterVPads()
+	return newAppFooter(version, false, top, bottom, rightBtn, spinner, extraLeft...)
 }
 
-func newAppFooter(version string, withLine bool, rightBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
+func newAppFooter(version string, withLine bool, top, bottom float32, rightBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
 	leftParts := make([]fyne.CanvasObject, 0, 1+len(extraLeft))
 	if usableCanvasObject(spinner) {
 		leftParts = append(leftParts, spinner)
@@ -73,7 +114,7 @@ func newAppFooter(version string, withLine bool, rightBtn, spinner fyne.CanvasOb
 	}
 	heightLock := canvas.NewRectangle(color.Transparent)
 	heightLock.SetMinSize(fyne.NewSize(0, AppFooterRowHeight))
-	return newAppFooterStrip(NewInsetExact(container.NewMax(heightLock, row), 18, 18, 4, 6), withLine)
+	return newAppFooterStrip(NewInsetExact(container.NewMax(heightLock, row), 18, 18, top, bottom), withLine)
 }
 
 func newAppFooterStrip(inner fyne.CanvasObject, withLine bool) fyne.CanvasObject {
@@ -86,10 +127,6 @@ func newAppFooterStrip(inner fyne.CanvasObject, withLine bool) fyne.CanvasObject
 		return container.NewStack(bg, inner)
 	}
 	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
-	lineH := float32(0.5)
-	if IsMobile() {
-		lineH = 1
-	}
-	accentLine.SetMinSize(fyne.NewSize(1, lineH))
+	accentLine.SetMinSize(fyne.NewSize(1, appFooterLineHeight()))
 	return container.NewStack(bg, NewTopLine(inner, accentLine))
 }

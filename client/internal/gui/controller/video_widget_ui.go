@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/media"
@@ -37,6 +38,9 @@ func (vw *VideoWidget) createInterface() {
 	vw.infoLabel = vw.ui.InfoLabel
 	vw.statsLabel = vw.ui.StatsLabel
 	vw.contentContainer = vw.ui.ContentContainer
+	vw.keyboardOverlay = vw.ui.KeyboardOverlay
+	vw.collapseFAB = vw.ui.CollapseFAB
+	vw.initKeyboardCollapseFAB()
 
 	vw.startStatsLoop()
 	vw.startRenderTicker()
@@ -1031,13 +1035,140 @@ func (vw *VideoWidget) ShowFullscreen() {
 	vw.fullscreenDialog.Show()
 }
 
-// HandleVirtualKeyboard handles opening/closing the virtual keyboard.
+// HandleVirtualKeyboard toggles the special-keys overlay only (legacy path).
 func (vw *VideoWidget) HandleVirtualKeyboard() {
 	vw.platformHandleVirtualKeyboard()
 }
 
 func (vw *VideoWidget) IsVirtualKeyboardVisible() bool {
 	return vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible()
+}
+
+// SetSystemIMESticky toggles the system soft keyboard so it stays open until
+// explicitly dismissed, independent of Entry focus (Android native sticky;
+// iOS focuses the hidden IME entry).
+func (vw *VideoWidget) SetSystemIMESticky(on bool) {
+	vw.platformSetSystemIMESticky(on)
+}
+
+func (vw *VideoWidget) IsSystemIMESticky() bool {
+	return vw.systemIMESticky.Load()
+}
+
+// OpenKeyboardStack shows special-keys overlay + system IME together.
+func (vw *VideoWidget) OpenKeyboardStack() {
+	vw.ensureMobileVirtualKeyboard()
+	if vw.virtualKeyboard == nil {
+		return
+	}
+	vw.imeStackArmedAt = time.Now()
+	if !vw.IsVirtualKeyboardVisible() {
+		vw.showSpecialKeysOverlay()
+	}
+	if !vw.IsSystemIMESticky() {
+		vw.SetSystemIMESticky(true)
+	}
+	vw.setKeyboardCollapseFABVisible(true)
+	vw.focusViewportOnVirtualCursorForKeyboard()
+	if vw.onKeyboardStackChanged != nil {
+		vw.onKeyboardStackChanged()
+	}
+	// Header swap + IME animation change available height after this returns.
+	vw.scheduleKeyboardCaretFocus()
+}
+
+// CloseAllKeyboards hides the special-keys overlay and dismisses sticky system IME.
+func (vw *VideoWidget) CloseAllKeyboards() {
+	if vw.IsSystemIMESticky() {
+		vw.SetSystemIMESticky(false)
+	}
+	if vw.IsVirtualKeyboardVisible() {
+		vw.hideSpecialKeysOverlay()
+	}
+	vw.setKeyboardCollapseFABVisible(false)
+	vw.keyboardViewportLift = false
+	vw.bottomInset = 0
+	vw.recalculateViewport()
+	vw.updateNativeViewportAndCursor()
+	if vw.onKeyboardStackChanged != nil {
+		vw.onKeyboardStackChanged()
+	}
+}
+
+// ToggleKeyboardStack opens or closes the combined IME + special-keys stack.
+func (vw *VideoWidget) ToggleKeyboardStack() {
+	if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
+		vw.CloseAllKeyboards()
+		return
+	}
+	vw.OpenKeyboardStack()
+}
+
+// SetOnKeyboardStackChanged registers a UI refresh when the keyboard stack opens/closes.
+func (vw *VideoWidget) SetOnKeyboardStackChanged(fn func()) {
+	vw.onKeyboardStackChanged = fn
+}
+
+// SetViewportPanMode arms/disarms one-finger video pan (mobile Control footer).
+// Mode stays on until the footer button is tapped again (or Control is left) —
+// it must not clear on TouchUp/DragEnd, which Android can deliver mid-stroke.
+func (vw *VideoWidget) SetViewportPanMode(on bool) {
+	if vw == nil || vw.viewportPanMode == on {
+		return
+	}
+	vw.viewportPanMode = on
+	if !on {
+		vw.viewportPanDragActive = false
+		vw.snapViewportAlignment()
+		vw.updateNativeViewportAndCursor()
+	}
+	if vw.onViewportPanModeChanged != nil {
+		vw.onViewportPanModeChanged(on)
+	}
+}
+
+// ToggleViewportPanMode flips one-finger video pan mode.
+func (vw *VideoWidget) ToggleViewportPanMode() {
+	if vw == nil {
+		return
+	}
+	vw.SetViewportPanMode(!vw.viewportPanMode)
+}
+
+// IsViewportPanMode reports whether one-finger video pan is armed.
+func (vw *VideoWidget) IsViewportPanMode() bool {
+	return vw != nil && vw.viewportPanMode
+}
+
+// SetOnViewportPanModeChanged registers a UI refresh when pan mode toggles.
+func (vw *VideoWidget) SetOnViewportPanModeChanged(fn func(bool)) {
+	if vw == nil {
+		return
+	}
+	vw.onViewportPanModeChanged = fn
+}
+
+// applyOneFingerViewportPan pans the zoomed video by a finger delta (dp).
+func (vw *VideoWidget) applyOneFingerViewportPan(dx, dy float32) {
+	if vw == nil || (dx == 0 && dy == 0) {
+		return
+	}
+	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
+		return
+	}
+	availableH := vw.touchpadSizeH - vw.bottomInset
+	if availableH < 0 {
+		availableH = 0
+	}
+	focusX := vw.touchpadSizeW / 2
+	focusY := availableH / 2
+	vw.applyViewportGesture(1, focusX, focusY, dx, dy)
+	vw.updateNativeViewportAndCursor()
+}
+
+// GetVirtualKeyboard returns the embedded special-keys keyboard, if created.
+func (vw *VideoWidget) GetVirtualKeyboard() *graphics.VirtualKeyboard {
+	return vw.virtualKeyboard
 }
 
 // updateStats updates statistics.

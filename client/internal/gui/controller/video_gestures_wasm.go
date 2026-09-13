@@ -79,10 +79,12 @@ var webTouch struct {
 	lastX     float32
 	lastY     float32
 
-	twoFinger bool
-	prevDist  float32
-	prevMidX  float32
-	prevMidY  float32
+	twoFinger  bool
+	modeScroll bool
+	scrollAccY float32
+	prevDist   float32
+	prevMidX   float32
+	prevMidY   float32
 }
 
 // touchOverlayEl is the lazily-created transparent <div> touch listeners
@@ -378,6 +380,18 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 		webTouch.prevDist = dist(x0, y0, x1, y1)
 		webTouch.prevMidX = (x0 + x1) / 2
 		webTouch.prevMidY = (y0 + y1) / 2
+		webTouch.scrollAccY = 0
+		vw.resetZoomScaleResidual()
+		// Match Android/iOS: fingers closer than 30% of the smaller window
+		// side → scroll wheel; farther apart → pan+zoom.
+		win := js.Global().Get("window")
+		w := float32(win.Get("innerWidth").Float())
+		h := float32(win.Get("innerHeight").Float())
+		minDim := w
+		if h < minDim {
+			minDim = h
+		}
+		webTouch.modeScroll = webTouch.prevDist < minDim*0.30
 		return nil
 	}
 
@@ -434,12 +448,30 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 		if webTouch.prevDist > 0 {
 			scaleFactor = curDist / webTouch.prevDist
 		}
-		panDx := curMidX - webTouch.prevMidX
 		panDy := curMidY - webTouch.prevMidY
 		webTouch.prevDist = curDist
 		webTouch.prevMidX = curMidX
 		webTouch.prevMidY = curMidY
 
+		if webTouch.modeScroll {
+			webTouch.scrollAccY += panDy
+			const pixelsPerTick = 20
+			ticks := int(webTouch.scrollAccY / pixelsPerTick)
+			if ticks != 0 {
+				webTouch.scrollAccY -= float32(ticks) * pixelsPerTick
+				if ticks > 127 {
+					ticks = 127
+				} else if ticks < -127 {
+					ticks = -127
+				}
+				fyne.Do(func() {
+					vw.enqueueMouseScroll(ticks)
+				})
+			}
+			return nil
+		}
+
+		// Pinch/zoom mode: zoom only — never also scroll.
 		wrapper := vw.activeViewportWrapper()
 		if wrapper == nil {
 			return nil
@@ -455,7 +487,7 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 
 		fyne.Do(func() {
 			vw.UpdateTouchpadAndContentRect(wrapperSize.Width, wrapperSize.Height, vw.GetCurrentFrame())
-			vw.applyViewportGesture(scaleFactor, local.X, local.Y, panDx, panDy)
+			vw.applyViewportGesture(scaleFactor, local.X, local.Y, 0, 0)
 			vw.updateNativeViewportAndCursor()
 			vw.refreshViewportViews()
 		})
@@ -535,7 +567,11 @@ func onTouchEnd(this js.Value, args []js.Value) interface{} {
 			webTouch.twoFinger = false
 			vw.multiTouchActive = false
 			vw.lastMultiTouchAt = time.Now()
+			vw.resetZoomScaleResidual()
 			vw.cancelLocalTouchState()
+			vw.snapViewportAlignment()
+			vw.updateNativeViewportAndCursor()
+			vw.refreshViewportViews()
 		}
 		return nil
 	}

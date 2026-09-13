@@ -8,6 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"usbridge-client/internal/gui/graphics"
+	"usbridge-client/internal/gui/view"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -160,11 +163,33 @@ func (t *TouchpadWrapper) SetSkipWindowFocus(skip bool) {
 	t.skipWindowFocus.Store(skip)
 }
 
-// FocusGained implements fyne.Focusable
+// FocusGained implements fyne.Focusable.
 func (t *TouchpadWrapper) FocusGained() {}
 
-// FocusLost implements fyne.Focusable
-func (t *TouchpadWrapper) FocusLost() {}
+// FocusLost implements fyne.Focusable. While sticky system IME is on, keep the
+// native soft keyboard up (re-show) without bouncing Fyne focus to an Entry —
+// video drags must not dismiss the IME.
+func (t *TouchpadWrapper) FocusLost() {
+	vw := t.videoWidget
+	if vw == nil || !vw.IsSystemIMESticky() {
+		return
+	}
+	go func() {
+		time.Sleep(80 * time.Millisecond)
+		fyne.Do(func() {
+			if vw == nil || !vw.IsSystemIMESticky() {
+				return
+			}
+			if view.OverlayActive() {
+				return
+			}
+			graphics.SetStickySystemIME(true)
+			if t.window != nil {
+				t.window.Canvas().Focus(t)
+			}
+		})
+	}()
+}
 
 func (t *TouchpadWrapper) Cursor() desktop.Cursor { return desktop.DefaultCursor }
 
@@ -316,6 +341,20 @@ func (t *TouchpadWrapper) endScrollbarDrag() bool {
 	return true
 }
 
+// endViewportPanGesture finishes one pan stroke without disarming footer
+// move-mode. Fyne/Android often delivers DragEnd (and sometimes TouchUp)
+// mid-stroke while the finger is still down; turning pan mode off there
+// snapped the picture and dropped the button early.
+func (t *TouchpadWrapper) endViewportPanGesture() bool {
+	if !t.videoWidget.IsViewportPanMode() && !t.videoWidget.viewportPanDragActive {
+		return false
+	}
+	t.videoWidget.viewportPanDragActive = false
+	t.videoWidget.isDragging = false
+	t.videoWidget.resetRelativeMoveAccumulator()
+	return true
+}
+
 func (t *TouchpadWrapper) applyScrollbarDelta(axis string, delta float32) {
 	size := t.Size()
 	if size.Width <= 0 || size.Height <= 0 {
@@ -460,6 +499,11 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	t.videoWidget.currentMouseY = ev.Position.Y
 	t.videoWidget.isDragging = false
 
+	if t.videoWidget.IsViewportPanMode() {
+		t.videoWidget.viewportPanDragActive = false
+		return
+	}
+
 	var btn int
 	switch ev.Button {
 	case desktop.MouseButtonPrimary:
@@ -499,6 +543,9 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 // MouseUp handles a mouse button release (desktop)
 func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 	if !t.videoWidget.isMouseConnected {
+		return
+	}
+	if t.endViewportPanGesture() {
 		return
 	}
 
@@ -796,6 +843,12 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.isDragging = false
 
+	// Footer move-button mode: one-finger drag pans the video; skip cursor/LMB.
+	if t.videoWidget.IsViewportPanMode() {
+		t.videoWidget.viewportPanDragActive = false
+		return
+	}
+
 	if isVirtualCursorLikeMode(t.videoWidget.GetMouseInputMode()) {
 		// If a quick tap just fired and second finger comes down within
 		// virtualTapHoldWindow → potential LMB hold.
@@ -945,6 +998,13 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	if t.endScrollbarDrag() {
 		return
 	}
+
+	// End footer move-button pan: release turns the mode off so two-finger
+	// scroll is available again without an extra tap on the button.
+	if t.endViewportPanGesture() {
+		return
+	}
+
 	dx := math.Abs(float64(ev.Position.X - t.videoWidget.touchStartX))
 	dy := math.Abs(float64(ev.Position.Y - t.videoWidget.touchStartY))
 	duration := time.Since(t.videoWidget.touchStartTime)
@@ -1159,6 +1219,19 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 		maxV = frameY + frameH
 	}
 
+	// After two-finger pan/zoom: RustDesk-style resume — move the cursor into
+	// the centre of whatever is on screen, instead of yanking the viewport
+	// back to where the cursor used to be (sharp jump to the old side).
+	// Small slop is enough now that resume no longer jerks the picture.
+	const resumeCursorFollowSlop = float32(2)
+	resuming := vw.viewportManualControl &&
+		(math.Abs(float64(rawDx)) >= float64(resumeCursorFollowSlop) ||
+			math.Abs(float64(rawDy)) >= float64(resumeCursorFollowSlop))
+	if resuming {
+		vw.placeVirtualCursorAtViewCenterLocked(minU, maxU, minV, maxV)
+		vw.viewportManualControl = false
+	}
+
 	if cw > 0 {
 		vw.virtualCursorU = clampFloat(vw.virtualCursorU+rawDx/cw, minU, maxU)
 	}
@@ -1330,6 +1403,13 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 		return
 	}
 
+	if t.videoWidget.IsViewportPanMode() {
+		t.videoWidget.viewportPanDragActive = true
+		t.videoWidget.isDragging = true
+		t.videoWidget.applyOneFingerViewportPan(ev.Dragged.DX, ev.Dragged.DY)
+		return
+	}
+
 	// fyne.CurrentDevice().IsMobile() under wasm is real User-Agent
 	// sniffing for Android|iPhone|iPad|iPod (see video_widget_web.go's own
 	// doc comment on it) -- confirmed live on a real Quest 3 that the Meta
@@ -1413,6 +1493,9 @@ func (t *TouchpadWrapper) DragEnd() {
 
 	if isAndroid {
 		if t.endScrollbarDrag() {
+			return
+		}
+		if t.endViewportPanGesture() {
 			return
 		}
 		logrus.Infof("🖱️ [DRAGGED] Android: DragEnd called, isDragging=%v lmbHeld=%v", t.videoWidget.isDragging, t.videoWidget.lmbHeld)

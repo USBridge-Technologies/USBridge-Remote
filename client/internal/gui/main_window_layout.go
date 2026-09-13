@@ -400,12 +400,10 @@ func (mw *MainWindow) recreateContainers() {
 
 	var mainBottom fyne.CanvasObject
 	if useMobileControl() && mw.mobileTabFooter != nil {
-		// Tab bar on top, the same thin version footer as Connections
-		// underneath (version on the right).
-		mainBottom = container.NewVBox(
-			mw.mobileTabFooter,
-			view.NewAppFooterNoLine(view.AppVersion(), nil, controlConnecting, controlScriptFooter),
-		)
+		mw.connectedFooterBusy = controlConnecting
+		mw.connectedFooterScript = controlScriptFooter
+		mw.applyConnectedChromeLayout(true)
+		mainBottom = mw.connectedChromeHost
 	}
 	mainBg := canvas.NewRectangle(design.ColorGray950)
 	mw.mainContent = container.NewStack(
@@ -641,7 +639,16 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		middleClip,
 		rightGroup,
 	)
-	return view.NewHeaderBand("", row)
+	normal := view.NewHeaderBand("", row)
+	mw.mainHeaderNormal = normal
+	if useMobileControl() {
+		// Mobile: keyboard stack replaces this band with special keys +
+		// collapse (see applyMainHeaderForKeyboardStack).
+		mw.mainHeaderHost = container.NewMax(normal)
+		return mw.mainHeaderHost
+	}
+	mw.mainHeaderHost = nil
+	return normal
 }
 
 func headerGapSpacer(width float32) fyne.CanvasObject {
@@ -676,7 +683,7 @@ func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 		mw.designModeChip = chip
 		modeChip = chip
 	}
-	return view.NewAppFooter(view.AppVersion(), modeChip, nil, extras...)
+	return view.NewConnectionsAppFooter(view.AppVersion(), modeChip, nil, extras...)
 }
 
 func (mw *MainWindow) showDesignModeMenu(anchor fyne.CanvasObject) {
@@ -1252,6 +1259,10 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.keyboardIcon = newHeaderStatusBadgeButton(assets.KeyboardIcon, func() {
 		if mw.tabs != nil && len(mw.tabs.Items) > mw.controlTabIndex() {
 			mw.tabs.Select(mw.tabs.Items[mw.controlTabIndex()])
+		}
+		if useMobileControl() {
+			mw.toggleMobileKeyboardStack()
+			return
 		}
 		if mw.videoWidget != nil {
 			mw.videoWidget.HandleVirtualKeyboard()
