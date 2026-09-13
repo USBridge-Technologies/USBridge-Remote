@@ -43,6 +43,20 @@ type MainWindow struct {
 	mobileTabFooter      fyne.CanvasObject
 	mobileKeyboardBtn    fyne.CanvasObject
 	mobileKeyboardToggle *headerStatusBadgeButton
+	mobileChromeCollapseBtn *headerStatusBadgeButton
+	mobileChromeExpandBtn   *headerStatusBadgeButton
+	mobileChromeCollapseWrap fyne.CanvasObject
+	mobileChromeExpandWrap   fyne.CanvasObject
+	// connectedChromeHost holds portrait (tab bar + version) or landscape
+	// (single row) chrome under the connected tabs; swapped by
+	// applyConnectedChromeLayout without a full reloadUI.
+	connectedChromeHost    *fyne.Container
+	connectedVersionFooter fyne.CanvasObject
+	connectedFooterBusy    fyne.CanvasObject
+	connectedFooterScript  fyne.CanvasObject
+	mobileTabsRow          fyne.CanvasObject
+	connectedLandscape     bool
+	connectedChromeCollapsed bool
 	deviceButtonsPanel *fyne.Container
 	deviceFooterBar    *fyne.Container
 	deviceMountBtn     fyne.CanvasObject

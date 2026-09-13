@@ -19,4 +19,10 @@ object KeyboardBridge {
     fun requestLanguageReport() {
         MainActivity.getInstance()?.requestLanguageReport()
     }
+
+    /** Keep the soft keyboard open until explicitly dismissed (system/auto mode). */
+    @JvmStatic
+    fun setStickyIME(enabled: Boolean) {
+        MainActivity.getInstance()?.setStickyIME(enabled)
+    }
 }

@@ -73,6 +73,8 @@ func (mw *MainWindow) observeContentResize(size, minSize fyne.Size) {
 	if mw == nil {
 		return
 	}
+	mw.noteConnectedChromeForSize(size)
+
 	if view.ForceMobileDesign {
 		p := view.CurrentPhonePreview()
 		mw.lastGoodWindowSize = fyne.NewSize(p.Width, p.Height)

@@ -141,6 +141,7 @@ type VideoWidget struct {
 	pairingPINDialog      dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
 	parentWindow          fyne.Window
 	virtualKeyboard       *graphics.VirtualKeyboard
+	systemIMESticky       atomic.Bool
 	keyboardModifierState atomic.Int32
 	suppressRuneUntilNS   atomic.Int64
 	moonlightKeyMu        sync.Mutex

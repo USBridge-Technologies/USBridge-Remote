@@ -400,12 +400,10 @@ func (mw *MainWindow) recreateContainers() {
 
 	var mainBottom fyne.CanvasObject
 	if useMobileControl() && mw.mobileTabFooter != nil {
-		// Tab bar on top, the same thin version footer as Connections
-		// underneath (version on the right).
-		mainBottom = container.NewVBox(
-			mw.mobileTabFooter,
-			view.NewAppFooterNoLine(view.AppVersion(), nil, controlConnecting, controlScriptFooter),
-		)
+		mw.connectedFooterBusy = controlConnecting
+		mw.connectedFooterScript = controlScriptFooter
+		mw.applyConnectedChromeLayout(true)
+		mainBottom = mw.connectedChromeHost
 	}
 	mainBg := canvas.NewRectangle(design.ColorGray950)
 	mw.mainContent = container.NewStack(

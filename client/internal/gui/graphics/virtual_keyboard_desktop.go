@@ -99,6 +99,9 @@ func GetLastIMEH() float32 {
 	return 0
 }
 
+// SetStickySystemIME is Android-only.
+func SetStickySystemIME(_ bool) {}
+
 func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	if view.IsMobile() {
 		return vk.createCompactSpecialKeysLayout()

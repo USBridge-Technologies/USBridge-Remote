@@ -121,6 +121,11 @@ func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
 	// Compact panel is toggled from the Control footer keyboard button.
 }
 
+func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
+	vw.systemIMESticky.Store(false)
+	_ = on
+}
+
 // realIMEOpenThresholdDp mirrors Android's own onIMEHeightChanged
 // threshold (minRealIMEDp = 100): a shrink smaller than this is normal
 // address-bar/rounding noise, not a real keyboard.

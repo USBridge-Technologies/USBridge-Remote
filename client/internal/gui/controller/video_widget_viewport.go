@@ -137,6 +137,18 @@ func (vw *VideoWidget) activeViewportWrapper() *TouchpadWrapper {
 	return vw.touchpadWrapper
 }
 
+// InvalidateOverlayGeometry drops the cached canvas origin and forces the
+// next render tick to remeasure the native video overlay — used after
+// orientation / connected-chrome reflows change header or footer height.
+func (vw *VideoWidget) InvalidateOverlayGeometry() {
+	if vw == nil {
+		return
+	}
+	vw.lastVideoCanvasOrigin = fyne.NewPos(0, 0)
+	vw.forceCanvasRefresh.Store(true)
+	vw.RefreshViewportGeometry()
+}
+
 // RefreshViewportGeometry recomputes the touchpad/content rect against the
 // viewport wrapper's current (now-visible) size. The pre-set block in
 // startVideoWithParamsInternal only takes effect if the Control tab is

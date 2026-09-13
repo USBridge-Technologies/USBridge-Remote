@@ -288,7 +288,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	inputRow := container.NewBorder(nil, nil, nil, container.NewHBox(pasteBtn, clearBtn), styledEntry)
 	line := canvas.NewRectangle(design.ColorHeaderAccentLine)
 	line.SetMinSize(fyne.NewSize(1, 0.5))
-	main := view.NewInsetExact(container.NewVBox(vk.createCompactSpecialKeysPanel(), inputRow), 6, 6, 6, 6)
+	main := view.NewInsetExact(container.NewVBox(vk.createCompactKeysChrome(), inputRow), 6, 6, 6, 6)
 
 	background := canvas.NewRectangle(design.ColorGray950)
 	background.FillColor = design.ColorGray950

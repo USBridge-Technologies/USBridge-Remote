@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"usbridge-client/internal/gui/view"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -163,8 +165,30 @@ func (t *TouchpadWrapper) SetSkipWindowFocus(skip bool) {
 // FocusGained implements fyne.Focusable
 func (t *TouchpadWrapper) FocusGained() {}
 
-// FocusLost implements fyne.Focusable
-func (t *TouchpadWrapper) FocusLost() {}
+// FocusLost implements fyne.Focusable. While system-IME sticky mode is on,
+// re-claim focus shortly after so soft-keyboard runes keep routing here
+// (unless a Fyne overlay/menu currently owns the interaction).
+func (t *TouchpadWrapper) FocusLost() {
+	vw := t.videoWidget
+	if vw == nil || !vw.IsSystemIMESticky() || t.window == nil {
+		return
+	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		fyne.Do(func() {
+			if vw == nil || !vw.IsSystemIMESticky() || t.window == nil {
+				return
+			}
+			if view.OverlayActive() {
+				return
+			}
+			if focused := t.window.Canvas().Focused(); focused != nil && focused != t {
+				return
+			}
+			t.window.Canvas().Focus(t)
+		})
+	}()
+}
 
 func (t *TouchpadWrapper) Cursor() desktop.Cursor { return desktop.DefaultCursor }
 

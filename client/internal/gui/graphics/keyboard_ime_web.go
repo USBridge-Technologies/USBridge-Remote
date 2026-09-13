@@ -23,3 +23,6 @@ func (vk *VirtualKeyboard) RegisterAsIMETarget() {}
 func GetLastIMEH() float32 {
 	return 0
 }
+
+// SetStickySystemIME is Android-only.
+func SetStickySystemIME(_ bool) {}

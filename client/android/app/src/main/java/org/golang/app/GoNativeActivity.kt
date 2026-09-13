@@ -4,6 +4,7 @@ import android.app.NativeActivity
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -15,6 +16,7 @@ import android.view.KeyEvent
 import android.view.KeyCharacterMap
 import android.view.View
 import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -76,6 +78,44 @@ open class GoNativeActivity : NativeActivity() {
                 flags = flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
             }
             window.decorView.systemUiVisibility = flags
+            applyImmersiveSystemBars(isLandscape())
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun isLandscape(): Boolean {
+        return resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    }
+
+    // Landscape: hide status + nav bars (immersive sticky) so our Fyne chrome
+    // owns the full screen. Portrait keeps system bars for the camera cutout.
+    private fun applyImmersiveSystemBars(landscape: Boolean) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val controller = window.insetsController ?: return
+                val types = WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars()
+                if (landscape) {
+                    controller.hide(types)
+                    controller.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else {
+                    controller.show(types)
+                }
+                return
+            }
+            @Suppress("DEPRECATION")
+            var flags = window.decorView.systemUiVisibility
+            if (landscape) {
+                flags = flags or View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            } else {
+                flags = flags and View.SYSTEM_UI_FLAG_FULLSCREEN.inv() and
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION.inv() and
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY.inv()
+            }
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = flags
         } catch (_: Throwable) {
         }
     }
@@ -136,17 +176,25 @@ open class GoNativeActivity : NativeActivity() {
                 }
             }
         }
-        // Bottom inset stays 0: Fyne paints edge-to-edge under the nav chrome.
-        // Connections grows its own footer pad slightly; do not push the whole
-        // app up by the system safe-zone (that made every footer huge).
+        // Bottom inset stays 0 in portrait: Fyne paints under the nav chrome;
+        // Connections grows its own footer pad instead of a system safe-zone.
         bottom = 0
+        // Landscape immersive: zero ALL insets so Fyne chrome draws edge-to-
+        // edge. Leaving cutout left/right pads painted only ColorNameBackground
+        // (no header hairline / wrong footer tone) and shifted the layout.
+        if (isLandscape()) {
+            top = 0
+            left = 0
+            right = 0
+            bottom = 0
+        }
         try {
             insetsChanged(top, bottom, left, right)
         } catch (_: Throwable) {
         }
     }
 
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+    override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         // Orientation / size class changes swap which edges are status vs
         // nav / cutout. Re-apply chrome and push fresh insets so the header

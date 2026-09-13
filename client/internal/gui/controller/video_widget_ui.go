@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/media"
@@ -1038,6 +1039,31 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 
 func (vw *VideoWidget) IsVirtualKeyboardVisible() bool {
 	return vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible()
+}
+
+// SetSystemIMESticky toggles the Android system soft keyboard so it stays
+// open until explicitly dismissed (RustDesk-style), independent of Entry focus.
+func (vw *VideoWidget) SetSystemIMESticky(on bool) {
+	vw.platformSetSystemIMESticky(on)
+}
+
+func (vw *VideoWidget) IsSystemIMESticky() bool {
+	return vw.systemIMESticky.Load()
+}
+
+// CloseAllKeyboards hides the special-keys panel and dismisses sticky system IME.
+func (vw *VideoWidget) CloseAllKeyboards() {
+	if vw.IsSystemIMESticky() {
+		vw.SetSystemIMESticky(false)
+	}
+	if vw.IsVirtualKeyboardVisible() {
+		vw.HandleVirtualKeyboard()
+	}
+}
+
+// GetVirtualKeyboard returns the embedded special-keys keyboard, if created.
+func (vw *VideoWidget) GetVirtualKeyboard() *graphics.VirtualKeyboard {
+	return vw.virtualKeyboard
 }
 
 // updateStats updates statistics.

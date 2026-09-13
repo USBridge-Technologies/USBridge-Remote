@@ -6,7 +6,9 @@ import (
 	"image"
 	"math"
 	"time"
+
 	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
@@ -163,11 +165,18 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	} else {
 		setImeExpandHeightDp(0)
 	}
-	// Bottom-align the fitted video rect in the Vulkan swapchain while the system
-	// IME is open: the SurfaceView expands upward into the tab-bar area, so
-	// center-fit would leave a black gap between the video and the keyboard panel.
-	service.VKVideoAndroidSetAlignBottom(imeOpen)
+	// Bottom-align fitted video while a special-keys panel is also visible
+	// (flush above that panel). System-IME-only mode centers in the shrunk
+	// SurfaceView above the soft keyboard.
+	specialVisible := vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible()
+	service.VKVideoAndroidSetAlignBottom(imeOpen && specialVisible)
+	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
+	if tw := vw.touchpadWrapper; tw != nil {
+		if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
+			vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+		}
+	}
 }
 
 // vkLastRenderedW/H track the last pixel size sent to the Vulkan overlay.
@@ -380,24 +389,35 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	}
 
 	// When the Android system IME (letter keyboard) is open, expand the video upward
-	// to fill the tab-bar area. The custom keyboard panel stays visible at the bottom.
-	// Use AbsolutePositionForObject so we read the exact canvas Y of the keyboard panel
-	// rather than re-deriving it from heights (which can disagree by a few dp due to
-	// Fyne border-layout rounding or imeSpacer timing).
+	// to fill the tab-bar area. The custom keyboard panel stays visible at the bottom
+	// when special keys are shown; system-IME-only mode has no panel — Fyne's canvas
+	// does not shrink (adjustResize is ineffective in our fullscreen activity), so
+	// we must clip the SurfaceView above the soft keyboard ourselves.
 	if getImeExpandHeightDp() > 0 {
-		if vw.container == nil || vw.contentContainer == nil || !vw.contentContainer.Visible() {
+		if vw.container == nil {
 			return
 		}
 		sz := vw.container.Size()
-		absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
-		videoH := absPos.Y
-		if videoH <= 0 {
-			// Fallback: derive from sizes if position is not yet available.
-			videoH = cs.Height
-			if kh := vw.contentContainer.Size().Height; kh > 0 {
-				videoH -= kh
+		if vw.contentContainer != nil && vw.contentContainer.Visible() && vw.contentContainer.Size().Height > 0 {
+			absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
+			videoH := absPos.Y
+			if videoH <= 0 {
+				// Fallback: derive from sizes if position is not yet available.
+				videoH = cs.Height
+				if kh := vw.contentContainer.Size().Height; kh > 0 {
+					videoH -= kh
+				}
 			}
+			if videoH <= 0 {
+				return
+			}
+			return 0, 0, sz.Width, videoH
 		}
+		// Sticky system IME without the special-keys panel: SurfaceView from
+		// the top of the window down to the soft-keyboard top (canvas is full
+		// height; IME overlays the bottom).
+		imeH := getImeExpandHeightDp()
+		videoH := cs.Height - imeH
 		if videoH <= 0 {
 			return
 		}
@@ -425,4 +445,56 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return pos.X, pos.Y + headerClearance, sz.Width, videoH - headerClearance
 	}
 	return pos.X, pos.Y, sz.Width, videoH
+}
+
+func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
+	if on == vw.systemIMESticky.Load() {
+		if on {
+			graphics.SetStickySystemIME(true)
+			vw.focusTouchpadForSystemIME()
+		}
+		return
+	}
+	vw.systemIMESticky.Store(on)
+	if on {
+		vw.ensureIMEKeyboardTarget()
+		graphics.SetStickySystemIME(true)
+		vw.focusTouchpadForSystemIME()
+		vw.InvalidateOverlayGeometry()
+		vw.forceCanvasRefresh.Store(true)
+		// IME height arrives asynchronously — refresh geometry again once it settles.
+		time.AfterFunc(200*time.Millisecond, func() {
+			fyne.Do(func() {
+				vw.InvalidateOverlayGeometry()
+				vw.forceCanvasRefresh.Store(true)
+				if tw := vw.touchpadWrapper; tw != nil {
+					if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
+						vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+					}
+				}
+			})
+		})
+		logrus.Info("⌨️ System IME sticky ON")
+		return
+	}
+	graphics.SetStickySystemIME(false)
+	setImeExpandHeightDp(0)
+	service.VKVideoAndroidSetAlignBottom(false)
+	vw.InvalidateOverlayGeometry()
+	vw.forceCanvasRefresh.Store(true)
+	logrus.Info("⌨️ System IME sticky OFF")
+}
+
+func (vw *VideoWidget) ensureIMEKeyboardTarget() {
+	vw.ensureMobileVirtualKeyboard()
+	if vw.virtualKeyboard != nil {
+		vw.virtualKeyboard.RegisterAsIMETarget()
+	}
+}
+
+func (vw *VideoWidget) focusTouchpadForSystemIME() {
+	if vw.parentWindow == nil || vw.touchpadWrapper == nil {
+		return
+	}
+	vw.parentWindow.Canvas().Focus(vw.touchpadWrapper)
 }

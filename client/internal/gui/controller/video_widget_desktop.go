@@ -74,3 +74,8 @@ func (vw *VideoWidget) toggleEmbeddedVirtualKeyboard() {
 func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
 	// Not applicable for desktop, only show by default on mobile
 }
+
+func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
+	vw.systemIMESticky.Store(false)
+	_ = on
+}

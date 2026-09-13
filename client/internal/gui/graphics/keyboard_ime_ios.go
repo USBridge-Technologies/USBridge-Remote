@@ -28,6 +28,9 @@ func GetLastIMEH() float32 {
 	return lastIMEH
 }
 
+// SetStickySystemIME is Android-only.
+func SetStickySystemIME(_ bool) {}
+
 func init() {
 	C.initKeyboardObserver()
 }

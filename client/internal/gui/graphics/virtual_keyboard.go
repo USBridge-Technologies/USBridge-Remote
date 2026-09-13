@@ -45,6 +45,11 @@ type VirtualKeyboard struct {
 
 	// Called after keyboardWindow.Show() — platform code can use this to adjust Z-order.
 	onWindowShown func(fyne.Window)
+
+	// rebuildCompactKeys refreshes the special-keys chrome (portrait vs
+	// landscape packing, Fn / F-key row). Set by createCompactKeysChrome.
+	rebuildCompactKeys func()
+	compactFnOn        bool
 }
 
 // NewVirtualKeyboard creates a new virtual keyboard.

@@ -125,6 +125,10 @@ class MainActivity : GoNativeActivity() {
     @Volatile
     private var vpnPermissionState: Int = 0
 
+    /** When true, re-show the soft keyboard if Android dismisses it (system/auto mode). */
+    @Volatile
+    private var stickyIME: Boolean = false
+
     private val gyroSensorManager: GyroSensorManager by lazy { GyroSensorManager(this) }
 
     // Two-finger gesture tracker — mode (PAN_ZOOM vs SCROLL) is locked at gesture start.
@@ -303,20 +307,34 @@ class MainActivity : GoNativeActivity() {
                 Log.d(TAG, "⌨️ [IME] height changed: imeHeight=$imeHeight (visible=$visibleImeHeight, navBar=$navBarHeight) screenHeight=$screenHeight")
 
                 if (visibleImeHeight == 0 && wasKeyboardVisible) {
-                    // The IME just hid (user pressed ↓ or the collapse button).
-                    // Sync GoNativeActivity's state: keyboardUp=false and textEdit=GONE.
-                    // Without this: the "Back" button sees keyboardUp=true and doesn't exit
-                    // fullscreen; and in normal mode Fyne doesn't know the keyboard is gone and
-                    // doesn't relayout.
-                    Log.d(TAG, "⌨️ [IME] hidden — resetting keyboardUp via hideKeyboard()")
-                    org.golang.app.GoNativeActivity.hideKeyboard()
+                    if (stickyIME) {
+                        // System/auto mode: keep the soft keyboard up until Go turns sticky off.
+                        Log.d(TAG, "⌨️ [IME] hidden while sticky — re-showing soft input")
+                        decorView.postDelayed({
+                            if (stickyIME) {
+                                try {
+                                    org.golang.app.GoNativeActivity.showKeyboard(0)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "❌ [IME] sticky re-show failed: ${e.message}")
+                                }
+                            }
+                        }, 80)
+                    } else {
+                        // The IME just hid (user pressed ↓ or the collapse button).
+                        // Sync GoNativeActivity's state: keyboardUp=false and textEdit=GONE.
+                        // Without this: the "Back" button sees keyboardUp=true and doesn't exit
+                        // fullscreen; and in normal mode Fyne doesn't know the keyboard is gone and
+                        // doesn't relayout.
+                        Log.d(TAG, "⌨️ [IME] hidden — resetting keyboardUp via hideKeyboard()")
+                        org.golang.app.GoNativeActivity.hideKeyboard()
 
-                    // Clear focus from the input field so Fyne relayouts.
-                    // Without this, in normal mode the layout doesn't return to place until the
-                    // window is clicked.
-                    currentFocus?.let {
-                        Log.d(TAG, "⌨️ [IME] clearing focus from ${it.javaClass.simpleName}")
-                        it.clearFocus()
+                        // Clear focus from the input field so Fyne relayouts.
+                        // Without this, in normal mode the layout doesn't return to place until the
+                        // window is clicked.
+                        currentFocus?.let {
+                            Log.d(TAG, "⌨️ [IME] clearing focus from ${it.javaClass.simpleName}")
+                            it.clearFocus()
+                        }
                     }
                 } else if (imeHeight == 0 && isInitialLayout) {
                     // First launch: Fyne uses the full canvas including the nav bar.
@@ -613,6 +631,44 @@ class MainActivity : GoNativeActivity() {
         runOnUiThread {
             reportLanguage()
         }
+    }
+
+    /**
+     * Sticky system soft keyboard: show and keep open until setStickyIME(false).
+     * Used by the Control footer "System keyboard" mode.
+     */
+    fun setStickyIME(enabled: Boolean) {
+        stickyIME = enabled
+        Log.i(TAG, "⌨️ [IME] sticky=$enabled")
+        runOnUiThread {
+            if (enabled) {
+                try {
+                    org.golang.app.GoNativeActivity.showKeyboard(0)
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [IME] sticky show failed: ${e.message}")
+                }
+            } else {
+                try {
+                    org.golang.app.GoNativeActivity.hideKeyboard()
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [IME] sticky hide failed: ${e.message}")
+                }
+                currentFocus?.clearFocus()
+            }
+        }
+    }
+
+    fun isStickyIME(): Boolean = stickyIME
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (stickyIME) {
+            stickyIME = false
+            org.golang.app.GoNativeActivity.hideKeyboard()
+            return
+        }
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
     }
 
     fun getVpnPermissionState(): Int = vpnPermissionState
