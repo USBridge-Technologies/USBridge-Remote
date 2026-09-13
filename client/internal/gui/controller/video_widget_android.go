@@ -174,9 +174,10 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 		setImeExpandHeightDp(0)
 	}
 	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
-	// Bottom-align fitted video while the system IME is open. Special keys
-	// live in the main header on mobile (no native-video keys inset).
-	service.VKVideoAndroidSetAlignBottom(imeOpen)
+	// Disabled bottom-align: when the safe area is removed, the extra vertical
+	// space caused 16:9 video to pool all its letterboxing at the top, leaving
+	// a large black gap directly under the special keys. Let it center normally.
+	service.VKVideoAndroidSetAlignBottom(false)
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
 
