@@ -121,9 +121,14 @@ func (mw *MainWindow) showSpecialKeysInMainHeader() {
 		}
 	})
 
-	band := view.NewHeaderBand("", kl)
+	band := view.NewSpecialKeysHeaderBand(kl)
 	mw.mainHeaderHost.Objects = []fyne.CanvasObject{band}
 	mw.mainHeaderHost.Refresh()
+	reserve := band.MinSize().Height
+	if h := mw.mainHeaderHost.Size().Height; h > reserve {
+		reserve = h
+	}
+	mw.videoWidget.SetSpecialKeysHeaderReserve(reserve)
 	mw.videoWidget.InvalidateOverlayGeometry()
 	mw.refreshMainHeaderLayout()
 
@@ -137,6 +142,13 @@ func (mw *MainWindow) showSpecialKeysInMainHeader() {
 					return
 				}
 				mw.refreshMainHeaderLayout()
+				if mw.mainHeaderHost != nil {
+					r := mw.mainHeaderHost.Size().Height
+					if r <= 0 {
+						r = band.MinSize().Height
+					}
+					mw.videoWidget.SetSpecialKeysHeaderReserve(r)
+				}
 				mw.videoWidget.InvalidateOverlayGeometry()
 			})
 		})
@@ -150,6 +162,7 @@ func (mw *MainWindow) restoreMainHeader() {
 	mw.mainHeaderHost.Objects = []fyne.CanvasObject{mw.mainHeaderNormal}
 	mw.mainHeaderHost.Refresh()
 	if mw.videoWidget != nil {
+		mw.videoWidget.SetSpecialKeysHeaderReserve(0)
 		mw.videoWidget.InvalidateOverlayGeometry()
 	}
 	mw.refreshMainHeaderLayout()

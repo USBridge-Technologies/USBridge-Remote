@@ -485,6 +485,17 @@ func NewHeaderBand(title string, content fyne.CanvasObject) *fyne.Container {
 	return container.NewStack(bg, NewBottomLine(body, accentLine))
 }
 
+// NewSpecialKeysHeaderBand is the mobile keyboard-stack header: special keys
+// flush to the bottom accent (no body bottom inset). The normal HeaderBand's
+// 5dp bottom pad read as a black strip under the keys and sat above Vulkan.
+func NewSpecialKeysHeaderBand(content fyne.CanvasObject) *fyne.Container {
+	bg := canvas.NewRectangle(design.ColorGray900)
+	body := NewInsetExact(content, headerBandHorizontalInset, headerBandHorizontalInset, 4, 0)
+	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
+	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
+	return container.NewStack(bg, NewBottomLine(body, accentLine))
+}
+
 // MobileFooterBottomInset adds padding to the bottom of the container on mobile devices
 // to keep it above the system navigation bar (Android).
 func MobileFooterBottomInset(base float32) float32 {

@@ -1055,6 +1055,18 @@ func (vw *VideoWidget) IsSystemIMESticky() bool {
 	return vw.systemIMESticky.Load()
 }
 
+// SetSpecialKeysHeaderReserve records the mobile special-keys header height
+// so the Vulkan SurfaceView never starts under that band.
+func (vw *VideoWidget) SetSpecialKeysHeaderReserve(h float32) {
+	if vw == nil {
+		return
+	}
+	if h < 0 {
+		h = 0
+	}
+	vw.specialKeysHeaderReserve = h
+}
+
 // OpenKeyboardStack shows special-keys overlay + system IME together.
 func (vw *VideoWidget) OpenKeyboardStack() {
 	vw.ensureMobileVirtualKeyboard()
@@ -1088,6 +1100,7 @@ func (vw *VideoWidget) CloseAllKeyboards() {
 	vw.setKeyboardCollapseFABVisible(false)
 	vw.keyboardViewportLift = false
 	vw.bottomInset = 0
+	vw.SetSpecialKeysHeaderReserve(0)
 	vw.recalculateViewport()
 	vw.updateNativeViewportAndCursor()
 	if vw.onKeyboardStackChanged != nil {

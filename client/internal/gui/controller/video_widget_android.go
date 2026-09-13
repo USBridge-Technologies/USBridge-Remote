@@ -174,9 +174,17 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 		setImeExpandHeightDp(0)
 	}
 	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
-	// Bottom-align fitted video while the system IME is open. Special keys
-	// live in the main header on mobile (no native-video keys inset).
-	service.VKVideoAndroidSetAlignBottom(imeOpen)
+	// Special keys in the main header: top-align so letterbox sits near the
+	// IME, not as a black band under the keys. Otherwise bottom-align to IME.
+	switch {
+	case imeOpen && vw.specialKeysInMainHeader() && vw.IsVirtualKeyboardVisible():
+		service.VKVideoAndroidSetAlignTop(true)
+	case imeOpen:
+		service.VKVideoAndroidSetAlignBottom(true)
+	default:
+		service.VKVideoAndroidSetAlignBottom(false)
+		service.VKVideoAndroidSetAlignTop(false)
+	}
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
 
@@ -345,17 +353,19 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	if ch > availH {
 		focusY := float32(0.5)
 		extraUp := float32(0)
+		extraDown := float32(0)
 		if vw.keyboardViewportLift {
 			focusY = keyboardFocusYFrac
 			extraUp = availH * keyboardFocusExtraLiftFrac
 			if extraUp < keyboardFocusExtraLiftMinDp {
 				extraUp = keyboardFocusExtraLiftMinDp
 			}
+			extraDown = extraUp
 		}
 		idealPanY := availH*(focusY-0.5) + ch*(0.5-v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
-		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY-extraUp, maxPanY, zoneY)
+		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY-extraUp, maxPanY+extraDown, zoneY)
 	}
 	// If height still fits, leave panOffsetY alone (do not force 0).
 
@@ -424,7 +434,9 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	// Nudge the SurfaceView down a few dp so it clears the header hairline
 	// without growing past the container bottom (height shrinks by the same).
 	headerClearance := float32(8)
-	if vw.specialKeysInMainHeader() {
+	// Mobile special keys replace the main header — sit flush under that band
+	// (no extra black strip between keys and video).
+	if vw.specialKeysInMainHeader() && vw.IsVirtualKeyboardVisible() {
 		headerClearance = 0
 	}
 	keysH := vw.specialKeysOverlayHeightDp()
@@ -434,7 +446,13 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	// special keys replace the main header (above the surface); any residual
 	// keysH inset is for non-header overlay paths only.
 	videoTop := pos.Y + top
+	if r := vw.specialKeysHeaderReserve; r > 0 && videoTop < r {
+		videoTop = r
+	}
 	videoBottom := pos.Y + sz.Height
+	if videoBottom < videoTop {
+		videoBottom = videoTop
+	}
 	if imeH := getImeExpandHeightDp(); imeH > 0 {
 		imeTop := cs.Height - imeH
 		if imeTop < videoBottom {
@@ -469,6 +487,9 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 		if vw.touchpadWrapper != nil && vw.parentWindow != nil {
 			vw.parentWindow.Canvas().Focus(vw.touchpadWrapper)
 		}
+		if vw.specialKeysInMainHeader() && vw.IsVirtualKeyboardVisible() {
+			service.VKVideoAndroidSetAlignTop(true)
+		}
 		vw.InvalidateOverlayGeometry()
 		vw.forceCanvasRefresh.Store(true)
 		// Top inset → 0 is async; remeasure Vulkan after Fyne drops the pad.
@@ -478,6 +499,9 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 				fyne.Do(func() {
 					if !vw.systemIMESticky.Load() {
 						return
+					}
+					if vw.specialKeysInMainHeader() && vw.IsVirtualKeyboardVisible() {
+						service.VKVideoAndroidSetAlignTop(true)
 					}
 					vw.InvalidateOverlayGeometry()
 					vw.forceCanvasRefresh.Store(true)
@@ -497,6 +521,7 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	graphics.SetStickySystemIME(false)
 	setImeExpandHeightDp(0)
 	service.VKVideoAndroidSetAlignBottom(false)
+	service.VKVideoAndroidSetAlignTop(false)
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
 	logrus.Info("⌨️ System IME sticky OFF")

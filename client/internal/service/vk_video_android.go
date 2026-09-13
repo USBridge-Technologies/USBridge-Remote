@@ -21,6 +21,7 @@ extern void android_vk_destroy(void);
 extern void android_vk_force_recreate_swapchain(void);
 extern void android_vk_set_viewport(float u0, float v0, float u1, float v1);
 extern void android_vk_set_align_bottom(int bottom);
+extern void android_vk_set_align_top(int top);
 extern void android_vk_set_cursor(float uc, float vc, int visible);
 extern void android_vk_set_viewport_and_cursor(float u0, float v0, float u1, float v1, float uc, float vc, int visible, float blit_pan_x, float blit_pan_y, float zoom_scale);
 extern void android_vk_set_cursor_scale(int scale);
@@ -104,6 +105,16 @@ func VKVideoAndroidSetAlignBottom(bottom bool) {
 		b = 1
 	}
 	C.android_vk_set_align_bottom(b)
+}
+
+// VKVideoAndroidSetAlignTop flush-fits the video to the top of the SurfaceView
+// (no letterbox under a special-keys header). Pass false to restore center.
+func VKVideoAndroidSetAlignTop(top bool) {
+	t := C.int(0)
+	if top {
+		t = 1
+	}
+	C.android_vk_set_align_top(t)
 }
 
 // VKVideoAndroidSetViewport sets the visible UV sub-rect of the video frame.

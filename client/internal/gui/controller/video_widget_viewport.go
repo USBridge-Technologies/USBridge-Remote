@@ -46,8 +46,15 @@ func (vw *VideoWidget) videoContainerOrigin() fyne.Position {
 	if app := fyne.CurrentApp(); app != nil {
 		if drv := app.Driver(); drv != nil {
 			pos := drv.AbsolutePositionForObject(vw.container)
-			if videoOriginLooksSettled(pos, sz, canvasH, estimated) {
-				out := fyne.NewPos(pos.X, pos.Y)
+			if videoOriginLooksSettled(vw, pos, sz, canvasH, estimated) {
+				y := pos.Y
+				// AbsolutePosition can briefly sit under the special-keys
+				// header after safe-area clear; clamp so Vulkan never paints
+				// under the keys (top content was clipped there).
+				if r := vw.specialKeysHeaderReserve; r > 0 && y < r {
+					y = r
+				}
+				out := fyne.NewPos(pos.X, y)
 				vw.lastVideoCanvasOrigin = out
 				return out
 			}
@@ -104,7 +111,7 @@ func estimatedVideoOriginY(vw *VideoWidget, containerH, canvasH float32) float32
 	return y
 }
 
-func videoOriginLooksSettled(pos fyne.Position, sz fyne.Size, canvasH, estimatedY float32) bool {
+func videoOriginLooksSettled(vw *VideoWidget, pos fyne.Position, sz fyne.Size, canvasH, estimatedY float32) bool {
 	if sz.Width <= 0 || sz.Height <= 0 {
 		return false
 	}
@@ -115,8 +122,14 @@ func videoOriginLooksSettled(pos fyne.Position, sz fyne.Size, canvasH, estimated
 	}
 	// AbsolutePosition that sits clearly above the chrome-aware estimate
 	// paints the native overlay over the header (seen on Android after
-	// edge-to-edge). Require it to be at least nearly the estimate.
+	// edge-to-edge). Require it to be at least nearly the estimate — except
+	// while the keyboard stack is open: clearing the top safe inset drops
+	// AbsolutePosition faster than the estimate, and rejecting it leaves a
+	// black strip under the special keys.
 	if estimatedY > 8 && pos.Y < estimatedY-12 {
+		if vw != nil && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
+			return true
+		}
 		return false
 	}
 	return true

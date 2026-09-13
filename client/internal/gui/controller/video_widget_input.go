@@ -1433,11 +1433,15 @@ func (vw *VideoWidget) recalculateViewport() {
 	// the remote bottom edge can sit well above the system IME (black gap
 	// under the picture is OK — better than typing under the keyboard).
 	extraUp := float32(0)
+	extraDown := float32(0)
 	if vw.keyboardViewportLift {
 		extraUp = availableH * keyboardFocusExtraLiftFrac
 		if extraUp < keyboardFocusExtraLiftMinDp {
 			extraUp = keyboardFocusExtraLiftMinDp
 		}
+		// Symmetric to extraUp: allow black above the picture so the top of
+		// the remote screen can clear the special-keys header.
+		extraDown = extraUp
 	}
 	if vw.bottomAnchorContentVertically && contentH <= availableH {
 		// wasm only: keep flush above the IME panel; no free letterbox pan.
@@ -1445,11 +1449,11 @@ func (vw *VideoWidget) recalculateViewport() {
 		vw.panOffsetY = 0
 	} else if contentH > availableH {
 		maxPanY := (contentH - availableH) / 2
-		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY-extraUp, maxPanY)
+		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY-extraUp, maxPanY+extraDown)
 		contentY = centerY + vw.panOffsetY
 	} else {
 		minY := -contentH*(1-minVisible) - extraUp
-		maxY := availableH - contentH*minVisible
+		maxY := availableH - contentH*minVisible + extraDown
 		contentY = clampFloat(centerY+vw.panOffsetY, minY, maxY)
 		vw.panOffsetY = contentY - centerY
 	}
@@ -1794,6 +1798,7 @@ func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 	if extraUp < keyboardFocusExtraLiftMinDp {
 		extraUp = keyboardFocusExtraLiftMinDp
 	}
+	extraDown := extraUp
 
 	if cw > vw.touchpadSizeW {
 		maxPanX := (cw - vw.touchpadSizeW) / 2
@@ -1803,11 +1808,12 @@ func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 	}
 	if ch > availH {
 		maxPanY := (ch - availH) / 2
-		vw.panOffsetY = clampFloat(idealPanY, -maxPanY-extraUp, maxPanY)
+		vw.panOffsetY = clampFloat(idealPanY, -maxPanY-extraUp, maxPanY+extraDown)
 	} else {
-		// Letterboxed: still allow a strong upward lift past the normal floor.
+		// Letterboxed: still allow a strong upward lift past the normal floor,
+		// and matching downward room so the top edge can clear special keys.
 		minY := -ch*0.7 - extraUp
-		maxY := availH - ch*0.3
+		maxY := availH - ch*0.3 + extraDown
 		contentY := clampFloat(centerY+idealPanY, minY, maxY)
 		vw.panOffsetY = contentY - centerY
 	}

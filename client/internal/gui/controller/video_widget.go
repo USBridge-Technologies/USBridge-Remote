@@ -79,7 +79,12 @@ type VideoWidget struct {
 	bottomInset           float32 // Bottom inset (e.g. for the keyboard) that pushes the video upward
 	// keyboardViewportLift allows extra upward pan while the keyboard stack
 	// is open so a bottom-of-screen caret can sit above the system IME.
+	// Also unlocks matching extra downward pan so top content can clear the
+	// special-keys header (black gap above the picture, same idea as bottom).
 	keyboardViewportLift bool
+	// specialKeysHeaderReserve is the main-header band height (dp) while
+	// special keys replace it. Vulkan must not start above this Y.
+	specialKeysHeaderReserve float32
 
 	pendingMoveX          int
 	pendingMoveY          int
