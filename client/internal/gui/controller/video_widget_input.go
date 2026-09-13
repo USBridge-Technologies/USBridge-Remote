@@ -1501,12 +1501,28 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 	if nextZoom < 1 {
 		nextZoom = 1
 	}
-	// Pan gestures produce noisy per-frame scale (~0.99..1.01). Applying that
-	// every frame accumulates zoom, switches fit→overflow clamps, and snaps
-	// pan back toward center while fingers are still down. Require a real pinch.
-	const zoomDeadzone = 0.02
-	if scaleFactor <= 0 || math.Abs(float64(scaleFactor-1)) < zoomDeadzone {
+	// Two-finger is pinch-only now, but per-frame scale is often ~1.005–1.015
+	// during a slow pinch. Dropping those under a hard 2% deadzone made zoom
+	// stall mid-gesture and then jump. Accumulate sub-threshold factors and
+	// apply when the product crosses a small threshold.
+	if scaleFactor <= 0 {
 		scaleFactor = 1
+	}
+	const zoomDeadzone = float32(0.01) // 1%
+	if vw.zoomScaleResidual <= 0 {
+		vw.zoomScaleResidual = 1
+	}
+	if math.Abs(float64(scaleFactor-1)) < float64(zoomDeadzone) {
+		vw.zoomScaleResidual *= scaleFactor
+		if math.Abs(float64(vw.zoomScaleResidual-1)) < float64(zoomDeadzone) {
+			scaleFactor = 1
+		} else {
+			scaleFactor = vw.zoomScaleResidual
+			vw.zoomScaleResidual = 1
+		}
+	} else if vw.zoomScaleResidual != 1 {
+		scaleFactor *= vw.zoomScaleResidual
+		vw.zoomScaleResidual = 1
 	}
 	if scaleFactor > 0 && scaleFactor != 1 {
 		nextZoom *= scaleFactor
@@ -1517,22 +1533,26 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 
 	zoomed := scaleFactor > 0 && !almostEqual(scaleFactor, 1)
 	if zoomed {
-		// Keep the content point under the pinch focus stable on both axes
-		// (including fit→overflow), so a prior pan is not lost on zoom.
 		availableH := vw.touchpadSizeH - vw.bottomInset
 		if availableH < 0 {
 			availableH = 0
 		}
-		localFocusX := clampFloat(focusX, 0, vw.touchpadSizeW)
-		localFocusY := clampFloat(focusY, 0, availableH)
-		u := clampFloat((localFocusX-oldX)/oldW, 0, 1)
-		v := clampFloat((localFocusY-oldY)/oldH, 0, 1)
+		// Zoom about the view centre — not the finger focus. Pinch focus Y
+		// from Android (activity px → Fyne dp) sits systematically low vs the
+		// Vulkan surface (header clearance / chrome), so focus-anchored zoom
+		// walked the picture downward as scale grew. Anchoring the point that
+		// is currently under the view centre keeps prior pan and avoids the
+		// downward drift.
+		anchorX := vw.touchpadSizeW / 2
+		anchorY := availableH / 2
+		u := clampFloat((anchorX-oldX)/oldW, 0, 1)
+		v := clampFloat((anchorY-oldY)/oldH, 0, 1)
 		newW := vw.contentRectW
 		newH := vw.contentRectH
 		baseX := (vw.touchpadSizeW - newW) / 2
 		baseY := (availableH - newH) / 2
-		vw.panOffsetX = localFocusX - u*newW - baseX
-		vw.panOffsetY = localFocusY - v*newH - baseY
+		vw.panOffsetX = anchorX - u*newW - baseX
+		vw.panOffsetY = anchorY - v*newH - baseY
 	}
 
 	vw.panOffsetX += panDx
@@ -1545,11 +1565,19 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 
 func (vw *VideoWidget) resetViewport() {
 	vw.zoomScale = 1
+	vw.zoomScaleResidual = 1
 	vw.panOffsetX = 0
 	vw.panOffsetY = 0
 	vw.viewportManualControl = false
 	vw.recalculateViewport()
 	vw.updateNativeViewportAndCursor()
+}
+
+// resetZoomScaleResidual clears pending sub-deadzone pinch accumulation.
+func (vw *VideoWidget) resetZoomScaleResidual() {
+	if vw != nil {
+		vw.zoomScaleResidual = 1
+	}
 }
 
 func clampFloat(value, minValue, maxValue float32) float32 {

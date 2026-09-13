@@ -28,7 +28,9 @@ type VideoWidget struct {
 	statusLabel      *widget.Label
 	infoLabel        *widget.Label
 	statsLabel       *widget.Label
-	contentContainer *fyne.Container // Container for video and keyboard
+	contentContainer *fyne.Container // legacy bottom slot (unused by mobile keyboard overlay)
+	keyboardOverlay  *fyne.Container // transparent special-keys strip over video
+	collapseFAB      *fyne.Container // dismiss keyboard stack
 	ui               *view.VideoWidgetUI
 	statsTickerStop  chan struct{}
 
@@ -136,16 +138,24 @@ type VideoWidget struct {
 	frameContentH              float32      // normalized height of the active frame area
 
 	// Dialogs
-	fullscreenDialog      *FullscreenDialog
-	startDialog           *view.VideoStartDialog
-	pairingPINDialog      dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
-	parentWindow          fyne.Window
-	virtualKeyboard       *graphics.VirtualKeyboard
-	systemIMESticky       atomic.Bool
-	keyboardModifierState atomic.Int32
-	suppressRuneUntilNS   atomic.Int64
-	moonlightKeyMu        sync.Mutex
-	moonlightHeldVKs      map[int16]bool // tracks VK codes currently held in Moonlight session
+	fullscreenDialog       *FullscreenDialog
+	startDialog            *view.VideoStartDialog
+	pairingPINDialog       dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
+	parentWindow           fyne.Window
+	virtualKeyboard        *graphics.VirtualKeyboard
+	onKeyboardStackChanged func()
+	// viewportPanMode is armed by the mobile Control footer move button.
+	// While true, one-finger drag pans the video instead of moving the cursor.
+	// Stays armed until the button is tapped again (TouchUp/DragEnd must not
+	// clear it — Android can deliver those mid-stroke).
+	viewportPanMode          bool
+	viewportPanDragActive    bool
+	onViewportPanModeChanged func(bool)
+	systemIMESticky          atomic.Bool
+	keyboardModifierState    atomic.Int32
+	suppressRuneUntilNS      atomic.Int64
+	moonlightKeyMu           sync.Mutex
+	moonlightHeldVKs         map[int16]bool // tracks VK codes currently held in Moonlight session
 
 	// Mouse/touchpad
 	lastMouseX         float32
@@ -196,6 +206,11 @@ type VideoWidget struct {
 	baseContentRectW      float32
 	baseContentRectH      float32
 	zoomScale             float32
+	// zoomScaleResidual multiplies sub-deadzone per-frame pinch factors so a
+	// slow continuous pinch is not discarded frame-by-frame (that felt like
+	// zoom advancing in jerks then stalling). Reset when the two-finger
+	// gesture ends.
+	zoomScaleResidual float32
 	panOffsetX            float32
 	panOffsetY            float32
 	// bottomAnchorContentVertically switches recalculateViewport's "content
@@ -231,9 +246,9 @@ type VideoWidget struct {
 	bottomAnchorContentVertically bool
 	multiTouchActive              bool
 	lastMultiTouchAt              time.Time
-	// viewportManualControl is set by two-finger pan/zoom. While true,
-	// virtual-cursor auto-centering must not overwrite panOffset — otherwise
-	// zoom-after-pan snaps to center and pan-after-zoom is impossible.
+	// viewportManualControl is set by two-finger pan/zoom or footer pan-drag.
+	// While true, virtual-cursor auto-centering must not overwrite panOffset —
+	// otherwise zoom-after-pan snaps to center and pan-after-zoom is impossible.
 	// Cleared when the user moves the virtual cursor again.
 	viewportManualControl bool
 	scrollDragAxis        string

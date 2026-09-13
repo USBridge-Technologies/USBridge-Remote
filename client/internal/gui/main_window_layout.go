@@ -1251,6 +1251,10 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		if mw.tabs != nil && len(mw.tabs.Items) > mw.controlTabIndex() {
 			mw.tabs.Select(mw.tabs.Items[mw.controlTabIndex()])
 		}
+		if useMobileControl() {
+			mw.toggleMobileKeyboardStack()
+			return
+		}
 		if mw.videoWidget != nil {
 			mw.videoWidget.HandleVirtualKeyboard()
 		}

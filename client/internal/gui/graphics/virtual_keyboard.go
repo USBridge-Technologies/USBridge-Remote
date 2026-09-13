@@ -359,7 +359,9 @@ func (vk *VirtualKeyboard) UpdatePosition(windowSize fyne.Size) {
 	vk.toggleBtn.Resize(btnSize)
 }
 
-// SetVisibleState sets visibility state without showing a separate window
+// SetVisibleState sets visibility state without showing a separate window.
+// Does not blur the IME entry — sticky system IME may remain open with the
+// special-keys overlay hidden (or vice versa).
 func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 	vk.isVisible = visible
 	if vk.keyboard == nil {
@@ -371,5 +373,4 @@ func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 	}
 	vk.setIMEOffset(0)
 	vk.keyboard.Hide()
-	vk.BlurInput()
 }

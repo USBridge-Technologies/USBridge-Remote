@@ -115,30 +115,32 @@ func TestRecalculateViewport_LetterboxPanMovesFittedVideo(t *testing.T) {
 	}
 }
 
-// applyViewportGesture preserves the content point under the pinch focus
-// (RustDesk CanvasModel.updateScale). Off-center pinch therefore shifts
-// panOffset so that point stays under the fingers — it must NOT snap back
-// to a pure center after the scale alone.
-func TestApplyViewportGesture_PreservesPinchFocalPoint(t *testing.T) {
+// applyViewportGesture keeps the content point under the view centre stable
+// across zoom (not the finger focus — Android focus Y drifts low vs the
+// Vulkan surface and walked the picture downward while pinching).
+func TestApplyViewportGesture_PreservesViewCenterOnZoom(t *testing.T) {
 	const bottomInset = float32(100)
 	vw := newTestViewportWidget(1000, 500, bottomInset) // availableH = 400
 	vw.zoomScale = 1
 	vw.recalculateViewport()
 	oldX, oldY, oldW, oldH := vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH
 
-	focusX, focusY := float32(500), float32(300)
-	u := (focusX - oldX) / oldW
-	v := (focusY - oldY) / oldH
-	vw.applyViewportGesture(2.0, focusX, focusY, 0, 0)
+	anchorX := float32(500)
+	anchorY := float32(200) // availableH/2
+	u := (anchorX - oldX) / oldW
+	v := (anchorY - oldY) / oldH
+	// focus args are ignored for anchoring; pass something off-centre to
+	// prove we do not follow finger focus anymore.
+	vw.applyViewportGesture(2.0, 800, 350, 0, 0)
 
 	newX, newY, newW, newH := vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH
-	gotFocusX := newX + u*newW
-	gotFocusY := newY + v*newH
-	if diff := gotFocusX - focusX; diff > 0.5 || diff < -0.5 {
-		t.Errorf("focal X drifted: got %v, want %v", gotFocusX, focusX)
+	gotX := newX + u*newW
+	gotY := newY + v*newH
+	if diff := gotX - anchorX; diff > 0.5 || diff < -0.5 {
+		t.Errorf("view-centre X drifted: got %v, want %v", gotX, anchorX)
 	}
-	if diff := gotFocusY - focusY; diff > 0.5 || diff < -0.5 {
-		t.Errorf("focal Y drifted: got %v, want %v", gotFocusY, focusY)
+	if diff := gotY - anchorY; diff > 0.5 || diff < -0.5 {
+		t.Errorf("view-centre Y drifted: got %v, want %v", gotY, anchorY)
 	}
 }
 

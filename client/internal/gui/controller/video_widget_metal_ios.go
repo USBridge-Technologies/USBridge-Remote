@@ -162,15 +162,9 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
 
 	if ime := getImeExpandHeightDp(); ime > 0 {
-		// Clip = area above the button panel (ESC/Tab/etc.), which sits between the
-		// video and the system keyboard. canvasH - ime = full area above keyboard;
-		// subtract the button panel height so the overlay doesn't cover it.
+		// Clip = area above the system IME only. Special-keys overlay floats on
+		// the video and must not shrink this rect.
 		videoH := canvasH - ime
-		if vw.contentContainer != nil && vw.contentContainer.Visible() {
-			if kh := vw.contentContainer.Size().Height; kh > 0 {
-				videoH -= kh
-			}
-		}
 		if videoH > 0 {
 			return 0, 0, szMain.Width, videoH
 		}

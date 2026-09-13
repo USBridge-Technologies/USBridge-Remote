@@ -190,6 +190,9 @@ func (vw *VideoWidget) cancelLocalTouchState() {
 	vw.dragButton = 0
 	vw.isDragging = false
 	vw.scrollDragAxis = ""
+	// Keep viewportPanMode armed across multi-touch / cancelled strokes —
+	// only the footer button (or leaving Control) should disarm it.
+	vw.viewportPanDragActive = false
 	if vw.lmbHeld {
 		vw.lmbHeld = false
 		vw.enqueueMouseButtonUp(1)

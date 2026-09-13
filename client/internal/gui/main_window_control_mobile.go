@@ -34,8 +34,9 @@ func scriptsTabLabel() string {
 
 func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.CanvasObject {
 	const btnSize float32 = 32
+
 	kb := newHeaderStatusBadgeButton(assets.KeyboardIcon, func() {
-		mw.showMobileKeyboardMenu()
+		mw.toggleMobileKeyboardStack()
 	})
 	kb.SetIconSize(fyne.NewSize(16, 16))
 	kb.SetBadgeText("")
@@ -44,36 +45,82 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileKeyboardToggle = kb
 	mw.mobileKeyboardBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), kb)
 
-	collapse := newHeaderStatusBadgeButton(theme.MoveDownIcon(), func() {
-		mw.setConnectedChromeCollapsed(true)
+	pan := newHeaderStatusBadgeButton(assets.ViewportPanIcon, func() {
+		mw.toggleMobileViewportPanMode()
 	})
-	collapse.SetIconSize(fyne.NewSize(16, 16))
-	collapse.SetBadgeText("")
-	collapse.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
-	mw.mobileChromeCollapseBtn = collapse
-	mw.mobileChromeCollapseWrap = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), collapse)
+	pan.SetIconSize(fyne.NewSize(16, 16))
+	pan.SetBadgeText("")
+	pan.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	pan.SetSelectedStyle(design.ColorAlphaWhite12, assets.ViewportPanIconActive)
+	mw.mobileViewportPanToggle = pan
+	mw.mobileViewportPanBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), pan)
 
-	expand := newHeaderStatusBadgeButton(theme.MoveUpIcon(), func() {
-		mw.setConnectedChromeCollapsed(false)
+	burger := newHeaderStatusBadgeButton(theme.MenuIcon(), func() {
+		mw.openDevicesFromControlBurger()
 	})
-	expand.SetIconSize(fyne.NewSize(16, 16))
-	expand.SetBadgeText("")
-	expand.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
-	mw.mobileChromeExpandBtn = expand
-	mw.mobileChromeExpandWrap = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), expand)
+	burger.SetIconSize(fyne.NewSize(16, 16))
+	burger.SetBadgeText("")
+	burger.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	mw.mobileControlBurgerBtn = burger
+	mw.mobileControlBurgerWrap = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), burger)
 
 	mw.mobileTabsRow = tabs
 	mw.connectedChromeHost = container.NewMax()
+	mw.wireMobileKeyboardStackCallbacks()
+	mw.wireMobileViewportPanCallbacks()
 	mw.applyConnectedChromeLayout(true)
 	return mw.connectedChromeHost
 }
 
-func (mw *MainWindow) setConnectedChromeCollapsed(collapsed bool) {
-	if mw.connectedChromeCollapsed == collapsed {
+func (mw *MainWindow) wireMobileKeyboardStackCallbacks() {
+	if mw.videoWidget == nil {
 		return
 	}
-	mw.connectedChromeCollapsed = collapsed
-	mw.applyConnectedChromeLayout(true)
+	mw.videoWidget.SetOnKeyboardStackChanged(func() {
+		mw.syncMobileKeyboardToggleLook()
+	})
+}
+
+func (mw *MainWindow) wireMobileViewportPanCallbacks() {
+	if mw.videoWidget == nil {
+		return
+	}
+	mw.videoWidget.SetOnViewportPanModeChanged(func(on bool) {
+		fyne.Do(func() {
+			mw.syncMobileViewportPanToggleLook()
+		})
+	})
+}
+
+func (mw *MainWindow) openDevicesFromControlBurger() {
+	if mw.tabs == nil {
+		return
+	}
+	idx := mw.devicesTabIndex()
+	if idx < 0 || idx >= len(mw.tabs.Items) {
+		return
+	}
+	mw.tabs.Select(mw.tabs.Items[idx])
+}
+
+func (mw *MainWindow) toggleMobileKeyboardStack() {
+	if mw.videoWidget == nil {
+		return
+	}
+	mw.videoWidget.ToggleKeyboardStack()
+	mw.syncMobileKeyboardToggleLook()
+}
+
+func (mw *MainWindow) toggleMobileViewportPanMode() {
+	if mw.videoWidget == nil {
+		return
+	}
+	mw.videoWidget.ToggleViewportPanMode()
+	mw.syncMobileViewportPanToggleLook()
+}
+
+func (mw *MainWindow) controlTabActive() bool {
+	return mw.tabs != nil && mw.tabs.SelectedIndex() == mw.controlTabIndex()
 }
 
 // noteConnectedChromeForSize updates IsLandscape and reflows the connected
@@ -88,8 +135,6 @@ func (mw *MainWindow) noteConnectedChromeForSize(size fyne.Size) {
 	if !changed && landscape == mw.connectedLandscape {
 		return
 	}
-	// observeContentResize runs inside Layout — defer the chrome swap so we
-	// do not mutate the tree mid-pass.
 	fyne.Do(func() {
 		mw.applyConnectedChromeLayout(false)
 	})
@@ -100,10 +145,6 @@ func (mw *MainWindow) applyConnectedChromeLayout(force bool) {
 		return
 	}
 	landscape := view.IsLandscape()
-	if !landscape {
-		// Collapse is landscape-only; leaving landscape always restores the full chrome.
-		mw.connectedChromeCollapsed = false
-	}
 	if !force && landscape == mw.connectedLandscape {
 		mw.refreshVirtualKeyboardCompactLayout()
 		return
@@ -112,12 +153,9 @@ func (mw *MainWindow) applyConnectedChromeLayout(force bool) {
 	mw.setMobileTabButtonsStacked(!landscape)
 
 	var chrome fyne.CanvasObject
-	switch {
-	case landscape && mw.connectedChromeCollapsed:
-		chrome = mw.buildCollapsedConnectedChrome()
-	case landscape:
+	if landscape {
 		chrome = mw.buildLandscapeConnectedChrome()
-	default:
+	} else {
 		chrome = mw.buildPortraitConnectedChrome()
 	}
 	mw.connectedChromeHost.Objects = []fyne.CanvasObject{chrome}
@@ -162,88 +200,115 @@ func (mw *MainWindow) setMobileTabButtonsStacked(stacked bool) {
 	}
 }
 
-func (mw *MainWindow) mobileFooterTrailingButtons(includeCollapse bool) fyne.CanvasObject {
-	parts := make([]fyne.CanvasObject, 0, 3)
-	if mw.mobileKeyboardBtn != nil {
-		parts = append(parts, mw.mobileKeyboardBtn)
-	}
-	if includeCollapse && mw.mobileChromeCollapseWrap != nil {
-		parts = append(parts, mw.mobileChromeCollapseWrap)
-	}
-	if len(parts) == 1 {
-		return parts[0]
-	}
-	if len(parts) == 0 {
-		return nil
-	}
-	return container.NewHBox(parts...)
-}
-
 func (mw *MainWindow) buildPortraitConnectedChrome() fyne.CanvasObject {
-	// Portrait: keyboard only — no collapse chevron.
-	trailing := mw.mobileFooterTrailingButtons(false)
-	kbLayer := container.NewBorder(nil, nil, nil, trailing, nil)
-	row := container.NewStack(mw.mobileTabsRow, kbLayer)
-	heightLock := canvas.NewRectangle(color.Transparent)
-	heightLock.SetMinSize(fyne.NewSize(0, 52))
-	inner := view.NewInsetExact(container.NewMax(heightLock, row), 8, 8, 6, 10)
-	tabBar := newConnectedChromeStrip(inner)
-
+	var tabBar fyne.CanvasObject
+	if mw.controlTabActive() {
+		tabBar = mw.buildControlFooterStrip(false)
+	} else {
+		tabBar = mw.buildTabsFooterStrip(false)
+	}
 	mw.connectedVersionFooter = view.NewAppFooterNoLine(
 		view.AppVersion(), nil, mw.connectedFooterBusy, mw.connectedFooterScript,
 	)
 	return container.NewVBox(tabBar, mw.connectedVersionFooter)
 }
 
-func (mw *MainWindow) buildCollapsedConnectedChrome() fyne.CanvasObject {
-	// Landscape collapsed: keyboard + expand chevron — tabs/version hidden.
-	parts := make([]fyne.CanvasObject, 0, 2)
-	if mw.mobileKeyboardBtn != nil {
-		parts = append(parts, mw.mobileKeyboardBtn)
+func (mw *MainWindow) buildLandscapeConnectedChrome() fyne.CanvasObject {
+	if mw.controlTabActive() {
+		return mw.buildControlFooterStrip(true)
 	}
-	if mw.mobileChromeExpandWrap != nil {
-		parts = append(parts, mw.mobileChromeExpandWrap)
+	return mw.buildTabsFooterStrip(true)
+}
+
+// buildControlFooterStrip is Control-only: burger → Devices, pan + Keyboard.
+func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject {
+	var left fyne.CanvasObject
+	if mw.mobileControlBurgerWrap != nil {
+		left = mw.mobileControlBurgerWrap
 	}
-	var right fyne.CanvasObject
-	if len(parts) == 1 {
-		right = parts[0]
-	} else if len(parts) > 1 {
-		right = container.NewHBox(parts...)
+	right := mw.mobileControlRightActions()
+	if landscape {
+		var rightParts []fyne.CanvasObject
+		if usableConnectedChromeObject(mw.connectedFooterBusy) {
+			rightParts = append(rightParts, mw.connectedFooterBusy)
+		}
+		if usableConnectedChromeObject(mw.connectedFooterScript) {
+			rightParts = append(rightParts, mw.connectedFooterScript)
+		}
+		if label := connectedVersionLabel(view.AppVersion()); label != nil {
+			rightParts = append(rightParts, label)
+		}
+		if actions := mw.mobileControlRightActions(); actions != nil {
+			rightParts = append(rightParts, actions)
+		}
+		if len(rightParts) == 1 {
+			right = rightParts[0]
+		} else if len(rightParts) > 1 {
+			right = container.New(&view.DeviceRowControlsLayout{Gap: 12}, rightParts...)
+		} else {
+			right = nil
+		}
 	}
-	row := container.NewBorder(nil, nil, nil, right, nil)
+	row := container.NewBorder(nil, nil, left, right, nil)
+	minH := float32(52)
+	padT, padB := float32(6), float32(10)
+	if landscape {
+		minH = 36
+		padT, padB = 4, 4
+	}
 	heightLock := canvas.NewRectangle(color.Transparent)
-	heightLock.SetMinSize(fyne.NewSize(0, 36))
-	inner := view.NewInsetExact(container.NewMax(heightLock, row), 8, 8, 4, 4)
+	heightLock.SetMinSize(fyne.NewSize(0, minH))
+	inner := view.NewInsetExact(container.NewMax(heightLock, row), 8, 8, padT, padB)
 	return newConnectedChromeStrip(inner)
 }
 
-func (mw *MainWindow) buildLandscapeConnectedChrome() fyne.CanvasObject {
-	var rightParts []fyne.CanvasObject
-	if usableConnectedChromeObject(mw.connectedFooterBusy) {
-		rightParts = append(rightParts, mw.connectedFooterBusy)
-	}
-	if usableConnectedChromeObject(mw.connectedFooterScript) {
-		rightParts = append(rightParts, mw.connectedFooterScript)
-	}
-	if label := connectedVersionLabel(view.AppVersion()); label != nil {
-		rightParts = append(rightParts, label)
+func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
+	var parts []fyne.CanvasObject
+	if mw.mobileViewportPanBtn != nil {
+		parts = append(parts, mw.mobileViewportPanBtn)
 	}
 	if mw.mobileKeyboardBtn != nil {
-		rightParts = append(rightParts, mw.mobileKeyboardBtn)
+		parts = append(parts, mw.mobileKeyboardBtn)
 	}
-	if mw.mobileChromeCollapseWrap != nil {
-		rightParts = append(rightParts, mw.mobileChromeCollapseWrap)
+	switch len(parts) {
+	case 0:
+		return nil
+	case 1:
+		return parts[0]
+	default:
+		return container.New(&view.DeviceRowControlsLayout{Gap: 8}, parts...)
 	}
-	var right fyne.CanvasObject
-	if len(rightParts) == 1 {
-		right = rightParts[0]
-	} else if len(rightParts) > 1 {
-		right = container.New(&view.DeviceRowControlsLayout{Gap: 12}, rightParts...)
+}
+
+// buildTabsFooterStrip is Devices/Snapshots/Scripts: existing tab buttons.
+func (mw *MainWindow) buildTabsFooterStrip(landscape bool) fyne.CanvasObject {
+	if landscape {
+		var rightParts []fyne.CanvasObject
+		if usableConnectedChromeObject(mw.connectedFooterBusy) {
+			rightParts = append(rightParts, mw.connectedFooterBusy)
+		}
+		if usableConnectedChromeObject(mw.connectedFooterScript) {
+			rightParts = append(rightParts, mw.connectedFooterScript)
+		}
+		if label := connectedVersionLabel(view.AppVersion()); label != nil {
+			rightParts = append(rightParts, label)
+		}
+		var right fyne.CanvasObject
+		if len(rightParts) == 1 {
+			right = rightParts[0]
+		} else if len(rightParts) > 1 {
+			right = container.New(&view.DeviceRowControlsLayout{Gap: 12}, rightParts...)
+		}
+		row := container.NewBorder(nil, nil, nil, right, mw.mobileTabsRow)
+		heightLock := canvas.NewRectangle(color.Transparent)
+		heightLock.SetMinSize(fyne.NewSize(0, 36))
+		inner := view.NewInsetExact(container.NewMax(heightLock, row), 8, 8, 4, 4)
+		return newConnectedChromeStrip(inner)
 	}
-	row := container.NewBorder(nil, nil, nil, right, mw.mobileTabsRow)
+	row := mw.mobileTabsRow
 	heightLock := canvas.NewRectangle(color.Transparent)
-	heightLock.SetMinSize(fyne.NewSize(0, 36))
-	inner := view.NewInsetExact(container.NewMax(heightLock, row), 8, 8, 4, 4)
+	heightLock.SetMinSize(fyne.NewSize(0, 52))
+	inner := view.NewInsetExact(container.NewMax(heightLock, row), 8, 8, 6, 10)
 	return newConnectedChromeStrip(inner)
 }
 
@@ -275,71 +340,28 @@ func (mw *MainWindow) syncMobileKeyboardButton(controlActive bool) {
 	}
 	if controlActive {
 		mw.mobileKeyboardToggle.Show()
-		if mw.mobileChromeCollapseBtn != nil {
-			mw.mobileChromeCollapseBtn.Show()
+		if mw.mobileViewportPanToggle != nil {
+			mw.mobileViewportPanToggle.Show()
 		}
-		if mw.mobileChromeExpandBtn != nil {
-			mw.mobileChromeExpandBtn.Show()
+		if mw.mobileControlBurgerBtn != nil {
+			mw.mobileControlBurgerBtn.Show()
 		}
 	} else {
 		mw.mobileKeyboardToggle.Hide()
-		if mw.mobileChromeCollapseBtn != nil {
-			mw.mobileChromeCollapseBtn.Hide()
+		if mw.mobileViewportPanToggle != nil {
+			mw.mobileViewportPanToggle.Hide()
 		}
-		if mw.mobileChromeExpandBtn != nil {
-			mw.mobileChromeExpandBtn.Hide()
-		}
-		if mw.connectedChromeCollapsed {
-			mw.setConnectedChromeCollapsed(false)
+		if mw.mobileControlBurgerBtn != nil {
+			mw.mobileControlBurgerBtn.Hide()
 		}
 		if mw.videoWidget != nil {
 			mw.videoWidget.CloseAllKeyboards()
+			mw.videoWidget.SetViewportPanMode(false)
 		}
 	}
+	mw.applyConnectedChromeLayout(true)
 	mw.syncMobileKeyboardToggleLook()
-}
-
-func (mw *MainWindow) showMobileKeyboardMenu() {
-	if mw.mobileKeyboardBtn == nil || mw.videoWidget == nil {
-		return
-	}
-	specialOn := mw.videoWidget.IsVirtualKeyboardVisible()
-	systemOn := mw.videoWidget.IsSystemIMESticky()
-	anyOn := specialOn || systemOn
-	items := []view.StyledMenuItem{
-		{
-			Label:    "Special keys",
-			Selected: specialOn,
-			OnTap: func() {
-				if systemOn {
-					mw.videoWidget.SetSystemIMESticky(false)
-				}
-				mw.videoWidget.HandleVirtualKeyboard()
-				mw.syncMobileKeyboardToggleLook()
-			},
-		},
-		{
-			Label:    "System keyboard",
-			Selected: systemOn,
-			OnTap: func() {
-				if specialOn {
-					mw.videoWidget.HandleVirtualKeyboard()
-				}
-				mw.videoWidget.SetSystemIMESticky(!systemOn)
-				mw.syncMobileKeyboardToggleLook()
-			},
-		},
-	}
-	if anyOn {
-		items = append(items, view.StyledMenuItem{
-			Label: "Close",
-			OnTap: func() {
-				mw.videoWidget.CloseAllKeyboards()
-				mw.syncMobileKeyboardToggleLook()
-			},
-		})
-	}
-	view.ShowStyledMenuTealAbove(mw.mobileKeyboardBtn, items)
+	mw.syncMobileViewportPanToggleLook()
 }
 
 func (mw *MainWindow) syncMobileKeyboardToggleLook() {
@@ -348,4 +370,12 @@ func (mw *MainWindow) syncMobileKeyboardToggleLook() {
 	}
 	on := mw.videoWidget != nil && (mw.videoWidget.IsVirtualKeyboardVisible() || mw.videoWidget.IsSystemIMESticky())
 	mw.mobileKeyboardToggle.SetSelected(on)
+}
+
+func (mw *MainWindow) syncMobileViewportPanToggleLook() {
+	if mw.mobileViewportPanToggle == nil {
+		return
+	}
+	on := mw.videoWidget != nil && mw.videoWidget.IsViewportPanMode()
+	mw.mobileViewportPanToggle.SetSelected(on)
 }

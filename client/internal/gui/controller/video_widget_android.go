@@ -165,11 +165,9 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	} else {
 		setImeExpandHeightDp(0)
 	}
-	// Bottom-align fitted video while a special-keys panel is also visible
-	// (flush above that panel). System-IME-only mode centers in the shrunk
-	// SurfaceView above the soft keyboard.
-	specialVisible := vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible()
-	service.VKVideoAndroidSetAlignBottom(imeOpen && specialVisible)
+	// Bottom-align fitted video while the system IME is open (special-keys
+	// overlay floats on top and must not change align).
+	service.VKVideoAndroidSetAlignBottom(imeOpen)
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
 	if tw := vw.touchpadWrapper; tw != nil {
@@ -387,34 +385,13 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return 0, 0, cs.Width, cs.Height
 	}
 
-	// When the Android system IME (letter keyboard) is open, expand the video upward
-	// to fill the tab-bar area. The custom keyboard panel stays visible at the bottom
-	// when special keys are shown; system-IME-only mode has no panel — Fyne's canvas
-	// does not shrink (adjustResize is ineffective in our fullscreen activity), so
-	// we must clip the SurfaceView above the soft keyboard ourselves.
+	// When the Android system IME is open, expand the video to the soft-keyboard
+	// top. Special-keys overlay floats on the video and must not shrink this rect.
 	if getImeExpandHeightDp() > 0 {
 		if vw.container == nil {
 			return
 		}
 		sz := vw.container.Size()
-		if vw.contentContainer != nil && vw.contentContainer.Visible() && vw.contentContainer.Size().Height > 0 {
-			absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
-			videoH := absPos.Y
-			if videoH <= 0 {
-				// Fallback: derive from sizes if position is not yet available.
-				videoH = cs.Height
-				if kh := vw.contentContainer.Size().Height; kh > 0 {
-					videoH -= kh
-				}
-			}
-			if videoH <= 0 {
-				return
-			}
-			return 0, 0, sz.Width, videoH
-		}
-		// Sticky system IME without the special-keys panel: SurfaceView from
-		// the top of the window down to the soft-keyboard top (canvas is full
-		// height; IME overlays the bottom).
 		imeH := getImeExpandHeightDp()
 		videoH := cs.Height - imeH
 		if videoH <= 0 {
@@ -429,14 +406,6 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	sz := vw.container.Size()
 	pos := vw.videoContainerOrigin()
 	videoH := sz.Height
-	if vw.contentContainer != nil && vw.contentContainer.Visible() {
-		if kh := vw.contentContainer.Size().Height; kh > 0 {
-			videoH -= kh
-			if videoH < 0 {
-				videoH = 0
-			}
-		}
-	}
 	// Nudge the SurfaceView down a few dp so it clears the header hairline
 	// without growing past the container bottom (height shrinks by the same).
 	const headerClearance = float32(8)

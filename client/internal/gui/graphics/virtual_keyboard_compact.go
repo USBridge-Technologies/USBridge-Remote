@@ -4,7 +4,6 @@ import (
 	"image/color"
 
 	"usbridge-client/internal/gui/design"
-	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
@@ -403,40 +402,15 @@ func (vk *VirtualKeyboard) buildCompactFKeysRow(rebuild func()) fyne.CanvasObjec
 	return container.NewVBox(row1, row2)
 }
 
-// createCompactSpecialKeysLayout is the desktop mobile-preview keyboard (no system IME bridge).
+// createCompactSpecialKeysLayout is the desktop mobile-preview special-keys
+// strip (no system IME bridge). Transparent so it can float on the video.
 func (vk *VirtualKeyboard) createCompactSpecialKeysLayout() *fyne.Container {
-	entry := newCompactKBEntry()
-	entry.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
-	var prev string
-	entry.OnChanged = func(s string) {
-		if vk.onRuneTyped == nil {
-			prev = s
-			return
-		}
-		old := []rune(prev)
-		next := []rune(s)
-		if len(next) > len(old) {
-			for _, r := range next[len(old):] {
-				vk.onRuneTyped(r)
-			}
-		} else if len(next) < len(old) && vk.onKeyPress != nil {
-			for i := 0; i < len(old)-len(next); i++ {
-				vk.onKeyPress(42, 0)
-			}
-		}
-		prev = s
-	}
-
-	clearBtn := padCompactKey(newCompactKey("×", compactKeyNormal, compactKeyHeight, func() {
-		entry.SetText("")
-		prev = ""
-	}))
-	inputRow := container.NewBorder(nil, nil, nil, clearBtn, wrapCompactKBEntry(entry))
-	line := canvas.NewRectangle(design.ColorHeaderAccentLine)
-	line.SetMinSize(fyne.NewSize(1, 0.5))
-	main := view.NewInsetExact(container.NewVBox(vk.createCompactKeysChrome(), inputRow), 6, 6, 6, 6)
-	bg := canvas.NewRectangle(design.ColorGray950)
-	return container.NewMax(container.NewThemeOverride(container.NewStack(bg, view.NewTopLine(main, line)), design.NewBrandTheme()))
+	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 6, 6, 4, 6)
+	background := canvas.NewRectangle(color.Transparent)
+	return container.NewMax(container.NewThemeOverride(
+		container.NewStack(background, keys),
+		design.NewBrandTheme(),
+	))
 }
 
 var (

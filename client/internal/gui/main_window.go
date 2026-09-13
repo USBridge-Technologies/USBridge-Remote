@@ -38,15 +38,15 @@ type MainWindow struct {
 	// tabHeaderButtons is the Control/Devices/Snapshots/Scripts selector --
 	// desktop: left zone of createMainAddressBar; mobile: the bigger
 	// connected footer (see createMobileConnectedFooter).
-	tabHeaderButtons   [4]*headerTabButton
-	tabContentStack    *fyne.Container
-	mobileTabFooter      fyne.CanvasObject
-	mobileKeyboardBtn    fyne.CanvasObject
-	mobileKeyboardToggle *headerStatusBadgeButton
-	mobileChromeCollapseBtn *headerStatusBadgeButton
-	mobileChromeExpandBtn   *headerStatusBadgeButton
-	mobileChromeCollapseWrap fyne.CanvasObject
-	mobileChromeExpandWrap   fyne.CanvasObject
+	tabHeaderButtons        [4]*headerTabButton
+	tabContentStack         *fyne.Container
+	mobileTabFooter         fyne.CanvasObject
+	mobileKeyboardBtn       fyne.CanvasObject
+	mobileKeyboardToggle    *headerStatusBadgeButton
+	mobileViewportPanBtn    fyne.CanvasObject
+	mobileViewportPanToggle *headerStatusBadgeButton
+	mobileControlBurgerBtn  *headerStatusBadgeButton
+	mobileControlBurgerWrap fyne.CanvasObject
 	// connectedChromeHost holds portrait (tab bar + version) or landscape
 	// (single row) chrome under the connected tabs; swapped by
 	// applyConnectedChromeLayout without a full reloadUI.
@@ -56,12 +56,11 @@ type MainWindow struct {
 	connectedFooterScript  fyne.CanvasObject
 	mobileTabsRow          fyne.CanvasObject
 	connectedLandscape     bool
-	connectedChromeCollapsed bool
-	deviceButtonsPanel *fyne.Container
-	deviceFooterBar    *fyne.Container
-	deviceMountBtn     fyne.CanvasObject
-	deviceUnmountBtn   fyne.CanvasObject
-	mainExitBtn        *view.HeaderActionButton
+	deviceButtonsPanel     *fyne.Container
+	deviceFooterBar        *fyne.Container
+	deviceMountBtn         fyne.CanvasObject
+	deviceUnmountBtn       fyne.CanvasObject
+	mainExitBtn            *view.HeaderActionButton
 	// statusBarStorageDivider is the status-indicator strip's own divider
 	// right before mw.sdStorageProgress (main_window_status_indicator_bar.go)
 	// -- shown/hidden together with it so an agent connection with no SD
@@ -269,6 +268,8 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.videoWidget = controller.NewVideoWidget(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
+	mw.wireMobileKeyboardStackCallbacks()
+	mw.wireMobileViewportPanCallbacks()
 	// See VideoWidget.HandleAppBackgrounded's doc comment (video_widget_android.go):
 	// closes a real race where a stray frame from a connection attempt that
 	// went stale while backgrounded (Android Doze/App Standby, especially

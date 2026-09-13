@@ -98,6 +98,8 @@ var (
 	cpuIcon []byte
 	//go:embed expand-1-svgrepo-com.svg
 	expandIcon []byte
+	//go:embed move-svgrepo-com.svg
+	moveIcon []byte
 	//go:embed onboarding/Front_panel.png
 	onboardingStep01 []byte
 )
@@ -132,12 +134,12 @@ var (
 	// to match the rest of the phone settings rows.
 	HardwareAgentIconTeal = fyne.NewStaticResource("hardware-agent-teal.svg", recolorFillIcon(cpuIcon, "#41e0c3"))
 	SoftwareAgentIconTeal = fyne.NewStaticResource("software-agent-teal.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#41e0c3"><path d="M3 5h18v14H3V5zm2 4v8h14V9H5z"/></svg>`))
-	DiscordIconActive  = fyne.NewStaticResource("message-chat-square-svgrepo-com-active.svg", recolorStrokeIcon(messageChatSquareIcon, "#93C572", "1.9"))
-	LanguageIconDim    = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
-	LanguageIconMuted  = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
-	LanguageIcon       = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
-	LanguageIconActive = fyne.NewStaticResource("language-svgrepo-com-active.svg", recolorFillIcon(languageIcon, "#93C572"))
-	LoadingGrayFrames  = buildLoadingFrames(loadingIcon, "#111111")
+	DiscordIconActive     = fyne.NewStaticResource("message-chat-square-svgrepo-com-active.svg", recolorStrokeIcon(messageChatSquareIcon, "#93C572", "1.9"))
+	LanguageIconDim       = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
+	LanguageIconMuted     = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
+	LanguageIcon          = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
+	LanguageIconActive    = fyne.NewStaticResource("language-svgrepo-com-active.svg", recolorFillIcon(languageIcon, "#93C572"))
+	LoadingGrayFrames     = buildLoadingFrames(loadingIcon, "#111111")
 	// LoadingLimeFrames is the same dots without the dark backdrop disc --
 	// Devices' footer busy spinner sits on the tab's own background, so
 	// the video overlay's baked-in circle would read as a dirty blob.
@@ -181,6 +183,10 @@ var (
 	// ScriptFooterStatus's dismiss X (#8f9381 / #c5c8b5).
 	ExpandIconMuted = fyne.NewStaticResource("expand-1-svgrepo-com-muted.svg", recolorFillIcon(expandIcon, "#8f9381"))
 	ExpandIconHover = fyne.NewStaticResource("expand-1-svgrepo-com-hover.svg", recolorFillIcon(expandIcon, "#c5c8b5"))
+	// ViewportPanIcon/Active — move-svgrepo-com.svg, mobile Control footer
+	// one-finger grab-pan button.
+	ViewportPanIcon       = fyne.NewStaticResource("move-svgrepo-com-pan.svg", recolorFillIcon(moveIcon, "#C9C9C9"))
+	ViewportPanIconActive = fyne.NewStaticResource("move-svgrepo-com-pan-active.svg", recolorFillIcon(moveIcon, "#ebffbc"))
 	// PencilIconLime -- the same edit-pencil glyph List/Grid's own edit
 	// pencil uses (connection-edit-title.svg's path, muted gray there),
 	// tinted the same lime as LinkIconLime -- the Add Connection dialog's
@@ -282,13 +288,13 @@ var (
 	// (main_window_status_indicator_bar.go, after the resolution text) --
 	// #41e0c3, this app's one turquoise accent (design.ColorConnectionBadgeText),
 	// distinct from every other peripheral icon's #c4e77a there.
-	FullscreenIconStatusBar    = fyne.NewStaticResource("fullscreen-svgrepo-com-statusbar.svg", recolorFillIcon(fullscreenIcon, "#41e0c3"))
-	KeyboardIcon               = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com.svg", recolorStrokeIcon(keyboardIcon, "#C9C9C9", "1.8"))
-	KeyboardIconActive         = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-active.svg", recolorStrokeIcon(keyboardIcon, "#93C572", "1.8"))
-	KeyboardIconStatusBar      = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-statusbar.svg", recolorStrokeIcon(keyboardIcon, "#c4e77a", "1.8"))
+	FullscreenIconStatusBar = fyne.NewStaticResource("fullscreen-svgrepo-com-statusbar.svg", recolorFillIcon(fullscreenIcon, "#41e0c3"))
+	KeyboardIcon            = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com.svg", recolorStrokeIcon(keyboardIcon, "#C9C9C9", "1.8"))
+	KeyboardIconActive      = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-active.svg", recolorStrokeIcon(keyboardIcon, "#93C572", "1.8"))
+	KeyboardIconStatusBar   = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-statusbar.svg", recolorStrokeIcon(keyboardIcon, "#c4e77a", "1.8"))
 	// KeyboardIconFooterActive is the mobile Control footer toggle while
 	// the compact keyboard is open -- #ebffbc, same selected-tab lime.
-	KeyboardIconFooterActive = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-footer-active.svg", recolorStrokeIcon(keyboardIcon, "#ebffbc", "1.8"))
+	KeyboardIconFooterActive   = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-footer-active.svg", recolorStrokeIcon(keyboardIcon, "#ebffbc", "1.8"))
 	MouseIcon                  = fyne.NewStaticResource("mouse-svgrepo-com.svg", recolorFillIcon(mouseIcon, "#C9C9C9"))
 	MouseIconActive            = fyne.NewStaticResource("mouse-svgrepo-com-active.svg", recolorFillIcon(mouseIcon, "#93C572"))
 	MouseIconStatusBar         = fyne.NewStaticResource("mouse-svgrepo-com-statusbar.svg", recolorFillIcon(mouseIcon, "#c4e77a"))
@@ -385,6 +391,7 @@ func colorizeArrow(source []byte, fill string, mirror bool) []byte {
 func recolorFillIcon(source []byte, fill string) []byte {
 	svg := strings.ReplaceAll(string(source), "#000000", fill)
 	svg = strings.ReplaceAll(svg, "#0F0F0F", fill)
+	svg = strings.ReplaceAll(svg, "#080341", fill) // move-svgrepo-com.svg
 	svg = strings.ReplaceAll(svg, "#222222", fill)
 	svg = strings.ReplaceAll(svg, `"black"`, fmt.Sprintf(`"%s"`, fill))
 	svg = strings.ReplaceAll(svg, "fill:black", "fill:"+fill)

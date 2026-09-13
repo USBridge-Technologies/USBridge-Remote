@@ -3,8 +3,6 @@
 package controller
 
 import (
-	"usbridge-client/internal/gui/graphics"
-
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
@@ -81,40 +79,13 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 		logrus.Debug("⌨️ Virtual keyboard toggle ignored on desktop browser -- physical keyboard already works")
 		return
 	}
-	if vw.virtualKeyboard == nil {
-		if vw.parentWindow == nil {
-			logrus.Warn("⚠️ Parent window is not set")
-			return
-		}
-		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
-	}
-
-	if vw.virtualKeyboard.IsVisible() {
-		vw.virtualKeyboard.Hide()
-		vw.contentContainer.Hide()
-		vw.container.Refresh()
-		vw.forceCanvasRefresh.Store(true)
-		logrus.Info("⌨️ Virtual keyboard hidden (web mode)")
+	if vw.IsVirtualKeyboardVisible() {
+		vw.hideSpecialKeysOverlay()
+		vw.setKeyboardCollapseFABVisible(vw.IsSystemIMESticky())
 		return
 	}
-
-	keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()
-	vw.virtualKeyboard.SetVisibleState(true)
-
-	canvasSize := vw.parentWindow.Canvas().Size()
-	keyboardLayout.Resize(fyne.NewSize(canvasSize.Width, keyboardLayout.MinSize().Height))
-	// Position (0,0) is relative to contentContainer's own origin, which
-	// video_widget_ui.go's layout already docks at the bottom of the
-	// window (below the video area) -- same as the Android/iOS version,
-	// see that file's identical Move call.
-	keyboardLayout.Move(fyne.NewPos(0, 0))
-
-	vw.contentContainer.Objects = []fyne.CanvasObject{keyboardLayout}
-	vw.contentContainer.Resize(keyboardLayout.Size())
-	vw.contentContainer.Show()
-	vw.container.Refresh()
-	vw.forceCanvasRefresh.Store(true)
-	logrus.Info("⌨️ Virtual keyboard shown (web mode)")
+	vw.showSpecialKeysOverlay()
+	vw.setKeyboardCollapseFABVisible(true)
 }
 
 func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
@@ -122,8 +93,18 @@ func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
 }
 
 func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
-	vw.systemIMESticky.Store(false)
-	_ = on
+	// Mobile browser: track flag for footer selected look; FocusInput opens IME.
+	vw.systemIMESticky.Store(on)
+	vw.ensureVirtualKeyboard()
+	if on {
+		if vw.virtualKeyboard != nil {
+			vw.virtualKeyboard.FocusInput()
+		}
+		return
+	}
+	if vw.virtualKeyboard != nil {
+		vw.virtualKeyboard.BlurInput()
+	}
 }
 
 // realIMEOpenThresholdDp mirrors Android's own onIMEHeightChanged

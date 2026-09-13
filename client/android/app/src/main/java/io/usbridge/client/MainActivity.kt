@@ -131,23 +131,22 @@ class MainActivity : GoNativeActivity() {
 
     private val gyroSensorManager: GyroSensorManager by lazy { GyroSensorManager(this) }
 
-    // Two-finger gesture tracker — always pan+zoom (RustDesk-style canvas grab).
-    // Close-finger scroll-wheel mode was removed: it stole grab-and-drag after zoom
-    // because the old 30%-of-screen distance threshold classified most "hold and
-    // move" gestures as SCROLL instead of PAN_ZOOM.
+    // Two-finger: mode locked at second-finger down by spacing.
+    // Close → scroll only; far → pinch zoom only. Never both in one gesture.
+    // One-finger canvas pan is the Control footer move button.
     private val gestureTracker: TwoFingerGestureTracker by lazy {
         val dm = resources.displayMetrics
         val minDimensionPx = minOf(dm.widthPixels, dm.heightPixels)
         TwoFingerGestureTracker(
-            panZoomThresholdPx = minDimensionPx * 0.30f, // unused; kept for API stability
+            panZoomThresholdPx = minDimensionPx * 0.30f,
             onActiveChanged = { active ->
                 GestureBridge.onViewportGestureStateChanged(active)
             },
             onPanZoom = { scale, focusX, focusY, dx, dy ->
                 GestureBridge.onViewportGestureUpdate(scale, focusX, focusY, dx, dy)
             },
-            onScroll = { _ ->
-                // Two-finger scroll disabled — see TwoFingerGestureTracker doc.
+            onScroll = { scrollDy ->
+                GestureBridge.onScrollGesture(scrollDy)
             },
         )
     }

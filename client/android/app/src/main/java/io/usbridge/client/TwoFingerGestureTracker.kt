@@ -1,44 +1,33 @@
 package io.usbridge.client
 
 import android.view.MotionEvent
-import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Stateful two-finger gesture tracker (RustDesk-style canvas grab).
+ * Stateful two-finger gesture tracker with mode locked at gesture start.
  *
- * After the second finger lands, the gesture locks into either:
- *   - PAN: centroid drag moves the video; scale is forced to 1 so finger-distance
- *     noise cannot accumulate zoom and re-clamp pan back to center
- *   - PINCH: distance change drives zoom (centroid pan still forwarded)
+ * Mode is decided ONCE when the second finger touches down, from initial
+ * finger distance (no mid-gesture reclassify — that caused scroll↔zoom slips
+ * and jerky zoom):
  *
- * Locking the sub-mode once prevents mid-gesture flip-flops that made the
- * picture jerk and snap to center while fingers were still down.
+ *   PINCH (fingers far apart, >= panZoomThresholdPx)
+ *     → pinch zoom only (no scroll, no canvas pan).
+ *
+ *   SCROLL (fingers close, < panZoomThresholdPx)
+ *     → vertical scroll wheel only (no zoom).
+ *
+ * Canvas grab-pan is the Control footer move button (one finger).
  */
 class TwoFingerGestureTracker(
-    /**
-     * Kept for call-site compatibility; unused (two-finger is always canvas pan/zoom).
-     */
-    @Suppress("UNUSED_PARAMETER")
     private val panZoomThresholdPx: Float,
-    /** Called with true when a two-finger gesture begins, false when it ends. */
     private val onActiveChanged: (Boolean) -> Unit,
-    /** Called every frame with (scaleFactor, focusX, focusY, panDx, panDy). */
     private val onPanZoom: (scale: Float, focusX: Float, focusY: Float, dx: Float, dy: Float) -> Unit,
-    /**
-     * Unused: previously fired for close-finger vertical drag as a scroll wheel.
-     * Retained so MainActivity wiring stays stable.
-     */
-    @Suppress("UNUSED_PARAMETER")
     private val onScroll: (scrollDy: Float) -> Unit,
 ) {
-    private enum class Mode { NONE, ACTIVE }
-    private enum class SubMode { UNDECIDED, PAN, PINCH }
+    private enum class Mode { NONE, PINCH, SCROLL }
 
     private var mode = Mode.NONE
-    private var subMode = SubMode.UNDECIDED
     private var lastDist = 0f
-    private var lastCentX = 0f
     private var lastCentY = 0f
     private var active = false
 
@@ -59,17 +48,13 @@ class TwoFingerGestureTracker(
         }
     }
 
-    /** Force-end any active gesture (call from onDestroy / focus loss). */
     fun cancel() = deactivate()
-
-    // ── private ──────────────────────────────────────────────────────────────
 
     private fun activate(ev: MotionEvent) {
         lastDist = dist(ev)
-        lastCentX = centX(ev)
         lastCentY = centY(ev)
-        mode = Mode.ACTIVE
-        subMode = SubMode.UNDECIDED
+        // Lock once from spacing at second-finger down — exclusive for life of gesture.
+        mode = if (lastDist >= panZoomThresholdPx) Mode.PINCH else Mode.SCROLL
         if (!active) {
             active = true
             onActiveChanged(true)
@@ -86,30 +71,26 @@ class TwoFingerGestureTracker(
         val curCentX = centX(ev)
         val curCentY = centY(ev)
         val scale = if (lastDist > 0f && curDist > 0f) curDist / lastDist else 1f
-        val dx = curCentX - lastCentX
         val dy = curCentY - lastCentY
-        val distDelta = abs(curDist - lastDist)
-        val panMag = sqrt(dx * dx + dy * dy)
 
-        // Decide once the fingers have moved enough to tell pan from pinch.
-        if (subMode == SubMode.UNDECIDED && (panMag > 10f || distDelta > 10f)) {
-            subMode = if (panMag >= distDelta * 1.2f) SubMode.PAN else SubMode.PINCH
-        }
+        when (mode) {
+            Mode.PINCH ->
+                // Zoom only. Forward every frame; Go applyViewportGesture has its
+                // own ~2% deadzone so spacing noise does not accumulate zoom.
+                onPanZoom(scale, curCentX, curCentY, 0f, 0f)
 
-        val outScale = when (subMode) {
-            SubMode.PAN -> 1f // ignore distance noise during grab-and-drag
-            SubMode.PINCH, SubMode.UNDECIDED -> scale
+            Mode.SCROLL ->
+                onScroll(dy)
+
+            Mode.NONE -> {}
         }
-        onPanZoom(outScale, curCentX, curCentY, dx, dy)
 
         lastDist = curDist
-        lastCentX = curCentX
         lastCentY = curCentY
     }
 
     private fun deactivate() {
         mode = Mode.NONE
-        subMode = SubMode.UNDECIDED
         lastDist = 0f
         if (active) {
             active = false

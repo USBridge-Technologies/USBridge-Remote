@@ -33,11 +33,13 @@ func deliverViewportGestureStateFromObjC(active C.int) {
 	vw.multiTouchActive = isActive
 	if isActive {
 		vw.lastMultiTouchAt = time.Now()
+		vw.resetZoomScaleResidual()
 		vw.cancelLocalTouchState()
 		return
 	}
 	iosScrollAccumY = 0
 	vw.lastMultiTouchAt = time.Now()
+	vw.resetZoomScaleResidual()
 	vw.cancelLocalTouchState()
 	fyne.Do(func() {
 		vw.snapViewportAlignment()
@@ -48,6 +50,8 @@ func deliverViewportGestureStateFromObjC(active C.int) {
 
 //export deliverViewportGestureUpdateFromObjC
 func deliverViewportGestureUpdateFromObjC(scaleFactor, focusX, focusY, panDx, panDy C.float) {
+	// panDx/panDy ignored: two-finger grab-pan is footer-button only.
+	_, _ = panDx, panDy
 	vw := activeGestureVideoWidget()
 	if vw == nil || !fyne.CurrentDevice().IsMobile() {
 		return
@@ -79,7 +83,8 @@ func deliverViewportGestureUpdateFromObjC(scaleFactor, focusX, focusY, panDx, pa
 		localFocusY := float32(focusY)/scale - absPos.Y
 
 		vw.UpdateTouchpadAndContentRect(wrapperSize.Width, wrapperSize.Height, vw.GetCurrentFrame())
-		vw.applyViewportGesture(float32(scaleFactor), localFocusX, localFocusY, float32(panDx)/scale, float32(panDy)/scale)
+		// Two-finger path: zoom only. One-finger grab-pan is the footer button.
+		vw.applyViewportGesture(float32(scaleFactor), localFocusX, localFocusY, 0, 0)
 		vw.updateNativeViewportAndCursor()
 		vw.refreshViewportViews()
 	})

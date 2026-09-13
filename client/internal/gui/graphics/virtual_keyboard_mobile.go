@@ -14,6 +14,7 @@
 package graphics
 
 import (
+	"image/color"
 	"strings"
 	"sync"
 	"time"
@@ -264,53 +265,26 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
 
-	clearBtn := padCompactKey(newCompactKey("×", compactKeyNormal, compactKeyHeight, func() {
-		suppress = true
-		textHint.SetText("")
-		mu.Lock()
-		pendingText = ""
-		prevText = ""
-		mu.Unlock()
-		suppress = false
-	}))
+	// Overlay mode: special keys float on the video. System IME provides
+	// letter typing (sticky / FocusInput). Keep a 1×1 focus entry shown so
+	// Canvas.Focus can open the OS keyboard (a Hidden entry is not focusable).
+	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 6, 6, 4, 6)
+	textHint.Resize(fyne.NewSize(1, 1))
+	textHint.Move(fyne.NewPos(0, 0))
 
-	pasteBtn := padCompactKey(newCompactKey("↻", compactKeyNormal, compactKeyHeight, func() {
-		runes := []rune(textHint.Text)
-		if len(runes) == 0 {
-			return
-		}
-		netChan <- netTask{runes: runes}
-	}))
+	background := canvas.NewRectangle(color.Transparent)
 
-	styledEntry := wrapCompactEntry(textHint, func(b *canvas.Rectangle) {
-		textHint.border = b
-	})
-	inputRow := container.NewBorder(nil, nil, nil, container.NewHBox(pasteBtn, clearBtn), styledEntry)
-	line := canvas.NewRectangle(design.ColorHeaderAccentLine)
-	line.SetMinSize(fyne.NewSize(1, 0.5))
-	main := view.NewInsetExact(container.NewVBox(vk.createCompactKeysChrome(), inputRow), 6, 6, 6, 6)
-
-	background := canvas.NewRectangle(design.ColorGray950)
-	background.FillColor = design.ColorGray950
-
-	vk.imeSpacer = &imeSpacerLayout{height: 0} // real value set by deliverIMEHeightFromJNI
+	vk.imeSpacer = &imeSpacerLayout{height: 0}
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
+	vk.imeSpacerCont.Hide()
 
 	textHint.onFocused = func() {
-		// Re-register so IME height events reach this VK even after a fullscreen session.
 		vk.RegisterAsIMETarget()
-		vk.adjustForIME(true)
 	}
-	// We do NOT reset the padding in onUnfocused (adjustForIME(false)),
-	// because on Android the system navigation bar still takes up space.
-	// We rely on KeyboardBridge.onIMEHeightChanged events that come
-	// from Android when hiding the keyboard and contain the actual height (e.g. just NavBar).
-	textHint.onUnfocused = func() {
-	}
+	textHint.onUnfocused = func() {}
 
-	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, view.NewTopLine(main, line))
 	return container.NewMax(container.NewThemeOverride(
-		container.NewStack(background, innerLayout),
+		container.NewStack(background, keys, textHint),
 		design.NewBrandTheme(),
 	))
 }
