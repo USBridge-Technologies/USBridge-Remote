@@ -47,13 +47,7 @@ func (vw *VideoWidget) videoContainerOrigin() fyne.Position {
 		if drv := app.Driver(); drv != nil {
 			pos := drv.AbsolutePositionForObject(vw.container)
 			if videoOriginLooksSettled(pos, sz, canvasH, estimated) {
-				y := pos.Y
-				// Never sit above the chrome-aware estimate — that paints
-				// over the header.
-				if estimated > y {
-					y = estimated
-				}
-				out := fyne.NewPos(pos.X, y)
+				out := fyne.NewPos(pos.X, pos.Y)
 				vw.lastVideoCanvasOrigin = out
 				return out
 			}
