@@ -339,6 +339,14 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 			// session right here made it look, one line down, like the
 			// user had asked to sign out.
 			logrus.Info("tailscale client ui: login button pressed -- session already resumed, nothing to do")
+			// refreshTailscaleStatus no-ops while tailscaleAuthInProgress is
+			// true (so the 60s poller can't stomp an in-flight spinner) --
+			// but that flag is only cleared by this goroutine's own defer,
+			// which hasn't run yet. Clear it now so this authoritative,
+			// terminal update actually reaches the toggle instead of
+			// leaving it stuck on "checking saved session" until the next
+			// poll tick.
+			cm.tailscaleAuthInProgress.Store(false)
 			cm.refreshTailscaleStatus()
 			return
 		}
@@ -365,6 +373,7 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 				"Sign In With Google",
 			)
 		}
+		cm.tailscaleAuthInProgress.Store(false)
 		cm.refreshTailscaleStatus()
 	}()
 }
@@ -394,6 +403,7 @@ func (cm *ConnectionManager) startTailscaleLogout() {
 		if logoutErr := cm.ts.Logout(context.Background()); logoutErr != nil {
 			logrus.WithError(logoutErr).Error("tailscale client ui: Logout failed")
 		}
+		cm.tailscaleAuthInProgress.Store(false)
 		cm.refreshTailscaleStatus()
 	}()
 }
