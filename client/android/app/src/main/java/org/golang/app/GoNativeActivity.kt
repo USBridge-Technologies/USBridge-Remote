@@ -264,11 +264,32 @@ open class GoNativeActivity : NativeActivity() {
                         return
                     }
                     if (s.length < 1) {
+                        // Soft IME deleted the last local character (often our
+                        // sentinel space). Mirror deletes to the host: typed
+                        // chars after the sentinel, or one BKSP into remote
+                        // text that never lived in this EditText.
+                        val prev = lastStickyText
                         ignoreKey = true
                         edit.setText(" ")
                         edit.setSelection(edit.text.length)
                         ignoreKey = false
                         lastStickyText = " "
+                        if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+                            val del = when {
+                                prev.startsWith(" ") -> {
+                                    val typed = prev.length - 1
+                                    if (typed > 0) typed else 1
+                                }
+                                prev.isEmpty() -> 1
+                                else -> prev.length
+                            }
+                            Log.i(TAG, "⌨️ stickyIME empty-buffer del=$del (was '$prev')")
+                            try {
+                                io.usbridge.client.KeyboardBridge.onIMETextInput(del, "")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "onIMETextInput failed", e)
+                            }
+                        }
                         return
                     }
                     if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() != true) {
