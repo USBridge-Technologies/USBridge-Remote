@@ -907,9 +907,26 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		}
 	}()
 
-	// frame is nil when the native GPU overlay (Metal/GL) is active and has
-	// already received the frame at the C level. We still update counters so
-	// the Go-level FPS display and trace logging stay accurate.
+	// frame is nil in two distinct cases that both come through as the same
+	// NULL from goVTFrame's C side, indistinguishable from here:
+	//   1. The native GPU overlay (Metal/GL) is already active and received
+	//      this frame at the C level -- the common case, nothing to do.
+	//   2. moonlight_cgo_apple.go's vt_callback: 10-bit HDR frame whose CPU
+	//      fallback can't handle 10-bit YCbCr, AND the zero-copy Metal path
+	//      also declined because the overlay isn't active yet -- the frame
+	//      was silently dropped, not handled by anyone. Without the
+	//      frameNum==1 bootstrap below (mirroring the non-nil branch's own),
+	//      case 2 on a fresh HDR connect never creates the overlay in the
+	//      first place, since HDR's frame 1 -- unlike H264/8-bit HEVC, whose
+	//      CPU fallback always produces a real RGBA frame 1 -- arrives nil
+	//      too, so the trigger below never used to fire: permanently stuck
+	//      metal_video_try_submit-active=0 -> CPU-fallback-drop loop, a solid
+	//      black screen for the entire session, confirmed live via
+	//      metal_video_try_submit's one-shot diagnostic log showing
+	//      "active=0 has_iosurface=1" and no "overlay created" line ever
+	//      following it. Calling startMetalVideoOnWindow here when the
+	//      overlay already exists (case 1) is a safe no-op/replace -- see
+	//      MetalVideoCreate's own "creates (or replaces)" doc comment.
 	if frame == nil {
 		vw.frameMutex.Lock()
 		vw.frameCount++
@@ -918,6 +935,9 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		vw.frameMutex.Unlock()
 		vw.frameDecoder.IncrementFrameCount()
 		vw.noteVideoTraceFirstFrame(frameNum)
+		if frameNum == 1 && !vw.isClosing.Load() && vw.isStreaming {
+			go vw.startMetalVideoOnWindow(vw.parentWindow, false)
+		}
 		// Log FPS for Metal path (frame=nil means VT→Metal bypasses Go image).
 		if frameNum%60 == 0 {
 			now := time.Now().UnixNano()

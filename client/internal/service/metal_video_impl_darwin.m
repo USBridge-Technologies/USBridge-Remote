@@ -208,7 +208,21 @@ double metal_video_last_fps(void) {
     return (double)g_fpsFrames / elapsed;
 }
 
+// One-shot diagnostic for the HDR black-screen investigation (2026-09-14):
+// logs into app.log (unlike metal_video_impl_ios.m's NSLog-only equivalent,
+// which never reaches it) exactly which of the two early-out checks below
+// -- inactive overlay vs. no IOSurface -- is actually responsible when every
+// frame silently drops on the CPU-fallback-rejects-10-bit path in
+// moonlight_cgo_apple.go's vt_callback. Safe to leave in: fires once per
+// process, not per frame.
+static _Atomic int g_submit_call_count = 0;
 int metal_video_try_submit(CVImageBufferRef img) {
+    if (atomic_fetch_add(&g_submit_call_count, 1) == 0) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "metal_video_try_submit: first call (active=%d has_iosurface=%d)",
+                 atomic_load(&g_active), CVPixelBufferGetIOSurface(img) != NULL ? 1 : 0);
+        goMetalLog(msg, 0);
+    }
     if (!atomic_load(&g_active)) return 0;
     if (!CVPixelBufferGetIOSurface(img)) return 0;
 
@@ -398,6 +412,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         g_submitCount = 0; g_renderCount = 0;
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
         g_lastW = 0;       g_lastH = 0;
+        atomic_store(&g_submit_call_count, 0); // re-arm the one-shot try_submit diagnostic for this session
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;
