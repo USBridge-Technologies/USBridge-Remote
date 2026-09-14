@@ -49,6 +49,18 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileKeyboardToggle = kb
 	mw.mobileKeyboardBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), kb)
 
+	fs := newHeaderStatusBadgeButton(assets.FullscreenIconFooter, func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowFullscreen()
+		}
+	})
+	fs.SetIconSize(fyne.NewSize(16, 16))
+	fs.SetBadgeText("")
+	fs.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	mw.mobileFullscreenToggle = fs
+	mw.mobileFullscreenBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), fs)
+	mw.mobileFullscreenBtn.Hide()
+
 	pan := newHeaderStatusBadgeButton(assets.ViewportPanIcon, func() {
 		mw.toggleMobileViewportPanMode()
 	})
@@ -303,7 +315,7 @@ func (mw *MainWindow) buildLandscapeConnectedChrome() fyne.CanvasObject {
 	return mw.buildTabsFooterStrip(true)
 }
 
-// buildControlFooterStrip is Control-only: burger left, pan / mouse / keyboard right.
+// buildControlFooterStrip is Control-only: burger left, fullscreen / pan / mouse / keyboard right.
 func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject {
 	var left fyne.CanvasObject
 	if mw.mobileControlBurgerWrap != nil {
@@ -352,6 +364,9 @@ func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject 
 
 func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	var parts []fyne.CanvasObject
+	if mw.mobileFullscreenBtn != nil {
+		parts = append(parts, mw.mobileFullscreenBtn)
+	}
 	if mw.mobileViewportPanBtn != nil {
 		parts = append(parts, mw.mobileViewportPanBtn)
 	}

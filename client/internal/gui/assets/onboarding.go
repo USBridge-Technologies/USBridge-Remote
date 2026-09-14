@@ -210,6 +210,7 @@ var (
 	// one-finger grab-pan button.
 	ViewportPanIcon       = fyne.NewStaticResource("move-svgrepo-com-pan.svg", recolorFillIcon(moveIcon, "#C9C9C9"))
 	ViewportPanIconActive = fyne.NewStaticResource("move-svgrepo-com-pan-active.svg", recolorFillIcon(moveIcon, "#ebffbc"))
+	FullscreenIconFooter  = fyne.NewStaticResource("fullscreen-svgrepo-com-footer.svg", recolorFillIcon(fullscreenIcon, "#C9C9C9"))
 	// PencilIconLime -- the same edit-pencil glyph List/Grid's own edit
 	// pencil uses (connection-edit-title.svg's path, muted gray there),
 	// tinted the same lime as LinkIconLime -- the Add Connection dialog's

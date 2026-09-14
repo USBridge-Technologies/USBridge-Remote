@@ -304,18 +304,21 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		newStatusBarDot(),
 		resBtn,
 	)
-	view.SetMenuSwapTargets(
+	swapTargets := []fyne.CanvasObject{
 		fpsBtn,
 		resBtn,
 		mw.videoIcon,
-		mw.fullscreenIcon,
 		mw.audioIcon,
 		mw.keyboardIcon,
 		mw.mouseIcon,
 		mw.rndisIcon,
 		mw.sdStorageProgress,
-	)
-	videoItems = append(videoItems, container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon))
+	}
+	if !useMobileControl() {
+		videoItems = append(videoItems, container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon))
+		swapTargets = append(swapTargets, mw.fullscreenIcon)
+	}
+	view.SetMenuSwapTargets(swapTargets...)
 	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2}, videoItems...)
 	mw.videoStatusGroup.Hide()
 

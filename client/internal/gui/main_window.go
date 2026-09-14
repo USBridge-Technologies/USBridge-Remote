@@ -50,6 +50,8 @@ type MainWindow struct {
 	mobileKeyboardToggle    *headerStatusBadgeButton
 	mobileViewportPanBtn    fyne.CanvasObject
 	mobileViewportPanToggle *headerStatusBadgeButton
+	mobileFullscreenBtn     fyne.CanvasObject
+	mobileFullscreenToggle  *headerStatusBadgeButton
 	mobileControlBurgerBtn  *headerStatusBadgeButton
 	mobileControlBurgerWrap fyne.CanvasObject
 	mobileMouseBtn          fyne.CanvasObject
