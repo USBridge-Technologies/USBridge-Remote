@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/media"
@@ -37,6 +38,9 @@ func (vw *VideoWidget) createInterface() {
 	vw.infoLabel = vw.ui.InfoLabel
 	vw.statsLabel = vw.ui.StatsLabel
 	vw.contentContainer = vw.ui.ContentContainer
+	vw.keyboardOverlay = vw.ui.KeyboardOverlay
+	vw.collapseFAB = vw.ui.CollapseFAB
+	vw.initKeyboardCollapseFAB()
 
 	vw.startStatsLoop()
 	vw.startRenderTicker()
@@ -74,21 +78,12 @@ func (vw *VideoWidget) handleStartVideo() {
 			}
 		})
 
-		if vw.startDialog == nil {
-			if vw.parentWindow == nil {
-				logrus.Warn("⚠️ Parent window not set")
-				fyne.Do(func() {
-					vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
-				})
-				return
-			}
-			vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
-			vw.startDialog.SetLiveCodecProvider(func() (string, bool) {
-				if vw.videoClient == nil {
-					return "", false
-				}
-				return vw.videoClient.NegotiatedVideoCodecName()
+		if vw.parentWindow == nil {
+			logrus.Warn("⚠️ Parent window not set")
+			fyne.Do(func() {
+				vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
 			})
+			return
 		}
 
 		preferredConfig, preferredErr := vw.resolvePreferredVideoConfig()
@@ -149,6 +144,7 @@ func (vw *VideoWidget) handleStartVideo() {
 		}
 
 		fyne.Do(func() {
+			vw.ensureStartDialog()
 			vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
 			vw.startDialog.SetDeviceLabel("")
 			vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
@@ -299,6 +295,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 			vw.videoClient.SetVideoMode(request.VideoMode)
 		}
 		vw.videoClient.SetColor444(request.Color444)
+		vw.videoClient.SetHdr(request.Hdr)
 		if request.VideoFPS > 0 {
 			vw.videoClient.SetFPS(request.VideoFPS)
 		}
@@ -671,12 +668,22 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 
 		if isConnectedStorageDevice(device) {
 			storageConnected = true
+			logrus.Infof("💿 [HID] storage-like device device=%q type=%q name=%q status=%q",
+				device.Device, device.Type, device.Name, device.Status)
 		}
 	}
 
 	if storageConnected {
-		logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
-		return nil
+		// Software-agent HID is OS-level input, not a USB gadget composite.
+		// Skipping here left stale nbd/local rows on the agent forever and
+		// also blocked keyboard/mouse auto-connect.
+		if !isUSBridgeAgentOS(deviceInfo.AgentOS) {
+			logrus.Infof("💿 Control HID auto-connect: ignoring leftover storage on software agent (agentOS=%q)", deviceInfo.AgentOS)
+			storageConnected = false
+		} else {
+			logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
+			return nil
+		}
 	}
 
 	if xinputGamepadConnected {
@@ -787,7 +794,7 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 }
 
 func (vw *VideoWidget) BootstrapControlSessionAsync() {
-	if vw.userStoppedVideo.Load() {
+	if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
 		// The user explicitly pressed stop; this call is one of
 		// scheduleControlBootstrap's timers (main_window_lifecycle.go), which
 		// fire on a schedule tied to which tab is visible, not to user intent
@@ -1029,15 +1036,145 @@ func (vw *VideoWidget) ShowFullscreen() {
 	vw.fullscreenDialog.Show()
 }
 
-// HandleVirtualKeyboard handles opening/closing the virtual keyboard.
+// HandleVirtualKeyboard toggles the special-keys overlay only (legacy path).
 func (vw *VideoWidget) HandleVirtualKeyboard() {
 	vw.platformHandleVirtualKeyboard()
+}
+
+func (vw *VideoWidget) IsVirtualKeyboardVisible() bool {
+	return vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible()
+}
+
+// SetSystemIMESticky toggles the system soft keyboard so it stays open until
+// explicitly dismissed, independent of Entry focus (Android native sticky;
+// iOS focuses the hidden IME entry).
+func (vw *VideoWidget) SetSystemIMESticky(on bool) {
+	vw.platformSetSystemIMESticky(on)
+}
+
+func (vw *VideoWidget) IsSystemIMESticky() bool {
+	return vw.systemIMESticky.Load()
+}
+
+// OpenKeyboardStack shows special-keys overlay + system IME together.
+func (vw *VideoWidget) OpenKeyboardStack() {
+	vw.ensureMobileVirtualKeyboard()
+	if vw.virtualKeyboard == nil {
+		return
+	}
+	vw.imeStackArmedAt = time.Now()
+	if !vw.IsVirtualKeyboardVisible() {
+		vw.showSpecialKeysOverlay()
+	}
+	if !vw.IsSystemIMESticky() {
+		vw.SetSystemIMESticky(true)
+	}
+	vw.setKeyboardCollapseFABVisible(true)
+	vw.focusViewportOnVirtualCursorForKeyboard()
+	if vw.onKeyboardStackChanged != nil {
+		vw.onKeyboardStackChanged()
+	}
+	// Header swap + IME animation change available height after this returns.
+	vw.scheduleKeyboardCaretFocus()
+}
+
+// CloseAllKeyboards hides the special-keys overlay and dismisses sticky system IME.
+func (vw *VideoWidget) CloseAllKeyboards() {
+	if vw.IsSystemIMESticky() {
+		vw.SetSystemIMESticky(false)
+	}
+	if vw.IsVirtualKeyboardVisible() {
+		vw.hideSpecialKeysOverlay()
+	}
+	vw.setKeyboardCollapseFABVisible(false)
+	vw.keyboardViewportLift = false
+	vw.bottomInset = 0
+	vw.recalculateViewport()
+	vw.updateNativeViewportAndCursor()
+	if vw.onKeyboardStackChanged != nil {
+		vw.onKeyboardStackChanged()
+	}
+}
+
+// ToggleKeyboardStack opens or closes the combined IME + special-keys stack.
+func (vw *VideoWidget) ToggleKeyboardStack() {
+	if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
+		vw.CloseAllKeyboards()
+		return
+	}
+	vw.OpenKeyboardStack()
+}
+
+// SetOnKeyboardStackChanged registers a UI refresh when the keyboard stack opens/closes.
+func (vw *VideoWidget) SetOnKeyboardStackChanged(fn func()) {
+	vw.onKeyboardStackChanged = fn
+}
+
+// SetViewportPanMode arms/disarms one-finger video pan (mobile Control footer).
+// Mode stays on until the footer button is tapped again (or Control is left) —
+// it must not clear on TouchUp/DragEnd, which Android can deliver mid-stroke.
+func (vw *VideoWidget) SetViewportPanMode(on bool) {
+	if vw == nil || vw.viewportPanMode == on {
+		return
+	}
+	vw.viewportPanMode = on
+	if !on {
+		vw.viewportPanDragActive = false
+		vw.snapViewportAlignment()
+		vw.updateNativeViewportAndCursor()
+	}
+	if vw.onViewportPanModeChanged != nil {
+		vw.onViewportPanModeChanged(on)
+	}
+}
+
+// ToggleViewportPanMode flips one-finger video pan mode.
+func (vw *VideoWidget) ToggleViewportPanMode() {
+	if vw == nil {
+		return
+	}
+	vw.SetViewportPanMode(!vw.viewportPanMode)
+}
+
+// IsViewportPanMode reports whether one-finger video pan is armed.
+func (vw *VideoWidget) IsViewportPanMode() bool {
+	return vw != nil && vw.viewportPanMode
+}
+
+// SetOnViewportPanModeChanged registers a UI refresh when pan mode toggles.
+func (vw *VideoWidget) SetOnViewportPanModeChanged(fn func(bool)) {
+	if vw == nil {
+		return
+	}
+	vw.onViewportPanModeChanged = fn
+}
+
+// applyOneFingerViewportPan pans the zoomed video by a finger delta (dp).
+func (vw *VideoWidget) applyOneFingerViewportPan(dx, dy float32) {
+	if vw == nil || (dx == 0 && dy == 0) {
+		return
+	}
+	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
+		return
+	}
+	availableH := vw.touchpadSizeH - vw.bottomInset
+	if availableH < 0 {
+		availableH = 0
+	}
+	focusX := vw.touchpadSizeW / 2
+	focusY := availableH / 2
+	vw.applyViewportGesture(1, focusX, focusY, dx, dy)
+	vw.updateNativeViewportAndCursor()
+}
+
+// GetVirtualKeyboard returns the embedded special-keys keyboard, if created.
+func (vw *VideoWidget) GetVirtualKeyboard() *graphics.VirtualKeyboard {
+	return vw.virtualKeyboard
 }
 
 // updateStats updates statistics.
 func (vw *VideoWidget) updateStats() {
 	vw.frameMutex.RLock()
-	lastFrameTime := vw.lastFrameTime
 	vw.frameMutex.RUnlock()
 
 	decoderStats := vw.frameDecoder.GetFrameStats()
@@ -1051,8 +1188,11 @@ func (vw *VideoWidget) updateStats() {
 		}
 	}
 
-	stats := fmt.Sprintf("FPS: %.1f | %s", fps, lastFrameTime.Format("15:04:05"))
-	vw.statsLabel.SetText(stats)
+	// Updating Fyne UI texts causes layout invalidations.
+	// We no longer update the statsLabel (which was removed) here,
+	// and we skip calling SetBadgeText in updateVideoIconLabel
+	// when streaming via Native Video.
+
 	if vw.onFPSChanged != nil {
 		vw.onFPSChanged(math.Round(fps*10) / 10)
 	}
@@ -1092,6 +1232,17 @@ func (vw *VideoWidget) ensureInputFocusAsync(reason string, delay time.Duration)
 
 func (vw *VideoWidget) SetOnFPSChanged(fn func(float64)) {
 	vw.onFPSChanged = fn
+}
+
+// SetOnResolutionChanged wires a callback fired with the newly applied
+// capture width/height every time applyVideoDeviceConfig actually applies
+// one -- both the header's own quick-pick menu (ApplyVideoResolution) and
+// the Video Parameters dialog's Apply button funnel through there. Without
+// this, the header's resolution label had no way to learn about a change:
+// it read a static, never-updated models.AppConfig field instead (see
+// MainWindow.updateVideoIconLabel).
+func (vw *VideoWidget) SetOnResolutionChanged(fn func(width, height int)) {
+	vw.onResolutionChanged = fn
 }
 
 // UpdateClient updates the USB client.
@@ -1151,19 +1302,26 @@ func (vw *VideoWidget) StopVideo() {
 
 // HandleConnectionLost stops local video/input resources without contacting the server.
 func (vw *VideoWidget) HandleConnectionLost() {
+	// Stop reconcile retries *before* Disconnect: onStateChanged("disconnected")
+	// otherwise schedules another Moonlight connect against the dead host.
+	vw.MarkUserStopped()
+	vw.setDesiredStreaming(false)
 	resetVideoInfoCache()
+
+	vw.isStreaming = false
+	vw.isVideoConnected = false
+	vw.isMouseConnected = false
+	vw.hideConnectingSpinner()
+	vw.stopRenderTicker()
+	// Tear down the overlay/mouse pump first so the window starts accepting
+	// clicks even if Moonlight's graceful ENet disconnect later blocks ~2s.
+	vw.clearVideo()
 
 	if vw.videoClient != nil {
 		if err := vw.videoClient.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Failed to disconnect video client after transport loss: %v", err)
 		}
 	}
-
-	vw.isStreaming = false
-	vw.isVideoConnected = false
-	vw.isMouseConnected = false
-	vw.hideConnectingSpinner()
-	vw.clearVideo()
 
 	fyne.Do(func() {
 		vw.updateButtons()
@@ -1208,10 +1366,18 @@ func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 	return true
 }
 
-// clearVideo clears the video.
+func (vw *VideoWidget) stopRenderTicker() {
+	if vw.renderTickerStop != nil {
+		close(vw.renderTickerStop)
+		vw.renderTickerStop = nil
+	}
+}
+
 func (vw *VideoWidget) clearVideo() {
 	vw.clearVideoMu.Lock()
 	defer vw.clearVideoMu.Unlock()
+
+	vw.stopRenderTicker()
 
 	vw.frameMutex.Lock()
 	lastFrame := vw.currentFrame // saved for darkened pause display (Fyne canvas path)
@@ -1359,9 +1525,7 @@ func (vw *VideoWidget) startRenderTicker(fps ...int) {
 	if len(fps) > 0 && fps[0] > 0 {
 		targetFPS = fps[0]
 	}
-	if vw.renderTickerStop != nil {
-		close(vw.renderTickerStop)
-	}
+	vw.stopRenderTicker()
 	stop := make(chan struct{})
 	vw.renderTickerStop = stop
 

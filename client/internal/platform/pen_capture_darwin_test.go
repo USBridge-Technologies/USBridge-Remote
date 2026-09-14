@@ -81,3 +81,35 @@ func TestDecodePenReportRejectsShortOrWrongReportID(t *testing.T) {
 		t.Error("expected ok=false for a non-0x10 report ID")
 	}
 }
+
+// TestPenRangeForKnownModel guards the one entry live-verified against real
+// hardware (see wacomIntuosV2Ranges' doc comment) -- if this ever regresses,
+// every X/Y/pressure sample sent for a real CTL-4100 goes wrong silently.
+func TestPenRangeForKnownModel(t *testing.T) {
+	maxX, maxY, maxPressure := PenRangeFor(0x0374) // CTL-4100
+	if maxX != PenMaxX || maxY != PenMaxY || maxPressure != PenMaxPressure {
+		t.Errorf("PenRangeFor(0x0374) = (%d, %d, %d), want (%d, %d, %d)",
+			maxX, maxY, maxPressure, PenMaxX, PenMaxY, PenMaxPressure)
+	}
+
+	// Spot-check one Pro-line and one Cintiq Pro entry sourced from
+	// OpenTabletDriver's own JSON specs -- not live-verified hardware, but
+	// this pins the table against an accidental typo during a future edit.
+	if maxX, maxY, maxPressure := PenRangeFor(0x0358); maxX != 62200 || maxY != 43200 || maxPressure != 8191 {
+		t.Errorf("PenRangeFor(0x0358) [PTH-860] = (%d, %d, %d), want (62200, 43200, 8191)", maxX, maxY, maxPressure)
+	}
+	if maxX, maxY, maxPressure := PenRangeFor(0x0352); maxX != 140384 || maxY != 79316 || maxPressure != 8191 {
+		t.Errorf("PenRangeFor(0x0352) [DTH-3220] = (%d, %d, %d), want (140384, 79316, 8191)", maxX, maxY, maxPressure)
+	}
+}
+
+// TestPenRangeForUnknownModelFallsBackToCTL4100 documents the deliberate
+// choice to default to the smallest/most-common model's range rather than
+// guess a large-format one for a device this project hasn't catalogued.
+func TestPenRangeForUnknownModelFallsBackToCTL4100(t *testing.T) {
+	maxX, maxY, maxPressure := PenRangeFor(0xFFFF)
+	if maxX != PenMaxX || maxY != PenMaxY || maxPressure != PenMaxPressure {
+		t.Errorf("PenRangeFor(unknown) = (%d, %d, %d), want CTL-4100 defaults (%d, %d, %d)",
+			maxX, maxY, maxPressure, PenMaxX, PenMaxY, PenMaxPressure)
+	}
+}

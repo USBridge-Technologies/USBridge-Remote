@@ -25,6 +25,8 @@ func main() {
 	headless := flag.Bool("headless", false, "run without a GUI (HTTP server, Sunshine, Tailscale only); a later normal launch attaches a GUI to this instance instead of starting a second one")
 	installService := flag.Bool("install-service", false, "install Windows service (requires elevation)")
 	uninstallService := flag.Bool("uninstall-service", false, "uninstall Windows service (requires elevation)")
+	tray := flag.Bool("tray", false, "start minimized to the system tray instead of showing the window -- used by the login-time tray helper that keeps a status icon visible while the engine runs headless")
+	attach := flag.String("attach", "", "dial this admin-socket path directly instead of the normal config-based discovery, and attach a thin-client GUI to it (Windows session-launch use: the LocalSystem service already knows its own socket path, which lives under a different profile than the interactive user's)")
 	flag.Parse()
 
 	setupLogging()
@@ -43,11 +45,11 @@ func main() {
 		return
 	}
 
-	runMain(*headless)
+	runMain(*headless, *tray, *attach)
 }
 
-func doStart(headless bool) {
-	if err := app.Start(headless, version); err != nil {
+func doStart(headless, tray bool, attach string) {
+	if err := app.Start(app.StartOptions{Headless: headless, Tray: tray, Attach: attach}, version); err != nil {
 		log.Fatalf("start app: %v", err)
 	}
 }

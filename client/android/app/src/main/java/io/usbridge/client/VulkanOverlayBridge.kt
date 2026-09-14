@@ -59,6 +59,11 @@ object VulkanOverlayBridge {
             // We use hooks in Go to hide this overlay when Fyne menus or dialogs are shown.
             sv.setZOrderOnTop(true)
             sv.holder.setFormat(android.graphics.PixelFormat.OPAQUE)
+            // Never steal focus from GoNativeActivity's IME EditText — otherwise
+            // dragging/tapping video dismisses the sticky system keyboard.
+            sv.isFocusable = false
+            sv.isFocusableInTouchMode = false
+            sv.isClickable = false
 
             val lp = FrameLayout.LayoutParams(
                 w.coerceAtLeast(1),

@@ -106,6 +106,18 @@ func main() {
 	}()
 	startPprofIfEnabled()
 
+	// Stutter Profiler: Go scheduler jank detector
+	go func() {
+		for {
+			t0 := time.Now()
+			time.Sleep(5 * time.Millisecond)
+			dt := time.Since(t0)
+			if dt > 25*time.Millisecond {
+				logrus.Warnf("⚠️ [Profiler] Go scheduler stalled for %v (GC or blocking CGO call!)", dt)
+			}
+		}
+	}()
+
 	logrus.Infof("Starting %s version %s", appName, version)
 
 	i18n.Init("en")

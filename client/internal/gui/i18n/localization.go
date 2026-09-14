@@ -38,6 +38,47 @@ type LocalizedStrings struct {
 	DeleteConnectionTitle     string
 	DeleteConnectionConfirm   string
 	TailscaleRegisterLabel    string
+	// ConnectingToConnection is the bottom toast's message while a Connect
+	// attempt is in flight (view.ShowConnectingToast) -- %s is the
+	// connection's own saved name.
+	ConnectingToConnection string
+
+	// Connections screen copy. Technical labels (LAN, TS, Token, QR, KVM,
+	// Agent, OS, USBridge, Firmware, master key, IP) stay in English.
+	ConnectionsHeaderSubtitle    string
+	ViewModeGrid                 string
+	ViewModeList                 string
+	AddNewConnectTitle           string
+	AddConnectHintLine1          string
+	AddConnectHintLine2          string
+	ScanQR                       string
+	PasteLink                    string
+	ManualEntry                  string
+	OrEnterManually              string
+	AddConnectionSubtitle        string
+	TailscaleRedirectHint        string
+	AutoRegistrationBadge        string
+	QRScanSuccess                string
+	ConnectionColOS              string
+	ConnectionColName            string
+	ConnectionColState           string
+	ConnectionColNetwork         string
+	ConnectionColRouteBridge     string
+	ConnectionColActions         string
+	ConnectionNameField          string
+	ConnectionLANPlaceholder     string
+	ConnectionTSPlaceholder      string
+	AwaitingConnection           string
+	FirmwarePromoTitle           string
+	FirmwarePromoSubtitle        string
+	FirmwarePromoTrial           string
+	FirmwarePromoFeatureBIOS     string
+	FirmwarePromoFeatureLatency  string
+	FirmwarePromoFeatureScripts  string
+	FirmwarePromoFeatureSnapshot string
+	FirmwarePromoFeatureL0       string
+	FirmwarePromoSDCardOnly      string
+	FirmwarePromoSDCardEMMC      string
 
 	// Video Widget
 	VideoNotStarted      string
@@ -310,36 +351,49 @@ type LocalizedStrings struct {
 	VirtualKeyboard string // "Virtual keyboard"
 
 	// Device names
-	DeviceKeyboard            string // "Keyboard"
-	DeviceTouchPad            string // "TouchPad" (relative touchpad mode)
-	DeviceMouse               string // "Mouse" (USB pointer device name)
-	DeviceTouch               string // "Touch" (touchscreen mode)
-	DeviceAbsolute            string // "Absolute" (absolute pointing mode)
-	DeviceAbsoluteLeft2       string // "Abs L/2" (absolute, left display of 2)
-	DeviceAbsoluteRight2      string // "Abs R/2" (absolute, right display of 2)
-	DeviceVirtualCursor       string // "Cursor" (virtual cursor mode, Android only)
-	DeviceGyroMouse           string // "GyroMouse" (gyroscope cursor mode, Android only)
-	DeviceNetworkCard         string // "Network Card (RNDIS)"
-	DeviceGamepad             string // "Gamepad"
-	DeviceDirectInput         string // "DirectInput"
-	DeviceXInput              string // "XInput"
-	XInputIncompatibleWithHID string // error: XInput + keyboard/mouse
-	ShowMouseCursor           string // "Show Mouse" (show cursor in captured video)
-	ClipboardSyncEnabled      string // "Shared Clipboard" (toggle clipboard sync with the agent)
-	EnableVSync               string // "VSync" (enable vsync for capture card)
-	AIVision                  string // "AI Vision" (live Set-of-Mark detection overlay checkbox)
-	AIVisionHint              string // hint shown under the AI Vision checkbox
-	Color444                  string // "4:4:4 Color (Pro)" checkbox, shown only when H.265 is selected
-	Color444Hint              string // hint under the checkbox when 4:4:4 is available (checked or not)
-	Color444UnavailableHint   string // hint under the (disabled, unchecked) checkbox when the agent doesn't currently offer 4:4:4
-	MuteAudio                 string // "Mute Audio"
-	UnmuteAudio               string // "Unmute Audio"
-	DeviceAudio               string // "Audio"
-	DeviceUSBAudio            string // "USB Audio Codec"
-	AudioDeviceUAC1           string // "UAC1"
-	AudioDeviceUAC2           string // "UAC2"
-	DriveModeDisk             string // "USB Stick"
-	DriveModeCDROM            string // "CD-ROM"
+	DeviceKeyboard                       string // "Keyboard"
+	DeviceTouchPad                       string // "TouchPad" (relative touchpad mode)
+	DeviceMouse                          string // "Mouse" (USB pointer device name)
+	DeviceTouch                          string // "Touch" (touchscreen mode)
+	DeviceAbsolute                       string // "Absolute" (absolute pointing mode)
+	DeviceAbsoluteLeft2                  string // "Abs L/2" (absolute, left display of 2)
+	DeviceAbsoluteRight2                 string // "Abs R/2" (absolute, right display of 2)
+	DeviceVirtualCursor                  string // "Cursor" (virtual cursor mode, Android only)
+	DeviceGyroMouse                      string // "GyroMouse" (gyroscope cursor mode, Android only)
+	DeviceNetworkCard                    string // "Network Card (RNDIS)"
+	DeviceGamepad                        string // "Gamepad"
+	DeviceDirectInput                    string // "DirectInput"
+	DeviceXInput                         string // "XInput"
+	XInputIncompatibleWithHID            string // error: XInput + keyboard/mouse
+	GamepadDisconnectHIDConfirm          string // toast: connecting XInput gamepad will drop keyboard/mouse
+	HIDDisconnectGamepadConfirm          string // toast: connecting keyboard/mouse will drop the XInput gamepad
+	BackupFlashDisconnectSnapshotConfirm string // toast: mounting backup flash will unmount the snapshot
+	ShowMouseCursor                      string // "Show Mouse" (show cursor in captured video)
+	ClipboardSyncEnabled                 string // "Shared Clipboard" (toggle clipboard sync with the agent)
+	EnableVSync                          string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
+	EnableVSyncHint                      string // description shown under the VSync checkbox
+	EnableVSyncBadge                     string // small badge next to the VSync title, e.g. "RECOMMENDED"
+	AIVision                             string // "AI Vision Detection Overlay" checkbox title, video parameters dialog
+	AIVisionHint                         string // hint shown under the AI Vision checkbox
+	AIVisionBadge                        string // small badge next to the AI Vision title, e.g. "EXPERIMENTAL"
+	Color444                             string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
+	Color444Hint                         string // hint under the checkbox when 4:4:4 is available (checked or not)
+	Color444UnavailableHint              string // hint under the (disabled, unchecked) checkbox when H.265 is selected but the agent doesn't currently offer 4:4:4
+	Color444RequiresH265Hint             string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
+	Color444Badge                        string // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
+	Hdr                                  string // "HDR Color (RustShine)" checkbox -- mirrors Color444 exactly, independent axis (see rust-shine's docs/COLOR_MODES.md)
+	HdrHint                              string // hint under the checkbox when HDR is available (checked or not)
+	HdrUnavailableHint                   string // hint under the (disabled, unchecked) checkbox when H.265 is selected but the agent doesn't currently offer HDR
+	HdrRequiresH265Hint                  string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
+	HdrBadge                             string // badge next to the HDR title, mirrors Color444Badge
+	MuteAudio                            string // "Mute Audio"
+	UnmuteAudio                          string // "Unmute Audio"
+	DeviceAudio                          string // "Audio"
+	DeviceUSBAudio                       string // "USB Audio Codec"
+	AudioDeviceUAC1                      string // "UAC1"
+	AudioDeviceUAC2                      string // "UAC2"
+	DriveModeDisk                        string // "USB Stick"
+	DriveModeCDROM                       string // "CD-ROM"
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -410,29 +464,64 @@ func EN() *LocalizedStrings {
 		TabSnapshots:            "💾 Snapshots",
 
 		// Connection Manager
-		ConnectionManager:         "🔌 Connection Manager",
-		SavedConnections:          "Connections",
-		ConnectionManagement:      "💾 Connection Management",
-		AddressAndTokenHint:       "💡 Address and Master Key are entered in the bar above",
-		ConnectionHeroEyebrow:     "USBRIDGE ACCESS",
-		ConnectionPanelHint:       "Launch a saved profile or create a new one.",
-		ConnectionNameLabel:       "Name for saving:",
-		ConnectionNamePlaceholder: "Connection name (e.g.: My PC)",
-		SaveButton:                "💾 Save",
-		DeleteButton:              "Delete",
-		EditButton:                "✏️",
-		QRScannerButton:           "📷 QR",
-		EditConnectionTitle:       "Edit connection",
-		AddConnectionTitle:        "Add connection",
-		AddNewDeviceTitle:         "Add a new device",
-		NoSavedConnections:        "No saved connections yet",
-		NoSavedConnectionsHint:    "Use QR or add a connection below to get started.",
-		OnboardingStepConnect:     "Plug usb-c into target host for power and hid. Connect video path from target hdmi to capture dongle.",
-		OnboardingStepIP:          "Navigate to settings -> internet to connect your network.",
-		OnboardingStepScan:        "Navigate to the Master Key section and scan the QR code. You can also enter the IP and Master Key manually.",
-		DeleteConnectionTitle:     "Delete connection",
-		DeleteConnectionConfirm:   "Are you sure you want to delete connection \"%s\"?",
-		TailscaleRegisterLabel:    "Register in Tailscale",
+		ConnectionManager:            "🔌 Connection Manager",
+		SavedConnections:             "Connections",
+		ConnectionManagement:         "💾 Connection Management",
+		AddressAndTokenHint:          "💡 Address and Master Key are entered in the bar above",
+		ConnectionHeroEyebrow:        "USBRIDGE ACCESS",
+		ConnectionPanelHint:          "Launch a saved profile or create a new one.",
+		ConnectionNameLabel:          "Name for saving:",
+		ConnectionNamePlaceholder:    "Connection name (e.g.: My PC)",
+		SaveButton:                   "💾 Save",
+		DeleteButton:                 "Delete",
+		EditButton:                   "✏️",
+		QRScannerButton:              "📷 QR",
+		EditConnectionTitle:          "Edit connection",
+		AddConnectionTitle:           "Add connection",
+		AddNewDeviceTitle:            "Add a new device",
+		NoSavedConnections:           "No saved connections yet",
+		NoSavedConnectionsHint:       "Use QR or add a connection below to get started.",
+		OnboardingStepConnect:        "Plug usb-c into target host for power and hid. Connect video path from target hdmi to capture dongle.",
+		OnboardingStepIP:             "Navigate to settings -> internet to connect your network.",
+		OnboardingStepScan:           "Navigate to the Master Key section and scan the QR code. You can also enter the IP and Master Key manually.",
+		DeleteConnectionTitle:        "Delete connection",
+		DeleteConnectionConfirm:      "Are you sure you want to delete connection \"%s\"?",
+		TailscaleRegisterLabel:       "Register in Tailscale",
+		ConnectingToConnection:       "Connecting to \"%s\"…",
+		ConnectionsHeaderSubtitle:    "Your active remote desktop and hardware control sessions.",
+		ViewModeGrid:                 "Grid",
+		ViewModeList:                 "List",
+		AddNewConnectTitle:           "Add New Connect",
+		AddConnectHintLine1:          "Scan a QR code or paste a link",
+		AddConnectHintLine2:          "to add a hardware or software agent",
+		ScanQR:                       "Scan QR",
+		PasteLink:                    "Paste Link",
+		ManualEntry:                  "Manual",
+		OrEnterManually:              "OR ENTER MANUALLY",
+		AddConnectionSubtitle:        "Pair a hardware or software agent using its IP address and master key.",
+		TailscaleRedirectHint:        "After connection, the redirect will open on the web.",
+		AutoRegistrationBadge:        "AUTO-REGISTRATION",
+		QRScanSuccess:                "QR code successfully scanned",
+		ConnectionColOS:              "OS",
+		ConnectionColName:            "NAME",
+		ConnectionColState:           "STATE",
+		ConnectionColNetwork:         "NETWORK",
+		ConnectionColRouteBridge:     "ROUTE BRIDGE",
+		ConnectionColActions:         "ACTIONS",
+		ConnectionNameField:          "Name",
+		ConnectionLANPlaceholder:     "LAN address",
+		ConnectionTSPlaceholder:      "Tailscale address",
+		AwaitingConnection:           "Awaiting connection...",
+		FirmwarePromoTitle:           "USBridge Firmware",
+		FirmwarePromoSubtitle:        "Turn your board into a hardware KVM",
+		FirmwarePromoTrial:           "24h Trial",
+		FirmwarePromoFeatureBIOS:     "BIOS-in-terminal (OCR)",
+		FirmwarePromoFeatureLatency:  "Ultra-low latency video",
+		FirmwarePromoFeatureScripts:  "Automation scripts",
+		FirmwarePromoFeatureSnapshot: "Immutable snapshot",
+		FirmwarePromoFeatureL0:       "0-layer host access",
+		FirmwarePromoSDCardOnly:      "SD Card only",
+		FirmwarePromoSDCardEMMC:      "SD Card / eMMC",
 
 		// Video Widget
 		VideoNotStarted:      "Video not started",
@@ -703,36 +792,49 @@ func EN() *LocalizedStrings {
 		VirtualKeyboard: "Virtual keyboard",
 
 		// Device names
-		DeviceKeyboard:            "Keyboard",
-		DeviceTouchPad:            "TouchPad",
-		DeviceMouse:               "Mouse",
-		DeviceTouch:               "TouchScreen",
-		DeviceAbsolute:            "Absolute",
-		DeviceAbsoluteLeft2:       "Abs L/2",
-		DeviceAbsoluteRight2:      "Abs R/2",
-		DeviceVirtualCursor:       "Cursor",
-		DeviceGyroMouse:           "GyroMouse",
-		DeviceNetworkCard:         "Network Card (RNDIS)",
-		DeviceGamepad:             "Gamepad",
-		DeviceDirectInput:         "DirectInput",
-		DeviceXInput:              "XInput",
-		XInputIncompatibleWithHID: "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
-		ShowMouseCursor:           "Show Mouse",
-		ClipboardSyncEnabled:      "Shared Clipboard",
-		EnableVSync:               "VSync",
-		AIVision:                  "AI Vision",
-		AIVisionHint:              "Overlays live object detection (Set-of-Mark boxes + hex ids) on the video, as an agent's ui.parse call would see it.",
-		Color444:                  "4:4:4 Color (RustShine Pro)",
-		Color444Hint:              "Full-resolution color instead of the usual 4:2:0 -- sharper text and fine detail, at a higher bitrate cost.",
-		Color444UnavailableHint:   "Requires RustShine Pro and a GPU with HEVC 4:4:4 hardware encode.",
-		MuteAudio:                 "Mute Audio",
-		UnmuteAudio:               "Unmute Audio",
-		DeviceAudio:               "Audio",
-		DeviceUSBAudio:            "USB Audio Codec",
-		AudioDeviceUAC1:           "UAC1",
-		AudioDeviceUAC2:           "UAC2",
-		DriveModeDisk:             "USB Stick",
-		DriveModeCDROM:            "CD-ROM",
+		DeviceKeyboard:                       "Keyboard",
+		DeviceTouchPad:                       "TouchPad",
+		DeviceMouse:                          "Mouse",
+		DeviceTouch:                          "TouchScreen",
+		DeviceAbsolute:                       "Absolute",
+		DeviceAbsoluteLeft2:                  "Abs L/2",
+		DeviceAbsoluteRight2:                 "Abs R/2",
+		DeviceVirtualCursor:                  "Cursor",
+		DeviceGyroMouse:                      "GyroMouse",
+		DeviceNetworkCard:                    "Network Card (RNDIS)",
+		DeviceGamepad:                        "Gamepad",
+		DeviceDirectInput:                    "DirectInput",
+		DeviceXInput:                         "XInput",
+		XInputIncompatibleWithHID:            "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
+		GamepadDisconnectHIDConfirm:          "Connecting the gamepad will disconnect the keyboard and mouse.",
+		HIDDisconnectGamepadConfirm:          "Connecting the keyboard or mouse will disconnect the gamepad.",
+		BackupFlashDisconnectSnapshotConfirm: "A snapshot is mounted. Mounting the backup flash will unmount it.",
+		ShowMouseCursor:                      "Show Mouse",
+		ClipboardSyncEnabled:                 "Shared Clipboard",
+		EnableVSync:                          "VSync (Vertical Sync)",
+		EnableVSyncHint:                      "Synchronizes frame delivery with the host display's refresh rate to eliminate tearing during fast motion.",
+		EnableVSyncBadge:                     "Recommended",
+		AIVision:                             "AI Vision Detection Overlay",
+		AIVisionHint:                         "Overlays live object detection (Set-of-Mark bounding boxes + hex IDs) on the video feed, mirroring an agent's ui.parse() telemetry call.",
+		AIVisionBadge:                        "Experimental",
+		Color444:                             "4:4:4 Color (RustShine)",
+		Color444Hint:                         "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
+		Color444UnavailableHint:              "Requires RustShine Pro and a GPU with HEVC 4:4:4 hardware encode.",
+		Color444RequiresH265Hint:             "Only available with the H.265 codec -- select it above to use 4:4:4 color.",
+		Color444Badge:                        "Pro",
+		Hdr:                                  "HDR Color (RustShine)",
+		HdrHint:                              "Captures and streams high dynamic range video (BT.2020 color, PQ curve) instead of standard SDR -- brighter highlights and a wider color range on an HDR-capable display, at a higher bitrate cost.",
+		HdrUnavailableHint:                   "Requires RustShine Pro and a Mac with HEVC Main10 hardware encode (Apple Silicon).",
+		HdrRequiresH265Hint:                  "Only available with the H.265 codec -- select it above to use HDR.",
+		HdrBadge:                             "Pro",
+		MuteAudio:                            "Mute Audio",
+		UnmuteAudio:                          "Unmute Audio",
+		DeviceAudio:                          "Audio",
+		DeviceUSBAudio:                       "USB Audio Codec",
+		AudioDeviceUAC1:                      "UAC1",
+		AudioDeviceUAC2:                      "UAC2",
+		DriveModeDisk:                        "USB Stick",
+		DriveModeCDROM:                       "CD-ROM",
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",
@@ -822,6 +924,41 @@ func ES() *LocalizedStrings {
 	locale.DeleteButton = "Eliminar"
 	locale.DeleteConnectionTitle = "Eliminar conexion"
 	locale.DeleteConnectionConfirm = "Seguro que deseas eliminar la conexion \"%s\"?"
+	locale.ConnectingToConnection = "Conectando a \"%s\"…"
+	locale.ConnectionsHeaderSubtitle = "Tus sesiones activas de escritorio remoto y control de hardware."
+	locale.ViewModeGrid = "Grid"
+	locale.ViewModeList = "Lista"
+	locale.AddNewConnectTitle = "Nueva conexion"
+	locale.AddConnectHintLine1 = "Escanea un codigo QR o pega un enlace"
+	locale.AddConnectHintLine2 = "para agregar un agent de hardware o software"
+	locale.ScanQR = "Escanear QR"
+	locale.PasteLink = "Pegar enlace"
+	locale.ManualEntry = "Manual"
+	locale.OrEnterManually = "O INTRODUCIR MANUALMENTE"
+	locale.AddConnectionSubtitle = "Empareja un agent de hardware o software con su IP y master key."
+	locale.TailscaleRedirectHint = "Tras conectar, la redireccion se abrira en el navegador."
+	locale.AutoRegistrationBadge = "AUTO-REGISTRO"
+	locale.QRScanSuccess = "Codigo QR escaneado"
+	locale.ConnectionColOS = "OS"
+	locale.ConnectionColName = "NOMBRE"
+	locale.ConnectionColState = "ESTADO"
+	locale.ConnectionColNetwork = "RED"
+	locale.ConnectionColRouteBridge = "RUTA"
+	locale.ConnectionColActions = "ACCIONES"
+	locale.ConnectionNameField = "Nombre"
+	locale.ConnectionLANPlaceholder = "Direccion LAN"
+	locale.ConnectionTSPlaceholder = "Direccion Tailscale"
+	locale.AwaitingConnection = "Esperando conexion..."
+	locale.FirmwarePromoTitle = "USBridge Firmware"
+	locale.FirmwarePromoSubtitle = "Convierte tu placa en un KVM de hardware"
+	locale.FirmwarePromoTrial = "Prueba 24h"
+	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
+	locale.FirmwarePromoFeatureLatency = "Video de ultra baja latencia"
+	locale.FirmwarePromoFeatureScripts = "Scripts de automatizacion"
+	locale.FirmwarePromoFeatureSnapshot = "Snapshot inmutable"
+	locale.FirmwarePromoFeatureL0 = "Acceso host de capa 0"
+	locale.FirmwarePromoSDCardOnly = "Solo SD Card"
+	locale.FirmwarePromoSDCardEMMC = "SD Card / eMMC"
 	locale.Devices = "Dispositivos"
 	locale.DevicesSectionStorage = "Almacenamiento"
 	locale.DevicesSectionBackup = "Dispositivo de respaldo"
@@ -879,7 +1016,6 @@ func ES() *LocalizedStrings {
 	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
 	locale.ShowMouseCursor = "Mostrar ratón"
 	locale.ClipboardSyncEnabled = "Portapapeles compartido"
-	locale.EnableVSync = "VSync"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
 	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Deseas conectarte a este servidor?\n\nElige una accion:"
@@ -889,6 +1025,7 @@ func ES() *LocalizedStrings {
 	locale.FullscreenWindowTitle = "USBridge - Pantalla completa"
 	locale.PCPanelPowerTitle = "Encendido"
 	locale.PCPanelResetTitle = "Reinicio"
+	locale.BackupFlashDisconnectSnapshotConfirm = "Hay un snapshot montado. Al montar el backup flash se desmontara."
 	return locale
 }
 
@@ -965,6 +1102,41 @@ func UKProper() *LocalizedStrings {
 	locale.DeleteButton = "Видалити"
 	locale.DeleteConnectionTitle = "Видалити з'єднання"
 	locale.DeleteConnectionConfirm = "Ви впевнені, що хочете видалити з'єднання \"%s\"?"
+	locale.ConnectingToConnection = "Підключення до \"%s\"…"
+	locale.ConnectionsHeaderSubtitle = "Ваші активні сесії віддаленого робочого столу та керування обладнанням."
+	locale.ViewModeGrid = "Сітка"
+	locale.ViewModeList = "Список"
+	locale.AddNewConnectTitle = "Нове з'єднання"
+	locale.AddConnectHintLine1 = "Відскануйте QR-код або вставте посилання"
+	locale.AddConnectHintLine2 = "щоб додати hardware або software agent"
+	locale.ScanQR = "Сканувати QR"
+	locale.PasteLink = "Вставити посилання"
+	locale.ManualEntry = "Вручну"
+	locale.OrEnterManually = "АБО ВВЕСТИ ВРУЧНУ"
+	locale.AddConnectionSubtitle = "Прив'яжіть hardware або software agent за IP та master key."
+	locale.TailscaleRedirectHint = "Після підключення перенаправлення відкриється в браузері."
+	locale.AutoRegistrationBadge = "АВТОРЕЄСТРАЦІЯ"
+	locale.QRScanSuccess = "QR-код відскановано"
+	locale.ConnectionColOS = "OS"
+	locale.ConnectionColName = "НАЗВА"
+	locale.ConnectionColState = "СТАН"
+	locale.ConnectionColNetwork = "МЕРЕЖА"
+	locale.ConnectionColRouteBridge = "МАРШРУТ"
+	locale.ConnectionColActions = "ДІЇ"
+	locale.ConnectionNameField = "Назва"
+	locale.ConnectionLANPlaceholder = "Адреса LAN"
+	locale.ConnectionTSPlaceholder = "Адреса Tailscale"
+	locale.AwaitingConnection = "Очікування з'єднання..."
+	locale.FirmwarePromoTitle = "USBridge Firmware"
+	locale.FirmwarePromoSubtitle = "Перетворіть плату на апаратний KVM"
+	locale.FirmwarePromoTrial = "Пробний період 24h"
+	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
+	locale.FirmwarePromoFeatureLatency = "Відео з ультранизькою затримкою"
+	locale.FirmwarePromoFeatureScripts = "Скрипти автоматизації"
+	locale.FirmwarePromoFeatureSnapshot = "Незмінний snapshot"
+	locale.FirmwarePromoFeatureL0 = "Доступ host на шарі 0"
+	locale.FirmwarePromoSDCardOnly = "Лише SD Card"
+	locale.FirmwarePromoSDCardEMMC = "SD Card / eMMC"
 	locale.Devices = "Пристрої"
 	locale.DevicesSectionStorage = "Сховище"
 	locale.DevicesSectionBackup = "Резервний пристрій"
@@ -1022,7 +1194,6 @@ func UKProper() *LocalizedStrings {
 	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
 	locale.ShowMouseCursor = "Показувати курсор"
 	locale.ClipboardSyncEnabled = "Спільний буфер обміну"
-	locale.EnableVSync = "VSync"
 	locale.DeepLinkServerAddress = "Адреса сервера:"
 	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Хочете підключитися до цього сервера?\n\nВиберіть дію:"
@@ -1032,6 +1203,7 @@ func UKProper() *LocalizedStrings {
 	locale.FullscreenWindowTitle = "USBridge - Повний екран"
 	locale.PCPanelPowerTitle = "Живлення"
 	locale.PCPanelResetTitle = "Скидання"
+	locale.BackupFlashDisconnectSnapshotConfirm = "Змонтовано знімок. Підключення backup-флешки його розмонтує."
 	return locale
 }
 

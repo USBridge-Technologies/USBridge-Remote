@@ -8,6 +8,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"usbridge-client/internal/gui/view"
 )
 
 // Keyboard grid constants (like hardware): width/height of one key "unit"
@@ -97,7 +99,19 @@ func GetLastIMEH() float32 {
 	return 0
 }
 
+// SetStickySystemIME is Android-only.
+func SetStickySystemIME(_ bool) {}
+
+// SetIMETextHandler is Android-only.
+func SetIMETextHandler(_ func(deleteCount int, text string)) {}
+
+// SetIMEUserDismissedHandler is Android-only.
+func SetIMEUserDismissedHandler(_ func()) {}
+
 func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
+	if view.IsMobile() {
+		return vk.createCompactSpecialKeysLayout()
+	}
 	grid := container.NewWithoutLayout()
 	background := canvas.NewRectangle(theme.BackgroundColor())
 	background.FillColor = theme.BackgroundColor()

@@ -124,11 +124,11 @@ static float USBridgeTwoTouchDistance(UIGestureRecognizer *recognizer) {
         [recognizer setTranslation:CGPointMake(0, 0) inView:recognizer.view];
 
         if (self.modeIsPanZoom) {
-            CGPoint location = [recognizer locationInView:recognizer.view];
-            deliverViewportGestureUpdateFromObjC(1.0f, location.x, location.y, translation.x, translation.y);
-        } else {
-            deliverScrollGestureFromObjC(-translation.y);
+            // Pinch/zoom mode: ignore pan translation as scroll so zoom
+            // is not also wheeled. Canvas grab-pan is the footer button.
+            return;
         }
+        deliverScrollGestureFromObjC(-translation.y);
     } else if (recognizer.state == UIGestureRecognizerStateEnded || recognizer.state == UIGestureRecognizerStateCancelled) {
         [self endTwoFingerGestureIfNeeded];
     }

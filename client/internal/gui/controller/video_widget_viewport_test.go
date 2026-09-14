@@ -83,33 +83,86 @@ func TestRecalculateViewport_FitsBranchStillCenters(t *testing.T) {
 	}
 }
 
-// applyViewportGesture must NOT anchor vertically to the pinch focus
-// point -- an earlier version did, and that made the picture visibly
-// crawl toward wherever the fingers happened to rest as zoom increased
-// (reported live as the video "jumping down" on a real phone, where a
-// natural two-hand pinch grip rarely lands exactly at screen center).
-// Pinching off-center must leave the video exactly as centered as
-// pinching dead-center would -- only an explicit two-finger drag (panDy)
-// may move it off center.
-func TestApplyViewportGesture_DoesNotAnchorVerticallyToPinchFocus(t *testing.T) {
+func TestRecalculateViewport_LetterboxPanMovesFittedVideo(t *testing.T) {
+	// Touchpad taller than fitted content → black bars; pan may leave the
+	// letterbox and go partially off-screen (min 30% still visible).
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 800
+	vw.baseContentRectW = 1000
+	vw.baseContentRectH = 400 // centered at Y=200
+	vw.zoomScale = 1
+	vw.panOffsetY = -150
+	vw.recalculateViewport()
+
+	if got, want := vw.panOffsetY, float32(-150); got != want {
+		t.Errorf("panOffsetY = %v, want %v (fit pan must stick)", got, want)
+	}
+	wantY := (800-400)/2 + (-150) // 50
+	if got := vw.contentRectY; got != float32(wantY) {
+		t.Errorf("contentRectY = %v, want %v", got, wantY)
+	}
+
+	// Past the old letterbox clamp, still legal: 30% of 400 = 120px must remain.
+	// minY = -400*0.7 = -280 → max upward pan from center 200 is 200-(-280)=480
+	vw.panOffsetY = -1000
+	vw.recalculateViewport()
+	if got, want := vw.contentRectY, float32(-280); got != want {
+		t.Errorf("contentRectY = %v, want %v (30%% still visible off top)", got, want)
+	}
+	if vw.contentRectY+vw.contentRectH < 120-0.5 {
+		t.Errorf("less than 30%% of video remains on screen: bottom=%v", vw.contentRectY+vw.contentRectH)
+	}
+}
+
+// applyViewportGesture keeps the content point under the view centre stable
+// across zoom (not the finger focus — Android focus Y drifts low vs the
+// Vulkan surface and walked the picture downward while pinching).
+func TestApplyViewportGesture_PreservesViewCenterOnZoom(t *testing.T) {
 	const bottomInset = float32(100)
 	vw := newTestViewportWidget(1000, 500, bottomInset) // availableH = 400
 	vw.zoomScale = 1
 	vw.recalculateViewport()
+	oldX, oldY, oldW, oldH := vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH
 
-	// Pinch focused low on the screen (a realistic two-hand grip on a
-	// phone, well below center) with enough scale to overflow -- must
-	// still land centered, not anchored toward the focus point.
-	focusX, focusY := float32(500), float32(380) // near the bottom of the 1000x400 available area
-	vw.applyViewportGesture(2.0, focusX, focusY, 0, 0)
+	anchorX := float32(500)
+	anchorY := float32(200) // availableH/2
+	u := (anchorX - oldX) / oldW
+	v := (anchorY - oldY) / oldH
+	// focus args are ignored for anchoring; pass something off-centre to
+	// prove we do not follow finger focus anymore.
+	vw.applyViewportGesture(2.0, 800, 350, 0, 0)
 
-	availableH := vw.touchpadSizeH - vw.bottomInset
-	wantContentY := (availableH - vw.contentRectH) / 2
-	if diff := vw.contentRectY - wantContentY; diff > 0.01 || diff < -0.01 {
-		t.Errorf("contentRectY = %v, want ~%v (off-center pinch focus must not pull the video off center)", vw.contentRectY, wantContentY)
+	newX, newY, newW, newH := vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH
+	gotX := newX + u*newW
+	gotY := newY + v*newH
+	if diff := gotX - anchorX; diff > 0.5 || diff < -0.5 {
+		t.Errorf("view-centre X drifted: got %v, want %v", gotX, anchorX)
 	}
-	if vw.panOffsetY != 0 {
-		t.Errorf("panOffsetY = %v, want 0 (no explicit drag happened, only a pinch)", vw.panOffsetY)
+	if diff := gotY - anchorY; diff > 0.5 || diff < -0.5 {
+		t.Errorf("view-centre Y drifted: got %v, want %v", gotY, anchorY)
+	}
+}
+
+// When zoomed but one axis still fits (common on portrait after moderate
+// zoom), that axis must still accept pan — locking it to center made
+// post-zoom drag feel broken and wiped pan from a prior 1x letterbox drag
+// as soon as zoomScale crossed 1.
+func TestRecalculateViewport_ZoomedFittingAxisKeepsPan(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 800
+	vw.baseContentRectW = 1000
+	vw.baseContentRectH = 400
+	vw.zoomScale = 1.5 // content 1500x600: X overflows, Y still fits in 800
+	vw.panOffsetY = -80
+	vw.recalculateViewport()
+
+	if vw.panOffsetY != -80 {
+		t.Errorf("panOffsetY = %v, want -80 (zoomed fitting axis must keep pan)", vw.panOffsetY)
+	}
+	if vw.contentRectW <= 1000 {
+		t.Fatalf("expected X overflow, got contentW=%v", vw.contentRectW)
 	}
 }
 
@@ -126,5 +179,112 @@ func TestApplyViewportGesture_PanDyStillMovesVideo(t *testing.T) {
 
 	if vw.contentRectY != 0 {
 		t.Errorf("contentRectY = %v, want 0 (dragged to the top-edge clamp)", vw.contentRectY)
+	}
+}
+
+func TestSnapViewportAlignment_SnapsNearLeftEdgeAt1x(t *testing.T) {
+	// Pillarbox: content narrower than view → distinct left/right targets.
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 500
+	vw.baseContentRectW = 600
+	vw.baseContentRectH = 500
+	vw.zoomScale = 1
+	// left flush pan = -center = -(1000-600)/2 = -200
+	vw.panOffsetX = -200 + 20 // within 3% of 1000
+	vw.recalculateViewport()
+
+	if !vw.snapViewportAlignment() {
+		t.Fatal("expected snap near left edge")
+	}
+	if vw.panOffsetX != -200 {
+		t.Errorf("panOffsetX = %v, want -200 (left flush)", vw.panOffsetX)
+	}
+}
+
+func TestSnapViewportAlignment_DoesNotSnapVertical(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 800
+	vw.baseContentRectW = 1000
+	vw.baseContentRectH = 400
+	vw.zoomScale = 1
+	vw.panOffsetY = -10 // near vertical center, must NOT snap
+	vw.recalculateViewport()
+
+	if vw.snapViewportAlignment() {
+		t.Fatal("vertical axis must not snap")
+	}
+	if vw.panOffsetY != -10 {
+		t.Errorf("panOffsetY changed to %v, want -10", vw.panOffsetY)
+	}
+}
+
+func TestSnapViewportAlignment_DoesNotSnapWhenZoomed(t *testing.T) {
+	vw := newTestViewportWidget(1000, 500, 0)
+	vw.zoomScale = 2
+	vw.panOffsetX = 20
+	vw.panOffsetY = -100
+	vw.recalculateViewport()
+
+	if vw.snapViewportAlignment() {
+		t.Fatal("snap must be disabled while zoomed")
+	}
+	if vw.panOffsetX != 20 || vw.panOffsetY != -100 {
+		t.Errorf("pan changed while zoomed: (%v,%v)", vw.panOffsetX, vw.panOffsetY)
+	}
+}
+
+func TestSnapViewportAlignment_DoesNotSnapToCenterBetweenEdges(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 500
+	vw.baseContentRectW = 600
+	vw.baseContentRectH = 500
+	vw.zoomScale = 1
+	vw.panOffsetX = 0 // true center between left(-200) and right(+200)
+	vw.recalculateViewport()
+
+	if vw.snapViewportAlignment() {
+		t.Fatal("center-between-edges must not magnetize")
+	}
+}
+
+func TestSnapViewportAlignment_DoesNotSnapWhenFarFromEdge(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.touchpadSizeW = 1000
+	vw.touchpadSizeH = 500
+	vw.baseContentRectW = 600
+	vw.baseContentRectH = 500
+	vw.zoomScale = 1
+	vw.panOffsetX = -200 + 80 // 8% away from left — outside 3%
+	vw.recalculateViewport()
+
+	if vw.snapViewportAlignment() {
+		t.Fatalf("did not expect snap, got panOffsetX=%v", vw.panOffsetX)
+	}
+}
+
+func TestPlaceVirtualCursorAtViewCenter_UsesVisibleCentre(t *testing.T) {
+	vw := newTestViewportWidget(1000, 500, 0)
+	vw.zoomScale = 2 // content 2000x1000
+	vw.panOffsetX = 500 // left-flush: viewing left side of remote
+	vw.recalculateViewport()
+
+	vw.vcMu.Lock()
+	vw.placeVirtualCursorAtViewCenterLocked(0, 1, 0, 1)
+	u, v := vw.virtualCursorU, vw.virtualCursorV
+	vw.vcMu.Unlock()
+
+	// Screen centre maps near the left portion of the remote frame, not 0.5.
+	if u > 0.35 {
+		t.Errorf("virtualCursorU = %v, want left-of-centre after left-flush pan", u)
+	}
+	if v < 0.4 || v > 0.6 {
+		t.Errorf("virtualCursorV = %v, want ~0.5", v)
+	}
+	// Viewport must not have been moved by placing the cursor.
+	if vw.panOffsetX != 500 {
+		t.Errorf("panOffsetX changed to %v, want 500", vw.panOffsetX)
 	}
 }

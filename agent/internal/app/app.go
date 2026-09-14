@@ -114,6 +114,31 @@ type App struct {
 	accPollCancel context.CancelFunc
 }
 
+// StartOptions configures Start -- see main.go's flag definitions for the
+// user-facing meaning of each field.
+type StartOptions struct {
+	// Headless runs the engine (HTTP server, Sunshine, tsnet) with no GUI
+	// at all -- see Start's doc comment.
+	Headless bool
+	// Tray, when this launch ends up showing a GUI (either owning the
+	// engine or attaching to one already running), starts that window
+	// hidden -- minimized to the tray -- instead of shown. Used by the
+	// login-time tray helper (see internal/autostart's per-platform
+	// Enable) so it never visibly pops a window at login; a no-op if this
+	// session turns out to have no usable tray host at all (see
+	// ui.Window's startHidden field doc).
+	Tray bool
+	// Attach, if non-empty, dials this exact admin-socket path directly and
+	// attaches a thin-client GUI to it, bypassing the normal config-path
+	// discovery below entirely. Windows-only in practice: a LocalSystem
+	// service already knows its own socket path, which lives under a
+	// different profile (SYSTEM's) than whatever interactive user session
+	// this process gets launched into via sessionlaunch -- see
+	// service_windows.go's SessionChange handling, which is the only
+	// caller that ever sets this.
+	Attach string
+}
+
 // Start is the sole entry point from main(). It decides, based on mode and
 // whether another instance's admin socket is already reachable, whether
 // this process owns the engine (HTTP server, Sunshine, tsnet) or just
@@ -122,7 +147,15 @@ type App struct {
 // a `--headless` systemd/launchd/autostart service and as the normal GUI
 // app without ever running two engines (and two Sunshine/tsnet instances)
 // at once on the same machine.
-func Start(headless bool, version string) error {
+func Start(opts StartOptions, version string) error {
+	if opts.Attach != "" {
+		client, err := adminapi.Dial(opts.Attach)
+		if err != nil {
+			return fmt.Errorf("attach to admin socket %s: %w", opts.Attach, err)
+		}
+		return runThinClientGUI(client, opts.Tray)
+	}
+
 	cfgPath := resolveConfigPath()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -138,11 +171,11 @@ func Start(headless bool, version string) error {
 
 	socketPath := adminapi.SocketPath(cfg.StateDir)
 	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
-		if headless {
+		if opts.Headless {
 			client.Close()
 			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
 		}
-		return runThinClientGUI(client)
+		return runThinClientGUI(client, opts.Tray)
 	}
 
 	// Mandatory startup update check — only here, not on a thin-GUI attach
@@ -154,7 +187,7 @@ func Start(headless bool, version string) error {
 	// instead asks via a confirm dialog once the window exists — see
 	// internal/ui's ShowAndRun, which runs the same Check/DownloadAndApply
 	// pair gated on the user's answer.
-	if headless {
+	if opts.Headless {
 		update.CheckAndApply(context.Background(), version)
 	}
 
@@ -162,14 +195,16 @@ func Start(headless bool, version string) error {
 	if err != nil {
 		return err
 	}
-	return instance.Run(headless)
+	return instance.Run(opts.Headless, opts.Tray)
 }
 
 // runThinClientGUI shows the GUI backed by an already-running headless
 // instance's admin socket instead of starting a second engine. Closing the
 // window here does NOT stop the headless instance — only a process actually
-// owning the engine (see App.Run/shutdownEngine) does that.
-func runThinClientGUI(client *adminapi.Client) error {
+// owning the engine (see App.Run/shutdownEngine) does that. startHidden is
+// forwarded to ui.Window.SetStartHidden -- see StartOptions.Tray's doc
+// comment.
+func runThinClientGUI(client *adminapi.Client, startHidden bool) error {
 	cfg, err := client.CurrentConfig()
 	if err != nil {
 		client.Close()
@@ -196,7 +231,9 @@ func runThinClientGUI(client *adminapi.Client) error {
 	// to notice and pick up the change.
 	localPerms := permissions.New()
 	token := &thinClientToken{Client: client, perms: localPerms}
-	ui.NewWindow(fyneApp, cfg, localPerms, client, token).ShowAndRun(func() {
+	win := ui.NewWindow(fyneApp, cfg, localPerms, client, token)
+	win.SetStartHidden(startHidden)
+	win.ShowAndRun(func() {
 		client.Close()
 	})
 	return nil
@@ -265,6 +302,23 @@ func NotifySessionChange() {
 	if err := a.RestartSunshine(); err != nil {
 		log.Printf("[app] restart after session change failed: %v", err)
 	}
+}
+
+// AdminSocketPath returns the currently running instance's admin-socket
+// path, or ok=false if no instance has started yet (e.g. this races the
+// service's own startup). Windows-only caller: service_windows.go hands
+// this to LaunchTrayHelperInActiveSession as an explicit --attach target,
+// since a LocalSystem service's own config/state dir lives under a
+// different profile than whatever interactive session that helper actually
+// runs in -- see StartOptions.Attach's doc comment for the full picture.
+func AdminSocketPath() (string, bool) {
+	currentInstance.mu.Lock()
+	a := currentInstance.a
+	currentInstance.mu.Unlock()
+	if a == nil {
+		return "", false
+	}
+	return adminapi.SocketPath(a.cfg.StateDir), true
 }
 
 func New() (*App, error) {
@@ -418,7 +472,9 @@ func resolveConfigPath() string {
 // then either blocks headlessly on ctx.Done() (headless==true — no Fyne
 // driver ever touched, so no display connection is required) or shows the
 // GUI window backed directly by this same in-process engine (headless==false).
-func (a *App) Run(headless bool) error {
+// startHidden is forwarded to ui.Window.SetStartHidden when a window is
+// shown at all -- see StartOptions.Tray's doc comment.
+func (a *App) Run(headless, startHidden bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -517,6 +573,7 @@ func (a *App) Run(headless bool) error {
 	go a.handleShutdown(ctx, cancel)
 	win := ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a)
 	win.SetOwnsEngine(true)
+	win.SetStartHidden(startHidden)
 	win.ShowAndRun(cancel)
 	return nil
 }
@@ -1399,23 +1456,30 @@ func (a *App) applyIssuedToken(token, hwID string) {
 	go a.ensureRustShineFresh(context.Background(), token)
 }
 
-// bootstrapFreeTier silently links a fresh install to today's unconditional
-// free tier (see recheckEntitlement's call site) -- deliberately NOT
-// applyIssuedToken: this runs with no user action at all (just the app
-// starting up), so it must not also kick off an immediate multi-MB
-// RustShine download on every single install regardless of whether that
-// install ever wants RustShine. A later explicit tier pick in the license
-// dialog (StartFreeTrial/StartPurchase's own applyIssuedToken) is what
-// actually triggers that download.
-func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) {
+// bootstrapFreeTier silently links a fresh install (or a just-downgraded
+// one, see recheckEntitlement's call sites) to today's unconditional free
+// tier -- deliberately NOT applyIssuedToken: this runs with no user action
+// at all (just the app starting up, or a refund just having been detected),
+// so it must not also kick off an immediate multi-MB RustShine download on
+// every single install regardless of whether that install ever wants
+// RustShine. A later explicit tier pick in the license dialog
+// (StartFreeTrial/StartPurchase's own applyIssuedToken) is what actually
+// triggers that download.
+//
+// Returns true once a fresh, locally-verifying free token is cached; false
+// on any transient failure (network down, backend unreachable, or a
+// well-formed but non-verifying response), so entitlementWatchdog knows to
+// retry at entitlementRetryInterval rather than leaving this install
+// without a token until the next full entitlementRecheckInterval tick.
+func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) bool {
 	res, err := entitlement.RefreshLicense(ctx, hwID)
 	if err != nil {
-		log.Printf("[app] entitlement bootstrap failed (will retry next interval): %v", err)
-		return
+		log.Printf("[app] entitlement bootstrap failed (will retry sooner than the next scheduled interval): %v", err)
+		return false
 	}
 	if _, err := entitlement.VerifyForHardware(res.Token, hwID); err != nil {
 		log.Printf("[app] entitlement bootstrap: backend returned a token that doesn't verify locally: %v", err)
-		return
+		return false
 	}
 
 	next := a.cfg
@@ -1424,6 +1488,7 @@ func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) {
 		log.Printf("[app] warning: failed to persist entitlement token: %v", err)
 	}
 	a.refreshLocalEntitlementStatus()
+	return true
 }
 
 // AccountStatus returns a snapshot of the account-login state (see
@@ -1779,21 +1844,36 @@ func (a *App) downgradeToSunshine() {
 	}
 }
 
-// entitlementRecheckInterval is how often entitlementWatchdog re-verifies a
-// licensed customer's purchase against the backend (a trial's validity is
-// entirely local -- see recheckEntitlement's own doc comment on why only a
-// license, not a trial, needs a network re-check at all). Far longer than
-// sunshineWatchdogInterval deliberately: there's no reason to check more
-// than a few times a day, and a refund is a rare, human-initiated event,
-// not something that needs sub-hour detection latency.
+// entitlementRecheckInterval is how often entitlementWatchdog re-verifies
+// entitlement against the backend in the steady state (both to catch a
+// license refund/cancellation and to proactively renew a free-tier token
+// well before its own local expiry -- see recheckEntitlement's own doc
+// comment on why free is no longer treated as "purely local, no network
+// call needed"). Far longer than sunshineWatchdogInterval deliberately:
+// there's no reason to check more than a few times a day in the healthy
+// case, and a refund is a rare, human-initiated event, not something that
+// needs sub-hour detection latency.
 const entitlementRecheckInterval = 6 * time.Hour
 
-// entitlementWatchdog periodically re-verifies entitlement and downgrades
-// to Sunshine the moment it no longer holds up (a refund, a trial that's
-// now expired) -- mirrors sunshineWatchdog's shape. Run also fires one
-// immediate recheckEntitlement shortly after startup (not gated on this
-// ticker), so a refund is caught quickly after a restart instead of
-// waiting up to a full interval.
+// entitlementRetryInterval is how soon entitlementWatchdog retries after a
+// FAILED recheck (network down, backend unreachable), instead of leaving
+// whatever gap that failure caused sitting until the next full
+// entitlementRecheckInterval tick. Matters most for a free-tier token: with
+// no retry sooner than 6h, a machine that happens to be offline right when
+// its cached free token's local expiry passes would sit downgraded to
+// Sunshine for up to 6h even after connectivity comes back, purely because
+// nothing asked the backend again sooner. Short enough to recover quickly,
+// long enough not to hammer the backend while genuinely offline.
+const entitlementRetryInterval = 5 * time.Minute
+
+// entitlementWatchdog periodically re-verifies entitlement, downgrades to
+// Sunshine the moment a license no longer holds up (a refund), and
+// proactively renews whatever's cached (free or paid) so it never sits
+// un-refreshed for the full 6h steady-state interval after a transient
+// failure -- mirrors sunshineWatchdog's shape. Run also fires one immediate
+// recheckEntitlement shortly after startup (not gated on this ticker), so a
+// refund or a lapsed free token is caught quickly after a restart instead
+// of waiting up to a full interval.
 func (a *App) entitlementWatchdog(ctx context.Context) {
 	ticker := time.NewTicker(entitlementRecheckInterval)
 	defer ticker.Stop()
@@ -1802,26 +1882,43 @@ func (a *App) entitlementWatchdog(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			a.recheckEntitlement(ctx)
+		}
+		// Keep retrying at entitlementRetryInterval (rather than only at
+		// the next full 6h tick) until a recheck actually succeeds -- see
+		// entitlementRetryInterval's own doc comment for why this matters
+		// most for a free-tier token that's sitting downgraded because the
+		// backend was briefly unreachable right when it needed renewing.
+		for !a.recheckEntitlement(ctx) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(entitlementRetryInterval):
+			case <-ticker.C:
+			}
 		}
 	}
 }
 
 // recheckEntitlement re-verifies whatever's currently cached in
 // cfg.EntitlementToken and downgrades to Sunshine if it no longer holds up.
-// A no-op if there's no cached token at all (never trialed/purchased, or
-// already cleared).
+// Returns true if this tick is "settled" (nothing more to usefully retry
+// sooner than the next scheduled interval), false if it hit a transient
+// failure entitlementWatchdog should retry at entitlementRetryInterval
+// instead of waiting out the full entitlementRecheckInterval.
 //
-// A cached LICENSE token gets a real network re-check (RefreshLicense) --
-// this is the only thing a refund can invalidate, so it's the only case
-// that needs to ask the backend at all. A cached TRIAL token does NOT get
-// a network call: a trial can't be revoked (there's nothing to refund), so
-// its validity is entirely captured by its own signed `exp`, which the
-// local hardware-bound verify below already checks -- asking the backend
-// again would only ever reproduce the same still-active trial or (once
-// past exp) a signature check that already failed locally anyway.
+// BOTH a cached LICENSE token and a cached FREE/TRIAL token now get a real
+// network re-check (RefreshLicense) every tick -- this used to skip the
+// network call entirely for free/trial (a trial can't be revoked, so
+// nothing was thought to change), but that missed the actual point of
+// calling at all: RefreshLicense doesn't just re-confirm the same tier, it
+// mints a FRESH token with a FRESH expiry. Skipping it for free meant a
+// free-tier token only ever got renewed reactively, after it had already
+// expired and downgraded the customer to Sunshine — see the 2026-09-14
+// conversation this changed in. Renewing proactively, every interval,
+// keeps a continuously-running free install from ever locally expiring in
+// the first place, the same guarantee paid licenses already had.
 //
-// A transient failure on the license path (network down, backend
+// A transient failure on the network path (network down, backend
 // unreachable) does NOT downgrade immediately by itself — but it also
 // doesn't just do nothing: it falls back to checking the *cached* token's
 // own embedded expiry locally (entitlement.VerifyForHardware, no network
@@ -1832,12 +1929,16 @@ func (a *App) entitlementWatchdog(ctx context.Context) {
 // only at the next restart, via New()'s own local check), silently
 // breaking the "offline grace is bounded by the token's TTL" guarantee
 // this whole scheme is supposed to provide. This closes that gap: the
-// bound is enforced continuously, not just at the next restart.
-func (a *App) recheckEntitlement(ctx context.Context) {
+// bound is enforced continuously, not just at the next restart -- and once
+// that bound is hit, the immediate bootstrapFreeTier call below (rather
+// than waiting for entitlementWatchdog's own next tick) means connectivity
+// coming back is picked up within entitlementRetryInterval, not up to a
+// full entitlementRecheckInterval later.
+func (a *App) recheckEntitlement(ctx context.Context) bool {
 	hwID, err := hwid.Get()
 	if err != nil {
 		log.Printf("[app] entitlement recheck: could not determine hardware id: %v", err)
-		return
+		return true // not a transient/retryable failure -- a local config problem
 	}
 
 	if strings.TrimSpace(a.cfg.EntitlementToken) == "" {
@@ -1851,35 +1952,36 @@ func (a *App) recheckEntitlement(ctx context.Context) {
 		// shouldn't silently pull down a multi-MB RustShine build nobody
 		// asked for yet; that still only happens once the user actually
 		// picks RustShine in the dialog.
-		a.bootstrapFreeTier(ctx, hwID)
-		return
+		return a.bootstrapFreeTier(ctx, hwID)
 	}
 
 	claims, verifyErr := entitlement.VerifyForHardware(a.cfg.EntitlementToken, hwID)
 	if verifyErr != nil {
 		log.Printf("[app] cached entitlement token is no longer valid locally — switching back to Sunshine: %v", verifyErr)
 		a.downgradeToSunshine()
-		return
-	}
-	if claims.Provider == entitlement.ProviderDesktopTrial {
-		// This provider string now means "free tier" (see
-		// usbridge-entitlement-backend's desktopLicense.ts module doc
-		// comment for why it kept the old trial name) -- still locally
-		// valid (checked above) and not network-revocable, since free has
-		// nothing to refund. Nothing more to do until it expires on its
-		// own (and even then, the next refresh just gets a fresh one).
-		return
+		// downgradeToSunshine clears cfg.EntitlementToken -- immediately
+		// try to bootstrap a fresh free token rather than leaving the
+		// customer on Sunshine until whatever's left of this watchdog's
+		// cadence, same reasoning as entitlementRetryInterval itself.
+		return a.bootstrapFreeTier(ctx, hwID)
 	}
 
 	res, err := entitlement.RefreshLicense(ctx, hwID)
 	if err != nil {
-		log.Printf("[app] entitlement recheck failed (will retry next interval): %v", err)
-		return // cached token already verified locally above -- keep trusting it until it actually expires or a retry succeeds
+		log.Printf("[app] entitlement recheck failed (will retry sooner than the next scheduled interval): %v", err)
+		return false // cached token already verified locally above -- keep trusting it until it actually expires or a retry succeeds
 	}
-	if res.Status == "free" {
+
+	if claims.Provider != entitlement.ProviderDesktopTrial && res.Status == "free" {
+		// A previously PAID record is no longer paid (refund/cancellation)
+		// -- this is the one transition that actually means "revoke."
+		// Deliberately gated on the CACHED token's own provider, not just
+		// res.Status alone: a free/trial token refreshing into "free"
+		// again is the expected, normal renewal every single tick, never a
+		// downgrade -- there's nothing below free to fall back to.
 		log.Printf("[app] license no longer on record for this hardware (refunded/canceled?) — switching back to Sunshine")
 		a.downgradeToSunshine()
-		return
+		return true
 	}
 
 	next := a.cfg
@@ -1889,6 +1991,7 @@ func (a *App) recheckEntitlement(ctx context.Context) {
 	}
 	a.refreshLocalEntitlementStatus()
 	a.ensureRustShineFresh(ctx, res.Token)
+	return true
 }
 
 // ensureRustShineFresh makes sure a licensed/trialing customer always has
@@ -2751,6 +2854,15 @@ func (a *App) Color444Status() (active bool, available bool) {
 		return false, false
 	}
 	return a.stream.Color444Status()
+}
+
+// HdrStatus mirrors Color444Status exactly, for the RustShine HDR color
+// upgrade -- see Application interface's doc comment.
+func (a *App) HdrStatus() (active bool, available bool) {
+	if a.stream == nil {
+		return false, false
+	}
+	return a.stream.HdrStatus()
 }
 
 // UnpairSunshineClient removes the Moonlight client with the given UUID from

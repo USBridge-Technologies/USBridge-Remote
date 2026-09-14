@@ -48,6 +48,9 @@ func (dw *DiskWidget) refreshDriveItemByPath(path string) {
 
 // handleAddImage handles adding a disk image from the file system.
 func (dw *DiskWidget) handleAddImage() {
+	if dw.controlsLocked() {
+		return
+	}
 	if !dw.imagePickerInFlight.CompareAndSwap(false, true) {
 		logrus.Debug("image picker already in flight, skipping overlapping request")
 		return
@@ -142,9 +145,8 @@ func (dw *DiskWidget) handleDeleteImageFromDevice(driveIndex int, filename strin
 	}
 	drive := dw.allDrives[driveIndex]
 	if dw.window != nil {
-		view.ShowDeleteImageConfirm(
-			drive.Name,
-			false, // deletes the file from the server — irreversible
+		view.ShowConfirmToast(
+			fmt.Sprintf("Delete %s from the device? This cannot be undone.", drive.Name),
 			func(confirmed bool) {
 				if confirmed {
 					go dw.deleteImageFromDevice(filename, drive.Name)
@@ -339,9 +341,8 @@ func (dw *DiskWidget) removeUserImage(driveIndex int) {
 	}
 
 	if dw.window != nil {
-		view.ShowDeleteImageConfirm(
-			drive.Name,
-			true, // removes from list only — file on disk is not affected
+		view.ShowConfirmToast(
+			fmt.Sprintf("Remove %s from the list?", drive.Name),
 			func(confirmed bool) {
 				if confirmed {
 					dw.userImages = append(dw.userImages[:userImageIndex], dw.userImages[userImageIndex+1:]...)
@@ -400,7 +401,10 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 		return
 	}
 
-	if dw.window != nil {
+	showUploadConfirm := func() {
+		if dw.window == nil {
+			return
+		}
 		fyne.Do(func() {
 			view.ShowUploadImageConfirm(
 				drive.Name,
@@ -413,6 +417,30 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 			)
 		})
 	}
+
+	// The device's own SD card can run out of room mid-upload -- until
+	// now that only surfaced as an error *after* waiting through the
+	// whole upload. Warn up front whenever the last known free-space
+	// reading (dw.sdSpaceInfo, refreshed by loadISOSpace) already says
+	// it won't fit -- the same light bottom toast (ShowConfirmToast) the
+	// Connections grid already uses for deleting a connection, not the
+	// heavier modal dialog.
+	if dw.window != nil && dw.sdSpaceInfo != nil && dw.sdSpaceInfo.AvailableSpace > 0 && drive.DiskInfo.Size > dw.sdSpaceInfo.AvailableSpace {
+		fyne.Do(func() {
+			view.ShowConfirmToast(
+				fmt.Sprintf("Not enough storage space: %s needed, only %s free. Continue anyway?", drive.DiskInfo.FormatSize(), dw.sdSpaceInfo.AvailableGB),
+				func(confirmed bool) {
+					if confirmed {
+						showUploadConfirm()
+					}
+				},
+				dw.window,
+			)
+		})
+		return
+	}
+
+	showUploadConfirm()
 }
 
 // uploadImageToDevice uploads an image to the device.

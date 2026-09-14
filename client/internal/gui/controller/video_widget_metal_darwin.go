@@ -3,10 +3,10 @@
 package controller
 
 import (
+	"C"
 	"image"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
@@ -24,57 +24,40 @@ import (
 // to TouchpadWrapper via fyne.Do — same pattern as Linux X11 / Windows Vulkan.
 
 var (
-	metalMouseMu             sync.Mutex
-	metalMouseQuit           chan struct{}
-	metalFullscreenWindow    fyne.Window
-	metalMouseCheckPending   int32 // atomic
-	lastMetalFrameMu         sync.Mutex
+	metalFullscreenWindow            fyne.Window
+	metalMouseCheckPending           int32 // atomic
+	lastMetalFrameMu                 sync.Mutex
 	lastMetalFrameX, lastMetalFrameY float32
 	lastMetalFrameW, lastMetalFrameH float32
+
+	// activeVideoWidget is used by the CGO callback to route events.
+	// We only ever have one active Metal overlay at a time.
+	activeVideoWidget atomic.Pointer[VideoWidget]
 )
 
-func (vw *VideoWidget) startMetalMouseForwarding() {
-	vw.stopMetalMouseForwarding()
-	metalMouseMu.Lock()
-	quit := make(chan struct{})
-	metalMouseQuit = quit
-	metalMouseMu.Unlock()
-
-	logrus.Info("[Metal/Mac] mouse forwarding started")
-	go func() {
-		ticker := time.NewTicker(4 * time.Millisecond) // ~250 Hz
-		defer ticker.Stop()
-		for {
-			select {
-			case <-quit:
-				return
-			case <-ticker.C:
-				for {
-					typ, btn, x, y, ok := service.MetalVideoNextEvent()
-					if !ok {
-						break
-					}
-					evTyp, evBtn, evX, evY := typ, btn, x, y
-					fyne.Do(func() {
-						if !service.MetalVideoIsActive() {
-							return
-						}
-						vw.dispatchMetalMouseEvent(evTyp, evX, evY, evBtn)
-					})
-				}
-			}
+//export goMetalMouseEvent
+func goMetalMouseEvent(typ C.int, x C.float, y C.float, btn C.int) {
+	vw := activeVideoWidget.Load()
+	if vw == nil {
+		return
+	}
+	evTyp, evBtn, evX, evY := int(typ), int(btn), float32(x), float32(y)
+	fyne.Do(func() {
+		if !service.MetalVideoIsActive() {
+			return
 		}
-	}()
+		vw.dispatchMetalMouseEvent(evTyp, evX, evY, evBtn)
+	})
+}
+
+func (vw *VideoWidget) startMetalMouseForwarding() {
+	activeVideoWidget.Store(vw)
+	logrus.Info("[Metal/Mac] mouse forwarding started via CGO callback")
 }
 
 func (vw *VideoWidget) stopMetalMouseForwarding() {
-	metalMouseMu.Lock()
-	defer metalMouseMu.Unlock()
-	if metalMouseQuit != nil {
-		close(metalMouseQuit)
-		metalMouseQuit = nil
-		logrus.Info("[Metal/Mac] mouse forwarding stopped")
-	}
+	activeVideoWidget.Store(nil)
+	logrus.Info("[Metal/Mac] mouse forwarding stopped")
 }
 
 func (vw *VideoWidget) dispatchMetalMouseEvent(typ int, x, y float32, button int) {
@@ -282,14 +265,12 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return
 	}
 
-	// Fyne's AbsolutePositionForObject is unreliable on mobile canvases,
-	// and we match the robust iOS math here for consistency.
-	szMain := vw.container.Size()
-	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - szMain.Height
-
+	// Desktop: AbsolutePositionForObject is the canvas origin of the
+	// container. canvasH − height assumed the video was flush with the
+	// window bottom and shifted the overlay once Control grew a footer.
+	pos := vw.videoContainerOrigin()
 	szVideo := vw.touchpadWrapper.Size()
-	return 0, topOffset, szVideo.Width, szVideo.Height
+	return pos.X, pos.Y, szVideo.Width, szVideo.Height
 }
 
 // metalVideoEnterFullscreen tears down the main-window overlay and creates a

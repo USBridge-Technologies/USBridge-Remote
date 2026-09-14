@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/view"
@@ -15,6 +16,7 @@ import (
 // BackupWidget is a widget for displaying the snapshot list
 type BackupWidget struct {
 	onStorageInfoUpdate func(usedPct float64, available, total int64) // Callback for main window
+	onSnapshotsLoaded   func(count int, snapshotMounted bool)
 	window              fyne.Window
 	ui                  *view.BackupWidgetUI
 
@@ -31,6 +33,12 @@ type BackupWidget struct {
 	hostEntry             *widget.Entry
 	updateStatus          func() // Callback for status update
 	isClosing             atomic.Bool
+	refreshStop           chan struct{}
+	stopRefreshOnce       sync.Once
+
+	firmwareBanner         *view.FirmwarePromoBanner
+	firmwareChip           *view.FooterPromoChip
+	firmwarePromoDismissed bool
 }
 
 // NewBackupWidget creates a new backup widget
@@ -41,6 +49,7 @@ func NewBackupWidget(usbClient *api.USBClient, hostEntry *widget.Entry, updateSt
 		snapshots:    make([]*models.SnapshotInfo, 0),
 		currentFlash: nil,
 		updateStatus: updateStatus,
+		refreshStop:  make(chan struct{}),
 	}
 
 	bw.createInterface()
@@ -53,6 +62,17 @@ func NewBackupWidget(usbClient *api.USBClient, hostEntry *widget.Entry, updateSt
 
 func (bw *BackupWidget) Close() {
 	bw.isClosing.Store(true)
+}
+
+// Shutdown stops the snapshot poller for real app exit. Close() only pauses
+// it across a disconnect/reconnect cycle (see startPeriodicRefresh).
+func (bw *BackupWidget) Shutdown() {
+	bw.isClosing.Store(true)
+	bw.stopRefreshOnce.Do(func() {
+		if bw.refreshStop != nil {
+			close(bw.refreshStop)
+		}
+	})
 }
 
 // SetWindow sets the window for dialogs
@@ -85,6 +105,24 @@ func (bw *BackupWidget) GetContainer() *fyne.Container {
 	return bw.ui.Container
 }
 
+// SetScriptFooter injects the shared script-run chip into the Snapshots
+// footer so script status is visible while looking at snapshots.
+func (bw *BackupWidget) SetScriptFooter(chip *view.ScriptFooterStatus) {
+	if bw == nil || bw.ui == nil {
+		return
+	}
+	bw.ui.SetScriptFooter(chip)
+}
+
+// SetConnectingHint injects the shared gadget-connect spinner so Devices'
+// mount/unmount is visible from Snapshots too.
+func (bw *BackupWidget) SetConnectingHint(hint *view.DeviceDashboardBusySpinner) {
+	if bw == nil || bw.ui == nil {
+		return
+	}
+	bw.ui.SetConnectingHint(hint)
+}
+
 // Refresh updates the widget
 func (bw *BackupWidget) Refresh() {
 	bw.loadCurrentFlash()
@@ -100,7 +138,9 @@ func (bw *BackupWidget) GetISODirectory() string {
 
 // updateUIAsync safely updates UI from a goroutine
 func (bw *BackupWidget) updateUIAsync(updateFunc func()) {
-	// In Fyne we use fyne.Do to update UI from goroutines
+	if bw.isClosing.Load() {
+		return
+	}
 	fyne.Do(updateFunc)
 }
 
@@ -111,26 +151,58 @@ func (bw *BackupWidget) updateStatusAsync(status string) {
 	})
 }
 
-// openHardwarePromo opens the USBridge KVM hardware page, used by the
-// Snapshots empty-state placeholder shown for non-USBridge agents.
-func (bw *BackupWidget) openHardwarePromo() {
-	const promoURL = "https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0"
+const snapshotsFirmwarePromoDismissedPrefKey = "snapshots.firmware_promo.dismissed"
 
-	uri, err := url.Parse(promoURL)
+func (bw *BackupWidget) openFirmwarePromo() {
+	uri, err := url.Parse(view.FirmwarePromoURL)
 	if err != nil {
-		logrus.Errorf("failed to parse hardware promo URL %q: %v", promoURL, err)
+		logrus.Errorf("failed to parse firmware promo URL %q: %v", view.FirmwarePromoURL, err)
 		return
 	}
-
 	fyneApp := fyne.CurrentApp()
 	if fyneApp == nil {
-		logrus.Errorf("failed to open hardware promo URL: fyne app is nil")
+		logrus.Errorf("failed to open firmware promo URL: fyne app is nil")
 		return
 	}
-
 	go func() {
 		if err := fyneApp.OpenURL(uri); err != nil {
-			logrus.Errorf("failed to open hardware promo URL %q: %v", promoURL, err)
+			logrus.Errorf("failed to open firmware promo URL %q: %v", view.FirmwarePromoURL, err)
 		}
 	}()
+}
+
+func (bw *BackupWidget) firmwarePromoDismissedPref() bool {
+	app := fyne.CurrentApp()
+	if app == nil {
+		return false
+	}
+	return app.Preferences().BoolWithFallback(snapshotsFirmwarePromoDismissedPrefKey, false)
+}
+
+func (bw *BackupWidget) setFirmwarePromoDismissed(on bool) {
+	bw.firmwarePromoDismissed = on
+	if app := fyne.CurrentApp(); app != nil {
+		app.Preferences().SetBool(snapshotsFirmwarePromoDismissedPrefKey, on)
+	}
+}
+
+func (bw *BackupWidget) dismissFirmwarePromo() {
+	bw.setFirmwarePromoDismissed(true)
+	if bw.ui != nil {
+		bw.ui.Refresh()
+	}
+}
+
+func (bw *BackupWidget) restoreFirmwarePromo() {
+	bw.setFirmwarePromoDismissed(false)
+	if bw.ui != nil {
+		bw.ui.Refresh()
+	}
+}
+
+func (bw *BackupWidget) syncFirmwareChip() {
+	softwareAgent := bw.usbClient != nil && !isUSBridgeAgentOS(bw.agentOS)
+	if bw.firmwareChip != nil {
+		bw.firmwareChip.SetActive(softwareAgent && bw.firmwarePromoDismissed)
+	}
 }

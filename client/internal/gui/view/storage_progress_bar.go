@@ -10,7 +10,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -87,23 +86,14 @@ func (s *StorageProgressBar) MouseOut() {
 	s.Refresh()
 }
 
-// colorByUsedPercent returns a color based on how full the disk is
-func colorByUsedPercent(pct float64) color.Color {
-	if pct < 60 {
-		return color.NRGBA{R: 76, G: 175, B: 80, A: 255}
-	}
-	if pct < 85 {
-		return color.NRGBA{R: 255, G: 152, B: 0, A: 255}
-	}
-	return color.NRGBA{R: 244, G: 67, B: 54, A: 255}
-}
+// storageBarFillColor is the used-space fill's own color -- a fixed
+// turquoise (matches design.ColorConnectionBadgeText) rather than the
+// red/orange/green usage-tier scheme this used to have, per the Control
+// header's own status-indicator-strip design.
+var storageBarFillColor color.Color = design.ColorConnectionBadgeText
 
 // CreateRenderer creates the renderer
 func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
-	t := s.Theme()
-	variant := fyne.CurrentApp().Settings().ThemeVariant()
-	fgColor := t.Color(theme.ColorNameForeground, variant)
-
 	bg := canvas.NewRectangle(color.Transparent)
 	bg.CornerRadius = design.RadiusMD
 	icon := canvas.NewImageFromResource(s.iconRes)
@@ -111,11 +101,11 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 	icon.SetMinSize(fyne.NewSize(iconSize, iconSize))
 	track := canvas.NewRectangle(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c})
 	track.CornerRadius = design.RadiusMD
-	fill := canvas.NewRectangle(colorByUsedPercent(s.usedPercent))
+	fill := canvas.NewRectangle(storageBarFillColor)
 	fill.CornerRadius = design.RadiusMD
 
-	sizeText := canvas.NewText(s.sizeText, fgColor)
-	sizeText.TextSize = theme.TextSize() * 10 / 14
+	sizeText := canvas.NewText(s.sizeText, design.ColorStatusBarIndicatorText)
+	sizeText.TextSize = 7
 	sizeText.TextStyle.Bold = false
 
 	topRow := container.NewWithoutLayout(icon, track, fill)
@@ -143,11 +133,19 @@ type storageProgressBarRenderer struct {
 }
 
 const (
-	padH      = float32(8)
-	padV      = float32(4)
-	rowGap    = float32(1)
-	iconSize  = float32(12)
+	padH = float32(8)
+	// padV/iconSize/rowGap started at 4/12/1 and were trimmed so this
+	// chip's MinSize stays inside the status-indicator strip's 22px
+	// content slot (statusBarIconBoxSize) and does not stretch the
+	// Control header when the storage plaque appears.
+	padV      = float32(1)
+	rowGap    = float32(0)
+	iconSize  = float32(9)
 	iconGap   = float32(6)
+	// storageChipMaxH matches statusBarIconBoxSize.Height so this chip
+	// cannot push the Control header taller than the icon row when it
+	// appears (icon + "12/32 GB" used to overflow by a couple of pixels).
+	storageChipMaxH = float32(22)
 	barHeight = float32(4)
 	barMaxW   = float32(58)
 )
@@ -216,25 +214,25 @@ func (r *storageProgressBarRenderer) MinSize() fyne.Size {
 
 	width := textWidth + padH*2
 	height := padV + iconSize + rowGap + measure.MinSize().Height + padV
+	if height > storageChipMaxH {
+		height = storageChipMaxH
+	}
 	return fyne.NewSize(width, height)
 }
 
 func (r *storageProgressBarRenderer) Refresh() {
-	t := r.s.Theme()
-	variant := fyne.CurrentApp().Settings().ThemeVariant()
 	r.bg.FillColor = color.Transparent
 	if r.s.hovered && r.s.onTapped != nil {
 		r.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
 	}
 	r.track.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c}
-	r.fill.FillColor = colorByUsedPercent(r.s.usedPercent)
+	r.fill.FillColor = storageBarFillColor
 	if r.s.iconRes == nil {
 		r.s.iconRes = assets.MemoryChipIcon
 	}
 	r.icon.Resource = r.s.iconRes
 
-	fg := t.Color(theme.ColorNameForeground, variant)
-	r.sizeText.Color = fg
+	r.sizeText.Color = design.ColorStatusBarIndicatorText
 	r.sizeText.Text = r.s.sizeText
 
 	if sz := r.s.Size(); sz.Width > 0 {

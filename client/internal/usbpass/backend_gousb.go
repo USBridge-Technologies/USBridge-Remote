@@ -1,4 +1,4 @@
-//go:build usbpass_gousb && !darwin
+//go:build usbpass_gousb && !darwin && !android
 
 package usbpass
 

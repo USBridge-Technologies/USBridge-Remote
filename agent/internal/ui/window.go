@@ -255,6 +255,26 @@ type Window struct {
 	// process without ever touching the separate headless instance that's
 	// actually running, so it's not offered there. Set via SetOwnsEngine.
 	ownsEngine bool
+
+	// tray is non-nil whenever this session has a usable system tray host
+	// (see attachTray) -- gates whether the close button minimizes to tray
+	// (SetCloseIntercept below) or falls back to actually quitting, and
+	// receives status updates from performRefresh.
+	tray *trayController
+
+	// startHidden, set via SetStartHidden, skips the initial win.Show() in
+	// ShowAndRun -- used by the --tray launch mode (a login-time helper
+	// attaching to an already-running headless engine, or this process's
+	// own engine) so it comes up as tray-only instead of popping a window.
+	// No-op if attachTray fails to find a usable tray host: showing the
+	// window anyway is the only way such a session could ever reach it.
+	startHidden bool
+}
+
+// SetStartHidden marks this window to come up minimized to the tray instead
+// of shown -- see the startHidden field doc for why.
+func (w *Window) SetStartHidden(hidden bool) {
+	w.startHidden = hidden
 }
 
 // SetOwnsEngine marks this window as backed by an engine this same process
@@ -1124,7 +1144,21 @@ func (w *Window) ShowAndRun(onClose func()) {
 		stackLayers = append(stackLayers, versionCorner)
 	}
 	win.SetContent(container.NewStack(stackLayers...))
+
+	// attachTray must run before wiring our own close intercept below:
+	// desktop.App.SetSystemTrayWindow (called inside attachTray) installs
+	// its own SetCloseIntercept(win.Hide), which we then deliberately
+	// override with the richer version below (adds the one-time "still
+	// running in the tray" hint) -- see attachTray's doc comment.
+	w.tray = w.attachTray(win, onClose)
+
 	win.SetCloseIntercept(func() {
+		if w.tray != nil {
+			log.Printf("[ui] window close intercepted -- minimizing to tray")
+			win.Hide()
+			w.tray.notifyHiddenOnce()
+			return
+		}
 		// Diagnostic-only log, added to chase a live symptom where the whole
 		// engine (tsnet, HTTP, the rustshine child) shuts down cleanly with
 		// no OS-signal or Event Log evidence of why. If this line logs right
@@ -1142,7 +1176,14 @@ func (w *Window) ShowAndRun(onClose func()) {
 		go w.promptForUpdate(win)
 	}
 
-	win.Show()
+	// startHidden (the --tray launch mode) only actually starts hidden when
+	// a tray is available to bring it back -- otherwise showing it is the
+	// only way this session could ever reach the window at all.
+	if w.startHidden && w.tray != nil {
+		win.Hide()
+	} else {
+		win.Show()
+	}
 	w.app.Run()
 }
 
@@ -1231,6 +1272,41 @@ func (up *updateProgress) Close() {
 		return
 	}
 	fyne.Do(func() { up.dialog.Hide() })
+}
+
+// updateTrayStatus keeps the tray's status header/icon in sync with the
+// same data performRefresh already gathered for the main window's Status
+// panel -- no separate polling loop. No-op if this session has no tray
+// (w.tray is nil, see attachTray).
+func (w *Window) updateTrayStatus(entStatus entitlement.Status, status uiStatus) {
+	if w.tray == nil || w.token == nil {
+		return
+	}
+	state := trayIconIdle
+	header := "USBridge Agent — Idle"
+	switch {
+	case status.moonlightCount > 0:
+		state = trayIconActive
+		plural := "s"
+		if status.moonlightCount == 1 {
+			plural = ""
+		}
+		header = fmt.Sprintf("USBridge Agent — Streaming (%d client%s)", status.moonlightCount, plural)
+	case !status.accessGranted:
+		state = trayIconAttention
+		header = "USBridge Agent — Permissions needed"
+	}
+
+	streamHost := w.token.SunshineStreamHost()
+	if streamHost == "" {
+		streamHost = "0.0.0.0"
+	}
+	sunshinePort := w.cfg.SunshinePort
+	if sunshinePort == 0 {
+		sunshinePort = 47990
+	}
+	info := fmt.Sprintf("%s · %s:%d", w.token.StreamerName(), streamHost, sunshinePort-1)
+	w.tray.setStatus(header, info, state)
 }
 
 // refreshSupportButton keeps supportBtn's text/emphasis in sync with
@@ -1802,6 +1878,7 @@ func (w *Window) performRefresh() {
 				w.permInfo.SetText(fmt.Sprintf("%s\n%s", w.accessLabel.Text, w.screenCaptureLabel.Text))
 			}
 			w.refreshTailscaleWithStatus(status.tsStatus)
+			w.updateTrayStatus(entStatus, status)
 		})
 	}()
 }

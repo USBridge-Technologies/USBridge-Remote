@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="@android:style/Theme.Black.NoTitleBar.Fullscreen">
-        <item name="android:windowBackground">@android:color/black</item>
+    <!--
+      Not Fullscreen: that hides the status bar and often reports top inset=0,
+      so Fyne chrome sits under the camera cutout. Edge-to-edge with system
+      bars matching Gray900 (header) / Gray950 (footer). Fyne gets the real
+      bottom inset so Connections footer ends at the safe zone.
+    -->
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">#0b0f12</item>
+        <item name="android:statusBarColor">#181c1f</item>
+        <item name="android:navigationBarColor">#0b0f12</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowFullscreen">false</item>
     </style>
 </resources>

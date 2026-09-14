@@ -51,9 +51,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 			bw.agentOS = deviceInfo.AgentOS
 			for _, device := range deviceInfo.Devices {
 				if device.Status == "connected" &&
-					device.Type == "mtp" &&
-					strings.Contains(device.Name, "data") &&
-					!strings.Contains(device.ProductName, "snapshot") {
+					IsBackupDeviceType(device.Type, device.Name, device.ProductName) {
 					bw.currentFlashConnected = true
 					logrus.Infof("✅ Backup flash drive connected: %s", device.Name)
 					break
@@ -63,7 +61,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 
 		bw.loadISOSpace()
 		bw.updateUIAsync(func() {
-			bw.ui.SnapshotsList.Refresh()
+			bw.ui.Refresh()
 		})
 	}()
 }
@@ -110,6 +108,10 @@ func (bw *BackupWidget) SetOnStorageInfoUpdate(fn func(usedPct float64, availabl
 	bw.onStorageInfoUpdate = fn
 }
 
+func (bw *BackupWidget) SetOnSnapshotsLoaded(fn func(count int, snapshotMounted bool)) {
+	bw.onSnapshotsLoaded = fn
+}
+
 // loadSnapshots loads the list of snapshots
 func (bw *BackupWidget) loadSnapshots() {
 	if bw.isClosing.Load() {
@@ -127,6 +129,9 @@ func (bw *BackupWidget) loadSnapshots() {
 			bw.updateUIAsync(func() {
 				if !bw.isClosing.Load() {
 					bw.ui.StatusLabel.SetText(i18n.Current.WaitingConnection)
+				}
+				if bw.onSnapshotsLoaded != nil {
+					bw.onSnapshotsLoaded(0, false)
 				}
 			})
 			return
@@ -154,8 +159,11 @@ func (bw *BackupWidget) loadSnapshots() {
 		}
 
 		bw.updateUIAsync(func() {
-			bw.ui.SnapshotsList.Refresh()
+			bw.ui.Refresh()
 			bw.ui.StatusLabel.SetText(fmt.Sprintf(i18n.Current.LoadedSnapshots, len(bw.snapshots)))
+			if bw.onSnapshotsLoaded != nil {
+				bw.onSnapshotsLoaded(len(bw.snapshots), snapshotListHasConnected(bw.snapshots))
+			}
 		})
 
 		logrus.Infof("✅ Loaded %d snapshots", len(bw.snapshots))
@@ -170,6 +178,8 @@ func (bw *BackupWidget) startPeriodicRefresh() {
 
 		for {
 			select {
+			case <-bw.refreshStop:
+				return
 			case <-ticker.C:
 				// isClosing is a *temporary* pause flag here, not real
 				// teardown -- Close() is called on every disconnect
@@ -185,6 +195,8 @@ func (bw *BackupWidget) startPeriodicRefresh() {
 				// i.e. only right after a reconnect (found 2026-09-02).
 				// Skip the tick instead of exiting; loadCurrentFlash()/
 				// loadSnapshots() already no-op correctly while closing.
+				// App exit uses Shutdown() to close refreshStop so this
+				// loop actually returns.
 				if bw.isClosing.Load() {
 					continue
 				}

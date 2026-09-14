@@ -87,6 +87,7 @@ func (dw *DiskWidget) loadISOSpace() {
 
 // updateSDStorageInfo updates the progress bar in the main window via callback
 func (dw *DiskWidget) updateSDStorageInfo() {
+	dw.syncDashboardBackupSpace()
 	if dw.sdSpaceInfo == nil || dw.sdSpaceInfo.TotalSpace <= 0 {
 		if dw.onStorageInfoUpdate != nil {
 			dw.onStorageInfoUpdate(0, 0, 0)
@@ -99,6 +100,33 @@ func (dw *DiskWidget) updateSDStorageInfo() {
 	if dw.onStorageInfoUpdate != nil {
 		dw.onStorageInfoUpdate(usedPct/100, available, total)
 	}
+}
+
+// syncDashboardBackupSpace fills the Backups card header meter from the
+// latest SD-card reading (same ISOSpaceInfo the header chip uses). Hidden
+// until a real total is known -- GetDashboardContainer may not have built
+// the meter yet, which is why this no-ops on a nil widget.
+func (dw *DiskWidget) syncDashboardBackupSpace() {
+	if dw.dashboardBackupSpace == nil {
+		return
+	}
+	info := dw.sdSpaceInfo
+	if info == nil || info.TotalSpace <= 0 {
+		dw.dashboardBackupSpace.Clear()
+		return
+	}
+	used := info.UsedSpace
+	if used <= 0 {
+		used = info.TotalSpace - info.AvailableSpace
+		if used < 0 {
+			used = 0
+		}
+	}
+	pct := info.UsedPercent / 100
+	if pct <= 0 && info.TotalSpace > 0 {
+		pct = float64(used) / float64(info.TotalSpace)
+	}
+	dw.dashboardBackupSpace.Set(pct, models.FormatStorageSizeOnly(used, info.TotalSpace))
 }
 
 // loadLocalFiles loads local files from the isos folder

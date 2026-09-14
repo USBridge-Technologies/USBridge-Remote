@@ -110,6 +110,14 @@ type VideoStatus struct {
 	// streaming.
 	Color444Active    bool `json:"color_444_active"`
 	Color444Available bool `json:"color_444_available"`
+	// HdrActive/HdrAvailable mirror Color444Active/Color444Available
+	// exactly, for RustShine HDR (HEVC Main10, BT.2020 + PQ) instead of
+	// 4:4:4 chroma -- see rust-shine's docs/COLOR_MODES.md for why these
+	// are independent axes with independent availability (today: HDR is
+	// macOS-only, 4:4:4 is Linux-only, a given agent can report either,
+	// both, or neither true).
+	HdrActive    bool `json:"hdr_active"`
+	HdrAvailable bool `json:"hdr_available"`
 }
 
 const (
@@ -340,6 +348,15 @@ type VideoStartRequest struct {
 	// (silently has no effect) for any mode other than "h265", the only
 	// codec this project's hardware encode path wires 4:4:4 up for.
 	Color444 bool `json:"-"`
+	// Hdr requests RustShine HDR (HEVC Main10, BT.2020 + PQ) for this
+	// session -- mirrors Color444 exactly: a local hint to the client's own
+	// Moonlight connection setup (VideoWidget.startVideoWithParamsInternal
+	// -> VideoClient.SetHdr), never sent to the agent's capture-card REST
+	// API, gated on the agent/RustShine advertising SCM_HEVC_MAIN10 in
+	// /serverinfo. Ignored for any mode other than "h265", and independent
+	// of Color444 (see rust-shine's docs/COLOR_MODES.md: chroma and dynamic
+	// range are separate axes).
+	Hdr bool `json:"-"`
 	// ClientPort - client port to receive UDP stream (server will take IP from HTTP)
 	ClientHost string `json:"client_host,omitempty"`
 	ClientPort int    `json:"client_port,omitempty"`
@@ -385,7 +402,10 @@ type VideoDeviceConfig struct {
 	EnableVSync        bool   `json:"enable_vsync,omitempty"`
 	// Color444 persists the user's RustShine Pro 4:4:4 checkbox choice for
 	// this capture device -- see VideoStartRequest.Color444's doc comment.
-	Color444      bool  `json:"color_444,omitempty"`
+	Color444 bool `json:"color_444,omitempty"`
+	// Hdr persists the user's RustShine HDR checkbox choice for this
+	// capture device -- see VideoStartRequest.Hdr's doc comment.
+	Hdr           bool  `json:"hdr,omitempty"`
 	LastAppliedAt int64 `json:"last_applied_at,omitempty"`
 }
 
@@ -402,6 +422,7 @@ func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 		ShowMouse:          c.ShowMouse,
 		EnableVSync:        c.EnableVSync,
 		Color444:           c.Color444,
+		Hdr:                c.Hdr,
 	}
 }
 

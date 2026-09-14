@@ -45,6 +45,13 @@ type VirtualKeyboard struct {
 
 	// Called after keyboardWindow.Show() — platform code can use this to adjust Z-order.
 	onWindowShown func(fyne.Window)
+
+	// rebuildCompactKeys refreshes the special-keys chrome (portrait vs
+	// landscape packing, Fn / F-key row). Set by createCompactKeysChrome.
+	rebuildCompactKeys func()
+	compactFnOn        bool
+	// onDismiss closes the special-keys + system IME stack (mobile header).
+	onDismiss func()
 }
 
 // NewVirtualKeyboard creates a new virtual keyboard.
@@ -354,7 +361,14 @@ func (vk *VirtualKeyboard) UpdatePosition(windowSize fyne.Size) {
 	vk.toggleBtn.Resize(btnSize)
 }
 
-// SetVisibleState sets visibility state without showing a separate window
+// SetOnDismiss registers the special-keys hide control callback (mobile).
+func (vk *VirtualKeyboard) SetOnDismiss(fn func()) {
+	vk.onDismiss = fn
+}
+
+// SetVisibleState sets visibility state without showing a separate window.
+// Does not blur the IME entry — sticky system IME may remain open with the
+// special-keys overlay hidden (or vice versa).
 func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 	vk.isVisible = visible
 	if vk.keyboard == nil {
@@ -366,5 +380,4 @@ func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 	}
 	vk.setIMEOffset(0)
 	vk.keyboard.Hide()
-	vk.BlurInput()
 }

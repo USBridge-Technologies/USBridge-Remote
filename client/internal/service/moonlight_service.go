@@ -53,6 +53,11 @@ type MoonlightService struct {
 	// see moonlightVideoFormat's doc comment for how this changes the
 	// VIDEO_FORMAT_* bit passed into do_li_start's STREAM_CONFIGURATION.
 	color444   bool
+	// hdr, set via SetHdr, requests RustShine HDR (HEVC Main10 + BT.2020/PQ)
+	// -- independent of color444 (see docs/COLOR_MODES.md in rust-shine:
+	// chroma and dynamic range are separate axes), same
+	// moonlightVideoFormat wiring just a different VIDEO_FORMAT_* bit.
+	hdr        bool
 	width      int
 	height     int
 	fps        int // overrides config.VideoFPS when > 0; set via SetFPS before ConnectToMoonlight
@@ -463,7 +468,7 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		sessionUrl, rikey,
 		serverInfo.AppVersion, serverInfo.GfeVersion,
 		serverInfo.ServerCodecModeSupport,
-		moonlightVideoFormat(m.videoMode, m.color444),
+		moonlightVideoFormat(m.videoMode, m.color444, m.hdr),
 		width, height, fps, bitrate,
 		pipeWrite, audioPipeWrite,
 		func(cgoErr error) {
@@ -503,6 +508,7 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 				m.mu.Lock()
 				m.isRunning = false
 				m.mu.Unlock()
+				clearMoonlightStreamReadyHandler()
 				if cgoErr == nil {
 					logrus.Info("🌕 [Moonlight/VT] stream stopped cleanly")
 				}
@@ -520,6 +526,7 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		m.activeWrapper = nil
 		m.isRunning = false
 		m.mu.Unlock()
+		clearMoonlightStreamReadyHandler()
 		return fmt.Errorf("failed to start LiStartConnection: %v", err)
 	}
 
@@ -533,14 +540,18 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		m.activeWrapper = nil
 		m.isRunning = false
 		m.mu.Unlock()
+		clearMoonlightStreamReadyHandler()
 		return fmt.Errorf("connect aborted by disconnect (post-start)")
 	}
 
-	logrus.Infof("⏱️ [Moonlight] LiStartConnection submitted: %.0fms (total %.0fms). Waiting for first frame...", float64(time.Since(t3).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
+	logrus.Infof("⏱️ [Moonlight] LiStartConnection submitted: %.0fms (total %.0fms). Waiting for handshake...", float64(time.Since(t3).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
 
-	if m.onStateChanged != nil {
-		m.onStateChanged("connected")
-	}
+	// Do not fire "connected" here. LiStartConnection is async: at this point
+	// we are typically still in control-stream-start (ENet on UDP 47999).
+	// VideoWidget's 4s no-frame watchdog used to start on this callback and
+	// LiStopConnection a live handshake (WSAEINTR / error 10004). The real
+	// ready signal is goMoonlightConnected → notifyMoonlightStreamReady.
+	m.armStreamReadyCallback()
 
 	return nil
 }
@@ -565,6 +576,7 @@ func (m *MoonlightService) stopActiveProxy() {
 
 func (m *MoonlightService) Disconnect() error {
 	logrus.Info("🌕 Moonlight protocol: Disconnect called")
+	clearMoonlightStreamReadyHandler()
 
 	// Take a snapshot of everything we need to clean up under the lock,
 	// then do all blocking operations outside the lock.
@@ -814,6 +826,49 @@ func (m *MoonlightService) SetOnStateChanged(callback func(string)) {
 	m.onStateChanged = callback
 }
 
+var (
+	moonlightReadyMu sync.Mutex
+	moonlightReadyFn func()
+)
+
+func setMoonlightStreamReadyHandler(fn func()) {
+	moonlightReadyMu.Lock()
+	moonlightReadyFn = fn
+	moonlightReadyMu.Unlock()
+}
+
+func clearMoonlightStreamReadyHandler() {
+	setMoonlightStreamReadyHandler(nil)
+}
+
+// notifyMoonlightStreamReady is called from goMoonlightConnected once
+// moonlight-common-c has finished RTSP/control/video/audio/input start.
+// That is the earliest moment VideoWidget's no-frame watchdog is allowed
+// to start — not LiStartConnection-submitted.
+func notifyMoonlightStreamReady() {
+	moonlightReadyMu.Lock()
+	fn := moonlightReadyFn
+	moonlightReadyMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+func (m *MoonlightService) armStreamReadyCallback() {
+	setMoonlightStreamReadyHandler(func() {
+		clearMoonlightStreamReadyHandler()
+		m.mu.Lock()
+		running := m.isRunning
+		cb := m.onStateChanged
+		m.mu.Unlock()
+		if !running || cb == nil {
+			return
+		}
+		logrus.Info("🌕 [Moonlight] handshake complete — signaling connected")
+		cb("connected")
+	})
+}
+
 func (m *MoonlightService) SetOnError(callback func(error)) {
 	m.onError = callback
 }
@@ -879,25 +934,48 @@ func (m *MoonlightService) SetColor444(enabled bool) {
 	m.color444 = enabled
 }
 
-// moonlightVideoFormat maps a video mode string (plus the RustShine Pro
-// color444 checkbox) to the VIDEO_FORMAT_* constant used by
-// moonlight-common-c (matches Limelight.h defines) -- do_li_start passes
-// this straight through as cfg.supportedVideoFormats, and
-// RtspConnection.c's performRtspHandshake ANDs it against the server's own
-// /serverinfo ServerCodecModeSupport bit to decide the real negotiated
-// format (see SdpGenerator.c: VIDEO_FORMAT_MASK_YUV444 is what actually
-// sets the ANNOUNCE's chromaSamplingType). color444 only changes anything
-// for VideoModeH265 -- this project's hardware encode path (VAAPI HEVC
-// Main 4:4:4, see rust-shine's video-encode crate) has no H.264 or AV1
-// 4:4:4 profile wired up, so the checkbox is silently ignored for those
-// modes rather than requesting a format the server could never satisfy.
-func moonlightVideoFormat(mode string, color444 bool) int {
+// SetHdr requests RustShine HDR (HEVC Main10, BT.2020 + PQ) for the next
+// ConnectToMoonlight -- see moonlightVideoFormat's doc comment. Independent
+// of SetColor444: chroma and dynamic range are separate axes (see
+// rust-shine's docs/COLOR_MODES.md) -- today's backends never implement
+// both at once (VAAPI has 4:4:4 but not HDR, VideoToolbox has HDR but not
+// 4:4:4), but the request itself doesn't assume that, same as
+// moonlightVideoFormat not assuming which platform the connected server is.
+func (m *MoonlightService) SetHdr(enabled bool) {
+	m.hdr = enabled
+}
+
+// moonlightVideoFormat maps a video mode string plus the RustShine color
+// checkboxes (4:4:4 chroma, HDR dynamic range -- see SetColor444/SetHdr) to
+// the VIDEO_FORMAT_* constant used by moonlight-common-c (matches
+// Limelight.h defines) -- do_li_start passes this straight through as
+// cfg.supportedVideoFormats, and RtspConnection.c's performRtspHandshake
+// ANDs it against the server's own /serverinfo ServerCodecModeSupport bit
+// to decide the real negotiated format (see SdpGenerator.c:
+// VIDEO_FORMAT_MASK_YUV444/VIDEO_FORMAT_MASK_10BIT are what actually set
+// the ANNOUNCE's chromaSamplingType/dynamicRangeMode). Both checkboxes only
+// change anything for VideoModeH265 -- this project's hardware encode
+// backends have no H.264 or AV1 4:4:4/Main10 profile wired up, so they're
+// silently ignored for those modes rather than requesting a format the
+// server could never satisfy. color444 && hdr together request
+// VIDEO_FORMAT_H265_REXT10_444 (4:4:4 AND 10-bit combined) -- no backend
+// implements that combination today, so in practice the server's own
+// ServerCodecModeSupport just won't have that bit and the client falls back
+// to plain H265 during negotiation, same as requesting anything else the
+// server doesn't support.
+func moonlightVideoFormat(mode string, color444, hdr bool) int {
 	switch mode {
 	case models.VideoModeH265:
-		if color444 {
+		switch {
+		case color444 && hdr:
+			return 0x0800 // VIDEO_FORMAT_H265_REXT10_444
+		case color444:
 			return 0x0400 // VIDEO_FORMAT_H265_REXT8_444
+		case hdr:
+			return 0x0200 // VIDEO_FORMAT_H265_MAIN10
+		default:
+			return 0x0100 // VIDEO_FORMAT_H265
 		}
-		return 0x0100 // VIDEO_FORMAT_H265
 	case models.VideoModeAV1:
 		return 0x1000 // VIDEO_FORMAT_AV1_MAIN8
 	default:

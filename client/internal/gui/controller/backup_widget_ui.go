@@ -1,104 +1,90 @@
 package controller
 
 import (
-	"fmt"
+	"time"
 
-	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
-
-	"fyne.io/fyne/v2"
 )
 
-// createInterface creates the widget interface
 func (bw *BackupWidget) createInterface() {
-	bw.ui = view.NewBackupWidgetUI(
-		func() []fyne.CanvasObject {
-			if !isUSBridgeAgentOS(bw.agentOS) {
-				return []fyne.CanvasObject{view.NewEmptyStatePromoCard(bw.openHardwarePromo)}
-			}
-
-			rows := make([]fyne.CanvasObject, 0, len(bw.snapshots)+1)
-			mounting := bw.isMounting.Load()
-
-			if bw.currentFlash != nil {
-				subtitle := bw.currentFlash.FormatSize()
-				if subtitle == "" {
-					subtitle = i18n.Current.CurrentFlash
-				} else {
-					subtitle = fmt.Sprintf("%s  %s", i18n.Current.CurrentFlash, subtitle)
-				}
-
-				rows = append(rows, view.NewBackupListRow(view.BackupListRowSpec{
-					Icon:          connectedBackupIcon(bw.currentFlashConnected),
-					Title:         i18n.Current.BackupFlashName,
-					Subtitle:      subtitle,
-					Connected:     bw.currentFlashConnected,
-					ActionIcon:    currentFlashActionIcon(bw.currentFlashConnected),
-					ActionIconDim: currentFlashActionIconMuted(bw.currentFlashConnected),
-					ActionTapped:  bw.currentFlashAction(),
-					ActionEnabled: !mounting,
-					ActionLoading: mounting,
-				}))
-			}
-
-			for _, snapshot := range bw.snapshots {
-				snap := snapshot
-				title := snap.CreatedAt.Format("02 Jan 2006, 15:04")
-				subtitle := snap.DisplaySize()
-				rows = append(rows, view.NewBackupListRow(view.BackupListRowSpec{
-					Icon:          connectedSnapshotIcon(snap.Connected),
-					Title:         title,
-					Subtitle:      subtitle,
-					Connected:     snap.Connected,
-					ShowInfo:      true,
-					InfoTapped:    func() { bw.showSnapshotDetails(snap) },
-					ActionPassive: snap.Connected,
-					ActionIcon:    assets.ConnectIcon,
-					ActionIconDim: assets.ConnectIconMuted,
-					ActionTapped:  func() { bw.handleMountSnapshot(snap) },
-					ActionEnabled: !snap.Connected && !mounting,
-					ActionLoading: !snap.Connected && mounting,
-				}))
-			}
-
-			return rows
-		},
-		func() {
-			if bw.window == nil {
-				return
-			}
-			view.ShowInfoDialog(i18n.Current.BackupFlashName, i18n.Current.CurrentFlashAndSnapshots, bw.window)
-		},
-	)
+	bw.firmwarePromoDismissed = bw.firmwarePromoDismissedPref()
+	bw.firmwareBanner = view.NewFirmwarePromoBanner()
+	bw.firmwareBanner.SetOnDismiss(bw.dismissFirmwarePromo)
+	bw.firmwareBanner.SetOnTrial(bw.openFirmwarePromo)
+	bw.firmwareChip = view.NewFooterLabelChip("software")
+	bw.firmwareChip.SetOnOpen(bw.openFirmwarePromo)
+	bw.firmwareChip.SetOnRestore(bw.restoreFirmwarePromo)
+	bw.ui = view.NewBackupWidgetUI()
+	bw.ui.SetFirmwareChip(bw.firmwareChip)
+	bw.ui.SetOnRebuild(func() {
+		bw.ui.SetSection(view.NewSnapshotsSection(bw.snapshotsSectionData()))
+		bw.syncFirmwareChip()
+	})
+	bw.ui.Refresh()
 }
 
-func connectedBackupIcon(connected bool) fyne.Resource {
-	if connected {
-		return assets.SDCardIconActive
+func (bw *BackupWidget) snapshotsSectionData() view.SnapshotsSectionData {
+	if !isUSBridgeAgentOS(bw.agentOS) && bw.usbClient != nil {
+		if bw.ui != nil {
+			bw.ui.SetBusy(false)
+		}
+		data := view.SnapshotsSectionData{
+			SnapshotCount: 0,
+			MountLabel:    "Mount backup flash",
+			MountEnabled:  false,
+			MountInactive: true,
+		}
+		if !bw.firmwarePromoDismissed && bw.firmwareBanner != nil {
+			bw.firmwareBanner.Show()
+			data.Banner = bw.firmwareBanner
+		} else if bw.firmwareBanner != nil {
+			bw.firmwareBanner.Hide()
+		}
+		return data
 	}
-	return assets.SDCardIcon
-}
+	if bw.firmwareBanner != nil {
+		bw.firmwareBanner.Hide()
+	}
 
-func connectedSnapshotIcon(connected bool) fyne.Resource {
-	if connected {
-		return assets.SnapshotsTabIconActive
+	mounting := bw.isMounting.Load()
+	if bw.ui != nil {
+		bw.ui.SetBusy(mounting)
 	}
-	return assets.SnapshotsTabIcon
-}
+	data := view.SnapshotsSectionData{
+		SnapshotCount: len(bw.snapshots),
+		MountLabel:    "Mount backup flash",
+		MountEnabled:  bw.currentFlash != nil && !mounting,
+		MountLoading:  mounting && !bw.currentFlashConnected,
+		FlashMounted:  bw.currentFlashConnected,
+		OnMount:       bw.currentFlashAction(),
+	}
+	if bw.currentFlashConnected {
+		data.MountLabel = i18n.Current.DisconnectButton
+		data.MountEnabled = !mounting
+		data.MountLoading = mounting
+	}
 
-func currentFlashActionIcon(connected bool) fyne.Resource {
-	if connected {
-		return assets.PowerOffFillRoundIcon
+	rows := make([]view.SnapshotTableRow, 0, len(bw.snapshots))
+	for _, snapshot := range bw.snapshots {
+		snap := snapshot
+		title := snap.CreatedAt.In(time.Local).Format("02 Jan 2006, 15:04")
+		if title == "" {
+			title = snap.Name
+		}
+		rows = append(rows, view.SnapshotTableRow{
+			Title:          title,
+			Size:           snap.DisplaySize(),
+			Mounted:        snap.Connected,
+			OnInfo:         func() { bw.showSnapshotDetails(snap) },
+			OnConnect:      func() { bw.handleMountSnapshot(snap) },
+			OnDisconnect:   func() { bw.handleUnmountSnapshot(snap) },
+			ConnectEnabled: !mounting,
+			ConnectLoading: mounting,
+		})
 	}
-	return assets.ConnectIcon
-}
-
-func currentFlashActionIconMuted(connected bool) fyne.Resource {
-	if connected {
-		return assets.PowerOffFillRoundIconMuted
-	}
-	return assets.ConnectIconMuted
+	data.Rows = rows
+	return data
 }
 
 func (bw *BackupWidget) currentFlashAction() func() {

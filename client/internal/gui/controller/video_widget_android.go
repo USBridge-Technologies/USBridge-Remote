@@ -6,7 +6,9 @@ import (
 	"image"
 	"math"
 	"time"
+
 	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
@@ -158,16 +160,33 @@ func (vw *VideoWidget) HandleAppForegrounded() {
 func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	const minRealIMEDp = 100
 	imeOpen := imeHeightDp > minRealIMEDp
+	// System Back / GBoard ↓ often hide the soft IME without Activity.onBackPressed.
+	// If our stack is still open after the open animation, collapse it with the IME.
+	if !imeOpen && time.Since(vw.imeStackArmedAt) > 450*time.Millisecond {
+		if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
+			logrus.Info("⌨️ System IME closed — collapsing keyboard stack")
+			vw.CloseAllKeyboards()
+		}
+	}
 	if imeOpen {
 		setImeExpandHeightDp(imeHeightDp)
 	} else {
 		setImeExpandHeightDp(0)
 	}
-	// Bottom-align the fitted video rect in the Vulkan swapchain while the system
-	// IME is open: the SurfaceView expands upward into the tab-bar area, so
-	// center-fit would leave a black gap between the video and the keyboard panel.
+	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
+	// Bottom-align fitted video while the system IME is open. Special keys
+	// live in the main header on mobile (no native-video keys inset).
 	service.VKVideoAndroidSetAlignBottom(imeOpen)
+	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
+	if tw := vw.touchpadWrapper; tw != nil {
+		if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
+			vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+		}
+	}
+	if imeOpen && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
+		vw.focusViewportOnVirtualCursorForKeyboard()
+	}
 }
 
 // vkLastRenderedW/H track the last pixel size sent to the Vulkan overlay.
@@ -236,45 +255,41 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	}
 
 	if isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
-		vw.vcMu.Lock()
-		targetU := vw.virtualCursorU
-		targetV := vw.virtualCursorV
-		vw.vcMu.Unlock()
+		// Two-finger pan/zoom owns the viewport until the user moves the
+		// virtual cursor again. Auto-centering while zoomed was overwriting
+		// panOffset every push and snapping the picture back to center.
+		if !vw.multiTouchActive && !vw.viewportManualControl {
+			vw.vcMu.Lock()
+			targetU := vw.virtualCursorU
+			targetV := vw.virtualCursorV
+			vw.vcMu.Unlock()
 
-		// Center the viewport mathematically on the raw cursor with spring easing
-		vw.centerViewportOnVirtualCursor(targetU, targetV)
+			vw.centerViewportOnVirtualCursor(targetU, targetV)
 
-		// After updating tw.panX and tw.panY, we must refresh vw.contentRectX/Y
-		// so the viewport coordinates below reflect the new pan.
-		if tw := vw.activeViewportWrapper(); tw != nil {
-			vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			// After updating pan, refresh contentRect so UV below matches.
+			if tw := vw.activeViewportWrapper(); tw != nil {
+				vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			}
 		}
 	}
 
-	// When the system IME is open, the Vulkan SurfaceView expands above the
-	// touchpad widget by topOffset dp (the tab-bar height). Subtract that extra
-	// distance from contentRectY so v0 reaches into the video content that sits
-	// above the original touchpad top — filling the expanded area with real video
-	// instead of leaving a black strip.
-	extraTopDp := float32(0)
-	if getImeExpandHeightDp() > 0 && vw.parentWindow != nil && vw.container != nil {
-		cs := vw.parentWindow.Canvas().Size()
-		topOffset := cs.Height - vw.container.Size().Height
-		if topOffset > 0 {
-			extraTopDp = topOffset
-		}
-	}
+	// RustDesk-style zoom: always blit the full frame into an aspect-fit dest
+	// scaled by zoomScale, then pan that dest. UV crop + stretch was deforming
+	// the picture (horizontal squash) and jumping size when leaving fit mode.
+	u0, v0, u1, v1 := float32(0), float32(0), float32(1), float32(1)
 
-	// Compute visible UV rect from Go viewport state.
-	cw, ch := vw.contentRectW, vw.contentRectH
-	var u0, v0, u1, v1 float32
-	if cw <= 0 || ch <= 0 {
-		u0, v0, u1, v1 = 0, 0, 1, 1
-	} else {
-		u0 = clampFloat(-vw.contentRectX/cw, 0, 1)
-		v0 = clampFloat(-(vw.contentRectY+extraTopDp)/ch, 0, 1)
-		u1 = clampFloat((vw.touchpadSizeW-vw.contentRectX)/cw, 0, 1)
-		v1 = clampFloat((vw.touchpadSizeH-vw.contentRectY)/ch, 0, 1)
+	scale := float32(1)
+	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+		scale = vw.parentWindow.Canvas().Scale()
+	}
+	if scale <= 0 {
+		scale = 1
+	}
+	blitPanX := vw.panOffsetX * scale
+	blitPanY := vw.panOffsetY * scale
+	zoom := vw.zoomScale
+	if zoom < 1 {
+		zoom = 1
 	}
 
 	// Write viewport + cursor in a single mutex-protected call so the C render
@@ -287,43 +302,52 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 		uc, vc = vw.virtualCursorU, vw.virtualCursorV
 		vw.vcMu.Unlock()
 	}
-	service.VKVideoAndroidSetViewportAndCursor(u0, v0, u1, v1, uc, vc, cursorVisible)
+	service.VKVideoAndroidSetViewportAndCursor(u0, v0, u1, v1, uc, vc, cursorVisible, blitPanX, blitPanY, zoom)
 }
 
 // centerViewportOnVirtualCursor pans the viewport so the virtual cursor is
-// centred on screen (RustDesk-style follow).  Only effective when zoom > 1.
+// centred on screen (RustDesk-style follow). Only effective when zoom > 1.
+//
+// Disabled while the user owns the viewport via two-finger pan/zoom
+// (viewportManualControl / multiTouch) — callers already skip this. Even when
+// armed, never wipe pan on a fitting axis (that yanked vertical letterbox pan
+// back to center) and never pull a manual overflow pan toward the cursor
+// unless the cursor actually moved (handled by clearing viewportManualControl).
 func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	if vw.zoomScale <= 1.001 {
+		return
+	}
+	if vw.viewportManualControl || vw.multiTouchActive {
 		return
 	}
 	cw := vw.baseContentRectW * vw.zoomScale
 	ch := vw.baseContentRectH * vw.zoomScale
 
-	// X: cursor-centering pan.
-	var idealPanX, maxPanX float32
 	if cw > vw.touchpadSizeW {
-		idealPanX = cw * (0.5 - u)
-		maxPanX = (cw - vw.touchpadSizeW) / 2
+		idealPanX := cw * (0.5 - u)
+		maxPanX := (cw - vw.touchpadSizeW) / 2
 		zoneX := vw.touchpadSizeW * 0.15
 		vw.panOffsetX = softClampEdgePan(idealPanX, -maxPanX, maxPanX, zoneX)
-	} else {
-		vw.panOffsetX = 0
 	}
+	// If width still fits, leave panOffsetX alone (do not force 0).
 
-	// Y: cursor-centering pan (only when content taller than screen).
-	// Same "delta from centered" convention as the X pan above and as
-	// recalculateViewport's own default -- see that function's doc
-	// comment on why this can't be an independent [0, maxPanY] range
-	// biased toward the bottom edge.
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
-		idealPanY := ch * (0.5 - v)
+		focusY := float32(0.5)
+		extraUp := float32(0)
+		if vw.keyboardViewportLift {
+			focusY = keyboardFocusYFrac
+			extraUp = availH * keyboardFocusExtraLiftFrac
+			if extraUp < keyboardFocusExtraLiftMinDp {
+				extraUp = keyboardFocusExtraLiftMinDp
+			}
+		}
+		idealPanY := availH*(focusY-0.5) + ch*(0.5-v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
-		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY, maxPanY, zoneY)
-	} else {
-		vw.panOffsetY = 0
+		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY-extraUp, maxPanY, zoneY)
 	}
+	// If height still fits, leave panOffsetY alone (do not force 0).
 
 	vw.recalculateViewport()
 }
@@ -368,7 +392,9 @@ func (vw *VideoWidget) androidCursorScale() int {
 // videoCanvasFrame returns the Vulkan SurfaceView rect in window-local dp coords.
 //   - Fullscreen: full canvas (Vulkan expands to fill the screen).
 //   - Keyboard visible: video area above the keyboard panel.
-//   - Normal: full container area below the tab bar.
+//   - Normal: the video container's real canvas origin (not canvasH−height —
+//     that assumed the container was flush with the window bottom and covers
+//     Control's tab bar + AppFooter once those sit under the video).
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.parentWindow == nil {
 		return
@@ -380,42 +406,108 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return 0, 0, cs.Width, cs.Height
 	}
 
-	// When the Android system IME (letter keyboard) is open, expand the video upward
-	// to fill the tab-bar area. The custom keyboard panel stays visible at the bottom.
-	// Use AbsolutePositionForObject so we read the exact canvas Y of the keyboard panel
-	// rather than re-deriving it from heights (which can disagree by a few dp due to
-	// Fyne border-layout rounding or imeSpacer timing).
-	if getImeExpandHeightDp() > 0 {
-		if vw.container == nil || vw.contentContainer == nil || !vw.contentContainer.Visible() {
-			return
-		}
-		sz := vw.container.Size()
-		absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
-		videoH := absPos.Y
-		if videoH <= 0 {
-			// Fallback: derive from sizes if position is not yet available.
-			videoH = cs.Height
-			if kh := vw.contentContainer.Size().Height; kh > 0 {
-				videoH -= kh
-			}
-		}
-		if videoH <= 0 {
-			return
-		}
-		return 0, 0, sz.Width, videoH
-	}
-
 	if vw.container == nil {
 		return
 	}
 	sz := vw.container.Size()
-	topOffset := cs.Height - sz.Height
+	pos := vw.videoContainerOrigin()
+	// Nudge the SurfaceView down a few dp so it clears the header hairline
+	// without growing past the container bottom (height shrinks by the same).
+	const headerClearance = float32(8)
+	keysH := vw.specialKeysOverlayHeightDp()
+	top := headerClearance + keysH
 
-	videoH := sz.Height
-	if vw.contentContainer != nil && vw.contentContainer.Visible() {
-		if kh := vw.contentContainer.Size().Height; kh > 0 {
-			videoH -= kh
+	// With setZOrderOnTop(true) Fyne cannot paint over Vulkan pixels. Mobile
+	// special keys replace the main header (above the surface); any residual
+	// keysH inset is for non-header overlay paths only.
+	videoTop := pos.Y + top
+	videoBottom := pos.Y + sz.Height
+	if imeH := getImeExpandHeightDp(); imeH > 0 {
+		imeTop := cs.Height - imeH
+		if imeTop < videoBottom {
+			videoBottom = imeTop
 		}
 	}
-	return 0, topOffset, sz.Width, videoH
+	videoH := videoBottom - videoTop
+	if videoH <= 0 {
+		return
+	}
+	return pos.X, videoTop, sz.Width, videoH
+}
+
+func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
+	if on == vw.systemIMESticky.Load() {
+		if on {
+			graphics.SetStickySystemIME(true)
+			graphics.SetIMETextHandler(vw.handleNativeIMEText)
+			graphics.SetIMEUserDismissedHandler(vw.CloseAllKeyboards)
+		}
+		return
+	}
+	vw.systemIMESticky.Store(on)
+	if on {
+		vw.imeStackArmedAt = time.Now()
+		vw.ensureIMEKeyboardTarget()
+		// Native EditText owns the soft keyboard. Text goes KeyboardBridge
+		// onIMETextInput (LCP diff) → UTF-8 — not Fyne keyboardTyped.
+		graphics.SetIMETextHandler(vw.handleNativeIMEText)
+		graphics.SetIMEUserDismissedHandler(vw.CloseAllKeyboards)
+		graphics.SetStickySystemIME(true)
+		if vw.touchpadWrapper != nil && vw.parentWindow != nil {
+			vw.parentWindow.Canvas().Focus(vw.touchpadWrapper)
+		}
+		vw.InvalidateOverlayGeometry()
+		vw.forceCanvasRefresh.Store(true)
+		time.AfterFunc(200*time.Millisecond, func() {
+			fyne.Do(func() {
+				if !vw.systemIMESticky.Load() {
+					return
+				}
+				graphics.SetStickySystemIME(true)
+				vw.InvalidateOverlayGeometry()
+				vw.forceCanvasRefresh.Store(true)
+				if tw := vw.touchpadWrapper; tw != nil {
+					if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
+						vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+					}
+				}
+			})
+		})
+		logrus.Info("⌨️ System IME sticky ON (native diff → UTF-8)")
+		return
+	}
+	graphics.SetIMETextHandler(nil)
+	graphics.SetIMEUserDismissedHandler(nil)
+	graphics.SetStickySystemIME(false)
+	setImeExpandHeightDp(0)
+	service.VKVideoAndroidSetAlignBottom(false)
+	vw.InvalidateOverlayGeometry()
+	vw.forceCanvasRefresh.Store(true)
+	logrus.Info("⌨️ System IME sticky OFF")
+}
+
+// handleNativeIMEText applies sticky soft-IME diffs from KeyboardBridge.
+func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
+	mi := vw.moonlightInput()
+	if mi == nil {
+		return
+	}
+	logrus.Infof("⌨️ [IME-TEXT] del=%d add=%q", deleteCount, text)
+	for i := 0; i < deleteCount; i++ {
+		vw.enqueueSend(func() {
+			mi.SendMoonlightKey(0x08, service.LiKeyActionDown, 0)
+			mi.SendMoonlightKey(0x08, service.LiKeyActionUp, 0)
+		})
+	}
+	if text != "" {
+		t := text
+		vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(t) })
+	}
+}
+
+func (vw *VideoWidget) ensureIMEKeyboardTarget() {
+	vw.ensureMobileVirtualKeyboard()
+	if vw.virtualKeyboard != nil {
+		vw.virtualKeyboard.RegisterAsIMETarget()
+	}
 }

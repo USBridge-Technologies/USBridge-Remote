@@ -194,11 +194,16 @@ type PenTabletInfo struct {
 	PID  uint16
 }
 
-// ListPenTablets returns every connected Wacom HID device. Only the
-// "IntuosV2"-family consumer report layout (CTL-4100/CTL-6100 and the same
-// generation Bamboo/Intuos tablets) is understood -- see pen_capture_darwin.go's
-// decodeReport for the byte layout. Newer Pro/AES tablets use a different,
-// undecoded protocol and will show up here but produce no events.
+// ListPenTablets returns every connected Wacom HID device. Only models
+// OpenTabletDriver itself tags with the "IntuosV2.IntuosV2ReportParser"
+// class -- see wacomIntuosV2Ranges' doc comment for the full list and how
+// it was found -- decode into real events; anything else shows up here but
+// produces none. That list turned out to span more than the consumer
+// CTL-4100/CTL-6100 pair this project originally assumed: it also includes
+// the Intuos Pro (PTH-460/660/860) and Cintiq Pro/DTC/DTK display line,
+// while some models that sound like the same generation (CTH-680, CTL-470)
+// actually use a different, unrelated 10-byte report format this decoder
+// does not understand at all.
 func ListPenTablets() []PenTabletInfo {
 	const maxDevices = 8
 	ids := make([]C.uint64_t, maxDevices)
@@ -224,10 +229,10 @@ func ListPenTablets() []PenTabletInfo {
 
 // PenCaptureState is one decoded pen sample, in raw device units. Coordinate/
 // pressure normalization to Moonlight's 0.0..1.0 wire format happens in the
-// caller (see disk_widget_pen.go), which is also where MaxX/MaxY/MaxPressure
-// -- read once from a Wacom-family HID report descriptor's logical max, but
-// hardcoded here since every CTL-4100-generation tablet this parser
-// understands reports the same three ranges -- get applied.
+// caller (see disk_widget_pen.go), via PenRangeFor(pid) -- different models
+// sharing this exact byte layout still report different logical-max ranges
+// (a Cintiq Pro 32's digitizer is ~9x a CTL-4100's), so the range has to be
+// looked up per model rather than assumed fixed.
 type PenCaptureState struct {
 	X, Y         uint32
 	Pressure     uint16
@@ -240,14 +245,73 @@ type PenCaptureState struct {
 	Eraser       bool
 }
 
-// Wacom "IntuosV2" family digitizer ranges (Wacom CTL-4100/CTL-6100 and
-// same-generation Bamboo/Intuos), matching OpenTabletDriver's
-// Configurations/Wacom/CTL-4100.json Digitizer/Pen specification.
+// PenMaxX/PenMaxY/PenMaxPressure are the CTL-4100 "Intuos S" ranges -- the
+// one model in wacomIntuosV2Ranges actually live-verified against real
+// hardware -- and PenRangeFor's fallback for any PID not in that table.
 const (
 	PenMaxX        = 15200
 	PenMaxY        = 9500
 	PenMaxPressure = 4095
 )
+
+// PenRange is one model's digitizer/pressure normalization range.
+type PenRange struct {
+	MaxX, MaxY  uint32
+	MaxPressure uint16
+}
+
+// wacomIntuosV2Ranges maps a Wacom product ID to its real digitizer/pressure
+// ranges for every model this project confirmed -- via
+// `gh api search/code -q '"IntuosV2ReportParser" repo:OpenTabletDriver/OpenTabletDriver path:.../Configurations/Wacom'`,
+// not by guessing from model-name similarity -- OpenTabletDriver itself
+// tags with the exact "IntuosV2.IntuosV2ReportParser" report-parser class,
+// i.e. every model sharing decodePenReport's byte layout (report ID 0x10,
+// 24-bit X/Y, uint16 LE pressure at offset 8, ...). Values are copied
+// straight from each model's Configurations/Wacom/<PID>.json
+// Digitizer/Pen specification. PID 0x0374 (CTL-4100) is the only entry
+// live-verified against real hardware; the rest are trusted from
+// OpenTabletDriver's own parser-class tag on the (reasonable) assumption
+// that tag is accurate -- if it's ever wrong for one model, only that
+// model's normalization is off, not CTL-4100's.
+//
+// Name-similarity is not a safe way to guess this table: CTH-680 and
+// CTL-470 sound like the same generation as CTL-4100 but actually use the
+// completely different (10-byte) "Intuos" parser class, not this one, and
+// would need a real second decoder, not just a range entry.
+var wacomIntuosV2Ranges = map[uint16]PenRange{
+	0x0374: {15200, 9500, 4095},   // CTL-4100 (Intuos S / Bamboo) -- live-verified
+	0x0375: {21600, 13500, 4095},  // CTL-6100 (Intuos M / Bamboo)
+	0x0376: {15200, 9500, 4095},   // CTL-4100WL
+	0x0377: {15200, 9500, 4095},   // CTL-4100WL (Bluetooth report variant)
+	0x03C5: {15200, 9500, 4095},   // CTL-4100WL (Bluetooth report variant)
+	0x0378: {21600, 13500, 4095},  // CTL-6100WL
+	0x03C7: {21600, 13500, 4095},  // CTL-6100WL (Bluetooth report variant)
+	0x0392: {31920, 19950, 8191},  // PTH-460 (Intuos Pro Small)
+	0x03DC: {31920, 19950, 8191},  // PTH-460 (alt PID)
+	0x0357: {44800, 29600, 8191},  // PTH-660 (Intuos Pro Medium)
+	0x0358: {62200, 43200, 8191},  // PTH-860 (Intuos Pro Large)
+	0x03CE: {25632, 14418, 4095},  // DTC-121
+	0x03A6: {29434, 16556, 4095},  // DTC-133
+	0x03D0: {96012, 54356, 8191},  // DTH-227 (Cintiq Pro 22)
+	0x03C0: {120032, 67868, 8191}, // DTH-271 (Cintiq Pro 27)
+	0x034F: {59552, 33848, 8191},  // DTH-1320 (Cintiq Pro 13)
+	0x0352: {140384, 79316, 8191}, // DTH-3220 (Cintiq Pro 32)
+	0x0390: {69632, 39518, 8191},  // DTK-1660 (Cintiq 16)
+	0x03AE: {69632, 39518, 8191},  // DTK-1660 (alt PID)
+}
+
+// PenRangeFor returns the digitizer/pressure normalization range for a
+// Wacom product ID, falling back to the CTL-4100 defaults for any PID not
+// in wacomIntuosV2Ranges. A byte-compatible device this project hasn't
+// catalogued yet is far more likely a close relative of the small consumer
+// CTL-4100 than the ~9x-larger Cintiq Pro 32, so that stays the safer
+// default over guessing a large-format range for an unknown device.
+func PenRangeFor(pid uint16) (maxX, maxY uint32, maxPressure uint16) {
+	if r, ok := wacomIntuosV2Ranges[pid]; ok {
+		return r.MaxX, r.MaxY, r.MaxPressure
+	}
+	return PenMaxX, PenMaxY, PenMaxPressure
+}
 
 // PenCapture manages an active IOKit HID capture for one pen tablet.
 type PenCapture struct {
