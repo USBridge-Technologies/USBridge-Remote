@@ -26,16 +26,21 @@ type OverlayPopupSpec struct {
 	PanelPos  func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
 	// KeyboardOverlap keeps the panel's natural height when the IME opens
 	// and lets its bottom (typically the footer buttons) slide under the
-	// keyboard. The panel still shifts up into the remaining visible
-	// area. Without this flag the overlay shrinks the panel to fit above
-	// the keyboard.
+	// keyboard. Without this flag the overlay shrinks the panel to fit
+	// above the keyboard.
 	KeyboardOverlap bool
+	// KeyboardShift, with KeyboardOverlap, nudges the panel up a little
+	// when the IME opens. Leave it false to keep the rest position (the
+	// mobile edit card: plenty of gap above the keyboard, so a lift just
+	// jitters the panel).
+	KeyboardShift bool
 }
 
 type overlayPopupLayout struct {
 	panelSize       func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
 	panelPos        func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
 	keyboardOverlap bool
+	keyboardShift   bool
 }
 
 func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -105,13 +110,18 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	if l.panelPos != nil {
 		panelPos = l.panelPos(sizeForPanel, panelSize)
 	}
-	if l.keyboardOverlap && keyboardH > 0 {
-		// Rise toward the top the way the old shrink-to-fit path did
-		// (it ended up near Y=0), but keep a small inset so the panel
-		// does not jam the status/header edge.
-		minTop := float32(12)
+	if l.keyboardOverlap && l.keyboardShift && keyboardH > 0 {
+		// A short lift — not the old jump to Y=12. The Tailscale row at
+		// the bottom of Add Connection can sit under the keyboard; the
+		// Name/LAN/Token fields stay in view without pinning the panel
+		// against the header.
+		minTop := float32(48)
+		maxLift := float32(36)
 		if panelPos.Y > minTop {
-			lift := keyboardH
+			lift := keyboardH * 0.22
+			if lift > maxLift {
+				lift = maxLift
+			}
 			if room := panelPos.Y - minTop; lift > room {
 				lift = room
 			}
@@ -177,7 +187,12 @@ func NewOverlayPopup(parent fyne.Window, spec OverlayPopupSpec) *widget.PopUp {
 	if spec.Footer != nil {
 		contentObjs = append(contentObjs, spec.Footer)
 	}
-	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos, keyboardOverlap: spec.KeyboardOverlap}, contentObjs...)
+	content := container.New(&overlayPopupLayout{
+		panelSize:       spec.PanelSize,
+		panelPos:        spec.PanelPos,
+		keyboardOverlap: spec.KeyboardOverlap,
+		keyboardShift:   spec.KeyboardShift,
+	}, contentObjs...)
 	popup := widget.NewPopUp(content, parent.Canvas())
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())
@@ -307,4 +322,11 @@ func defaultOverlayPanelSize(canvasSize fyne.Size, panel fyne.CanvasObject) fyne
 // stacked dialogs sit just under the chrome instead of on top of it.
 func CompactOverlayTopMargin(canvasSize fyne.Size) float32 {
 	return clampFloat32(canvasSize.Height*0.10, 80, 110)
+}
+
+// MobileEditOverlayTopMargin sits the phone connection-edit card further
+// below the header than Add Connection, so it doesn't read as glued to
+// the chrome.
+func MobileEditOverlayTopMargin(canvasSize fyne.Size) float32 {
+	return clampFloat32(canvasSize.Height*0.16, 128, 168)
 }

@@ -24,7 +24,7 @@ const appFooterMobileBottomPad = float32(2)
 // Connections keeps a taller footer on mobile so the version clears the
 // gesture/nav buttons without enabling Fyne's system bottom safe-inset
 // (which inflated every screen's chrome).
-const connectionsMobileBottomPad = float32(18)
+const connectionsMobileBottomPad = float32(26)
 
 func appFooterVPads() (top, bottom float32) {
 	top = 4
@@ -36,9 +36,6 @@ func appFooterVPads() (top, bottom float32) {
 }
 
 func appFooterLineHeight() float32 {
-	if IsMobile() {
-		return 1
-	}
 	return 0.5
 }
 

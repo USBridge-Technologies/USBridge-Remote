@@ -1283,7 +1283,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	// fills its row instead of sitting at their fixed 160px (this dialog is
 	// much wider than either).
 	statsBox, nameEntry, lanEntry, tsEntry, tokenEntry := view.NewConnectionCardEditableStatsBox(
-		true, spec.nameValue, spec.internalHostValue, spec.tailscaleHostValue, spec.masterKeyValue, 0,
+		true, spec.nameValue, spec.internalHostValue, spec.tailscaleHostValue, spec.masterKeyValue, 0, 8,
 	)
 
 	registerCheck := newConnectionDialogRegisterRow(
@@ -1322,6 +1322,23 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	normalForm := buildConnectionDialogForm(formSwap, registerCheckContainer)
 
 	var d *widget.PopUp
+	pasteActive := false
+	var parsePaste func() (internalHost, tailscaleHost, masterKey string, err error)
+	var pasteHasLink func() bool
+	var updateActionButtonsEnabled func()
+	commitPasteIntoFields := func() bool {
+		if !pasteActive || parsePaste == nil {
+			return true
+		}
+		ih, th, mk, err := parsePaste()
+		if err != nil {
+			return false
+		}
+		lanEntry.SetText(ih)
+		tsEntry.SetText(th)
+		tokenEntry.SetText(mk)
+		return true
+	}
 
 	var formContent fyne.CanvasObject = normalForm
 	if spec.onQR != nil {
@@ -1338,7 +1355,6 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		// driving both directions instead of Paste Link only opening and
 		// Cancel/Apply being the only ways back.
 		var linkBtn *connectionDialogSecondaryButton
-		pasteActive := false
 		showNormalFields := func() {
 			formSwap.Objects = []fyne.CanvasObject{statsBox}
 			formSwap.Refresh()
@@ -1350,13 +1366,23 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			if d != nil {
 				d.Refresh()
 			}
+			if updateActionButtonsEnabled != nil {
+				updateActionButtonsEnabled()
+			}
 		}
-		pasteViewBase := newConnectionDialogInlinePasteView(parent, func(ih, th, mk string) {
+		var onPasteText func(func())
+		var pasteViewBase fyne.CanvasObject
+		pasteViewBase, parsePaste, pasteHasLink, onPasteText = newConnectionDialogInlinePasteView(parent, func(ih, th, mk string) {
 			lanEntry.SetText(ih)
 			tsEntry.SetText(th)
 			tokenEntry.SetText(mk)
 			showNormalFields()
 		}, showNormalFields)
+		onPasteText(func() {
+			if updateActionButtonsEnabled != nil {
+				updateActionButtonsEnabled()
+			}
+		})
 		pasteView := container.New(&matchHeightLayout{target: statsBox}, pasteViewBase)
 		showPasteFields := func() {
 			formSwap.Objects = []fyne.CanvasObject{pasteView}
@@ -1368,6 +1394,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			}
 			if d != nil {
 				d.Refresh()
+			}
+			if updateActionButtonsEnabled != nil {
+				updateActionButtonsEnabled()
 			}
 		}
 
@@ -1437,6 +1466,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		cBtn = &connectionDialogSecondaryButton{
 			labelText: connectLabel,
 			onTapped: func() {
+				if !commitPasteIntoFields() {
+					return
+				}
 				if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, lanEntry.Text, tsEntry.Text, tokenEntry.Text, registerCheck.Checked) {
 					return
 				}
@@ -1467,6 +1499,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	sBtn := &connectionDialogSecondaryButton{
 		labelText: saveLabel,
 		onTapped: func() {
+			if !commitPasteIntoFields() {
+				return
+			}
 			if spec.onSave != nil && !spec.onSave(nameEntry.Text, lanEntry.Text, tsEntry.Text, tokenEntry.Text, registerCheck.Checked) {
 				return
 			}
@@ -1500,8 +1535,11 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	// onDelete is only ever set by showEditDialog, so it doubles as that
 	// signal here without threading a separate flag through the spec.
 	requireName := spec.onDelete != nil
-	updateActionButtonsEnabled := func() {
+	updateActionButtonsEnabled = func() {
 		hasHost := strings.TrimSpace(lanEntry.Text) != "" || strings.TrimSpace(tsEntry.Text) != ""
+		if pasteActive && pasteHasLink != nil && pasteHasLink() {
+			hasHost = true
+		}
 		ok := hasHost
 		if requireName {
 			ok = ok && strings.TrimSpace(nameEntry.Text) != ""
@@ -2224,12 +2262,12 @@ func (t *pasteEntryTheme) Size(name fyne.ThemeSizeName) float32 {
 	case theme.SizeNameInputRadius:
 		return 4
 	case theme.SizeNameText:
-		return 10
+		return 8
 	}
 	return t.Theme.Size(name)
 }
 
-func newConnectionDialogInlinePasteView(parent fyne.Window, onApply func(internalHost, tailscaleHost, masterKey string), onCancel func()) fyne.CanvasObject {
+func newConnectionDialogInlinePasteView(parent fyne.Window, onApply func(internalHost, tailscaleHost, masterKey string), onCancel func()) (fyne.CanvasObject, func() (internalHost, tailscaleHost, masterKey string, err error), func() bool, func(func())) {
 	entry := &connectionDialogEntry{}
 	entry.MultiLine = true
 	entry.Wrapping = fyne.TextWrapWord
@@ -2239,12 +2277,25 @@ func newConnectionDialogInlinePasteView(parent fyne.Window, onApply func(interna
 	entry.SetMinRowsVisible(3)
 
 	errLabel := canvas.NewText("", color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff})
-	errLabel.TextSize = 10
+	errLabel.TextSize = 8
 
 	reset := func() {
 		entry.SetText("")
 		errLabel.Text = ""
 		errLabel.Refresh()
+	}
+
+	parseLink := func() (string, string, string, error) {
+		ih, th, mk, _, err := parseQRContents(entry.Text)
+		if err != nil {
+			errLabel.Text = "Invalid link format"
+			errLabel.Refresh()
+			return "", "", "", err
+		}
+		return ih, th, mk, nil
+	}
+	hasLink := func() bool {
+		return strings.TrimSpace(entry.Text) != ""
 	}
 
 	closeBtn := newCompactConnectionDialogIconButton(connectionDialogCancelIconRes, func() {
@@ -2260,10 +2311,8 @@ func newConnectionDialogInlinePasteView(parent fyne.Window, onApply func(interna
 
 	checkRes := fyne.NewStaticResource("check.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#111111"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/></svg>`))
 	applyBtn := newCompactConnectionDialogIconButton(checkRes, func() {
-		ih, th, mk, _, err := parseQRContents(entry.Text)
+		ih, th, mk, err := parseLink()
 		if err != nil {
-			errLabel.Text = "Invalid link format"
-			errLabel.Refresh()
 			return
 		}
 		reset()
@@ -2280,12 +2329,19 @@ func newConnectionDialogInlinePasteView(parent fyne.Window, onApply func(interna
 	// ""), this just shows that up front instead of only on tap.
 	applyBtn.SetDisabled(true)
 	entry.onFocusChanged = nil
+	var extraOnText func()
 	entry.OnChanged = func(text string) {
 		if errLabel.Text != "" {
 			errLabel.Text = ""
 			errLabel.Refresh()
 		}
 		applyBtn.SetDisabled(strings.TrimSpace(text) == "")
+		if extraOnText != nil {
+			extraOnText()
+		}
+	}
+	onText := func(fn func()) {
+		extraOnText = fn
 	}
 
 	actionsLeft := container.NewHBox(closeBtn, view.NewInset(container.NewCenter(errLabel), 8, 0, 0, 0))
@@ -2299,7 +2355,8 @@ func newConnectionDialogInlinePasteView(parent fyne.Window, onApply func(interna
 
 	entryThemed := container.NewThemeOverride(entry, &pasteEntryTheme{Theme: design.NewBrandTheme()})
 	body := container.NewBorder(nil, view.NewInset(actionsRow, 0, 0, 4, 0), nil, nil, entryThemed)
-	return container.NewStack(bg, view.NewInset(body, 12, 12, 10, 8))
+	obj := container.NewStack(bg, view.NewInset(body, 12, 12, 10, 8))
+	return obj, parseLink, hasLink, onText
 }
 
 func (cm *ConnectionManager) handlePasteLink() {

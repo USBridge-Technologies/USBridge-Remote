@@ -71,7 +71,7 @@ type LocalizedStrings struct {
 	AwaitingConnection           string
 	FirmwarePromoTitle           string
 	FirmwarePromoSubtitle        string
-	FirmwarePromoTrial           string
+	FirmwarePromoTrial           string // "Download"
 	FirmwarePromoFeatureBIOS     string
 	FirmwarePromoFeatureLatency  string
 	FirmwarePromoFeatureScripts  string
@@ -514,7 +514,7 @@ func EN() *LocalizedStrings {
 		AwaitingConnection:           "Awaiting connection...",
 		FirmwarePromoTitle:           "USBridge Firmware",
 		FirmwarePromoSubtitle:        "Turn your board into a hardware KVM",
-		FirmwarePromoTrial:           "24h Trial",
+		FirmwarePromoTrial:           "Download",
 		FirmwarePromoFeatureBIOS:     "BIOS-in-terminal (OCR)",
 		FirmwarePromoFeatureLatency:  "Ultra-low latency video",
 		FirmwarePromoFeatureScripts:  "Automation scripts",
@@ -951,7 +951,7 @@ func ES() *LocalizedStrings {
 	locale.AwaitingConnection = "Esperando conexion..."
 	locale.FirmwarePromoTitle = "USBridge Firmware"
 	locale.FirmwarePromoSubtitle = "Convierte tu placa en un KVM de hardware"
-	locale.FirmwarePromoTrial = "Prueba 24h"
+	locale.FirmwarePromoTrial = "Descargar"
 	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
 	locale.FirmwarePromoFeatureLatency = "Video de ultra baja latencia"
 	locale.FirmwarePromoFeatureScripts = "Scripts de automatizacion"
@@ -1129,7 +1129,7 @@ func UKProper() *LocalizedStrings {
 	locale.AwaitingConnection = "Очікування з'єднання..."
 	locale.FirmwarePromoTitle = "USBridge Firmware"
 	locale.FirmwarePromoSubtitle = "Перетворіть плату на апаратний KVM"
-	locale.FirmwarePromoTrial = "Пробний період 24h"
+	locale.FirmwarePromoTrial = "Завантажити"
 	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
 	locale.FirmwarePromoFeatureLatency = "Відео з ультранизькою затримкою"
 	locale.FirmwarePromoFeatureScripts = "Скрипти автоматизації"

@@ -175,7 +175,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 	var statsBox fyne.CanvasObject
 	var lanEntry, tailscaleEntry, tokenEntry *StyledEntry
 	if editing {
-		statsBox, _, lanEntry, tailscaleEntry, tokenEntry = NewConnectionCardEditableStatsBox(false, "", data.LANAddress, data.TailscaleAddress, data.MasterKey, 160)
+		statsBox, _, lanEntry, tailscaleEntry, tokenEntry = NewConnectionCardEditableStatsBox(false, "", data.LANAddress, data.TailscaleAddress, data.MasterKey, 160, 0)
 	} else {
 		statsBox = newConnectionCardStatsBox(data.LANAddress, data.TailscaleAddress)
 	}
@@ -624,12 +624,15 @@ func wrapGridCardEntry(entry *StyledEntry, textSize float32, textColor color.Col
 //     two: it's wide enough that the fixed-160px right-anchored entry those
 //     use would leave a large empty gap before it, so it passes 0 (fill
 //     available width) instead.
+//   - textSize, when > 0, is the entry text/placeholder size (Add
+//     Connection uses 8 so hints read smaller than the LAN/TS/Token
+//     labels). 0 keeps the Grid/List edit default.
 //   - includeName/name add a Name row ahead of LAN, for that same dialog --
 //     Grid's inline edit and List's split-edit panel already have their own
 //     separate Name row above this box entirely (their own topRow, a
 //     different look), so both pass includeName=false and get a nil
 //     nameEntry back, same as if this parameter didn't exist for them.
-func NewConnectionCardEditableStatsBox(includeName bool, name, lanAddress, tailscaleAddress, masterKey string, entryWidth float32) (box fyne.CanvasObject, nameEntry, lanEntry, tailscaleEntry, tokenEntry *StyledEntry) {
+func NewConnectionCardEditableStatsBox(includeName bool, name, lanAddress, tailscaleAddress, masterKey string, entryWidth, textSize float32) (box fyne.CanvasObject, nameEntry, lanEntry, tailscaleEntry, tokenEntry *StyledEntry) {
 	lanEntry = newConnectionCardFieldEntry(lanAddress, i18n.Current.ConnectionLANPlaceholder)
 	tailscaleEntry = newConnectionCardFieldEntry(tailscaleAddress, i18n.Current.ConnectionTSPlaceholder)
 	tokenEntry = newConnectionCardFieldEntry(masterKey, "Token")
@@ -650,6 +653,10 @@ func NewConnectionCardEditableStatsBox(includeName bool, name, lanAddress, tails
 	entryWidth = connectionEditEntryWidth(entryWidth)
 	lanSize := connectionEditEntryTextSize(10)
 	tokenSize := connectionEditEntryTextSize(8)
+	if textSize > 0 {
+		lanSize = textSize
+		tokenSize = textSize
+	}
 
 	var rows []fyne.CanvasObject
 	if includeName {

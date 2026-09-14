@@ -54,6 +54,9 @@ type HeaderDropdown struct {
 	CornerRadius     float32
 	TextColor        color.Color
 	TextSize         float32
+	// DetailTextSize sizes the optional Details hint in the popup. 0 keeps
+	// it the same as TextSize (resolution hints, etc.).
+	DetailTextSize   float32
 	HoverBorderColor color.Color
 	HoverFillColor   color.Color
 	IconColor        color.Color
@@ -277,6 +280,7 @@ func (d *HeaderDropdown) openPopup() {
 		})
 		item.textColor = d.TextColor
 		item.textSize = d.TextSize
+		item.detailTextSize = d.DetailTextSize
 		item.monospace = d.UltraCompact
 		rows = append(rows, item)
 	}
@@ -552,6 +556,7 @@ type dropdownItem struct {
 	secondaryLabel *canvas.Text
 	textColor      color.Color
 	textSize       float32
+	detailTextSize float32
 	monospace      bool
 	// minHeight overrides MinSize's own 36/32/24 row height when > 0 -- see
 	// StyledMenuOptions.RowHeight.
@@ -583,7 +588,7 @@ func (i *dropdownItem) CreateRenderer() fyne.WidgetRenderer {
 		i.label.TextStyle.Monospace = true
 	}
 	i.secondaryLabel = canvas.NewText(i.secondary, design.ColorTextMuted)
-	i.secondaryLabel.TextSize = i.textSize
+	i.secondaryLabel.TextSize = i.secondaryTextSize()
 	if i.monospace {
 		i.secondaryLabel.TextStyle.Monospace = true
 	}
@@ -621,7 +626,7 @@ func (i *dropdownItem) MinSize() fyne.Size {
 
 	if i.secondary != "" {
 		secondary := canvas.NewText(i.secondary, design.ColorTextMuted)
-		secondary.TextSize = i.textSize
+		secondary.TextSize = i.secondaryTextSize()
 		if i.monospace {
 			secondary.TextStyle.Monospace = true
 		}
@@ -646,6 +651,13 @@ func (i *dropdownItem) MinSize() fyne.Size {
 		height = i.minHeight
 	}
 	return fyne.NewSize(width, height)
+}
+
+func (i *dropdownItem) secondaryTextSize() float32 {
+	if i.detailTextSize > 0 {
+		return i.detailTextSize
+	}
+	return i.textSize
 }
 
 func (i *dropdownItem) iconGlyphSize() float32 {

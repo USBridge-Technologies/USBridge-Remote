@@ -66,9 +66,8 @@ func (cm *ConnectionManager) connectionEditPanelActions(idx int, onCancel, after
 }
 
 // showMobileConnectionEdit opens the connection editor as a top-anchored
-// overlay instead of expanding it inside the Grid/List. The panel sits
-// just below the app header; KeyboardOverlap lets the footer slide under
-// the IME instead of shrinking the card.
+// overlay instead of expanding it inside the Grid/List. It sits lower than
+// Add Connection and does not move when the IME opens.
 func (cm *ConnectionManager) showMobileConnectionEdit(idx int) {
 	if idx < 0 || idx >= len(cm.connections) || cm.window == nil {
 		return
@@ -112,7 +111,7 @@ func (cm *ConnectionManager) showMobileConnectionEdit(idx int) {
 			return fyne.NewSize(maxWidth, panelHeight)
 		},
 		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
-			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, view.CompactOverlayTopMargin(canvasSize))
+			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, view.MobileEditOverlayTopMargin(canvasSize))
 		},
 	})
 }
