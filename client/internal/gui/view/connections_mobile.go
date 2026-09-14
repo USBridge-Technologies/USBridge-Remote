@@ -18,6 +18,12 @@ import (
 // room for a full-width card.
 const connectionsMobileSideMargin float32 = 14
 
+// ConnectionsMobileSideMargin is the phone Connections inset, reused so
+// the edit overlay lines up with the card column.
+func ConnectionsMobileSideMargin() float32 {
+	return connectionsMobileSideMargin
+}
+
 // UseMobileConnections is the fork for the Connections screen: real
 // phones, or the desktop Mobile preview. Desktop Grid/List stay on the
 // original path; mobile gets its own layout that we grow separately

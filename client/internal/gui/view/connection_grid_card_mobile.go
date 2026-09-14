@@ -14,8 +14,9 @@ import (
 
 // newMobileConnectionGridCard is the phone Grid card: platform plaque sits
 // after the name, Edit joins LAN + Connect on the bottom row, and vertical
-// padding is tighter than the desktop card. Edit-mode chrome stays the
-// desktop one for now (inline fields + delete/cancel/save).
+// padding is tighter than the desktop card. Edit opens a top-anchored
+// overlay (controller.showMobileConnectionEdit), not the desktop inline
+// fields.
 func newMobileConnectionGridCard(data ConnectionCardData, state ConnectionRowState, actions ConnectionCardActions) fyne.CanvasObject {
 	isAgent, isKVM := ClassifyConnectionRemoteOS(data.RemoteOS)
 	accent := design.ColorAccent

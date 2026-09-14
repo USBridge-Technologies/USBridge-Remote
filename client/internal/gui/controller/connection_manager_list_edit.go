@@ -21,6 +21,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,16 +44,77 @@ func (cm *ConnectionManager) buildListEditPanel(idx int) fyne.CanvasObject {
 			TailscaleAddress: conn.TailscaleHost,
 			MasterKey:        conn.MasterKey,
 		},
-		view.ConnectionEditPanelActions{
-			OnSave: func(name, lanAddress, tailscaleAddress, masterKey string) {
-				cm.saveListEditPanel(idx, name, lanAddress, tailscaleAddress, masterKey)
-			},
-			OnDelete: func() {
-				cm.handleDeleteConnection(idx, nil)
-			},
-			OnCancel: cm.exitListEdit,
-		},
+		cm.connectionEditPanelActions(idx, cm.exitListEdit, nil),
 	)
+}
+
+func (cm *ConnectionManager) connectionEditPanelActions(idx int, onCancel, afterSave func()) view.ConnectionEditPanelActions {
+	return view.ConnectionEditPanelActions{
+		OnSave: func(name, lanAddress, tailscaleAddress, masterKey string) {
+			if !cm.saveListEditPanel(idx, name, lanAddress, tailscaleAddress, masterKey) {
+				return
+			}
+			if afterSave != nil {
+				afterSave()
+			}
+		},
+		OnDelete: func() {
+			cm.handleDeleteConnection(idx, onCancel)
+		},
+		OnCancel: onCancel,
+	}
+}
+
+// showMobileConnectionEdit opens the connection editor as a top-anchored
+// overlay instead of expanding it inside the Grid/List. The panel sits
+// just below the app header; KeyboardOverlap lets the footer slide under
+// the IME instead of shrinking the card.
+func (cm *ConnectionManager) showMobileConnectionEdit(idx int) {
+	if idx < 0 || idx >= len(cm.connections) || cm.window == nil {
+		return
+	}
+
+	var popup *widget.PopUp
+	hide := func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	}
+
+	conn := cm.connections[idx]
+	panel := view.NewConnectionEditPanel(
+		view.ConnectionEditPanelData{
+			Name:             conn.Name,
+			RemoteOS:         conn.RemoteOS,
+			LANAddress:       conn.InternalHost,
+			TailscaleAddress: conn.TailscaleHost,
+			MasterKey:        conn.MasterKey,
+		},
+		cm.connectionEditPanelActions(idx, hide, hide),
+	)
+
+	popup = view.ShowOverlayPopup(cm.window, view.OverlayPopupSpec{
+		Panel:           panel,
+		DimColor:        connectionDialogDimColor(),
+		KeyboardOverlap: true,
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := view.ConnectionsMobileSideMargin()
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			if maxWidth <= 0 {
+				maxWidth = canvasSize.Width
+			}
+			if maxHeight <= 0 {
+				maxHeight = canvasSize.Height
+			}
+			panelMin := panel.MinSize()
+			panelHeight := minFloat32(panelMin.Height, maxHeight)
+			return fyne.NewSize(maxWidth, panelHeight)
+		},
+		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
+			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, view.CompactOverlayTopMargin(canvasSize))
+		},
+	})
 }
 
 // saveListEditPanel commits the split-edit panel's fields -- same
@@ -61,16 +123,16 @@ func (cm *ConnectionManager) buildListEditPanel(idx int) fyne.CanvasObject {
 // no Tailscale-register toggle here -- the panel has no room for it, so the
 // connection's existing value is carried over unchanged; still editable
 // from the (still-live) Add-connection modal.
-func (cm *ConnectionManager) saveListEditPanel(idx int, name, internalHost, tailscaleHost, masterKey string) {
+func (cm *ConnectionManager) saveListEditPanel(idx int, name, internalHost, tailscaleHost, masterKey string) bool {
 	if idx < 0 || idx >= len(cm.connections) {
-		return
+		return false
 	}
 	name = strings.TrimSpace(name)
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
 	if name == "" || (internalHost == "" && tailscaleHost == "") {
 		logrus.Warn("name and at least one address are required")
-		return
+		return false
 	}
 
 	conn := cm.connections[idx]
@@ -92,6 +154,7 @@ func (cm *ConnectionManager) saveListEditPanel(idx int, name, internalHost, tail
 		cm.refreshConnectionsList()
 	})
 	logrus.Infof("Updated connection: %s", name)
+	return true
 }
 
 // exitListEdit leaves List's split-edit layout without saving -- the

@@ -24,11 +24,18 @@ type OverlayPopupSpec struct {
 	DimColor  color.Color
 	PanelSize func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
 	PanelPos  func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
+	// KeyboardOverlap keeps the panel's natural height when the IME opens
+	// and lets its bottom (typically the footer buttons) slide under the
+	// keyboard. The panel still shifts up into the remaining visible
+	// area. Without this flag the overlay shrinks the panel to fit above
+	// the keyboard.
+	KeyboardOverlap bool
 }
 
 type overlayPopupLayout struct {
-	panelSize func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
-	panelPos  func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
+	panelSize       func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
+	panelPos        func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
+	keyboardOverlap bool
 }
 
 func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -49,25 +56,42 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	// Effective area excludes the on-screen keyboard (IME) if any.
 	// On Android the canvas size does not shrink when the IME opens (edge-to-edge),
 	// so we subtract the keyboard height explicitly.
-	effective := size
+	keyboardH := float32(0)
 	if KeyboardHeight != nil {
-		if kh := KeyboardHeight(); kh > 0 {
-			effective.Height -= kh
-			if effective.Height < 0 {
-				effective.Height = 0
-			}
+		keyboardH = KeyboardHeight()
+		if keyboardH < 0 {
+			keyboardH = 0
+		}
+	}
+	effective := size
+	if keyboardH > 0 {
+		effective.Height -= keyboardH
+		if effective.Height < 0 {
+			effective.Height = 0
 		}
 	}
 
-	panelSize := defaultOverlayPanelSize(effective, panel)
-	if l.panelSize != nil {
-		panelSize = l.panelSize(effective, panel)
+	// KeyboardOverlap sizes the panel against the full canvas so it does
+	// not compress when the IME opens; the visible-area clamp below is
+	// skipped for height/Y so the footer can sit under the keyboard.
+	sizeForPanel := effective
+	if l.keyboardOverlap {
+		sizeForPanel = size
 	}
 
-	if panelSize.Width > effective.Width {
-		panelSize.Width = effective.Width
+	panelSize := defaultOverlayPanelSize(sizeForPanel, panel)
+	if l.panelSize != nil {
+		panelSize = l.panelSize(sizeForPanel, panel)
 	}
-	if panelSize.Height > effective.Height {
+
+	if panelSize.Width > size.Width {
+		panelSize.Width = size.Width
+	}
+	if l.keyboardOverlap {
+		if panelSize.Height > size.Height {
+			panelSize.Height = size.Height
+		}
+	} else if panelSize.Height > effective.Height {
 		panelSize.Height = effective.Height
 	}
 	if panelSize.Width < 0 {
@@ -77,9 +101,22 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 		panelSize.Height = 0
 	}
 
-	panelPos := fyne.NewPos((effective.Width-panelSize.Width)/2, (effective.Height-panelSize.Height)/2)
+	panelPos := fyne.NewPos((sizeForPanel.Width-panelSize.Width)/2, (sizeForPanel.Height-panelSize.Height)/2)
 	if l.panelPos != nil {
-		panelPos = l.panelPos(effective, panelSize)
+		panelPos = l.panelPos(sizeForPanel, panelSize)
+	}
+	if l.keyboardOverlap && keyboardH > 0 {
+		// Rise toward the top the way the old shrink-to-fit path did
+		// (it ended up near Y=0), but keep a small inset so the panel
+		// does not jam the status/header edge.
+		minTop := float32(12)
+		if panelPos.Y > minTop {
+			lift := keyboardH
+			if room := panelPos.Y - minTop; lift > room {
+				lift = room
+			}
+			panelPos.Y -= lift
+		}
 	}
 	if panelPos.X < 0 {
 		panelPos.X = 0
@@ -87,13 +124,15 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	if panelPos.Y < 0 {
 		panelPos.Y = 0
 	}
-	maxX := effective.Width - panelSize.Width
-	maxY := effective.Height - panelSize.Height
+	maxX := size.Width - panelSize.Width
 	if panelPos.X > maxX {
 		panelPos.X = maxX
 	}
-	if panelPos.Y > maxY {
-		panelPos.Y = maxY
+	if !l.keyboardOverlap {
+		maxY := effective.Height - panelSize.Height
+		if panelPos.Y > maxY {
+			panelPos.Y = maxY
+		}
 	}
 
 	panel.Move(panelPos)
@@ -138,7 +177,7 @@ func NewOverlayPopup(parent fyne.Window, spec OverlayPopupSpec) *widget.PopUp {
 	if spec.Footer != nil {
 		contentObjs = append(contentObjs, spec.Footer)
 	}
-	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos}, contentObjs...)
+	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos, keyboardOverlap: spec.KeyboardOverlap}, contentObjs...)
 	popup := widget.NewPopUp(content, parent.Canvas())
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())
@@ -261,4 +300,11 @@ func defaultOverlayPanelSize(canvasSize fyne.Size, panel fyne.CanvasObject) fyne
 		panelMin.Height = canvasSize.Height
 	}
 	return panelMin
+}
+
+// CompactOverlayTopMargin is the phone/compact overlay inset below the
+// app header -- same 10%/80-110 band Add Connection already used, so
+// stacked dialogs sit just under the chrome instead of on top of it.
+func CompactOverlayTopMargin(canvasSize fyne.Size) float32 {
+	return clampFloat32(canvasSize.Height*0.10, 80, 110)
 }

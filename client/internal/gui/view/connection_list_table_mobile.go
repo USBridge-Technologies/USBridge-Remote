@@ -12,9 +12,8 @@ import (
 )
 
 // newMobileConnectionsList is the phone List table: two columns (Name/Info
-// | Action), no platform/state plaques, LAN/TS under the name. Edit
-// replaces that row with the editor in place — rows above and below stay
-// in the table, unlike the desktop side split.
+// | Action), no platform/state plaques, LAN/TS under the name. Edit opens
+// a top-anchored overlay; this list stays the read-only table.
 func newMobileConnectionsList(items []ConnectionListItem, addActions AddConnectionCardActions, editIndex int, editPanel fyne.CanvasObject) fyne.CanvasObject {
 	if len(items) == 0 {
 		return NewAddConnectionGridCard(addActions)

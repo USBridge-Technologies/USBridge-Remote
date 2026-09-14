@@ -1097,10 +1097,10 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle, subtitle stri
 	scrollItems = append(scrollItems, form)
 	scrollBody := container.NewVBox(scrollItems...)
 	scroll := container.NewVScroll(scrollBody)
-	// Set scroll min-height to the form content height so the panel reports the correct
-	// preferred size (compact, content-sized). The panel is still capped at maxHeight in
-	// connectionDialogPanelSize, so when the Android IME keyboard opens and maxHeight
-	// shrinks, the panel shrinks too and the scroll becomes scrollable.
+	// Set scroll min-height to the form content height so the panel reports
+	// its compact preferred size. KeyboardOverlap keeps that height when
+	// the IME opens; the footer can slide under the keyboard instead of
+	// shrinking this scroll.
 	scroll.SetMinSize(fyne.NewSize(0, scrollBody.MinSize().Height))
 
 	bg := canvas.NewRectangle(design.ColorGray900)
@@ -1169,16 +1169,16 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle, subtitle stri
 		specFooter = footer[0]
 	}
 	popup := view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
-		Panel:    panel,
-		Footer:   specFooter,
-		DimColor: connectionDialogDimColor(),
+		Panel:           panel,
+		Footer:          specFooter,
+		DimColor:        connectionDialogDimColor(),
+		KeyboardOverlap: true,
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			return connectionDialogPanelSize(panel, canvasSize)
 		},
 		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
 			if view.UseCompactLayout(canvasSize.Width) {
-				topMargin := clampFloat32(canvasSize.Height*0.10, 80, 110)
-				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, topMargin)
+				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, view.CompactOverlayTopMargin(canvasSize))
 			}
 			centerY := (canvasSize.Height - panelSize.Height) / 2
 			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, centerY)
@@ -2135,9 +2135,9 @@ func connectionDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fy
 	panelMin := panel.MinSize()
 	panelHeight := panelMin.Height
 	if panelHeight > maxHeight {
-		// Cap at available space. On mobile, canvasSize is already reduced by the
-		// IME keyboard height (via overlayPopupLayout), so this cap shrinks the panel
-		// automatically when the keyboard opens.
+		// Cap at the canvas, not at the IME-visible slice -- Add Connection
+		// uses KeyboardOverlap so the footer can slide under the keyboard
+		// instead of shrinking this panel.
 		panelHeight = maxHeight
 	}
 

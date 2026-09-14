@@ -317,7 +317,7 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 
 	editIndex := -1
 	var editPanel fyne.CanvasObject
-	if cm.editingListIndex >= 0 && cm.editingListIndex < len(cm.connections) {
+	if !view.UseMobileConnections() && cm.editingListIndex >= 0 && cm.editingListIndex < len(cm.connections) {
 		// editIndex is a position in the (possibly reordered) rows slice,
 		// not a cm.connections index -- NewConnectionsListSplit highlights
 		// rows[editIndex], so it has to point at wherever editingListIndex's
@@ -472,6 +472,10 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				if cm.connectionPending {
 					return
 				}
+				if view.UseMobileConnections() {
+					cm.showMobileConnectionEdit(idx)
+					return
+				}
 				// Splits the List view instead of popping the modal
 				// (showEditDialog is now unused by List -- see
 				// buildListEditPanel/connection_manager_list_edit.go).
@@ -545,6 +549,10 @@ func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx 
 			OnSelect: fillForm,
 			OnEdit: func() {
 				if cm.connectionPending {
+					return
+				}
+				if view.UseMobileConnections() {
+					cm.showMobileConnectionEdit(idx)
 					return
 				}
 				// Grid's pencil edits the card in place instead of opening
