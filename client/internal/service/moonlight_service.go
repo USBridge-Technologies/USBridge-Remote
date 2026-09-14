@@ -464,11 +464,21 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 	m.activeWrapper = wrapper
 	m.mu.Unlock()
 
+	// Diagnostic for HDR/4:4:4 negotiation debugging (2026-09-14): the
+	// client's own request and the server's advertised support, logged
+	// right before the C-level negotiation so a mismatch between "what we
+	// think we're asking for" and "what the server says it supports" is
+	// visible without needing to attach a debugger. Safe to leave in --
+	// one line per connection attempt, not a hot path.
+	requestedVideoFormat := moonlightVideoFormat(m.videoMode, m.color444, m.hdr)
+	logrus.Infof("🌕 [Moonlight/HDR-debug] mode=%s color444=%v hdr=%v -> requestedVideoFormat=0x%04X, serverCodecModeSupport=0x%08X",
+		m.videoMode, m.color444, m.hdr, requestedVideoFormat, serverInfo.ServerCodecModeSupport)
+
 	if err := wrapper.StartStream(
 		sessionUrl, rikey,
 		serverInfo.AppVersion, serverInfo.GfeVersion,
 		serverInfo.ServerCodecModeSupport,
-		moonlightVideoFormat(m.videoMode, m.color444, m.hdr),
+		requestedVideoFormat,
 		width, height, fps, bitrate,
 		pipeWrite, audioPipeWrite,
 		func(cgoErr error) {
