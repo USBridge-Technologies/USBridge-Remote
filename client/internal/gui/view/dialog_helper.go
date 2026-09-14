@@ -891,6 +891,11 @@ func ShowConnectingToast(message string, maxDuration time.Duration, parent fyne.
 			bottomMargin := clampFloat32(canvasSize.Height*0.05, 24, 40)
 			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, canvasSize.Height-panelSize.Height-bottomMargin)
 		},
+		OnOutsideTap: func() {
+			if handle != nil && handle.isError {
+				handle.Close()
+			}
+		},
 	})
 
 	handle = &ConnectingToastHandle{
@@ -1022,8 +1027,9 @@ func showStyledMessageDialog(title, message string, titleColor, borderColor colo
 	)
 
 	popup = ShowOverlayPopup(parent, OverlayPopupSpec{
-		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		Panel:        panel,
+		DimColor:     color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		OnOutsideTap: closePopup,
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
 			maxWidth := canvasSize.Width - margin*2

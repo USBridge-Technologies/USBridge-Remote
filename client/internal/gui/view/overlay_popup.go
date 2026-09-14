@@ -34,6 +34,9 @@ type OverlayPopupSpec struct {
 	// mobile edit card: plenty of gap above the keyboard, so a lift just
 	// jitters the panel).
 	KeyboardShift bool
+	// OnOutsideTap runs when the dim (not the card) is tapped. The overlay
+	// fills the window, so Fyne's own "click outside popup" never fires.
+	OnOutsideTap func()
 }
 
 type overlayPopupLayout struct {
@@ -183,7 +186,15 @@ func NewOverlayPopup(parent fyne.Window, spec OverlayPopupSpec) *widget.PopUp {
 	// labels) reliably use BrandTheme inside the overlay on Android where the
 	// popup's rendering context may not propagate the app theme correctly.
 	themedPanel := container.NewThemeOverride(spec.Panel, design.NewBrandTheme())
-	contentObjs := []fyne.CanvasObject{dim, themedPanel}
+	var dimObj fyne.CanvasObject = dim
+	var panelObj fyne.CanvasObject = themedPanel
+	if spec.OnOutsideTap != nil {
+		onOutside := spec.OnOutsideTap
+		dimObj = newOverlayTapCatcher(dim, onOutside)
+		// Swallow taps on the card so they don't fall through to the dim.
+		panelObj = newOverlayTapCatcher(themedPanel, nil)
+	}
+	contentObjs := []fyne.CanvasObject{dimObj, panelObj}
 	if spec.Footer != nil {
 		contentObjs = append(contentObjs, spec.Footer)
 	}
@@ -330,3 +341,32 @@ func CompactOverlayTopMargin(canvasSize fyne.Size) float32 {
 func MobileEditOverlayTopMargin(canvasSize fyne.Size) float32 {
 	return clampFloat32(canvasSize.Height*0.16, 128, 168)
 }
+
+// overlayTapCatcher is a full-size tappable wrap so a dimmed overlay can
+// dismiss on outside tap. The overlay PopUp fills the window, so Fyne never
+// sees a click "outside" the popup itself.
+type overlayTapCatcher struct {
+	widget.BaseWidget
+	inner fyne.CanvasObject
+	onTap func()
+}
+
+func newOverlayTapCatcher(inner fyne.CanvasObject, onTap func()) *overlayTapCatcher {
+	c := &overlayTapCatcher{inner: inner, onTap: onTap}
+	c.ExtendBaseWidget(c)
+	return c
+}
+
+func (c *overlayTapCatcher) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(c.inner)
+}
+
+func (c *overlayTapCatcher) Tapped(*fyne.PointEvent) {
+	if c.onTap != nil {
+		c.onTap()
+	}
+}
+
+func (c *overlayTapCatcher) TappedSecondary(*fyne.PointEvent) {}
+
+var _ fyne.Tappable = (*overlayTapCatcher)(nil)
