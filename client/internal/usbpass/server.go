@@ -111,12 +111,28 @@ func (s *Server) Stop() {
 	for _, c := range conns {
 		_ = c.Close()
 	}
+	// Wait for every connection's handleConn/serveURBs goroutine to actually
+	// return *before* closing the devices' backends, not after. Closing a
+	// conn only unblocks that goroutine's blocking c.Read() -- serveURBs
+	// still has to run its own deferred cancelConn()+wg.Wait() (aborting and
+	// draining whatever dispatchURB calls were in flight) before it returns,
+	// which happens asynchronously in that goroutine, not synchronously
+	// inside this c.Close() call. Closing the backend (e.g. gousbBackend's
+	// libusb_close) while one of those goroutines is still actually
+	// mid-transfer on the same device handle is a real use-after-close race,
+	// not just a theoretical one: confirmed live via a SIGSEGV inside
+	// libusb_close, triggered from here racing a still-in-flight HandleBulk
+	// control call on a real device. A bulk (mass-storage) transfer rarely
+	// hit this window in practice since it completes quickly; an interrupt
+	// endpoint's read can legitimately block for up to its own poll window
+	// (see handleNonBulk in backend_gousb.go), making the race far more
+	// likely to actually land.
+	s.wg.Wait()
 	for _, d := range devs {
 		if d.Backend != nil {
 			_ = d.Backend.Close()
 		}
 	}
-	s.wg.Wait()
 }
 
 // Devices returns the exported devices, so a terminal harness can talk to a
