@@ -288,45 +288,33 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	videoItems := []fyne.CanvasObject{
 		container.NewGridWrap(statusBarIconBoxSize, mw.videoIcon),
 	}
-	if !useMobileControl() {
-		// fps/resolution are both tappable -- each opens a quick picker
-		// (styled like every other header dropdown, view.ShowStyledMenuTeal)
-		// sourced from the same capture-mode data the video settings dialog
-		// itself uses (see showVideoFPSMenu/showVideoResolutionMenu).
-		var fpsBtn, resBtn *statusBarTextButton
-		fpsBtn = newStatusBarTextButton(mw.videoFPSText, func() {
-			mw.showVideoFPSMenu(fpsBtn)
-		})
-		resBtn = newStatusBarTextButton(mw.videoResolutionText, func() {
-			mw.showVideoResolutionMenu(resBtn)
-		})
-		videoItems = append(videoItems,
-			newFixedWidthFPSText(mw.videoFPSText, fpsBtn),
-			newStatusBarDot(),
-			resBtn,
-		)
-		view.SetMenuSwapTargets(
-			fpsBtn,
-			resBtn,
-			mw.videoIcon,
-			mw.fullscreenIcon,
-			mw.audioIcon,
-			mw.keyboardIcon,
-			mw.mouseIcon,
-			mw.rndisIcon,
-			mw.sdStorageProgress,
-		)
-	} else {
-		view.SetMenuSwapTargets(
-			mw.videoIcon,
-			mw.fullscreenIcon,
-			mw.audioIcon,
-			mw.keyboardIcon,
-			mw.mouseIcon,
-			mw.rndisIcon,
-			mw.sdStorageProgress,
-		)
-	}
+	// fps/resolution are both tappable -- each opens a quick picker
+	// (styled like every other header dropdown, view.ShowStyledMenuTeal)
+	// sourced from the same capture-mode data the video settings dialog
+	// itself uses (see showVideoFPSMenu/showVideoResolutionMenu).
+	var fpsBtn, resBtn *statusBarTextButton
+	fpsBtn = newStatusBarTextButton(mw.videoFPSText, func() {
+		mw.showVideoFPSMenu(fpsBtn)
+	})
+	resBtn = newStatusBarTextButton(mw.videoResolutionText, func() {
+		mw.showVideoResolutionMenu(resBtn)
+	})
+	videoItems = append(videoItems,
+		newFixedWidthFPSText(mw.videoFPSText, fpsBtn),
+		newStatusBarDot(),
+		resBtn,
+	)
+	view.SetMenuSwapTargets(
+		fpsBtn,
+		resBtn,
+		mw.videoIcon,
+		mw.fullscreenIcon,
+		mw.audioIcon,
+		mw.keyboardIcon,
+		mw.mouseIcon,
+		mw.rndisIcon,
+		mw.sdStorageProgress,
+	)
 	videoItems = append(videoItems, container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon))
 	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2}, videoItems...)
 	mw.videoStatusGroup.Hide()

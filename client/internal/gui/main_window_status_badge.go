@@ -63,7 +63,7 @@ type headerStatusBadgeButton struct {
 func newHeaderStatusBadgeButton(icon fyne.Resource, onTapped func()) *headerStatusBadgeButton {
 	b := &headerStatusBadgeButton{
 		iconRes:   icon,
-		badgeText: "0",
+		badgeText: "",
 		onTapped:  onTapped,
 		iconSize:  fyne.NewSize(22, 22),
 	}

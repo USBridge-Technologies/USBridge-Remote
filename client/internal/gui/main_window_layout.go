@@ -1245,6 +1245,8 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	// default icon size left almost no margin once actually squeezed down
 	// to that size.
 	mw.videoIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.videoIcon.SetBadgeText("")
+	mw.videoIcon.SetSecondaryBadgeText("")
 	mw.videoIcon.Hide()
 	mw.fullscreenIcon = newHeaderStatusBadgeButton(assets.FullscreenIconStatusBar, func() {
 		if mw.videoWidget != nil {
@@ -1721,14 +1723,6 @@ func (mw *MainWindow) updateVideoIconLabel() {
 		return
 	}
 
-	// If the user is streaming using a native overlay (Metal/Vulkan), DO NOT update
-	// the Fyne UI label. Fyne layout passes run on the OS main thread, and updating
-	// text causes a 10-20ms layout recalculation that blocks CADisplayLink and causes
-	// a micro-freeze in the video stream exactly once per second.
-	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
-		return
-	}
-
 	fpsLabel := "FPS"
 	if mw.currentVideoFPS > 0 {
 		fpsLabel = fmt.Sprintf("%.0f FPS", math.Round(mw.currentVideoFPS))
@@ -1747,14 +1741,17 @@ func (mw *MainWindow) updateVideoIconLabel() {
 	}
 	resLabel := videoResolutionLabel(resWidth, resHeight)
 
+	// fps sits in newFixedWidthFPSText ("888 FPS"), so swapping "FPS" for
+	// "60 FPS" does not relayout the header -- only the text inside the
+	// reserved box. Skip SetBadgeText and any parent Refresh: those were
+	// the 1Hz hitch on Metal/Vulkan; skipping the whole function left the
+	// label stuck at "FPS" for the entire stream.
 	fyne.Do(func() {
-		mw.videoIcon.SetBadgeText("")
-		mw.videoIcon.SetSecondaryBadgeText("")
-		if mw.videoFPSText != nil {
+		if mw.videoFPSText != nil && mw.videoFPSText.Text != fpsLabel {
 			mw.videoFPSText.Text = fpsLabel
 			mw.videoFPSText.Refresh()
 		}
-		if mw.videoResolutionText != nil {
+		if mw.videoResolutionText != nil && mw.videoResolutionText.Text != resLabel {
 			mw.videoResolutionText.Text = resLabel
 			mw.videoResolutionText.Refresh()
 		}
