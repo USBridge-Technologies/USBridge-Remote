@@ -315,9 +315,10 @@ if [ -z "$FYNE_BIN" ]; then
 fi
 echo -e "${GREEN}✓${NC} fyne: $FYNE_BIN"
 
-ICON_PATH="$REPO_ROOT/Icon.png"
+ICON_PATH="$REPO_ROOT/internal/gui/assets/Icon-windows.png"
 if [ ! -f "$ICON_PATH" ]; then
-    echo -e "${RED}❌ Icon not found: $ICON_PATH${NC}"
+    echo -e "${RED}❌ Windows icon not found: $ICON_PATH${NC}"
+    echo "    Replace that 256x256 rounded PNG, then rebuild."
     exit 1
 fi
 echo -e "${GREEN}✓${NC} Icon: $ICON_PATH"

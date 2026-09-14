@@ -13,6 +13,7 @@ import (
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/taskbar"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
@@ -283,6 +284,20 @@ func (w *ScriptsTabWidget) syncFooterStatus() {
 		if c != nil {
 			c.SetKind(kind)
 		}
+	}
+	taskbar.SetScriptState(w.window, footerKindToTaskbar(kind))
+}
+
+func footerKindToTaskbar(kind view.ScriptFooterKind) taskbar.ScriptState {
+	switch kind {
+	case view.ScriptFooterRunning:
+		return taskbar.ScriptRunning
+	case view.ScriptFooterDone:
+		return taskbar.ScriptDone
+	case view.ScriptFooterError:
+		return taskbar.ScriptError
+	default:
+		return taskbar.ScriptIdle
 	}
 }
 

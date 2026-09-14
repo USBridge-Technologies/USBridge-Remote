@@ -7,6 +7,7 @@ import (
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/taskbar"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
@@ -288,6 +289,10 @@ func (mw *MainWindow) Show() {
 	if mw.onReadyCallback != nil {
 		go mw.onReadyCallback()
 	}
+
+	mw.app.Lifecycle().SetOnStarted(func() {
+		taskbar.ProbeCOM(mw.window)
+	})
 
 	mw.window.ShowAndRun()
 }

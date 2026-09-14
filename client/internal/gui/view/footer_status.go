@@ -2,7 +2,6 @@ package view
 
 import (
 	"image/color"
-	"time"
 
 	"usbridge-client/internal/gui/design"
 
@@ -39,22 +38,20 @@ var (
 	scriptFooterCloseIcon = fyne.NewStaticResource("script-footer-close.svg", []byte(
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#8f9381"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`))
 	scriptFooterCloseHoverIcon = fyne.NewStaticResource("script-footer-close-hover.svg", []byte(
-		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`))
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f5f5f5"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`))
 )
 
 // ScriptFooterStatus is the left-side footer chip for script runs: a lime
 // spinner while a script is running, a red warning while one has failed,
 // and a turquoise check after the last run finishes cleanly. Hidden while
 // idle so it doesn't leave a hole next to the device-connect spinner.
-// Hovering a sticky done/error chip reveals a small X to dismiss it --
-// the hint stays until then so a finished run is not easy to miss.
+// Done/error keep an X visible and dismiss on a click anywhere on the chip.
 type ScriptFooterStatus struct {
 	widget.BaseWidget
 
-	kind         ScriptFooterKind
-	hovered      bool
-	closeHovered bool
-	onDismiss    func()
+	kind      ScriptFooterKind
+	hovered   bool
+	onDismiss func()
 	spinner   *DeviceDashboardBusySpinner
 	icon      *canvas.Image
 	label     *canvas.Text
@@ -62,7 +59,10 @@ type ScriptFooterStatus struct {
 	box       *fyne.Container
 }
 
-var _ desktop.Hoverable = (*ScriptFooterStatus)(nil)
+var (
+	_ desktop.Hoverable = (*ScriptFooterStatus)(nil)
+	_ fyne.Tappable     = (*ScriptFooterStatus)(nil)
+)
 
 func NewScriptFooterStatus() *ScriptFooterStatus {
 	s := &ScriptFooterStatus{}
@@ -89,27 +89,61 @@ func (s *ScriptFooterStatus) dismissable() bool {
 	return s.kind == ScriptFooterDone || s.kind == ScriptFooterError
 }
 
+func (s *ScriptFooterStatus) Tapped(*fyne.PointEvent) {
+	if s.dismissable() && s.onDismiss != nil {
+		s.onDismiss()
+	}
+}
+
+func (s *ScriptFooterStatus) TappedSecondary(*fyne.PointEvent) {}
+
+func (s *ScriptFooterStatus) Cursor() desktop.Cursor {
+	if s.dismissable() {
+		return desktop.PointerCursor
+	}
+	return desktop.DefaultCursor
+}
+
 func (s *ScriptFooterStatus) MouseIn(*desktop.MouseEvent) {
 	s.hovered = true
-	s.syncClose()
+	s.refreshHover()
 }
 
 func (s *ScriptFooterStatus) MouseOut() {
 	s.hovered = false
-	// Delay hide so moving onto the X (a child) doesn't collapse it
-	// before the child's own hover arrives.
-	time.AfterFunc(80*time.Millisecond, func() {
-		fyne.Do(s.syncClose)
-	})
+	s.refreshHover()
 }
 
 func (s *ScriptFooterStatus) MouseMoved(*desktop.MouseEvent) {}
+
+func (s *ScriptFooterStatus) idleLabelColor() color.Color {
+	switch s.kind {
+	case ScriptFooterError:
+		return scriptFooterErrorColor
+	case ScriptFooterDone:
+		return design.ColorConnectionBadgeText
+	default:
+		return design.ColorConnectionAddFill
+	}
+}
+
+func (s *ScriptFooterStatus) refreshHover() {
+	if s.label == nil {
+		return
+	}
+	if s.hovered && s.kind != ScriptFooterIdle {
+		s.label.Color = design.ColorTextLight
+	} else {
+		s.label.Color = s.idleLabelColor()
+	}
+	s.label.Refresh()
+}
 
 func (s *ScriptFooterStatus) syncClose() {
 	if s.closeBtn == nil {
 		return
 	}
-	if s.dismissable() && (s.hovered || s.closeHovered) {
+	if s.dismissable() {
 		s.closeBtn.Show()
 	} else {
 		s.closeBtn.Hide()
@@ -127,7 +161,6 @@ func (s *ScriptFooterStatus) applyChildren() {
 	case ScriptFooterRunning:
 		s.icon.Hide()
 		s.label.Text = scriptFooterRunningText
-		s.label.Color = design.ColorConnectionAddFill
 		s.label.Show()
 		s.spinner.Start()
 	case ScriptFooterError:
@@ -135,22 +168,20 @@ func (s *ScriptFooterStatus) applyChildren() {
 		s.icon.Resource = scriptFooterErrorIcon
 		s.icon.Show()
 		s.label.Text = scriptFooterErrorText
-		s.label.Color = scriptFooterErrorColor
 		s.label.Show()
 	case ScriptFooterDone:
 		s.spinner.Stop()
 		s.icon.Resource = scriptFooterDoneIcon
 		s.icon.Show()
 		s.label.Text = scriptFooterDoneText
-		s.label.Color = design.ColorConnectionBadgeText
 		s.label.Show()
 	default:
 		s.spinner.Stop()
 		s.icon.Hide()
 		s.label.Hide()
 	}
-	s.label.Refresh()
 	s.icon.Refresh()
+	s.refreshHover()
 	s.syncClose()
 }
 
@@ -167,17 +198,13 @@ func (s *ScriptFooterStatus) CreateRenderer() fyne.WidgetRenderer {
 	s.label.TextSize = 9
 	s.closeBtn = newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
-		HoverFill:    design.ColorSurfaceLight,
+		HoverFill:    color.Transparent,
 		Stroke:       color.Transparent,
 		CornerRadius: 3,
 		NormalIcon:   scriptFooterCloseIcon,
 		HoverIcon:    scriptFooterCloseHoverIcon,
 		IconSize:     fyne.NewSize(10, 10),
 		ButtonSize:   fyne.NewSize(deviceDashboardBusySpinnerSize, deviceDashboardBusySpinnerSize),
-		OnHover: func(on bool) {
-			s.closeHovered = on
-			s.syncClose()
-		},
 		OnTapped: func() {
 			if s.onDismiss != nil {
 				s.onDismiss()
