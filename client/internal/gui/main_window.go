@@ -221,6 +221,9 @@ type MainWindow struct {
 	// windowPlacementStop ends the periodic save of the window's last
 	// monitor/position so the next launch can reopen on the same display.
 	windowPlacementStop chan struct{}
+	// freezeWindowPlacement blocks placement autosave only while switching
+	// Size Desktop ↔ Compact so one mode cannot overwrite the other.
+	freezeWindowPlacement bool
 
 	// onMainContent tracks which screen is showing (true: mainContent,
 	// false: connectionContent) -- syncVideoOverlayForNav/syncAudioMuteForNav
@@ -251,8 +254,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 		lifecycleOps: make(chan func(), 32),
 	}
 	view.ForceMobileDesign = a.Preferences().BoolWithFallback(view.ForceMobileDesignPrefKey, false)
-	view.ForceMobilePresetID = a.Preferences().StringWithFallback(view.ForceMobilePresetPrefKey, view.DefaultPhonePreviewID)
-	view.ForceMobilePresetID = view.PhonePreviewByID(view.ForceMobilePresetID).ID
+	view.ForceMobilePresetID = view.CompactWindowPreset().ID
 	view.ForceMobileScale = view.ClampPhonePreviewScale(float32(a.Preferences().FloatWithFallback(view.ForceMobileScalePrefKey, float64(view.DefaultPhonePreviewScale))))
 	view.ApplyPreviewUserScale()
 

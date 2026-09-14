@@ -76,8 +76,16 @@ func newMobileConnectionOverflowButton(actions connectionHeaderActions) fyne.Can
 			actions.OnViewModeChange,
 			actions.OnOpenHardwareAgent,
 			actions.OnOpenSoftwareAgent,
-			actions.OnOpenInfo,
-			actions.OnOpenCommunity,
+			func() {
+				if actions.OnOpenInfo != nil {
+					actions.OnOpenInfo(btn)
+				}
+			},
+			func() {
+				if actions.OnOpenCommunity != nil {
+					actions.OnOpenCommunity(btn)
+				}
+			},
 			func() {
 				if actions.OnShowLanguageMenu != nil {
 					actions.OnShowLanguageMenu(btn)

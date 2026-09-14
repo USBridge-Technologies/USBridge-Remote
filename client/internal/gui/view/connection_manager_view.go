@@ -8,6 +8,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -1975,6 +1976,13 @@ func (b *iconChromeButton) MouseOut() {
 	}
 }
 
+func (b *iconChromeButton) Cursor() desktop.Cursor {
+	if b.spec.Disabled {
+		return desktop.DefaultCursor
+	}
+	return desktop.PointerCursor
+}
+
 func (b *iconChromeButton) refreshVisuals() {
 	if b.bg == nil || b.border == nil || b.icon == nil || b.label == nil {
 		return
@@ -2090,19 +2098,16 @@ func clampFloat32(value, minValue, maxValue float32) float32 {
 	return value
 }
 
-// ForceMobileDesignPrefKey persists the Connections footer Desktop/Mobile
-// preview toggle across restarts (app.Preferences).
+// ForceMobileDesignPrefKey persists Size → Compact vs Desktop across restarts.
 const ForceMobileDesignPrefKey = "force_mobile_design"
 
-// ForceMobileDesign previews the compact/mobile layout on a desktop OS.
-// Loaded from ForceMobileDesignPrefKey at startup; the footer button flips it.
+// ForceMobileDesign is Compact size mode on a desktop OS (iPhone SE layout).
 var ForceMobileDesign = false
 
-// DesignModeFooterLabel is the current preview mode, shown on the
-// Connections footer chip immediately before the version tag.
+// DesignModeFooterLabel is the Size chip in the Connections footer.
 func DesignModeFooterLabel() string {
-	if ForceMobileDesign {
-		return CurrentPhonePreview().SizeLabel() + " · " + FormatPhonePreviewScale(ForceMobileScale)
+	if i18n.Current != nil && i18n.Current.WindowSizeChip != "" {
+		return i18n.Current.WindowSizeChip
 	}
-	return "Desktop"
+	return "Size"
 }

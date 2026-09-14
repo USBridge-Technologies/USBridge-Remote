@@ -63,15 +63,22 @@ var (
 type FooterTintChip struct {
 	widget.BaseWidget
 
-	label   string
-	tint    color.Color
-	onTap   func()
-	hovered bool
-	lbl     *canvas.Text
+	label     string
+	tint      color.Color
+	onTap     func()
+	hovered   bool
+	icon      fyne.Resource
+	hoverIcon fyne.Resource
+	lbl       *canvas.Text
+	img       *canvas.Image
 }
 
 func NewFooterTintChip(label string, tint color.Color, onTap func()) *FooterTintChip {
-	c := &FooterTintChip{label: label, tint: tint, onTap: onTap}
+	return NewFooterTintChipWithIcon(label, tint, nil, nil, onTap)
+}
+
+func NewFooterTintChipWithIcon(label string, tint color.Color, icon, hoverIcon fyne.Resource, onTap func()) *FooterTintChip {
+	c := &FooterTintChip{label: label, tint: tint, icon: icon, hoverIcon: hoverIcon, onTap: onTap}
 	c.ExtendBaseWidget(c)
 	return c
 }
@@ -110,23 +117,100 @@ func (c *FooterTintChip) MouseOut() {
 }
 
 func (c *FooterTintChip) refreshVisuals() {
-	if c.lbl == nil {
-		return
+	if c.lbl != nil {
+		if c.hovered {
+			c.lbl.Color = design.ColorTextLight
+		} else {
+			c.lbl.Color = c.tint
+		}
+		c.lbl.Refresh()
 	}
-	if c.hovered {
-		c.lbl.Color = design.ColorTextLight
-	} else {
-		c.lbl.Color = c.tint
+	if c.img != nil && c.icon != nil {
+		res := c.icon
+		if c.hovered && c.hoverIcon != nil {
+			res = c.hoverIcon
+		}
+		c.img.Resource = res
+		c.img.Refresh()
 	}
-	c.lbl.Refresh()
 }
 
 func (c *FooterTintChip) CreateRenderer() fyne.WidgetRenderer {
 	c.lbl = canvas.NewText(c.label, c.tint)
 	c.lbl.TextSize = 9
-	c.lbl.TextStyle.Bold = true
+	c.lbl.TextStyle.Bold = false
 	c.refreshVisuals()
-	return widget.NewSimpleRenderer(c.lbl)
+	if c.icon == nil {
+		return widget.NewSimpleRenderer(c.lbl)
+	}
+	c.img = canvas.NewImageFromResource(c.icon)
+	c.img.FillMode = canvas.ImageFillContain
+	c.img.SetMinSize(fyne.NewSize(10, 10))
+	c.refreshVisuals()
+	row := container.New(&DeviceRowControlsLayout{Gap: 3}, c.lbl, c.img)
+	return widget.NewSimpleRenderer(row)
+}
+
+// FooterHardwareChip is Connections' Hardware Agent row: lime text like
+// Software Agent (no hover fill), plus a standing open-external icon.
+// The label restores the firmware promo; the icon opens the website.
+type FooterHardwareChip struct {
+	widget.BaseWidget
+
+	onOpen    func()
+	onRestore func()
+	label     *FooterTintChip
+	extBtn    *iconChromeButton
+}
+
+func NewFooterHardwareChip(label string) *FooterHardwareChip {
+	c := &FooterHardwareChip{}
+	c.label = NewFooterTintChip(label, design.ColorConnectionAddFill, func() {
+		if c.onRestore != nil {
+			c.onRestore()
+		}
+	})
+	c.ExtendBaseWidget(c)
+	c.Hide()
+	return c
+}
+
+func (c *FooterHardwareChip) SetOnOpen(fn func()) {
+	c.onOpen = fn
+}
+
+func (c *FooterHardwareChip) SetOnRestore(fn func()) {
+	c.onRestore = fn
+}
+
+func (c *FooterHardwareChip) SetActive(on bool) {
+	if on {
+		c.Show()
+	} else {
+		c.Hide()
+	}
+	c.Refresh()
+}
+
+func (c *FooterHardwareChip) CreateRenderer() fyne.WidgetRenderer {
+	btnSize := fyne.NewSize(deviceDashboardBusySpinnerSize, deviceDashboardBusySpinnerSize)
+	c.extBtn = newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:   color.Transparent,
+		HoverFill:    color.Transparent,
+		Stroke:       color.Transparent,
+		CornerRadius: 3,
+		NormalIcon:   assets.OpenExternalIconLime,
+		HoverIcon:    assets.OpenExternalIconLimeHover,
+		IconSize:     fyne.NewSize(10, 10),
+		ButtonSize:   btnSize,
+		OnTapped: func() {
+			if c.onOpen != nil {
+				c.onOpen()
+			}
+		},
+	})
+	row := container.New(&DeviceRowControlsLayout{Gap: 4}, c.label, c.extBtn)
+	return widget.NewSimpleRenderer(row)
 }
 
 func newFooterPromoChip(label string) *FooterPromoChip {

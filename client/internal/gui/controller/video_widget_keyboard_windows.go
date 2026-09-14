@@ -19,6 +19,7 @@ var (
 // Windows so it appears above the Vulkan overlay (which is also WS_EX_TOPMOST).
 func platformSetupKeyboardWindow(vk *graphics.VirtualKeyboard) {
 	vk.SetOnWindowShown(func(w fyne.Window) {
+		vk.ApplySavedWindowSize()
 		nw, ok := w.(driver.NativeWindow)
 		if !ok {
 			return
@@ -42,5 +43,6 @@ func platformSetupKeyboardWindow(vk *graphics.VirtualKeyboard) {
 			)
 			procSetWinPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)
 		})
+		vk.ApplySavedWindowSize()
 	})
 }

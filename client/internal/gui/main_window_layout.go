@@ -472,14 +472,14 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 				mw.connectionManager.ShowLanguageMenu(anchor)
 			}
 		},
-		OnOpenCommunity: func() {
+		OnOpenCommunity: func(anchor fyne.CanvasObject) {
 			if mw.connectionManager != nil {
-				mw.connectionManager.OpenDiscordInvite()
+				mw.connectionManager.ShowCommunityMenu(anchor)
 			}
 		},
-		OnOpenInfo: func() {
+		OnOpenInfo: func(anchor fyne.CanvasObject) {
 			if mw.connectionManager != nil {
-				mw.connectionManager.OpenInfoPage()
+				mw.connectionManager.ShowInfoMenu(anchor)
 			}
 		},
 		OnOpenHardwareAgent: func() {
@@ -570,14 +570,14 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 				mw.connectionManager.ShowLanguageMenu(anchor)
 			}
 		},
-		OnOpenCommunity: func() {
+		OnOpenCommunity: func(anchor fyne.CanvasObject) {
 			if mw.connectionManager != nil {
-				mw.connectionManager.OpenDiscordInvite()
+				mw.connectionManager.ShowCommunityMenu(anchor)
 			}
 		},
-		OnOpenInfo: func() {
+		OnOpenInfo: func(anchor fyne.CanvasObject) {
 			if mw.connectionManager != nil {
-				mw.connectionManager.OpenInfoPage()
+				mw.connectionManager.ShowInfoMenu(anchor)
 			}
 		},
 		OnOpenHardwareAgent: func() {
@@ -677,7 +677,7 @@ func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 	// Real phones are already mobile — the preview switch is for desktop.
 	if !fyne.CurrentDevice().IsMobile() {
 		var chip *view.FooterTintChip
-		chip = view.NewFooterTintChip(view.DesignModeFooterLabel(), design.ColorConnectionBadgeText, func() {
+		chip = view.NewFooterTintChipWithIcon(view.DesignModeFooterLabel(), design.ColorConnectionBadgeText, assets.ExpandIconTeal, assets.ExpandIconWhite, func() {
 			mw.showDesignModeMenu(chip)
 		})
 		mw.designModeChip = chip
@@ -687,10 +687,14 @@ func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 }
 
 func (mw *MainWindow) showDesignModeMenu(anchor fyne.CanvasObject) {
-	view.ShowDesignPreviewMenu(anchor, mw.applyDesktopDesignPreview, mw.applyPhoneDesignPreview, mw.applyPhonePreviewScale)
+	view.ShowDesignPreviewMenu(anchor, mw.applyDesktopDesignPreview, mw.applyCompactSizeMode, mw.applyPhonePreviewScale)
 }
 
 func (mw *MainWindow) applyDesktopDesignPreview() {
+	if view.ForceMobileDesign {
+		mw.persistWindowPlacement()
+	}
+	mw.freezeWindowPlacement = true
 	view.ForceMobileDesign = false
 	if mw.app != nil {
 		mw.app.Preferences().SetBool(view.ForceMobileDesignPrefKey, false)
@@ -700,20 +704,27 @@ func (mw *MainWindow) applyDesktopDesignPreview() {
 	}
 	view.RestorePreviewUserScale()
 	view.ReloadFyneCanvasScale()
-	logrus.Info("🎨 [DESIGN] desktop layout — reloading UI")
+	logrus.Info("🪟 [Size] desktop — reloading UI")
 	mw.reloadUI()
+	mw.freezeWindowPlacement = false
+	mw.applyDesktopWindowGeometry()
 }
 
-func (mw *MainWindow) applyPhoneDesignPreview(preset view.PhonePreviewPreset) {
+func (mw *MainWindow) applyCompactSizeMode() {
+	if !view.ForceMobileDesign {
+		mw.persistWindowPlacement()
+	}
+	mw.freezeWindowPlacement = true
 	view.ForceMobileDesign = true
-	view.ForceMobilePresetID = preset.ID
+	view.ForceMobilePresetID = view.CompactWindowPreset().ID
 	if mw.app != nil {
 		mw.app.Preferences().SetBool(view.ForceMobileDesignPrefKey, true)
-		mw.app.Preferences().SetString(view.ForceMobilePresetPrefKey, preset.ID)
+		mw.app.Preferences().SetString(view.ForceMobilePresetPrefKey, view.ForceMobilePresetID)
 	}
 	view.ApplyPreviewUserScale()
-	logrus.Infof("🎨 [DESIGN] mobile layout preset=%s %s scale=%s — reloading UI", preset.ID, preset.SizeLabel(), view.FormatPhonePreviewScale(view.ForceMobileScale))
+	logrus.Infof("🪟 [Size] compact scale=%s — reloading UI", view.FormatPhonePreviewScale(view.ForceMobileScale))
 	mw.reloadUI()
+	mw.freezeWindowPlacement = false
 }
 
 func (mw *MainWindow) applyPhonePreviewScale(scale float32) {
@@ -727,10 +738,8 @@ func (mw *MainWindow) applyPhonePreviewScale(scale float32) {
 	if !view.ForceMobileDesign {
 		return
 	}
-	view.ApplyPreviewUserScale()
-	view.ReloadFyneCanvasScale()
 	mw.applyPhonePreviewWindowSize()
-	logrus.Infof("🎨 [DESIGN] preview scale=%s", view.FormatPhonePreviewScale(view.ForceMobileScale))
+	logrus.Infof("🪟 [Size] compact scale=%s", view.FormatPhonePreviewScale(view.ForceMobileScale))
 }
 
 func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {

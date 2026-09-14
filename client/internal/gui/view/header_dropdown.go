@@ -779,6 +779,7 @@ type StyledMenuItem struct {
 	SecondaryLabel string
 	Selected       bool
 	OnTap          func()
+	Icon           fyne.Resource
 }
 
 type StyledMenuOptions struct {
@@ -798,6 +799,9 @@ type StyledMenuOptions struct {
 	// own 36/32/24) when > 0 -- the default reads as too much top/bottom
 	// padding once TextSize shrinks a row's text down from the default 14.
 	RowHeight float32
+	// IconSize is the left-side glyph for StyledMenuItem.Icon. 0 keeps
+	// dropdownItem's own 16px default.
+	IconSize float32
 	// IgnoreAnchorWidth skips the "never narrower than anchor" step below --
 	// every other caller (dropdowns, the header's icon menus) wants the menu
 	// at least as wide as the control that opened it, but a text entry's own
@@ -862,7 +866,8 @@ func mobileStyledMenuOptions(openAbove bool) StyledMenuOptions {
 		TextColor: design.ColorConnectionBadgeText,
 		TextSize:  13,
 		RowHeight: 38,
-		Width:     220,
+		Width:     236,
+		IconSize:  16,
 	}
 }
 
@@ -879,6 +884,7 @@ func tealStyledMenuOptions(openAbove bool) StyledMenuOptions {
 		TextColor: design.ColorConnectionBadgeText,
 		TextSize:  10,
 		RowHeight: 26,
+		IconSize:  12,
 	}
 }
 
@@ -907,6 +913,12 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 			}
 		}
 		row := newDropdownItem(menuItem.Label, menuItem.SecondaryLabel, menuItem.Selected, onTap)
+		if menuItem.Icon != nil {
+			row.iconRes = menuItem.Icon
+			if options.IconSize > 0 {
+				row.iconSide = options.IconSize
+			}
+		}
 		if options.TextColor != nil {
 			row.textColor = options.TextColor
 		}
@@ -951,6 +963,9 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		label := canvas.NewText(option.Label, design.ColorTextLight)
 		label.TextSize = rowTextSize
 		optionWidth := label.MinSize().Width + 40
+		if option.Icon != nil {
+			optionWidth += 24
+		}
 		if optionWidth > width {
 			width = optionWidth
 		}

@@ -350,6 +350,13 @@ type LocalizedStrings struct {
 	// Virtual keyboard
 	VirtualKeyboard string // "Virtual keyboard"
 
+	// Window size (desktop vs compact widget)
+	WindowSizeChip     string
+	WindowSizeDesktop  string
+	WindowSizeCompact  string
+	WindowSizeScale    string
+	WindowSizeScaleOff string
+
 	// Device names
 	DeviceKeyboard                       string // "Keyboard"
 	DeviceTouchPad                       string // "TouchPad" (relative touchpad mode)
@@ -791,6 +798,12 @@ func EN() *LocalizedStrings {
 		// Virtual keyboard
 		VirtualKeyboard: "Virtual keyboard",
 
+		WindowSizeChip:     "Size",
+		WindowSizeDesktop:  "Desktop",
+		WindowSizeCompact:  "Compact",
+		WindowSizeScale:    "Scale",
+		WindowSizeScaleOff: "On in Compact",
+
 		// Device names
 		DeviceKeyboard:                       "Keyboard",
 		DeviceTouchPad:                       "TouchPad",
@@ -1022,6 +1035,11 @@ func ES() *LocalizedStrings {
 	locale.DeepLinkConnect = "Conectar"
 	locale.DeepLinkSave = "Guardar"
 	locale.VirtualKeyboard = "Teclado virtual"
+	locale.WindowSizeChip = "Tamano"
+	locale.WindowSizeDesktop = "Escritorio"
+	locale.WindowSizeCompact = "Compacto"
+	locale.WindowSizeScale = "Escala"
+	locale.WindowSizeScaleOff = "En Compacto"
 	locale.FullscreenWindowTitle = "USBridge - Pantalla completa"
 	locale.PCPanelPowerTitle = "Encendido"
 	locale.PCPanelResetTitle = "Reinicio"
@@ -1200,6 +1218,11 @@ func UKProper() *LocalizedStrings {
 	locale.DeepLinkConnect = "Підключити"
 	locale.DeepLinkSave = "Зберегти"
 	locale.VirtualKeyboard = "Віртуальна клавіатура"
+	locale.WindowSizeChip = "Size"
+	locale.WindowSizeDesktop = "Desktop"
+	locale.WindowSizeCompact = "Compact"
+	locale.WindowSizeScale = "Scale"
+	locale.WindowSizeScaleOff = "У Compact"
 	locale.FullscreenWindowTitle = "USBridge - Повний екран"
 	locale.PCPanelPowerTitle = "Живлення"
 	locale.PCPanelResetTitle = "Скидання"

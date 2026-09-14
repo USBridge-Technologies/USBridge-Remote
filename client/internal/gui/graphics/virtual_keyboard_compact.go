@@ -37,6 +37,9 @@ type compactKey struct {
 	icon    fyne.Resource
 	kind    compactKeyKind
 	minW    float32
+	minH    float32
+	radius  float32
+	faceSize float32
 	active  bool
 	hovered bool
 	onTap   func()
@@ -64,6 +67,32 @@ func (k *compactKey) SetActive(on bool) {
 	k.syncVisuals()
 }
 
+func (k *compactKey) SetFaceSize(sz float32) {
+	if sz < 9 {
+		sz = 9
+	}
+	if sz > 22 {
+		sz = 22
+	}
+	k.faceSize = sz
+	if k.text != nil {
+		k.text.TextSize = sz
+		k.text.Refresh()
+	}
+	if k.iconImg != nil {
+		icon := sz + 6
+		k.iconImg.SetMinSize(fyne.NewSize(icon, icon))
+		k.iconImg.Refresh()
+	}
+}
+
+func (k *compactKey) keyRadius() float32 {
+	if k.radius > 0 {
+		return k.radius
+	}
+	return compactKeyRadius
+}
+
 func (k *compactKey) Tapped(*fyne.PointEvent) {
 	if k.onTap != nil {
 		k.onTap()
@@ -89,24 +118,33 @@ func (k *compactKey) MinSize() fyne.Size {
 	if w <= 0 {
 		w = 40
 	}
-	return fyne.NewSize(w, compactKeyHeight)
+	h := k.minH
+	if h <= 0 {
+		h = compactKeyHeight
+	}
+	return fyne.NewSize(w, h)
 }
 
 func (k *compactKey) CreateRenderer() fyne.WidgetRenderer {
 	k.bg = canvas.NewRectangle(design.ColorStatusBarFill)
-	k.bg.CornerRadius = compactKeyRadius
+	k.bg.CornerRadius = k.keyRadius()
 	k.border = canvas.NewRectangle(color.Transparent)
-	k.border.CornerRadius = compactKeyRadius
+	k.border.CornerRadius = k.keyRadius()
 	k.border.StrokeWidth = compactKeyStroke
 	var face fyne.CanvasObject
+	textSize := compactKeyTextSize
+	if k.faceSize > 0 {
+		textSize = k.faceSize
+	}
 	if k.icon != nil {
 		k.iconImg = canvas.NewImageFromResource(k.icon)
 		k.iconImg.FillMode = canvas.ImageFillContain
-		k.iconImg.SetMinSize(fyne.NewSize(18, 18))
+		icon := textSize + 6
+		k.iconImg.SetMinSize(fyne.NewSize(icon, icon))
 		face = container.NewCenter(k.iconImg)
 	} else {
 		k.text = canvas.NewText(k.label, design.ColorConnectionsSectionMutedText)
-		k.text.TextSize = compactKeyTextSize
+		k.text.TextSize = textSize
 		k.text.TextStyle.Bold = true
 		k.text.Alignment = fyne.TextAlignCenter
 		face = container.NewCenter(k.text)

@@ -120,7 +120,7 @@ type ConnectionManager struct {
 	// firmwareChip ("software") in the Connections footer instead.
 	firmwarePromoDismissed bool
 	firmwareBanner         *view.FirmwarePromoBanner
-	firmwareChip           *view.FooterPromoChip
+	firmwareChip           *view.FooterHardwareChip
 	agentChip              *view.FooterTintChip
 
 	// Account owns the account login + sync passphrase this connections

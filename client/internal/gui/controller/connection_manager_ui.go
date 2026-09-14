@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
@@ -39,7 +40,7 @@ func (cm *ConnectionManager) createInterface() {
 	cm.firmwareBanner = view.NewFirmwarePromoBanner()
 	cm.firmwareBanner.SetOnDismiss(cm.dismissFirmwarePromo)
 	cm.firmwareBanner.SetOnTrial(cm.openFirmwarePromo)
-	cm.firmwareChip = view.NewFooterLabelChip("Hardware Agent")
+	cm.firmwareChip = view.NewFooterHardwareChip("Hardware Agent")
 	cm.firmwareChip.SetOnOpen(cm.openFirmwarePromo)
 	cm.firmwareChip.SetOnRestore(cm.restoreFirmwarePromo)
 	cm.agentChip = view.NewFooterTintChip("Software Agent", design.ColorConnectionBadgeText, cm.showAgentCatalog)
@@ -72,9 +73,9 @@ func (cm *ConnectionManager) PromoFooterChip() fyne.CanvasObject {
 	return cm.promoChip
 }
 
-// FirmwareFooterChip is the Connections footer's "software" stand-in for a
-// dismissed firmware banner -- click opens the trial page, expand restores
-// the banner.
+// FirmwareFooterChip is the Connections footer's Hardware Agent stand-in
+// when the firmware banner is dismissed: the label restores the promo,
+// the external icon opens the landing page.
 func (cm *ConnectionManager) FirmwareFooterChip() fyne.CanvasObject {
 	if cm == nil {
 		return nil
@@ -227,7 +228,7 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 			},
 		},
 	}
-	if view.UseMobileConnections() {
+	if view.IsMobile() {
 		view.ShowMobileLanguageMenu(anchor, items)
 		return
 	}
@@ -238,6 +239,63 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 // createConnectionAddressBar (package gui) to call.
 func (cm *ConnectionManager) ShowLanguageMenu(anchor fyne.CanvasObject) {
 	cm.showLanguageMenu(anchor)
+}
+
+func (cm *ConnectionManager) showLinkMenu(anchor fyne.CanvasObject, items []view.StyledMenuItem) {
+	if view.IsMobile() {
+		view.ShowMobileLanguageMenu(anchor, items)
+		return
+	}
+	view.ShowStyledMenuTeal(anchor, items)
+}
+
+// ShowInfoMenu is the connections header "?" button: Software / Hardware
+// GitHub plus the public website — same teal popup as the language menu.
+func (cm *ConnectionManager) ShowInfoMenu(anchor fyne.CanvasObject) {
+	cm.showLinkMenu(anchor, []view.StyledMenuItem{
+		{
+			Label: "Software",
+			Icon:  assets.GitHubIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://github.com/USBridge-Technologies/USBridge-Remote", "software GitHub URL")
+			},
+		},
+		{
+			Label: "Hardware",
+			Icon:  assets.GitHubIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://github.com/USBridge-Technologies/USBridge-KVM-2.0/tree/main/docs", "hardware GitHub URL")
+			},
+		},
+		{
+			Label: "Website",
+			Icon:  assets.OpenExternalIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://www.usbridge.io/", "website URL")
+			},
+		},
+	})
+}
+
+// ShowCommunityMenu is the connections header community button: Discord
+// (same invite as OpenDiscordInvite) plus Reddit.
+func (cm *ConnectionManager) ShowCommunityMenu(anchor fyne.CanvasObject) {
+	cm.showLinkMenu(anchor, []view.StyledMenuItem{
+		{
+			Label: "Discord",
+			Icon:  assets.DiscordBrandIconTeal,
+			OnTap: func() {
+				cm.openDiscordInvite()
+			},
+		},
+		{
+			Label: "Reddit",
+			Icon:  assets.RedditIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://www.reddit.com/r/USBridge/", "Reddit URL")
+			},
+		},
+	})
 }
 
 func (cm *ConnectionManager) openQuickStartDocs() {
