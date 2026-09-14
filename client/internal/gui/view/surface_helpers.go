@@ -122,14 +122,9 @@ func NewInset(content fyne.CanvasObject, left, right, top, bottom float32) *fyne
 	return container.NewBorder(topSpacer, bottomSpacer, leftSpacer, rightSpacer, content)
 }
 
-// bottomLineLayout is NewBottomLine's own layout -- content on top, a thin
-// line (its own MinSize().Height, typically <1px) directly under it, with
-// zero added padding. Same reasoning as insetLayout: the previous
-// `container.NewBorder(nil, line, nil, nil, content)` pattern silently adds
-// theme.Padding() (4px) under the line whenever the bottom slot is non-nil,
-// with nothing matching it on top (top is nil) -- a real, if small,
-// top/bottom asymmetry (see NewInset's own doc comment for the general
-// mechanism).
+// bottomLineLayout is NewBottomLine's own layout -- content fills the
+// band, a thin line overlays the bottom edge. The hairline does not add
+// height (a reserved slot showed as a grey strip against video).
 type bottomLineLayout struct{}
 
 func (l *bottomLineLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -138,33 +133,25 @@ func (l *bottomLineLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	}
 	content, line := objects[0], objects[1]
 	lineHeight := line.MinSize().Height
-	contentHeight := size.Height - lineHeight
-	if contentHeight < 0 {
-		contentHeight = 0
-	}
 	content.Move(fyne.NewPos(0, 0))
-	content.Resize(fyne.NewSize(size.Width, contentHeight))
-	line.Move(fyne.NewPos(0, contentHeight))
+	content.Resize(size)
+	y := size.Height - lineHeight
+	if y < 0 {
+		y = 0
+	}
+	line.Move(fyne.NewPos(0, y))
 	line.Resize(fyne.NewSize(size.Width, lineHeight))
 }
 
 func (l *bottomLineLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 2 {
+	if len(objects) == 0 {
 		return fyne.NewSize(0, 0)
 	}
-	contentMin := objects[0].MinSize()
-	lineMin := objects[1].MinSize()
-	width := contentMin.Width
-	if lineMin.Width > width {
-		width = lineMin.Width
-	}
-	return fyne.NewSize(width, contentMin.Height+lineMin.Height)
+	return objects[0].MinSize()
 }
 
-// NewBottomLine stacks content above a thin line (e.g. a header's accent
-// line) with no padding between them, pixel-exact -- see bottomLineLayout's
-// own doc comment for why this isn't just container.NewBorder(nil, line,
-// nil, nil, content).
+// NewBottomLine draws a hairline along the bottom edge of content without
+// adding layout height -- see bottomLineLayout.
 func NewBottomLine(content, line fyne.CanvasObject) *fyne.Container {
 	return container.New(&bottomLineLayout{}, content, line)
 }
@@ -490,7 +477,7 @@ func NewHeaderBand(title string, content fyne.CanvasObject) *fyne.Container {
 // 5dp bottom pad read as a black strip under the keys and sat above Vulkan.
 func NewSpecialKeysHeaderBand(content fyne.CanvasObject) *fyne.Container {
 	bg := canvas.NewRectangle(design.ColorGray900)
-	body := NewInsetExact(content, headerBandHorizontalInset, headerBandHorizontalInset, 4, 0)
+	body := NewInsetExact(content, 4, 4, 2, 0)
 	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
 	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
 	return container.NewStack(bg, NewBottomLine(body, accentLine))
