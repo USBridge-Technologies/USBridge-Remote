@@ -1777,8 +1777,12 @@ void android_vk_update_rect(int x, int y, int w, int h) {
 
 void android_vk_set_hidden(int hidden) {
     if (!atomic_load(&g_active)) return;
-    atomic_store(&g_hidden, hidden ? 1 : 0);
-    java_set_visible(!hidden);
+    int want = hidden ? 1 : 0;
+    int prev = atomic_exchange(&g_hidden, want);
+    if (prev == want) return;
+    java_set_visible(!want);
+    // Samsung may have dropped the buffer while "hidden"; rebuild on show.
+    if (!want) atomic_store(&g_force_recreate, 1);
 }
 
 void android_vk_destroy(void) {

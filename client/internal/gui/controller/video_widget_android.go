@@ -234,6 +234,9 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	}
 	px, py, pw, ph := vkSurfacePx(x, y, w, h, scale)
 	vkLastRenderedW, vkLastRenderedH = pw, ph
+	// Poll nav+popup every tick (same as Windows). Overlay depth can stick
+	// after a menu; NavVideoHidden is last-write and self-heals on tab return.
+	service.VKVideoAndroidSetHidden(view.VideoShouldBeHidden())
 	service.VKVideoAndroidUpdateRect(px, py, pw, ph)
 	vw.updateNativeViewportAndCursor()
 }
