@@ -957,28 +957,46 @@ func (m *MoonlightService) SetHdr(enabled bool) {
 
 // moonlightVideoFormat maps a video mode string plus the RustShine color
 // checkboxes (4:4:4 chroma, HDR dynamic range -- see SetColor444/SetHdr) to
-// the VIDEO_FORMAT_* constant used by moonlight-common-c (matches
-// Limelight.h defines) -- do_li_start passes this straight through as
-// cfg.supportedVideoFormats, and RtspConnection.c's performRtspHandshake
-// ANDs it against the server's own /serverinfo ServerCodecModeSupport bit
-// to decide the real negotiated format (see SdpGenerator.c:
-// VIDEO_FORMAT_MASK_YUV444/VIDEO_FORMAT_MASK_10BIT are what actually set
-// the ANNOUNCE's chromaSamplingType/dynamicRangeMode). Both checkboxes only
-// change anything for VideoModeH265 -- this project's hardware encode
-// backends have no H.264 or AV1 4:4:4/Main10 profile wired up, so they're
-// silently ignored for those modes rather than requesting a format the
-// server could never satisfy. color444 && hdr together request
-// VIDEO_FORMAT_H265_REXT10_444 (4:4:4 AND 10-bit combined) -- no backend
-// implements that combination today, so in practice the server's own
-// ServerCodecModeSupport just won't have that bit and the client falls back
-// to plain H265 during negotiation, same as requesting anything else the
-// server doesn't support.
+// the VIDEO_FORMAT_* value passed to moonlight-common-c as
+// cfg.supportedVideoFormats (matches Limelight.h defines).
+//
+// This is NOT a single exclusive format request -- RtspConnection.c's
+// performRtspHandshake treats it as a bitmask of every format the client
+// would accept, and walks its own fixed priority cascade
+// (REXT10_444 -> MAIN10 -> REXT8_444, see RtspConnection.c:1111-1118)
+// testing each candidate bit against the server's advertised
+// ServerCodecModeSupport, taking the first one both sides have. Returning
+// only the single "ideal" bit for the color444&&hdr case used to break this:
+// no backend implements the combined REXT10_444 profile (see
+// docs/COLOR_MODES.md), so serverCodecModeSupport never has that bit, and
+// since supportedVideoFormats had *only* 0x0800 set, the MAIN10/REXT8_444
+// fallback checks in the cascade (which AND against supportedVideoFormats
+// too) also failed -- negotiation silently dropped to bare
+// VIDEO_FORMAT_H265, losing HDR AND 4:4:4 both, confirmed live via the
+// serverCodecModeSupport=0x80301 (SCM_HEVC_MAIN10|SCM_HEVC_REXT8_444, no
+// SCM_HEVC_REXT10_444) / negotiated 0x0100 log pairing (2026-09-14).
+//
+// Fix: OR in every acceptable fallback bit alongside the ideal one, so the
+// C cascade can actually degrade to whichever single feature the server
+// does support instead of degrading to neither. moonlight-common-c's own
+// cascade order (HDR before 4:4:4) picks the deprioritized feature when
+// only one can be had -- not configurable from here without patching
+// RtspConnection.c, and matches upstream Moonlight's own preference.
+//
+// Both checkboxes only change anything for VideoModeH265 -- this project's
+// hardware encode backends have no H.264 or AV1 4:4:4/Main10 profile wired
+// up, so they're silently ignored for those modes rather than requesting a
+// format the server could never satisfy.
 func moonlightVideoFormat(mode string, color444, hdr bool) int {
 	switch mode {
 	case models.VideoModeH265:
 		switch {
 		case color444 && hdr:
-			return 0x0800 // VIDEO_FORMAT_H265_REXT10_444
+			// Ideal: VIDEO_FORMAT_H265_REXT10_444 (0x0800). Fallbacks the
+			// server might actually support instead: VIDEO_FORMAT_H265_MAIN10
+			// (0x0200) or VIDEO_FORMAT_H265_REXT8_444 (0x0400) -- see doc
+			// comment above for why all three must be OR'd together.
+			return 0x0800 | 0x0200 | 0x0400
 		case color444:
 			return 0x0400 // VIDEO_FORMAT_H265_REXT8_444
 		case hdr:
