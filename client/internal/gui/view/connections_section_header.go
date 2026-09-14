@@ -45,8 +45,9 @@ const alwaysShowConnectionsBadges = true
 // ConnectionsSummary is how many saved connections fall into each category
 // shown as a count badge next to the section title.
 type ConnectionsSummary struct {
-	AgentCount int
-	KVMCount   int
+	AgentCount   int
+	KVMCount     int
+	UnknownCount int
 }
 
 // ClassifyConnectionRemoteOS buckets a saved connection's RemoteOS value
@@ -64,8 +65,8 @@ func ClassifyConnectionRemoteOS(remoteOS string) (isAgent bool, isKVM bool) {
 		return true, false
 	default:
 		// Unclassified (empty/unknown RemoteOS, e.g. a connection never
-		// successfully reached yet) -- counted in neither badge rather than
-		// guessed at.
+		// successfully reached yet) -- the header's Unknown badge counts
+		// these, same as the per-card "Unknown" chip.
 		return false, false
 	}
 }
@@ -84,6 +85,9 @@ func SummarizeConnections(remoteOSValues []string) ConnectionsSummary {
 		if isKVM {
 			summary.KVMCount++
 		}
+		if !isAgent && !isKVM {
+			summary.UnknownCount++
+		}
 	}
 	return summary
 }
@@ -97,8 +101,8 @@ type connectionsHeaderActions struct {
 	// OnViewModeChange fires with "list" or "grid" when the Grid/List toggle
 	// is tapped -- see ConnectionManagerUI.setViewMode.
 	OnViewModeChange func(mode string)
-	// OnSortToggle fires with "kvm", "agent", or "" (tapping the already-
-	// active badge turns it back off) when a KVM/Agent count badge is
+	// OnSortToggle fires with "kvm", "agent", "unknown", or "" (tapping the
+	// already-active badge turns it back off) when a count badge is
 	// tapped -- see ConnectionManager.handleConnectionSortToggle.
 	OnSortToggle func(kind string)
 }
@@ -160,16 +164,7 @@ func newConnectionsHeader(summary ConnectionsSummary, actions connectionsHeaderA
 	titleGap := canvas.NewRectangle(color.Transparent)
 	titleGap.SetMinSize(fyne.NewSize(10, 1))
 	titleItems := []fyne.CanvasObject{container.NewCenter(title), titleGap}
-	if summary.AgentCount > 0 || alwaysShowConnectionsBadges {
-		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
-			fmt.Sprintf("%d Agent", summary.AgentCount), design.ColorConnectionBadgeText,
-			activeSort == "agent", toggleSort("agent"))))
-	}
-	if summary.KVMCount > 0 || alwaysShowConnectionsBadges {
-		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
-			fmt.Sprintf("%d KVM", summary.KVMCount), design.ColorConnectionAddFill,
-			activeSort == "kvm", toggleSort("kvm"))))
-	}
+	titleItems = appendConnectionSortBadges(titleItems, summary, activeSort, toggleSort)
 	titleRow := container.NewHBox(titleItems...)
 
 	subtitle := canvas.NewText(i18n.Current.ConnectionsHeaderSubtitle, design.ColorConnectionsSectionSubtitle)
@@ -232,6 +227,29 @@ func newConnectionsHeader(summary ConnectionsSummary, actions connectionsHeaderA
 	content := container.NewBorder(NewInset(row, 0, 0, 4, 8), underline, nil, nil)
 
 	return NewInset(content, connectionsHeaderSideMargin, connectionsHeaderSideMargin, 8, 0), &connectionsHeaderButtons{add: addBtn}
+}
+
+func appendConnectionSortBadges(titleItems []fyne.CanvasObject, summary ConnectionsSummary, activeSort string, toggleSort func(kind string) func()) []fyne.CanvasObject {
+	if summary.AgentCount > 0 || alwaysShowConnectionsBadges {
+		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
+			fmt.Sprintf("%d Agent", summary.AgentCount), design.ColorConnectionBadgeText,
+			activeSort == "agent", toggleSort("agent"))))
+	}
+	if summary.KVMCount > 0 || alwaysShowConnectionsBadges {
+		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
+			fmt.Sprintf("%d KVM", summary.KVMCount), design.ColorConnectionAddFill,
+			activeSort == "kvm", toggleSort("kvm"))))
+	}
+	if summary.UnknownCount > 0 || alwaysShowConnectionsBadges {
+		label := fmt.Sprintf("%d Unknown", summary.UnknownCount)
+		if UseMobileConnections() {
+			label = fmt.Sprintf("%d Unk", summary.UnknownCount)
+		}
+		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
+			label, design.ColorTextMuted,
+			activeSort == "unknown", toggleSort("unknown"))))
+	}
+	return titleItems
 }
 
 // connectionSortBadge is one small pill badge (e.g. "2 Agent") that also

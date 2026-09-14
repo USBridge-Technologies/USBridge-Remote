@@ -107,6 +107,16 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	}
 }
 
+func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {}
+
+func (vw *VideoWidget) applyImmediateKeyboardViewport() {
+	if vw == nil {
+		return
+	}
+	vw.InvalidateOverlayGeometry()
+	vw.forceCanvasRefresh.Store(true)
+}
+
 // realIMEOpenThresholdDp mirrors Android's own onIMEHeightChanged
 // threshold (minRealIMEDp = 100): a shrink smaller than this is normal
 // address-bar/rounding noise, not a real keyboard.

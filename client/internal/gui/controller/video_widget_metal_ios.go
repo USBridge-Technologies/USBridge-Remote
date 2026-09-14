@@ -323,7 +323,8 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 		idealPanY := availH*(focusY-0.5) + ch*(0.5-v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
-		vw.panOffsetY = iosSoftClamp(idealPanY, -maxPanY-extraUp, maxPanY, zoneY)
+		extraDown := extraUp
+		vw.panOffsetY = iosSoftClamp(idealPanY, -maxPanY-extraUp, maxPanY+extraDown, zoneY)
 	} else {
 		vw.panOffsetY = 0
 	}

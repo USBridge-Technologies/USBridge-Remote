@@ -25,8 +25,8 @@ type connectionHeaderActions struct {
 	// OnShowLanguageMenu is called with the language button itself as the
 	// anchor, so the popup menu can position itself against it.
 	OnShowLanguageMenu func(anchor fyne.CanvasObject)
-	OnOpenCommunity    func()
-	OnOpenInfo         func()
+	OnOpenCommunity    func(anchor fyne.CanvasObject)
+	OnOpenInfo         func(anchor fyne.CanvasObject)
 	OnOpenHardwareAgent func()
 	OnOpenSoftwareAgent func()
 	OnToggleTailscale  func()
@@ -98,8 +98,8 @@ var gearIconHeader = fyne.NewStaticResource("gear-header.svg", []byte(`<svg xmln
 type headerSettingsMenuActions struct {
 	OnPowerReset        func()
 	OnShowLanguageMenu  func(anchor fyne.CanvasObject)
-	OnOpenCommunity     func()
-	OnOpenInfo          func()
+	OnOpenCommunity     func(anchor fyne.CanvasObject)
+	OnOpenInfo          func(anchor fyne.CanvasObject)
 	OnOpenHardwareAgent func()
 	OnOpenSoftwareAgent func()
 	OnOpenAccount       func()
@@ -108,12 +108,13 @@ type headerSettingsMenuActions struct {
 // newHeaderSettingsMenuButton builds a single gear-icon button that opens a
 // ShowStyledMenuTeal dropdown (the same teal/10px look as the language
 // menu's own popup -- see connection_manager_ui.go's showLanguageMenu)
-// listing Power Reset/Info/Community/Language/Account -- Control's own
-// reuse of newConnectionHeader's accessory row (see createMainAddressBar),
-// collapsed into one button instead of several separate ones so they don't
-// compete for space with Control's own tab-selector/status-icon row.
-// Language's own row just forwards to actions.OnShowLanguageMenu, opening
-// that same language popup anchored to this gear button.
+// listing Power Reset/Hardware Agent/Software Agent/Info/Community/
+// Language/Account -- Control's own reuse of newConnectionHeader's
+// accessory row (see createMainAddressBar), collapsed into one button
+// instead of several separate ones so they don't compete for space with
+// Control's own tab-selector/status-icon row. Info and Community open the
+// same nested link menus as the connections header; Language forwards to
+// actions.OnShowLanguageMenu, anchored to this gear button.
 func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasObject {
 	var btn *headerStatusBadgeButton
 	btn = newHeaderStatusBadgeButton(gearIconHeader, func() {
@@ -122,8 +123,16 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 				actions.OnPowerReset,
 				actions.OnOpenHardwareAgent,
 				actions.OnOpenSoftwareAgent,
-				actions.OnOpenInfo,
-				actions.OnOpenCommunity,
+				func() {
+					if actions.OnOpenInfo != nil {
+						actions.OnOpenInfo(btn)
+					}
+				},
+				func() {
+					if actions.OnOpenCommunity != nil {
+						actions.OnOpenCommunity(btn)
+					}
+				},
 				func() {
 					if actions.OnShowLanguageMenu != nil {
 						actions.OnShowLanguageMenu(btn)
@@ -134,27 +143,37 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 			return
 		}
 		view.ShowStyledMenuTeal(btn, []view.StyledMenuItem{
-			{Label: "Power Reset", OnTap: func() {
+			{Label: "Power Reset", Icon: assets.PowerResetIconTeal, OnTap: func() {
 				if actions.OnPowerReset != nil {
 					actions.OnPowerReset()
 				}
 			}},
-			{Label: "Info", OnTap: func() {
+			{Label: "Hardware Agent", Icon: assets.HardwareAgentIconTeal, OnTap: func() {
+				if actions.OnOpenHardwareAgent != nil {
+					actions.OnOpenHardwareAgent()
+				}
+			}},
+			{Label: "Software Agent", Icon: assets.SoftwareAgentIconTeal, OnTap: func() {
+				if actions.OnOpenSoftwareAgent != nil {
+					actions.OnOpenSoftwareAgent()
+				}
+			}},
+			{Label: "Info", Icon: assets.QuestionIconTeal, OnTap: func() {
 				if actions.OnOpenInfo != nil {
-					actions.OnOpenInfo()
+					actions.OnOpenInfo(btn)
 				}
 			}},
-			{Label: "Community", OnTap: func() {
+			{Label: "Community", Icon: assets.DiscordIconTeal, OnTap: func() {
 				if actions.OnOpenCommunity != nil {
-					actions.OnOpenCommunity()
+					actions.OnOpenCommunity(btn)
 				}
 			}},
-			{Label: "Language", OnTap: func() {
+			{Label: "Language", Icon: assets.LanguageIconTeal, OnTap: func() {
 				if actions.OnShowLanguageMenu != nil {
 					actions.OnShowLanguageMenu(btn)
 				}
 			}},
-			{Label: "Account", OnTap: func() {
+			{Label: "Account", Icon: assets.AccountIconTeal, OnTap: func() {
 				if actions.OnOpenAccount != nil {
 					actions.OnOpenAccount()
 				}
@@ -191,17 +210,19 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	langBtn.SetBadgeText("")
 	langBtn.SetIconSize(fyne.NewSize(15, 15))
 
-	communityBtn := newHeaderStatusBadgeButton(assets.DiscordIconHeader, func() {
+	var communityBtn *headerStatusBadgeButton
+	communityBtn = newHeaderStatusBadgeButton(assets.DiscordIconHeader, func() {
 		if actions.OnOpenCommunity != nil {
-			actions.OnOpenCommunity()
+			actions.OnOpenCommunity(communityBtn)
 		}
 	})
 	communityBtn.SetBadgeText("")
 	communityBtn.SetIconSize(fyne.NewSize(15, 15))
 
-	infoBtn := newHeaderStatusBadgeButton(assets.QuestionIconHeader, func() {
+	var infoBtn *headerStatusBadgeButton
+	infoBtn = newHeaderStatusBadgeButton(assets.QuestionIconHeader, func() {
 		if actions.OnOpenInfo != nil {
-			actions.OnOpenInfo()
+			actions.OnOpenInfo(infoBtn)
 		}
 	})
 	infoBtn.SetBadgeText("")

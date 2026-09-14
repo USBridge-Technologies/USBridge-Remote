@@ -1433,10 +1433,17 @@ func (vw *VideoWidget) recalculateViewport() {
 	// the remote bottom edge can sit well above the system IME (black gap
 	// under the picture is OK — better than typing under the keyboard).
 	extraUp := float32(0)
+	extraDown := float32(0)
 	if vw.keyboardViewportLift {
 		extraUp = availableH * keyboardFocusExtraLiftFrac
 		if extraUp < keyboardFocusExtraLiftMinDp {
 			extraUp = keyboardFocusExtraLiftMinDp
+		}
+		// Symmetric to extraUp: black above the picture so the top of the remote
+		// screen can be panned down into view, same as the gap above the IME.
+		extraDown = extraUp
+		if r := vw.specialKeysHeaderReserve; r > extraDown {
+			extraDown = r
 		}
 	}
 	if vw.bottomAnchorContentVertically && contentH <= availableH {
@@ -1445,11 +1452,11 @@ func (vw *VideoWidget) recalculateViewport() {
 		vw.panOffsetY = 0
 	} else if contentH > availableH {
 		maxPanY := (contentH - availableH) / 2
-		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY-extraUp, maxPanY)
+		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY-extraUp, maxPanY+extraDown)
 		contentY = centerY + vw.panOffsetY
 	} else {
 		minY := -contentH*(1-minVisible) - extraUp
-		maxY := availableH - contentH*minVisible
+		maxY := availableH - contentH*minVisible + extraDown
 		contentY = clampFloat(centerY+vw.panOffsetY, minY, maxY)
 		vw.panOffsetY = contentY - centerY
 	}
@@ -1677,15 +1684,14 @@ func (vw *VideoWidget) placeVirtualCursorAtViewCenterLocked(minU, maxU, minV, ma
 }
 
 const (
-	keyboardFocusMinZoom = float32(2.25)
-	keyboardFocusMaxZoom = float32(4.5)
-	// Place the caret in the upper third of the visible strip (not true
-	// centre) so there is room below it before the system IME.
-	keyboardFocusYFrac          = float32(0.28)
-	keyboardFocusClearanceDp    = float32(64)
+	keyboardFocusZoom = float32(2)
+	// Centre of the visible strip above the IME (not the old upper-third
+	// 0.28), so the caret is pushed toward the middle of the remaining screen.
+	keyboardFocusYFrac          = float32(0.5)
+	keyboardFocusClearanceDp    = float32(24)
 	keyboardFocusMinAvailH      = float32(120)
-	keyboardFocusExtraLiftFrac  = float32(0.5)
-	keyboardFocusExtraLiftMinDp = float32(96)
+	keyboardFocusExtraLiftFrac  = float32(0.7)
+	keyboardFocusExtraLiftMinDp = float32(120)
 )
 
 // syncKeyboardBottomInsetFromIME sets bottomInset to the overlap between the
@@ -1723,8 +1729,8 @@ func (vw *VideoWidget) syncKeyboardBottomInsetFromIME(imeHeightDp float32) {
 	vw.bottomInset = inset
 }
 
-// focusViewportOnVirtualCursorForKeyboard hard-zooms and pans so the virtual
-// caret sits in the upper part of the visible video area (above the IME).
+// focusViewportOnVirtualCursorForKeyboard zooms 2× and pans so the virtual
+// caret sits in the centre of the visible video area above the IME.
 func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 	if vw == nil {
 		return
@@ -1751,7 +1757,6 @@ func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 	if availH < keyboardFocusMinAvailH {
 		availH = vw.touchpadSizeH
 		if availH > keyboardFocusMinAvailH*2 {
-			// Keep a synthetic inset so we still aim into the upper band.
 			vw.bottomInset = availH * 0.35
 			availH = vw.touchpadSizeH - vw.bottomInset
 		}
@@ -1767,25 +1772,11 @@ func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 		baseH = availH
 	}
 
-	zoom := vw.zoomScale
-	if zoom < keyboardFocusMinZoom {
-		zoom = keyboardFocusMinZoom
-	}
-	if zoom > keyboardFocusMaxZoom {
-		zoom = keyboardFocusMaxZoom
-	}
-	for zoom < keyboardFocusMaxZoom {
-		if baseW*zoom > vw.touchpadSizeW*1.02 || baseH*zoom > availH*1.02 {
-			break
-		}
-		zoom *= 1.12
-	}
-	vw.zoomScale = zoom
+	vw.zoomScale = keyboardFocusZoom
 	vw.zoomScaleResidual = 1
 
-	cw := baseW * zoom
-	ch := baseH * zoom
-	// Target screen Y = keyboardFocusYFrac * availH (upper third), not mid-screen.
+	cw := baseW * vw.zoomScale
+	ch := baseH * vw.zoomScale
 	centerY := (availH - ch) / 2
 	idealPanX := cw * (0.5 - u)
 	idealPanY := availH*(keyboardFocusYFrac-0.5) + ch*(0.5-v)
@@ -1794,20 +1785,23 @@ func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 	if extraUp < keyboardFocusExtraLiftMinDp {
 		extraUp = keyboardFocusExtraLiftMinDp
 	}
+	extraDown := extraUp
+	if r := vw.specialKeysHeaderReserve; r > extraDown {
+		extraDown = r
+	}
 
 	if cw > vw.touchpadSizeW {
 		maxPanX := (cw - vw.touchpadSizeW) / 2
-		vw.panOffsetX = clampFloat(idealPanX, -maxPanX, maxPanX)
+		vw.panOffsetX = clampFloat(idealPanX, -maxPanX-extraUp, maxPanX+extraDown)
 	} else {
 		vw.panOffsetX = idealPanX
 	}
 	if ch > availH {
 		maxPanY := (ch - availH) / 2
-		vw.panOffsetY = clampFloat(idealPanY, -maxPanY-extraUp, maxPanY)
+		vw.panOffsetY = clampFloat(idealPanY, -maxPanY-extraUp, maxPanY+extraDown)
 	} else {
-		// Letterboxed: still allow a strong upward lift past the normal floor.
 		minY := -ch*0.7 - extraUp
-		maxY := availH - ch*0.3
+		maxY := availH - ch*0.3 + extraDown
 		contentY := clampFloat(centerY+idealPanY, minY, maxY)
 		vw.panOffsetY = contentY - centerY
 	}
@@ -1819,23 +1813,17 @@ func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 		u, v, vw.zoomScale, vw.panOffsetX, vw.panOffsetY, vw.bottomInset, keyboardFocusYFrac)
 }
 
+func (vw *VideoWidget) scheduleKeyboardViewportSettle() {
+	vw.applyImmediateKeyboardViewport()
+}
+
+func (vw *VideoWidget) freezeKeyboardLayout() {}
+
+func (vw *VideoWidget) applyKeyboardViewportSettle() {
+	vw.applyImmediateKeyboardViewport()
+}
+
 // scheduleKeyboardCaretFocus re-runs hard focus after layout/IME settle.
 func (vw *VideoWidget) scheduleKeyboardCaretFocus() {
-	if vw == nil {
-		return
-	}
-	for _, delay := range []time.Duration{80 * time.Millisecond, 220 * time.Millisecond, 450 * time.Millisecond} {
-		d := delay
-		time.AfterFunc(d, func() {
-			fyne.Do(func() {
-				if vw == nil {
-					return
-				}
-				if !vw.IsVirtualKeyboardVisible() && !vw.IsSystemIMESticky() {
-					return
-				}
-				vw.focusViewportOnVirtualCursorForKeyboard()
-			})
-		})
-	}
+	vw.applyImmediateKeyboardViewport()
 }

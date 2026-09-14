@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -38,11 +39,27 @@ const (
 )
 
 var (
-	pcpanelIndicatorIdle  = color.NRGBA{R: 0x16, G: 0x16, B: 0x16, A: 0x38}
-	pcpanelIndicatorAlert = design.ColorAlert
-	pcpanelPowerColor     = color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff}
-	pcpanelResetColor     = color.NRGBA{R: 0xe9, G: 0x8a, B: 0x2b, A: 0xff}
-	pcpanelHoldHoverFill  = color.NRGBA{R: 0x45, G: 0x45, B: 0x45, A: 0xff}
+	pcpanelIndicatorIdle    = color.NRGBA{R: 0x16, G: 0x16, B: 0x16, A: 0x38}
+	pcpanelIndicatorAlert   = design.ColorAlert
+	pcpanelDialogCardBG     = color.NRGBA{R: 0x1e, G: 0x22, B: 0x25, A: 0xff}
+	pcpanelDialogBorder     = color.NRGBA{R: 0x33, G: 0x37, B: 0x2f, A: 0xff}
+	pcpanelDialogHint       = color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
+	pcpanelDialogLabel      = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	pcpanelDialogSep        = color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff}
+	pcpanelDialogValue      = color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
+	pcpanelDialogCancelIcon = fyne.NewStaticResource("pcpanel_dialog_cancel.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#8f9381"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`))
+)
+
+const (
+	pcpanelDialogPanelWidth   = float32(408)
+	pcpanelDialogPillTextSize = float32(9.5)
+	pcpanelDialogPillHeight   = float32(32)
+	pcpanelDialogPillPadX     = float32(15)
+	pcpanelDialogHintTextSize = float32(8)
+	pcpanelSliderThumbRadius  = float32(6)
+	pcpanelSliderGlowRadius   = float32(9)
+	pcpanelSliderTrackHeight  = float32(3)
+	pcpanelSliderHeight       = float32(20)
 )
 
 // pcpanelFixedWidthLayout fixes content width (min=max) so that the dialog doesn't shrink or stretch
@@ -106,7 +123,6 @@ type pcpanelHoldButton struct {
 	labelText    string
 	onConfirmed  func()
 	holdDuration time.Duration
-	activeColor  color.Color
 	hovered      bool
 	disabled     bool
 	pressing     bool
@@ -119,6 +135,43 @@ type pcpanelHoldButton struct {
 	label        *canvas.Text
 	track        *canvas.Rectangle
 }
+
+type pcpanelCancelButton struct {
+	widget.BaseWidget
+
+	text     string
+	onTap    func()
+	hovered  bool
+	disabled bool
+	label    *canvas.Text
+}
+
+type pcpanelDurationSlider struct {
+	widget.BaseWidget
+
+	Min, Max, Step float64
+	Value          float64
+	OnChanged      func(float64)
+	disabled       bool
+
+	track *canvas.Rectangle
+	glow  *canvas.Circle
+	thumb *canvas.Circle
+}
+
+type pcpanelCornerButtonLayout struct {
+	Top   float32
+	Right float32
+}
+
+var (
+	_ fyne.Tappable      = (*pcpanelCancelButton)(nil)
+	_ desktop.Hoverable  = (*pcpanelCancelButton)(nil)
+	_ desktop.Cursorable = (*pcpanelCancelButton)(nil)
+	_ fyne.Tappable      = (*pcpanelDurationSlider)(nil)
+	_ fyne.Draggable     = (*pcpanelDurationSlider)(nil)
+	_ desktop.Cursorable = (*pcpanelDurationSlider)(nil)
+)
 
 var (
 	_ fyne.Tappable     = (*pcpanelHoldButton)(nil)
@@ -159,7 +212,7 @@ func newPCPanelActionButton(onTapped func()) *pcpanelActionButton {
 
 func newPCPanelDialogCloseButton(onTap func()) *pcpanelIconButton {
 	btn := &pcpanelIconButton{
-		icon:  theme.CancelIcon(),
+		icon:  pcpanelDialogCancelIcon,
 		onTap: onTap,
 	}
 	btn.ExtendBaseWidget(btn)
@@ -191,7 +244,7 @@ func (b *pcpanelIconButton) CreateRenderer() fyne.WidgetRenderer {
 
 	b.iconView = canvas.NewImageFromResource(b.icon)
 	b.iconView.FillMode = canvas.ImageFillContain
-	b.iconView.SetMinSize(fyne.NewSize(14, 14))
+	b.iconView.SetMinSize(fyne.NewSize(18, 18))
 
 	b.refreshVisuals()
 	return widget.NewSimpleRenderer(container.NewMax(
@@ -385,22 +438,21 @@ func (r *pcpanelActionButtonRenderer) Objects() []fyne.CanvasObject {
 
 func (r *pcpanelActionButtonRenderer) Destroy() {}
 
-func newPCPanelHoldButton(label string, holdDuration time.Duration, activeColor color.Color, onConfirmed func()) *pcpanelHoldButton {
+func newPCPanelHoldButton(label string, holdDuration time.Duration, onConfirmed func()) *pcpanelHoldButton {
 	btn := &pcpanelHoldButton{
 		labelText:    label,
 		onConfirmed:  onConfirmed,
 		holdDuration: holdDuration,
-		activeColor:  activeColor,
 	}
 	btn.ExtendBaseWidget(btn)
 	return btn
 }
 
 func (b *pcpanelHoldButton) CreateRenderer() fyne.WidgetRenderer {
-	b.track = canvas.NewRectangle(design.ColorSurfaceLight)
+	b.track = canvas.NewRectangle(design.ColorConnectionBadgeText)
 	b.track.CornerRadius = design.RadiusMD
 
-	b.fill = canvas.NewRectangle(b.activeColor)
+	b.fill = canvas.NewRectangle(design.ColorConnectionAddFill)
 	b.fill.CornerRadius = design.RadiusMD
 
 	b.bg = canvas.NewRectangle(color.Transparent)
@@ -411,8 +463,8 @@ func (b *pcpanelHoldButton) CreateRenderer() fyne.WidgetRenderer {
 	b.border.StrokeColor = design.ColorBorder
 	b.border.StrokeWidth = 1
 
-	b.label = canvas.NewText(b.labelText, design.ColorTextLight)
-	b.label.TextSize = 15
+	b.label = canvas.NewText(b.labelText, design.ColorGray950)
+	b.label.TextSize = pcpanelDialogPillTextSize
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 
@@ -424,7 +476,14 @@ func (b *pcpanelHoldButton) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (b *pcpanelHoldButton) MinSize() fyne.Size {
-	return fyne.NewSize(150, 40)
+	measure := canvas.NewText(b.labelText, color.Black)
+	measure.TextSize = pcpanelDialogPillTextSize
+	measure.TextStyle.Bold = true
+	width := measure.MinSize().Width + pcpanelDialogPillPadX*2
+	if width < 132 {
+		width = 132
+	}
+	return fyne.NewSize(width, pcpanelDialogPillHeight)
 }
 
 func (b *pcpanelHoldButton) Tapped(*fyne.PointEvent) {}
@@ -576,33 +635,23 @@ func (b *pcpanelHoldButton) refreshVisuals() {
 		return
 	}
 
+	fill := design.ColorConnectionBadgeText
+	text := design.ColorGray950
 	if b.disabled {
-		b.track.FillColor = design.ColorSurfaceLight
-		b.fill.FillColor = color.Transparent
-		b.bg.FillColor = color.Transparent
-		b.border.StrokeColor = color.Transparent
-		b.border.StrokeWidth = 0
-		b.label.Color = design.ColorTextMuted
-		b.track.Refresh()
-		b.fill.Refresh()
-		b.bg.Refresh()
-		b.border.Refresh()
-		b.label.Refresh()
-		return
+		fill = color.NRGBA{R: 0x31, G: 0xa6, B: 0x94, A: 0xff}
+	} else if b.hovered && b.progress == 0 {
+		fill = color.NRGBA{R: 0x61, G: 0xf0, B: 0xd3, A: 0xff}
 	}
 
-	b.track.FillColor = design.ColorSurfaceLight
+	b.track.FillColor = fill
 	b.fill.FillColor = color.Transparent
+	if b.progress > 0 {
+		b.fill.FillColor = design.ColorConnectionAddFill
+	}
 	b.bg.FillColor = color.Transparent
 	b.border.StrokeColor = color.Transparent
 	b.border.StrokeWidth = 0
-	b.label.Color = design.ColorTextLight
-	if b.progress > 0 {
-		b.fill.FillColor = b.activeColor
-	}
-	if b.hovered {
-		b.bg.FillColor = pcpanelHoldHoverFill
-	}
+	b.label.Color = text
 
 	b.track.Refresh()
 	b.fill.Refresh()
@@ -713,7 +762,7 @@ func (b *pcpanelModeButton) Cursor() desktop.Cursor {
 }
 
 func (b *pcpanelModeButton) MinSize() fyne.Size {
-	return fyne.NewSize(90, 36)
+	return fyne.NewSize(84, 30)
 }
 
 func (b *pcpanelModeButton) CreateRenderer() fyne.WidgetRenderer {
@@ -722,7 +771,7 @@ func (b *pcpanelModeButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg.StrokeWidth = 1
 
 	b.label = canvas.NewText(b.text, design.ColorTextLight)
-	b.label.TextSize = 13
+	b.label.TextSize = pcpanelDialogPillTextSize
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 
@@ -736,29 +785,25 @@ func (b *pcpanelModeButton) refreshVisuals() {
 	}
 
 	if b.disabled {
-		b.bg.FillColor = design.ColorSurfaceLight
-		b.bg.StrokeColor = design.ColorBorder
-		b.label.Color = design.ColorTextMuted
+		b.bg.FillColor = color.Transparent
+		b.bg.StrokeColor = design.ColorTailscaleChipBorder
+		b.label.Color = pcpanelDialogHint
 		b.bg.Refresh()
 		b.label.Refresh()
 		return
 	}
 
-	activeColor := pcpanelPowerColor
-	if strings.EqualFold(strings.TrimSpace(b.text), "Reset") {
-		activeColor = pcpanelResetColor
-	}
-
 	if b.active {
-		b.bg.FillColor = activeColor
-		b.bg.StrokeColor = activeColor
-		b.label.Color = design.ColorBackground
+		b.bg.FillColor = design.ColorConnectionBadgeText
+		b.bg.StrokeColor = color.Transparent
+		b.label.Color = design.ColorGray950
 	} else {
-		b.bg.FillColor = design.ColorSurfaceLight
-		b.bg.StrokeColor = activeColor
-		b.label.Color = activeColor
+		b.bg.FillColor = color.Transparent
+		b.bg.StrokeColor = design.ColorTailscaleChipBorder
+		b.label.Color = design.ColorTextLight
 		if b.hovered {
-			b.bg.FillColor = design.ColorGray900
+			b.bg.FillColor = color.NRGBA{R: 0x26, G: 0x2a, B: 0x2e, A: 0xff}
+			b.bg.StrokeColor = design.ColorConnectionBadgeText
 		}
 	}
 
@@ -839,6 +884,292 @@ func (l *pcpanelModeButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Siz
 	}
 	return fyne.NewSize(width, height)
 }
+
+func pcpanelDialogFieldLabel(text string) *canvas.Text {
+	label := canvas.NewText(strings.ToUpper(text), pcpanelDialogLabel)
+	label.TextSize = 9
+	label.TextStyle.Bold = true
+	return label
+}
+
+func pcpanelDialogVSpace(height float32) fyne.CanvasObject {
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(0, height))
+	return spacer
+}
+
+func pcpanelDialogTopAccentBar() fyne.CanvasObject {
+	teal := design.ColorConnectionBadgeText
+	lime := design.ColorConnectionAddFill
+	tealTransparent := color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0}
+	limeTransparent := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0}
+	accentLeftFade := canvas.NewHorizontalGradient(tealTransparent, teal)
+	accentLeftFade.SetMinSize(fyne.NewSize(70, 2))
+	accentRightFade := canvas.NewHorizontalGradient(lime, limeTransparent)
+	accentRightFade.SetMinSize(fyne.NewSize(70, 2))
+	accentMid := canvas.NewHorizontalGradient(teal, lime)
+	return container.NewBorder(nil, nil, accentLeftFade, accentRightFade, accentMid)
+}
+
+func pcpanelDialogHairline() *canvas.Rectangle {
+	line := canvas.NewRectangle(pcpanelDialogSep)
+	line.SetMinSize(fyne.NewSize(0, 1))
+	return line
+}
+
+func pcpanelDialogCard(bgFill color.Color, content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(bgFill)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = pcpanelDialogBorder
+	border.StrokeWidth = 1
+	return container.NewStack(bg, content, border)
+}
+
+func pcpanelDialogValuePill(text *canvas.Text) fyne.CanvasObject {
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bg.CornerRadius = 6
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = 6
+	border.StrokeColor = pcpanelDialogBorder
+	border.StrokeWidth = 1
+	return container.NewStack(bg, border, view.NewInset(container.NewCenter(text), 10, 10, 2, 2))
+}
+
+func pcpanelDialogCanvasPanelWidth(canvasSize fyne.Size) float32 {
+	if canvasSize.Width <= 0 {
+		return pcpanelDialogPanelWidth
+	}
+	margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+	maxWidth := canvasSize.Width - margin*2
+	if maxWidth <= 0 {
+		maxWidth = canvasSize.Width
+	}
+	if maxWidth <= 0 {
+		return pcpanelDialogPanelWidth
+	}
+	return minFloat32(pcpanelDialogPanelWidth, maxWidth)
+}
+
+func (l *pcpanelCornerButtonLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+	obj := objects[0]
+	min := obj.MinSize()
+	obj.Resize(min)
+	obj.Move(fyne.NewPos(size.Width-l.Right-min.Width, l.Top))
+}
+
+func (l *pcpanelCornerButtonLayout) MinSize([]fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(0, 0)
+}
+
+func newPCPanelCancelButton(text string, onTap func()) *pcpanelCancelButton {
+	b := &pcpanelCancelButton{text: text, onTap: onTap}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *pcpanelCancelButton) Tapped(*fyne.PointEvent) {
+	if b.disabled || b.onTap == nil {
+		return
+	}
+	b.onTap()
+}
+
+func (b *pcpanelCancelButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *pcpanelCancelButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.Refresh()
+}
+
+func (b *pcpanelCancelButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *pcpanelCancelButton) MouseOut() {
+	b.hovered = false
+	b.Refresh()
+}
+
+func (b *pcpanelCancelButton) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (b *pcpanelCancelButton) MinSize() fyne.Size {
+	measure := canvas.NewText(b.text, color.Black)
+	measure.TextSize = pcpanelDialogPillTextSize
+	measure.TextStyle.Bold = true
+	return fyne.NewSize(measure.MinSize().Width+pcpanelDialogPillPadX*2, pcpanelDialogPillHeight)
+}
+
+func (b *pcpanelCancelButton) CreateRenderer() fyne.WidgetRenderer {
+	b.label = canvas.NewText(b.text, pcpanelDialogHint)
+	b.label.TextSize = pcpanelDialogPillTextSize
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
+	return widget.NewSimpleRenderer(container.NewCenter(b.label))
+}
+
+func (b *pcpanelCancelButton) Refresh() {
+	if b.label != nil {
+		if b.hovered && !b.disabled {
+			b.label.Color = design.ColorTextLight
+		} else {
+			b.label.Color = pcpanelDialogHint
+		}
+		b.label.Refresh()
+	}
+	b.BaseWidget.Refresh()
+}
+
+func newPCPanelDurationSlider(min, max, step float64) *pcpanelDurationSlider {
+	s := &pcpanelDurationSlider{Min: min, Max: max, Step: step, Value: min}
+	s.ExtendBaseWidget(s)
+	return s
+}
+
+func (s *pcpanelDurationSlider) SetDisabled(disabled bool) {
+	s.disabled = disabled
+	s.Refresh()
+}
+
+func (s *pcpanelDurationSlider) SetValue(value float64) {
+	if value < s.Min {
+		value = s.Min
+	}
+	if value > s.Max {
+		value = s.Max
+	}
+	if value == s.Value {
+		return
+	}
+	s.Value = value
+	s.Refresh()
+	if s.OnChanged != nil {
+		s.OnChanged(s.Value)
+	}
+}
+
+func (s *pcpanelDurationSlider) valueFraction() float32 {
+	if s.Max <= s.Min {
+		return 0
+	}
+	f := (s.Value - s.Min) / (s.Max - s.Min)
+	if f < 0 {
+		f = 0
+	}
+	if f > 1 {
+		f = 1
+	}
+	return float32(f)
+}
+
+func (s *pcpanelDurationSlider) setValueFromX(x float32) {
+	if s.disabled {
+		return
+	}
+	usable := s.Size().Width - pcpanelSliderThumbRadius*2
+	if usable <= 0 {
+		return
+	}
+	rel := (x - pcpanelSliderThumbRadius) / usable
+	if rel < 0 {
+		rel = 0
+	}
+	if rel > 1 {
+		rel = 1
+	}
+	value := s.Min + float64(rel)*(s.Max-s.Min)
+	if s.Step > 0 {
+		value = math.Round(value/s.Step) * s.Step
+	}
+	s.SetValue(value)
+}
+
+func (s *pcpanelDurationSlider) Tapped(e *fyne.PointEvent) {
+	s.setValueFromX(e.Position.X)
+}
+
+func (s *pcpanelDurationSlider) TappedSecondary(*fyne.PointEvent) {}
+
+func (s *pcpanelDurationSlider) Dragged(e *fyne.DragEvent) {
+	s.setValueFromX(e.Position.X)
+}
+
+func (s *pcpanelDurationSlider) DragEnd() {}
+
+func (s *pcpanelDurationSlider) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (s *pcpanelDurationSlider) MinSize() fyne.Size {
+	return fyne.NewSize(120, pcpanelSliderHeight)
+}
+
+func (s *pcpanelDurationSlider) CreateRenderer() fyne.WidgetRenderer {
+	s.track = canvas.NewRectangle(color.NRGBA{R: 0x31, G: 0x35, B: 0x39, A: 0xff})
+	s.track.CornerRadius = pcpanelSliderTrackHeight / 2
+	s.glow = canvas.NewCircle(color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0x33})
+	s.thumb = canvas.NewCircle(design.ColorConnectionBadgeText)
+	return &pcpanelDurationSliderRenderer{slider: s}
+}
+
+type pcpanelDurationSliderRenderer struct {
+	slider *pcpanelDurationSlider
+}
+
+func (r *pcpanelDurationSliderRenderer) Layout(size fyne.Size) {
+	s := r.slider
+	trackY := (size.Height - pcpanelSliderTrackHeight) / 2
+	s.track.Move(fyne.NewPos(0, trackY))
+	s.track.Resize(fyne.NewSize(size.Width, pcpanelSliderTrackHeight))
+
+	thumbRange := size.Width - pcpanelSliderThumbRadius*2
+	if thumbRange < 0 {
+		thumbRange = 0
+	}
+	cx := pcpanelSliderThumbRadius + s.valueFraction()*thumbRange
+	cy := size.Height / 2
+
+	s.glow.Move(fyne.NewPos(cx-pcpanelSliderGlowRadius, cy-pcpanelSliderGlowRadius))
+	s.glow.Resize(fyne.NewSize(pcpanelSliderGlowRadius*2, pcpanelSliderGlowRadius*2))
+	s.thumb.Move(fyne.NewPos(cx-pcpanelSliderThumbRadius, cy-pcpanelSliderThumbRadius))
+	s.thumb.Resize(fyne.NewSize(pcpanelSliderThumbRadius*2, pcpanelSliderThumbRadius*2))
+}
+
+func (r *pcpanelDurationSliderRenderer) MinSize() fyne.Size {
+	return r.slider.MinSize()
+}
+
+func (r *pcpanelDurationSliderRenderer) Refresh() {
+	s := r.slider
+	if s.disabled {
+		s.track.FillColor = color.NRGBA{R: 0x31, G: 0x35, B: 0x39, A: 0x88}
+		s.thumb.FillColor = pcpanelDialogHint
+		s.glow.FillColor = color.Transparent
+	} else {
+		s.track.FillColor = color.NRGBA{R: 0x31, G: 0x35, B: 0x39, A: 0xff}
+		s.thumb.FillColor = design.ColorConnectionBadgeText
+		s.glow.FillColor = color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0x33}
+	}
+	s.track.Refresh()
+	s.thumb.Refresh()
+	s.glow.Refresh()
+	r.Layout(s.Size())
+	canvas.Refresh(s)
+}
+
+func (r *pcpanelDurationSliderRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *pcpanelDurationSliderRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.slider.track, r.slider.glow, r.slider.thumb}
+}
+
+func (r *pcpanelDurationSliderRenderer) Destroy() {}
 
 // PCPanelWidget is a power button with activity indicator in the address bar
 type PCPanelWidget struct {
@@ -1023,81 +1354,66 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 		"reset": "Reset",
 	}
 
-	titleText := view.NewBrandText("Power controls", 19, design.ColorTextLight, true)
-	titleText.Alignment = fyne.TextAlignCenter
+	hide := func(popup **widget.PopUp) {
+		if popup != nil && *popup != nil {
+			(*popup).Hide()
+		}
+	}
+	var popup *widget.PopUp
 
-	holdSlider := widget.NewSlider(0, 10)
-	holdSlider.Step = 1
-	holdSlider.Value = 0
+	holdSlider := newPCPanelDurationSlider(0, 10, 1)
+	durationValue := canvas.NewText("0s", pcpanelDialogValue)
+	durationValue.TextSize = 10
+	durationValue.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	holdSlider.OnChanged = func(v float64) {
+		durationValue.Text = fmt.Sprintf("%ds", int(v))
+		durationValue.Refresh()
+	}
 
-	shortLabel := canvas.NewText("Short (0s)", design.ColorTextMuted)
-	shortLabel.TextSize = 11
-	longLabel := canvas.NewText("Long (10s)", design.ColorTextMuted)
-	longLabel.TextSize = 11
-	durationHints := view.NewInset(
-		container.NewBorder(nil, nil, shortLabel, longLabel, canvas.NewRectangle(color.Transparent)),
-		12, 12, 0, 0,
-	)
-	durationTitle := widget.NewLabel("Button Press Duration (0s)")
-
-	powerOptions := container.NewVBox(
-		durationTitle,
-		holdSlider,
-		durationHints,
-	)
+	shortLabel := canvas.NewText("Short (0s)", pcpanelDialogHint)
+	shortLabel.TextSize = pcpanelDialogHintTextSize
+	longLabel := canvas.NewText("Long (10s)", pcpanelDialogHint)
+	longLabel.TextSize = pcpanelDialogHintTextSize
+	durationHints := container.NewBorder(nil, nil, shortLabel, longLabel, nil)
+	durationHeader := container.NewBorder(nil, nil, pcpanelDialogFieldLabel("Duration"), pcpanelDialogValuePill(durationValue), nil)
+	durationCard := pcpanelDialogCard(pcpanelDialogCardBG, view.NewInset(container.NewVBox(durationHeader, holdSlider, durationHints), 14, 14, 10, 10))
 
 	detailsContainer := container.NewVBox()
-	actionInfoLabel := widget.NewLabel("")
-	actionInfoLabel.Alignment = fyne.TextAlignCenter
-	actionInfoLabel.Wrapping = fyne.TextWrapWord
 
 	powerBtn := newPCPanelModeButton("Power Off", nil)
 	resetBtn := newPCPanelModeButton("Reset", nil)
-	modeButtons := container.New(&pcpanelModeButtonsLayout{gap: 10}, powerBtn, resetBtn)
+	modeButtons := container.New(&pcpanelModeButtonsLayout{gap: 8}, powerBtn, resetBtn)
+	actionCard := pcpanelDialogCard(design.ColorGray950, view.NewInsetExact(modeButtons, 4, 4, 4, 4))
 
 	var currentAction string
 	var holdButton *pcpanelHoldButton
 	updateDetails := func(action string) {
 		currentAction = action
-		if locked {
-			actionInfoLabel.SetText("Power controls are available on USBridge hardware only.")
-		} else {
-			actionInfoLabel.SetText(i18n.Current.PCPanelActionConfirm)
-		}
 
 		if action == "power" {
-			detailsContainer.Objects = []fyne.CanvasObject{powerOptions}
+			detailsContainer.Objects = []fyne.CanvasObject{pcpanelDialogVSpace(8), durationCard, pcpanelDialogVSpace(12)}
 			powerBtn.SetActive(true)
 			resetBtn.SetActive(false)
-			if holdButton != nil {
-				holdButton.activeColor = pcpanelPowerColor
-				holdButton.Refresh()
-			}
 		} else {
 			detailsContainer.Objects = nil
 			powerBtn.SetActive(false)
 			resetBtn.SetActive(true)
-			if holdButton != nil {
-				holdButton.activeColor = pcpanelResetColor
-				holdButton.Refresh()
-			}
 		}
 		detailsContainer.Refresh()
 		if holdButton != nil {
 			holdButton.cancelHold()
 		}
+		if popup != nil {
+			popup.Refresh()
+		}
 	}
 
-	var popup *widget.PopUp
-	holdButton = newPCPanelHoldButton("Hold to Confirm", 2*time.Second, pcpanelPowerColor, func() {
+	holdButton = newPCPanelHoldButton("Hold to Confirm", 2*time.Second, func() {
 		client := p.usbClient
 		if client == nil {
 			return
 		}
-		// Close popup immediately so the UI doesn't freeze waiting for the HTTP response.
-		if popup != nil {
-			popup.Hide()
-		}
+		hide(&popup)
 		action := currentAction
 		holdVal := int(holdSlider.Value)
 		go func() {
@@ -1115,10 +1431,8 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 		}()
 	})
 
-	noBtn := widget.NewButton(i18n.Current.Cancel, func() {
-		if popup != nil {
-			popup.Hide()
-		}
+	cancelBtn := newPCPanelCancelButton(i18n.Current.Cancel, func() {
+		hide(&popup)
 	})
 
 	powerBtn.onTap = func() {
@@ -1128,36 +1442,34 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 		updateDetails("reset")
 	}
 
-	holdSlider.OnChanged = func(v float64) {
-		durationTitle.SetText(fmt.Sprintf("Button Press Duration (%ds)", int(v)))
-	}
-
 	closeBtn := newPCPanelDialogCloseButton(func() {
-		if popup != nil {
-			popup.Hide()
-		}
+		hide(&popup)
 	})
-	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
 
 	if locked {
 		powerBtn.SetDisabled(true)
 		resetBtn.SetDisabled(true)
-		holdSlider.Disable()
-		noBtn.Disable()
+		holdSlider.SetDisabled(true)
 		holdButton.SetDisabled(true)
 	}
 
+	title := view.NewBrandText("Power controls", 13, design.ColorTextLight, true)
+	subtitleLbl := widget.NewLabel("Power controls are available on USBridge hardware only.")
+	subtitleLbl.Wrapping = fyne.TextWrapWord
+	subtitleThemed := container.NewThemeOverride(subtitleLbl, &mutedForegroundTheme{design.NewBrandTheme()})
+	nudgedSubtitle := container.New(&subtitleLeftNudgeLayout{Amount: 8}, subtitleThemed)
+	titleCol := container.New(&tightHeaderVBoxLayout{Gap: -2}, title, nudgedSubtitle)
+	headerBlock := container.New(&tightHeaderVBoxLayout{Gap: 0}, pcpanelDialogTopAccentBar(), view.NewInset(titleCol, 21, 44, 9, 4), pcpanelDialogHairline())
+
 	bodyContent := container.NewVBox(
-		titleBar,
-		widget.NewLabel("Action"),
-		modeButtons,
+		pcpanelDialogFieldLabel("Action"),
+		actionCard,
 		detailsContainer,
 	)
-	footer := container.NewVBox(
-		actionInfoLabel,
-		view.NewInset(container.New(&pcpanelDialogButtonsLayout{gap: 12}, noBtn, holdButton), 0, 0, 8, 0),
-	)
-	form := container.NewBorder(nil, footer, nil, nil, bodyContent)
+
+	footerButtons := container.NewBorder(nil, nil, container.NewCenter(cancelBtn), holdButton)
+	footerBlock := container.NewVBox(pcpanelDialogHairline(), view.NewInsetExact(footerButtons, 12, 18, 6, 0))
+	form := container.NewBorder(headerBlock, footerBlock, nil, nil, view.NewInset(bodyContent, 18, 18, 12, 0))
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -1165,9 +1477,11 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 	border.CornerRadius = design.RadiusMD
 	border.StrokeColor = design.ColorBorder
 	border.StrokeWidth = 1
+	cornerBtn := container.New(&pcpanelCornerButtonLayout{Top: 12, Right: 12}, closeBtn)
 	panel := container.NewStack(
 		bg,
-		view.NewInset(form, 18, 18, 16, 16),
+		view.NewInsetExact(form, 0, 0, 0, 8),
+		cornerBtn,
 		border,
 	)
 
@@ -1187,8 +1501,8 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 			}
 
 			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 420), maxWidth)
-			panelHeight := minFloat32(maxFloat32(panelMin.Height, 350), maxHeight)
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, pcpanelDialogCanvasPanelWidth(canvasSize)), maxWidth)
+			panelHeight := minFloat32(panelMin.Height, maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
 		},
 	})

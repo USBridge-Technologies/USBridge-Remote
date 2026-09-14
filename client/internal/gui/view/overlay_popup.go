@@ -24,11 +24,26 @@ type OverlayPopupSpec struct {
 	DimColor  color.Color
 	PanelSize func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
 	PanelPos  func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
+	// KeyboardOverlap keeps the panel's natural height when the IME opens
+	// and lets its bottom (typically the footer buttons) slide under the
+	// keyboard. Without this flag the overlay shrinks the panel to fit
+	// above the keyboard.
+	KeyboardOverlap bool
+	// KeyboardShift, with KeyboardOverlap, nudges the panel up a little
+	// when the IME opens. Leave it false to keep the rest position (the
+	// mobile edit card: plenty of gap above the keyboard, so a lift just
+	// jitters the panel).
+	KeyboardShift bool
+	// OnOutsideTap runs when the dim (not the card) is tapped. The overlay
+	// fills the window, so Fyne's own "click outside popup" never fires.
+	OnOutsideTap func()
 }
 
 type overlayPopupLayout struct {
-	panelSize func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
-	panelPos  func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
+	panelSize       func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
+	panelPos        func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
+	keyboardOverlap bool
+	keyboardShift   bool
 }
 
 func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -49,25 +64,42 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	// Effective area excludes the on-screen keyboard (IME) if any.
 	// On Android the canvas size does not shrink when the IME opens (edge-to-edge),
 	// so we subtract the keyboard height explicitly.
-	effective := size
+	keyboardH := float32(0)
 	if KeyboardHeight != nil {
-		if kh := KeyboardHeight(); kh > 0 {
-			effective.Height -= kh
-			if effective.Height < 0 {
-				effective.Height = 0
-			}
+		keyboardH = KeyboardHeight()
+		if keyboardH < 0 {
+			keyboardH = 0
+		}
+	}
+	effective := size
+	if keyboardH > 0 {
+		effective.Height -= keyboardH
+		if effective.Height < 0 {
+			effective.Height = 0
 		}
 	}
 
-	panelSize := defaultOverlayPanelSize(effective, panel)
-	if l.panelSize != nil {
-		panelSize = l.panelSize(effective, panel)
+	// KeyboardOverlap sizes the panel against the full canvas so it does
+	// not compress when the IME opens; the visible-area clamp below is
+	// skipped for height/Y so the footer can sit under the keyboard.
+	sizeForPanel := effective
+	if l.keyboardOverlap {
+		sizeForPanel = size
 	}
 
-	if panelSize.Width > effective.Width {
-		panelSize.Width = effective.Width
+	panelSize := defaultOverlayPanelSize(sizeForPanel, panel)
+	if l.panelSize != nil {
+		panelSize = l.panelSize(sizeForPanel, panel)
 	}
-	if panelSize.Height > effective.Height {
+
+	if panelSize.Width > size.Width {
+		panelSize.Width = size.Width
+	}
+	if l.keyboardOverlap {
+		if panelSize.Height > size.Height {
+			panelSize.Height = size.Height
+		}
+	} else if panelSize.Height > effective.Height {
 		panelSize.Height = effective.Height
 	}
 	if panelSize.Width < 0 {
@@ -77,9 +109,27 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 		panelSize.Height = 0
 	}
 
-	panelPos := fyne.NewPos((effective.Width-panelSize.Width)/2, (effective.Height-panelSize.Height)/2)
+	panelPos := fyne.NewPos((sizeForPanel.Width-panelSize.Width)/2, (sizeForPanel.Height-panelSize.Height)/2)
 	if l.panelPos != nil {
-		panelPos = l.panelPos(effective, panelSize)
+		panelPos = l.panelPos(sizeForPanel, panelSize)
+	}
+	if l.keyboardOverlap && l.keyboardShift && keyboardH > 0 {
+		// A short lift — not the old jump to Y=12. The Tailscale row at
+		// the bottom of Add Connection can sit under the keyboard; the
+		// Name/LAN/Token fields stay in view without pinning the panel
+		// against the header.
+		minTop := float32(48)
+		maxLift := float32(36)
+		if panelPos.Y > minTop {
+			lift := keyboardH * 0.22
+			if lift > maxLift {
+				lift = maxLift
+			}
+			if room := panelPos.Y - minTop; lift > room {
+				lift = room
+			}
+			panelPos.Y -= lift
+		}
 	}
 	if panelPos.X < 0 {
 		panelPos.X = 0
@@ -87,13 +137,15 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	if panelPos.Y < 0 {
 		panelPos.Y = 0
 	}
-	maxX := effective.Width - panelSize.Width
-	maxY := effective.Height - panelSize.Height
+	maxX := size.Width - panelSize.Width
 	if panelPos.X > maxX {
 		panelPos.X = maxX
 	}
-	if panelPos.Y > maxY {
-		panelPos.Y = maxY
+	if !l.keyboardOverlap {
+		maxY := effective.Height - panelSize.Height
+		if panelPos.Y > maxY {
+			panelPos.Y = maxY
+		}
 	}
 
 	panel.Move(panelPos)
@@ -134,11 +186,24 @@ func NewOverlayPopup(parent fyne.Window, spec OverlayPopupSpec) *widget.PopUp {
 	// labels) reliably use BrandTheme inside the overlay on Android where the
 	// popup's rendering context may not propagate the app theme correctly.
 	themedPanel := container.NewThemeOverride(spec.Panel, design.NewBrandTheme())
-	contentObjs := []fyne.CanvasObject{dim, themedPanel}
+	var dimObj fyne.CanvasObject = dim
+	var panelObj fyne.CanvasObject = themedPanel
+	if spec.OnOutsideTap != nil {
+		onOutside := spec.OnOutsideTap
+		dimObj = newOverlayTapCatcher(dim, onOutside)
+		// Swallow taps on the card so they don't fall through to the dim.
+		panelObj = newOverlayTapCatcher(themedPanel, nil)
+	}
+	contentObjs := []fyne.CanvasObject{dimObj, panelObj}
 	if spec.Footer != nil {
 		contentObjs = append(contentObjs, spec.Footer)
 	}
-	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos}, contentObjs...)
+	content := container.New(&overlayPopupLayout{
+		panelSize:       spec.PanelSize,
+		panelPos:        spec.PanelPos,
+		keyboardOverlap: spec.KeyboardOverlap,
+		keyboardShift:   spec.KeyboardShift,
+	}, contentObjs...)
 	popup := widget.NewPopUp(content, parent.Canvas())
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())
@@ -262,3 +327,46 @@ func defaultOverlayPanelSize(canvasSize fyne.Size, panel fyne.CanvasObject) fyne
 	}
 	return panelMin
 }
+
+// CompactOverlayTopMargin is the phone/compact overlay inset below the
+// app header -- same 10%/80-110 band Add Connection already used, so
+// stacked dialogs sit just under the chrome instead of on top of it.
+func CompactOverlayTopMargin(canvasSize fyne.Size) float32 {
+	return clampFloat32(canvasSize.Height*0.10, 80, 110)
+}
+
+// MobileEditOverlayTopMargin sits the phone connection-edit card further
+// below the header than Add Connection, so it doesn't read as glued to
+// the chrome.
+func MobileEditOverlayTopMargin(canvasSize fyne.Size) float32 {
+	return clampFloat32(canvasSize.Height*0.16, 128, 168)
+}
+
+// overlayTapCatcher is a full-size tappable wrap so a dimmed overlay can
+// dismiss on outside tap. The overlay PopUp fills the window, so Fyne never
+// sees a click "outside" the popup itself.
+type overlayTapCatcher struct {
+	widget.BaseWidget
+	inner fyne.CanvasObject
+	onTap func()
+}
+
+func newOverlayTapCatcher(inner fyne.CanvasObject, onTap func()) *overlayTapCatcher {
+	c := &overlayTapCatcher{inner: inner, onTap: onTap}
+	c.ExtendBaseWidget(c)
+	return c
+}
+
+func (c *overlayTapCatcher) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(c.inner)
+}
+
+func (c *overlayTapCatcher) Tapped(*fyne.PointEvent) {
+	if c.onTap != nil {
+		c.onTap()
+	}
+}
+
+func (c *overlayTapCatcher) TappedSecondary(*fyne.PointEvent) {}
+
+var _ fyne.Tappable = (*overlayTapCatcher)(nil)

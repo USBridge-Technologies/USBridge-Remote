@@ -305,6 +305,27 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 			newStatusBarDot(),
 			resBtn,
 		)
+		view.SetMenuSwapTargets(
+			fpsBtn,
+			resBtn,
+			mw.videoIcon,
+			mw.fullscreenIcon,
+			mw.audioIcon,
+			mw.keyboardIcon,
+			mw.mouseIcon,
+			mw.rndisIcon,
+			mw.sdStorageProgress,
+		)
+	} else {
+		view.SetMenuSwapTargets(
+			mw.videoIcon,
+			mw.fullscreenIcon,
+			mw.audioIcon,
+			mw.keyboardIcon,
+			mw.mouseIcon,
+			mw.rndisIcon,
+			mw.sdStorageProgress,
+		)
 	}
 	videoItems = append(videoItems, container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon))
 	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2}, videoItems...)
@@ -352,35 +373,44 @@ func (mw *MainWindow) showVideoFPSMenu(anchor fyne.CanvasObject) {
 	if mw.videoWidget == nil || anchor == nil {
 		return
 	}
+	if modes, cfg, ok := mw.videoWidget.PeekCaptureModes(); ok {
+		mw.openVideoFPSMenu(anchor, modes, cfg)
+		mw.videoWidget.RefreshCaptureModesIfStaleAsync()
+		return
+	}
 	go func() {
 		modes, cfg, err := mw.videoWidget.AvailableCaptureModes()
 		if err != nil {
 			logrus.Warnf("⚠️ cannot load fps options: %v", err)
 			return
 		}
-		fpsOptions := captureModeFPS(modes, cfg.VideoWidth, cfg.VideoHeight)
-		if len(fpsOptions) == 0 {
-			return
-		}
 		fyne.Do(func() {
-			items := make([]view.StyledMenuItem, 0, len(fpsOptions))
-			for _, fps := range fpsOptions {
-				fps := fps
-				items = append(items, view.StyledMenuItem{
-					Label:    fmt.Sprintf("%d FPS", fps),
-					Selected: fps == cfg.VideoFPS,
-					OnTap: func() {
-						go func() {
-							if err := mw.videoWidget.ApplyVideoFPS(fps); err != nil {
-								logrus.Warnf("⚠️ failed to apply fps %d from header menu: %v", fps, err)
-							}
-						}()
-					},
-				})
-			}
-			view.ShowStyledMenuTeal(anchor, items)
+			mw.openVideoFPSMenu(anchor, modes, cfg)
 		})
 	}()
+}
+
+func (mw *MainWindow) openVideoFPSMenu(anchor fyne.CanvasObject, modes []models.VideoCaptureMode, cfg models.VideoDeviceConfig) {
+	fpsOptions := captureModeFPS(modes, cfg.VideoWidth, cfg.VideoHeight)
+	if len(fpsOptions) == 0 {
+		return
+	}
+	items := make([]view.StyledMenuItem, 0, len(fpsOptions))
+	for _, fps := range fpsOptions {
+		fps := fps
+		items = append(items, view.StyledMenuItem{
+			Label:    fmt.Sprintf("%d FPS", fps),
+			Selected: fps == cfg.VideoFPS,
+			OnTap: func() {
+				go func() {
+					if err := mw.videoWidget.ApplyVideoFPS(fps); err != nil {
+						logrus.Warnf("⚠️ failed to apply fps %d from header menu: %v", fps, err)
+					}
+				}()
+			},
+		})
+	}
+	view.ShowStyledMenuTeal(anchor, items)
 }
 
 // showVideoResolutionMenu is showVideoFPSMenu's own counterpart for
@@ -390,35 +420,44 @@ func (mw *MainWindow) showVideoResolutionMenu(anchor fyne.CanvasObject) {
 	if mw.videoWidget == nil || anchor == nil {
 		return
 	}
+	if modes, cfg, ok := mw.videoWidget.PeekCaptureModes(); ok {
+		mw.openVideoResolutionMenu(anchor, modes, cfg)
+		mw.videoWidget.RefreshCaptureModesIfStaleAsync()
+		return
+	}
 	go func() {
 		modes, cfg, err := mw.videoWidget.AvailableCaptureModes()
 		if err != nil {
 			logrus.Warnf("⚠️ cannot load resolution options: %v", err)
 			return
 		}
-		options := distinctCaptureResolutions(modes)
-		if len(options) == 0 {
-			return
-		}
 		fyne.Do(func() {
-			items := make([]view.StyledMenuItem, 0, len(options))
-			for _, opt := range options {
-				width, height := opt.width, opt.height
-				items = append(items, view.StyledMenuItem{
-					Label:    fmt.Sprintf("%d x %d", width, height),
-					Selected: width == cfg.VideoWidth && height == cfg.VideoHeight,
-					OnTap: func() {
-						go func() {
-							if err := mw.videoWidget.ApplyVideoResolution(width, height); err != nil {
-								logrus.Warnf("⚠️ failed to apply resolution %dx%d from header menu: %v", width, height, err)
-							}
-						}()
-					},
-				})
-			}
-			view.ShowStyledMenuTeal(anchor, items)
+			mw.openVideoResolutionMenu(anchor, modes, cfg)
 		})
 	}()
+}
+
+func (mw *MainWindow) openVideoResolutionMenu(anchor fyne.CanvasObject, modes []models.VideoCaptureMode, cfg models.VideoDeviceConfig) {
+	options := distinctCaptureResolutions(modes)
+	if len(options) == 0 {
+		return
+	}
+	items := make([]view.StyledMenuItem, 0, len(options))
+	for _, opt := range options {
+		width, height := opt.width, opt.height
+		items = append(items, view.StyledMenuItem{
+			Label:    fmt.Sprintf("%d x %d", width, height),
+			Selected: width == cfg.VideoWidth && height == cfg.VideoHeight,
+			OnTap: func() {
+				go func() {
+					if err := mw.videoWidget.ApplyVideoResolution(width, height); err != nil {
+						logrus.Warnf("⚠️ failed to apply resolution %dx%d from header menu: %v", width, height, err)
+					}
+				}()
+			},
+		})
+	}
+	view.ShowStyledMenuTeal(anchor, items)
 }
 
 // maxSelectableFPS mirrors video_start_dialog.go's own refreshFPSOptions:

@@ -20,9 +20,17 @@ import android.widget.FrameLayout
  */
 object VulkanOverlayBridge {
     private const val TAG = "VulkanOverlayBridge"
+    // Samsung One UI often destroys the SurfaceView buffer when visibility
+    // is INVISIBLE/GONE. Park off-screen instead so the ANativeWindow lives.
+    private const val PARK_MARGIN = -8192
 
     @Volatile private var surfaceView: SurfaceView? = null
     @Volatile private var pendingSurface: Surface? = null
+    @Volatile private var parked = false
+    @Volatile private var lastX = 0
+    @Volatile private var lastY = 0
+    @Volatile private var lastW = 1
+    @Volatile private var lastH = 1
 
     private val holderCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
@@ -71,6 +79,11 @@ object VulkanOverlayBridge {
             )
             lp.leftMargin = x
             lp.topMargin  = y
+            lastX = x
+            lastY = y
+            lastW = w.coerceAtLeast(1)
+            lastH = h.coerceAtLeast(1)
+            parked = false
 
             val decorView = activity.window.decorView as? FrameLayout ?: run {
                 Log.e(TAG, "createOverlay: decorView is not a FrameLayout")
@@ -95,15 +108,17 @@ object VulkanOverlayBridge {
     /** Reposition and resize the SurfaceView overlay. */
     @JvmStatic
     fun setRect(x: Int, y: Int, w: Int, h: Int) {
+        lastX = x
+        lastY = y
+        lastW = w.coerceAtLeast(1)
+        lastH = h.coerceAtLeast(1)
+        if (parked) {
+            return
+        }
         val sv = surfaceView ?: return
         val activity = MainActivity.getInstance() ?: return
         activity.runOnUiThread {
-            val lp = sv.layoutParams as? FrameLayout.LayoutParams ?: return@runOnUiThread
-            lp.leftMargin = x
-            lp.topMargin  = y
-            lp.width      = w.coerceAtLeast(1)
-            lp.height     = h.coerceAtLeast(1)
-            sv.layoutParams = lp
+            applyRect(sv, lastX, lastY, lastW, lastH)
         }
     }
 
@@ -113,10 +128,27 @@ object VulkanOverlayBridge {
         val sv = surfaceView ?: return
         val activity = MainActivity.getInstance() ?: return
         activity.runOnUiThread {
-            // INVISIBLE keeps the surface alive (no surfaceDestroyed/surfaceCreated cycle).
-        // GONE would destroy the ANativeWindow and break the Vulkan swapchain.
-        sv.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+            if (visible) {
+                parked = false
+                sv.visibility = View.VISIBLE
+                applyRect(sv, lastX, lastY, lastW, lastH)
+                Log.i(TAG, "setVisible: on-screen ($lastX,$lastY) ${lastW}x${lastH}")
+            } else {
+                parked = true
+                applyRect(sv, PARK_MARGIN, PARK_MARGIN, lastW, lastH)
+                sv.visibility = View.VISIBLE
+                Log.i(TAG, "setVisible: parked off-screen (keep surface)")
+            }
         }
+    }
+
+    private fun applyRect(sv: SurfaceView, x: Int, y: Int, w: Int, h: Int) {
+        val lp = sv.layoutParams as? FrameLayout.LayoutParams ?: return
+        lp.leftMargin = x
+        lp.topMargin = y
+        lp.width = w.coerceAtLeast(1)
+        lp.height = h.coerceAtLeast(1)
+        sv.layoutParams = lp
     }
 
     /** Remove the SurfaceView overlay and reset state. */
@@ -127,6 +159,7 @@ object VulkanOverlayBridge {
         val sv = surfaceView ?: return
         sv.holder.removeCallback(holderCallback)
         surfaceView = null
+        parked = false
         activity?.runOnUiThread {
             (activity.window.decorView as? FrameLayout)?.removeView(sv)
             Log.i(TAG, "destroy: SurfaceView removed")

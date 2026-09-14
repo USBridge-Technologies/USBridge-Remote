@@ -71,7 +71,7 @@ type LocalizedStrings struct {
 	AwaitingConnection           string
 	FirmwarePromoTitle           string
 	FirmwarePromoSubtitle        string
-	FirmwarePromoTrial           string
+	FirmwarePromoTrial           string // "Download"
 	FirmwarePromoFeatureBIOS     string
 	FirmwarePromoFeatureLatency  string
 	FirmwarePromoFeatureScripts  string
@@ -350,6 +350,13 @@ type LocalizedStrings struct {
 	// Virtual keyboard
 	VirtualKeyboard string // "Virtual keyboard"
 
+	// Window size (desktop vs compact widget)
+	WindowSizeChip     string
+	WindowSizeDesktop  string
+	WindowSizeCompact  string
+	WindowSizeScale    string
+	WindowSizeScaleOff string
+
 	// Device names
 	DeviceKeyboard                       string // "Keyboard"
 	DeviceTouchPad                       string // "TouchPad" (relative touchpad mode)
@@ -514,7 +521,7 @@ func EN() *LocalizedStrings {
 		AwaitingConnection:           "Awaiting connection...",
 		FirmwarePromoTitle:           "USBridge Firmware",
 		FirmwarePromoSubtitle:        "Turn your board into a hardware KVM",
-		FirmwarePromoTrial:           "24h Trial",
+		FirmwarePromoTrial:           "Download",
 		FirmwarePromoFeatureBIOS:     "BIOS-in-terminal (OCR)",
 		FirmwarePromoFeatureLatency:  "Ultra-low latency video",
 		FirmwarePromoFeatureScripts:  "Automation scripts",
@@ -791,6 +798,12 @@ func EN() *LocalizedStrings {
 		// Virtual keyboard
 		VirtualKeyboard: "Virtual keyboard",
 
+		WindowSizeChip:     "Size",
+		WindowSizeDesktop:  "Desktop",
+		WindowSizeCompact:  "Compact",
+		WindowSizeScale:    "Scale",
+		WindowSizeScaleOff: "On in Compact",
+
 		// Device names
 		DeviceKeyboard:                       "Keyboard",
 		DeviceTouchPad:                       "TouchPad",
@@ -951,7 +964,7 @@ func ES() *LocalizedStrings {
 	locale.AwaitingConnection = "Esperando conexion..."
 	locale.FirmwarePromoTitle = "USBridge Firmware"
 	locale.FirmwarePromoSubtitle = "Convierte tu placa en un KVM de hardware"
-	locale.FirmwarePromoTrial = "Prueba 24h"
+	locale.FirmwarePromoTrial = "Descargar"
 	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
 	locale.FirmwarePromoFeatureLatency = "Video de ultra baja latencia"
 	locale.FirmwarePromoFeatureScripts = "Scripts de automatizacion"
@@ -1022,6 +1035,11 @@ func ES() *LocalizedStrings {
 	locale.DeepLinkConnect = "Conectar"
 	locale.DeepLinkSave = "Guardar"
 	locale.VirtualKeyboard = "Teclado virtual"
+	locale.WindowSizeChip = "Tamano"
+	locale.WindowSizeDesktop = "Escritorio"
+	locale.WindowSizeCompact = "Compacto"
+	locale.WindowSizeScale = "Escala"
+	locale.WindowSizeScaleOff = "En Compacto"
 	locale.FullscreenWindowTitle = "USBridge - Pantalla completa"
 	locale.PCPanelPowerTitle = "Encendido"
 	locale.PCPanelResetTitle = "Reinicio"
@@ -1129,7 +1147,7 @@ func UKProper() *LocalizedStrings {
 	locale.AwaitingConnection = "Очікування з'єднання..."
 	locale.FirmwarePromoTitle = "USBridge Firmware"
 	locale.FirmwarePromoSubtitle = "Перетворіть плату на апаратний KVM"
-	locale.FirmwarePromoTrial = "Пробний період 24h"
+	locale.FirmwarePromoTrial = "Завантажити"
 	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
 	locale.FirmwarePromoFeatureLatency = "Відео з ультранизькою затримкою"
 	locale.FirmwarePromoFeatureScripts = "Скрипти автоматизації"
@@ -1200,6 +1218,11 @@ func UKProper() *LocalizedStrings {
 	locale.DeepLinkConnect = "Підключити"
 	locale.DeepLinkSave = "Зберегти"
 	locale.VirtualKeyboard = "Віртуальна клавіатура"
+	locale.WindowSizeChip = "Size"
+	locale.WindowSizeDesktop = "Desktop"
+	locale.WindowSizeCompact = "Compact"
+	locale.WindowSizeScale = "Scale"
+	locale.WindowSizeScaleOff = "У Compact"
 	locale.FullscreenWindowTitle = "USBridge - Повний екран"
 	locale.PCPanelPowerTitle = "Живлення"
 	locale.PCPanelResetTitle = "Скидання"

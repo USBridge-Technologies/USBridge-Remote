@@ -54,6 +54,9 @@ type HeaderDropdown struct {
 	CornerRadius     float32
 	TextColor        color.Color
 	TextSize         float32
+	// DetailTextSize sizes the optional Details hint in the popup. 0 keeps
+	// it the same as TextSize (resolution hints, etc.).
+	DetailTextSize   float32
 	HoverBorderColor color.Color
 	HoverFillColor   color.Color
 	IconColor        color.Color
@@ -277,6 +280,7 @@ func (d *HeaderDropdown) openPopup() {
 		})
 		item.textColor = d.TextColor
 		item.textSize = d.TextSize
+		item.detailTextSize = d.DetailTextSize
 		item.monospace = d.UltraCompact
 		rows = append(rows, item)
 	}
@@ -376,6 +380,7 @@ func (d *HeaderDropdown) openPopup() {
 		fyne.NewSize(menuWidth, popupHeight),
 		d.popupDismissed,
 	)
+	d.popup.anchor = d
 
 	downIcon := coloredArrowDown(d.IconColor)
 	upIcon := coloredArrowUp(d.IconColor)
@@ -552,6 +557,7 @@ type dropdownItem struct {
 	secondaryLabel *canvas.Text
 	textColor      color.Color
 	textSize       float32
+	detailTextSize float32
 	monospace      bool
 	// minHeight overrides MinSize's own 36/32/24 row height when > 0 -- see
 	// StyledMenuOptions.RowHeight.
@@ -583,7 +589,7 @@ func (i *dropdownItem) CreateRenderer() fyne.WidgetRenderer {
 		i.label.TextStyle.Monospace = true
 	}
 	i.secondaryLabel = canvas.NewText(i.secondary, design.ColorTextMuted)
-	i.secondaryLabel.TextSize = i.textSize
+	i.secondaryLabel.TextSize = i.secondaryTextSize()
 	if i.monospace {
 		i.secondaryLabel.TextStyle.Monospace = true
 	}
@@ -621,7 +627,7 @@ func (i *dropdownItem) MinSize() fyne.Size {
 
 	if i.secondary != "" {
 		secondary := canvas.NewText(i.secondary, design.ColorTextMuted)
-		secondary.TextSize = i.textSize
+		secondary.TextSize = i.secondaryTextSize()
 		if i.monospace {
 			secondary.TextStyle.Monospace = true
 		}
@@ -646,6 +652,13 @@ func (i *dropdownItem) MinSize() fyne.Size {
 		height = i.minHeight
 	}
 	return fyne.NewSize(width, height)
+}
+
+func (i *dropdownItem) secondaryTextSize() float32 {
+	if i.detailTextSize > 0 {
+		return i.detailTextSize
+	}
+	return i.textSize
 }
 
 func (i *dropdownItem) iconGlyphSize() float32 {
@@ -754,6 +767,7 @@ type dropdownPopup struct {
 
 	content   fyne.CanvasObject
 	canvas    fyne.Canvas
+	anchor    fyne.CanvasObject
 	pos       fyne.Position
 	size      fyne.Size
 	shown     bool
@@ -765,6 +779,7 @@ type StyledMenuItem struct {
 	SecondaryLabel string
 	Selected       bool
 	OnTap          func()
+	Icon           fyne.Resource
 }
 
 type StyledMenuOptions struct {
@@ -784,6 +799,9 @@ type StyledMenuOptions struct {
 	// own 36/32/24) when > 0 -- the default reads as too much top/bottom
 	// padding once TextSize shrinks a row's text down from the default 14.
 	RowHeight float32
+	// IconSize is the left-side glyph for StyledMenuItem.Icon. 0 keeps
+	// dropdownItem's own 16px default.
+	IconSize float32
 	// IgnoreAnchorWidth skips the "never narrower than anchor" step below --
 	// every other caller (dropdowns, the header's icon menus) wants the menu
 	// at least as wide as the control that opened it, but a text entry's own
@@ -833,12 +851,24 @@ func ShowStyledMenuTeal(anchor fyne.CanvasObject, items []StyledMenuItem) {
 // the Connections settings panel (13px / 38-tall / 220 wide), not the
 // compact 10px desktop teal menu.
 func ShowMobileLanguageMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
-	showStyledMenu(anchor, items, StyledMenuOptions{
+	showStyledMenu(anchor, items, mobileStyledMenuOptions(false))
+}
+
+// ShowMobileStyledMenuAbove is ShowMobileLanguageMenu opening upward —
+// Control footer mouse/keyboard anchors would clip below the window.
+func ShowMobileStyledMenuAbove(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, mobileStyledMenuOptions(true))
+}
+
+func mobileStyledMenuOptions(openAbove bool) StyledMenuOptions {
+	return StyledMenuOptions{
+		OpenAbove: openAbove,
 		TextColor: design.ColorConnectionBadgeText,
 		TextSize:  13,
 		RowHeight: 38,
-		Width:     220,
-	})
+		Width:     236,
+		IconSize:  16,
+	}
 }
 
 // ShowStyledMenuTealAbove is ShowStyledMenuTeal opening upward — footer
@@ -854,6 +884,7 @@ func tealStyledMenuOptions(openAbove bool) StyledMenuOptions {
 		TextColor: design.ColorConnectionBadgeText,
 		TextSize:  10,
 		RowHeight: 26,
+		IconSize:  12,
 	}
 }
 
@@ -882,6 +913,12 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 			}
 		}
 		row := newDropdownItem(menuItem.Label, menuItem.SecondaryLabel, menuItem.Selected, onTap)
+		if menuItem.Icon != nil {
+			row.iconRes = menuItem.Icon
+			if options.IconSize > 0 {
+				row.iconSide = options.IconSize
+			}
+		}
 		if options.TextColor != nil {
 			row.textColor = options.TextColor
 		}
@@ -926,6 +963,9 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		label := canvas.NewText(option.Label, design.ColorTextLight)
 		label.TextSize = rowTextSize
 		optionWidth := label.MinSize().Width + 40
+		if option.Icon != nil {
+			optionWidth += 24
+		}
 		if optionWidth > width {
 			width = optionWidth
 		}
@@ -965,6 +1005,7 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		// case -- safe to call unconditionally on every dismiss.
 		detachTouchScroll,
 	)
+	popup.anchor = anchor
 
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
 	popupPos := fyne.NewPos(
@@ -1088,6 +1129,7 @@ func showStyledPanel(anchor fyne.CanvasObject, content fyne.CanvasObject, minWid
 	height := menuMin.Height
 
 	popup := newDropdownPopup(menu, canvasForObj, fyne.NewSize(width, height), nil)
+	popup.anchor = anchor
 
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
 	popupPos := fyne.NewPos(
@@ -1132,7 +1174,31 @@ func (p *dropdownPopup) Tapped(ev *fyne.PointEvent) {
 	if p.isInside(ev.Position) {
 		return
 	}
-	p.Hide() // onDismiss and overlayHide are called inside Hide()
+	pos := dropdownTapAbs(ev)
+	if p.anchor != nil && objectContainsAbs(p.anchor, pos) {
+		p.Hide()
+		return
+	}
+
+	target := menuSwapTargetAt(pos)
+	if target == nil && p.canvas != nil {
+		target = findCompactTappable(p.canvas.Content(), pos)
+	}
+	if target != nil && target != p.anchor {
+		overlayHoldNativeHidden(true)
+		p.Hide()
+		if t, ok := target.(fyne.Tappable); ok {
+			abs := fyne.CurrentApp().Driver().AbsolutePositionForObject(target)
+			t.Tapped(&fyne.PointEvent{
+				Position:         fyne.NewPos(pos.X-abs.X, pos.Y-abs.Y),
+				AbsolutePosition: pos,
+			})
+		}
+		overlayHoldNativeHidden(false)
+		overlayReleaseNativeIfIdle()
+		return
+	}
+	p.Hide()
 }
 
 func (p *dropdownPopup) TappedSecondary(ev *fyne.PointEvent) {
@@ -1263,6 +1329,95 @@ func (r *dropdownItemRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *dropdownItemRenderer) Destroy() {}
+
+func dropdownTapAbs(ev *fyne.PointEvent) fyne.Position {
+	if ev == nil {
+		return fyne.Position{}
+	}
+	if ev.AbsolutePosition != (fyne.Position{}) {
+		return ev.AbsolutePosition
+	}
+	return ev.Position
+}
+
+func objectContainsAbs(obj fyne.CanvasObject, pos fyne.Position) bool {
+	if obj == nil || !obj.Visible() {
+		return false
+	}
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return false
+	}
+	abs := app.Driver().AbsolutePositionForObject(obj)
+	s := obj.Size()
+	return pos.X >= abs.X && pos.Y >= abs.Y && pos.X < abs.X+s.Width && pos.Y < abs.Y+s.Height
+}
+
+// Compact chrome (header chips, FPS/resolution text, storage) is smaller
+// than this. The video/touch surface is much larger and must not receive a
+// retargeted click -- that would inject a remote click just to dismiss a menu.
+const menuSwapMaxWidth = 360
+const menuSwapMaxHeight = 72
+
+func dispatchCompactTappable(root fyne.CanvasObject, pos fyne.Position) {
+	obj := findCompactTappable(root, pos)
+	if obj == nil {
+		return
+	}
+	t, ok := obj.(fyne.Tappable)
+	if !ok {
+		return
+	}
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return
+	}
+	abs := app.Driver().AbsolutePositionForObject(obj)
+	t.Tapped(&fyne.PointEvent{
+		Position:         fyne.NewPos(pos.X-abs.X, pos.Y-abs.Y),
+		AbsolutePosition: pos,
+	})
+}
+
+func findCompactTappable(obj fyne.CanvasObject, pos fyne.Position) fyne.CanvasObject {
+	var best fyne.CanvasObject
+	bestArea := float32(1e12)
+	var walk func(fyne.CanvasObject)
+	walk = func(obj fyne.CanvasObject) {
+		if obj == nil || !obj.Visible() {
+			return
+		}
+		if !objectContainsAbs(obj, pos) {
+			return
+		}
+		if _, ok := obj.(fyne.Tappable); ok {
+			s := obj.Size()
+			if s.Width > 0 && s.Height > 0 && s.Width <= menuSwapMaxWidth && s.Height <= menuSwapMaxHeight {
+				area := s.Width * s.Height
+				if area < bestArea {
+					bestArea = area
+					best = obj
+				}
+			}
+		}
+		if c, ok := obj.(*fyne.Container); ok {
+			for _, ch := range c.Objects {
+				walk(ch)
+			}
+		}
+		if w, ok := obj.(fyne.Widget); ok {
+			if r := w.CreateRenderer(); r != nil {
+				for _, ch := range r.Objects() {
+					if ch != nil && ch != obj {
+						walk(ch)
+					}
+				}
+			}
+		}
+	}
+	walk(obj)
+	return best
+}
 
 var (
 	_ fyne.Tappable     = (*HeaderDropdown)(nil)

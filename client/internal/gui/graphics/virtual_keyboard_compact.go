@@ -28,7 +28,7 @@ type compactKeyKind int
 const compactKeyNormal compactKeyKind = iota
 
 func padCompactKey(key fyne.CanvasObject) fyne.CanvasObject {
-	return view.NewInsetExact(key, 2, 2, 2, 2)
+	return view.NewInsetExact(key, 1, 1, 1, 0)
 }
 
 type compactKey struct {
@@ -37,6 +37,9 @@ type compactKey struct {
 	icon    fyne.Resource
 	kind    compactKeyKind
 	minW    float32
+	minH    float32
+	radius  float32
+	faceSize float32
 	active  bool
 	hovered bool
 	onTap   func()
@@ -64,6 +67,32 @@ func (k *compactKey) SetActive(on bool) {
 	k.syncVisuals()
 }
 
+func (k *compactKey) SetFaceSize(sz float32) {
+	if sz < 9 {
+		sz = 9
+	}
+	if sz > 22 {
+		sz = 22
+	}
+	k.faceSize = sz
+	if k.text != nil {
+		k.text.TextSize = sz
+		k.text.Refresh()
+	}
+	if k.iconImg != nil {
+		icon := sz + 6
+		k.iconImg.SetMinSize(fyne.NewSize(icon, icon))
+		k.iconImg.Refresh()
+	}
+}
+
+func (k *compactKey) keyRadius() float32 {
+	if k.radius > 0 {
+		return k.radius
+	}
+	return compactKeyRadius
+}
+
 func (k *compactKey) Tapped(*fyne.PointEvent) {
 	if k.onTap != nil {
 		k.onTap()
@@ -89,24 +118,33 @@ func (k *compactKey) MinSize() fyne.Size {
 	if w <= 0 {
 		w = 40
 	}
-	return fyne.NewSize(w, compactKeyHeight)
+	h := k.minH
+	if h <= 0 {
+		h = compactKeyHeight
+	}
+	return fyne.NewSize(w, h)
 }
 
 func (k *compactKey) CreateRenderer() fyne.WidgetRenderer {
 	k.bg = canvas.NewRectangle(design.ColorStatusBarFill)
-	k.bg.CornerRadius = compactKeyRadius
+	k.bg.CornerRadius = k.keyRadius()
 	k.border = canvas.NewRectangle(color.Transparent)
-	k.border.CornerRadius = compactKeyRadius
+	k.border.CornerRadius = k.keyRadius()
 	k.border.StrokeWidth = compactKeyStroke
 	var face fyne.CanvasObject
+	textSize := compactKeyTextSize
+	if k.faceSize > 0 {
+		textSize = k.faceSize
+	}
 	if k.icon != nil {
 		k.iconImg = canvas.NewImageFromResource(k.icon)
 		k.iconImg.FillMode = canvas.ImageFillContain
-		k.iconImg.SetMinSize(fyne.NewSize(18, 18))
+		icon := textSize + 6
+		k.iconImg.SetMinSize(fyne.NewSize(icon, icon))
 		face = container.NewCenter(k.iconImg)
 	} else {
 		k.text = canvas.NewText(k.label, design.ColorConnectionsSectionMutedText)
-		k.text.TextSize = compactKeyTextSize
+		k.text.TextSize = textSize
 		k.text.TextStyle.Bold = true
 		k.text.Alignment = fyne.TextAlignCenter
 		face = container.NewCenter(k.text)
@@ -215,6 +253,18 @@ func (t *compactKBEntryTheme) Size(name fyne.ThemeSizeName) float32 {
 	return t.Theme.Size(name)
 }
 
+type compactKeysTheme struct {
+	fyne.Theme
+}
+
+func (t *compactKeysTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNamePadding, theme.SizeNameInnerPadding:
+		return 1
+	}
+	return t.Theme.Size(name)
+}
+
 func wrapCompactKBEntry(entry *compactKBEntry) fyne.CanvasObject {
 	border := canvas.NewRectangle(color.Transparent)
 	border.CornerRadius = compactKeyRadius
@@ -267,7 +317,7 @@ func (vk *VirtualKeyboard) createCompactKeysChrome() fyne.CanvasObject {
 	}
 	vk.rebuildCompactKeys = rebuild
 	rebuild()
-	return host
+	return container.NewThemeOverride(host, &compactKeysTheme{Theme: design.NewBrandTheme()})
 }
 
 // RefreshCompactLayout rebuilds the special-keys chrome after orientation
@@ -317,9 +367,16 @@ func (vk *VirtualKeyboard) buildCompactModifierKeys(rebuild func()) (shiftKey, c
 	return
 }
 
+func compactKeysSpreadRow(keys ...fyne.CanvasObject) fyne.CanvasObject {
+	if len(keys) == 0 {
+		return container.NewHBox()
+	}
+	return container.NewGridWithColumns(len(keys), keys...)
+}
+
 func (vk *VirtualKeyboard) buildPortraitCompactKeys(rebuild func()) fyne.CanvasObject {
 	shiftKey, ctrlKey, winKey, altKey, fnKey := vk.buildCompactModifierKeys(rebuild)
-	row1 := container.NewHBox(
+	row1 := compactKeysSpreadRow(
 		padCompactKey(newCompactKey(vk, "Esc", compactKeyNormal, 40, func() { vk.handleKeyPress(41, 0) })),
 		padCompactKey(newCompactKey(vk, "Tab", compactKeyNormal, 40, func() { vk.handleKeyPress(43, 0) })),
 		padCompactKey(shiftKey),
@@ -328,11 +385,10 @@ func (vk *VirtualKeyboard) buildPortraitCompactKeys(rebuild func()) fyne.CanvasO
 		padCompactKey(altKey),
 		padCompactKey(fnKey),
 	)
-	row2 := container.NewHBox(
+	row2 := compactKeysSpreadRow(append([]fyne.CanvasObject{
 		padCompactKey(newCompactKey(vk, "Del", compactKeyNormal, 44, func() { vk.handleKeyPress(76, 0) })),
 		padCompactKey(newCompactKey(vk, "Enter", compactKeyNormal, 56, func() { vk.handleKeyPress(40, 0) })),
-		vk.buildCompactArrowRow(),
-	)
+	}, vk.compactArrowKeys()...)...)
 	return container.NewVBox(row1, row2)
 }
 
@@ -344,7 +400,7 @@ func (vk *VirtualKeyboard) buildLandscapeCompactKeys(rebuild func()) fyne.Canvas
 	altKey.minW = 34
 	fnKey.minW = 34
 	const kw = float32(34)
-	row1 := container.NewHBox(
+	row1 := compactKeysSpreadRow(
 		padCompactKey(newCompactKey(vk, "Esc", compactKeyNormal, kw, func() { vk.handleKeyPress(41, 0) })),
 		padCompactKey(newCompactKey(vk, "Tab", compactKeyNormal, kw, func() { vk.handleKeyPress(43, 0) })),
 		padCompactKey(shiftKey),
@@ -354,17 +410,15 @@ func (vk *VirtualKeyboard) buildLandscapeCompactKeys(rebuild func()) fyne.Canvas
 		padCompactKey(newCompactKey(vk, "Del", compactKeyNormal, kw, func() { vk.handleKeyPress(76, 0) })),
 		padCompactKey(fnKey),
 	)
-	row2 := container.NewHBox(
+	row2 := compactKeysSpreadRow(append([]fyne.CanvasObject{
 		padCompactKey(newCompactKey(vk, "Enter", compactKeyNormal, 72, func() { vk.handleKeyPress(40, 0) })),
-		vk.buildCompactArrowRow(),
-	)
+	}, vk.compactArrowKeys()...)...)
 	return container.NewVBox(row1, row2)
 }
 
-// buildCompactArrowRow is ← ↑ ↓ → plus dismiss (keyboard+slash) after →.
-func (vk *VirtualKeyboard) buildCompactArrowRow() fyne.CanvasObject {
+func (vk *VirtualKeyboard) compactArrowKeys() []fyne.CanvasObject {
 	const aw = compactKeyHeight
-	return container.NewHBox(
+	return []fyne.CanvasObject{
 		padCompactKey(newCompactKey(vk, "←", compactKeyNormal, aw, func() { vk.handleKeyPress(80, 0) })),
 		padCompactKey(newCompactKey(vk, "↑", compactKeyNormal, aw, func() { vk.handleKeyPress(82, 0) })),
 		padCompactKey(newCompactKey(vk, "↓", compactKeyNormal, aw, func() { vk.handleKeyPress(81, 0) })),
@@ -374,7 +428,7 @@ func (vk *VirtualKeyboard) buildCompactArrowRow() fyne.CanvasObject {
 				vk.onDismiss()
 			}
 		})),
-	)
+	}
 }
 
 func (vk *VirtualKeyboard) buildCompactFKeysRow(rebuild func()) fyne.CanvasObject {
@@ -398,15 +452,14 @@ func (vk *VirtualKeyboard) buildCompactFKeysRow(rebuild func()) fyne.CanvasObjec
 				rebuild()
 			}
 		})))
-		return container.NewHBox(objs...)
+		return compactKeysSpreadRow(objs...)
 	}
-	// Portrait: two rows so F-keys fit a phone width (same idea as the old Fx panel).
-	row1 := container.NewHBox(
+	row1 := compactKeysSpreadRow(
 		makeKey(labels[0], codes[0]), makeKey(labels[1], codes[1]), makeKey(labels[2], codes[2]),
 		makeKey(labels[3], codes[3]), makeKey(labels[4], codes[4]), makeKey(labels[5], codes[5]),
 		makeKey(labels[6], codes[6]),
 	)
-	row2 := container.NewHBox(
+	row2 := compactKeysSpreadRow(
 		makeKey(labels[7], codes[7]), makeKey(labels[8], codes[8]), makeKey(labels[9], codes[9]),
 		makeKey(labels[10], codes[10]), makeKey(labels[11], codes[11]),
 		padCompactKey(newCompactKey(vk, "Back", compactKeyNormal, 48, func() {
@@ -423,7 +476,7 @@ func (vk *VirtualKeyboard) buildCompactFKeysRow(rebuild func()) fyne.CanvasObjec
 // strip (no system IME bridge). Solid header-matching fill; input sits above
 // the two key rows when used from createKeyboardLayout.
 func (vk *VirtualKeyboard) createCompactSpecialKeysLayout() *fyne.Container {
-	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 6, 6, 4, 6)
+	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 4, 4, 2, 1)
 	background := canvas.NewRectangle(design.ColorGray900)
 	return container.NewMax(container.NewThemeOverride(
 		container.NewStack(background, keys),

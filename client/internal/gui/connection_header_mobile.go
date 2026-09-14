@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"runtime"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
 
@@ -19,8 +20,8 @@ const mobileConnectionHeaderScale float32 = 1.1
 
 var headerMobileButtonSize = fyne.NewSize(31, 31)
 
-// newMobileConnectionHeader is the phone Connections chrome: settings on
-// the left (no USBridge lockup), Tailscale + account avatar on the right.
+// newMobileConnectionHeader is the phone Connections chrome: settings,
+// then the USBridge lockup, Tailscale + account avatar on the right.
 func newMobileConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *ConnectionHeaderHandle) {
 	handle := &ConnectionHeaderHandle{}
 	var tailscaleAccessory fyne.CanvasObject
@@ -35,6 +36,12 @@ func newMobileConnectionHeader(actions connectionHeaderActions) (*fyne.Container
 	}
 
 	overflow := newMobileConnectionOverflowButton(actions)
+	logoLockup := canvas.NewImageFromResource(assets.LogoUSBridgeLockupMobile)
+	logoLockup.FillMode = canvas.ImageFillContain
+	const logoAspectRatio = 673.0 / 236.0
+	const logoHeight = 22
+	logoLockup.SetMinSize(fyne.NewSize(logoHeight*logoAspectRatio, logoHeight))
+
 	loginBtn := newLoginAvatarButton("U", func() {
 		if actions.OnOpenAccount != nil {
 			actions.OnOpenAccount()
@@ -51,6 +58,7 @@ func newMobileConnectionHeader(actions connectionHeaderActions) (*fyne.Container
 
 	row := container.NewHBox(
 		container.NewGridWrap(headerMobileButtonSize, overflow),
+		container.NewCenter(logoLockup),
 		layout.NewSpacer(),
 		rightRow,
 	)
@@ -76,8 +84,16 @@ func newMobileConnectionOverflowButton(actions connectionHeaderActions) fyne.Can
 			actions.OnViewModeChange,
 			actions.OnOpenHardwareAgent,
 			actions.OnOpenSoftwareAgent,
-			actions.OnOpenInfo,
-			actions.OnOpenCommunity,
+			func() {
+				if actions.OnOpenInfo != nil {
+					actions.OnOpenInfo(btn)
+				}
+			},
+			func() {
+				if actions.OnOpenCommunity != nil {
+					actions.OnOpenCommunity(btn)
+				}
+			},
 			func() {
 				if actions.OnShowLanguageMenu != nil {
 					actions.OnShowLanguageMenu(btn)
