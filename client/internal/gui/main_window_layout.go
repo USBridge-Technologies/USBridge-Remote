@@ -1804,7 +1804,11 @@ func (mw *MainWindow) scriptsTabIndex() int {
 }
 
 func (mw *MainWindow) showMouseModeMenu() {
-	if mw.mouseIcon == nil || mw.diskWidget == nil {
+	mw.showMouseModeMenuAt(mw.mouseIcon)
+}
+
+func (mw *MainWindow) showMouseModeMenuAt(anchor fyne.CanvasObject) {
+	if anchor == nil || mw.diskWidget == nil {
 		return
 	}
 
@@ -1865,7 +1869,11 @@ func (mw *MainWindow) showMouseModeMenu() {
 		},
 	})
 
-	view.ShowStyledMenuTeal(mw.mouseIcon, items)
+	if view.IsMobile() {
+		view.ShowMobileStyledMenuAbove(anchor, items)
+		return
+	}
+	view.ShowStyledMenuTeal(anchor, items)
 }
 
 func (mw *MainWindow) showRNDISModeMenu() {

@@ -52,6 +52,8 @@ type MainWindow struct {
 	mobileViewportPanToggle *headerStatusBadgeButton
 	mobileControlBurgerBtn  *headerStatusBadgeButton
 	mobileControlBurgerWrap fyne.CanvasObject
+	mobileMouseBtn          fyne.CanvasObject
+	mobileMouseToggle       *headerStatusBadgeButton
 	// connectedChromeHost holds portrait (tab bar + version) or landscape
 	// (single row) chrome under the connected tabs; swapped by
 	// applyConnectedChromeLayout without a full reloadUI.

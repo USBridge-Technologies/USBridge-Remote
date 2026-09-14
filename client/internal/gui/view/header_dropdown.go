@@ -845,12 +845,23 @@ func ShowStyledMenuTeal(anchor fyne.CanvasObject, items []StyledMenuItem) {
 // the Connections settings panel (13px / 38-tall / 220 wide), not the
 // compact 10px desktop teal menu.
 func ShowMobileLanguageMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
-	showStyledMenu(anchor, items, StyledMenuOptions{
+	showStyledMenu(anchor, items, mobileStyledMenuOptions(false))
+}
+
+// ShowMobileStyledMenuAbove is ShowMobileLanguageMenu opening upward —
+// Control footer mouse/keyboard anchors would clip below the window.
+func ShowMobileStyledMenuAbove(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, mobileStyledMenuOptions(true))
+}
+
+func mobileStyledMenuOptions(openAbove bool) StyledMenuOptions {
+	return StyledMenuOptions{
+		OpenAbove: openAbove,
 		TextColor: design.ColorConnectionBadgeText,
 		TextSize:  13,
 		RowHeight: 38,
 		Width:     220,
-	})
+	}
 }
 
 // ShowStyledMenuTealAbove is ShowStyledMenuTeal opening upward — footer

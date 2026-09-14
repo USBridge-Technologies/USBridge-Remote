@@ -55,6 +55,15 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileViewportPanToggle = pan
 	mw.mobileViewportPanBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), pan)
 
+	mouse := newHeaderStatusBadgeButton(assets.MouseIcon, func() {
+		mw.showMouseModeMenuAt(mw.mobileMouseToggle)
+	})
+	mouse.SetIconSize(fyne.NewSize(16, 16))
+	mouse.SetBadgeText("")
+	mouse.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	mw.mobileMouseToggle = mouse
+	mw.mobileMouseBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), mouse)
+
 	burger := newHeaderStatusBadgeButton(theme.MenuIcon(), func() {
 		mw.openDevicesFromControlBurger()
 	})
@@ -290,7 +299,7 @@ func (mw *MainWindow) buildLandscapeConnectedChrome() fyne.CanvasObject {
 	return mw.buildTabsFooterStrip(true)
 }
 
-// buildControlFooterStrip is Control-only: burger → Devices, pan + Keyboard.
+// buildControlFooterStrip is Control-only: burger left, pan / mouse / keyboard right.
 func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject {
 	var left fyne.CanvasObject
 	if mw.mobileControlBurgerWrap != nil {
@@ -319,7 +328,12 @@ func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject 
 			right = nil
 		}
 	}
-	row := container.NewBorder(nil, nil, left, right, nil)
+	var row fyne.CanvasObject
+	if left != nil && right != nil {
+		row = container.New(&mobileControlFooterAlignLayout{gap: 8}, left, right)
+	} else {
+		row = container.NewBorder(nil, nil, left, right, nil)
+	}
 	minH := float32(52)
 	padT, padB := float32(6), float32(10)
 	if landscape {
@@ -336,6 +350,9 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	var parts []fyne.CanvasObject
 	if mw.mobileViewportPanBtn != nil {
 		parts = append(parts, mw.mobileViewportPanBtn)
+	}
+	if mw.mobileMouseBtn != nil {
+		parts = append(parts, mw.mobileMouseBtn)
 	}
 	if mw.mobileKeyboardBtn != nil {
 		parts = append(parts, mw.mobileKeyboardBtn)
@@ -390,6 +407,65 @@ func newConnectedChromeStrip(inner fyne.CanvasObject) fyne.CanvasObject {
 	return container.NewStack(bg, view.NewTopLine(inner, accent))
 }
 
+// mobileControlFooterAlignLayout keeps the burger and the pan/mouse/keyboard
+// cluster on one baseline: left stays left, the rest pack to the right,
+// all vertically centered. Border+GridWrap used to top-align the burger.
+type mobileControlFooterAlignLayout struct {
+	gap float32
+}
+
+func (l *mobileControlFooterAlignLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	var w, h float32
+	n := 0
+	for _, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		s := obj.MinSize()
+		w += s.Width
+		if s.Height > h {
+			h = s.Height
+		}
+		n++
+	}
+	if n > 1 {
+		w += l.gap * float32(n-1)
+	}
+	return fyne.NewSize(w, h)
+}
+
+func (l *mobileControlFooterAlignLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+	left := objects[0]
+	if left != nil && left.Visible() {
+		ls := left.MinSize()
+		y := (size.Height - ls.Height) / 2
+		if y < 0 {
+			y = 0
+		}
+		left.Move(fyne.NewPos(0, y))
+		left.Resize(ls)
+	}
+	x := size.Width
+	for i := len(objects) - 1; i >= 1; i-- {
+		obj := objects[i]
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		s := obj.MinSize()
+		x -= s.Width
+		y := (size.Height - s.Height) / 2
+		if y < 0 {
+			y = 0
+		}
+		obj.Move(fyne.NewPos(x, y))
+		obj.Resize(s)
+		x -= l.gap
+	}
+}
+
 func usableConnectedChromeObject(obj fyne.CanvasObject) bool {
 	return obj != nil
 }
@@ -416,6 +492,9 @@ func (mw *MainWindow) syncMobileKeyboardButton(controlActive bool) {
 		if mw.mobileControlBurgerBtn != nil {
 			mw.mobileControlBurgerBtn.Show()
 		}
+		if mw.mobileMouseToggle != nil {
+			mw.mobileMouseToggle.Show()
+		}
 	} else {
 		mw.mobileKeyboardToggle.Hide()
 		if mw.mobileViewportPanToggle != nil {
@@ -423,6 +502,9 @@ func (mw *MainWindow) syncMobileKeyboardButton(controlActive bool) {
 		}
 		if mw.mobileControlBurgerBtn != nil {
 			mw.mobileControlBurgerBtn.Hide()
+		}
+		if mw.mobileMouseToggle != nil {
+			mw.mobileMouseToggle.Hide()
 		}
 		if mw.videoWidget != nil {
 			mw.videoWidget.CloseAllKeyboards()
