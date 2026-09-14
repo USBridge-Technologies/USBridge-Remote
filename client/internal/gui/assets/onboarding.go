@@ -88,6 +88,8 @@ var (
 	logoUSBridgeIcon []byte
 	//go:embed LogoUSBridge2.0.svg
 	logoUSBridgeLockup []byte
+	//go:embed LogoUSBridge2.0-mobil.svg
+	logoUSBridgeLockupMobile []byte
 	//go:embed linux-svgrepo-com.svg
 	linuxOSIcon []byte
 	//go:embed windows-svgrepo-com.svg
@@ -397,6 +399,10 @@ var (
 	// every other resource here, deliberately embedded raw, with no
 	// recolorFillIcon/recolorStrokeIcon pass.
 	LogoUSBridgeLockup = fyne.NewStaticResource("LogoUSBridge2.0.svg", logoUSBridgeLockup)
+	// LogoUSBridgeLockupMobile is the phone Connections header wordmark
+	// (LogoUSBridge2.0-mobil.svg) — same lime fill, narrower crop without
+	// the desktop lockup's left mark so it fits after the settings gear.
+	LogoUSBridgeLockupMobile = fyne.NewStaticResource("LogoUSBridge2.0-mobil.svg", logoUSBridgeLockupMobile)
 	LinuxOSIcon        = fyne.NewStaticResource("linux-svgrepo-com-os.svg", recolorMonoIcon(linuxOSIcon, "#C9C9C9", "1.8"))
 	WindowsOSIcon      = fyne.NewStaticResource("windows-svgrepo-com-os.svg", recolorMonoIcon(windowsOSIcon, "#C9C9C9", "1.8"))
 	MacOSIcon          = fyne.NewStaticResource("macos-svgrepo-com-os.svg", recolorMonoIcon(macosOSIcon, "#C9C9C9", "1.8"))

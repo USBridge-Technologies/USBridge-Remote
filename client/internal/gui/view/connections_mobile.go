@@ -1,7 +1,6 @@
 package view
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 
@@ -85,16 +84,7 @@ func newMobileConnectionsHeader(summary ConnectionsSummary, actions connectionsH
 	titleGap := canvas.NewRectangle(color.Transparent)
 	titleGap.SetMinSize(fyne.NewSize(6, 1))
 	titleItems := []fyne.CanvasObject{container.NewCenter(title), titleGap}
-	if summary.AgentCount > 0 || alwaysShowConnectionsBadges {
-		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
-			fmt.Sprintf("%d Agent", summary.AgentCount), design.ColorConnectionBadgeText,
-			activeSort == "agent", toggleSort("agent"))))
-	}
-	if summary.KVMCount > 0 || alwaysShowConnectionsBadges {
-		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
-			fmt.Sprintf("%d KVM", summary.KVMCount), design.ColorConnectionAddFill,
-			activeSort == "kvm", toggleSort("kvm"))))
-	}
+	titleItems = appendConnectionSortBadges(titleItems, summary, activeSort, toggleSort)
 	titleRow := container.NewHBox(titleItems...)
 
 	subtitle := canvas.NewText(i18n.Current.ConnectionsHeaderSubtitle, design.ColorConnectionsSectionSubtitle)

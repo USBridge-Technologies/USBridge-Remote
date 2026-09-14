@@ -429,8 +429,8 @@ func (cm *ConnectionManager) syncAddCardPromo() {
 
 // connectionsDisplayOrder returns cm.connections' indices in the order the
 // List/Grid should render them: unchanged (creation-date order) by default,
-// or with the KVM (or Agent) connections stably moved to the front when the
-// connections header's matching badge is active (connectionSortMode) --
+// or with the matching category (KVM, Agent, or Unknown) stably moved to
+// the front when that header badge is active (connectionSortMode) --
 // nothing is hidden, only reordered, and each group keeps its own original
 // relative order (sort.SliceStable).
 func (cm *ConnectionManager) connectionsDisplayOrder() []int {
@@ -443,12 +443,15 @@ func (cm *ConnectionManager) connectionsDisplayOrder() []int {
 	}
 
 	wantKVM := cm.connectionSortMode == "kvm"
+	wantUnknown := cm.connectionSortMode == "unknown"
 	rank := func(idx int) int {
 		isAgent, isKVM := view.ClassifyConnectionRemoteOS(cm.connections[idx].RemoteOS)
-		if (wantKVM && isKVM) || (!wantKVM && isAgent) {
+		switch {
+		case wantKVM && isKVM, !wantKVM && !wantUnknown && isAgent, wantUnknown && !isAgent && !isKVM:
 			return 0
+		default:
+			return 1
 		}
-		return 1
 	}
 	sort.SliceStable(order, func(i, j int) bool {
 		return rank(order[i]) < rank(order[j])
@@ -456,9 +459,9 @@ func (cm *ConnectionManager) connectionsDisplayOrder() []int {
 	return order
 }
 
-// handleConnectionSortToggle is the connections header's KVM/Agent badge tap
+// handleConnectionSortToggle is the connections header's count-badge tap
 // callback (connectionsHeaderActions.OnSortToggle). kind is "kvm", "agent",
-// or "" -- tapping the already-active badge turns it back off (view.
+// "unknown", or "" -- tapping the already-active badge turns it back off (view.
 // newConnectionsHeader computes that toggle), reverting to plain
 // creation-date order.
 func (cm *ConnectionManager) handleConnectionSortToggle(kind string) {

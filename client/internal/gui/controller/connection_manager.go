@@ -69,8 +69,9 @@ type ConnectionManager struct {
 
 	// connectionSortMode drives the connections header's KVM/Agent badge
 	// toggle (see connectionsDisplayOrder/handleConnectionSortToggle):
-	// "" (default) leaves the list in creation-date order, "kvm"/"agent"
-	// stably moves that category to the front without hiding anything else.
+	// "" (default) leaves the list in creation-date order, "kvm"/"agent"/
+	// "unknown" stably moves that category to the front without hiding
+	// anything else.
 	connectionSortMode string
 
 	hostEntry      *widget.Entry
