@@ -380,6 +380,7 @@ func (d *HeaderDropdown) openPopup() {
 		fyne.NewSize(menuWidth, popupHeight),
 		d.popupDismissed,
 	)
+	d.popup.anchor = d
 
 	downIcon := coloredArrowDown(d.IconColor)
 	upIcon := coloredArrowUp(d.IconColor)
@@ -766,6 +767,7 @@ type dropdownPopup struct {
 
 	content   fyne.CanvasObject
 	canvas    fyne.Canvas
+	anchor    fyne.CanvasObject
 	pos       fyne.Position
 	size      fyne.Size
 	shown     bool
@@ -988,6 +990,7 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		// case -- safe to call unconditionally on every dismiss.
 		detachTouchScroll,
 	)
+	popup.anchor = anchor
 
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
 	popupPos := fyne.NewPos(
@@ -1111,6 +1114,7 @@ func showStyledPanel(anchor fyne.CanvasObject, content fyne.CanvasObject, minWid
 	height := menuMin.Height
 
 	popup := newDropdownPopup(menu, canvasForObj, fyne.NewSize(width, height), nil)
+	popup.anchor = anchor
 
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
 	popupPos := fyne.NewPos(
@@ -1155,7 +1159,31 @@ func (p *dropdownPopup) Tapped(ev *fyne.PointEvent) {
 	if p.isInside(ev.Position) {
 		return
 	}
-	p.Hide() // onDismiss and overlayHide are called inside Hide()
+	pos := dropdownTapAbs(ev)
+	if p.anchor != nil && objectContainsAbs(p.anchor, pos) {
+		p.Hide()
+		return
+	}
+
+	target := menuSwapTargetAt(pos)
+	if target == nil && p.canvas != nil {
+		target = findCompactTappable(p.canvas.Content(), pos)
+	}
+	if target != nil && target != p.anchor {
+		overlayHoldNativeHidden(true)
+		p.Hide()
+		if t, ok := target.(fyne.Tappable); ok {
+			abs := fyne.CurrentApp().Driver().AbsolutePositionForObject(target)
+			t.Tapped(&fyne.PointEvent{
+				Position:         fyne.NewPos(pos.X-abs.X, pos.Y-abs.Y),
+				AbsolutePosition: pos,
+			})
+		}
+		overlayHoldNativeHidden(false)
+		overlayReleaseNativeIfIdle()
+		return
+	}
+	p.Hide()
 }
 
 func (p *dropdownPopup) TappedSecondary(ev *fyne.PointEvent) {
@@ -1286,6 +1314,95 @@ func (r *dropdownItemRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *dropdownItemRenderer) Destroy() {}
+
+func dropdownTapAbs(ev *fyne.PointEvent) fyne.Position {
+	if ev == nil {
+		return fyne.Position{}
+	}
+	if ev.AbsolutePosition != (fyne.Position{}) {
+		return ev.AbsolutePosition
+	}
+	return ev.Position
+}
+
+func objectContainsAbs(obj fyne.CanvasObject, pos fyne.Position) bool {
+	if obj == nil || !obj.Visible() {
+		return false
+	}
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return false
+	}
+	abs := app.Driver().AbsolutePositionForObject(obj)
+	s := obj.Size()
+	return pos.X >= abs.X && pos.Y >= abs.Y && pos.X < abs.X+s.Width && pos.Y < abs.Y+s.Height
+}
+
+// Compact chrome (header chips, FPS/resolution text, storage) is smaller
+// than this. The video/touch surface is much larger and must not receive a
+// retargeted click -- that would inject a remote click just to dismiss a menu.
+const menuSwapMaxWidth = 360
+const menuSwapMaxHeight = 72
+
+func dispatchCompactTappable(root fyne.CanvasObject, pos fyne.Position) {
+	obj := findCompactTappable(root, pos)
+	if obj == nil {
+		return
+	}
+	t, ok := obj.(fyne.Tappable)
+	if !ok {
+		return
+	}
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return
+	}
+	abs := app.Driver().AbsolutePositionForObject(obj)
+	t.Tapped(&fyne.PointEvent{
+		Position:         fyne.NewPos(pos.X-abs.X, pos.Y-abs.Y),
+		AbsolutePosition: pos,
+	})
+}
+
+func findCompactTappable(obj fyne.CanvasObject, pos fyne.Position) fyne.CanvasObject {
+	var best fyne.CanvasObject
+	bestArea := float32(1e12)
+	var walk func(fyne.CanvasObject)
+	walk = func(obj fyne.CanvasObject) {
+		if obj == nil || !obj.Visible() {
+			return
+		}
+		if !objectContainsAbs(obj, pos) {
+			return
+		}
+		if _, ok := obj.(fyne.Tappable); ok {
+			s := obj.Size()
+			if s.Width > 0 && s.Height > 0 && s.Width <= menuSwapMaxWidth && s.Height <= menuSwapMaxHeight {
+				area := s.Width * s.Height
+				if area < bestArea {
+					bestArea = area
+					best = obj
+				}
+			}
+		}
+		if c, ok := obj.(*fyne.Container); ok {
+			for _, ch := range c.Objects {
+				walk(ch)
+			}
+		}
+		if w, ok := obj.(fyne.Widget); ok {
+			if r := w.CreateRenderer(); r != nil {
+				for _, ch := range r.Objects() {
+					if ch != nil && ch != obj {
+						walk(ch)
+					}
+				}
+			}
+		}
+	}
+	walk(obj)
+	return best
+}
 
 var (
 	_ fyne.Tappable     = (*HeaderDropdown)(nil)

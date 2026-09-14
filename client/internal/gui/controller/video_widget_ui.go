@@ -92,7 +92,7 @@ func (vw *VideoWidget) handleStartVideo() {
 			preferredDevicePath = preferredConfig.DevicePath
 		}
 
-		videoInfo := vw.fetchVideoInfoForStartDialog(preferredDevicePath)
+		videoInfo := vw.fetchVideoInfoForStartDialogAttempts(preferredDevicePath, 5)
 
 		// Check whether the widget was closed while the HTTP requests were in flight
 		if vw.isClosing.Load() {
@@ -169,7 +169,13 @@ func (vw *VideoWidget) handleStartVideo() {
 }
 
 func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.VideoInfoData {
-	const maxAttempts = 5
+	return vw.fetchVideoInfoForStartDialogAttempts(devicePath, 5)
+}
+
+func (vw *VideoWidget) fetchVideoInfoForStartDialogAttempts(devicePath string, maxAttempts int) *models.VideoInfoData {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
 
 	var lastInfo *models.VideoInfoData
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -200,7 +206,7 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 	// Fall back to the default device query to get the actual V4L2 capabilities.
 	if devicePath != "" && (lastInfo == nil || len(lastInfo.CaptureModes) == 0) {
 		logrus.Infof("ℹ️ No capture modes for device=%s, falling back to default device query", devicePath)
-		fallback := vw.fetchVideoInfoForStartDialog("")
+		fallback := vw.fetchVideoInfoForStartDialogAttempts("", maxAttempts)
 		if fallback != nil && len(fallback.CaptureModes) > 0 {
 			if lastInfo != nil {
 				// Preserve current status (width/height/fps/streaming) but inject capture modes
@@ -1284,6 +1290,9 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 		vw.isClosing.Store(false)
 		vw.userStoppedVideo.Store(false)
 		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
+		vw.PrefetchCaptureModesAsync()
+	} else {
+		clearCaptureModesCache()
 	}
 	vw.updateButtons()
 }

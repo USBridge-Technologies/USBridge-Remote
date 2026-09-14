@@ -1,9 +1,12 @@
 package view
 
 import (
+	"sync"
 	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
+
+	"fyne.io/fyne/v2"
 )
 
 // OnOverlayShow is called when the first Fyne overlay (menu, dialog) becomes visible.
@@ -15,6 +18,61 @@ var OnOverlayShow func()
 var OnOverlayHide func()
 
 var overlayDepth atomic.Int32
+var overlayHoldNative atomic.Bool
+
+var menuSwapMu sync.Mutex
+var menuSwapTargets []fyne.CanvasObject
+
+// SetMenuSwapTargets are the header chips (FPS, resolution, keyboard, mouse,
+// storage, ...) that can replace an open dropdown in one click without
+// leaving overlay mode (Vulkan stays hidden until the user actually dismisses).
+func SetMenuSwapTargets(objs ...fyne.CanvasObject) {
+	cleaned := make([]fyne.CanvasObject, 0, len(objs))
+	for _, obj := range objs {
+		if obj != nil {
+			cleaned = append(cleaned, obj)
+		}
+	}
+	menuSwapMu.Lock()
+	menuSwapTargets = cleaned
+	menuSwapMu.Unlock()
+}
+
+func menuSwapTargetAt(pos fyne.Position) fyne.CanvasObject {
+	menuSwapMu.Lock()
+	targets := append([]fyne.CanvasObject(nil), menuSwapTargets...)
+	menuSwapMu.Unlock()
+	var best fyne.CanvasObject
+	bestArea := float32(1e12)
+	for _, obj := range targets {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		if !objectContainsAbs(obj, pos) {
+			continue
+		}
+		s := obj.Size()
+		area := s.Width * s.Height
+		if area < bestArea {
+			bestArea = area
+			best = obj
+		}
+	}
+	return best
+}
+
+func overlayHoldNativeHidden(on bool) {
+	overlayHoldNative.Store(on)
+}
+
+func overlayReleaseNativeIfIdle() {
+	if overlayDepth.Load() > 0 {
+		return
+	}
+	if OnOverlayHide != nil {
+		OnOverlayHide()
+	}
+}
 
 // NotifyOverlayShow is the exported version of overlayShow for callers outside
 // the view package (e.g. the Android virtual-keyboard handler).
@@ -38,7 +96,7 @@ func overlayHide() {
 	logrus.Infof("📌 [OVERLAY] hide depth=%d", depth)
 	if depth <= 0 {
 		overlayDepth.Store(0)
-		if OnOverlayHide != nil {
+		if OnOverlayHide != nil && !overlayHoldNative.Load() {
 			OnOverlayHide()
 		}
 	}
