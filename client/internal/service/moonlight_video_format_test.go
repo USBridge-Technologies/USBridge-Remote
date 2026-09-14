@@ -25,7 +25,7 @@ func TestVideoFormatRoundTrip(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		format := moonlightVideoFormat(c.mode, false)
+		format := moonlightVideoFormat(c.mode, false, false)
 		gotCodec, ok := videoFormatCodecName(int32(format))
 		if !ok {
 			t.Errorf("videoFormatCodecName(moonlightVideoFormat(%q)=0x%04X) reported no codec", c.mode, format)
@@ -47,7 +47,7 @@ func TestVideoFormatCodecNameUnknownAndUnset(t *testing.T) {
 }
 
 func TestMoonlightVideoFormatDefaultsToH264(t *testing.T) {
-	if got := moonlightVideoFormat("bogus-mode", false); got != 0x0001 {
+	if got := moonlightVideoFormat("bogus-mode", false, false); got != 0x0001 {
 		t.Errorf("moonlightVideoFormat(bogus) = 0x%04X, want VIDEO_FORMAT_H264 (0x0001)", got)
 	}
 }
@@ -58,16 +58,51 @@ func TestMoonlightVideoFormatDefaultsToH264(t *testing.T) {
 // mask), and color444 must be silently ignored for every other mode since
 // this project's hardware encode path has no H.264/AV1 4:4:4 profile.
 func TestMoonlightVideoFormatColor444(t *testing.T) {
-	if got := moonlightVideoFormat(models.VideoModeH265, true); got != 0x0400 {
+	if got := moonlightVideoFormat(models.VideoModeH265, true, false); got != 0x0400 {
 		t.Errorf("moonlightVideoFormat(h265, color444=true) = 0x%04X, want VIDEO_FORMAT_H265_REXT8_444 (0x0400)", got)
 	}
 	if codec, ok := videoFormatCodecName(0x0400); !ok || codec != models.VideoModeH265 {
 		t.Errorf("videoFormatCodecName(0x0400) = (%q, %v), want (%q, true)", codec, ok, models.VideoModeH265)
 	}
-	if got := moonlightVideoFormat(models.VideoModeH264, true); got != 0x0001 {
+	if got := moonlightVideoFormat(models.VideoModeH264, true, false); got != 0x0001 {
 		t.Errorf("moonlightVideoFormat(h264, color444=true) = 0x%04X, want plain VIDEO_FORMAT_H264 (0x0001) -- color444 has no H264 profile", got)
 	}
-	if got := moonlightVideoFormat(models.VideoModeAV1, true); got != 0x1000 {
+	if got := moonlightVideoFormat(models.VideoModeAV1, true, false); got != 0x1000 {
 		t.Errorf("moonlightVideoFormat(av1, color444=true) = 0x%04X, want plain VIDEO_FORMAT_AV1_MAIN8 (0x1000) -- color444 has no AV1 profile wired up", got)
+	}
+}
+
+// TestMoonlightVideoFormatHdr pins the RustShine HDR color upgrade's bitmask
+// mapping -- mirrors TestMoonlightVideoFormatColor444 exactly, for
+// VIDEO_FORMAT_H265_MAIN10 (0x0200) instead of REXT8_444, and is silently
+// ignored outside VideoModeH265 for the same reason (no H.264/AV1 Main10
+// profile wired up in this project's backends).
+func TestMoonlightVideoFormatHdr(t *testing.T) {
+	if got := moonlightVideoFormat(models.VideoModeH265, false, true); got != 0x0200 {
+		t.Errorf("moonlightVideoFormat(h265, hdr=true) = 0x%04X, want VIDEO_FORMAT_H265_MAIN10 (0x0200)", got)
+	}
+	if codec, ok := videoFormatCodecName(0x0200); !ok || codec != models.VideoModeH265 {
+		t.Errorf("videoFormatCodecName(0x0200) = (%q, %v), want (%q, true)", codec, ok, models.VideoModeH265)
+	}
+	if got := moonlightVideoFormat(models.VideoModeH264, false, true); got != 0x0001 {
+		t.Errorf("moonlightVideoFormat(h264, hdr=true) = 0x%04X, want plain VIDEO_FORMAT_H264 (0x0001) -- hdr has no H264 profile", got)
+	}
+	if got := moonlightVideoFormat(models.VideoModeAV1, false, true); got != 0x1000 {
+		t.Errorf("moonlightVideoFormat(av1, hdr=true) = 0x%04X, want plain VIDEO_FORMAT_AV1_MAIN8 (0x1000) -- hdr has no AV1 profile wired up", got)
+	}
+}
+
+// TestMoonlightVideoFormatColor444AndHdrCombine pins the combined-axes
+// request: both checkboxes together must request
+// VIDEO_FORMAT_H265_REXT10_444 (0x0800, 4:4:4 AND 10-bit) -- no backend
+// implements that combination today (see moonlightVideoFormat's own doc
+// comment), but the request itself is still well-defined and independently
+// testable regardless of what any particular server can satisfy.
+func TestMoonlightVideoFormatColor444AndHdrCombine(t *testing.T) {
+	if got := moonlightVideoFormat(models.VideoModeH265, true, true); got != 0x0800 {
+		t.Errorf("moonlightVideoFormat(h265, color444=true, hdr=true) = 0x%04X, want VIDEO_FORMAT_H265_REXT10_444 (0x0800)", got)
+	}
+	if codec, ok := videoFormatCodecName(0x0800); !ok || codec != models.VideoModeH265 {
+		t.Errorf("videoFormatCodecName(0x0800) = (%q, %v), want (%q, true)", codec, ok, models.VideoModeH265)
 	}
 }

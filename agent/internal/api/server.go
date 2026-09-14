@@ -61,6 +61,9 @@ type Application interface {
 	// chroma, available is whether this host could offer it right now
 	// (hardware AND license tier). Always (false, false) on Sunshine.
 	Color444Status() (active bool, available bool)
+	// HdrStatus mirrors Color444Status exactly, for the RustShine HDR color
+	// upgrade (HEVC Main10, BT.2020 + PQ) instead of 4:4:4 chroma.
+	HdrStatus() (active bool, available bool)
 	AudioSinks() ([]AudioSink, error)
 	CurrentAudioSink() (string, error)
 	SetAudioSink(sink string) error
@@ -704,6 +707,7 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 	moonlightHost := s.app.SunshineStreamHost()
 	sunshinePort := s.app.SunshineAdminPort()
 	color444Active, color444Available := s.app.Color444Status()
+	hdrActive, hdrAvailable := s.app.HdrStatus()
 	s.ok(w, "video_info", map[string]any{
 		"device":            devicePath,
 		"width":             width,
@@ -726,6 +730,11 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		// streaming at all.
 		"color_444_active":    color444Active,
 		"color_444_available": color444Available,
+		// RustShine's HDR color upgrade -- mirrors color_444_active/
+		// color_444_available exactly, see Application.HdrStatus's doc
+		// comment.
+		"hdr_active":    hdrActive,
+		"hdr_available": hdrAvailable,
 	})
 }
 

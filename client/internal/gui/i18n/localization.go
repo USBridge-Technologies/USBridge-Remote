@@ -381,6 +381,11 @@ type LocalizedStrings struct {
 	Color444UnavailableHint              string // hint under the (disabled, unchecked) checkbox when H.265 is selected but the agent doesn't currently offer 4:4:4
 	Color444RequiresH265Hint             string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
 	Color444Badge                        string // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
+	Hdr                                  string // "HDR Color (RustShine)" checkbox -- mirrors Color444 exactly, independent axis (see rust-shine's docs/COLOR_MODES.md)
+	HdrHint                              string // hint under the checkbox when HDR is available (checked or not)
+	HdrUnavailableHint                   string // hint under the (disabled, unchecked) checkbox when H.265 is selected but the agent doesn't currently offer HDR
+	HdrRequiresH265Hint                  string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
+	HdrBadge                             string // badge next to the HDR title, mirrors Color444Badge
 	MuteAudio                            string // "Mute Audio"
 	UnmuteAudio                          string // "Unmute Audio"
 	DeviceAudio                          string // "Audio"
@@ -817,6 +822,11 @@ func EN() *LocalizedStrings {
 		Color444UnavailableHint:              "Requires RustShine Pro and a GPU with HEVC 4:4:4 hardware encode.",
 		Color444RequiresH265Hint:             "Only available with the H.265 codec -- select it above to use 4:4:4 color.",
 		Color444Badge:                        "Pro",
+		Hdr:                                  "HDR Color (RustShine)",
+		HdrHint:                              "Captures and streams high dynamic range video (BT.2020 color, PQ curve) instead of standard SDR -- brighter highlights and a wider color range on an HDR-capable display, at a higher bitrate cost.",
+		HdrUnavailableHint:                   "Requires RustShine Pro and a Mac with HEVC Main10 hardware encode (Apple Silicon).",
+		HdrRequiresH265Hint:                  "Only available with the H.265 codec -- select it above to use HDR.",
+		HdrBadge:                             "Pro",
 		MuteAudio:                            "Mute Audio",
 		UnmuteAudio:                          "Unmute Audio",
 		DeviceAudio:                          "Audio",

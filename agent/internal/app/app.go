@@ -2856,6 +2856,15 @@ func (a *App) Color444Status() (active bool, available bool) {
 	return a.stream.Color444Status()
 }
 
+// HdrStatus mirrors Color444Status exactly, for the RustShine HDR color
+// upgrade -- see Application interface's doc comment.
+func (a *App) HdrStatus() (active bool, available bool) {
+	if a.stream == nil {
+		return false, false
+	}
+	return a.stream.HdrStatus()
+}
+
 // UnpairSunshineClient removes the Moonlight client with the given UUID from
 // Sunshine's authorized client list.
 func (a *App) UnpairSunshineClient(uniqueID string) error {

@@ -26,6 +26,10 @@ extern void goAIVisionSample(uint8_t *rgba, int width, int height, int stride);
 extern int metal_video_try_submit(CVImageBufferRef img);
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
 extern int metal_video_is_active(void);
+// HDR toggle -- macOS-only (metal_video_impl_darwin.m is excluded from iOS
+// builds entirely, see that file's own TARGET_OS_IPHONE guard), see
+// platform_set_video_format below and that function's own doc comment.
+extern void metal_video_set_hdr(int enabled);
 #endif
 
 #include "moonlight_cgo_shared.h"
@@ -297,13 +301,29 @@ static uint8_t g_sps_data[1024]; static size_t g_sps_len = 0;
 static uint8_t g_pps_data[256];  static size_t g_pps_len = 0;
 static uint64_t g_vt_frame_count = 0;
 
-// Codec type set by platform_set_video_format() before LiStartConnection.
+// Codec type set by platform_set_video_format(), called from dr_setup with
+// moonlight-common-c's real NegotiatedVideoFormat (see moonlight_cgo_shared.h's
+// dr_setup) -- despite this comment previously saying "before LiStartConnection",
+// that's mid-connection, once RTSP negotiation has actually completed.
 // 0x0001=H264, 0x0100=H265, 0x1000=AV1_MAIN8 (matches VIDEO_FORMAT_* constants)
 static int g_video_format = 0x0001;
+
+// VIDEO_FORMAT_MASK_10BIT (Limelight.h) -- HEVC Main10, HEVC RExt10_444,
+// AV1 Main10, AV1 High10_444: every format bit this project's RustShine
+// HDR color upgrade (see docs/COLOR_MODES.md) can end up negotiating.
+#define VIDEO_FORMAT_MASK_10BIT 0xAA00
 
 void platform_set_video_format(int videoFormat) {
     g_video_format = videoFormat ? videoFormat : 0x0001;
     g_vps_len = 0; g_sps_len = 0; g_pps_len = 0; // clear old parameter sets
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
+    // Toggle EDR presentation the moment the negotiated format is known,
+    // before vt_create_session ever builds a session (let alone before the
+    // first frame reaches metal_render_main_with_buf) -- see
+    // metal_video_set_hdr's own doc comment for why this is the only
+    // render-side change HDR needs.
+    metal_video_set_hdr((g_video_format & VIDEO_FORMAT_MASK_10BIT) != 0);
+#endif
 }
 
 // FPS counter for VT decode delivery.
@@ -411,6 +431,24 @@ static void vt_callback(
         return;
     }
 
+    // This fallback assumes a single-plane, 4-bytes/pixel BGRA buffer --
+    // never true for the 10-bit biplanar YCbCr format an HDR session
+    // decodes to (see vt_create_session): CVPixelBufferGetBaseAddress
+    // returns NULL for a planar buffer (the per-plane accessors are a
+    // different API), so blindly running the byte-swap loop below against
+    // it would dereference NULL rather than merely produce wrong colors.
+    // In practice this fallback is barely reachable at all (IOSurface
+    // backing is unconditionally requested in vt_create_session's own
+    // buffer attributes, so metal_video_try_submit essentially always
+    // succeeds -- see that function's own doc comment) -- but "essentially
+    // always" isn't "always", so this stays a clean dropped-frame instead
+    // of a crash if it ever is.
+    if (g_video_format & VIDEO_FORMAT_MASK_10BIT) {
+        goVTLog((char*)"VT: HDR frame missed the zero-copy IOSurface path -- dropping (CPU fallback doesn't support 10-bit YCbCr)");
+        goVTFrame(NULL, (int)CVPixelBufferGetWidth(img), (int)CVPixelBufferGetHeight(img), 0);
+        return;
+    }
+
     // ── CPU fallback: BGRA→RGBA conversion into pre-allocated buffer ──────────
     CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
     int w   = (int)CVPixelBufferGetWidth(img);
@@ -418,7 +456,7 @@ static void vt_callback(
     size_t bpr = CVPixelBufferGetBytesPerRow(img);
     const uint8_t *src = (const uint8_t *)CVPixelBufferGetBaseAddress(img);
 
-    // VT outputs kCVPixelFormatType_32BGRA (native HW format, always supported).
+    // VT outputs kCVPixelFormatType_32BGRA for SDR sessions (native HW format, always supported).
     // Convert BGRA→RGBA into a pre-allocated buffer to avoid per-frame malloc.
     // VT callbacks are serialised by VT's dispatch queue so no mutex is needed.
     size_t needed = (size_t)w * (size_t)h * 4;
@@ -516,7 +554,19 @@ static int vt_create_session(void) {
         return -1;
     }
 
-    int32_t fmt = kCVPixelFormatType_32BGRA;
+    // 10-bit HDR sessions decode straight to the 10-bit 4:2:0 YCbCr format
+    // (matches rust-shine's own HDR capture/encode pixel format, see
+    // video-encode::videotoolbox's module docs) instead of BGRA -- still
+    // IOSurface-backed (same kCVPixelBufferIOSurfacePropertiesKey below), so
+    // this stays on the zero-copy metal_video_try_submit fast path exactly
+    // like the SDR case, no extra CPU work. Core Animation's own compositor
+    // does the YUV(BT.2020,PQ) -> display conversion using the color tags
+    // VideoToolbox attaches from this session's format description (which
+    // carries the stream's own signaled colorimetry) -- see
+    // metal_video_set_hdr's doc comment for the full reasoning.
+    int32_t fmt = ((g_video_format & VIDEO_FORMAT_MASK_10BIT) != 0)
+        ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+        : kCVPixelFormatType_32BGRA;
     CFNumberRef cfFmt = CFNumberCreate(NULL, kCFNumberSInt32Type, &fmt);
     
     int32_t min_buf_cnt = 24;

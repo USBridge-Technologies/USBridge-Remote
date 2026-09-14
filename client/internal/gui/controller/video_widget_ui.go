@@ -295,6 +295,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 			vw.videoClient.SetVideoMode(request.VideoMode)
 		}
 		vw.videoClient.SetColor444(request.Color444)
+		vw.videoClient.SetHdr(request.Hdr)
 		if request.VideoFPS > 0 {
 			vw.videoClient.SetFPS(request.VideoFPS)
 		}

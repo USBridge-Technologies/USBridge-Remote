@@ -313,6 +313,10 @@ func (c *WebRTCVideoClient) SetBitrate(kbps int)                    {}
 // reasoning as SetVideoMode above.
 func (c *WebRTCVideoClient) SetColor444(enabled bool) {}
 
+// SetHdr: same reasoning as SetColor444 -- the RustShine HDR upgrade is
+// also moonlight-common-c ANNOUNCE-specific, no WebRTC equivalent.
+func (c *WebRTCVideoClient) SetHdr(enabled bool) {}
+
 // NegotiatedVideoCodecName: the browser's RTCPeerConnection negotiates
 // this internally (via the SDP answer's codec preference order); exposing
 // which one it actually picked would need reading back

@@ -58,6 +58,18 @@ static int     g_fullWindow  = 0; // 1 when overlay covers the full contentView 
 // Last rendered pixel buffer — retained for pause snapshot (read by metal_video_get_last_frame_rgba).
 static CVPixelBufferRef g_lastRenderedBuf = NULL;
 
+// Desired EDR presentation state, set by metal_video_set_hdr -- persisted
+// independently of g_layer's own lifetime (metal_video_create tears down
+// and rebuilds a fresh CALayer on every new session) so a call that arrives
+// before metal_video_create runs isn't silently lost: metal_video_create
+// applies this value to the freshly-created layer itself, and
+// metal_video_set_hdr applies it directly whenever g_layer already exists.
+static atomic_int g_hdr_enabled = 0;
+
+// Forward declaration -- defined further down (near metal_video_set_hdr),
+// used by metal_video_create above that definition.
+static void apply_dynamic_range(CALayer *layer, BOOL hdr);
+
 static double mono_sec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -362,6 +374,12 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         vl.contentsGravity = kCAGravityResizeAspect;
         vl.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
         vl.contentsScale   = NSScreen.mainScreen.backingScaleFactor;
+        // Applies whatever metal_video_set_hdr's most recent call requested
+        // -- see g_hdr_enabled's own doc comment: this layer is rebuilt
+        // fresh every session, so the desired state has to be re-applied
+        // here rather than assumed to survive from a previous session's
+        // (now-destroyed) layer.
+        apply_dynamic_range(vl, atomic_load(&g_hdr_enabled) != 0);
         [ov.layer addSublayer:vl];
 
         CALayer *ol = [CALayer layer];
@@ -474,6 +492,63 @@ void metal_video_set_hidden(int hidden) {
     if (!atomic_load(&g_active)) return;
     dispatch_block_t blk = ^{
         if (g_view) g_view.hidden = (hidden != 0);
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
+// apply_dynamic_range sets a layer's EDR presentation mode via whichever API
+// this OS actually has: `preferredDynamicRange` (macOS 26+) is the
+// non-deprecated replacement for `wantsExtendedDynamicRangeContent`
+// (deprecated in the same release, still the only option before it) -- see
+// CALayer.h's own API_AVAILABLE/API_DEPRECATED annotations. This project's
+// floor is macOS 14 (see this file's own CADisplayLink usage), well below
+// 26, so the deprecated property is still the only thing that actually
+// exists at runtime on most machines this ships to today; branching at
+// runtime rather than picking one gets both "works everywhere this ships"
+// and "no deprecated-API warning/behavior on the OS that already moved on".
+static void apply_dynamic_range(CALayer *layer, BOOL hdr) {
+    if (@available(macOS 26.0, *)) {
+        layer.preferredDynamicRange = hdr ? CADynamicRangeHigh : CADynamicRangeStandard;
+    } else {
+        // Deliberate: this is the guarded pre-26 fallback for a property
+        // deprecated exactly at 26 -- there is no other API to use here on
+        // an OS this old, so the deprecation warning is expected noise, not
+        // a real "you should update this" signal.
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        layer.wantsExtendedDynamicRangeContent = hdr;
+        #pragma clang diagnostic pop
+    }
+}
+
+// metal_video_set_hdr toggles g_layer's EDR (extended dynamic range)
+// presentation mode -- called from moonlight_cgo_apple.go's
+// platform_set_video_format the moment the negotiated codec is known (see
+// that function's own comment), before the first frame ever reaches
+// metal_render_main_with_buf. Deliberately just this one property, no
+// custom shader/texture pipeline: the video layer here is a PLAIN CALayer
+// (not CAMetalLayer, despite this file's name -- see
+// metal_render_main_with_buf's own "IOSurface path" comment) whose
+// `contents` is set directly to the decoded frame's IOSurface every frame;
+// Core Animation's own compositor already does the accurate YUV(BT.2020,PQ)
+// -> display conversion using the color primaries/transfer function/matrix
+// VideoToolbox tagged onto that IOSurface from the stream's own signaled
+// colorimetry (see rust-shine's video-encode::videotoolbox module, which
+// sets those tags explicitly for an HDR session) -- letting the system do
+// this rather than hand-rolling a PQ EOTF conversion in a shader is both
+// the more correct (accurate, tested-by-Apple color science) and the
+// faster (zero extra GPU work beyond what SDR frames already do) choice.
+// See apply_dynamic_range's own doc comment for which actual CALayer
+// property this ends up touching on a given OS version.
+void metal_video_set_hdr(int enabled) {
+    atomic_store(&g_hdr_enabled, enabled != 0);
+    dispatch_block_t blk = ^{
+        if (!g_layer) return; // metal_video_create (see its own comment) applies g_hdr_enabled once it exists
+        BOOL want = (atomic_load(&g_hdr_enabled) != 0);
+        apply_dynamic_range(g_layer, want);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "HDR presentation %s", want ? "enabled" : "disabled");
+        goMetalLog(msg, 0);
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }

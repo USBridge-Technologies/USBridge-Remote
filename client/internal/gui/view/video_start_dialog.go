@@ -66,6 +66,14 @@ type VideoStartDialog struct {
 	color444Hint      *videoDialogWrapText
 	color444TitleText *canvas.Text
 	color444Available bool
+	// hdrCheck/hdrHint: the RustShine HDR color upgrade -- mirrors
+	// color444Check exactly, independent axis (see rust-shine's
+	// docs/COLOR_MODES.md), gated on models.VideoStatus.HdrAvailable
+	// instead of Color444Available.
+	hdrCheck     *videoDialogCheckbox
+	hdrHint      *videoDialogWrapText
+	hdrTitleText *canvas.Text
+	hdrAvailable bool
 
 	startBtn  *videoDialogPillButton
 	cancelBtn *videoDialogPillButton
@@ -1480,13 +1488,36 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.color444Hint,
 	)
 
-	// vsyncRow/color444Row are plain rows with no left padding of their own,
-	// unlike aiVisionRow's own card (see newVideoDialogBoxedToggleRow) --
-	// without this, its own left inset would push just its checkbox further
-	// right than these two, breaking the visual column of checkboxes down
-	// the whole section.
+	// RustShine HDR color: mirrors color444Check exactly (see
+	// docs/COLOR_MODES.md in rust-shine: chroma and dynamic range are
+	// independent axes) -- gated on hdrAvailable/models.VideoStatus.HdrAvailable
+	// instead of color444Available, otherwise identical construction and
+	// same H.265-only, tap-while-disabled-switches-codec behavior.
+	vsd.hdrCheck = newVideoDialogCheckbox(false, nil)
+	vsd.hdrCheck.OnTapWhileDisabled = func() {
+		if !vsd.hdrAvailable || vsd.selectedModeID() == models.VideoModeH265 {
+			return
+		}
+		vsd.setSelectedModeID(models.VideoModeH265)
+		vsd.hdrCheck.SetChecked(true)
+	}
+	vsd.hdrHint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW, false), videoDialogHintTextSize, true)
+	vsd.hdrTitleText = newVideoDialogRowTitle(i18n.Current.Hdr)
+	hdrRow := newVideoDialogToggleRow(
+		vsd.hdrCheck,
+		newVideoDialogIconTitleText(videoDialogStarSVG, vsd.hdrTitleText),
+		newVideoDialogBadge(i18n.Current.HdrBadge, videoDialogProColor),
+		vsd.hdrHint,
+	)
+
+	// vsyncRow/color444Row/hdrRow are plain rows with no left padding of
+	// their own, unlike aiVisionRow's own card (see
+	// newVideoDialogBoxedToggleRow) -- without this, its own left inset
+	// would push just its checkbox further right than these three,
+	// breaking the visual column of checkboxes down the whole section.
 	vsyncRow = NewInsetExact(vsyncRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	color444Row = NewInsetExact(color444Row, videoDialogToggleAlignLeft, 0, 0, 0)
+	hdrRow = NewInsetExact(hdrRow, videoDialogToggleAlignLeft, 0, 0, 0)
 
 	vsd.startBtn = newVideoDialogApplyButton(i18n.Current.StartVideo, vsd.handleStart)
 	vsd.cancelBtn = newVideoDialogCancelButton(i18n.Current.Cancel, vsd.handleCancel)
@@ -1604,6 +1635,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsyncRow,
 		aiVisionRow,
 		color444Row,
+		hdrRow,
 		videoDialogVSpace(8), // breathing room after 4:4:4 Color
 	)
 
@@ -1666,6 +1698,10 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	vsd.color444Available = info != nil && info.Color444Available
 	if !vsd.color444Available {
 		vsd.color444Check.SetChecked(false)
+	}
+	vsd.hdrAvailable = info != nil && info.HdrAvailable
+	if !vsd.hdrAvailable {
+		vsd.hdrCheck.SetChecked(false)
 	}
 
 	// Only Moonlight-compatible encodings are supported; filter out legacy JPEG/RAW modes
@@ -1979,6 +2015,27 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444UnavailableHint, Color: videoDialogHintColor})
 		vsd.setColor444TitleEnabled(false)
 	}
+
+	// RustShine HDR color: mirrors the 4:4:4 block immediately above
+	// exactly (see docs/COLOR_MODES.md in rust-shine) -- independent
+	// availability (hdrAvailable, not color444Available), same H.265-only
+	// gate, same always-visible-but-grayed-out treatment.
+	switch {
+	case modeID != models.VideoModeH265:
+		vsd.hdrCheck.SetChecked(false)
+		vsd.hdrCheck.Disable()
+		vsd.hdrHint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.HdrRequiresH265Hint, Color: videoDialogHintColor})
+		vsd.setHdrTitleEnabled(false)
+	case vsd.hdrAvailable:
+		vsd.hdrCheck.Enable()
+		vsd.hdrHint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.HdrHint, Color: videoDialogHintColor})
+		vsd.setHdrTitleEnabled(true)
+	default:
+		vsd.hdrCheck.SetChecked(false)
+		vsd.hdrCheck.Disable()
+		vsd.hdrHint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.HdrUnavailableHint, Color: videoDialogHintColor})
+		vsd.setHdrTitleEnabled(false)
+	}
 }
 
 // setColor444TitleEnabled grays or restores the 4:4:4 row's title -- see
@@ -1991,6 +2048,17 @@ func (vsd *VideoStartDialog) setColor444TitleEnabled(enabled bool) {
 		vsd.color444TitleText.Color = videoDialogHintColor
 	}
 	vsd.color444TitleText.Refresh()
+}
+
+// setHdrTitleEnabled mirrors setColor444TitleEnabled exactly, for the HDR
+// row's title.
+func (vsd *VideoStartDialog) setHdrTitleEnabled(enabled bool) {
+	if enabled {
+		vsd.hdrTitleText.Color = design.ColorTextLight
+	} else {
+		vsd.hdrTitleText.Color = videoDialogHintColor
+	}
+	vsd.hdrTitleText.Refresh()
 }
 
 func localizedVideoModeDescription(modeID string) string {
@@ -2187,6 +2255,7 @@ func (vsd *VideoStartDialog) handleStart() {
 		CapturePixelFormat: selectedMode.PixelFormat,
 		EnableVSync:        vsd.vsyncCheck.Checked,
 		Color444:           vsd.selectedModeID() == models.VideoModeH265 && vsd.color444Check.Checked,
+		Hdr:                vsd.selectedModeID() == models.VideoModeH265 && vsd.hdrCheck.Checked,
 	}
 
 	logrus.Infof("🎥 Starting video: mode=%s %dx%d @ %d fps, bitrate %s",
