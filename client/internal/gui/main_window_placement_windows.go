@@ -12,9 +12,11 @@ import (
 
 var (
 	placementUser32      = windows.NewLazySystemDLL("user32.dll")
-	procGetWindowRect    = placementUser32.NewProc("GetWindowRect")
-	procSetWindowPos     = placementUser32.NewProc("SetWindowPos")
-	procGetSystemMetrics = placementUser32.NewProc("GetSystemMetrics")
+	procGetWindowRect     = placementUser32.NewProc("GetWindowRect")
+	procSetWindowPos      = placementUser32.NewProc("SetWindowPos")
+	procGetSystemMetrics  = placementUser32.NewProc("GetSystemMetrics")
+	procGetWindowLongPtr  = placementUser32.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtr  = placementUser32.NewProc("SetWindowLongPtrW")
 )
 
 const (
@@ -22,7 +24,6 @@ const (
 	smYVIRTUALSCREEN  = 77
 	smCXVIRTUALSCREEN = 78
 	smCYVIRTUALSCREEN = 79
-	swpNoSize         = 0x0001
 	swpNoZOrder       = 0x0004
 )
 
@@ -68,11 +69,29 @@ func nativeWindowFrame(window fyne.Window) (windowFrame, bool) {
 	}, true
 }
 
+func nativeSetWindowFrame(window fyne.Window, f windowFrame) bool {
+	hwnd := fyneWindowHWND(window)
+	if hwnd == 0 || f.W <= 0 || f.H <= 0 {
+		return false
+	}
+	r, _, _ := procSetWindowPos.Call(
+		hwnd,
+		0,
+		uintptr(int32(f.X)),
+		uintptr(int32(f.Y)),
+		uintptr(int32(f.W)),
+		uintptr(int32(f.H)),
+		swpNoZOrder,
+	)
+	return r != 0
+}
+
 func nativeMoveWindow(window fyne.Window, x, y int) bool {
 	hwnd := fyneWindowHWND(window)
 	if hwnd == 0 {
 		return false
 	}
+	const swpNoSize = 0x0001
 	r, _, _ := procSetWindowPos.Call(
 		hwnd,
 		0,
@@ -83,6 +102,25 @@ func nativeMoveWindow(window fyne.Window, x, y int) bool {
 		swpNoSize|swpNoZOrder,
 	)
 	return r != 0
+}
+
+func nativeUnlockWindowSize(window fyne.Window) {
+	hwnd := fyneWindowHWND(window)
+	if hwnd == 0 {
+		return
+	}
+	const (
+		gwlStyle        = ^uintptr(15) // GWL_STYLE = -16
+		wsThickframe    = 0x00040000
+		wsMaximizebox   = 0x00010000
+		swpNoMove       = 0x0002
+		swpNoSize       = 0x0001
+		swpFrameChanged = 0x0020
+	)
+	style, _, _ := procGetWindowLongPtr.Call(hwnd, gwlStyle)
+	style |= wsThickframe | wsMaximizebox
+	procSetWindowLongPtr.Call(hwnd, gwlStyle, style)
+	procSetWindowPos.Call(hwnd, 0, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoZOrder|swpFrameChanged)
 }
 
 func nativeWindowFrameIsVisible(f windowFrame) bool {

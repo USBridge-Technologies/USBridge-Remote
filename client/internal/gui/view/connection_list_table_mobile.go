@@ -12,9 +12,8 @@ import (
 )
 
 // newMobileConnectionsList is the phone List table: two columns (Name/Info
-// | Action), no platform/state plaques, LAN/TS under the name. Edit
-// replaces that row with the editor in place — rows above and below stay
-// in the table, unlike the desktop side split.
+// | Action), no platform/state plaques, LAN/TS under the name. Edit opens
+// a top-anchored overlay; this list stays the read-only table.
 func newMobileConnectionsList(items []ConnectionListItem, addActions AddConnectionCardActions, editIndex int, editPanel fyne.CanvasObject) fyne.CanvasObject {
 	if len(items) == 0 {
 		return NewAddConnectionGridCard(addActions)
@@ -26,7 +25,7 @@ func newMobileConnectionsList(items []ConnectionListItem, addActions AddConnecti
 	for i, item := range items {
 		sep := canvas.NewRectangle(dividerColor)
 		sep.SetMinSize(fyne.NewSize(1, 1))
-		children = append(children, NewInsetExact(sep, 0, 0, 8, 8))
+		children = append(children, NewInsetExact(sep, 0, 0, 10, 12))
 		if editPanel != nil && i == editIndex {
 			children = append(children, container.New(&mobileFillWidthLayout{}, editPanel))
 			continue
@@ -124,10 +123,10 @@ func newMobileListInfoLine(lanAddress, tailscaleAddress string) fyne.CanvasObjec
 	muted := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
 	tsColor := color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
 	lan := canvas.NewText("LAN "+connectionCardAddressOrNone(lanAddress), muted)
-	lan.TextSize = 8
+	lan.TextSize = 7
 	lan.TextStyle.Monospace = true
 	ts := canvas.NewText("TS "+connectionCardAddressOrNone(tailscaleAddress), tsColor)
-	ts.TextSize = 8
+	ts.TextSize = 7
 	ts.TextStyle.Monospace = true
 	return container.New(&DeviceRowControlsLayout{Gap: 8}, lan, ts)
 }

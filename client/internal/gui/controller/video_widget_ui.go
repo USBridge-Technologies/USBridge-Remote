@@ -92,7 +92,7 @@ func (vw *VideoWidget) handleStartVideo() {
 			preferredDevicePath = preferredConfig.DevicePath
 		}
 
-		videoInfo := vw.fetchVideoInfoForStartDialog(preferredDevicePath)
+		videoInfo := vw.fetchVideoInfoForStartDialogAttempts(preferredDevicePath, 5)
 
 		// Check whether the widget was closed while the HTTP requests were in flight
 		if vw.isClosing.Load() {
@@ -169,7 +169,13 @@ func (vw *VideoWidget) handleStartVideo() {
 }
 
 func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.VideoInfoData {
-	const maxAttempts = 5
+	return vw.fetchVideoInfoForStartDialogAttempts(devicePath, 5)
+}
+
+func (vw *VideoWidget) fetchVideoInfoForStartDialogAttempts(devicePath string, maxAttempts int) *models.VideoInfoData {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
 
 	var lastInfo *models.VideoInfoData
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -200,7 +206,7 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 	// Fall back to the default device query to get the actual V4L2 capabilities.
 	if devicePath != "" && (lastInfo == nil || len(lastInfo.CaptureModes) == 0) {
 		logrus.Infof("ℹ️ No capture modes for device=%s, falling back to default device query", devicePath)
-		fallback := vw.fetchVideoInfoForStartDialog("")
+		fallback := vw.fetchVideoInfoForStartDialogAttempts("", maxAttempts)
 		if fallback != nil && len(fallback.CaptureModes) > 0 {
 			if lastInfo != nil {
 				// Preserve current status (width/height/fps/streaming) but inject capture modes
@@ -1056,6 +1062,18 @@ func (vw *VideoWidget) IsSystemIMESticky() bool {
 	return vw.systemIMESticky.Load()
 }
 
+// SetSpecialKeysHeaderReserve records the mobile special-keys header height
+// so the Vulkan SurfaceView never starts under that band.
+func (vw *VideoWidget) SetSpecialKeysHeaderReserve(h float32) {
+	if vw == nil {
+		return
+	}
+	if h < 0 {
+		h = 0
+	}
+	vw.specialKeysHeaderReserve = h
+}
+
 // OpenKeyboardStack shows special-keys overlay + system IME together.
 func (vw *VideoWidget) OpenKeyboardStack() {
 	vw.ensureMobileVirtualKeyboard()
@@ -1063,19 +1081,24 @@ func (vw *VideoWidget) OpenKeyboardStack() {
 		return
 	}
 	vw.imeStackArmedAt = time.Now()
+	vw.imeConfirmedOpen.Store(false)
+	vw.imeShowRetryUsed.Store(false)
 	if !vw.IsVirtualKeyboardVisible() {
 		vw.showSpecialKeysOverlay()
 	}
+	// Header must land before GBoard: fyne.Do would delay it a frame and the
+	// system IME would paint first. This callback is sync (footer tap is
+	// already on the UI thread).
+	if vw.onKeyboardChromeSync != nil {
+		vw.onKeyboardChromeSync()
+	} else if vw.onKeyboardStackChanged != nil {
+		vw.onKeyboardStackChanged()
+	}
+	vw.applyImmediateKeyboardViewport()
 	if !vw.IsSystemIMESticky() {
 		vw.SetSystemIMESticky(true)
 	}
 	vw.setKeyboardCollapseFABVisible(true)
-	vw.focusViewportOnVirtualCursorForKeyboard()
-	if vw.onKeyboardStackChanged != nil {
-		vw.onKeyboardStackChanged()
-	}
-	// Header swap + IME animation change available height after this returns.
-	vw.scheduleKeyboardCaretFocus()
 }
 
 // CloseAllKeyboards hides the special-keys overlay and dismisses sticky system IME.
@@ -1089,11 +1112,14 @@ func (vw *VideoWidget) CloseAllKeyboards() {
 	vw.setKeyboardCollapseFABVisible(false)
 	vw.keyboardViewportLift = false
 	vw.bottomInset = 0
-	vw.recalculateViewport()
-	vw.updateNativeViewportAndCursor()
-	if vw.onKeyboardStackChanged != nil {
+	vw.SetSpecialKeysHeaderReserve(0)
+	vw.imeConfirmedOpen.Store(false)
+	if vw.onKeyboardChromeSync != nil {
+		vw.onKeyboardChromeSync()
+	} else if vw.onKeyboardStackChanged != nil {
 		vw.onKeyboardStackChanged()
 	}
+	vw.applyImmediateKeyboardViewport()
 }
 
 // ToggleKeyboardStack opens or closes the combined IME + special-keys stack.
@@ -1108,6 +1134,18 @@ func (vw *VideoWidget) ToggleKeyboardStack() {
 // SetOnKeyboardStackChanged registers a UI refresh when the keyboard stack opens/closes.
 func (vw *VideoWidget) SetOnKeyboardStackChanged(fn func()) {
 	vw.onKeyboardStackChanged = fn
+}
+
+// SetOnKeyboardChromeSync applies the special-keys header synchronously on
+// the UI thread so Vulkan can reserve space before the system IME appears.
+func (vw *VideoWidget) SetOnKeyboardChromeSync(fn func()) {
+	vw.onKeyboardChromeSync = fn
+}
+
+// SetOnKeyboardViewportSettle runs once after IME/header animation, just
+// before Vulkan applies the final overlay rect.
+func (vw *VideoWidget) SetOnKeyboardViewportSettle(fn func()) {
+	vw.onKeyboardViewportSettle = fn
 }
 
 // SetViewportPanMode arms/disarms one-finger video pan (mobile Control footer).
@@ -1252,6 +1290,9 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 		vw.isClosing.Store(false)
 		vw.userStoppedVideo.Store(false)
 		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
+		vw.PrefetchCaptureModesAsync()
+	} else {
+		clearCaptureModesCache()
 	}
 	vw.updateButtons()
 }

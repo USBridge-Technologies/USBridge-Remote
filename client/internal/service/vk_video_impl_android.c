@@ -209,10 +209,10 @@ static atomic_int g_vp_v1_fp = ATOMIC_VAR_INIT(65536);
 // where the cursor flies to a completely wrong screen position.
 static pthread_mutex_t g_state_mu = PTHREAD_MUTEX_INITIALIZER;
 
-// When 1, the fitted video rect is bottom-aligned in the swapchain (dy = sh - dh)
-// instead of centered (dy = (sh - dh) / 2). Set while the system IME is open so
-// the video sits flush against the keyboard panel with no black gap below.
-static atomic_int g_align_bottom;
+// When non-zero: 1 = bottom-align fitted video, 2 = top-align (under special
+// keys). 0 = center. Bottom while IME-only; top while special keys own the
+// header so letterbox does not pool under the keys.
+static atomic_int g_v_align;
 
 // Extra destination blit offset in physical pixels (letterbox / zoom pan).
 // Applied after aspect-fit and uniform zoomScale. Zero when centered.
@@ -792,7 +792,11 @@ static void vk_layout_zoomed_dest(int fw, int fh, int sw, int sh,
     *dh = sh;
     if (fa > wa) {
         *dh = (int)(sw / fa + 0.5f);
-        *dy = atomic_load(&g_align_bottom) ? (sh - *dh) : (sh - *dh) / 2;
+        switch (atomic_load(&g_v_align)) {
+            case 1: *dy = sh - *dh; break; // bottom
+            case 2: *dy = 0; break;         // top
+            default: *dy = (sh - *dh) / 2; break; // center
+        }
     } else {
         *dw = (int)(sh * fa + 0.5f);
         *dx = (sw - *dw) / 2;
@@ -1773,8 +1777,12 @@ void android_vk_update_rect(int x, int y, int w, int h) {
 
 void android_vk_set_hidden(int hidden) {
     if (!atomic_load(&g_active)) return;
-    atomic_store(&g_hidden, hidden ? 1 : 0);
-    java_set_visible(!hidden);
+    int want = hidden ? 1 : 0;
+    int prev = atomic_exchange(&g_hidden, want);
+    if (prev == want) return;
+    java_set_visible(!want);
+    // Samsung may have dropped the buffer while "hidden"; rebuild on show.
+    if (!want) atomic_store(&g_force_recreate, 1);
 }
 
 void android_vk_destroy(void) {
@@ -1788,7 +1796,13 @@ void android_vk_destroy(void) {
 // android_vk_set_align_bottom controls vertical alignment of the fitted video rect.
 // 0 = center (default); 1 = bottom-align (use while system IME is open).
 void android_vk_set_align_bottom(int bottom) {
-    atomic_store(&g_align_bottom, bottom ? 1 : 0);
+    atomic_store(&g_v_align, bottom ? 1 : 0);
+}
+
+// android_vk_set_align_top: flush-fit to the top of the SurfaceView (under
+// special keys). 0 = center; non-zero = top-align.
+void android_vk_set_align_top(int top) {
+    atomic_store(&g_v_align, top ? 2 : 0);
 }
 
 // android_vk_set_viewport sets the visible UV sub-rect of the frame (0..1 per axis).

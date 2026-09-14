@@ -16,8 +16,8 @@ const ForceMobilePresetPrefKey = "force_mobile_preset"
 // ForceMobileScalePrefKey persists the desktop phone-preview canvas scale.
 const ForceMobileScalePrefKey = "force_mobile_scale"
 
-// DefaultPhonePreviewID is the first-run phone frame (iPhone 15 logical dp).
-const DefaultPhonePreviewID = "iphone-15"
+// DefaultPhonePreviewID is the Compact window frame (iPhone SE logical dp).
+const DefaultPhonePreviewID = "iphone-se"
 
 // Phone preview on a typical monitor paints ~1.5× a real handset. 0.7
 // brings the physical window closer to the phone you hold next to it.
@@ -34,9 +34,8 @@ const phonePreviewScaleEnv = "FYNE_SCALE"
 // on. Loaded from ForceMobilePresetPrefKey at startup.
 var ForceMobilePresetID = DefaultPhonePreviewID
 
-// ForceMobileScale is the Fyne user scale used only while the desktop
-// phone preview is on. Logical layout stays 390×844; the window paints
-// smaller. Loaded from ForceMobileScalePrefKey at startup.
+// ForceMobileScale is the Fyne user scale used only in Compact size mode.
+// Logical layout stays at the iPhone SE frame; the window paints smaller.
 var ForceMobileScale = DefaultPhonePreviewScale
 
 // PhonePreviewPreset is a popular phone viewport in Fyne logical units
@@ -48,8 +47,8 @@ type PhonePreviewPreset struct {
 	Height float32
 }
 
-// PhonePreviewPresets are the frames offered in the Connections footer
-// Desktop/Mobile menu. Sizes are logical dp, not physical pixels.
+// PhonePreviewPresets are compact-layout frames. Size → Compact always uses
+// the first entry (iPhone SE).
 var PhonePreviewPresets = []PhonePreviewPreset{
 	{ID: "iphone-se", Name: "iPhone SE", Width: 375, Height: 667},
 	{ID: "iphone-15", Name: "iPhone 15", Width: 390, Height: 844},
@@ -60,8 +59,16 @@ var PhonePreviewPresets = []PhonePreviewPreset{
 	{ID: "galaxy-s24-ultra", Name: "Galaxy S24 Ultra", Width: 384, Height: 824},
 }
 
-// PhonePreviewByID returns the preset for id, or the default iPhone 15
-// frame if id is empty/unknown.
+// CompactWindowPreset is the Size → Compact frame (iPhone SE).
+func CompactWindowPreset() PhonePreviewPreset {
+	if len(PhonePreviewPresets) == 0 {
+		return PhonePreviewPreset{ID: DefaultPhonePreviewID, Width: 375, Height: 667}
+	}
+	return PhonePreviewPresets[0]
+}
+
+// PhonePreviewByID returns the preset for id, or Compact (iPhone SE)
+// if id is empty/unknown.
 func PhonePreviewByID(id string) PhonePreviewPreset {
 	for _, p := range PhonePreviewPresets {
 		if p.ID == id {
@@ -71,9 +78,9 @@ func PhonePreviewByID(id string) PhonePreviewPreset {
 	return PhonePreviewByID(DefaultPhonePreviewID)
 }
 
-// CurrentPhonePreview is the frame ForceMobileDesign should open at.
+// CurrentPhonePreview is the frame Compact mode should open at.
 func CurrentPhonePreview() PhonePreviewPreset {
-	return PhonePreviewByID(ForceMobilePresetID)
+	return CompactWindowPreset()
 }
 
 func (p PhonePreviewPreset) SizeLabel() string {

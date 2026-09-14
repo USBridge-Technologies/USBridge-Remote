@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
@@ -39,7 +40,7 @@ func (cm *ConnectionManager) createInterface() {
 	cm.firmwareBanner = view.NewFirmwarePromoBanner()
 	cm.firmwareBanner.SetOnDismiss(cm.dismissFirmwarePromo)
 	cm.firmwareBanner.SetOnTrial(cm.openFirmwarePromo)
-	cm.firmwareChip = view.NewFooterLabelChip("Hardware Agent")
+	cm.firmwareChip = view.NewFooterHardwareChip("Hardware Agent")
 	cm.firmwareChip.SetOnOpen(cm.openFirmwarePromo)
 	cm.firmwareChip.SetOnRestore(cm.restoreFirmwarePromo)
 	cm.agentChip = view.NewFooterTintChip("Software Agent", design.ColorConnectionBadgeText, cm.showAgentCatalog)
@@ -72,9 +73,9 @@ func (cm *ConnectionManager) PromoFooterChip() fyne.CanvasObject {
 	return cm.promoChip
 }
 
-// FirmwareFooterChip is the Connections footer's "software" stand-in for a
-// dismissed firmware banner -- click opens the trial page, expand restores
-// the banner.
+// FirmwareFooterChip is the Connections footer's Hardware Agent stand-in
+// when the firmware banner is dismissed: the label restores the promo,
+// the external icon opens the landing page.
 func (cm *ConnectionManager) FirmwareFooterChip() fyne.CanvasObject {
 	if cm == nil {
 		return nil
@@ -227,7 +228,7 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 			},
 		},
 	}
-	if view.UseMobileConnections() {
+	if view.IsMobile() {
 		view.ShowMobileLanguageMenu(anchor, items)
 		return
 	}
@@ -238,6 +239,63 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 // createConnectionAddressBar (package gui) to call.
 func (cm *ConnectionManager) ShowLanguageMenu(anchor fyne.CanvasObject) {
 	cm.showLanguageMenu(anchor)
+}
+
+func (cm *ConnectionManager) showLinkMenu(anchor fyne.CanvasObject, items []view.StyledMenuItem) {
+	if view.IsMobile() {
+		view.ShowMobileLanguageMenu(anchor, items)
+		return
+	}
+	view.ShowStyledMenuTeal(anchor, items)
+}
+
+// ShowInfoMenu is the connections header "?" button: Software / Hardware
+// GitHub plus the public website — same teal popup as the language menu.
+func (cm *ConnectionManager) ShowInfoMenu(anchor fyne.CanvasObject) {
+	cm.showLinkMenu(anchor, []view.StyledMenuItem{
+		{
+			Label: "Software",
+			Icon:  assets.GitHubIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://github.com/USBridge-Technologies/USBridge-Remote", "software GitHub URL")
+			},
+		},
+		{
+			Label: "Hardware",
+			Icon:  assets.GitHubIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://github.com/USBridge-Technologies/USBridge-KVM-2.0/tree/main/docs", "hardware GitHub URL")
+			},
+		},
+		{
+			Label: "Website",
+			Icon:  assets.OpenExternalIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://www.usbridge.io/", "website URL")
+			},
+		},
+	})
+}
+
+// ShowCommunityMenu is the connections header community button: Discord
+// (same invite as OpenDiscordInvite) plus Reddit.
+func (cm *ConnectionManager) ShowCommunityMenu(anchor fyne.CanvasObject) {
+	cm.showLinkMenu(anchor, []view.StyledMenuItem{
+		{
+			Label: "Discord",
+			Icon:  assets.DiscordBrandIconTeal,
+			OnTap: func() {
+				cm.openDiscordInvite()
+			},
+		},
+		{
+			Label: "Reddit",
+			Icon:  assets.RedditIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://www.reddit.com/r/USBridge/", "Reddit URL")
+			},
+		},
+	})
 }
 
 func (cm *ConnectionManager) openQuickStartDocs() {
@@ -317,7 +375,7 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 
 	editIndex := -1
 	var editPanel fyne.CanvasObject
-	if cm.editingListIndex >= 0 && cm.editingListIndex < len(cm.connections) {
+	if !view.UseMobileConnections() && cm.editingListIndex >= 0 && cm.editingListIndex < len(cm.connections) {
 		// editIndex is a position in the (possibly reordered) rows slice,
 		// not a cm.connections index -- NewConnectionsListSplit highlights
 		// rows[editIndex], so it has to point at wherever editingListIndex's
@@ -371,8 +429,8 @@ func (cm *ConnectionManager) syncAddCardPromo() {
 
 // connectionsDisplayOrder returns cm.connections' indices in the order the
 // List/Grid should render them: unchanged (creation-date order) by default,
-// or with the KVM (or Agent) connections stably moved to the front when the
-// connections header's matching badge is active (connectionSortMode) --
+// or with the matching category (KVM, Agent, or Unknown) stably moved to
+// the front when that header badge is active (connectionSortMode) --
 // nothing is hidden, only reordered, and each group keeps its own original
 // relative order (sort.SliceStable).
 func (cm *ConnectionManager) connectionsDisplayOrder() []int {
@@ -385,12 +443,15 @@ func (cm *ConnectionManager) connectionsDisplayOrder() []int {
 	}
 
 	wantKVM := cm.connectionSortMode == "kvm"
+	wantUnknown := cm.connectionSortMode == "unknown"
 	rank := func(idx int) int {
 		isAgent, isKVM := view.ClassifyConnectionRemoteOS(cm.connections[idx].RemoteOS)
-		if (wantKVM && isKVM) || (!wantKVM && isAgent) {
+		switch {
+		case wantKVM && isKVM, !wantKVM && !wantUnknown && isAgent, wantUnknown && !isAgent && !isKVM:
 			return 0
+		default:
+			return 1
 		}
-		return 1
 	}
 	sort.SliceStable(order, func(i, j int) bool {
 		return rank(order[i]) < rank(order[j])
@@ -398,9 +459,9 @@ func (cm *ConnectionManager) connectionsDisplayOrder() []int {
 	return order
 }
 
-// handleConnectionSortToggle is the connections header's KVM/Agent badge tap
+// handleConnectionSortToggle is the connections header's count-badge tap
 // callback (connectionsHeaderActions.OnSortToggle). kind is "kvm", "agent",
-// or "" -- tapping the already-active badge turns it back off (view.
+// "unknown", or "" -- tapping the already-active badge turns it back off (view.
 // newConnectionsHeader computes that toggle), reverting to plain
 // creation-date order.
 func (cm *ConnectionManager) handleConnectionSortToggle(kind string) {
@@ -470,6 +531,10 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			},
 			OnEdit: func() {
 				if cm.connectionPending {
+					return
+				}
+				if view.UseMobileConnections() {
+					cm.showMobileConnectionEdit(idx)
 					return
 				}
 				// Splits the List view instead of popping the modal
@@ -545,6 +610,10 @@ func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx 
 			OnSelect: fillForm,
 			OnEdit: func() {
 				if cm.connectionPending {
+					return
+				}
+				if view.UseMobileConnections() {
+					cm.showMobileConnectionEdit(idx)
 					return
 				}
 				// Grid's pencil edits the card in place instead of opening

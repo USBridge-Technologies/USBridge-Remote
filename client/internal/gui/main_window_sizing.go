@@ -83,18 +83,38 @@ func (mw *MainWindow) applyInitialWindowSize() {
 	}
 
 	mw.window.Resize(windowSizeToLogical(width, height, contentMin))
-	// CenterOnScreen uses Fyne/GLFW's "current" monitor, which on first
-	// Show is the primary. Skip it when we have a last-session frame so
-	// the window can reopen on the same display the user left it on.
-	if !mw.canRestoreWindowPlacement() {
+	if !mw.hasRestorableWindowFrame() {
 		mw.window.CenterOnScreen()
 	}
+	nativeUnlockWindowSize(mw.window)
+}
+
+func (mw *MainWindow) applyDesktopWindowGeometry() {
+	if mw.window == nil || view.ForceMobileDesign {
+		return
+	}
+	mw.window.SetFixedSize(false)
+	nativeUnlockWindowSize(mw.window)
+	if mw.applySavedWindowPlacement() {
+		mw.window.SetFixedSize(false)
+		nativeUnlockWindowSize(mw.window)
+		return
+	}
+	var contentMin fyne.Size
+	if content := mw.window.Content(); content != nil {
+		contentMin = content.MinSize()
+	}
+	if lw, lh, ok := mw.savedLogicalWindowSize(); ok {
+		mw.window.Resize(windowSizeToLogical(lw, lh, contentMin))
+	}
+	mw.window.SetFixedSize(false)
+	nativeUnlockWindowSize(mw.window)
 }
 
 func (mw *MainWindow) applyPhonePreviewWindowSize() {
 	view.ApplyPreviewUserScale()
 	view.ReloadFyneCanvasScale()
-	p := view.CurrentPhonePreview()
+	p := view.CompactWindowPreset()
 	size := fyne.NewSize(p.Width, p.Height)
 	mw.lastGoodWindowSize = size
 	mw.window.SetFixedSize(false)

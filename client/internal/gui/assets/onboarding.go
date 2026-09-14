@@ -40,6 +40,8 @@ var (
 	discIcon []byte
 	//go:embed upload-svgrepo-com.svg
 	uploadIcon []byte
+	//go:embed download-svgrepo-com.svg
+	downloadIcon []byte
 	//go:embed cam-svgrepo-com.svg
 	cameraIcon []byte
 	//go:embed fullscreen-svgrepo-com.svg
@@ -86,6 +88,8 @@ var (
 	logoUSBridgeIcon []byte
 	//go:embed LogoUSBridge2.0.svg
 	logoUSBridgeLockup []byte
+	//go:embed LogoUSBridge2.0-mobil.svg
+	logoUSBridgeLockupMobile []byte
 	//go:embed linux-svgrepo-com.svg
 	linuxOSIcon []byte
 	//go:embed windows-svgrepo-com.svg
@@ -98,8 +102,16 @@ var (
 	cpuIcon []byte
 	//go:embed expand-1-svgrepo-com.svg
 	expandIcon []byte
+	//go:embed open-external-svgrepo-com.svg
+	openExternalIcon []byte
 	//go:embed move-svgrepo-com.svg
 	moveIcon []byte
+	//go:embed github-svgrepo-com.svg
+	githubIcon []byte
+	//go:embed discord-outline-svgrepo-com.svg
+	discordBrandIcon []byte
+	//go:embed reddit-fill-svgrepo-com.svg
+	redditIcon []byte
 	//go:embed onboarding/Front_panel.png
 	onboardingStep01 []byte
 )
@@ -183,6 +195,17 @@ var (
 	// ScriptFooterStatus's dismiss X (#8f9381 / #c5c8b5).
 	ExpandIconMuted = fyne.NewStaticResource("expand-1-svgrepo-com-muted.svg", recolorFillIcon(expandIcon, "#8f9381"))
 	ExpandIconHover = fyne.NewStaticResource("expand-1-svgrepo-com-hover.svg", recolorFillIcon(expandIcon, "#c5c8b5"))
+	ExpandIconTeal  = fyne.NewStaticResource("expand-1-svgrepo-com-teal.svg", recolorFillIcon(expandIcon, "#41e0c3"))
+	ExpandIconWhite = fyne.NewStaticResource("expand-1-svgrepo-com-white.svg", recolorFillIcon(expandIcon, "#f5f5f5"))
+	OpenExternalIconLime      = fyne.NewStaticResource("open-external-lime.svg", recolorFillIcon(openExternalIcon, "#c4e77a"))
+	OpenExternalIconLimeHover = fyne.NewStaticResource("open-external-lime-hover.svg", recolorFillIcon(openExternalIcon, "#f5f5f5"))
+	OpenExternalIconTeal      = fyne.NewStaticResource("open-external-teal.svg", recolorFillIcon(openExternalIcon, "#41e0c3"))
+	// Connections header Info/Community menus. GitHub is a filled #0F0F0F
+	// path. Discord is discord-outline-svgrepo-com.svg (stroke). Reddit is
+	// reddit-fill-svgrepo-com.svg — circle + snoo split (Fyne can't evenodd).
+	GitHubIconTeal       = fyne.NewStaticResource("github-svgrepo-com-teal.svg", recolorFillIcon(githubIcon, "#41e0c3"))
+	DiscordBrandIconTeal = fyne.NewStaticResource("discord-outline-svgrepo-com-teal.svg", recolorDiscordOutlineIcon(discordBrandIcon, "#41e0c3"))
+	RedditIconTeal       = fyne.NewStaticResource("reddit-fill-svgrepo-com-teal.svg", recolorRedditIcon(redditIcon, "#41e0c3"))
 	// ViewportPanIcon/Active — move-svgrepo-com.svg, mobile Control footer
 	// one-finger grab-pan button.
 	ViewportPanIcon       = fyne.NewStaticResource("move-svgrepo-com-pan.svg", recolorFillIcon(moveIcon, "#C9C9C9"))
@@ -277,6 +300,7 @@ var (
 	DiscIconStatusBar      = fyne.NewStaticResource("disc-svgrepo-com-statusbar.svg", recolorFillIcon(discIcon, "#c4e77a"))
 	UploadIcon             = fyne.NewStaticResource("upload-svgrepo-com.svg", recolorStrokeIcon(uploadIcon, "#F5F5F5", "2"))
 	UploadIconMuted        = fyne.NewStaticResource("upload-svgrepo-com-muted.svg", recolorStrokeIcon(uploadIcon, "#8E8E8E", "2"))
+	DownloadIconDark       = fyne.NewStaticResource("download-svgrepo-com-dark.svg", recolorStrokeIcon(downloadIcon, "#4c6803", "2"))
 	CameraIcon             = fyne.NewStaticResource("cam-svgrepo-com.svg", recolorStrokeIcon(cameraIcon, "#C9C9C9", "1.8"))
 	CameraIconActive       = fyne.NewStaticResource("cam-svgrepo-com-active.svg", recolorStrokeIcon(cameraIcon, "#93C572", "1.8"))
 	// CameraIconStatusBar is the Control header's own video/fps/resolution
@@ -375,6 +399,10 @@ var (
 	// every other resource here, deliberately embedded raw, with no
 	// recolorFillIcon/recolorStrokeIcon pass.
 	LogoUSBridgeLockup = fyne.NewStaticResource("LogoUSBridge2.0.svg", logoUSBridgeLockup)
+	// LogoUSBridgeLockupMobile is the phone Connections header wordmark
+	// (LogoUSBridge2.0-mobil.svg) — same lime fill, narrower crop without
+	// the desktop lockup's left mark so it fits after the settings gear.
+	LogoUSBridgeLockupMobile = fyne.NewStaticResource("LogoUSBridge2.0-mobil.svg", logoUSBridgeLockupMobile)
 	LinuxOSIcon        = fyne.NewStaticResource("linux-svgrepo-com-os.svg", recolorMonoIcon(linuxOSIcon, "#C9C9C9", "1.8"))
 	WindowsOSIcon      = fyne.NewStaticResource("windows-svgrepo-com-os.svg", recolorMonoIcon(windowsOSIcon, "#C9C9C9", "1.8"))
 	MacOSIcon          = fyne.NewStaticResource("macos-svgrepo-com-os.svg", recolorMonoIcon(macosOSIcon, "#C9C9C9", "1.8"))
@@ -400,6 +428,48 @@ func recolorFillIcon(source []byte, fill string) []byte {
 	svg = strings.ReplaceAll(svg, "fill:black", "fill:"+fill)
 	svg = strings.ReplaceAll(svg, "currentColor", fill)
 	return []byte(svg)
+}
+
+// recolorDiscordOutlineIcon tints discord-outline-svgrepo-com.svg — a
+// single 24×24 stroked path with no stroke-width of its own (SVG default
+// 1 is too faint at 12px). Match the other outline glyphs (~1.8).
+func recolorDiscordOutlineIcon(source []byte, color string) []byte {
+	svg := string(source)
+	svg = strings.ReplaceAll(svg, `width="800px"`, `width="24"`)
+	svg = strings.ReplaceAll(svg, `height="800px"`, `height="24"`)
+	svg = strings.ReplaceAll(svg, `stroke="#000000"`, fmt.Sprintf(`stroke="%s" stroke-width="1.8" stroke-linecap="round"`, color))
+	return []byte(svg)
+}
+
+// recolorRedditIcon tints reddit-fill-svgrepo-com.svg. The snoo is an
+// evenodd hole in a circle — Fyne fills that hole solid, so a plain
+// recolor is a teal disc. Split the compound path: circle + eyes/smile
+// in the menu teal, snoo body in the menu fill so it reads as a cutout.
+func recolorRedditIcon(source []byte, color string) []byte {
+	match := regexp.MustCompile(` d="([^"]+)"`).FindSubmatch(source)
+	if match == nil {
+		return recolorFillIcon(source, color)
+	}
+	var sub []string
+	for _, part := range strings.Split(string(match[1]), "Z") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		sub = append(sub, part+"Z")
+	}
+	const cutout = "#0b0f12" // design.ColorGray950, the menu behind the hole
+	var b strings.Builder
+	b.WriteString(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">`)
+	for i, d := range sub {
+		fill := color
+		if i == 1 {
+			fill = cutout
+		}
+		fmt.Fprintf(&b, `<path fill="%s" d="%s"/>`, fill, d)
+	}
+	b.WriteString(`</svg>`)
+	return []byte(b.String())
 }
 
 // recolorGamepadIcon tints gamepad-svgrepo-com.svg -- a filled shape whose

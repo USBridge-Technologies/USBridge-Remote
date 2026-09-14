@@ -104,7 +104,7 @@ func (mw *MainWindow) observeContentResize(size, minSize fyne.Size) {
 		return
 	}
 
-	if size.Width > minSize.Width+windowShrinkGuardMargin && size.Height > minSize.Height+windowShrinkGuardMargin {
+	if size.Width >= minConfiguredWindowWidth && size.Height >= minConfiguredWindowHeight && !tooSmall {
 		mw.lastGoodWindowSize = size
 	}
 }

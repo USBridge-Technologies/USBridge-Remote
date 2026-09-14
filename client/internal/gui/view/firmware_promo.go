@@ -58,7 +58,7 @@ var (
 
 // FirmwarePromoBanner is the Connections-screen firmware promo: CPU icon,
 // title/subtitle, available-board menu, a rotating "included" feature, and
-// a 24h Trial button. Desktop hover reveals a top-right X that dismisses
+// a Download button. Desktop hover reveals a top-right X that dismisses
 // it into the footer chip; on the phone Connections promo the X stays
 // visible (see FooterPromoChip / NewFooterLabelChip).
 type FirmwarePromoBanner struct {
@@ -278,6 +278,9 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 		LabelSize:       10,
 		LabelBold:       true,
 		CornerRadius:    6,
+		NormalIcon:      assets.DownloadIconDark,
+		HoverIcon:       assets.DownloadIconDark,
+		IconSize:        fyne.NewSize(14, 14),
 		ButtonSize:      fyne.NewSize(0, 26),
 		OnHover:         b.setHovered,
 		OnTapped: func() {
@@ -286,7 +289,11 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 			}
 		},
 	})
-	trialBtn.SetText(i18n.Current.FirmwarePromoTrial)
+	if mobilePromo {
+		trialBtn.spec.ButtonSize = fyne.NewSize(26, 26)
+	} else {
+		trialBtn.SetText(i18n.Current.FirmwarePromoTrial)
+	}
 
 	titleCluster := container.New(&DeviceRowControlsLayout{Gap: 10},
 		container.NewCenter(cpu),
@@ -328,7 +335,7 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 
 	var row fyne.CanvasObject
 	if mobilePromo {
-		// Phone: Trial + always-visible X in the title row; board picker
+		// Phone: Download icon + always-visible X in the title row; board picker
 		// and rotating feature sit on the second row (picker left).
 		headerRight := container.New(&DeviceRowControlsLayout{Gap: 8},
 			container.NewCenter(trialBtn),
@@ -406,6 +413,7 @@ func newFirmwarePromoBoardDropdown(b *FirmwarePromoBanner) *HeaderDropdown {
 	boards.TextColor = design.ColorConnectionBadgeText
 	boards.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
 	boards.TextSize = 10
+	boards.DetailTextSize = 8
 	boards.HoverBorderColor = design.ColorConnectionBadgeText
 	boards.HoverFillColor = design.ColorGray900
 	boards.SetDetails(firmwarePromoBoardDetails())

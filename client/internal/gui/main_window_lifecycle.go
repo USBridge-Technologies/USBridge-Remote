@@ -63,6 +63,9 @@ func (mw *MainWindow) showConnectionManagerNow() {
 	}
 	mw.window.SetContent(mw.wrapWithResizeGuard(mw.connectionContent))
 	mw.onMainContent = false
+	if view.ForceMobileDesign {
+		mw.applyPhonePreviewWindowSize()
+	}
 	mw.connectionContent.Refresh()
 	mw.window.Canvas().Refresh(mw.connectionContent)
 	mw.syncVideoOverlayForNav()
@@ -77,10 +80,10 @@ func (mw *MainWindow) showMainContent() {
 			return
 		}
 		mw.window.SetContent(mw.wrapWithResizeGuard(mw.mainContent))
+		mw.onMainContent = true
 		if view.ForceMobileDesign {
 			mw.applyPhonePreviewWindowSize()
 		}
-		mw.onMainContent = true
 		mw.mainContent.Refresh()
 		mw.window.Canvas().Refresh(mw.mainContent)
 		mw.updateDeviceButtonsVisibility()

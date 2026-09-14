@@ -10,13 +10,21 @@ import (
 )
 
 const (
-	prefWindowFrameX    = "window.frame.x"
-	prefWindowFrameY    = "window.frame.y"
-	prefWindowFrameW    = "window.frame.w"
-	prefWindowFrameH    = "window.frame.h"
-	prefWindowLogicalW  = "window.logical.w"
-	prefWindowLogicalH  = "window.logical.h"
-	windowPlacementSave = 3 * time.Second
+	prefWindowFrameX      = "window.frame.x"
+	prefWindowFrameY      = "window.frame.y"
+	prefWindowFrameW      = "window.frame.w"
+	prefWindowFrameH      = "window.frame.h"
+	prefWindowLogicalW    = "window.logical.w"
+	prefWindowLogicalH    = "window.logical.h"
+	prefCompactFrameX     = "window.compact.frame.x"
+	prefCompactFrameY     = "window.compact.frame.y"
+	prefCompactFrameW     = "window.compact.frame.w"
+	prefCompactFrameH     = "window.compact.frame.h"
+	prefCompactLogicalW   = "window.compact.logical.w"
+	prefCompactLogicalH   = "window.compact.logical.h"
+	windowPlacementSave    = 3 * time.Second
+	minCompactWindowWidth  = 240
+	minCompactWindowHeight = 320
 )
 
 // windowFrame is the native outer window rectangle in physical pixels.
@@ -47,7 +55,7 @@ func (mw *MainWindow) savedWindowFrame() (windowFrame, bool) {
 		W: prefs.Int(prefWindowFrameW),
 		H: prefs.Int(prefWindowFrameH),
 	}
-	if f.W <= 0 || f.H <= 0 {
+	if f.W < minConfiguredWindowWidth || f.H < minConfiguredWindowHeight {
 		return windowFrame{}, false
 	}
 	return f, true
@@ -66,41 +74,101 @@ func (mw *MainWindow) savedLogicalWindowSize() (width, height int, ok bool) {
 	return width, height, true
 }
 
-func (mw *MainWindow) canRestoreWindowPlacement() bool {
-	f, ok := mw.savedWindowFrame()
+func (mw *MainWindow) savedCompactWindowFrame() (windowFrame, bool) {
+	if mw == nil || mw.app == nil {
+		return windowFrame{}, false
+	}
+	prefs := mw.app.Preferences()
+	f := windowFrame{
+		X: prefs.Int(prefCompactFrameX),
+		Y: prefs.Int(prefCompactFrameY),
+		W: prefs.Int(prefCompactFrameW),
+		H: prefs.Int(prefCompactFrameH),
+	}
+	if f.W < minCompactWindowWidth || f.H < minCompactWindowHeight {
+		return windowFrame{}, false
+	}
+	return f, true
+}
+
+func (mw *MainWindow) savedCompactLogicalSize() (width, height int, ok bool) {
+	if mw == nil || mw.app == nil {
+		return 0, 0, false
+	}
+	prefs := mw.app.Preferences()
+	width = prefs.Int(prefCompactLogicalW)
+	height = prefs.Int(prefCompactLogicalH)
+	if width < minCompactWindowWidth || height < minCompactWindowHeight {
+		return 0, 0, false
+	}
+	return width, height, true
+}
+
+func (mw *MainWindow) hasRestorableWindowFrame() bool {
+	if mw == nil {
+		return false
+	}
+	var f windowFrame
+	var ok bool
+	if view.ForceMobileDesign {
+		f, ok = mw.savedCompactWindowFrame()
+	} else {
+		f, ok = mw.savedWindowFrame()
+	}
 	if !ok {
 		return false
 	}
 	return nativeWindowFrameIsVisible(f)
 }
 
+func (mw *MainWindow) canRestoreWindowPlacement() bool {
+	if mw == nil || mw.freezeWindowPlacement {
+		return false
+	}
+	return mw.hasRestorableWindowFrame()
+}
+
 func (mw *MainWindow) persistWindowPlacement() {
 	if mw == nil || mw.app == nil || mw.window == nil {
 		return
 	}
-	if view.ForceMobileDesign {
-		// Keep the last desktop logical size so leaving Mobile preview
-		// restores the wide window, not the phone frame.
+	if mw.freezeWindowPlacement {
 		return
 	}
+	if view.ForceMobileDesign {
+		mw.persistCompactWindowPlacement()
+		return
+	}
+	mw.persistDesktopWindowPlacement()
+}
+
+func (mw *MainWindow) persistDesktopWindowPlacement() {
 	prefs := mw.app.Preferences()
-	if f, ok := nativeWindowFrame(mw.window); ok && f.W > 0 && f.H > 0 {
+	if canvas := mw.window.Canvas(); canvas != nil {
+		sz := canvas.Size()
+		if sz.Width < minConfiguredWindowWidth || sz.Height < minConfiguredWindowHeight {
+			// Still the Compact phone frame (or mid-switch). Never write
+			// that over the last real desktop size.
+			return
+		}
+		prefs.SetInt(prefWindowLogicalW, int(sz.Width))
+		prefs.SetInt(prefWindowLogicalH, int(sz.Height))
+	}
+	if f, ok := nativeWindowFrame(mw.window); ok && f.W >= minConfiguredWindowWidth && f.H >= minConfiguredWindowHeight {
 		prefs.SetInt(prefWindowFrameX, f.X)
 		prefs.SetInt(prefWindowFrameY, f.Y)
 		prefs.SetInt(prefWindowFrameW, f.W)
 		prefs.SetInt(prefWindowFrameH, f.H)
 	}
-	if mw.lastGoodWindowSize.Width >= minConfiguredWindowWidth && mw.lastGoodWindowSize.Height >= minConfiguredWindowHeight {
-		prefs.SetInt(prefWindowLogicalW, int(mw.lastGoodWindowSize.Width))
-		prefs.SetInt(prefWindowLogicalH, int(mw.lastGoodWindowSize.Height))
-		return
-	}
-	if canvas := mw.window.Canvas(); canvas != nil {
-		sz := canvas.Size()
-		if sz.Width >= minConfiguredWindowWidth && sz.Height >= minConfiguredWindowHeight {
-			prefs.SetInt(prefWindowLogicalW, int(sz.Width))
-			prefs.SetInt(prefWindowLogicalH, int(sz.Height))
-		}
+}
+
+func (mw *MainWindow) persistCompactWindowPlacement() {
+	prefs := mw.app.Preferences()
+	if f, ok := nativeWindowFrame(mw.window); ok && f.W >= minCompactWindowWidth && f.H >= minCompactWindowHeight {
+		prefs.SetInt(prefCompactFrameX, f.X)
+		prefs.SetInt(prefCompactFrameY, f.Y)
+		prefs.SetInt(prefCompactFrameW, f.W)
+		prefs.SetInt(prefCompactFrameH, f.H)
 	}
 }
 
@@ -125,11 +193,35 @@ func (mw *MainWindow) scheduleWindowPlacementRestore() {
 }
 
 func (mw *MainWindow) applySavedWindowPlacement() bool {
-	f, ok := mw.savedWindowFrame()
+	if mw.freezeWindowPlacement {
+		return false
+	}
+	var f windowFrame
+	var ok bool
+	if view.ForceMobileDesign {
+		f, ok = mw.savedCompactWindowFrame()
+	} else {
+		f, ok = mw.savedWindowFrame()
+	}
 	if !ok || !nativeWindowFrameIsVisible(f) {
 		return false
 	}
-	if !nativeMoveWindow(mw.window, f.X, f.Y) {
+	if view.ForceMobileDesign {
+		// Compact is a locked phone frame. Move only, then pin SE size
+		// again so a leftover wide HWND from the resizable experiment
+		// cannot stretch the mobile UI into a half-desktop window.
+		if !nativeMoveWindow(mw.window, f.X, f.Y) {
+			return false
+		}
+		p := view.CompactWindowPreset()
+		mw.window.SetFixedSize(false)
+		mw.window.Resize(fyne.NewSize(p.Width, p.Height))
+		mw.window.SetFixedSize(true)
+		_ = nativeMoveWindow(mw.window, f.X, f.Y)
+		logrus.Infof("🪟 [Placement] restored compact position %d,%d", f.X, f.Y)
+		return true
+	}
+	if !nativeSetWindowFrame(mw.window, f) {
 		return false
 	}
 	logrus.Infof("🪟 [Placement] restored window to %d,%d (%dx%d)", f.X, f.Y, f.W, f.H)

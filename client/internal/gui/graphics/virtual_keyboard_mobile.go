@@ -315,8 +315,8 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	// Special-keys only in the header. Soft IME typing is RustDesk-style via
 	// the native EditText (sticky) → keyboardTyped → touchpad UTF-8 — no
 	// visible buffer the user has to type into and clear.
-	keys := view.NewInsetExact(vk.createCompactKeysChrome(), 2, 2, 2, 2)
-	textHint.content = view.NewInsetExact(keys, 8, 8, 6, 6)
+	keys := vk.createCompactKeysChrome()
+	textHint.content = view.NewInsetExact(keys, 4, 4, 2, 1)
 
 	vk.imeSpacer = &imeSpacerLayout{height: 0}
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
