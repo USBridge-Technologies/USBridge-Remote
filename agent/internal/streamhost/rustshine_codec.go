@@ -11,12 +11,14 @@ import (
 
 // statusResponse mirrors gamestream-server's confirmed GET /api/status JSON
 // shape: {"active_video_codec": "h264"|"h265", "active_pixel_format": "...",
-// "active_chroma_444": bool, "color_444_available": bool} -- see
-// gamestream_proto::http::admin::StatusInfo.
+// "active_chroma_444": bool, "color_444_available": bool, "active_hdr": bool,
+// "hdr_available": bool} -- see gamestream_proto::http::admin::StatusInfo.
 type statusResponse struct {
 	ActiveVideoCodec  string `json:"active_video_codec"`
 	ActiveChroma444   bool   `json:"active_chroma_444"`
 	Color444Available bool   `json:"color_444_available"`
+	ActiveHdr         bool   `json:"active_hdr"`
+	HdrAvailable      bool   `json:"hdr_available"`
 }
 
 // rustshineAdminHTTPClient is shared across every CurrentVideoCodec call --
@@ -98,6 +100,16 @@ func (b *rustshineBackend) Color444Status() (active bool, available bool) {
 		return false, false
 	}
 	return status.ActiveChroma444, status.Color444Available
+}
+
+// HdrStatus reports the RustShine HDR color upgrade's state -- mirrors
+// Color444Status exactly, see CodecProbe's doc comment.
+func (b *rustshineBackend) HdrStatus() (active bool, available bool) {
+	status := b.fetchStatus()
+	if status == nil {
+		return false, false
+	}
+	return status.ActiveHdr, status.HdrAvailable
 }
 
 // SupportedVideoCodecs reuses the exact same /serverinfo NvHTTP probe as

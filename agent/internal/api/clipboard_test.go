@@ -124,6 +124,7 @@ func (s *stubApp) SubmitMoonlightPIN(string) error       { return nil }
 func (s *stubApp) CurrentVideoCodec() string             { return "" }
 func (s *stubApp) SupportedVideoCodecs() []string        { return []string{"h264"} }
 func (s *stubApp) Color444Status() (bool, bool)          { return false, false }
+func (s *stubApp) HdrStatus() (bool, bool)               { return false, false }
 func (s *stubApp) AudioSinks() ([]AudioSink, error)      { return nil, nil }
 func (s *stubApp) CurrentAudioSink() (string, error)     { return "", nil }
 func (s *stubApp) SetAudioSink(string) error             { return nil }

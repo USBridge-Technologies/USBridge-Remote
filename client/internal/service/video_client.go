@@ -58,6 +58,10 @@ type VideoClient interface {
 	// own ANNOUNCE negotiation), not something sent to the agent's REST
 	// API. Only takes effect for VideoModeH265; a no-op otherwise.
 	SetColor444(enabled bool)
+	// SetHdr requests RustShine HDR (HEVC Main10, BT.2020 + PQ) for the
+	// next ConnectToMoonlight -- mirrors SetColor444 exactly, independent
+	// axis (see models.VideoStartRequest.Hdr's doc comment).
+	SetHdr(enabled bool)
 
 	// NegotiatedVideoCodecName returns the codec the server actually
 	// negotiated for the current session (from moonlight-common-c's

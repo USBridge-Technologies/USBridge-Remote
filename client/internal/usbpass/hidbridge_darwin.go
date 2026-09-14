@@ -115,6 +115,45 @@ static int getMaxInputReportSize(IOHIDDeviceRef dev) { return getIntProp(dev, CF
 static int getManufacturerString(IOHIDDeviceRef dev, char* buf, int bufLen) { return getStringProp(dev, CFSTR(kIOHIDManufacturerKey), buf, bufLen); }
 static int getProductString(IOHIDDeviceRef dev, char* buf, int bufLen) { return getStringProp(dev, CFSTR(kIOHIDProductKey), buf, bufLen); }
 static int getSerialNumberString(IOHIDDeviceRef dev, char* buf, int bufLen) { return getStringProp(dev, CFSTR(kIOHIDSerialNumberKey), buf, bufLen); }
+static int getDeviceUsagePage(IOHIDDeviceRef dev) { return getIntProp(dev, CFSTR(kIOHIDDeviceUsagePageKey), 0); }
+static int getDeviceUsage(IOHIDDeviceRef dev) { return getIntProp(dev, CFSTR(kIOHIDDeviceUsageKey), 0); }
+
+// findHIDDeviceByEntryID locates one HID device by its stable IOKit registry
+// entry ID -- the only unambiguous handle for one interface of a composite
+// HID device that exposes several interfaces under the same VID:PID (e.g. a
+// Logitech Unifying receiver, confirmed live: one physical receiver, four
+// separate IOHIDDevice entries at the same 046d:c548, one per logical
+// function). findHIDDeviceByVIDPID's first-match behavior can't tell those
+// apart; this can.
+static IOHIDDeviceRef findHIDDeviceByEntryID(uint64_t entryID) {
+    IOHIDManagerRef mgr = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    if (!mgr) return NULL;
+    IOHIDManagerSetDeviceMatching(mgr, NULL);
+    IOHIDManagerOpen(mgr, kIOHIDOptionsTypeNone);
+
+    CFSetRef devices = IOHIDManagerCopyDevices(mgr);
+    IOHIDDeviceRef found = NULL;
+    if (devices) {
+        CFIndex n = CFSetGetCount(devices);
+        IOHIDDeviceRef* devs = (IOHIDDeviceRef*)malloc(n * sizeof(IOHIDDeviceRef));
+        CFSetGetValues(devices, (const void**)devs);
+        for (CFIndex i = 0; i < n; i++) {
+            io_service_t svc = IOHIDDeviceGetService(devs[i]);
+            uint64_t id = 0;
+            if (svc != IO_OBJECT_NULL) IORegistryEntryGetRegistryEntryID(svc, &id);
+            if (id == entryID) {
+                found = devs[i];
+                CFRetain(found);
+                break;
+            }
+        }
+        free(devs);
+        CFRelease(devices);
+    }
+    IOHIDManagerClose(mgr, kIOHIDOptionsTypeNone);
+    CFRelease(mgr);
+    return found;
+}
 
 // getReportDescriptor copies dev's raw HID report descriptor into buf (up to
 // bufLen bytes) and returns the real length (may exceed bufLen -- caller
@@ -135,6 +174,123 @@ static int isNullDevice(IOHIDDeviceRef dev) {
 
 static void releaseHIDDevice(IOHIDDeviceRef dev) {
     if (dev) CFRelease(dev);
+}
+
+// hidDeviceHasUSBAncestor walks svc's IOService-plane ancestry looking for a
+// real IOUSBHostDevice/IOUSBDevice node -- the only reliable signal this
+// project found (live, against a real machine) that an IOHIDDevice is
+// backed by an actual device on the physical USB bus, as opposed to a
+// software-synthesized one. kIOHIDTransportKey looked like the obvious
+// discriminator but lies: a virtual Xbox-360-compatible pad conjured by a
+// gamepad-remapping driver, and macOS's own "Virtual Dictation Input
+// Device", both self-report kIOHIDTransportKey "USB" despite having no
+// entry anywhere in the real USB tree (confirmed via ioreg -- neither
+// showed up under IOUSBHostDevice, unlike the real gamepad sitting right
+// next to them in the same enumeration). Bounded to 10 hops so a broken
+// registry chain can't spin forever.
+static int hidDeviceHasUSBAncestor(io_service_t svc) {
+    io_service_t cur = svc;
+    IOObjectRetain(cur);
+    for (int depth = 0; depth < 10; depth++) {
+        if (IOObjectConformsTo(cur, "IOUSBHostDevice") || IOObjectConformsTo(cur, "IOUSBDevice")) {
+            IOObjectRelease(cur);
+            return 1;
+        }
+        io_service_t parent = IO_OBJECT_NULL;
+        kern_return_t kr = IORegistryEntryGetParentEntry(cur, kIOServicePlane, &parent);
+        IOObjectRelease(cur);
+        if (kr != KERN_SUCCESS || parent == IO_OBJECT_NULL) break;
+        cur = parent;
+    }
+    return 0;
+}
+
+// enumerateAllHIDDevices fills ids/names/vids/pids with up to maxDevices
+// entries for every currently connected HID device -- no vendor/usage-page
+// filter, unlike pen_capture_darwin.go's Wacom-only enumeratePenTablets --
+// matching how the Windows/Linux raw-USB path (list.go's listSysfs/
+// listViaBroker) already lists every USB device with no class restriction.
+// Three exclusions keep the list to real, claimable devices:
+//   - no real IOUSBHostDevice/IOUSBDevice ancestor (hidDeviceHasUSBAncestor):
+//     drops software-synthesized HID devices. Live-verified: without this,
+//     a single Mac surfaced a phantom "Xbox 360 Controller" and a
+//     "Razer DriverKit VirtualJoystic" alongside the one real gamepad
+//     actually plugged in, plus macOS's own "Virtual Dictation Input
+//     Device" -- none backed by anything on the real USB bus, all
+//     un-attachable garbage that would confuse the passthrough list.
+//   - "Built-In" devices (kIOHIDBuiltInKey): Apple's own internal keyboard/
+//     trackpad/Touch ID/ambient-light sensor etc. -- these can sit on an
+//     internal USB bus too (passing hasUSBAncestor) but must never be
+//     offered as passthrough candidates given this bridge's tap is
+//     non-exclusive (see file doc comment): silently mirroring every local
+//     keystroke on the built-in keyboard to a remote peer would be a
+//     serious surprise, not a feature. External keyboards/mice are NOT
+//     excluded (their being HID passthrough candidates is intentional --
+//     the same is already true for raw USB on Windows/Linux).
+//   - devices with no VID/PID (some synthetic/virtual IOHIDDevice nodes
+//     report neither): there's no descriptor to build for them.
+static int enumerateAllHIDDevices(uint64_t* ids, char** names, int* vids, int* pids,
+                                   int* usagePages, int* usages, int maxDevices) {
+    IOHIDManagerRef mgr = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    if (!mgr) return 0;
+    IOHIDManagerSetDeviceMatching(mgr, NULL); // no filter -- every HID device
+    IOHIDManagerOpen(mgr, kIOHIDOptionsTypeNone);
+
+    CFSetRef devices = IOHIDManagerCopyDevices(mgr);
+    int count = 0;
+    if (devices) {
+        CFIndex n = CFSetGetCount(devices);
+        IOHIDDeviceRef* devs = (IOHIDDeviceRef*)malloc(n * sizeof(IOHIDDeviceRef));
+        CFSetGetValues(devices, (const void**)devs);
+        for (CFIndex i = 0; i < n && count < maxDevices; i++) {
+            io_service_t svc = IOHIDDeviceGetService(devs[i]);
+            if (svc == IO_OBJECT_NULL || !hidDeviceHasUSBAncestor(svc)) continue;
+
+            CFTypeRef builtIn = IOHIDDeviceGetProperty(devs[i], CFSTR("Built-In"));
+            if (builtIn) {
+                int bi = 0;
+                CFTypeID t = CFGetTypeID(builtIn);
+                if (t == CFBooleanGetTypeID()) {
+                    bi = CFBooleanGetValue((CFBooleanRef)builtIn) ? 1 : 0;
+                } else if (t == CFNumberGetTypeID()) {
+                    CFNumberGetValue((CFNumberRef)builtIn, kCFNumberIntType, &bi);
+                }
+                if (bi) continue;
+            }
+
+            CFNumberRef v = (CFNumberRef)IOHIDDeviceGetProperty(devs[i], CFSTR(kIOHIDVendorIDKey));
+            CFNumberRef p = (CFNumberRef)IOHIDDeviceGetProperty(devs[i], CFSTR(kIOHIDProductIDKey));
+            int vv = 0, pv = 0;
+            if (v) CFNumberGetValue(v, kCFNumberIntType, &vv);
+            if (p) CFNumberGetValue(p, kCFNumberIntType, &pv);
+            if (vv == 0 && pv == 0) continue;
+
+            uint64_t entryID = 0;
+            IORegistryEntryGetRegistryEntryID(svc, &entryID);
+            if (entryID == 0) continue;
+
+            ids[count] = entryID;
+            vids[count] = vv;
+            pids[count] = pv;
+            usagePages[count] = getDeviceUsagePage(devs[i]);
+            usages[count] = getDeviceUsage(devs[i]);
+
+            CFStringRef nameRef = (CFStringRef)IOHIDDeviceGetProperty(devs[i], CFSTR(kIOHIDProductKey));
+            if (nameRef) {
+                char buf[256] = {0};
+                CFStringGetCString(nameRef, buf, sizeof(buf), kCFStringEncodingUTF8);
+                names[count] = strdup(buf);
+            } else {
+                names[count] = strdup("HID Device");
+            }
+            count++;
+        }
+        free(devs);
+        CFRelease(devices);
+    }
+    IOHIDManagerClose(mgr, kIOHIDOptionsTypeNone);
+    CFRelease(mgr);
+    return count;
 }
 
 // openHIDBridge opens dev for input-report capture on the calling thread's
@@ -183,6 +339,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -202,16 +360,83 @@ type hidBridgeInfo struct {
 	maxInputReport int
 }
 
-func describeHIDDevice(vid, pid uint16) (*hidBridgeInfo, error) {
-	dev := C.findHIDDeviceByVIDPID(C.int(vid), C.int(pid))
+// HIDDeviceSummary is one entry from ListAllHIDDevices. ID is what
+// disambiguates one interface of a composite HID device sharing a VID:PID
+// with its siblings (see findHIDDeviceByEntryID's doc comment) -- it is
+// threaded through as ExportedDevice.InstanceID's suffix and read back by
+// TryClaimGousb.
+type HIDDeviceSummary struct {
+	ID        uint64
+	Name      string
+	VID       uint16
+	PID       uint16
+	UsagePage uint16
+	Usage     uint16
+}
+
+// ListAllHIDDevices enumerates every connected HID device this bridge could
+// claim -- see enumerateAllHIDDevices' doc comment for the built-in/no-VID
+// exclusions. This is the darwin USB-passthrough device list's enumeration
+// step (list_hid_darwin.go); listing here does not open or claim anything,
+// so a device that later fails to describe/claim in TryClaimGousb (e.g. a
+// composite device whose HID interface has no report descriptor) just
+// surfaces that error at attach time.
+func ListAllHIDDevices() []HIDDeviceSummary {
+	const maxDevices = 32
+	ids := make([]C.uint64_t, maxDevices)
+	names := make([]*C.char, maxDevices)
+	vids := make([]C.int, maxDevices)
+	pids := make([]C.int, maxDevices)
+	usagePages := make([]C.int, maxDevices)
+	usages := make([]C.int, maxDevices)
+
+	count := int(C.enumerateAllHIDDevices(&ids[0], &names[0], &vids[0], &pids[0], &usagePages[0], &usages[0], C.int(maxDevices)))
+
+	result := make([]HIDDeviceSummary, 0, count)
+	for i := 0; i < count; i++ {
+		name := C.GoString(names[i])
+		C.free(unsafe.Pointer(names[i]))
+		result = append(result, HIDDeviceSummary{
+			ID:        uint64(ids[i]),
+			Name:      name,
+			UsagePage: uint16(usagePages[i]),
+			Usage:     uint16(usages[i]),
+			VID:       uint16(vids[i]),
+			PID:       uint16(pids[i]),
+		})
+	}
+	return result
+}
+
+// hidTarget identifies which HID device to open. entryID, when nonzero,
+// picks one exact interface via findHIDDeviceByEntryID -- needed because
+// vid:pid alone is ambiguous for a composite device that exposes several
+// HID interfaces under the same VID:PID (see findHIDDeviceByEntryID's doc
+// comment). entryID is zero for callers that only ever had vid:pid to go on
+// (cmd/hidbridgetest, cmd/hiddescprobe), where first-match is the best
+// available and matches this bridge's original behavior.
+type hidTarget struct {
+	vid, pid uint16
+	entryID  uint64
+}
+
+func (t hidTarget) find() C.IOHIDDeviceRef {
+	if t.entryID != 0 {
+		return C.findHIDDeviceByEntryID(C.uint64_t(t.entryID))
+	}
+	return C.findHIDDeviceByVIDPID(C.int(t.vid), C.int(t.pid))
+}
+
+func describeHIDDevice(t hidTarget) (*hidBridgeInfo, error) {
+	dev := t.find()
 	if C.isNullDevice(dev) != 0 {
-		return nil, fmt.Errorf("hidbridge: no HID device %04x:%04x", vid, pid)
+		return nil, fmt.Errorf("hidbridge: no HID device %04x:%04x (entry %d)", t.vid, t.pid, t.entryID)
 	}
 	defer C.releaseHIDDevice(dev)
 
 	info := &hidBridgeInfo{
-		vid:            vid,
-		pid:            pid,
+		vid:            t.vid,
+		pid:            t.pid,
 		bcdDevice:      uint16(C.getVersionNumber(dev)),
 		maxInputReport: int(C.getMaxInputReportSize(dev)),
 	}
@@ -234,7 +459,7 @@ func describeHIDDevice(vid, pid uint16) (*hidBridgeInfo, error) {
 		n = int(C.getReportDescriptor(dev, (*C.uint8_t)(unsafe.Pointer(&descBuf[0])), C.int(len(descBuf))))
 	}
 	if n <= 0 {
-		return nil, fmt.Errorf("hidbridge: %04x:%04x has no HID report descriptor", vid, pid)
+		return nil, fmt.Errorf("hidbridge: %04x:%04x has no HID report descriptor", t.vid, t.pid)
 	}
 	info.reportDesc = append([]byte(nil), descBuf[:n]...)
 	return info, nil
@@ -265,7 +490,7 @@ type hidBridgeCapture struct {
 	done chan struct{}
 }
 
-func startHIDBridgeCapture(vid, pid uint16, maxReportSize int, onReport func([]byte)) (*hidBridgeCapture, error) {
+func startHIDBridgeCapture(t hidTarget, maxReportSize int, onReport func([]byte)) (*hidBridgeCapture, error) {
 	hidBridgeCallbacksMu.Lock()
 	hidBridgeNextToken++
 	token := hidBridgeNextToken
@@ -281,12 +506,12 @@ func startHIDBridgeCapture(vid, pid uint16, maxReportSize int, onReport func([]b
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
-		dev := C.findHIDDeviceByVIDPID(C.int(vid), C.int(pid))
+		dev := t.find()
 		if C.isNullDevice(dev) != 0 {
 			hidBridgeCallbacksMu.Lock()
 			delete(hidBridgeCallbacks, token)
 			hidBridgeCallbacksMu.Unlock()
-			openErr <- fmt.Errorf("hidbridge: device %04x:%04x disappeared before capture start", vid, pid)
+			openErr <- fmt.Errorf("hidbridge: device %04x:%04x (entry %d) disappeared before capture start", t.vid, t.pid, t.entryID)
 			close(cap.done)
 			return
 		}
@@ -296,7 +521,7 @@ func startHIDBridgeCapture(vid, pid uint16, maxReportSize int, onReport func([]b
 			hidBridgeCallbacksMu.Lock()
 			delete(hidBridgeCallbacks, token)
 			hidBridgeCallbacksMu.Unlock()
-			openErr <- fmt.Errorf("hidbridge: failed to open HID device %04x:%04x", vid, pid)
+			openErr <- fmt.Errorf("hidbridge: failed to open HID device %04x:%04x (entry %d)", t.vid, t.pid, t.entryID)
 			close(cap.done)
 			return
 		}
@@ -389,12 +614,31 @@ type hidBridgeBackend struct {
 	pending chan []byte
 }
 
+// hidEntryIDFromInstanceID extracts the registry-entry-ID suffix
+// list_hid_darwin.go embeds in InstanceID (format
+// "HID\VID_XXXX&PID_YYYY\<entryID>"), or 0 if there's no suffix -- e.g.
+// InstanceID is empty because dev came from NewExportedFromVIDPID directly
+// (cmd/hidbridgetest, cmd/hiddescprobe) rather than through the
+// passthrough device list.
+func hidEntryIDFromInstanceID(instanceID string) uint64 {
+	i := strings.LastIndexByte(instanceID, '\\')
+	if i < 0 {
+		return 0
+	}
+	id, err := strconv.ParseUint(instanceID[i+1:], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
 // TryClaimGousb is macOS's stand-in for backend_gousb.go's libusb claim (see
 // backend_gousb.go's `!darwin` build tag) -- same call site in session.go,
 // no caller changes needed. Named to match rather than adding a
 // platform-specific call site to session.go.
 func TryClaimGousb(dev *ExportedDevice) error {
-	info, err := describeHIDDevice(dev.VID, dev.PID)
+	target := hidTarget{vid: dev.VID, pid: dev.PID, entryID: hidEntryIDFromInstanceID(dev.InstanceID)}
+	info, err := describeHIDDevice(target)
 	if err != nil {
 		return err
 	}
@@ -405,7 +649,7 @@ func TryClaimGousb(dev *ExportedDevice) error {
 		reportDesc: info.reportDesc,
 		pending:    make(chan []byte, 8),
 	}
-	capture, err := startHIDBridgeCapture(info.vid, info.pid, info.maxInputReport, backend.onReport)
+	capture, err := startHIDBridgeCapture(target, info.maxInputReport, backend.onReport)
 	if err != nil {
 		return err
 	}

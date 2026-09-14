@@ -83,7 +83,7 @@ func TestWriteAndRemoveLaunchAgentRoundTrip(t *testing.T) {
 		t.Fatalf("launchAgentPath: %v", err)
 	}
 
-	if err := writeLaunchAgent(path, launchAgentContent("io.usbridge.agent.tray.roundtriptest", "/nonexistent/usbridge-agent-test-binary", []string{"--tray"})); err != nil {
+	if err := writeLaunchAgent("io.usbridge.agent.tray.roundtriptest", path, launchAgentContent("io.usbridge.agent.tray.roundtriptest", "/nonexistent/usbridge-agent-test-binary", []string{"--tray"}), true); err != nil {
 		t.Fatalf("writeLaunchAgent: %v", err)
 	}
 	if !trayPlistExists(t, path) {

@@ -68,12 +68,25 @@ func newTestApp(t *testing.T, entitlementToken string) *App {
 // recheckEntitlement downgrades to Sunshine and clears the cached token
 // when what's cached no longer verifies locally (expired trial, corrupted
 // value, or -- in production -- a token some other install's config.yaml
-// was copied from, since it would fail the hardware-id check) -- without
-// this ever needing to reach the network, this is the same underlying
-// guarantee "hardware binding actually gates access" relies on.
+// was copied from, since it would fail the hardware-id check) -- this is
+// the same underlying guarantee "hardware binding actually gates access"
+// relies on. Backend deliberately unreachable (closed server): since
+// 2026-09-14 recheckEntitlement immediately tries to re-bootstrap a fresh
+// free token right after clearing an invalid one (see
+// TestRecheckEntitlement_InvalidCachedToken_RetriesFreeBootstrapImmediately
+// for the reachable case) -- pointing at a dead backend here isolates this
+// test to the "stays cleared" half of that behavior, and confirms the
+// network attempt failing doesn't leave the corrupted token behind or
+// panic.
 func TestRecheckEntitlement_InvalidCachedToken_DowngradesToSunshine(t *testing.T) {
+	unreachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	unreachable.Close()
+	withBackendURL(t, unreachable.URL)
+
 	a := newTestApp(t, "usbent1.doesnt.matter")
-	a.recheckEntitlement(context.Background())
+	if ok := a.recheckEntitlement(context.Background()); ok {
+		t.Error("expected recheckEntitlement to report false (retry sooner) when the re-bootstrap attempt can't reach the backend")
+	}
 
 	if a.cfg.EntitlementToken != "" {
 		t.Fatalf("expected downgradeToSunshine to clear the cached token, got EntitlementToken=%q", a.cfg.EntitlementToken)
@@ -83,21 +96,61 @@ func TestRecheckEntitlement_InvalidCachedToken_DowngradesToSunshine(t *testing.T
 	}
 }
 
-// TestRecheckEntitlement_NoCachedToken_IsANoOp confirms recheckEntitlement
-// doesn't downgrade (or do anything, including touching the network) for
-// an app that was never trialed/purchased -- e.g. a fresh install that's
-// still on the free Sunshine tier.
-func TestRecheckEntitlement_NoCachedToken_IsANoOp(t *testing.T) {
-	unreachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("recheckEntitlement should never make a network call with no cached token")
+// TestRecheckEntitlement_InvalidCachedToken_RetriesFreeBootstrapImmediately
+// confirms the 2026-09-14 behavior change this test file's sibling above
+// deliberately isolates away from: once an invalid cached token is
+// cleared, recheckEntitlement doesn't leave the customer on bare Sunshine
+// until entitlementWatchdog's next tick -- it immediately calls the same
+// bootstrapFreeTier a brand-new install uses, reaching the backend right
+// away. The mock here can only ever return a token that fails LOCAL
+// verification (a real signature needs the production private key, which
+// by design never exists in this repo or its tests -- see this file's own
+// top-of-file scope note) -- confirmed here is that the reachable-backend
+// path is actually exercised (the mock handler is hit) and that a
+// non-verifying response is rejected rather than cached, not the full
+// happy path of ending up re-linked.
+func TestRecheckEntitlement_InvalidCachedToken_RetriesFreeBootstrapImmediately(t *testing.T) {
+	hit := false
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":     "free",
+			"license":    "usbent1.not-a-real-signature.forged",
+			"expires_in": 3600,
+		})
 	}))
+	t.Cleanup(mock.Close)
+	withBackendURL(t, mock.URL)
+
+	a := newTestApp(t, "usbent1.doesnt.matter")
+	if ok := a.recheckEntitlement(context.Background()); ok {
+		t.Error("expected recheckEntitlement to report false (retry sooner) when the backend's response doesn't verify locally")
+	}
+	if !hit {
+		t.Fatal("expected recheckEntitlement to immediately call the backend to re-bootstrap free after clearing an invalid token")
+	}
+	if a.cfg.EntitlementToken != "" {
+		t.Errorf("a backend response that fails local verification must never be cached, got EntitlementToken=%q", a.cfg.EntitlementToken)
+	}
+}
+
+// TestRecheckEntitlement_NoCachedToken_IsANoOp confirms recheckEntitlement
+// doesn't downgrade (or crash) for an app that was never trialed/purchased
+// -- e.g. a fresh install that's still on the free Sunshine tier -- when
+// the backend happens to be unreachable at that moment, and reports false
+// so entitlementWatchdog retries sooner than its steady-state interval
+// rather than leaving this install without any token until then.
+func TestRecheckEntitlement_NoCachedToken_IsANoOp(t *testing.T) {
+	unreachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	unreachable.Close()
 	withBackendURL(t, unreachable.URL)
 
 	a := newTestApp(t, "")
-	a.recheckEntitlement(context.Background())
+	if ok := a.recheckEntitlement(context.Background()); ok {
+		t.Error("expected recheckEntitlement to report false (retry sooner) when bootstrapping free can't reach the backend")
+	}
 	if a.cfg.EntitlementToken != "" || a.entStatus.Linked {
-		t.Error("recheckEntitlement should be a no-op with no cached entitlement token")
+		t.Error("recheckEntitlement should not fabricate a token/linked state when the backend is unreachable")
 	}
 }
 
@@ -322,6 +375,6 @@ func TestRestartRustShineIfActive_NeverPanicsRegardlessOfStreamState(t *testing.
 	sunshineApp.restartRustShineIfActive() // must return, not panic
 
 	rustshineApp := newTestApp(t, "")
-	rustshineApp.streamKind = "rustshine" // a.stream stays nil -- see doc comment above
+	rustshineApp.streamKind = "rustshine"   // a.stream stays nil -- see doc comment above
 	rustshineApp.restartRustShineIfActive() // must return, not panic
 }

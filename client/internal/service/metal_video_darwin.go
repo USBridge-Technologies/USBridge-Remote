@@ -18,6 +18,7 @@ extern void metal_video_destroy(void);
 extern double metal_video_last_fps(void);
 extern void metal_video_set_hidden(int hidden);
 extern int  metal_video_get_last_frame_rgba(int *outW, int *outH, uint8_t **out);
+extern void metal_video_set_hdr(int enabled);
 
 extern void metal_video_set_overlay(const uint8_t *rgba, int w, int h, int stride);
 extern void metal_video_clear_overlay(void);
@@ -181,4 +182,20 @@ func MetalVideoSetHidden(hidden bool) {
 		h = 1
 	}
 	C.metal_video_set_hidden(h)
+}
+
+// MetalVideoSetHdr toggles the video layer's EDR (extended dynamic range)
+// presentation mode -- called from platform_set_video_format the moment the
+// negotiated codec is known, before the first HDR frame ever arrives. See
+// metal_video_impl_darwin.m's metal_video_set_hdr doc comment for why this
+// is the only color-pipeline change needed on the render side (Core
+// Animation's own compositor does the actual BT.2020/PQ -> display
+// conversion using the color tags VideoToolbox already attaches to the
+// decoded IOSurface).
+func MetalVideoSetHdr(enabled bool) {
+	e := C.int(0)
+	if enabled {
+		e = 1
+	}
+	C.metal_video_set_hdr(e)
 }

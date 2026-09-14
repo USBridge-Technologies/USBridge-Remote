@@ -78,17 +78,33 @@ func launchAgentContent(label, exe string, args []string) string {
 `, label, argsXML.String())
 }
 
-func writeLaunchAgent(path, content string) error {
+func writeLaunchAgent(label, path, content string, activateNow bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return err
 	}
-	// Activate immediately instead of waiting for the next login. Ignore the
-	// error: launchctl exits non-zero if it's already loaded, which isn't a
-	// real failure here.
-	_ = exec.Command("launchctl", "load", "-w", path).Run()
+	if activateNow {
+		// Activate immediately instead of waiting for the next login. Ignore
+		// the error: launchctl exits non-zero if it's already loaded, which
+		// isn't a real failure here. "-w" also clears launchd's persistent
+		// per-label Disabled override (see below) as a side effect.
+		_ = exec.Command("launchctl", "load", "-w", path).Run()
+	} else {
+		// Skipping "load -w" to avoid an immediate start must not skip
+		// clearing the Disabled override that "-w" would otherwise clear:
+		// removeLaunchAgent's "unload -w" (below) persists Disabled=true
+		// for this label in launchd's overrides database, independent of
+		// the plist file. If a label was ever disabled that way and later
+		// re-enabled through this branch, the override survives even a
+		// real reboot+login -- launchd's automatic ~/Library/LaunchAgents
+		// scan silently skips disabled labels regardless of RunAtLoad or
+		// the plist being perfectly valid. "launchctl enable" clears the
+		// override without loading or starting anything, so the next real
+		// login's scan picks it up normally.
+		_ = exec.Command("launchctl", "enable", fmt.Sprintf("gui/%d/%s", os.Getuid(), label)).Run()
+	}
 	return nil
 }
 
@@ -110,7 +126,7 @@ func Enable() error {
 	if err != nil {
 		return err
 	}
-	if err := writeLaunchAgent(path, launchAgentContent(launchAgentLabel, exe, args)); err != nil {
+	if err := writeLaunchAgent(launchAgentLabel, path, launchAgentContent(launchAgentLabel, exe, args), true); err != nil {
 		return err
 	}
 
@@ -119,8 +135,19 @@ func Enable() error {
 	// gives it a visible tray icon at login -- see trayLaunchAgentLabel's
 	// doc comment. No elevation or state-dir alignment needed: both
 	// LaunchAgents already run as this same logged-in user.
+	//
+	// activateNow=false here, unlike the primary LaunchAgent above: Enable()
+	// is only ever reachable from a running GUI (the tray menu or the
+	// settings window), which already owns a visible Dock/tray icon. Loading
+	// this plist immediately would launchd-start a second --tray process
+	// right now, which would see the engine's admin socket already up and
+	// attach its own duplicate thin-client GUI (see Start/runThinClientGUI)
+	// -- a second Dock+tray icon alongside the one already on screen. macOS
+	// picks up ~/Library/LaunchAgents plists on its own at the next real
+	// login, so skipping the immediate activation only defers this helper's
+	// first appearance to that login instead of losing it.
 	if trayPath, err := trayPlistPath(); err == nil {
-		if err := writeLaunchAgent(trayPath, launchAgentContent(trayLaunchAgentLabel, exe, []string{"--tray"})); err != nil {
+		if err := writeLaunchAgent(trayLaunchAgentLabel, trayPath, launchAgentContent(trayLaunchAgentLabel, exe, []string{"--tray"}), false); err != nil {
 			log.Printf("[autostart] warning: could not install tray LaunchAgent: %v", err)
 		}
 	}
