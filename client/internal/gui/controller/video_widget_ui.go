@@ -249,16 +249,7 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialogAttempts(devicePath string, m
 
 // handleVideoStartWithParams handles video start with parameters from the dialog.
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
-	cfg := models.VideoDeviceConfig{
-		DevicePath:         request.VideoDevice,
-		VideoWidth:         request.VideoWidth,
-		VideoHeight:        request.VideoHeight,
-		VideoFPS:           request.VideoFPS,
-		VideoQuality:       request.VideoQuality,
-		VideoBitrate:       request.VideoBitrate,
-		VideoMode:          request.VideoMode,
-		CapturePixelFormat: request.CapturePixelFormat,
-	}
+	cfg := videoDeviceConfigFromRequest(request.VideoDevice, "", request)
 	if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
 		logrus.Warnf("⚠️ cannot start video from request: %v", err)
 		fyne.Do(func() {

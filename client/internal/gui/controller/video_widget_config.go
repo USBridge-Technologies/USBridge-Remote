@@ -407,6 +407,32 @@ func mergeVideoConfigWithInfo(cfg models.VideoDeviceConfig, info *models.VideoIn
 	return cfg
 }
 
+// videoDeviceConfigFromRequest builds the VideoDeviceConfig to persist from a
+// submitted VideoStartRequest. Both the "Start Video" dialog
+// (handleVideoStartWithParams) and the device-settings "Apply" dialog
+// (ShowVideoDeviceSettings) funnel through this single place so every field
+// the dialog collects survives into the saved config -- Color444/Hdr in
+// particular have no other persistence path, so dropping them here (as two
+// separate hand-written struct literals previously did, independently)
+// silently discards the user's 4:4:4/HDR checkbox choice: the save clobbers
+// whatever was on disk with false, and the very next reconcile/restart reads
+// that same false back via VideoDeviceConfig.ToVideoStartRequest().
+func videoDeviceConfigFromRequest(devicePath, deviceName string, request *models.VideoStartRequest) models.VideoDeviceConfig {
+	return models.VideoDeviceConfig{
+		DevicePath:         devicePath,
+		DeviceName:         deviceName,
+		VideoWidth:         request.VideoWidth,
+		VideoHeight:        request.VideoHeight,
+		VideoFPS:           request.VideoFPS,
+		VideoQuality:       request.VideoQuality,
+		VideoBitrate:       request.VideoBitrate,
+		VideoMode:          request.VideoMode,
+		CapturePixelFormat: request.CapturePixelFormat,
+		Color444:           request.Color444,
+		Hdr:                request.Hdr,
+	}
+}
+
 func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, restart bool) error {
 	if cfg.DevicePath == "" {
 		return fmt.Errorf("%s", i18n.Current.VideoDeviceEmpty)
@@ -729,17 +755,7 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 			vw.startDialog.SetExtraAction("", nil)
 			logrus.Infof("📦 video start dialog ready in %s", time.Since(started).Round(time.Millisecond))
 			vw.startDialog.Show(func(request *models.VideoStartRequest) {
-				applied := models.VideoDeviceConfig{
-					DevicePath:         device.Path,
-					DeviceName:         device.Name,
-					VideoWidth:         request.VideoWidth,
-					VideoHeight:        request.VideoHeight,
-					VideoFPS:           request.VideoFPS,
-					VideoQuality:       request.VideoQuality,
-					VideoBitrate:       request.VideoBitrate,
-					VideoMode:          request.VideoMode,
-					CapturePixelFormat: request.CapturePixelFormat,
-				}
+				applied := videoDeviceConfigFromRequest(device.Path, device.Name, request)
 				logrus.Infof("💾 applying video settings for %s: %dx%d @ %d fps", device.Path, applied.VideoWidth, applied.VideoHeight, applied.VideoFPS)
 				go func() {
 					if err := vw.applyVideoDeviceConfig(applied, restartOnApply); err != nil {
