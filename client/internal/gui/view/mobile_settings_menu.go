@@ -51,9 +51,9 @@ func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode fu
 		rule,
 		row("Hardware Agent", assets.HardwareAgentIconTeal, onHardwareAgent),
 		row("Software Agent", assets.SoftwareAgentIconTeal, onSoftwareAgent),
-		row("Info", assets.QuestionIconTeal, onInfo),
-		row("Community", assets.DiscordIconTeal, onCommunity),
-		row("Language", assets.LanguageIconTeal, onLanguage),
+		row(i18n.Current.MenuInfo, assets.QuestionIconTeal, onInfo),
+		row(i18n.Current.MenuCommunity, assets.DiscordIconTeal, onCommunity),
+		row(i18n.Current.Language, assets.LanguageIconTeal, onLanguage),
 	)
 	popup = showStyledPanel(anchor, content, 236, false)
 }
@@ -77,13 +77,13 @@ func ShowMobileControlSettingsMenu(anchor fyne.CanvasObject, onPowerReset, onHar
 	}
 
 	content := container.NewVBox(
-		newMobileSettingsRow("Power Reset", assets.PowerResetIconTeal, func() { hideThen(onPowerReset) }),
+		newMobileSettingsRow(i18n.Current.MenuPowerReset, assets.PowerResetIconTeal, func() { hideThen(onPowerReset) }),
 		newMobileSettingsRow("Hardware Agent", assets.HardwareAgentIconTeal, func() { hideThen(onHardwareAgent) }),
 		newMobileSettingsRow("Software Agent", assets.SoftwareAgentIconTeal, func() { hideThen(onSoftwareAgent) }),
-		newMobileSettingsRow("Info", assets.QuestionIconTeal, func() { hideThen(onInfo) }),
-		newMobileSettingsRow("Community", assets.DiscordIconTeal, func() { hideThen(onCommunity) }),
-		newMobileSettingsRow("Language", assets.LanguageIconTeal, func() { hideThen(onLanguage) }),
-		newMobileSettingsRow("Account", assets.AccountIconTeal, func() { hideThen(onAccount) }),
+		newMobileSettingsRow(i18n.Current.MenuInfo, assets.QuestionIconTeal, func() { hideThen(onInfo) }),
+		newMobileSettingsRow(i18n.Current.MenuCommunity, assets.DiscordIconTeal, func() { hideThen(onCommunity) }),
+		newMobileSettingsRow(i18n.Current.Language, assets.LanguageIconTeal, func() { hideThen(onLanguage) }),
+		newMobileSettingsRow(i18n.Current.MenuAccount, assets.AccountIconTeal, func() { hideThen(onAccount) }),
 	)
 	popup = showStyledPanel(anchor, content, 236, false)
 }

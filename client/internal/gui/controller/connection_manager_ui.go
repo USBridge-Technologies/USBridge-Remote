@@ -7,6 +7,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
@@ -33,9 +34,8 @@ const firmwarePromoDismissedPrefKey = "connections.firmware_promo.dismissed"
 
 func (cm *ConnectionManager) createInterface() {
 	cm.addCardDismissed = cm.app.Preferences().BoolWithFallback(addCardDismissedPrefKey, false)
-	cm.promoChip = view.NewFooterPromoChip()
-	cm.promoChip.SetOnOpen(cm.showAddDialog)
-	cm.promoChip.SetOnRestore(cm.restoreAddConnectionCard)
+	cm.promoChip = view.NewFooterTintChip("+", design.ColorTextMuted, cm.restoreAddConnectionCard)
+	cm.promoChip.Hide()
 	cm.firmwarePromoDismissed = cm.app.Preferences().BoolWithFallback(firmwarePromoDismissedPrefKey, false)
 	cm.firmwareBanner = view.NewFirmwarePromoBanner()
 	cm.firmwareBanner.SetOnDismiss(cm.dismissFirmwarePromo)
@@ -63,8 +63,8 @@ func (cm *ConnectionManager) createInterface() {
 	cm.initTailscaleMode()
 }
 
-// PromoFooterChip is the Connections footer's left-side restore/add stand-in
-// for a dismissed Add New Connect tile -- nil-safe so createConnectionFooterBar
+// PromoFooterChip is the Connections footer's right-side "+" that restores
+// a dismissed Add New Connect tile -- nil-safe so createConnectionFooterBar
 // can ask before the manager exists.
 func (cm *ConnectionManager) PromoFooterChip() fyne.CanvasObject {
 	if cm == nil {
@@ -112,20 +112,29 @@ func (cm *ConnectionManager) showAgentCatalog() {
 	if cm.window == nil {
 		return
 	}
-	website := newScriptDialogTealButton("Download", nil, func() {
+	downloadLabel := "Download"
+	subtitle := ""
+	hint := ""
+	if i18n.Current != nil {
+		if i18n.Current.FirmwarePromoTrial != "" {
+			downloadLabel = i18n.Current.FirmwarePromoTrial
+		}
+		subtitle = i18n.Current.AgentCatalogSubtitle
+		hint = i18n.Current.AgentCatalogFooterHint
+	}
+	website := newScriptDialogTealButton(downloadLabel, nil, func() {
 		cm.openExternalLink(view.AgentCatalogWebsiteURL, "software agent page")
 	})
 	github := newScriptDialogLimeButton("GitHub", nil, func() {
 		cm.openExternalLink(view.AgentCatalogGitHubURL, "software agent GitHub")
 	})
-	hint := view.AgentCatalogFooterHint
 	if view.IsMobile() {
 		hint = ""
 	}
 	showBrandedOverlayDialog(brandedOverlayDialogSpec{
 		parent:       cm.window,
 		title:        view.AgentCatalogTitle,
-		subtitle:     view.AgentCatalogSubtitle,
+		subtitle:     subtitle,
 		body:         view.NewAgentCatalogBody(),
 		rightButtons: []fyne.CanvasObject{github, website},
 		tightFooter:  true,
@@ -204,7 +213,7 @@ func (cm *ConnectionManager) initTailscaleMode() {
 // own AUTO/TS/LAN popup (teal, 10px), even though this stays a plain
 // ShowStyledMenu (full language names, no HeaderDropdown trigger).
 func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
-	currentLanguage := cm.app.Preferences().StringWithFallback("language", "en")
+	currentLanguage := cm.app.Preferences().StringWithFallback(i18n.LanguagePrefKey, "en")
 	items := []view.StyledMenuItem{
 		{
 			Label:    "English",
@@ -268,7 +277,7 @@ func (cm *ConnectionManager) ShowInfoMenu(anchor fyne.CanvasObject) {
 			},
 		},
 		{
-			Label: "Website",
+			Label: i18n.Current.MenuWebsite,
 			Icon:  assets.OpenExternalIconTeal,
 			OnTap: func() {
 				cm.openExternalLink("https://www.usbridge.io/", "website URL")

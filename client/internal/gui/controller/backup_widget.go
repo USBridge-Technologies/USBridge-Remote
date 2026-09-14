@@ -37,7 +37,7 @@ type BackupWidget struct {
 	stopRefreshOnce       sync.Once
 
 	firmwareBanner         *view.FirmwarePromoBanner
-	firmwareChip           *view.FooterPromoChip
+	firmwareChip           *view.FooterHardwareChip
 	firmwarePromoDismissed bool
 }
 

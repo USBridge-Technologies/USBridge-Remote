@@ -23,7 +23,7 @@ import (
 )
 
 // FirmwarePromoURL is the 24h-trial / board-download landing page -- the
-// banner CTA and the footer's "software" chip both open it.
+// banner CTA and the Hardware Agent footer link both open it.
 const FirmwarePromoURL = "https://www.usbridge.io/kvm-software"
 
 var firmwarePromoBoardsList = []string{

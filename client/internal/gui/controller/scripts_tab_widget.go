@@ -12,6 +12,7 @@ import (
 
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
@@ -36,13 +37,13 @@ type ScriptsTabWidget struct {
 
 	outerContainer *fyne.Container
 	body           *fyne.Container
-	busySpinner     *view.DeviceDashboardBusySpinner
-	connectingHint  *view.DeviceDashboardBusySpinner
-	footerChip      *view.ScriptFooterStatus
-	footerChips     []*view.ScriptFooterStatus
+	busySpinner    *view.DeviceDashboardBusySpinner
+	connectingHint *view.DeviceDashboardBusySpinner
+	footerChip     *view.ScriptFooterStatus
+	footerChips    []*view.ScriptFooterStatus
 
 	firmwareBanner         *view.FirmwarePromoBanner
-	firmwareChip           *view.FooterPromoChip
+	firmwareChip           *view.FooterHardwareChip
 	firmwarePromoDismissed bool
 	// agentPromo is the software-agent Scripts half: firmware banner
 	// instead of the hardware table. MCP stays fully usable.
@@ -289,7 +290,7 @@ func (w *ScriptsTabWidget) syncFooterStatus() {
 
 func (w *ScriptsTabWidget) build() {
 	w.busySpinner = view.NewDeviceDashboardBusySpinner()
-	w.connectingHint = view.NewDeviceDashboardBusyHint("connecting device")
+	w.connectingHint = view.NewDeviceDashboardBusyHint(i18n.Current.ConnectingDevice)
 	w.footerChip = view.NewScriptFooterStatus()
 	w.footerChip.SetOnDismiss(w.dismissFooterHint)
 	w.firmwarePromoDismissed = w.firmwarePromoDismissedPref()
@@ -297,7 +298,7 @@ func (w *ScriptsTabWidget) build() {
 	w.firmwareBanner.SetFlushMargins(true)
 	w.firmwareBanner.SetOnDismiss(w.dismissFirmwarePromo)
 	w.firmwareBanner.SetOnTrial(w.openFirmwarePromo)
-	w.firmwareChip = view.NewFooterLabelChip("software")
+	w.firmwareChip = view.NewFooterHardwareChip("Hardware Agent")
 	w.firmwareChip.SetOnOpen(w.openFirmwarePromo)
 	w.firmwareChip.SetOnRestore(w.restoreFirmwarePromo)
 	w.body = container.NewMax()

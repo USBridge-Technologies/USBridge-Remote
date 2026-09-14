@@ -1350,8 +1350,8 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 	locked := !isUSBridgeAgentOS(p.getAgentOS())
 
 	actionTitles := map[string]string{
-		"power": "Power Off",
-		"reset": "Reset",
+		"power": i18n.Current.PCPanelPowerOff,
+		"reset": i18n.Current.PCPanelResetTitle,
 	}
 
 	hide := func(popup **widget.PopUp) {
@@ -1370,18 +1370,18 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 		durationValue.Refresh()
 	}
 
-	shortLabel := canvas.NewText("Short (0s)", pcpanelDialogHint)
+	shortLabel := canvas.NewText(i18n.Current.PCPanelShortHold, pcpanelDialogHint)
 	shortLabel.TextSize = pcpanelDialogHintTextSize
-	longLabel := canvas.NewText("Long (10s)", pcpanelDialogHint)
+	longLabel := canvas.NewText(i18n.Current.PCPanelLongHold, pcpanelDialogHint)
 	longLabel.TextSize = pcpanelDialogHintTextSize
 	durationHints := container.NewBorder(nil, nil, shortLabel, longLabel, nil)
-	durationHeader := container.NewBorder(nil, nil, pcpanelDialogFieldLabel("Duration"), pcpanelDialogValuePill(durationValue), nil)
+	durationHeader := container.NewBorder(nil, nil, pcpanelDialogFieldLabel(i18n.Current.PCPanelDuration), pcpanelDialogValuePill(durationValue), nil)
 	durationCard := pcpanelDialogCard(pcpanelDialogCardBG, view.NewInset(container.NewVBox(durationHeader, holdSlider, durationHints), 14, 14, 10, 10))
 
 	detailsContainer := container.NewVBox()
 
-	powerBtn := newPCPanelModeButton("Power Off", nil)
-	resetBtn := newPCPanelModeButton("Reset", nil)
+	powerBtn := newPCPanelModeButton(i18n.Current.PCPanelPowerOff, nil)
+	resetBtn := newPCPanelModeButton(i18n.Current.PCPanelResetTitle, nil)
 	modeButtons := container.New(&pcpanelModeButtonsLayout{gap: 8}, powerBtn, resetBtn)
 	actionCard := pcpanelDialogCard(design.ColorGray950, view.NewInsetExact(modeButtons, 4, 4, 4, 4))
 
@@ -1408,7 +1408,7 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 		}
 	}
 
-	holdButton = newPCPanelHoldButton("Hold to Confirm", 2*time.Second, func() {
+	holdButton = newPCPanelHoldButton(i18n.Current.PCPanelHoldToConfirm, 2*time.Second, func() {
 		client := p.usbClient
 		if client == nil {
 			return
@@ -1453,8 +1453,8 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 		holdButton.SetDisabled(true)
 	}
 
-	title := view.NewBrandText("Power controls", 13, design.ColorTextLight, true)
-	subtitleLbl := widget.NewLabel("Power controls are available on USBridge hardware only.")
+	title := view.NewBrandText(i18n.Current.PCPanelPowerControls, 13, design.ColorTextLight, true)
+	subtitleLbl := widget.NewLabel(i18n.Current.PCPanelPowerHardwareOnly)
 	subtitleLbl.Wrapping = fyne.TextWrapWord
 	subtitleThemed := container.NewThemeOverride(subtitleLbl, &mutedForegroundTheme{design.NewBrandTheme()})
 	nudgedSubtitle := container.New(&subtitleLeftNudgeLayout{Amount: 8}, subtitleThemed)
@@ -1462,7 +1462,7 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 	headerBlock := container.New(&tightHeaderVBoxLayout{Gap: 0}, pcpanelDialogTopAccentBar(), view.NewInset(titleCol, 21, 44, 9, 4), pcpanelDialogHairline())
 
 	bodyContent := container.NewVBox(
-		pcpanelDialogFieldLabel("Action"),
+		pcpanelDialogFieldLabel(i18n.Current.PCPanelAction),
 		actionCard,
 		detailsContainer,
 	)

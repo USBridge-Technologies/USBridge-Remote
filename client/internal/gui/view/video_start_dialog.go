@@ -1554,9 +1554,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	bitrateLabel.TextStyle.Bold = true
 	bitrateHeaderRow := container.NewBorder(nil, nil, bitrateLabel, valuePill, nil)
 
-	lowHint := canvas.NewText(fmt.Sprintf("Low Latency (%.1f %s)", vsd.bitrateSlider.Min/1000, i18n.Current.UnitMbps), videoDialogHintColor)
+	lowHint := canvas.NewText(fmt.Sprintf(i18n.Current.VideoLowLatencyFmt, vsd.bitrateSlider.Min/1000, i18n.Current.UnitMbps), videoDialogHintColor)
 	lowHint.TextSize = videoDialogHintTextSize
-	highHint := canvas.NewText(fmt.Sprintf("High Fidelity (%.1f %s)", vsd.bitrateSlider.Max/1000, i18n.Current.UnitMbps), videoDialogHintColor)
+	highHint := canvas.NewText(fmt.Sprintf(i18n.Current.VideoHighFidelityFmt, vsd.bitrateSlider.Max/1000, i18n.Current.UnitMbps), videoDialogHintColor)
 	highHint.TextSize = videoDialogHintTextSize
 	bitrateHintsRow := container.NewBorder(nil, nil, lowHint, highHint, nil)
 
@@ -1626,7 +1626,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	codecCard := container.NewStack(codecCardBG, codecCardBorder, NewInsetExact(vsd.modeButtonsRow, 4, 4, 4, 4))
 
 	bodyContent := container.NewVBox(
-		newVideoDialogFieldLabel("Codec"),
+		newVideoDialogFieldLabel(i18n.Current.VideoCodec),
 		codecCard,
 		container.NewCenter(vsd.modeDescription),
 		resolutionFPSRow,

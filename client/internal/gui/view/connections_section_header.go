@@ -29,6 +29,7 @@ import (
 // is what keeps the underline's left edge aligned with the row's, instead of
 // running flush to the screen edge while the content doesn't.
 const connectionsHeaderSideMargin float32 = 20
+const connectionsScrollEdgePad float32 = 10
 
 // connectionsHeaderUnderlineRightPullback is how much further short of the
 // shared right margin the underline stops, on top of that margin -- the
@@ -241,9 +242,9 @@ func appendConnectionSortBadges(titleItems []fyne.CanvasObject, summary Connecti
 			activeSort == "kvm", toggleSort("kvm"))))
 	}
 	if summary.UnknownCount > 0 || alwaysShowConnectionsBadges {
-		label := fmt.Sprintf("%d Unknown", summary.UnknownCount)
+		label := fmt.Sprintf("%d %s", summary.UnknownCount, i18n.Current.ConnectionBadgeUnknown)
 		if UseMobileConnections() {
-			label = fmt.Sprintf("%d Unk", summary.UnknownCount)
+			label = fmt.Sprintf("%d %s", summary.UnknownCount, i18n.Current.ConnectionBadgeUnknownShort)
 		}
 		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
 			label, design.ColorTextMuted,

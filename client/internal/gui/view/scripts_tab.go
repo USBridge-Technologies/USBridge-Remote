@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -30,13 +31,16 @@ const (
 
 var scriptsMCPURLColor = color.NRGBA{R: 0xe6, G: 0xf9, B: 0xb9, A: 0xff}
 
-const (
-	scriptsMCPSubtitle        = "Local signed MCP endpoint."
-	scriptsAutomationSubtitle = "Starlark jobs on the device."
-)
+func scriptColumnLabels() []string {
+	return []string{
+		i18n.Current.ConnectionColName,
+		i18n.Current.ScriptsColSource,
+		i18n.Current.ConnectionColState,
+		i18n.Current.ConnectionColActions,
+	}
+}
 
 var (
-	scriptListColumnLabels = []string{"NAME", "SOURCE", "STATE", "ACTIONS"}
 	scriptListColumnWidths = []float32{0, 72, 90, 136}
 )
 
@@ -110,7 +114,11 @@ func NewScriptsSection(data ScriptsSectionData) fyne.CanvasObject {
 	headerPad := NewInsetExact(headerRow, scriptsContentInset, scriptsContentInset, 8, 0)
 	bodyPad := NewInsetExact(bodyRow, scriptsContentInset, scriptsContentInset+10, 8, 12)
 	scroll := container.NewVScroll(container.New(&snapshotsBodyTopLayout{}, bodyPad))
-	return container.NewBorder(headerPad, nil, nil, nil, scroll)
+	var scroller fyne.CanvasObject = scroll
+	if !IsMobile() {
+		scroller = NewInsetExact(scroll, 0, connectionsScrollEdgePad, 0, 0)
+	}
+	return container.NewBorder(headerPad, nil, nil, nil, scroller)
 }
 
 func newScriptsHeaderDivider() fyne.CanvasObject {
@@ -203,22 +211,28 @@ func newScriptsColumnHeader(title, subtitle string, badge, action fyne.CanvasObj
 }
 
 func newScriptsMCPHeader() fyne.CanvasObject {
-	return newScriptsColumnHeader("MCP", scriptsMCPSubtitle, nil, nil)
+	return newScriptsColumnHeader("MCP", i18n.Current.ScriptsMCPSubtitle, nil, nil)
 }
 
 func newScriptsAutomationHeader(data ScriptsSectionData) fyne.CanvasObject {
 	badge := newConnectionSortBadge(
-		fmt.Sprintf("%d Scripts", data.ScriptCount),
+		fmt.Sprintf(i18n.Current.ScriptsCountFmt, data.ScriptCount),
 		design.ColorConnectionBadgeText,
 		false,
 		nil,
 	)
-	return newScriptsColumnHeader("Automation Scripts", scriptsAutomationSubtitle, badge, newScriptsNewButtons(data))
+	return newScriptsColumnHeader(i18n.Current.ScriptsAutomationTitle, i18n.Current.ScriptsAutomationSubtitle, badge, newScriptsNewButtons(data))
 }
 
 func newScriptsNewButtons(data ScriptsSectionData) fyne.CanvasObject {
-	emmc := newScriptsCreateButton("New eMMC", data.OnNewEMMC, data.NewEnabled)
-	sd := newScriptsCreateButton("New SD Card", data.OnNewSD, data.NewEnabled)
+	emmcLabel := i18n.Current.ScriptsNewEMMC
+	sdLabel := i18n.Current.ScriptsNewSD
+	if IsMobile() {
+		emmcLabel = i18n.Current.ScriptsNewEMMCMobile
+		sdLabel = i18n.Current.ScriptsNewSDMobile
+	}
+	emmc := newScriptsCreateButton(emmcLabel, data.OnNewEMMC, data.NewEnabled)
+	sd := newScriptsCreateButton(sdLabel, data.OnNewSD, data.NewEnabled)
 	row := container.New(&DeviceRowControlsLayout{Gap: 4}, emmc, sd)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
@@ -286,7 +300,7 @@ func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
 	topLeft := container.New(&DeviceRowControlsLayout{Gap: 8}, dotSlot, nameText)
 	topRow := container.NewBorder(nil, nil, topLeft, newScriptsMCPStateBadge(running))
 
-	chips := NewInset(newConnectionCardChipsRow("Local endpoint", "", design.ColorConnectionBadgeText), 0, 0, 4, 8)
+	chips := NewInset(newConnectionCardChipsRow(i18n.Current.ScriptsLocalEndpoint, "", design.ColorConnectionBadgeText), 0, 0, 4, 8)
 
 	url := strings.TrimSpace(data.URL)
 	if url == "" {
@@ -306,7 +320,7 @@ func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
 	dividerLine.SetMinSize(fyne.NewSize(1, 1))
 	divider := NewInset(dividerLine, 0, 0, 4, 4)
 
-	localLabel := canvas.NewText("Local models", design.ColorConnectionsSectionSubtitle)
+	localLabel := canvas.NewText(i18n.Current.ScriptsLocalModels, design.ColorConnectionsSectionSubtitle)
 	localLabel.TextSize = 10
 	localToggle := NewDeviceToggle(data.LocalUI, func(on bool) {
 		if data.OnLocalUI != nil {
@@ -360,10 +374,10 @@ func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
 }
 
 func newScriptsMCPStateBadge(running bool) fyne.CanvasObject {
-	text := "Stopped"
+	text := i18n.Current.ScriptsStateStopped
 	accent := color.Color(design.ColorConnectionsSectionSubtitle)
 	if running {
-		text = "Running"
+		text = i18n.Current.ScriptsStateRunning
 		accent = design.ColorConnectionBadgeText
 	}
 	dot := canvas.NewCircle(accent)
@@ -485,7 +499,7 @@ func newScriptsLockedCard(msg string) fyne.CanvasObject {
 // Past scriptsVisibleRows the data rows scroll internally, same idea as
 // Devices' Storage card (dashboardStorageVisibleRows).
 func NewScriptsListTable(rows []ScriptTableRow) fyne.CanvasObject {
-	labels, widths := scriptListColumnLabels, scriptListColumnWidths
+	labels, widths := scriptColumnLabels(), scriptListColumnWidths
 	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
 	newDivider := func() fyne.CanvasObject {
 		sep := canvas.NewRectangle(dividerColor)
@@ -535,7 +549,7 @@ func scriptsRowsCapHeight(items []fyne.CanvasObject, dataRowCount int) float32 {
 }
 
 func newScriptsEmptyRow(widths []float32) fyne.CanvasObject {
-	label := canvas.NewText("No scripts yet", design.ColorConnectionsSectionSubtitle)
+	label := canvas.NewText(i18n.Current.ScriptsEmpty, design.ColorConnectionsSectionSubtitle)
 	label.TextSize = 11
 	empty := canvas.NewRectangle(color.Transparent)
 	return container.New(&connectionsTableRowLayout{Widths: widths, Gap: connectionListColumnGap},
@@ -637,14 +651,14 @@ func (c *scriptsLiveStateChip) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func scriptsStateAppearance(running bool, errStr string) (string, color.Color) {
-	text := "Idle"
+	text := i18n.Current.ScriptsStateIdle
 	accent := color.Color(design.ColorConnectionsSectionSubtitle)
 	switch {
 	case running:
-		text = "Running"
+		text = i18n.Current.ScriptsStateRunning
 		accent = design.ColorConnectionAddFill
 	case strings.TrimSpace(errStr) != "":
-		text = "Error"
+		text = i18n.Current.Error
 		accent = color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff}
 	}
 	return text, accent

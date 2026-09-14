@@ -11,6 +11,7 @@ import (
 	"image/color"
 
 	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
@@ -267,10 +268,10 @@ func (mw *MainWindow) buildTabHeaderButtons() fyne.CanvasObject {
 		label                              string
 		index                              func() int
 	}{
-		{assets.MonitorTabIconMuted, assets.MonitorTabIconSelected, assets.MonitorTabIconHover, "Control", mw.controlTabIndex},
-		{assets.USBTabIconMuted, assets.USBTabIconSelected, assets.USBTabIconHover, "Devices", mw.devicesTabIndex},
-		{assets.SnapshotsTabIconMuted, assets.SnapshotsTabIconSelected, assets.SnapshotsTabIconHover, "Snapshots", mw.snapshotsTabIndex},
-		{assets.ScriptsTabIconMuted, assets.ScriptsTabIconSelected, assets.ScriptsTabIconHover, scriptsTabLabel(), mw.scriptsTabIndex},
+		{assets.MonitorTabIconMuted, assets.MonitorTabIconSelected, assets.MonitorTabIconHover, i18n.Current.TabLabelControl, mw.controlTabIndex},
+		{assets.USBTabIconMuted, assets.USBTabIconSelected, assets.USBTabIconHover, i18n.Current.TabLabelDevices, mw.devicesTabIndex},
+		{assets.SnapshotsTabIconMuted, assets.SnapshotsTabIconSelected, assets.SnapshotsTabIconHover, i18n.Current.TabLabelSnapshots, mw.snapshotsTabIndex},
+		{assets.ScriptsTabIconMuted, assets.ScriptsTabIconSelected, assets.ScriptsTabIconHover, i18n.Current.TabLabelScripts, mw.scriptsTabIndex},
 	}
 
 	objs := make([]fyne.CanvasObject, 0, len(specs))

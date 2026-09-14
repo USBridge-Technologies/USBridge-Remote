@@ -62,7 +62,7 @@ type DiskWidget struct {
 	dashboardPairSection   fyne.CanvasObject
 	dashboardPairRow       fyne.CanvasObject
 	dashboardFirmwarePromo *view.DeviceFirmwarePromo
-	firmwareChip           *view.FooterPromoChip
+	firmwareChip           *view.FooterHardwareChip
 	dashboardWideColumn    *fyne.Container
 	// dashboardXHover is card X's own onHover cell (view.NewDeviceDashboardHoverCell),
 	// created once in GetDashboardContainer and reused by every refreshDashboard

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -45,14 +46,21 @@ func newMobileConnectionsList(items []ConnectionListItem, addActions AddConnecti
 }
 
 func newMobileListHeader() fyne.CanvasObject {
-	left := canvas.NewText("NAME / INFO", design.ColorConnectionsSectionSubtitle)
-	left.TextSize = 8
-	left.TextStyle.Monospace = true
-	right := canvas.NewText("ACTION", design.ColorConnectionsSectionSubtitle)
-	right.TextSize = 8
-	right.TextStyle.Monospace = true
-	right.Alignment = fyne.TextAlignTrailing
-	return container.New(&mobileListRowLayout{gap: 8}, left, right)
+	return newMobileTwoColHeader(
+		i18n.Current.ConnectionColName+" / "+i18n.Current.ConnectionColInfo,
+		i18n.Current.MobileColAction,
+	)
+}
+
+func newMobileTwoColHeader(left, right string) fyne.CanvasObject {
+	l := canvas.NewText(left, design.ColorConnectionsSectionSubtitle)
+	l.TextSize = 8
+	l.TextStyle.Monospace = true
+	r := canvas.NewText(right, design.ColorConnectionsSectionSubtitle)
+	r.TextSize = 8
+	r.TextStyle.Monospace = true
+	r.Alignment = fyne.TextAlignTrailing
+	return container.New(&mobileListRowLayout{gap: 8}, l, r)
 }
 
 func newMobileConnectionListRow(item ConnectionListItem, highlighted bool) fyne.CanvasObject {

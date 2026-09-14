@@ -63,22 +63,22 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardBackupHover, backupBind = view.NewDeviceDashboardHoverCell()
 
 	plusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
-	addLabel := "Mount New ISO"
+	addLabel := i18n.Current.DevicesMountNewISO
 	if view.IsMobile() {
-		addLabel = "Mount"
+		addLabel = i18n.Current.DevicesMount
 	}
 	addImageBtn := view.NewDeviceDashboardHeaderButton(addLabel, plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
 	addImageBtn.OnHover = dw.dashboardStorageHover
 	dw.dashboardAddImageBtn = addImageBtn
 
-	dashboardNetworkCard := view.NewDeviceDashboardCard(view.DeviceDashboardNetworkIconSVG, "Network", "", nil, dw.dashboardNetworkRows, networkBind)
+	dashboardNetworkCard := view.NewDeviceDashboardCard(view.DeviceDashboardNetworkIconSVG, i18n.Current.DevicesCardNetwork, "", nil, dw.dashboardNetworkRows, networkBind)
 	dw.dashboardNetworkCard = dashboardNetworkCard
 	dw.dashboardNetworkCard.Hide() // only shown once a real RNDIS device exists -- see refreshDashboard
 
 	dw.dashboardBackupSpace = view.NewDeviceDashboardSpaceMeter()
 	dw.dashboardBackupSpace.OnHover = dw.dashboardBackupHover
 	dw.syncDashboardBackupSpace()
-	dashboardBackupCard := view.NewDeviceDashboardCard(view.DeviceDashboardBackupsIconSVG, "Backups", "", dw.dashboardBackupSpace, dw.dashboardBackup, backupBind)
+	dashboardBackupCard := view.NewDeviceDashboardCard(view.DeviceDashboardBackupsIconSVG, i18n.Current.DevicesCardBackups, "", dw.dashboardBackupSpace, dw.dashboardBackup, backupBind)
 	dw.dashboardBackupCard = dashboardBackupCard
 	dw.dashboardBackupCard.Hide() // only shown once the MTP backup flash exists -- see refreshDashboard
 
@@ -163,6 +163,10 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		padded = view.NewMobileFillWidth(padded)
 	}
 	scroll := container.NewVScroll(padded)
+	var tabBody fyne.CanvasObject = scroll
+	if !view.IsMobile() {
+		tabBody = view.NewInsetExact(scroll, 0, 10, 0, 0)
+	}
 	dw.dashboardFooterDisconnect = view.NewDeviceDashboardFooterTextButton(i18n.Current.DisconnectAllButton, func() {
 		if dw.controlsLocked() {
 			return
@@ -172,11 +176,10 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		dw.selectedItemsMu.Unlock()
 		dw.handleUnmount()
 	})
-	dw.dashboardBusySpinner = view.NewDeviceDashboardBusyHint("connecting device")
-	dw.firmwareChip = view.NewFooterLabelChip("software")
+	dw.dashboardBusySpinner = view.NewDeviceDashboardBusyHint(i18n.Current.ConnectingDevice)
+	dw.firmwareChip = view.NewFooterHardwareChip("Hardware Agent")
 	dw.firmwareChip.SetOnOpen(dw.openFirmwarePromo)
 	dw.firmwareChip.SetOnRestore(dw.restoreFirmwarePromo)
-	var tabBody fyne.CanvasObject = scroll
 	var footer fyne.CanvasObject
 	if view.IsMobile() {
 		tabBody = view.NewMobileFillWidth(scroll)
@@ -409,20 +412,20 @@ func (dw *DiskWidget) refreshDashboard() {
 		if dw.dashboardAudioGap != nil {
 			dw.dashboardAudioGap.Show()
 		}
-		setDashboardRows(dw.dashboardAudio, audioRows, "No audio devices")
+		setDashboardRows(dw.dashboardAudio, audioRows, i18n.Current.DevicesEmptyAudio)
 	}
-	setDashboardRows(dw.dashboardStorage, storageRows, "No storage or ISO media")
+	setDashboardRows(dw.dashboardStorage, storageRows, i18n.Current.DevicesEmptyStorage)
 	if dw.dashboardEmulation != nil {
-		setDashboardRows(dw.dashboardEmulation, emulationRows, "No USB devices")
+		setDashboardRows(dw.dashboardEmulation, emulationRows, i18n.Current.DevicesEmptyUSB)
 	}
 
 	softwareAgent := !isUSBridgeAgentOS(dw.agentOS)
 	promoDismissed := dw.firmwarePromoDismissed()
 	showPromo := softwareAgent && !promoDismissed
 
-	setDashboardRows(dw.dashboardNetworkRows, networkRows, "No network bridge devices")
+	setDashboardRows(dw.dashboardNetworkRows, networkRows, i18n.Current.DevicesEmptyNetwork)
 	if dw.dashboardBackup != nil {
-		setDashboardRows(dw.dashboardBackup, backupRows, "No backup devices")
+		setDashboardRows(dw.dashboardBackup, backupRows, i18n.Current.DevicesEmptyBackup)
 	}
 
 	networkOn := !softwareAgent && len(networkRows) > 0

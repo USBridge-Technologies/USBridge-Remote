@@ -137,10 +137,10 @@ var (
 	ColorExitButtonHoverFill   = color.NRGBA{R: 0x1d, G: 0x13, B: 0x1b, A: 0xff}
 	ColorExitButtonHoverText   = color.NRGBA{R: 0xf4, G: 0x6e, B: 0x81, A: 0xff}
 
-	// ColorScrollBar is the app-wide scrollbar thumb color (theme.ColorNameScrollBar) --
-	// Fyne themes this globally, with no per-Scroll-instance override, so this affects
-	// every scrollbar in the app (e.g. the Devices dashboard's own Storage card list).
-	ColorScrollBar = color.NRGBA{R: 0x32, G: 0x36, B: 0x2e, A: 0xff}
+	// ColorScrollBar is the app-wide scrollbar thumb (theme.ColorNameScrollBar).
+	// Gray, not the brand lime -- hover thickens the same thumb, it does not
+	// recolor it, so a green resting color read as "old Fyne green on hover".
+	ColorScrollBar = color.NRGBA{R: 0x5a, G: 0x5e, B: 0x62, A: 0xff}
 )
 
 const RadiusMD float32 = 8
@@ -270,6 +270,10 @@ func (t *BrandTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
 	case fynetheme.SizeNameInputRadius, fynetheme.SizeNameSelectionRadius, fynetheme.SizeNameWindowButtonRadius:
 		return RadiusMD
+	case fynetheme.SizeNameScrollBar:
+		return 6
+	case fynetheme.SizeNameScrollBarSmall:
+		return 3
 	case SizeNameToastText:
 		return 10
 	}

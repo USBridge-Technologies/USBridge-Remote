@@ -240,6 +240,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 		i18n.Init("en")
 	}
 	a := newFyneApp()
+	i18n.Init(a.Preferences().StringWithFallback(i18n.LanguagePrefKey, "en"))
 	w := a.NewWindow("USBridge Client")
 	w.SetIcon(assets.AppIcon)
 	w.SetPadded(false)

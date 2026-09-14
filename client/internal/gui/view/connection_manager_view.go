@@ -42,8 +42,9 @@ type ConnectionManagerUI struct {
 	ConnectionsScroll *container.Scroll
 	ConnectionsBox    *fyne.Container
 
-	contentArea *fyne.Container
-	topHelpBtn  fyne.CanvasObject
+	contentArea           *fyne.Container
+	connectionsScrollHost fyne.CanvasObject
+	topHelpBtn            fyne.CanvasObject
 
 	// promoSlot sits between the section header and the cards/table so the
 	// firmware banner can show/hide without rebuilding the list. Empty
@@ -377,6 +378,10 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 		connectionsScroll = container.NewVScroll(NewInset(connectionsBox, side, side, 8, 12))
 	}
 	connectionsScroll.SetMinSize(fyne.NewSize(0, 0))
+	scrollHost := fyne.CanvasObject(connectionsScroll)
+	if !UseMobileConnections() {
+		scrollHost = NewInsetExact(connectionsScroll, 0, connectionsScrollEdgePad, 0, 0)
+	}
 
 	var topHelpBtn fyne.CanvasObject
 	if onHelp != nil {
@@ -393,16 +398,17 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 	root := container.NewStack(bg, contentArea)
 
 	ui := &ConnectionManagerUI{
-		Container:         root,
-		ConnectionsScroll: connectionsScroll,
-		ConnectionsBox:    connectionsBox,
-		contentArea:       contentArea,
-		promoSlot:         container.NewVBox(),
-		topHelpBtn:        topHelpBtn,
-		viewMode:          initialViewMode,
-		onViewModeChange:  onViewModeChange,
-		onHelp:            onHelp,
-		onPromo:           onPromo,
+		Container:             root,
+		ConnectionsScroll:     connectionsScroll,
+		ConnectionsBox:        connectionsBox,
+		contentArea:           contentArea,
+		connectionsScrollHost: scrollHost,
+		promoSlot:             container.NewVBox(),
+		topHelpBtn:            topHelpBtn,
+		viewMode:              initialViewMode,
+		onViewModeChange:      onViewModeChange,
+		onHelp:                onHelp,
+		onPromo:               onPromo,
 	}
 	ui.headerActions = connectionsHeaderActions{
 		OnAdd:            onAdd,
@@ -758,11 +764,11 @@ func (ui *ConnectionManagerUI) SetRows(rows []ConnectionListItem, cards []fyne.C
 	top := container.NewVBox(header, ui.promoSlot)
 	if UseMobileConnections() {
 		ui.contentArea.Objects = []fyne.CanvasObject{
-			NewEdgeStack(top, nil, ui.ConnectionsScroll),
+			NewEdgeStack(top, nil, ui.connectionsScrollHost),
 		}
 	} else {
 		ui.contentArea.Objects = []fyne.CanvasObject{
-			container.NewBorder(top, nil, nil, nil, ui.ConnectionsScroll),
+			container.NewBorder(top, nil, nil, nil, ui.connectionsScrollHost),
 		}
 	}
 	ui.ConnectionsScroll.Refresh()

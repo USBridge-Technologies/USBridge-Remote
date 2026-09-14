@@ -7,6 +7,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
@@ -24,12 +25,12 @@ import (
 type connectionHeaderActions struct {
 	// OnShowLanguageMenu is called with the language button itself as the
 	// anchor, so the popup menu can position itself against it.
-	OnShowLanguageMenu func(anchor fyne.CanvasObject)
-	OnOpenCommunity    func(anchor fyne.CanvasObject)
-	OnOpenInfo         func(anchor fyne.CanvasObject)
+	OnShowLanguageMenu  func(anchor fyne.CanvasObject)
+	OnOpenCommunity     func(anchor fyne.CanvasObject)
+	OnOpenInfo          func(anchor fyne.CanvasObject)
 	OnOpenHardwareAgent func()
 	OnOpenSoftwareAgent func()
-	OnToggleTailscale  func()
+	OnToggleTailscale   func()
 	// OnOpenAccount opens the account login/sync dialog (see
 	// MainWindow.showAccountDialog) -- fired by the login avatar button.
 	OnOpenAccount func()
@@ -143,7 +144,7 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 			return
 		}
 		view.ShowStyledMenuTeal(btn, []view.StyledMenuItem{
-			{Label: "Power Reset", Icon: assets.PowerResetIconTeal, OnTap: func() {
+			{Label: i18n.Current.MenuPowerReset, Icon: assets.PowerResetIconTeal, OnTap: func() {
 				if actions.OnPowerReset != nil {
 					actions.OnPowerReset()
 				}
@@ -158,22 +159,22 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 					actions.OnOpenSoftwareAgent()
 				}
 			}},
-			{Label: "Info", Icon: assets.QuestionIconTeal, OnTap: func() {
+			{Label: i18n.Current.MenuInfo, Icon: assets.QuestionIconTeal, OnTap: func() {
 				if actions.OnOpenInfo != nil {
 					actions.OnOpenInfo(btn)
 				}
 			}},
-			{Label: "Community", Icon: assets.DiscordIconTeal, OnTap: func() {
+			{Label: i18n.Current.MenuCommunity, Icon: assets.DiscordIconTeal, OnTap: func() {
 				if actions.OnOpenCommunity != nil {
 					actions.OnOpenCommunity(btn)
 				}
 			}},
-			{Label: "Language", Icon: assets.LanguageIconTeal, OnTap: func() {
+			{Label: i18n.Current.Language, Icon: assets.LanguageIconTeal, OnTap: func() {
 				if actions.OnShowLanguageMenu != nil {
 					actions.OnShowLanguageMenu(btn)
 				}
 			}},
-			{Label: "Account", Icon: assets.AccountIconTeal, OnTap: func() {
+			{Label: i18n.Current.MenuAccount, Icon: assets.AccountIconTeal, OnTap: func() {
 				if actions.OnOpenAccount != nil {
 					actions.OnOpenAccount()
 				}

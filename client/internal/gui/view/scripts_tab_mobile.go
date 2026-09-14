@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -13,12 +14,12 @@ import (
 )
 
 func newMobileScriptsSection(data ScriptsSectionData) fyne.CanvasObject {
-	mcpHeader := newMobileScriptsColumnHeader("MCP", scriptsMCPSubtitle, nil, nil)
+	mcpHeader := newMobileScriptsColumnHeader("MCP", i18n.Current.ScriptsMCPSubtitle, nil, nil)
 	autoHeader := newMobileScriptsColumnHeader(
-		"Scripts",
-		scriptsAutomationSubtitle,
+		i18n.Current.ScriptsAutomationTitle,
+		i18n.Current.ScriptsAutomationSubtitle,
 		newConnectionSortBadge(
-			fmt.Sprintf("%d Scripts", data.ScriptCount),
+			fmt.Sprintf(i18n.Current.ScriptsCountFmt, data.ScriptCount),
 			design.ColorConnectionBadgeText,
 			false,
 			nil,
@@ -85,20 +86,16 @@ func newMobileScriptsTableBody(data ScriptsSectionData) fyne.CanvasObject {
 
 func newMobileScriptsListTable(rows []ScriptTableRow) fyne.CanvasObject {
 	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
-	headerLeft := canvas.NewText("NAME / SOURCE", design.ColorConnectionsSectionSubtitle)
-	headerLeft.TextSize = 8
-	headerLeft.TextStyle.Monospace = true
-	headerRight := canvas.NewText("ACTION", design.ColorConnectionsSectionSubtitle)
-	headerRight.TextSize = 8
-	headerRight.TextStyle.Monospace = true
-	headerRight.Alignment = fyne.TextAlignTrailing
-	header := container.New(&mobileListRowLayout{gap: 8}, headerLeft, headerRight)
+	header := newMobileTwoColHeader(
+		i18n.Current.ConnectionColName+" / "+i18n.Current.ScriptsColSource,
+		i18n.Current.MobileColAction,
+	)
 
 	children := []fyne.CanvasObject{header}
 	if len(rows) == 0 {
 		sep := canvas.NewRectangle(dividerColor)
 		sep.SetMinSize(fyne.NewSize(1, 1))
-		empty := canvas.NewText("No scripts yet", design.ColorConnectionsSectionSubtitle)
+		empty := canvas.NewText(i18n.Current.ScriptsEmpty, design.ColorConnectionsSectionSubtitle)
 		empty.TextSize = 11
 		children = append(children, NewInsetExact(sep, 0, 0, 8, 8), empty)
 	} else {

@@ -298,16 +298,16 @@ func (mw *MainWindow) recreateContainers() {
 	connectionAddressBar := mw.createConnectionAddressBar()
 	mainFooter := mw.createDeviceFooterBar()
 	connectionFooter := mw.createConnectionFooterBar()
-	devicesTabTitle := "Devices"
-	controlTabTitle := "Control"
-	snapshotsTabTitle := "Snapshots"
-	scriptsTabTitle := "AI & Scripts"
+	devicesTabTitle := i18n.Current.TabLabelDevices
+	controlTabTitle := i18n.Current.TabLabelControl
+	snapshotsTabTitle := i18n.Current.TabLabelSnapshots
+	scriptsTabTitle := i18n.Current.TabLabelScripts
 
 	devicesScriptFooter := view.NewScriptFooterStatus()
 	snapshotsScriptFooter := view.NewScriptFooterStatus()
 	controlScriptFooter := view.NewScriptFooterStatus()
-	controlConnecting := view.NewDeviceDashboardBusyHint("connecting device")
-	snapshotsConnecting := view.NewDeviceDashboardBusyHint("connecting device")
+	controlConnecting := view.NewDeviceDashboardBusyHint(i18n.Current.ConnectingDevice)
+	snapshotsConnecting := view.NewDeviceDashboardBusyHint(i18n.Current.ConnectingDevice)
 	if mw.diskWidget != nil {
 		mw.diskWidget.SetDashboardScriptFooter(devicesScriptFooter)
 		if mw.scriptsWidget != nil {
@@ -666,14 +666,16 @@ func newHeaderPassiveIndicator(icon fyne.Resource, size fyne.Size) fyne.CanvasOb
 
 func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 	var extras []fyne.CanvasObject
+	var rightParts []fyne.CanvasObject
 	if mw.connectionManager != nil {
 		if !view.IsMobile() {
 			extras = append(extras, mw.connectionManager.AgentFooterChip())
 			extras = append(extras, mw.connectionManager.FirmwareFooterChip())
 		}
-		extras = append(extras, mw.connectionManager.PromoFooterChip())
+		if promo := mw.connectionManager.PromoFooterChip(); promo != nil {
+			rightParts = append(rightParts, promo)
+		}
 	}
-	var modeChip fyne.CanvasObject
 	// Real phones are already mobile — the preview switch is for desktop.
 	if !fyne.CurrentDevice().IsMobile() {
 		var chip *view.FooterTintChip
@@ -681,7 +683,15 @@ func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 			mw.showDesignModeMenu(chip)
 		})
 		mw.designModeChip = chip
-		modeChip = chip
+		rightParts = append(rightParts, chip)
+	}
+	var modeChip fyne.CanvasObject
+	switch len(rightParts) {
+	case 1:
+		modeChip = rightParts[0]
+	case 0:
+	default:
+		modeChip = container.New(&view.DeviceRowControlsLayout{Gap: 12}, rightParts...)
 	}
 	return view.NewConnectionsAppFooter(view.AppVersion(), modeChip, nil, extras...)
 }
@@ -1710,7 +1720,7 @@ func (mw *MainWindow) updateVideoIconLabel() {
 	if mw.videoIcon == nil {
 		return
 	}
-	
+
 	// If the user is streaming using a native overlay (Metal/Vulkan), DO NOT update
 	// the Fyne UI label. Fyne layout passes run on the OS main thread, and updating
 	// text causes a 10-20ms layout recalculation that blocks CADisplayLink and causes

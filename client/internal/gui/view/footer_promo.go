@@ -92,6 +92,15 @@ func (c *FooterTintChip) SetLabel(label string) {
 	c.Refresh()
 }
 
+func (c *FooterTintChip) SetActive(on bool) {
+	if on {
+		c.Show()
+	} else {
+		c.Hide()
+	}
+	c.Refresh()
+}
+
 func (c *FooterTintChip) Tapped(*fyne.PointEvent) {
 	if c.onTap != nil {
 		c.onTap()
@@ -101,7 +110,7 @@ func (c *FooterTintChip) Tapped(*fyne.PointEvent) {
 func (c *FooterTintChip) TappedSecondary(*fyne.PointEvent) {}
 
 func (c *FooterTintChip) Cursor() desktop.Cursor {
-	return desktop.PointerCursor
+	return desktop.DefaultCursor
 }
 
 func (c *FooterTintChip) MouseIn(*desktop.MouseEvent) {

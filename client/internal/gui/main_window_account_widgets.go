@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
@@ -164,7 +165,7 @@ func newAccountLicenseRow(kind, identifier, status string, window fyne.Window) f
 // height mismatch was what made the dialog visibly resize the moment the
 // fetch resolved and swapped the placeholder for real rows.
 func newAccountLicenseSkeletonRow() fyne.CanvasObject {
-	text := canvas.NewText("Loading your licenses…", design.ColorTextMuted)
+	text := canvas.NewText(i18n.Current.AccountLoadingLicenses, design.ColorTextMuted)
 	text.TextSize = 11
 
 	rightSpacer := canvas.NewRectangle(color.Transparent)

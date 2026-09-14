@@ -289,13 +289,14 @@ func newConnectionListHeaderRow(keys []string, widths []float32) fyne.CanvasObje
 		t.TextStyle.Monospace = true
 
 		switch key {
-		case "os", "state":
-			t.Alignment = fyne.TextAlignCenter
-		case "route", "actions":
+		case "os", "state", "route":
+			cells[i] = container.NewCenter(t)
+		case "actions":
 			t.Alignment = fyne.TextAlignTrailing
+			cells[i] = t
+		default:
+			cells[i] = t
 		}
-
-		cells[i] = t
 	}
 	return container.New(&connectionsTableRowLayout{Widths: widths, Gap: connectionListColumnGap}, cells...)
 }
@@ -316,7 +317,7 @@ func newConnectionListRow(item ConnectionListItem, widths []float32, compact boo
 	cells := []fyne.CanvasObject{osCell, nameCell, stateCell}
 	if !compact {
 		networkCell := newConnectionListNetworkCell(data.LANAddress, data.TailscaleAddress)
-		routeCell := container.NewBorder(nil, nil, nil, newConnectionListRouteCell(data, item.Actions.OnProtocolChange, item.State))
+		routeCell := container.NewCenter(newConnectionListRouteCell(data, item.Actions.OnProtocolChange, item.State))
 		actionsCell := container.NewBorder(nil, nil, nil, newConnectionListActionsCell(item))
 		cells = append(cells, networkCell, routeCell, actionsCell)
 	}

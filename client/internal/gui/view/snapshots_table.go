@@ -11,6 +11,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -18,10 +19,17 @@ import (
 	"fyne.io/fyne/v2/layout"
 )
 
-const snapshotsHeaderSubtitle = "Immutable restore points of your data. Mount one without changing the original."
+func snapshotColumnLabels() []string {
+	return []string{
+		i18n.Current.ConnectionColName,
+		i18n.Current.SnapshotsColSize,
+		"",
+		i18n.Current.ConnectionColState,
+		i18n.Current.ConnectionColActions,
+	}
+}
 
 var (
-	snapshotListColumnLabels = []string{"NAME", "SIZE", "", "STATE", "ACTIONS"}
 	// NAME+SIZE stay packed on the left (NAME is fixed, not flex) so SIZE
 	// sits right after the date/name instead of riding against STATE.
 	// The empty flex column absorbs leftover width before STATE/ACTIONS.
@@ -80,7 +88,11 @@ func NewSnapshotsSection(data SnapshotsSectionData) fyne.CanvasObject {
 	// than the leftover viewport -- same idea as Devices' storage list.
 	padded := NewInsetExact(body, connectionsHeaderSideMargin, connectionsHeaderSideMargin+10, 8, 12)
 	scroll := container.NewVScroll(container.New(&snapshotsBodyTopLayout{}, padded))
-	return container.NewBorder(top, nil, nil, nil, scroll)
+	var scroller fyne.CanvasObject = scroll
+	if !IsMobile() {
+		scroller = NewInsetExact(scroll, 0, connectionsScrollEdgePad, 0, 0)
+	}
+	return container.NewBorder(top, nil, nil, nil, scroller)
 }
 
 // snapshotsBodyTopLayout gives its child the child's own MinSize height and
@@ -106,18 +118,18 @@ func (l *snapshotsBodyTopLayout) Layout(objects []fyne.CanvasObject, size fyne.S
 }
 
 func newSnapshotsHeader(data SnapshotsSectionData) fyne.CanvasObject {
-	title := NewBrandText("Snapshots", 18, design.ColorConnectionsSectionTitle, true)
+	title := NewBrandText(i18n.Current.SnapshotsTitle, 18, design.ColorConnectionsSectionTitle, true)
 	titleGap := canvas.NewRectangle(color.Transparent)
 	titleGap.SetMinSize(fyne.NewSize(10, 1))
 	badge := newConnectionSortBadge(
-		fmt.Sprintf("%d Snapshots", data.SnapshotCount),
+		fmt.Sprintf(i18n.Current.SnapshotsCountFmt, data.SnapshotCount),
 		design.ColorConnectionBadgeText,
 		false,
 		nil,
 	)
 	titleRow := container.NewHBox(container.NewCenter(title), titleGap, container.NewCenter(badge))
 
-	subtitle := canvas.NewText(snapshotsHeaderSubtitle, design.ColorConnectionsSectionSubtitle)
+	subtitle := canvas.NewText(i18n.Current.SnapshotsHeaderSubtitle, design.ColorConnectionsSectionSubtitle)
 	subtitle.TextSize = 10
 	left := container.NewVBox(titleRow, subtitle)
 
@@ -142,8 +154,8 @@ func newSnapshotsMountButton(data SnapshotsSectionData) *iconChromeButton {
 		`<svg viewBox="0 0 24 24" fill="#8f9381"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`))
 
 	label := data.MountLabel
-	if label == "" {
-		label = "Mount backup flash"
+	if label == "" && i18n.Current != nil {
+		label = i18n.Current.SnapshotsMountBackupFlash
 	}
 
 	spec := iconChromeButtonSpec{
@@ -199,7 +211,7 @@ func newSnapshotsMountButton(data SnapshotsSectionData) *iconChromeButton {
 // NewSnapshotsListTable is the connections-list card: header row, then one
 // row per snapshot, hairline dividers, dark rounded chrome.
 func NewSnapshotsListTable(rows []SnapshotTableRow) fyne.CanvasObject {
-	labels, widths := snapshotListColumnLabels, snapshotListColumnWidths
+	labels, widths := snapshotColumnLabels(), snapshotListColumnWidths
 
 	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
 	newDivider := func() fyne.CanvasObject {
@@ -228,7 +240,7 @@ func NewSnapshotsListTable(rows []SnapshotTableRow) fyne.CanvasObject {
 }
 
 func newSnapshotsEmptyRow(widths []float32) fyne.CanvasObject {
-	label := canvas.NewText("No snapshots yet", design.ColorConnectionsSectionSubtitle)
+	label := canvas.NewText(i18n.Current.SnapshotsEmpty, design.ColorConnectionsSectionSubtitle)
 	label.TextSize = 11
 	empty := canvas.NewRectangle(color.Transparent)
 	return container.New(&connectionsTableRowLayout{Widths: widths, Gap: connectionListColumnGap},

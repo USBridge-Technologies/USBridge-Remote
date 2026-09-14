@@ -151,7 +151,7 @@ type connectionDialogEntry struct {
 }
 
 func (cm *ConnectionManager) setLanguage(langCode string) {
-	cm.app.Preferences().SetString("language", langCode)
+	cm.app.Preferences().SetString(i18n.LanguagePrefKey, langCode)
 	i18n.SetLanguage(langCode)
 	logrus.Infof("Language changed to: %s", langCode)
 	if cm.onLanguageChange != nil {
@@ -547,7 +547,7 @@ type connectionDialogRegisterRow struct {
 	checkMark *canvas.Image
 	labelTxt  *canvas.Text
 	dot       *canvas.Circle
-	subTxt    *canvas.Text
+	subTxt    fyne.CanvasObject
 	badgeBg   *canvas.Rectangle
 	badgeTxt  *canvas.Text
 }
@@ -573,7 +573,7 @@ func (r *connectionDialogRegisterRow) MinSize() fyne.Size {
 	return fyne.NewSize(0, registerRowHeight)
 }
 
-const registerRowHeight = float32(58)
+const registerRowHeight = float32(62)
 
 func (r *connectionDialogRegisterRow) CreateRenderer() fyne.WidgetRenderer {
 	r.bg = canvas.NewRectangle(design.ColorGray900)
@@ -598,8 +598,9 @@ func (r *connectionDialogRegisterRow) CreateRenderer() fyne.WidgetRenderer {
 	r.dot = canvas.NewCircle(color.Transparent)
 	r.dot.Hide()
 
-	r.subTxt = canvas.NewText(r.sublabel, color.NRGBA{R: 0xc3, G: 0xc6, B: 0xb4, A: 0xff})
-	r.subTxt.TextSize = 8
+	subLbl := widget.NewLabel(r.sublabel)
+	subLbl.Wrapping = fyne.TextWrapWord
+	r.subTxt = container.NewThemeOverride(subLbl, &registerHintTheme{design.NewBrandTheme()})
 
 	r.badgeBg = canvas.NewRectangle(color.Transparent)
 	r.badgeBg.CornerRadius = 4
@@ -669,8 +670,15 @@ func (rr *connectionDialogRegisterRowRenderer) Layout(size fyne.Size) {
 	badgeX := size.Width - registerRowPadding - badgeW
 
 	labelMin := r.labelTxt.MinSize()
+	textMaxX := badgeX - 10
+	subMaxX := textMaxX
+	if mobile {
+		subMaxX = size.Width - registerRowPadding
+	}
+	subW := maxFloat32(0, subMaxX-textX)
+	r.subTxt.Resize(fyne.NewSize(subW, 40))
 	subMin := r.subTxt.MinSize()
-	totalTextH := labelMin.Height + 3 + subMin.Height
+	totalTextH := labelMin.Height + 2 + subMin.Height
 	textY := (size.Height - totalTextH) / 2
 	if mobile {
 		textY -= 3
@@ -693,8 +701,6 @@ func (rr *connectionDialogRegisterRowRenderer) Layout(size fyne.Size) {
 	r.badgeTxt.Move(fyne.NewPos(badgeX+badgePadX, badgeY+(badgeH-badgeMin.Height)/2))
 	r.badgeTxt.Resize(badgeMin)
 
-	textMaxX := badgeX - 12
-
 	r.labelTxt.Move(fyne.NewPos(textX, textY))
 	r.labelTxt.Resize(labelMin)
 
@@ -702,12 +708,7 @@ func (rr *connectionDialogRegisterRowRenderer) Layout(size fyne.Size) {
 	r.dot.Move(fyne.NewPos(dotX, textY+(labelMin.Height-registerRowDotSize)/2))
 	r.dot.Resize(fyne.NewSize(registerRowDotSize, registerRowDotSize))
 
-	subY := textY + labelMin.Height + 3
-	subMaxX := textMaxX
-	if mobile {
-		subMaxX = size.Width - registerRowPadding
-	}
-	subW := maxFloat32(0, subMaxX-textX)
+	subY := textY + labelMin.Height + 1
 	r.subTxt.Move(fyne.NewPos(textX, subY))
 	r.subTxt.Resize(fyne.NewSize(subW, subMin.Height))
 }
@@ -920,6 +921,25 @@ func (t *mutedForegroundTheme) Color(name fyne.ThemeColorName, variant fyne.Them
 func (t *mutedForegroundTheme) Size(name fyne.ThemeSizeName) float32 {
 	if name == theme.SizeNameText {
 		return 8 // Smaller subtitle text
+	}
+	return t.Theme.Size(name)
+}
+
+type registerHintTheme struct{ fyne.Theme }
+
+func (t *registerHintTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	if name == theme.ColorNameForeground {
+		return color.NRGBA{R: 0xc3, G: 0xc6, B: 0xb4, A: 0xff}
+	}
+	return t.Theme.Color(name, variant)
+}
+
+func (t *registerHintTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == theme.SizeNameText {
+		return 8
+	}
+	if name == theme.SizeNameInnerPadding || name == theme.SizeNamePadding {
+		return 0
 	}
 	return t.Theme.Size(name)
 }
@@ -1342,7 +1362,11 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	var formContent fyne.CanvasObject = normalForm
 	if spec.onQR != nil {
-		qrBtn := newConnectionDialogWideActionButton(i18n.Current.ScanQR, assets.QRCodeTeal, design.ColorConnectionBadgeText, func() {
+	qrLabel := i18n.Current.ScanQR
+	if view.IsMobile() {
+		qrLabel = i18n.Current.ScanQRShort
+	}
+	qrBtn := newConnectionDialogWideActionButton(qrLabel, assets.QRCodeTeal, design.ColorConnectionBadgeText, func() {
 			if d != nil {
 				d.Hide()
 			}

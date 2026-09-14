@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/account"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/syncconn"
 
 	"fyne.io/fyne/v2"
@@ -274,7 +275,11 @@ func (am *AccountManager) pollLogin(ctx context.Context, code string) {
 		case <-ticker.C:
 		}
 		if time.Now().After(deadline) {
-			am.setError("Didn't detect a completed login yet — try \"Log in\" again.")
+			msg := "Didn't detect a completed login yet — try \"Log in\" again."
+			if i18n.Current != nil && i18n.Current.AccountLoginTimeout != "" {
+				msg = i18n.Current.AccountLoginTimeout
+			}
+			am.setError(msg)
 			return
 		}
 		result, err := account.Poll(ctx, code)
@@ -282,7 +287,11 @@ func (am *AccountManager) pollLogin(ctx context.Context, code string) {
 			continue // transient network hiccup -- keep polling until the deadline or ctx cancellation
 		}
 		if result.Status == "expired" {
-			am.setError("Login link expired — click \"Log in\" again.")
+			msg := "Login link expired — click \"Log in\" again."
+			if i18n.Current != nil && i18n.Current.AccountLoginExpired != "" {
+				msg = i18n.Current.AccountLoginExpired
+			}
+			am.setError(msg)
 			return
 		}
 		if result.Status != "complete" {

@@ -440,39 +440,36 @@ func NewDeviceDashboardTealRow(icon fyne.Resource, name string, active bool, ext
 }
 
 // NewDeviceDashboardHIDCell is one half of the keyboard+mouse pair row --
-// icon, name, then trailing extras (mouse: settings gear then toggle;
-// keyboard: just the toggle) -- without the outer inset (the pair wrapper
-// adds it once around both halves).
+// icon, name, then extras packed in one group (mouse: settings gear then
+// toggle; keyboard: just the toggle). The pair wrapper left-aligns the
+// keyboard group and right-aligns the mouse group.
 func NewDeviceDashboardHIDCell(icon fyne.Resource, name string, active bool, extras ...fyne.CanvasObject) fyne.CanvasObject {
-	left := newDeviceDashboardRowLeftColored(icon, name, rowNameColor(active, design.ColorConnectionBadgeText))
-	var parts []fyne.CanvasObject
+	parts := []fyne.CanvasObject{newDeviceDashboardRowLeftColored(icon, name, rowNameColor(active, design.ColorConnectionBadgeText))}
 	for _, extra := range extras {
 		if extra != nil {
 			parts = append(parts, extra)
 		}
 	}
-	var right fyne.CanvasObject
-	if len(parts) > 0 {
-		right = container.New(&DeviceRowControlsLayout{Gap: 6}, parts...)
-	}
-	return container.NewBorder(nil, nil, left, right)
+	return container.New(&DeviceRowControlsLayout{Gap: 6}, parts...)
 }
 
 // NewDeviceDashboardHIDPairRow puts keyboard and mouse on one line with a
-// short vertical rule between them. Either half may be nil.
+// short vertical rule between them. Either half may be nil. The left half
+// hugs the left edge; the right half hugs the right.
 func NewDeviceDashboardHIDPairRow(left, right fyne.CanvasObject) fyne.CanvasObject {
 	if left == nil && right == nil {
 		return canvas.NewRectangle(color.Transparent)
 	}
 	if left == nil {
-		return NewInsetExact(right, 0, 0, 2, 2)
+		return NewInsetExact(container.NewBorder(nil, nil, nil, right), 0, 0, 2, 2)
 	}
 	if right == nil {
 		return NewInsetExact(left, 0, 0, 2, 2)
 	}
 	sep := canvas.NewRectangle(deviceDashboardCardSep)
 	sep.SetMinSize(fyne.NewSize(1, 16))
-	return NewInsetExact(container.New(&deviceDashboardHIDSplitLayout{Gap: 8}, left, sep, right), 0, 0, 2, 2)
+	right = container.NewBorder(nil, nil, nil, right)
+	return NewInsetExact(container.New(&deviceDashboardHIDSplitLayout{Gap: 20}, left, sep, right), 0, 0, 2, 2)
 }
 
 // NewDeviceDashboardLimeRow is NewDeviceDashboardRow with this dashboard's

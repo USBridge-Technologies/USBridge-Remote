@@ -12,7 +12,7 @@ func (bw *BackupWidget) createInterface() {
 	bw.firmwareBanner = view.NewFirmwarePromoBanner()
 	bw.firmwareBanner.SetOnDismiss(bw.dismissFirmwarePromo)
 	bw.firmwareBanner.SetOnTrial(bw.openFirmwarePromo)
-	bw.firmwareChip = view.NewFooterLabelChip("software")
+	bw.firmwareChip = view.NewFooterHardwareChip("Hardware Agent")
 	bw.firmwareChip.SetOnOpen(bw.openFirmwarePromo)
 	bw.firmwareChip.SetOnRestore(bw.restoreFirmwarePromo)
 	bw.ui = view.NewBackupWidgetUI()
@@ -31,7 +31,7 @@ func (bw *BackupWidget) snapshotsSectionData() view.SnapshotsSectionData {
 		}
 		data := view.SnapshotsSectionData{
 			SnapshotCount: 0,
-			MountLabel:    "Mount backup flash",
+			MountLabel:    i18n.Current.SnapshotsMountBackupFlash,
 			MountEnabled:  false,
 			MountInactive: true,
 		}
@@ -53,7 +53,7 @@ func (bw *BackupWidget) snapshotsSectionData() view.SnapshotsSectionData {
 	}
 	data := view.SnapshotsSectionData{
 		SnapshotCount: len(bw.snapshots),
-		MountLabel:    "Mount backup flash",
+		MountLabel:    i18n.Current.SnapshotsMountBackupFlash,
 		MountEnabled:  bw.currentFlash != nil && !mounting,
 		MountLoading:  mounting && !bw.currentFlashConnected,
 		FlashMounted:  bw.currentFlashConnected,

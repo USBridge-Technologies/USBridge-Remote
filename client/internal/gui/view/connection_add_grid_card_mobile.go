@@ -67,7 +67,7 @@ func newMobileAddConnectionGridCard(actions AddConnectionCardActions) fyne.Canva
 		ButtonSize:      fyne.NewSize(0, btnH),
 		OnTapped:        actions.OnQR,
 	})
-	qrBtn.SetText(i18n.Current.ScanQR)
+	qrBtn.SetText(i18n.Current.ScanQRShort)
 
 	pasteBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:      color.Transparent,

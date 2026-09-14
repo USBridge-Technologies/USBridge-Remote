@@ -4,6 +4,7 @@ import (
 	"image/color"
 
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
@@ -119,7 +120,7 @@ func newAccountEmailText(email string) fyne.CanvasObject {
 }
 
 func newAccountSyncOnDescription() fyne.CanvasObject {
-	text := "End-to-end encrypted sync of your saved connections across devices."
+	text := i18n.Current.AccountSyncOnDesc
 	muted := color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
 	if !accountDialogMobile() {
 		desc := canvas.NewText(text, muted)

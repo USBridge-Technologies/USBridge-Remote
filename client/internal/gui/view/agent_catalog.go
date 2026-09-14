@@ -3,13 +3,14 @@ package view
 // agent_catalog.go -- Connections footer's Agent dialog: four host-service
 // editions on the left, feature copy on the right. Chrome (title, X,
 // Download/GitHub) lives in the controller; this file is the two-column
-// body. Feature strings are placeholders until product copy is filled in.
+// body. Feature strings come from i18n.
 
 import (
 	"image/color"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -22,9 +23,7 @@ const (
 	AgentCatalogWebsiteURL = "https://www.usbridge.io/software-agent"
 	AgentCatalogGitHubURL  = "https://github.com/USBridge-Technologies/USBridge-Remote"
 
-	AgentCatalogTitle      = "Software Agent"
-	AgentCatalogSubtitle   = "Install the host service on the machine you want to control."
-	AgentCatalogFooterHint = "The Agent is installed on the target machine, not this client."
+	AgentCatalogTitle = "Software Agent"
 )
 
 type agentEditionKind int
@@ -35,54 +34,51 @@ const (
 )
 
 type agentEdition struct {
-	Title    string
-	Tag      string
-	Pro      bool
-	Kind     agentEditionKind
-	Features []string
+	Title string
+	Tag   string
+	Pro   bool
+	Kind  agentEditionKind
 }
 
 var agentCatalogEditions = []agentEdition{
-	{
-		Title: "Sunshine",
-		Tag:   "Open Source",
-		Kind:  agentEditionList,
-		Features: []string{
-			"Ultra-low latency streaming",
-			"Shared clipboard",
-			"Multi-monitor support",
-		},
-	},
-	{
-		Title: "USBridge Streamer",
-		Tag:   "Free",
-		Kind:  agentEditionList,
-		Features: []string{
-			"Browser web client",
-			"Windows pre-login access",
-			"Fast connect",
-		},
-	},
-	{
-		Title: "USBridge Streamer",
-		Tag:   "Pro",
-		Pro:   true,
-		Kind:  agentEditionProPlus,
-		Features: []string{
-			"4:4:4 color fidelity",
-			"USB device emulation",
-		},
-	},
-	{
-		Title: "USBridge Streamer",
-		Tag:   "Enterprise",
-		Pro:   true,
-		Kind:  agentEditionProPlus,
-		Features: []string{
-			"Session recording and audit logs",
-			"Built for company-wide rollout",
-		},
-	},
+	{Title: "Sunshine", Tag: "Open Source", Kind: agentEditionList},
+	{Title: "USBridge Streamer", Tag: "Free", Kind: agentEditionList},
+	{Title: "USBridge Streamer", Tag: "Pro", Pro: true, Kind: agentEditionProPlus},
+	{Title: "USBridge Streamer", Tag: "Enterprise", Pro: true, Kind: agentEditionProPlus},
+}
+
+func agentEditionFeatures(ed agentEdition) []string {
+	c := i18n.Current
+	if c == nil {
+		return nil
+	}
+	switch ed.Tag {
+	case "Open Source":
+		return []string{c.AgentFeatLowLatency, c.AgentFeatClipboard, c.AgentFeatMultiMonitor}
+	case "Free":
+		return []string{c.AgentFeatWebClient, c.AgentFeatPreLogin, c.AgentFeatFastConnect}
+	case "Pro":
+		return []string{c.AgentFeat444, c.AgentFeatUSB}
+	case "Enterprise":
+		return []string{c.AgentFeatRecording, c.AgentFeatCompanyRollout}
+	default:
+		return nil
+	}
+}
+
+func agentEditionIncludeChips(ed agentEdition) []string {
+	c := i18n.Current
+	if c == nil {
+		return nil
+	}
+	switch ed.Tag {
+	case "Pro":
+		return []string{c.AgentChipBasic}
+	case "Enterprise":
+		return []string{c.AgentChipBasic, c.AgentChipPro}
+	default:
+		return nil
+	}
 }
 
 // AgentCatalogBody is the two-column catalog: a short edition list and
@@ -430,24 +426,28 @@ func newAgentFeaturePane(ed agentEdition) fyne.CanvasObject {
 		left = container.New(&DeviceRowControlsLayout{Gap: 8}, title, container.NewCenter(badge))
 	}
 	var titleRow fyne.CanvasObject = left
-	showBasic := ed.Tag == "Free" || ed.Kind == agentEditionProPlus
-	if showBasic {
-		chip := newAgentBasicChip()
+	if labels := agentEditionIncludeChips(ed); len(labels) > 0 {
+		chips := make([]fyne.CanvasObject, 0, len(labels))
+		for _, label := range labels {
+			chips = append(chips, newAgentIncludeChip(label))
+		}
+		chipRow := container.New(&DeviceRowControlsLayout{Gap: 6}, chips...)
 		if IsMobile() {
-			titleRow = container.New(&DeviceRowControlsLayout{Gap: 6}, left, container.NewCenter(chip))
+			titleRow = container.New(&DeviceRowControlsLayout{Gap: 6}, left, container.NewCenter(chipRow))
 		} else {
-			titleRow = container.NewBorder(nil, nil, left, chip)
+			titleRow = container.NewBorder(nil, nil, left, chipRow)
 		}
 	}
 
 	items := make([]fyne.CanvasObject, 0, 8)
 	items = append(items, titleRow)
+	features := agentEditionFeatures(ed)
 	if ed.Kind == agentEditionProPlus {
-		for _, feat := range ed.Features {
+		for _, feat := range features {
 			items = append(items, newAgentPlusFeature(feat))
 		}
 	} else {
-		for _, feat := range ed.Features {
+		for _, feat := range features {
 			items = append(items, newAgentPlainFeature(feat))
 		}
 	}
@@ -458,8 +458,8 @@ func newAgentFeaturePane(ed agentEdition) fyne.CanvasObject {
 	return pane
 }
 
-func newAgentBasicChip() fyne.CanvasObject {
-	label := canvas.NewText("+ Basic functionality", design.ColorConnectionsSectionMutedText)
+func newAgentIncludeChip(text string) fyne.CanvasObject {
+	label := canvas.NewText(text, design.ColorConnectionsSectionMutedText)
 	label.TextSize = 8
 	label.TextStyle.Bold = true
 	bg := canvas.NewRectangle(design.ColorSurfaceLight)

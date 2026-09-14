@@ -7,6 +7,7 @@ import (
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
@@ -29,6 +30,9 @@ func mobileControlTabGaps() (gap, minGap float32) {
 }
 
 func scriptsTabLabel() string {
+	if i18n.Current != nil && i18n.Current.TabLabelScripts != "" {
+		return i18n.Current.TabLabelScripts
+	}
 	return "AI & Scripts"
 }
 

@@ -1,6 +1,8 @@
 package view
 
 import (
+	"usbridge-client/internal/gui/i18n"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
@@ -15,16 +17,16 @@ type BackupWidgetUI struct {
 	StatusLabel *widget.Label
 	BusySpinner *DeviceDashboardBusySpinner
 
-	body            *fyne.Container
-	footerHost      *fyne.Container
-	scriptFooter    *ScriptFooterStatus
-	connectingHint  *DeviceDashboardBusySpinner
-	firmwareChip    *FooterPromoChip
-	onRebuild       func()
+	body           *fyne.Container
+	footerHost     *fyne.Container
+	scriptFooter   *ScriptFooterStatus
+	connectingHint *DeviceDashboardBusySpinner
+	firmwareChip   *FooterHardwareChip
+	onRebuild      func()
 }
 
 func NewBackupWidgetUI() *BackupWidgetUI {
-	spinner := NewDeviceDashboardBusyHint("connecting device")
+	spinner := NewDeviceDashboardBusyHint(i18n.Current.ConnectingDevice)
 	body := container.NewMax()
 	var footerHost *fyne.Container
 	var footer fyne.CanvasObject
@@ -112,7 +114,7 @@ func (ui *BackupWidgetUI) SetConnectingHint(hint *DeviceDashboardBusySpinner) {
 	ui.rebuildFooter()
 }
 
-func (ui *BackupWidgetUI) SetFirmwareChip(chip *FooterPromoChip) {
+func (ui *BackupWidgetUI) SetFirmwareChip(chip *FooterHardwareChip) {
 	if ui == nil {
 		return
 	}

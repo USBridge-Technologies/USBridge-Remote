@@ -5,13 +5,12 @@ import (
 	"image/color"
 
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 )
-
-const snapshotsMobileSubtitle = "Restore points. Mount without changing the original."
 
 func newMobileSnapshotsSection(data SnapshotsSectionData) fyne.CanvasObject {
 	header := newMobileSnapshotsHeader(data)
@@ -31,18 +30,18 @@ func newMobileSnapshotsSection(data SnapshotsSectionData) fyne.CanvasObject {
 }
 
 func newMobileSnapshotsHeader(data SnapshotsSectionData) fyne.CanvasObject {
-	title := NewBrandText("Snapshots", 14, design.ColorConnectionsSectionTitle, true)
+	title := NewBrandText(i18n.Current.SnapshotsTitle, 14, design.ColorConnectionsSectionTitle, true)
 	titleGap := canvas.NewRectangle(color.Transparent)
 	titleGap.SetMinSize(fyne.NewSize(6, 1))
 	badge := newConnectionSortBadge(
-		fmt.Sprintf("%d Snapshots", data.SnapshotCount),
+		fmt.Sprintf(i18n.Current.SnapshotsCountFmt, data.SnapshotCount),
 		design.ColorConnectionBadgeText,
 		false,
 		nil,
 	)
 	titleRow := container.NewHBox(container.NewCenter(title), titleGap, container.NewCenter(badge))
 
-	subtitle := canvas.NewText(snapshotsMobileSubtitle, design.ColorConnectionsSectionSubtitle)
+	subtitle := canvas.NewText(i18n.Current.SnapshotsHeaderSubtitleMobile, design.ColorConnectionsSectionSubtitle)
 	subtitle.TextSize = 9
 
 	left := container.New(&tightStatsVBoxLayout{Gap: 1},
@@ -67,11 +66,11 @@ func mobileSnapshotsMountData(data SnapshotsSectionData) SnapshotsSectionData {
 	out := data
 	if out.FlashMounted {
 		if out.MountLabel == "" {
-			out.MountLabel = "Disconnect"
+			out.MountLabel = i18n.Current.DisconnectButton
 		}
 		return out
 	}
-	out.MountLabel = "Mount"
+	out.MountLabel = i18n.Current.DevicesMount
 	return out
 }
 
@@ -82,7 +81,7 @@ func newMobileSnapshotsList(rows []SnapshotTableRow) fyne.CanvasObject {
 	if len(rows) == 0 {
 		sep := canvas.NewRectangle(dividerColor)
 		sep.SetMinSize(fyne.NewSize(1, 1))
-		empty := canvas.NewText("No snapshots yet", design.ColorConnectionsSectionSubtitle)
+		empty := canvas.NewText(i18n.Current.SnapshotsEmpty, design.ColorConnectionsSectionSubtitle)
 		empty.TextSize = 11
 		children = append(children, NewInsetExact(sep, 0, 0, 8, 8), empty)
 	} else {
@@ -117,12 +116,8 @@ func newMobileSnapshotListRow(row SnapshotTableRow) fyne.CanvasObject {
 }
 
 func newMobileListHeaderSnapshots() fyne.CanvasObject {
-	left := canvas.NewText("NAME / SIZE", design.ColorConnectionsSectionSubtitle)
-	left.TextSize = 8
-	left.TextStyle.Monospace = true
-	right := canvas.NewText("ACTION", design.ColorConnectionsSectionSubtitle)
-	right.TextSize = 8
-	right.TextStyle.Monospace = true
-	right.Alignment = fyne.TextAlignTrailing
-	return container.New(&mobileListRowLayout{gap: 8}, left, right)
+	return newMobileTwoColHeader(
+		i18n.Current.ConnectionColName+" / "+i18n.Current.SnapshotsColSize,
+		i18n.Current.MobileColAction,
+	)
 }

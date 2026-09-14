@@ -10,6 +10,7 @@ import (
 	"usbridge-client/internal/account"
 	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	_ "embed"
@@ -121,7 +122,7 @@ func (mw *MainWindow) showAccountDialog() {
 
 		switch {
 		case am.LoginInProgress():
-			lbl := widget.NewLabel("Waiting for Google login to complete in your browser...")
+			lbl := widget.NewLabel(i18n.Current.AccountWaitingGoogle)
 			lbl.Wrapping = fyne.TextWrapWord
 			lbl.Alignment = fyne.TextAlignCenter
 			styledLbl := wrapAccountField(lbl, 12, color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
@@ -134,7 +135,7 @@ func (mw *MainWindow) showAccountDialog() {
 			// Add some padding above and below the progress bar
 			body.Add(view.NewInset(progContainer, 0, 0, 8, 4))
 
-			cancelBtn := newAccountDialogTextButton("Cancel", func() {
+			cancelBtn := newAccountDialogTextButton(i18n.Current.Cancel, func() {
 				am.CancelLogin()
 				render()
 			})
@@ -153,7 +154,7 @@ func (mw *MainWindow) showAccountDialog() {
 				if trimmed != "" {
 					letter = strings.ToUpper(string([]rune(trimmed)[0]))
 				}
-				signedInLabel := canvas.NewText("Signed in as", color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
+				signedInLabel := canvas.NewText(i18n.Current.AccountSignedInAs, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
 				signedInLabel.TextSize = 10
 				identityCopy := view.NewInset(container.NewVBox(signedInLabel, emailText), 10, 0, 0, 0)
 				if accountDialogMobile() {
@@ -188,7 +189,7 @@ func (mw *MainWindow) showAccountDialog() {
 
 			var footerLeft fyne.CanvasObject
 			if am.HasSyncKey() && !resettingSyncPassphrase {
-				footerLeft = newAccountDialogLinkButton("Forgot passphrase? ", "Reset it", func() {
+				footerLeft = newAccountDialogLinkButton(i18n.Current.AccountForgotPassphrase, i18n.Current.AccountResetIt, func() {
 					resettingSyncPassphrase = true
 					render()
 				})
@@ -199,7 +200,7 @@ func (mw *MainWindow) showAccountDialog() {
 			logoutIconNormal := fyne.NewStaticResource("logout.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e0e3e7"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>`))
 			logoutIconHover := fyne.NewStaticResource("logout_hover.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ed6b7f"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>`))
 
-			logoutBtn := newAccountDialogDarkButton("Log out", logoutIconNormal, logoutIconHover, func() {
+			logoutBtn := newAccountDialogDarkButton(i18n.Current.AccountLogOut, logoutIconNormal, logoutIconHover, func() {
 				am.Logout()
 				licensesLoaded = false
 				licensesCache = nil
@@ -228,7 +229,7 @@ func (mw *MainWindow) showAccountDialog() {
 			footerContainer.Objects = []fyne.CanvasObject{footerArea}
 
 		default:
-			intro := widget.NewLabel("Log in to see your USBridge licenses and sync your saved connections across devices.")
+			intro := widget.NewLabel(i18n.Current.AccountLoginIntro)
 			intro.Wrapping = fyne.TextWrapWord
 			intro.Alignment = fyne.TextAlignCenter
 			styledIntro := wrapAccountField(intro, 12, color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
@@ -236,7 +237,7 @@ func (mw *MainWindow) showAccountDialog() {
 
 			googleIcon := fyne.NewStaticResource("google.webp", googleLogoBytes)
 
-			loginBtn := widget.NewButtonWithIcon("Log in with Google", googleIcon, func() {
+			loginBtn := widget.NewButtonWithIcon(i18n.Current.AccountLoginGoogle, googleIcon, func() {
 				if err := am.StartLogin(); err == nil {
 					render()
 				}
@@ -269,7 +270,7 @@ func (mw *MainWindow) showAccountDialog() {
 		}
 	}
 
-	title := view.NewBrandText("Account", 13, design.ColorTextLight, true)
+	title := view.NewBrandText(i18n.Current.AccountTitle, 13, design.ColorTextLight, true)
 	closeBtn := newAccountDialogIconButton(accountDialogCloseIcon, closeDialog)
 	topAccent := newAccountDialogTopAccentBar()
 
@@ -540,11 +541,11 @@ func renderLicenses(licenses []account.License, err error, window fyne.Window) f
 	box := container.NewVBox()
 	switch {
 	case err != nil:
-		errText := canvas.NewText(fmt.Sprintf("Could not load licenses: %v", err), design.ColorAlert)
+		errText := canvas.NewText(fmt.Sprintf(i18n.Current.AccountLicensesLoadErr, err), design.ColorAlert)
 		errText.TextSize = 11
 		box.Add(errText)
 	case len(licenses) == 0:
-		mutedNone := canvas.NewText("No licenses on this account yet.", design.ColorTextMuted)
+		mutedNone := canvas.NewText(i18n.Current.AccountNoLicenses, design.ColorTextMuted)
 		mutedNone.TextSize = 11
 		box.Add(mutedNone)
 	default:
@@ -649,12 +650,12 @@ func (t *tightVBoxLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 }
 
 func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controller.AccountManager, resetting *bool, render func()) (fyne.CanvasObject, fyne.CanvasObject) {
-	titleText := canvas.NewText("Connections sync", design.ColorTextLight)
+	titleText := canvas.NewText(i18n.Current.AccountConnectionsSync, design.ColorTextLight)
 	titleText.TextSize = 12
 	titleText.TextStyle = fyne.TextStyle{Bold: true}
 
 	on := am.HasSyncKey() && !*resetting
-	pill := newAccountStatusPill(map[bool]string{true: "on", false: "off"}[on], on)
+	pill := newAccountStatusPill(map[bool]string{true: i18n.Current.AccountSyncOn, false: i18n.Current.AccountSyncOff}[on], on)
 
 	if on {
 		desc := newAccountSyncOnDescription()
@@ -666,16 +667,12 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 	titleRow := container.NewBorder(nil, nil, titleText, view.NewInset(pill, 0, 0, 2, 0))
 
 	if *resetting {
-		warn := widget.NewLabel(
-			"Resetting starts fresh: this device's own saved connections will overwrite whatever is " +
-				"currently synced on this account under the old passphrase -- that old synced data becomes " +
-				"permanently unreadable the moment you do this. Enter a new passphrase:",
-		)
+		warn := widget.NewLabel(i18n.Current.AccountResetWarn)
 		warn.Wrapping = fyne.TextWrapWord
 		styledWarn := wrapAccountField(warn, 8, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
 
 		entry := widget.NewPasswordEntry()
-		entry.SetPlaceHolder("New sync passphrase")
+		entry.SetPlaceHolder(i18n.Current.AccountNewPassphrase)
 		entry.TextStyle.Monospace = true
 		styledEntry := wrapAccountField(entry, 10, color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff})
 
@@ -686,11 +683,11 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 
 		var resetBtn, cancelBtn fyne.CanvasObject
 
-		resetBtn = newAccountDialogDarkButton("Reset & overwrite", nil, nil, func() {
+		resetBtn = newAccountDialogDarkButton(i18n.Current.AccountResetOverwrite, nil, nil, func() {
 			if entry.Text == "" {
 				return
 			}
-			statusLabel.SetText("Resetting...")
+			statusLabel.SetText(i18n.Current.AccountResetting)
 			styledStatus.Show()
 			styledEntry.Hide()
 			resetBtn.Hide()
@@ -700,7 +697,7 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 				err := cm.ResetSyncPassphrase(context.Background(), entry.Text)
 				if err != nil {
 					fyne.Do(func() {
-						statusLabel.SetText(fmt.Sprintf("Reset failed: %v", err))
+						statusLabel.SetText(fmt.Sprintf(i18n.Current.AccountResetFailed, err))
 						styledEntry.Show()
 						resetBtn.Show()
 						cancelBtn.Show()
@@ -713,7 +710,7 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 			}()
 		})
 
-		cancelBtn = newAccountDialogTextButton("Cancel", func() {
+		cancelBtn = newAccountDialogTextButton(i18n.Current.Cancel, func() {
 			*resetting = false
 			render()
 		})
@@ -721,16 +718,16 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 		return container.New(&tightVBoxLayout{}, titleRow, styledWarn, styledEntry, styledStatus), container.NewHBox(cancelBtn, resetBtn)
 	}
 
-	label := widget.NewLabel("Set a sync passphrase to sync your saved connections across devices (never sent to our servers):")
+	label := widget.NewLabel(i18n.Current.AccountSetPassphraseHint)
 	label.Wrapping = fyne.TextWrapWord
 	styledLabel := wrapAccountField(label, 8, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
 
 	entry := widget.NewPasswordEntry()
-	entry.SetPlaceHolder("Sync passphrase")
+	entry.SetPlaceHolder(i18n.Current.AccountPassphrasePlaceholder)
 	entry.TextStyle.Monospace = true
 	styledEntry := wrapAccountField(entry, 10, color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff})
 
-	saveBtn := newAccountDialogDarkButton("Set passphrase", nil, nil, func() {
+	saveBtn := newAccountDialogDarkButton(i18n.Current.AccountSetPassphrase, nil, nil, func() {
 		if entry.Text == "" {
 			return
 		}

@@ -112,13 +112,13 @@ type ConnectionManager struct {
 	connectingStateSink func(connecting bool, name string)
 
 	// addCardDismissed hides Grid mode's "Add New Connect" tile and shows
-	// promoChip in the Connections footer instead -- persisted so a closed
-	// hint stays closed across restarts (same pattern later ads will use).
+	// a footer "+" (before Size) that restores it -- persisted so a closed
+	// hint stays closed across restarts.
 	addCardDismissed bool
-	promoChip        *view.FooterPromoChip
+	promoChip        *view.FooterTintChip
 
 	// firmwarePromoDismissed hides the firmware banner and shows
-	// firmwareChip ("software") in the Connections footer instead.
+	// firmwareChip (Hardware Agent) in the Connections footer instead.
 	firmwarePromoDismissed bool
 	firmwareBanner         *view.FirmwarePromoBanner
 	firmwareChip           *view.FooterHardwareChip
@@ -237,7 +237,7 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 			"Tailscale: auth URL received",
 			"Google: opening browser",
 			authURL,
-			"Sign In With Google",
+			i18n.Current.TailscaleSignInGoogle,
 		)
 		cm.openExternalLink(authURL, "Tailscale login URL")
 	})
@@ -310,7 +310,7 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 			"Tailscale: checking saved session",
 			"Google: connecting",
 			"Address: unavailable",
-			"Sign In With Google",
+			i18n.Current.TailscaleSignInGoogle,
 		)
 
 		// Status() reports a default "not logged in, not running" result
@@ -356,7 +356,7 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 			"Tailscale: starting login",
 			"Google: waiting for browser sign-in",
 			"Address: unavailable until login completes",
-			"Sign In With Google",
+			i18n.Current.TailscaleSignInGoogle,
 		)
 		logrus.Info("tailscale client ui: login button pressed")
 		// The actual "open the login link in a browser" happens in the
@@ -371,7 +371,7 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 				"Tailscale: login failed",
 				fmt.Sprintf("Google: %v", err),
 				"Address: unavailable",
-				"Sign In With Google",
+				i18n.Current.TailscaleSignInGoogle,
 			)
 		}
 		cm.tailscaleAuthInProgress.Store(false)
@@ -399,7 +399,7 @@ func (cm *ConnectionManager) startTailscaleLogout() {
 			"Tailscale: signing out",
 			"Google: disconnecting account",
 			"Address: unavailable",
-			"Sign Out",
+			i18n.Current.TailscaleSignOut,
 		)
 		if logoutErr := cm.ts.Logout(context.Background()); logoutErr != nil {
 			logrus.WithError(logoutErr).Error("tailscale client ui: Logout failed")
@@ -766,7 +766,7 @@ func (cm *ConnectionManager) refreshTailscaleStatus() {
 			"Tailscale: status unavailable",
 			fmt.Sprintf("Error: %v", err),
 			"Address: unavailable",
-			"Sign In With Google",
+			i18n.Current.TailscaleSignInGoogle,
 		)
 		return
 	}
@@ -795,7 +795,7 @@ func (cm *ConnectionManager) refreshTailscaleStatus() {
 		header,
 		fmt.Sprintf("Google: %s", loginText),
 		fmt.Sprintf("Address: %s (%s)", address, ternary(status.Userspace, "embedded", "system")),
-		ternary(status.LoggedIn, "Sign Out", "Sign In With Google"),
+		ternary(status.LoggedIn, i18n.Current.TailscaleSignOut, i18n.Current.TailscaleSignInGoogle),
 	)
 }
 
