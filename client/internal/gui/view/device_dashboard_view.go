@@ -1385,6 +1385,12 @@ func NewDeviceDashboardUploadProgress(progressPercent float64) fyne.CanvasObject
 // videoDialogRobotSVG/videoDialogCheckmarkSVG in video_start_dialog.go).
 var deviceDashboardConnectIconSVG = fyne.NewStaticResource("device_dashboard_plug.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#4c6803" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7H18V12C18 15.3137 15.3137 18 12 18V18C8.68629 18 6 15.3137 6 12V7Z"/><line x1="15" y1="2" x2="15" y2="7"/><path d="M12 18V22"/><line x1="9" y1="2" x2="9" y2="7"/></svg>`))
 
+// ConnectPlugIcon is the plug glyph on Connections Connect buttons
+// (cards, list table, snapshots) and the Add Connection dialog.
+func ConnectPlugIcon() fyne.Resource {
+	return deviceDashboardConnectIconSVG
+}
+
 // deviceDashboardConnectDisabledIconSVG is the same plug on the gray
 // disabled fill -- #111111, matching the Connections Connect button's
 // own dark glyph, so the square still reads as a button instead of a

@@ -106,18 +106,18 @@ func newMobileSnapshotsList(rows []SnapshotTableRow) fyne.CanvasObject {
 func newMobileSnapshotListRow(row SnapshotTableRow) fyne.CanvasObject {
 	name := newSnapshotListNameCell(row.Title, row.Mounted)
 	size := newSnapshotListSizeCell(row.Size)
-	state := newSnapshotListStateCell(row.Mounted)
-	left := container.New(&tightStatsVBoxLayout{Gap: 2},
-		name,
-		container.New(&DeviceRowControlsLayout{Gap: 8}, size, state),
-	)
+	var meta fyne.CanvasObject = size
+	if row.Mounted {
+		meta = container.New(&DeviceRowControlsLayout{Gap: 8}, size, newSnapshotListStateCell(true))
+	}
+	left := container.New(&tightStatsVBoxLayout{Gap: 2}, name, meta)
 	actions := newSnapshotListActionsCell(row)
-	return container.New(&mobileListRowLayout{gap: 8}, left, actions)
+	return container.New(&mobileListRowLayout{gap: 8, vCenter: true}, left, actions)
 }
 
 func newMobileListHeaderSnapshots() fyne.CanvasObject {
 	return newMobileTwoColHeader(
-		i18n.Current.ConnectionColName+" / "+i18n.Current.SnapshotsColSize,
+		i18n.Current.SnapshotsColDate+" / "+i18n.Current.SnapshotsColSize,
 		i18n.Current.MobileColAction,
 	)
 }

@@ -39,9 +39,13 @@ func firmwarePromoBoardDetails() map[string]string {
 }
 
 func firmwarePromoFeatures() []string {
+	latency := i18n.Current.FirmwarePromoFeatureLatency
+	if UseMobileConnections() {
+		latency = i18n.Current.FirmwarePromoFeatureLatencyMobile
+	}
 	return []string{
 		i18n.Current.FirmwarePromoFeatureBIOS,
-		i18n.Current.FirmwarePromoFeatureLatency,
+		latency,
 		i18n.Current.FirmwarePromoFeatureScripts,
 		i18n.Current.FirmwarePromoFeatureSnapshot,
 		i18n.Current.FirmwarePromoFeatureL0,

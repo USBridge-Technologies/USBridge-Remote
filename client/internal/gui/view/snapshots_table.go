@@ -20,13 +20,7 @@ import (
 )
 
 func snapshotColumnLabels() []string {
-	return []string{
-		i18n.Current.ConnectionColName,
-		i18n.Current.SnapshotsColSize,
-		"",
-		i18n.Current.ConnectionColState,
-		i18n.Current.ConnectionColActions,
-	}
+	return []string{"date", "size", "", "state", "actions"}
 }
 
 var (
@@ -273,10 +267,10 @@ func newSnapshotListSizeCell(size string) fyne.CanvasObject {
 }
 
 func newSnapshotListStateCell(mounted bool) fyne.CanvasObject {
-	text := "Available"
+	text := i18n.Current.SnapshotsStatusAvailable
 	accent := color.Color(design.ColorConnectionsSectionSubtitle)
 	if mounted {
-		text = "Mounted"
+		text = i18n.Current.SnapshotsStatusMounted
 		accent = design.ColorConnectionAddFill
 	}
 	dot := canvas.NewCircle(accent)
@@ -351,7 +345,7 @@ func newSnapshotListActionsCell(row SnapshotTableRow) fyne.CanvasObject {
 		LoadingIcon:        deviceDashboardConnectIconSVG,
 		LoadingLabelColor:  color.Black,
 	})
-	connectBtn.SetText("Connect")
+	connectBtn.SetText(i18n.Current.ConnectButton)
 	connectBtn.SetDisabled(!row.ConnectEnabled)
 	connectBtn.SetLoading(row.ConnectLoading)
 

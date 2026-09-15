@@ -83,6 +83,10 @@ type connectionDialogSecondaryButton struct {
 	// Scan QR/Paste Link only; every other caller (Cancel, the danger
 	// Delete button) keeps the original, larger sizing.
 	compact bool
+	// iconOnly hides the label and sizes the button as a square -- the
+	// phone Add Connection Connect control, so the plug matches cards
+	// without squeezing translated "Connect" into the footer.
+	iconOnly bool
 	// disabled mutes this button's colors and makes Tapped a no-op -- set
 	// via SetDisabled, not directly, so the visual updates immediately.
 	// Connect/Save use this to visually match the validation they already
@@ -116,6 +120,9 @@ const (
 )
 
 func (b *connectionDialogSecondaryButton) iconSize() float32 {
+	if b.iconOnly {
+		return 14
+	}
 	if b.compact {
 		return connectionDialogSecondaryCompactIcon
 	}
@@ -302,12 +309,18 @@ func (b *connectionDialogSecondaryButton) CreateRenderer() fyne.WidgetRenderer {
 	}
 
 	b.refreshVisuals()
-	content := container.NewCenter(container.NewHBox(
-		b.icon,
-		view.NewInset(b.label, b.iconLabelGap(), 0, 0, 0),
-	))
-	if b.iconRes == nil {
+	var content fyne.CanvasObject
+	switch {
+	case b.iconOnly && b.iconRes != nil:
+		b.label.Hide()
+		content = container.NewCenter(b.icon)
+	case b.iconRes == nil:
 		content = container.NewCenter(b.label)
+	default:
+		content = container.NewCenter(container.NewHBox(
+			b.icon,
+			view.NewInset(b.label, b.iconLabelGap(), 0, 0, 0),
+		))
 	}
 	return widget.NewSimpleRenderer(container.NewMax(b.bg, content, b.border))
 }
@@ -319,6 +332,10 @@ func (b *connectionDialogSecondaryButton) MinSize() fyne.Size {
 	// collapsed button there. A right-aligned natural-width group (see
 	// showAdaptiveConnectionDialog's footer, and Scan QR/Paste Link's own
 	// row) has no such stretch to hide behind, and needs the real number.
+	if b.iconOnly {
+		h := b.height()
+		return fyne.NewSize(h, h)
+	}
 	measure := canvas.NewText(b.labelText, color.Black)
 	measure.TextSize = b.textSize()
 	measure.TextStyle.Bold = true
@@ -401,6 +418,11 @@ var (
 // ColorConnectionBadgeText (#41e0c3) that Save/Apply's pill fades to while
 // disabled, instead of switching to a color outside their own teal family.
 var connectionDialogTealDisabled = color.NRGBA{R: 0x31, G: 0xa6, B: 0x94, A: 0xff}
+
+// connectionDialogLimeDisabled is the darker shade of the Connections
+// Connect lime (#c4e77a) used while the Add Connection Connect button is
+// disabled.
+var connectionDialogLimeDisabled = color.NRGBA{R: 0x7a, G: 0x92, B: 0x4c, A: 0xff}
 
 func (b *connectionDialogSecondaryButton) refreshVisuals() {
 	if b.bg == nil || b.border == nil || b.label == nil || b.icon == nil {
@@ -1485,8 +1507,15 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		}
 		cIcon := spec.connectIcon
 		if cIcon == nil {
-			cIcon = assets.ConnectIcon
+			cIcon = view.ConnectPlugIcon()
 		}
+		mobileConnect := view.UseMobileConnections()
+		if mobileConnect {
+			connectLabel = ""
+		}
+		connectFill := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
+		connectHover := color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
+		connectLabelColor := color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff}
 		cBtn = &connectionDialogSecondaryButton{
 			labelText: connectLabel,
 			onTapped: func() {
@@ -1501,19 +1530,19 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 				}
 			},
 			compact:          true,
-			fillColor:        color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff},
-			borderColor:      design.ColorTailscaleChipBorder,
-			textColor:        design.ColorConnectionAddFill,
-			hoverFillColor:   color.NRGBA{R: 0x31, G: 0x35, B: 0x39, A: 0xff},
-			hoverTextColor:   design.ColorConnectionAddFill,
-			hoverBorderColor: design.ColorConnectionAddFill,
+			iconOnly:         mobileConnect,
+			fillColor:        connectFill,
+			borderColor:      color.Transparent,
+			textColor:        connectLabelColor,
+			hoverFillColor:   connectHover,
+			hoverTextColor:   connectLabelColor,
+			hoverBorderColor: color.Transparent,
 			iconRes:          cIcon,
 			hoverIconRes:     cIcon,
-			// Connect's own fill is already dark (its lime lives in the
-			// text/border, not the fill) -- disabled just darkens that lime
-			// to design.ColorAccent instead of switching to gray; fill and
-			// border stay exactly as-is (disabledFillColor/BorderColor nil).
-			disabledTextColor: design.ColorAccent,
+			// Lime pill matches Connections cards/table; disabled darkens
+			// that lime instead of switching to the generic gray mute.
+			disabledFillColor: connectionDialogLimeDisabled,
+			disabledTextColor: connectLabelColor,
 		}
 		cBtn.ExtendBaseWidget(cBtn)
 		connectBtn = cBtn

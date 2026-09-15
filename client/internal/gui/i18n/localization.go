@@ -46,7 +46,8 @@ type LocalizedStrings struct {
 
 	// Connections screen copy. Technical labels (LAN, TS, Token, QR, KVM,
 	// Agent, OS, USBridge, Firmware, master key, IP) stay in English.
-	ConnectionsHeaderSubtitle     string
+	ConnectionsHeaderSubtitle       string
+	ConnectionsHeaderSubtitleMobile string
 	ViewModeGrid                  string
 	ViewModeList                  string
 	AddNewConnectTitle            string
@@ -128,8 +129,11 @@ type LocalizedStrings struct {
 	SnapshotsHeaderSubtitle       string
 	SnapshotsHeaderSubtitleMobile string
 	SnapshotsCountFmt             string
+	SnapshotsColDate              string
 	SnapshotsColSize              string
 	SnapshotsMountBackupFlash     string
+	SnapshotsStatusAvailable      string
+	SnapshotsStatusMounted        string
 	ScriptsMCPSubtitle            string
 	ScriptsAutomationTitle        string
 	ScriptsAutomationSubtitle     string
@@ -172,7 +176,8 @@ type LocalizedStrings struct {
 	FirmwarePromoSubtitle         string
 	FirmwarePromoTrial            string // "Download"
 	FirmwarePromoFeatureBIOS      string
-	FirmwarePromoFeatureLatency   string
+	FirmwarePromoFeatureLatency       string
+	FirmwarePromoFeatureLatencyMobile string
 	FirmwarePromoFeatureScripts   string
 	FirmwarePromoFeatureSnapshot  string
 	FirmwarePromoFeatureL0        string
@@ -595,7 +600,8 @@ func EN() *LocalizedStrings {
 		DeleteConnectionConfirm:       "Are you sure you want to delete connection \"%s\"?",
 		TailscaleRegisterLabel:        "Register in Tailscale",
 		ConnectingToConnection:        "Connecting to \"%s\"…",
-		ConnectionsHeaderSubtitle:     "Your remote desktop and hardware control sessions.",
+		ConnectionsHeaderSubtitle:       "Your remote desktop and hardware control sessions.",
+		ConnectionsHeaderSubtitleMobile: "Your remote desktop and hardware control sessions.",
 		ViewModeGrid:                  "Grid",
 		ViewModeList:                  "List",
 		AddNewConnectTitle:            "Add New Connect",
@@ -677,8 +683,11 @@ func EN() *LocalizedStrings {
 		SnapshotsHeaderSubtitle:       "Immutable restore points of your data. Mount one without changing the original.",
 		SnapshotsHeaderSubtitleMobile: "Restore points. Mount without changing the original.",
 		SnapshotsCountFmt:             "%d Snapshots",
+		SnapshotsColDate:              "DATE",
 		SnapshotsColSize:              "SIZE",
 		SnapshotsMountBackupFlash:     "Mount backup flash",
+		SnapshotsStatusAvailable:      "Available",
+		SnapshotsStatusMounted:        "Mounted",
 		ScriptsMCPSubtitle:            "Local signed MCP endpoint.",
 		ScriptsAutomationTitle:        "Automation Scripts",
 		ScriptsAutomationSubtitle:     "Starlark jobs on the device.",
@@ -721,7 +730,8 @@ func EN() *LocalizedStrings {
 		FirmwarePromoSubtitle:         "Turn your board into a hardware KVM",
 		FirmwarePromoTrial:            "Download",
 		FirmwarePromoFeatureBIOS:      "BIOS-in-terminal (OCR)",
-		FirmwarePromoFeatureLatency:   "Ultra-low latency video",
+		FirmwarePromoFeatureLatency:       "Ultra-low latency video",
+		FirmwarePromoFeatureLatencyMobile: "Ultra-low latency video",
 		FirmwarePromoFeatureScripts:   "Automation scripts",
 		FirmwarePromoFeatureSnapshot:  "Immutable snapshot",
 		FirmwarePromoFeatureL0:        "0-layer host access",
@@ -1137,6 +1147,7 @@ func ES() *LocalizedStrings {
 	locale.DeleteConnectionConfirm = "Seguro que deseas eliminar la conexion \"%s\"?"
 	locale.ConnectingToConnection = "Conectando a \"%s\"…"
 	locale.ConnectionsHeaderSubtitle = "Tus sesiones de escritorio remoto y control de hardware."
+	locale.ConnectionsHeaderSubtitleMobile = "Tus sesiones de escritorio remoto y control de hardware."
 	locale.ViewModeGrid = "Grid"
 	locale.ViewModeList = "Lista"
 	locale.AddNewConnectTitle = "Nueva conexion"
@@ -1167,6 +1178,7 @@ func ES() *LocalizedStrings {
 	locale.FirmwarePromoTrial = "Descargar"
 	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
 	locale.FirmwarePromoFeatureLatency = "Video de ultra baja latencia"
+	locale.FirmwarePromoFeatureLatencyMobile = "Video de ultra baja latencia"
 	locale.FirmwarePromoFeatureScripts = "Scripts de automatizacion"
 	locale.FirmwarePromoFeatureSnapshot = "Snapshot inmutable"
 	locale.FirmwarePromoFeatureL0 = "Acceso host de capa 0"
@@ -1333,8 +1345,11 @@ func ES() *LocalizedStrings {
 	locale.SnapshotsHeaderSubtitle = "Puntos de restore inmutables. Monta uno sin cambiar el original."
 	locale.SnapshotsHeaderSubtitleMobile = "Puntos de restore. Monta sin cambiar el original."
 	locale.SnapshotsCountFmt = "%d Snapshots"
+	locale.SnapshotsColDate = "FECHA"
 	locale.SnapshotsColSize = "TAM."
 	locale.SnapshotsMountBackupFlash = "Montar backup flash"
+	locale.SnapshotsStatusAvailable = "Disponible"
+	locale.SnapshotsStatusMounted = "Montado"
 	locale.ScriptsMCPSubtitle = "Endpoint MCP firmado local."
 	locale.ScriptsAutomationTitle = "Scripts"
 	locale.ScriptsAutomationSubtitle = "Jobs Starlark en el device."
@@ -1436,6 +1451,7 @@ func UKProper() *LocalizedStrings {
 	locale.DeleteConnectionConfirm = "Ви впевнені, що хочете видалити з'єднання \"%s\"?"
 	locale.ConnectingToConnection = "Підключення до \"%s\"…"
 	locale.ConnectionsHeaderSubtitle = "Ваші сесії віддаленого робочого столу та керування обладнанням."
+	locale.ConnectionsHeaderSubtitleMobile = "Ваші сесії віддаленого керування."
 	locale.ViewModeGrid = "Сітка"
 	locale.ViewModeList = "Список"
 	locale.AddNewConnectTitle = "Нове з'єднання"
@@ -1466,6 +1482,7 @@ func UKProper() *LocalizedStrings {
 	locale.FirmwarePromoTrial = "Завантажити"
 	locale.FirmwarePromoFeatureBIOS = "BIOS-in-terminal (OCR)"
 	locale.FirmwarePromoFeatureLatency = "Відео з ультранизькою затримкою"
+	locale.FirmwarePromoFeatureLatencyMobile = "Ультранизька затримка"
 	locale.FirmwarePromoFeatureScripts = "Скрипти автоматизації"
 	locale.FirmwarePromoFeatureSnapshot = "Незмінний snapshot"
 	locale.FirmwarePromoFeatureL0 = "Доступ host на шарі 0"
@@ -1631,8 +1648,11 @@ func UKProper() *LocalizedStrings {
 	locale.SnapshotsHeaderSubtitle = "Незмінні точки відновлення. Монтуй без зміни оригіналу."
 	locale.SnapshotsHeaderSubtitleMobile = "Точки відновлення. Монтуй без зміни оригіналу."
 	locale.SnapshotsCountFmt = "%d знімків"
+	locale.SnapshotsColDate = "ДАТА"
 	locale.SnapshotsColSize = "РОЗМІР"
 	locale.SnapshotsMountBackupFlash = "Примонтувати backup flash"
+	locale.SnapshotsStatusAvailable = "Доступний"
+	locale.SnapshotsStatusMounted = "Змонтовано"
 	locale.ScriptsMCPSubtitle = "Локальний підписаний MCP."
 	locale.ScriptsAutomationTitle = "Скрипти"
 	locale.ScriptsAutomationSubtitle = "Starlark-задачі на девайсі."

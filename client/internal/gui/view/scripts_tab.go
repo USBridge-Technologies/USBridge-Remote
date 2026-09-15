@@ -32,12 +32,7 @@ const (
 var scriptsMCPURLColor = color.NRGBA{R: 0xe6, G: 0xf9, B: 0xb9, A: 0xff}
 
 func scriptColumnLabels() []string {
-	return []string{
-		i18n.Current.ConnectionColName,
-		i18n.Current.ScriptsColSource,
-		i18n.Current.ConnectionColState,
-		i18n.Current.ConnectionColActions,
-	}
+	return []string{"name", "source", "state", "actions"}
 }
 
 var (

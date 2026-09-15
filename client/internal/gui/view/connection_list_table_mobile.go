@@ -140,9 +140,11 @@ func newMobileListInfoLine(lanAddress, tailscaleAddress string) fyne.CanvasObjec
 }
 
 // mobileListRowLayout is a two-column table row: left fills, right keeps
-// its natural width and stays top-aligned (name line + action buttons).
+// its natural width. Connections/Scripts pin actions to the name line
+// (top); Snapshots centers them on the two-line date+size block.
 type mobileListRowLayout struct {
-	gap float32
+	gap     float32
+	vCenter bool
 }
 
 func (l *mobileListRowLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
@@ -163,7 +165,14 @@ func (l *mobileListRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 	}
 	rightMin := objects[1].MinSize()
 	objects[1].Resize(rightMin)
-	objects[1].Move(fyne.NewPos(size.Width-rightMin.Width, 0))
+	rightY := float32(0)
+	if l.vCenter {
+		rightY = (size.Height - rightMin.Height) / 2
+		if rightY < 0 {
+			rightY = 0
+		}
+	}
+	objects[1].Move(fyne.NewPos(size.Width-rightMin.Width, rightY))
 	leftW := size.Width - rightMin.Width - l.gap
 	if leftW < 0 {
 		leftW = 0

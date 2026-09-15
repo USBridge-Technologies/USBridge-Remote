@@ -87,7 +87,7 @@ func newMobileConnectionsHeader(summary ConnectionsSummary, actions connectionsH
 	titleItems = appendConnectionSortBadges(titleItems, summary, activeSort, toggleSort)
 	titleRow := container.NewHBox(titleItems...)
 
-	subtitle := canvas.NewText(i18n.Current.ConnectionsHeaderSubtitle, design.ColorConnectionsSectionSubtitle)
+	subtitle := canvas.NewText(i18n.Current.ConnectionsHeaderSubtitleMobile, design.ColorConnectionsSectionSubtitle)
 	subtitle.TextSize = 9
 
 	left := container.New(&tightStatsVBoxLayout{Gap: 1},

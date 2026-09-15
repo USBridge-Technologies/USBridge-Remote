@@ -268,6 +268,12 @@ func connectionListHeaderLabel(key string) string {
 		return i18n.Current.ConnectionColOS
 	case "name":
 		return i18n.Current.ConnectionColName
+	case "date":
+		return i18n.Current.SnapshotsColDate
+	case "size":
+		return i18n.Current.SnapshotsColSize
+	case "source":
+		return i18n.Current.ScriptsColSource
 	case "state":
 		return i18n.Current.ConnectionColState
 	case "network":
@@ -277,7 +283,7 @@ func connectionListHeaderLabel(key string) string {
 	case "actions":
 		return i18n.Current.ConnectionColActions
 	default:
-		return ""
+		return key
 	}
 }
 

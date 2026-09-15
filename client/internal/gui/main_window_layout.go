@@ -679,7 +679,7 @@ func (mw *MainWindow) createConnectionFooterBar() fyne.CanvasObject {
 	// Real phones are already mobile — the preview switch is for desktop.
 	if !fyne.CurrentDevice().IsMobile() {
 		var chip *view.FooterTintChip
-		chip = view.NewFooterTintChipWithIcon(view.DesignModeFooterLabel(), design.ColorConnectionBadgeText, assets.ExpandIconTeal, assets.ExpandIconWhite, func() {
+		chip = view.NewFooterTintChipWithIcon(view.DesignModeFooterLabel(), design.ColorTextMuted, assets.ExpandIconHover, assets.ExpandIconWhite, func() {
 			mw.showDesignModeMenu(chip)
 		})
 		mw.designModeChip = chip

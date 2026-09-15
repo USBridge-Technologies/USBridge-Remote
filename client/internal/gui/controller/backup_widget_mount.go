@@ -251,6 +251,16 @@ func newSnapshotInfoStatRow(label, value string, valueColor color.Color) fyne.Ca
 	labelText.TextSize = 10
 	labelText.TextStyle.Monospace = true
 
+	if view.UseMobileConnections() {
+		valueLbl := widget.NewLabel(value)
+		valueLbl.Wrapping = fyne.TextWrapWord
+		valueLbl.TextStyle = fyne.TextStyle{Monospace: true}
+		return container.New(&tightHeaderVBoxLayout{Gap: 2},
+			labelText,
+			container.NewThemeOverride(valueLbl, &mutedForegroundTheme{design.NewBrandTheme()}),
+		)
+	}
+
 	valueText := canvas.NewText(value, valueColor)
 	valueText.TextSize = 10
 	valueText.TextStyle.Monospace = true
@@ -264,7 +274,12 @@ func newSnapshotInfoSurface(content fyne.CanvasObject) fyne.CanvasObject {
 	bg.CornerRadius = 6
 	bg.StrokeColor = design.ColorTailscaleChipBorder
 	bg.StrokeWidth = 1
-	return container.NewStack(bg, view.NewInset(content, 12, 12, 8, 8))
+	pad := float32(12)
+	if view.UseMobileConnections() {
+		pad = 10
+		return container.NewStack(bg, view.NewInsetExact(content, pad, pad, 8, 8))
+	}
+	return container.NewStack(bg, view.NewInset(content, pad, pad, 8, 8))
 }
 
 func newSnapshotInfoLogLine(text string, col color.Color) fyne.CanvasObject {
@@ -325,19 +340,40 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	logTitle := canvas.NewText("LOG", design.ColorConnectionsSectionSubtitle)
 	logTitle.TextSize = 10
 	logTitle.TextStyle.Monospace = true
-	logLines := make([]fyne.CanvasObject, 0)
-	for _, line := range strings.Split(changelog, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	mobile := view.UseMobileConnections()
+	var logInner fyne.CanvasObject
+	if mobile {
+		logLbl := widget.NewLabel(strings.TrimSpace(changelog))
+		if strings.TrimSpace(changelog) == "" {
+			logLbl.SetText(i18n.Current.SnapshotChangelogEmpty)
 		}
-		logLines = append(logLines, newSnapshotInfoLogLine(line, design.ColorTextMuted))
+		logLbl.Wrapping = fyne.TextWrapWord
+		logLbl.TextStyle = fyne.TextStyle{Monospace: true}
+		logInner = container.NewThemeOverride(logLbl, &mutedForegroundTheme{design.NewBrandTheme()})
+	} else {
+		logLines := make([]fyne.CanvasObject, 0)
+		for _, line := range strings.Split(changelog, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			logLines = append(logLines, newSnapshotInfoLogLine(line, design.ColorTextMuted))
+		}
+		if len(logLines) == 0 {
+			logLines = append(logLines, newSnapshotInfoLogLine(i18n.Current.SnapshotChangelogEmpty, design.ColorBorder))
+		}
+		logInner = container.New(&tightHeaderVBoxLayout{Gap: 4}, logLines...)
 	}
-	if len(logLines) == 0 {
-		logLines = append(logLines, newSnapshotInfoLogLine(i18n.Current.SnapshotChangelogEmpty, design.ColorBorder))
+	logH := snapshotInfoLogHeight
+	headerPadL, headerPadR := float32(21), float32(44)
+	scrollPad, footerPadL, footerPadR, footerPadT := float32(18), float32(12), float32(18), float32(14)
+	if mobile {
+		logH = 120
+		headerPadL, headerPadR = 16, 36
+		scrollPad, footerPadL, footerPadR, footerPadT = 12, 10, 12, 10
 	}
-	logScroll := container.NewVScroll(container.New(&tightHeaderVBoxLayout{Gap: 4}, logLines...))
-	logScroll.SetMinSize(fyne.NewSize(0, snapshotInfoLogHeight))
+	logScroll := container.NewVScroll(logInner)
+	logScroll.SetMinSize(fyne.NewSize(0, logH))
 	logBox := newSnapshotInfoSurface(container.New(&tightHeaderVBoxLayout{Gap: 8}, logTitle, logScroll))
 
 	form := container.NewVBox(
@@ -368,7 +404,7 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	sep.SetMinSize(fyne.NewSize(0, 1))
 	sepFooter := canvas.NewRectangle(color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff})
 	sepFooter.SetMinSize(fyne.NewSize(0, 1))
-	headerBlock := container.New(&tightHeaderVBoxLayout{Gap: 0}, topAccent, view.NewInset(titleCol, 21, 44, 9, 4), sep)
+	headerBlock := container.New(&tightHeaderVBoxLayout{Gap: 0}, topAccent, view.NewInsetExact(titleCol, headerPadL, headerPadR, 9, 4), sep)
 
 	copyIcon := fyne.NewStaticResource("snapshot-info-copy.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e9fdbb"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`))
 	copyBtn := newConnectionDialogIconButton(copyIcon, func() {
@@ -396,23 +432,26 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	}
 	okBtn.ExtendBaseWidget(okBtn)
 
-	cancelBtn := &connectionDialogSecondaryButton{
-		labelText:      i18n.Current.Cancel,
-		onTapped:       closePopup,
-		compact:        true,
-		fillColor:      color.Transparent,
-		borderColor:    color.Transparent,
-		textColor:      color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff},
-		hoverFillColor: color.Transparent,
-		hoverTextColor: design.ColorTextLight,
-	}
-	cancelBtn.ExtendBaseWidget(cancelBtn)
-
 	rightGroup := container.New(&view.DeviceRowControlsLayout{Gap: connectionDialogButtonsGap}, copyBtn, okBtn)
-	buttons := container.NewBorder(nil, nil, container.NewCenter(cancelBtn), rightGroup)
+	var leftFooter fyne.CanvasObject
+	if !mobile {
+		cancelBtn := &connectionDialogSecondaryButton{
+			labelText:      i18n.Current.Cancel,
+			onTapped:       closePopup,
+			compact:        true,
+			fillColor:      color.Transparent,
+			borderColor:    color.Transparent,
+			textColor:      color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff},
+			hoverFillColor: color.Transparent,
+			hoverTextColor: design.ColorTextLight,
+		}
+		cancelBtn.ExtendBaseWidget(cancelBtn)
+		leftFooter = container.NewCenter(cancelBtn)
+	}
+	buttons := container.NewBorder(nil, nil, leftFooter, rightGroup)
 	footerBlock := container.NewVBox(
 		sepFooter,
-		view.NewInset(buttons, 12, 18, 14, 0),
+		view.NewInsetExact(buttons, footerPadL, footerPadR, footerPadT, 0),
 	)
 
 	scrollBody := container.NewVBox(form)
@@ -430,7 +469,7 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 		headerBlock,
 		footerBlock,
 		nil, nil,
-		view.NewInset(scroll, 18, 18, 0, 0),
+		view.NewInsetExact(scroll, scrollPad, scrollPad, 0, 0),
 	)
 	cornerBtn := container.New(&dialogCornerButtonLayout{Top: 12, Right: 12}, closeBtn)
 	panel := container.NewStack(
@@ -444,9 +483,35 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 		Panel:    panel,
 		DimColor: connectionDialogDimColor(),
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			if view.UseMobileConnections() {
+				return snapshotInfoMobilePanelSize(panel, canvasSize)
+			}
 			return connectionDialogPanelSize(panel, canvasSize)
 		},
+		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
+			if view.UseCompactLayout(canvasSize.Width) {
+				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, view.CompactOverlayTopMargin(canvasSize))
+			}
+			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, (canvasSize.Height-panelSize.Height)/2)
+		},
 	})
+}
+
+func snapshotInfoMobilePanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fyne.Size {
+	margin := view.ConnectionsMobileSideMargin()
+	maxWidth := canvasSize.Width - margin*2
+	if maxWidth <= 0 {
+		maxWidth = canvasSize.Width
+	}
+	maxHeight := canvasSize.Height - view.CompactOverlayTopMargin(canvasSize) - margin
+	if maxHeight < 160 {
+		maxHeight = canvasSize.Height * 0.7
+	}
+	h := panel.MinSize().Height
+	if h > maxHeight {
+		h = maxHeight
+	}
+	return fyne.NewSize(maxWidth, h)
 }
 
 // showErrorAsync safely shows an error from a goroutine
