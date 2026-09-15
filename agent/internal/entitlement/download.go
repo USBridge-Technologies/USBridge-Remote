@@ -29,15 +29,15 @@ type ProgressFunc func(downloaded, total int64)
 const progressInterval = 100 * time.Millisecond
 const downloadTimeout = 5 * time.Minute
 
-// binaryName is bin/gamestream-server's build output name (its Cargo.toml
+// binaryName is bin/usbridge-streamer's build output name (its Cargo.toml
 // package name), mirrored from streamhost.rustshineBackend's own
 // unexported binaryName() -- duplicated rather than imported so this
 // package stays self-contained (see its doc comment).
 func binaryName() string {
 	if runtime.GOOS == "windows" {
-		return "gamestream-server.exe"
+		return "usbridge-streamer.exe"
 	}
-	return "gamestream-server"
+	return "usbridge-streamer"
 }
 
 // StagePath is exactly what streamhost.rustshineBackend.BinaryPath()
@@ -54,21 +54,38 @@ func binaryName() string {
 // macOS's TCC subsystem, which silently denies every permission check
 // (Screen Recording, etc.) for it and everything it launches, no matter how
 // many times the user grants access in System Settings -- this was the
-// actual root cause behind RustShine's ScreenCaptureKit captures always
+// actual root cause behind USBridge-streamer's ScreenCaptureKit captures always
 // failing, not a missing permission. stateDir is never part of any signed
 // bundle on any platform, so this can't happen there. Same directory
 // TokenFilePath already uses, for the same reason.
 func StagePath(stateDir string) string {
-	return filepath.Join(stateDir, "rustshine", binaryName())
+	return filepath.Join(stateDir, "usbridge-streamer", binaryName())
+}
+
+// legacyStagePath is the old pre-rename staging path for backward compatibility.
+func legacyStagePath(stateDir string) string {
+	legacyBinary := "gamestream-server"
+	if runtime.GOOS == "windows" {
+		legacyBinary = "gamestream-server.exe"
+	}
+	return filepath.Join(stateDir, "rustshine", legacyBinary)
 }
 
 // stagedVersionPath is a plain-text marker file recording which release
-// (the backend's release tag, e.g. "gamestream-server-v0.2.2") was most
+// (the backend's release tag, e.g. "usbridge-streamer-v0.3.50") was most
 // recently staged at StagePath -- written by StageRustShine, read by
 // CheckRustShineUpdate so a later check can tell whether a newer build
 // exists without downloading anything just to find out.
 func stagedVersionPath(stateDir string) string {
-	return filepath.Join(filepath.Dir(StagePath(stateDir)), "VERSION")
+	p := filepath.Join(filepath.Dir(StagePath(stateDir)), "VERSION")
+	if fileExists(p) {
+		return p
+	}
+	legacyP := filepath.Join(filepath.Dir(legacyStagePath(stateDir)), "VERSION")
+	if fileExists(legacyP) {
+		return legacyP
+	}
+	return p
 }
 
 // StagedVersion returns whichever version string StageRustShine last
@@ -97,7 +114,7 @@ func StagedVersion(stateDir string) string {
 // were published. See App.checkRustShineUpdate (agent/internal/app) for the
 // periodic caller.
 func CheckRustShineUpdate(ctx context.Context, stateDir, entitlementToken string) (needsUpdate bool, latestVersion string, err error) {
-	if _, statErr := os.Stat(StagePath(stateDir)); statErr != nil {
+	if !fileExists(StagePath(stateDir)) && !fileExists(legacyStagePath(stateDir)) {
 		return false, "", nil
 	}
 	platform := Platform()
@@ -464,4 +481,9 @@ func renameWithRetry(oldpath, newpath string) error {
 		}
 	}
 	return err
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

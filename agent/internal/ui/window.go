@@ -61,6 +61,10 @@ type TokenProvider interface {
 	AdminUser() string
 	AdminPass() string
 	StreamerName() string
+	// StreamerRunning reports whether the active streaming host's own child
+	// process is alive right now -- for the status traffic light next to
+	// streamerNameLabel, distinct from whether it's staged/entitled at all.
+	StreamerRunning() bool
 
 	// Hardware-bound RustShine entitlement (see internal/entitlement,
 	// internal/hwid).
@@ -194,6 +198,18 @@ type Window struct {
 	usbDriverRow *fyne.Container
 	usbDriverBtn *widget.Button
 
+	// usbBrokerRow: a status-only row (no button) shown whenever RustShine
+	// is active, next to streamerLabel -- separate from usbDriverRow (which
+	// is about the *driver*, not the broker process). usbBrokerStatusDot is
+	// green while usbpass.Status.BrokerAlive (the broker process answered
+	// its own control-socket "status" query moments ago), red otherwise --
+	// staged-but-not-running and not-staged-at-all both read as red here,
+	// distinguished only by usbBrokerStatusLabel's text (see
+	// refreshUSBPassthroughUI).
+	usbBrokerRow         *fyne.Container
+	usbBrokerStatusDot   *canvas.Circle
+	usbBrokerStatusLabel *widget.Label
+
 	// sunWebSunshineRow/sunWebRustshineRow are mutually exclusive: the
 	// Status panel's "web UI" row shows Sunshine's local admin UI address
 	// while Sunshine is active, or a link to the RustShine web client
@@ -231,6 +247,13 @@ type Window struct {
 	// active backend after a runtime SetStreamBackend switch; otherwise it
 	// would freeze at whatever was active when the window was built.
 	streamerNameLabel *widget.Label
+
+	// streamerStatusDot is a small traffic-light circle next to
+	// streamerNameLabel -- green while the active backend's own child
+	// process is actually running (StreamerRunning), red while it's staged
+	// but not currently alive (crashed, mid-restart, or simply stopped).
+	// Kept in sync by performRefresh, same cadence as streamerNameLabel.
+	streamerStatusDot *canvas.Circle
 
 	// streamerVersionLabel shows whichever version applies to the active
 	// backend -- appVersion (this agent build's own version) while
@@ -285,10 +308,11 @@ func (w *Window) SetOwnsEngine(owns bool) {
 }
 
 type uiStatus struct {
-	tsStatus       *tailscale.Status
-	accessGranted  bool
-	moonlightCount int
-	usbStatus      usbpass.Status
+	tsStatus        *tailscale.Status
+	accessGranted   bool
+	moonlightCount  int
+	usbStatus       usbpass.Status
+	streamerRunning bool
 }
 
 // accountSnapshot is the comparable (== usable) subset of account.Status --
@@ -443,7 +467,8 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 			// for display; if some future tag ever doesn't have it, this
 			// just falls back to showing the raw tag untouched rather than
 			// hiding real version info.
-			version = strings.TrimPrefix(st.RustShineVersion, "gamestream-server-v")
+			version = strings.TrimPrefix(st.RustShineVersion, "usbridge-streamer-v")
+			version = strings.TrimPrefix(version, "gamestream-server-v")
 		}
 		if w.streamerVersionLabel.Text != version {
 			w.streamerVersionLabel.SetText(version)
@@ -503,14 +528,38 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 // vhci-hcd state that usbStatus is read from on the very next tick, no
 // separate "installed" signal needed.
 func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Status) {
-	if w.usbDriverRow == nil {
+	active := st.ActiveBackend == "rustshine"
+	if w.usbDriverRow != nil {
+		if active && usb.Available && !usb.VhciDriver {
+			w.usbDriverRow.Show()
+		} else {
+			w.usbDriverRow.Hide()
+		}
+	}
+	if w.usbBrokerRow == nil {
 		return
 	}
-	active := st.ActiveBackend == "rustshine"
-	if active && usb.Available && !usb.VhciDriver {
-		w.usbDriverRow.Show()
-	} else {
-		w.usbDriverRow.Hide()
+	if !active || !usb.Available {
+		w.usbBrokerRow.Hide()
+		return
+	}
+	w.usbBrokerRow.Show()
+	setStatusDot(w.usbBrokerStatusDot, usb.BrokerAlive)
+	if w.usbBrokerStatusLabel != nil {
+		// usb.BrokerError is always non-empty whenever BrokerAlive is false
+		// and Available is true (see usbpass.Service.Status: it returns
+		// early with BrokerError set the moment resolveBroker()'s "not
+		// staged" check or the control-socket dial/query fails, and is the
+		// only path that leaves BrokerAlive false here) -- so this just
+		// tells "not staged at all" apart from "staged but not answering".
+		label := "Running"
+		if !usb.BrokerAlive {
+			label = "Not running"
+			if strings.Contains(usb.BrokerError, "not staged") {
+				label = "Not staged"
+			}
+		}
+		w.usbBrokerStatusLabel.SetText(label)
 	}
 }
 
@@ -778,7 +827,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}
 		}()
 	})
-	w.rustshineWebRTCRow = container.NewHBox(widget.NewLabel("RustShine Web (WebRTC)"), layout.NewSpacer(), w.rustshineWebRTCCheck)
+	w.rustshineWebRTCRow = container.NewHBox(widget.NewLabel("USBridge-streamer Web (WebRTC)"), layout.NewSpacer(), w.rustshineWebRTCCheck)
 	w.rustshineWebRTCRow.Hide()
 
 	// USB passthrough driver install -- shown only while RustShine is
@@ -899,6 +948,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()), layout.NewSpacer(), w.supportBtn)
 
 	w.streamerNameLabel = widget.NewLabel(w.token.StreamerName())
+	w.streamerStatusDot = newStatusDot()
 	w.streamerVersionLabel = widget.NewLabel("")
 	w.streamerVersionLabel.TextStyle.Italic = true
 	// Fires the check in the engine process and returns immediately --
@@ -915,7 +965,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}()
 	})
 	w.rustshineUpdateBtn.Importance = widget.LowImportance
-	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, w.streamerVersionLabel, w.rustshineUpdateBtn)
+	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), statusDotBox(w.streamerStatusDot), w.streamerNameLabel, w.streamerVersionLabel, w.rustshineUpdateBtn)
+
+	// usbBrokerRow -- see its field doc comment. Built unconditionally (like
+	// rustshineWebRTCRow/usbDriverRow); refreshUSBPassthroughUI is what
+	// actually decides visibility and the dot/label text on every tick.
+	w.usbBrokerStatusDot = newStatusDot()
+	w.usbBrokerStatusLabel = widget.NewLabel("")
+	w.usbBrokerRow = container.NewHBox(makeStatusLabel("USB Broker:"), statusDotBox(w.usbBrokerStatusDot), w.usbBrokerStatusLabel)
+	w.usbBrokerRow.Hide()
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
@@ -986,8 +1044,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 		win.Clipboard().SetContent(rustshineWebURL)
 	})
 	sunWebLinkInfoBtn := widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
-		dialog.ShowInformation("RustShine Web Client",
-			"Open this link in a browser on any device to stream via RustShine's "+
+		dialog.ShowInformation("USBridge-streamer Web Client",
+			"Open this link in a browser on any device to stream via USBridge-streamer's "+
 				"built-in WebRTC client -- no Moonlight app needed. Uses the same "+
 				"pairing/master key as everything else in this agent.",
 			win)
@@ -997,7 +1055,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		container.NewHBox(sunWebLinkInfoBtn, sunWebLinkCopyBtn), nil)
 	w.sunWebRustshineRow.Hide()
 
-	statsBlock := newPanel("Status", newTightVBox(osLabel, streamerLabel, httpRow, sunStreamRow, w.sunWebSunshineRow, w.sunWebRustshineRow))
+	statsBlock := newPanel("Status", newTightVBox(osLabel, streamerLabel, w.usbBrokerRow, httpRow, sunStreamRow, w.sunWebSunshineRow, w.sunWebRustshineRow))
 
 	w.tsInfo = widget.NewLabel("Status: checking...\nAccount: not connected\nAddress: unavailable")
 	w.tsInfo.Wrapping = fyne.TextWrapWord
@@ -1321,9 +1379,9 @@ func (w *Window) refreshSupportButton(st entitlement.Status) {
 	}
 	switch {
 	case st.ActiveBackend == "rustshine":
-		w.supportBtn.SetText("RustShine active")
+		w.supportBtn.SetText("USBridge-streamer active")
 	case st.Linked:
-		w.supportBtn.SetText("RustShine ready")
+		w.supportBtn.SetText("USBridge-streamer ready")
 	default:
 		w.supportBtn.SetText("Support us")
 	}
@@ -1335,9 +1393,9 @@ func (w *Window) refreshSupportButton(st entitlement.Status) {
 // tell rows apart in its OnChanged switch.
 const (
 	licenseRowSunshine            = "Sunshine (Open Source) — free"
-	licenseRowRustShineFree       = "RustShine — Free"
-	licenseRowRustShinePro        = "RustShine — Pro · $8/mo (4:4:4 color)"
-	licenseRowRustShineEnterprise = "RustShine — Enterprise · $25/mo (session logs, team access)"
+	licenseRowRustShineFree       = "USBridge-streamer — Free"
+	licenseRowRustShinePro        = "USBridge-streamer — Pro · $8/mo (4:4:4 color)"
+	licenseRowRustShineEnterprise = "USBridge-streamer — Enterprise · $25/mo (session logs, team access)"
 )
 
 // tierDisplayName renders a bare tier string ("pro"/"enterprise") as the
@@ -1345,9 +1403,9 @@ const (
 func tierDisplayName(tier string) string {
 	switch tier {
 	case "pro":
-		return "RustShine Pro"
+		return "USBridge-streamer Pro"
 	case "enterprise":
-		return "RustShine Enterprise"
+		return "USBridge-streamer Enterprise"
 	default:
 		return tier
 	}
@@ -1377,7 +1435,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 		}
 	}
 
-	titleLabel := canvas.NewText("RUSTSHINE — FASTER STREAMING", design.ColorTextMuted)
+	titleLabel := canvas.NewText("USBRIDGE STREAMER — FASTER STREAMING", design.ColorTextMuted)
 	titleLabel.TextSize = 11
 	titleLabel.TextStyle.Bold = true
 	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() { closeDialog() })
@@ -1435,7 +1493,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			body.Add(container.NewCenter(cancelBtn))
 
 		case st.DownloadInProgress:
-			body.Add(widget.NewLabel("Downloading RustShine…"))
+			body.Add(widget.NewLabel("Downloading USBridge Streamer…"))
 			pb := widget.NewProgressBar()
 			if st.Progress >= 0 {
 				pb.SetValue(st.Progress)
@@ -1844,11 +1902,13 @@ func (w *Window) performRefresh() {
 			}
 			entStatus = w.token.EntitlementStatus()
 			status.usbStatus = w.token.USBPassthroughStatus()
+			status.streamerRunning = w.token.StreamerRunning()
 		}
 		fyne.Do(func() {
 			w.refreshSupportButton(entStatus)
 			w.refreshRustShineUI(entStatus)
 			w.refreshUSBPassthroughUI(entStatus, status.usbStatus)
+			setStatusDot(w.streamerStatusDot, status.streamerRunning)
 			if w.streamerNameLabel != nil && w.token != nil {
 				w.streamerNameLabel.SetText(w.token.StreamerName())
 			}
@@ -2534,6 +2594,43 @@ func makeStatusLabel(text string) fyne.CanvasObject {
 	t.TextSize = 12
 	t.TextStyle.Bold = true
 	return t
+}
+
+// newStatusDot returns a small filled circle for a running/stopped traffic
+// light next to a status row -- starts red (design.ColorError); callers set
+// the actual state via setStatusDot on the next refresh tick rather than
+// guessing an initial value here. Wrapped in a fixed-size GridWrap, not
+// placed directly in an HBox/Center: canvas.Circle.MinSize() is hardcoded to
+// (1,1) with no setter (see fyne's own canvas/circle.go), so any layout that
+// sizes children by their own MinSize collapses it to a 1px speck otherwise.
+func newStatusDot() *canvas.Circle {
+	dot := canvas.NewCircle(design.ColorError)
+	dot.StrokeWidth = 0
+	return dot
+}
+
+// statusDotBox wraps dot at a fixed 10x10 size for placement in an HBox row
+// -- see newStatusDot's doc comment for why a bare Circle can't size itself.
+func statusDotBox(dot *canvas.Circle) fyne.CanvasObject {
+	return container.NewGridWrap(fyne.NewSize(10, 10), dot)
+}
+
+// setStatusDot recolors dot to design.ColorAccent (green, running) or
+// design.ColorError (red, not running) and refreshes it -- nil-safe so
+// callers don't need their own guard when a row's widgets haven't been
+// built yet (e.g. a thin-client GUI attached before its first poll).
+func setStatusDot(dot *canvas.Circle, running bool) {
+	if dot == nil {
+		return
+	}
+	want := design.ColorError
+	if running {
+		want = design.ColorAccent
+	}
+	if dot.FillColor != want {
+		dot.FillColor = want
+		dot.Refresh()
+	}
 }
 
 // ipOption pairs a display string (annotated) with the actual IP value.
