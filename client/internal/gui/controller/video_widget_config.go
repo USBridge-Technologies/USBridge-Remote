@@ -500,61 +500,70 @@ func (vw *VideoWidget) RequestStreaming(shouldStream bool) {
 }
 
 func (vw *VideoWidget) StartVideoDeviceAsync(devicePath string) {
+	go vw.StartVideoDevice(devicePath)
+}
+
+// StartVideoDevice pins capture to devicePath, restarts the stream, and
+// blocks until the first frame of that new session arrives (or a timeout).
+// Called from the Devices radio path so the dashboard stays locked like a
+// keyboard/mouse connect until the picture is actually up.
+func (vw *VideoWidget) StartVideoDevice(devicePath string) {
 	vw.setDesiredStreaming(true)
-	go func() {
-		devices, err := vw.GetAvailableVideoDevices()
-		if err != nil {
-			logrus.Warnf("⚠️ cannot load available video devices: %v", err)
-			// Continue with fallback below
-		}
+	prevTrace := vw.videoTraceID.Load()
 
-		var selectedDevice *models.SystemDevice
-		for i := range devices {
-			if devices[i].Path == devicePath {
-				selectedDevice = &devices[i]
-				break
-			}
-		}
+	devices, err := vw.GetAvailableVideoDevices()
+	if err != nil {
+		logrus.Warnf("⚠️ cannot load available video devices: %v", err)
+	}
 
-		var cfg models.VideoDeviceConfig
-		var deviceName string
-		if selectedDevice != nil {
-			deviceName = selectedDevice.Name
-			cfg = loadSavedVideoDeviceConfig(selectedDevice.Path, selectedDevice.Name)
+	var selectedDevice *models.SystemDevice
+	for i := range devices {
+		if devices[i].Path == devicePath {
+			selectedDevice = &devices[i]
+			break
+		}
+	}
+
+	var cfg models.VideoDeviceConfig
+	var deviceName string
+	if selectedDevice != nil {
+		deviceName = selectedDevice.Name
+		cfg = loadSavedVideoDeviceConfig(selectedDevice.Path, selectedDevice.Name)
+	} else {
+		deviceName = filepath.Base(devicePath)
+		cfg = loadSavedVideoDeviceConfig(devicePath, deviceName)
+	}
+
+	cfg.DevicePath = devicePath
+	cfg.DeviceName = deviceName
+
+	// Query /api/video/info scoped to THIS device, not whatever's
+	// currently streaming — at switch time the server is still on
+	// the old device, so its default (unscoped) video info reports
+	// the old device's path/resolution and the merge below would
+	// silently no-op, leaving the stale 1280x720 default in cfg
+	// (see defaultVideoDeviceConfig) and mis-sizing absolute mouse
+	// mapping for the newly selected monitor.
+	if info, err := getVideoInfoDataForDevice(vw.usbClient, devicePath); err == nil && info != nil && info.Device == devicePath {
+		if !hasSavedVideoDeviceConfig(devicePath) {
+			cfg = mergeVideoConfigWithInfo(cfg, info)
 		} else {
-			deviceName = filepath.Base(devicePath)
-			cfg = loadSavedVideoDeviceConfig(devicePath, deviceName)
+			// A saved config already exists for this device (we've switched to
+			// it before), so don't clobber the user's saved quality/bitrate/fps
+			// preferences — but resolution must still be refreshed every time:
+			// the cached width/height is whatever was true the first time this
+			// monitor was selected, and a switch back to it after switching
+			// through others otherwise reused that stale value, mis-scaling
+			// absolute mouse mapping (or, with a different-aspect monitor in
+			// between, making the touch field look like it spans both).
+			cfg = mergeVideoConfigResolution(cfg, info)
 		}
-
-		cfg.DevicePath = devicePath
-		cfg.DeviceName = deviceName
-
-		// Query /api/video/info scoped to THIS device, not whatever's
-		// currently streaming — at switch time the server is still on
-		// the old device, so its default (unscoped) video info reports
-		// the old device's path/resolution and the merge below would
-		// silently no-op, leaving the stale 1280x720 default in cfg
-		// (see defaultVideoDeviceConfig) and mis-sizing absolute mouse
-		// mapping for the newly selected monitor.
-		if info, err := getVideoInfoDataForDevice(vw.usbClient, devicePath); err == nil && info != nil && info.Device == devicePath {
-			if !hasSavedVideoDeviceConfig(devicePath) {
-				cfg = mergeVideoConfigWithInfo(cfg, info)
-			} else {
-				// A saved config already exists for this device (we've switched to
-				// it before), so don't clobber the user's saved quality/bitrate/fps
-				// preferences — but resolution must still be refreshed every time:
-				// the cached width/height is whatever was true the first time this
-				// monitor was selected, and a switch back to it after switching
-				// through others otherwise reused that stale value, mis-scaling
-				// absolute mouse mapping (or, with a different-aspect monitor in
-				// between, making the touch field look like it spans both).
-				cfg = mergeVideoConfigResolution(cfg, info)
-			}
-		}
-		if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
-			logrus.Warnf("⚠️ cannot start selected video device %s: %v", devicePath, err)
-		}
-	}()
+	}
+	if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
+		logrus.Warnf("⚠️ cannot start selected video device %s: %v", devicePath, err)
+		return
+	}
+	vw.waitForNextFirstFrame(prevTrace, videoSwitchReadyTimeout)
 }
 
 func (vw *VideoWidget) StopVideoAsync() {

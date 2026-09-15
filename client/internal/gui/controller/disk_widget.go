@@ -753,13 +753,18 @@ func (dw *DiskWidget) setPreferredVideoDevice(device models.SystemDevice) {
 // looked broken. Switching between two+ captures still goes through here.
 func (dw *DiskWidget) selectVideoDevice(device models.SystemDevice) {
 	path := strings.TrimSpace(device.Path)
-	if path == "" {
+	if path == "" || dw.controlsLocked() {
 		return
 	}
 	if path == strings.TrimSpace(selectedVideoDevicePath()) {
 		return
 	}
+	// Same lock as keyboard/mouse/audio: radios stay disabled until the
+	// new capture actually comes up. Rapid taps used to stack Sunshine
+	// restarts and Moonlight reconnects until the whole session died.
+	dw.beginOperation()
 	go func() {
+		defer dw.endOperation()
 		// Optimistic UI: mark the selected device as mounted, clear others.
 		fyne.Do(func() {
 			for i := range dw.allDrives {
@@ -774,9 +779,10 @@ func (dw *DiskWidget) selectVideoDevice(device models.SystemDevice) {
 		cfg.DeviceName = device.Name
 		saveVideoDeviceConfig(cfg)
 		logrus.Infof("💾 [VIDEO-SELECT] Selected device: %s (%s)", device.Name, path)
-		if dw.onVideoDisconnect != nil {
-			dw.onVideoDisconnect()
-		}
+		// Do not StopVideoAsync here: StartVideoDevice already restarts the
+		// stream. A stop+start pair raced (desired=false then immediately
+		// true) and left the previous handshake running while the next
+		// switch began.
 		if dw.onVideoConnect != nil {
 			dw.onVideoConnect(path)
 		}

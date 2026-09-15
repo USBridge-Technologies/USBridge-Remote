@@ -238,7 +238,7 @@ func (mw *MainWindow) recreateContainers() {
 				mw.videoWidget.ShowVideoDeviceSettings(devicePath, mw.tabs != nil && mw.tabs.SelectedIndex() == mw.controlTabIndex(), false)
 			})
 			mw.diskWidget.SetOnVideoConnect(func(devicePath string) {
-				mw.videoWidget.StartVideoDeviceAsync(devicePath)
+				mw.videoWidget.StartVideoDevice(devicePath)
 			})
 			mw.diskWidget.SetOnVideoDisconnect(func() {
 				mw.videoWidget.StopVideoAsync()

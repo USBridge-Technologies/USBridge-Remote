@@ -588,6 +588,35 @@ func (vw *VideoWidget) safeRelayDebugInfo() string {
 	return vw.tailscaleService.VideoRelayDebugInfo("")
 }
 
+// videoSwitchReadyTimeout is how long a monitor switch keeps Devices
+// controls locked while waiting for the first frame of the new capture.
+// Covers Sunshine picking up the new output plus one Moonlight handshake
+// (and one stuck-no-frame retry) without leaving the UI stuck forever.
+const videoSwitchReadyTimeout = 20 * time.Second
+
+// waitForNextFirstFrame blocks until a video trace newer than prevTrace
+// has delivered a frame, the widget is closing, or timeout elapses.
+func (vw *VideoWidget) waitForNextFirstFrame(prevTrace uint64, timeout time.Duration) {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			logrus.Warnf("⚠️ [VIDEO-SELECT] timed out waiting for first frame after monitor switch")
+			return
+		case <-ticker.C:
+			if vw.isClosing.Load() {
+				return
+			}
+			id := vw.videoTraceID.Load()
+			if id > prevTrace && vw.videoTraceFirstFrame.Load() != 0 {
+				return
+			}
+		}
+	}
+}
+
 func (vw *VideoWidget) noteVideoTraceFirstFrame(frameNum int64) {
 	now := time.Now().UnixNano()
 	if !vw.videoTraceFirstFrame.CompareAndSwap(0, now) {
