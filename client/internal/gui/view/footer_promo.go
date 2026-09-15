@@ -66,6 +66,7 @@ type FooterTintChip struct {
 	label     string
 	tint      color.Color
 	onTap     func()
+	onHover   func(bool)
 	hovered   bool
 	icon      fyne.Resource
 	hoverIcon fyne.Resource
@@ -114,6 +115,10 @@ func (c *FooterTintChip) Cursor() desktop.Cursor {
 }
 
 func (c *FooterTintChip) MouseIn(*desktop.MouseEvent) {
+	if c.onHover != nil {
+		c.onHover(true)
+		return
+	}
 	c.hovered = true
 	c.refreshVisuals()
 }
@@ -121,7 +126,16 @@ func (c *FooterTintChip) MouseIn(*desktop.MouseEvent) {
 func (c *FooterTintChip) MouseMoved(*desktop.MouseEvent) {}
 
 func (c *FooterTintChip) MouseOut() {
+	if c.onHover != nil {
+		c.onHover(false)
+		return
+	}
 	c.hovered = false
+	c.refreshVisuals()
+}
+
+func (c *FooterTintChip) setHovered(on bool) {
+	c.hovered = on
 	c.refreshVisuals()
 }
 
@@ -166,10 +180,12 @@ func (c *FooterTintChip) CreateRenderer() fyne.WidgetRenderer {
 type FooterHardwareChip struct {
 	widget.BaseWidget
 
-	onOpen    func()
-	onRestore func()
-	label     *FooterTintChip
-	extBtn    *iconChromeButton
+	onOpen       func()
+	onRestore    func()
+	label        *FooterTintChip
+	extBtn       *iconChromeButton
+	labelHovered bool
+	iconHovered  bool
 }
 
 func NewFooterHardwareChip(label string) *FooterHardwareChip {
@@ -179,6 +195,7 @@ func NewFooterHardwareChip(label string) *FooterHardwareChip {
 			c.onRestore()
 		}
 	})
+	c.label.onHover = c.setLabelHovered
 	c.ExtendBaseWidget(c)
 	c.Hide()
 	return c
@@ -201,6 +218,36 @@ func (c *FooterHardwareChip) SetActive(on bool) {
 	c.Refresh()
 }
 
+func (c *FooterHardwareChip) setLabelHovered(on bool) {
+	c.labelHovered = on
+	c.scheduleHover()
+}
+
+func (c *FooterHardwareChip) setIconHovered(on bool) {
+	c.iconHovered = on
+	c.scheduleHover()
+}
+
+func (c *FooterHardwareChip) scheduleHover() {
+	if c.labelHovered || c.iconHovered {
+		c.applyHover()
+		return
+	}
+	time.AfterFunc(80*time.Millisecond, func() {
+		fyne.Do(c.applyHover)
+	})
+}
+
+func (c *FooterHardwareChip) applyHover() {
+	on := c.labelHovered || c.iconHovered
+	if c.label != nil {
+		c.label.setHovered(on)
+	}
+	if c.extBtn != nil {
+		c.extBtn.setHovered(on)
+	}
+}
+
 func (c *FooterHardwareChip) CreateRenderer() fyne.WidgetRenderer {
 	btnSize := fyne.NewSize(deviceDashboardBusySpinnerSize, deviceDashboardBusySpinnerSize)
 	c.extBtn = newIconChromeButton(iconChromeButtonSpec{
@@ -212,6 +259,7 @@ func (c *FooterHardwareChip) CreateRenderer() fyne.WidgetRenderer {
 		HoverIcon:    assets.OpenExternalIconLimeHover,
 		IconSize:     fyne.NewSize(10, 10),
 		ButtonSize:   btnSize,
+		OnHover:      c.setIconHovered,
 		OnTapped: func() {
 			if c.onOpen != nil {
 				c.onOpen()

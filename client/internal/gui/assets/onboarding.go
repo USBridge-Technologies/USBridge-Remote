@@ -193,10 +193,10 @@ var (
 	// ExpandIconMuted/Hover -- expand-1-svgrepo-com.svg, the footer chip's
 	// "put the dismissed Add card back" glyph. Same mute/hover pair as
 	// ScriptFooterStatus's dismiss X (#8f9381 / #c5c8b5).
-	ExpandIconMuted = fyne.NewStaticResource("expand-1-svgrepo-com-muted.svg", recolorFillIcon(expandIcon, "#8f9381"))
-	ExpandIconHover = fyne.NewStaticResource("expand-1-svgrepo-com-hover.svg", recolorFillIcon(expandIcon, "#c5c8b5"))
-	ExpandIconTeal  = fyne.NewStaticResource("expand-1-svgrepo-com-teal.svg", recolorFillIcon(expandIcon, "#41e0c3"))
-	ExpandIconWhite = fyne.NewStaticResource("expand-1-svgrepo-com-white.svg", recolorFillIcon(expandIcon, "#f5f5f5"))
+	ExpandIconMuted           = fyne.NewStaticResource("expand-1-svgrepo-com-muted.svg", recolorFillIcon(expandIcon, "#8f9381"))
+	ExpandIconHover           = fyne.NewStaticResource("expand-1-svgrepo-com-hover.svg", recolorFillIcon(expandIcon, "#c5c8b5"))
+	ExpandIconTeal            = fyne.NewStaticResource("expand-1-svgrepo-com-teal.svg", recolorFillIcon(expandIcon, "#41e0c3"))
+	ExpandIconWhite           = fyne.NewStaticResource("expand-1-svgrepo-com-white.svg", recolorFillIcon(expandIcon, "#f5f5f5"))
 	OpenExternalIconLime      = fyne.NewStaticResource("open-external-lime.svg", recolorFillIcon(openExternalIcon, "#c4e77a"))
 	OpenExternalIconLimeHover = fyne.NewStaticResource("open-external-lime-hover.svg", recolorFillIcon(openExternalIcon, "#f5f5f5"))
 	OpenExternalIconTeal      = fyne.NewStaticResource("open-external-teal.svg", recolorFillIcon(openExternalIcon, "#41e0c3"))
@@ -301,7 +301,7 @@ var (
 	DiscIconStatusBar      = fyne.NewStaticResource("disc-svgrepo-com-statusbar.svg", recolorFillIcon(discIcon, "#c4e77a"))
 	UploadIcon             = fyne.NewStaticResource("upload-svgrepo-com.svg", recolorStrokeIcon(uploadIcon, "#F5F5F5", "2"))
 	UploadIconMuted        = fyne.NewStaticResource("upload-svgrepo-com-muted.svg", recolorStrokeIcon(uploadIcon, "#8E8E8E", "2"))
-	DownloadIconDark       = fyne.NewStaticResource("download-svgrepo-com-dark.svg", recolorStrokeIcon(downloadIcon, "#4c6803", "2"))
+	DownloadIconDark       = fyne.NewStaticResource("download-svgrepo-com-dark.svg", recolorStrokeIcon(downloadIcon, "#0b0f12", "2"))
 	CameraIcon             = fyne.NewStaticResource("cam-svgrepo-com.svg", recolorStrokeIcon(cameraIcon, "#C9C9C9", "1.8"))
 	CameraIconActive       = fyne.NewStaticResource("cam-svgrepo-com-active.svg", recolorStrokeIcon(cameraIcon, "#93C572", "1.8"))
 	// CameraIconStatusBar is the Control header's own video/fps/resolution
@@ -404,10 +404,10 @@ var (
 	// (LogoUSBridge2.0-mobil.svg) — same lime fill, narrower crop without
 	// the desktop lockup's left mark so it fits after the settings gear.
 	LogoUSBridgeLockupMobile = fyne.NewStaticResource("LogoUSBridge2.0-mobil.svg", logoUSBridgeLockupMobile)
-	LinuxOSIcon        = fyne.NewStaticResource("linux-svgrepo-com-os.svg", recolorMonoIcon(linuxOSIcon, "#C9C9C9", "1.8"))
-	WindowsOSIcon      = fyne.NewStaticResource("windows-svgrepo-com-os.svg", recolorMonoIcon(windowsOSIcon, "#C9C9C9", "1.8"))
-	MacOSIcon          = fyne.NewStaticResource("macos-svgrepo-com-os.svg", recolorMonoIcon(macosOSIcon, "#C9C9C9", "1.8"))
-	OnboardingStep01   = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
+	LinuxOSIcon              = fyne.NewStaticResource("linux-svgrepo-com-os.svg", recolorMonoIcon(linuxOSIcon, "#C9C9C9", "1.8"))
+	WindowsOSIcon            = fyne.NewStaticResource("windows-svgrepo-com-os.svg", recolorMonoIcon(windowsOSIcon, "#C9C9C9", "1.8"))
+	MacOSIcon                = fyne.NewStaticResource("macos-svgrepo-com-os.svg", recolorMonoIcon(macosOSIcon, "#C9C9C9", "1.8"))
+	OnboardingStep01         = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
 )
 
 func colorizeArrow(source []byte, fill string, mirror bool) []byte {

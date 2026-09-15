@@ -293,6 +293,9 @@ func (mw *MainWindow) Show() {
 
 	mw.app.Lifecycle().SetOnStarted(func() {
 		taskbar.ProbeCOM(mw.window)
+		if debugPreviewUpdateDialog {
+			mw.previewUpdateAvailableDialog()
+		}
 	})
 
 	mw.window.ShowAndRun()

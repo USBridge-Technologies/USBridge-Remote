@@ -274,11 +274,11 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 	}
 
 	trialBtn := newIconChromeButton(iconChromeButtonSpec{
-		NormalFill:      design.ColorConnectionAddFill,
-		HoverFill:       design.ColorConnectionAddFillHover,
+		NormalFill:      design.ColorConnectionBadgeText,
+		HoverFill:       color.NRGBA{R: 0x61, G: 0xf0, B: 0xd3, A: 0xff},
 		Stroke:          color.Transparent,
-		LabelColor:      color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff},
-		HoverLabelColor: color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff},
+		LabelColor:      design.ColorGray950,
+		HoverLabelColor: design.ColorGray950,
 		LabelSize:       10,
 		LabelBold:       true,
 		CornerRadius:    6,

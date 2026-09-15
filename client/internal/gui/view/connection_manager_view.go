@@ -1956,6 +1956,14 @@ func (b *iconChromeButton) SetLabelColor(labelColor color.Color) {
 	b.refreshVisuals()
 }
 
+func (b *iconChromeButton) setHovered(on bool) {
+	if b.spec.Disabled || b.loading {
+		return
+	}
+	b.hovered = on
+	b.refreshVisuals()
+}
+
 func (b *iconChromeButton) MouseIn(*desktop.MouseEvent) {
 	if b.spec.Disabled || b.loading {
 		return

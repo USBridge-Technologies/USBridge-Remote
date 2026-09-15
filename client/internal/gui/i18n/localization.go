@@ -46,143 +46,143 @@ type LocalizedStrings struct {
 
 	// Connections screen copy. Technical labels (LAN, TS, Token, QR, KVM,
 	// Agent, OS, USBridge, Firmware, master key, IP) stay in English.
-	ConnectionsHeaderSubtitle       string
-	ConnectionsHeaderSubtitleMobile string
-	ViewModeGrid                  string
-	ViewModeList                  string
-	AddNewConnectTitle            string
-	AddConnectHintLine1           string
-	AddConnectHintLine2           string
-	ScanQR                        string
-	ScanQRShort                   string
-	PasteLink                     string
-	ManualEntry                   string
-	OrEnterManually               string
-	AddConnectionSubtitle         string
-	TailscaleRedirectHint         string
-	AutoRegistrationBadge         string
-	ConnectionBadgeUnknown        string
-	ConnectionBadgeUnknownShort   string
-	MenuPowerReset                string
-	MenuInfo                      string
-	MenuCommunity                 string
-	MenuAccount                   string
-	MenuWebsite                   string
-	TabLabelControl               string
-	TabLabelDevices               string
-	TabLabelSnapshots             string
-	TabLabelScripts               string
-	AccountTitle                  string
-	AccountWaitingGoogle          string
-	AccountSignedInAs             string
-	AccountForgotPassphrase       string
-	AccountResetIt                string
-	AccountLogOut                 string
-	AccountLoginIntro             string
-	AccountLoginGoogle            string
-	AccountLicensesLoadErr        string
-	AccountNoLicenses             string
-	AccountLoadingLicenses        string
-	AccountConnectionsSync        string
-	AccountSyncOn                 string
-	AccountSyncOff                string
-	AccountSyncOnDesc             string
-	AccountResetWarn              string
-	AccountNewPassphrase          string
-	AccountResetOverwrite         string
-	AccountResetting              string
-	AccountResetFailed            string
-	AccountSetPassphraseHint      string
-	AccountPassphrasePlaceholder  string
-	AccountSetPassphrase          string
-	AccountLoginTimeout           string
-	AccountLoginExpired           string
-	TailscaleSignInGoogle         string
-	TailscaleSignOut              string
-	AgentCatalogSubtitle          string
-	AgentCatalogFooterHint        string
-	AgentFeatLowLatency           string
-	AgentFeatClipboard            string
-	AgentFeatMultiMonitor         string
-	AgentFeatWebClient            string
-	AgentFeatPreLogin             string
-	AgentFeatFastConnect          string
-	AgentFeat444                  string
-	AgentFeatUSB                  string
-	AgentFeatRecording            string
-	AgentFeatCompanyRollout       string
-	AgentChipBasic                string
-	AgentChipPro                  string
-	VideoCodec                    string
-	VideoLowLatencyFmt            string
-	VideoHighFidelityFmt          string
-	DevicesMountNewISO            string
-	DevicesMount                  string
-	DevicesEmptyAudio             string
-	DevicesEmptyStorage           string
-	DevicesEmptyUSB               string
-	DevicesEmptyNetwork           string
-	DevicesEmptyBackup            string
-	DevicesCardNetwork            string
-	DevicesCardBackups            string
-	SnapshotsTitle                string
-	SnapshotsHeaderSubtitle       string
-	SnapshotsHeaderSubtitleMobile string
-	SnapshotsCountFmt             string
-	SnapshotsColDate              string
-	SnapshotsColSize              string
-	SnapshotsMountBackupFlash     string
-	SnapshotsStatusAvailable      string
-	SnapshotsStatusMounted        string
-	ScriptsMCPSubtitle            string
-	ScriptsAutomationTitle        string
-	ScriptsAutomationSubtitle     string
-	ScriptsCountFmt               string
-	ScriptsColSource              string
-	ScriptsNewEMMC                string
-	ScriptsNewSD                  string
-	ScriptsNewEMMCMobile          string
-	ScriptsNewSDMobile            string
-	PCPanelPowerControls          string
-	PCPanelPowerHardwareOnly      string
-	PCPanelAction                 string
-	PCPanelHoldToConfirm          string
-	PCPanelDuration               string
-	PCPanelShortHold              string
-	PCPanelLongHold               string
-	PCPanelPowerOff               string
-	ConnectingDevice              string
-	SnapshotsEmpty                string
-	ScriptsEmpty                  string
-	ScriptsLocalEndpoint          string
-	ScriptsLocalModels            string
-	ScriptsStateIdle              string
-	ScriptsStateStopped           string
-	ScriptsStateRunning           string
-	QRScanSuccess                 string
-	ConnectionColOS               string
-	ConnectionColName             string
-	ConnectionColInfo             string
-	ConnectionColState            string
-	ConnectionColNetwork          string
-	ConnectionColRouteBridge      string
-	ConnectionColActions          string
-	MobileColAction               string
-	ConnectionNameField           string
-	ConnectionLANPlaceholder      string
-	ConnectionTSPlaceholder       string
-	AwaitingConnection            string
-	FirmwarePromoTitle            string
-	FirmwarePromoSubtitle         string
-	FirmwarePromoTrial            string // "Download"
-	FirmwarePromoFeatureBIOS      string
+	ConnectionsHeaderSubtitle         string
+	ConnectionsHeaderSubtitleMobile   string
+	ViewModeGrid                      string
+	ViewModeList                      string
+	AddNewConnectTitle                string
+	AddConnectHintLine1               string
+	AddConnectHintLine2               string
+	ScanQR                            string
+	ScanQRShort                       string
+	PasteLink                         string
+	ManualEntry                       string
+	OrEnterManually                   string
+	AddConnectionSubtitle             string
+	TailscaleRedirectHint             string
+	AutoRegistrationBadge             string
+	ConnectionBadgeUnknown            string
+	ConnectionBadgeUnknownShort       string
+	MenuPowerReset                    string
+	MenuInfo                          string
+	MenuCommunity                     string
+	MenuAccount                       string
+	MenuWebsite                       string
+	TabLabelControl                   string
+	TabLabelDevices                   string
+	TabLabelSnapshots                 string
+	TabLabelScripts                   string
+	AccountTitle                      string
+	AccountWaitingGoogle              string
+	AccountSignedInAs                 string
+	AccountForgotPassphrase           string
+	AccountResetIt                    string
+	AccountLogOut                     string
+	AccountLoginIntro                 string
+	AccountLoginGoogle                string
+	AccountLicensesLoadErr            string
+	AccountNoLicenses                 string
+	AccountLoadingLicenses            string
+	AccountConnectionsSync            string
+	AccountSyncOn                     string
+	AccountSyncOff                    string
+	AccountSyncOnDesc                 string
+	AccountResetWarn                  string
+	AccountNewPassphrase              string
+	AccountResetOverwrite             string
+	AccountResetting                  string
+	AccountResetFailed                string
+	AccountSetPassphraseHint          string
+	AccountPassphrasePlaceholder      string
+	AccountSetPassphrase              string
+	AccountLoginTimeout               string
+	AccountLoginExpired               string
+	TailscaleSignInGoogle             string
+	TailscaleSignOut                  string
+	AgentCatalogSubtitle              string
+	AgentCatalogFooterHint            string
+	AgentFeatLowLatency               string
+	AgentFeatClipboard                string
+	AgentFeatMultiMonitor             string
+	AgentFeatWebClient                string
+	AgentFeatPreLogin                 string
+	AgentFeatFastConnect              string
+	AgentFeat444                      string
+	AgentFeatUSB                      string
+	AgentFeatRecording                string
+	AgentFeatCompanyRollout           string
+	AgentChipBasic                    string
+	AgentChipPro                      string
+	VideoCodec                        string
+	VideoLowLatencyFmt                string
+	VideoHighFidelityFmt              string
+	DevicesMountNewISO                string
+	DevicesMount                      string
+	DevicesEmptyAudio                 string
+	DevicesEmptyStorage               string
+	DevicesEmptyUSB                   string
+	DevicesEmptyNetwork               string
+	DevicesEmptyBackup                string
+	DevicesCardNetwork                string
+	DevicesCardBackups                string
+	SnapshotsTitle                    string
+	SnapshotsHeaderSubtitle           string
+	SnapshotsHeaderSubtitleMobile     string
+	SnapshotsCountFmt                 string
+	SnapshotsColDate                  string
+	SnapshotsColSize                  string
+	SnapshotsMountBackupFlash         string
+	SnapshotsStatusAvailable          string
+	SnapshotsStatusMounted            string
+	ScriptsMCPSubtitle                string
+	ScriptsAutomationTitle            string
+	ScriptsAutomationSubtitle         string
+	ScriptsCountFmt                   string
+	ScriptsColSource                  string
+	ScriptsNewEMMC                    string
+	ScriptsNewSD                      string
+	ScriptsNewEMMCMobile              string
+	ScriptsNewSDMobile                string
+	PCPanelPowerControls              string
+	PCPanelPowerHardwareOnly          string
+	PCPanelAction                     string
+	PCPanelHoldToConfirm              string
+	PCPanelDuration                   string
+	PCPanelShortHold                  string
+	PCPanelLongHold                   string
+	PCPanelPowerOff                   string
+	ConnectingDevice                  string
+	SnapshotsEmpty                    string
+	ScriptsEmpty                      string
+	ScriptsLocalEndpoint              string
+	ScriptsLocalModels                string
+	ScriptsStateIdle                  string
+	ScriptsStateStopped               string
+	ScriptsStateRunning               string
+	QRScanSuccess                     string
+	ConnectionColOS                   string
+	ConnectionColName                 string
+	ConnectionColInfo                 string
+	ConnectionColState                string
+	ConnectionColNetwork              string
+	ConnectionColRouteBridge          string
+	ConnectionColActions              string
+	MobileColAction                   string
+	ConnectionNameField               string
+	ConnectionLANPlaceholder          string
+	ConnectionTSPlaceholder           string
+	AwaitingConnection                string
+	FirmwarePromoTitle                string
+	FirmwarePromoSubtitle             string
+	FirmwarePromoTrial                string // "Download"
+	FirmwarePromoFeatureBIOS          string
 	FirmwarePromoFeatureLatency       string
 	FirmwarePromoFeatureLatencyMobile string
-	FirmwarePromoFeatureScripts   string
-	FirmwarePromoFeatureSnapshot  string
-	FirmwarePromoFeatureL0        string
-	FirmwarePromoSDCardOnly       string
-	FirmwarePromoSDCardEMMC       string
+	FirmwarePromoFeatureScripts       string
+	FirmwarePromoFeatureSnapshot      string
+	FirmwarePromoFeatureL0            string
+	FirmwarePromoSDCardOnly           string
+	FirmwarePromoSDCardEMMC           string
 
 	// Video Widget
 	VideoNotStarted      string
@@ -576,167 +576,167 @@ func EN() *LocalizedStrings {
 		TabScripts:              "AI & Scripts",
 
 		// Connection Manager
-		ConnectionManager:             "🔌 Connection Manager",
-		SavedConnections:              "Connections",
-		ConnectionManagement:          "💾 Connection Management",
-		AddressAndTokenHint:           "💡 Address and Master Key are entered in the bar above",
-		ConnectionHeroEyebrow:         "USBRIDGE ACCESS",
-		ConnectionPanelHint:           "Launch a saved profile or create a new one.",
-		ConnectionNameLabel:           "Name for saving:",
-		ConnectionNamePlaceholder:     "Connection name (e.g.: My PC)",
-		SaveButton:                    "💾 Save",
-		DeleteButton:                  "Delete",
-		EditButton:                    "✏️",
-		QRScannerButton:               "📷 QR",
-		EditConnectionTitle:           "Edit connection",
-		AddConnectionTitle:            "Add connection",
-		AddNewDeviceTitle:             "Add a new device",
-		NoSavedConnections:            "No saved connections yet",
-		NoSavedConnectionsHint:        "Use QR or add a connection below to get started.",
-		OnboardingStepConnect:         "Plug usb-c into target host for power and hid. Connect video path from target hdmi to capture dongle.",
-		OnboardingStepIP:              "Navigate to settings -> internet to connect your network.",
-		OnboardingStepScan:            "Navigate to the Master Key section and scan the QR code. You can also enter the IP and Master Key manually.",
-		DeleteConnectionTitle:         "Delete connection",
-		DeleteConnectionConfirm:       "Are you sure you want to delete connection \"%s\"?",
-		TailscaleRegisterLabel:        "Register in Tailscale",
-		ConnectingToConnection:        "Connecting to \"%s\"…",
-		ConnectionsHeaderSubtitle:       "Your remote desktop and hardware control sessions.",
-		ConnectionsHeaderSubtitleMobile: "Your remote desktop and hardware control sessions.",
-		ViewModeGrid:                  "Grid",
-		ViewModeList:                  "List",
-		AddNewConnectTitle:            "Add New Connect",
-		AddConnectHintLine1:           "Scan a QR code or paste a link",
-		AddConnectHintLine2:           "to add a hardware or software agent",
-		ScanQR:                        "Scan QR",
-		ScanQRShort:                   "QR",
-		PasteLink:                     "Paste Link",
-		ManualEntry:                   "Manual",
-		OrEnterManually:               "OR ENTER MANUALLY",
-		AddConnectionSubtitle:         "Pair a hardware or software agent using its IP address and master key.",
-		TailscaleRedirectHint:         "After connection, the redirect will open on the web.",
-		AutoRegistrationBadge:         "AUTO-REGISTRATION",
-		ConnectionBadgeUnknown:        "Unknown",
-		ConnectionBadgeUnknownShort:   "Unk",
-		MenuPowerReset:                "Power Reset",
-		MenuInfo:                      "Info",
-		MenuCommunity:                 "Community",
-		MenuAccount:                   "Account",
-		MenuWebsite:                   "Website",
-		TabLabelControl:               "Control",
-		TabLabelDevices:               "Devices",
-		TabLabelSnapshots:             "Snapshots",
-		TabLabelScripts:               "AI & Scripts",
-		AccountTitle:                  "Account",
-		AccountWaitingGoogle:          "Waiting for Google login to complete in your browser...",
-		AccountSignedInAs:             "Signed in as",
-		AccountForgotPassphrase:       "Forgot passphrase? ",
-		AccountResetIt:                "Reset it",
-		AccountLogOut:                 "Log out",
-		AccountLoginIntro:             "Log in to see your USBridge licenses and sync your saved connections across devices.",
-		AccountLoginGoogle:            "Log in with Google",
-		AccountLicensesLoadErr:        "Could not load licenses: %v",
-		AccountNoLicenses:             "No licenses on this account yet.",
-		AccountLoadingLicenses:        "Loading your licenses…",
-		AccountConnectionsSync:        "Connections sync",
-		AccountSyncOn:                 "on",
-		AccountSyncOff:                "off",
-		AccountSyncOnDesc:             "End-to-end encrypted sync of your saved connections across devices.",
-		AccountResetWarn:              "Resetting starts fresh: this device's own saved connections will overwrite whatever is currently synced on this account under the old passphrase -- that old synced data becomes permanently unreadable the moment you do this. Enter a new passphrase:",
-		AccountNewPassphrase:          "New sync passphrase",
-		AccountResetOverwrite:         "Reset & overwrite",
-		AccountResetting:              "Resetting...",
-		AccountResetFailed:            "Reset failed: %v",
-		AccountSetPassphraseHint:      "Set a sync passphrase to sync your saved connections across devices (never sent to our servers):",
-		AccountPassphrasePlaceholder:  "Sync passphrase",
-		AccountSetPassphrase:          "Set passphrase",
-		AccountLoginTimeout:           "Didn't detect a completed login yet — try \"Log in\" again.",
-		AccountLoginExpired:           "Login link expired — click \"Log in\" again.",
-		TailscaleSignInGoogle:         "Sign In With Google",
-		TailscaleSignOut:              "Sign Out",
-		AgentCatalogSubtitle:          "Install the host service on the machine you want to control.",
-		AgentCatalogFooterHint:        "The Agent is installed on the target machine, not this client.",
-		AgentFeatLowLatency:           "Ultra-low latency streaming",
-		AgentFeatClipboard:            "Shared clipboard",
-		AgentFeatMultiMonitor:         "Multi-monitor support",
-		AgentFeatWebClient:            "Browser web client",
-		AgentFeatPreLogin:             "Windows pre-login access",
-		AgentFeatFastConnect:          "Fast connect",
-		AgentFeat444:                  "4:4:4 color fidelity",
-		AgentFeatUSB:                  "USB device emulation",
-		AgentFeatRecording:            "Session recording and audit logs",
-		AgentFeatCompanyRollout:       "Built for company-wide rollout",
-		AgentChipBasic:                "+ Basic",
-		AgentChipPro:                  "+ Pro",
-		VideoCodec:                    "Codec",
-		VideoLowLatencyFmt:            "Low Latency (%.1f %s)",
-		VideoHighFidelityFmt:          "High Fidelity (%.1f %s)",
-		DevicesMountNewISO:            "Mount New ISO",
-		DevicesMount:                  "Mount",
-		DevicesEmptyAudio:             "No audio devices",
-		DevicesEmptyStorage:           "No storage or ISO media",
-		DevicesEmptyUSB:               "No USB devices",
-		DevicesEmptyNetwork:           "No network bridge devices",
-		DevicesEmptyBackup:            "No backup devices",
-		DevicesCardNetwork:            "Network",
-		DevicesCardBackups:            "Backups",
-		SnapshotsTitle:                "Snapshots",
-		SnapshotsHeaderSubtitle:       "Immutable restore points of your data. Mount one without changing the original.",
-		SnapshotsHeaderSubtitleMobile: "Restore points. Mount without changing the original.",
-		SnapshotsCountFmt:             "%d Snapshots",
-		SnapshotsColDate:              "DATE",
-		SnapshotsColSize:              "SIZE",
-		SnapshotsMountBackupFlash:     "Mount backup flash",
-		SnapshotsStatusAvailable:      "Available",
-		SnapshotsStatusMounted:        "Mounted",
-		ScriptsMCPSubtitle:            "Local signed MCP endpoint.",
-		ScriptsAutomationTitle:        "Automation Scripts",
-		ScriptsAutomationSubtitle:     "Starlark jobs on the device.",
-		ScriptsCountFmt:               "%d Scripts",
-		ScriptsColSource:              "SOURCE",
-		ScriptsNewEMMC:                "New (eMMC)",
-		ScriptsNewSD:                  "New (SD Card)",
-		ScriptsNewEMMCMobile:          "(eMMC)",
-		ScriptsNewSDMobile:            "(SD Card)",
-		PCPanelPowerControls:          "Power controls",
-		PCPanelPowerHardwareOnly:      "Power controls are available on USBridge hardware only.",
-		PCPanelAction:                 "Action",
-		PCPanelHoldToConfirm:          "Hold to Confirm",
-		PCPanelDuration:               "Duration",
-		PCPanelShortHold:              "Short (0s)",
-		PCPanelLongHold:               "Long (10s)",
-		PCPanelPowerOff:               "Power Off",
-		ConnectingDevice:              "connecting device",
-		SnapshotsEmpty:                "No snapshots yet",
-		ScriptsEmpty:                  "No scripts yet",
-		ScriptsLocalEndpoint:          "Local endpoint",
-		ScriptsLocalModels:            "Local models",
-		ScriptsStateIdle:              "Idle",
-		ScriptsStateStopped:           "Stopped",
-		ScriptsStateRunning:           "Running",
-		QRScanSuccess:                 "QR code successfully scanned",
-		ConnectionColOS:               "OS",
-		ConnectionColName:             "NAME",
-		ConnectionColInfo:             "INFO",
-		ConnectionColState:            "STATE",
-		ConnectionColNetwork:          "NETWORK",
-		ConnectionColRouteBridge:      "ROUTE BRIDGE",
-		ConnectionColActions:          "ACTIONS",
-		MobileColAction:               "ACTION",
-		ConnectionNameField:           "Name",
-		ConnectionLANPlaceholder:      "LAN address",
-		ConnectionTSPlaceholder:       "Tailscale address",
-		AwaitingConnection:            "Awaiting connection...",
-		FirmwarePromoTitle:            "USBridge Firmware",
-		FirmwarePromoSubtitle:         "Turn your board into a hardware KVM",
-		FirmwarePromoTrial:            "Download",
-		FirmwarePromoFeatureBIOS:      "BIOS-in-terminal (OCR)",
+		ConnectionManager:                 "🔌 Connection Manager",
+		SavedConnections:                  "Connections",
+		ConnectionManagement:              "💾 Connection Management",
+		AddressAndTokenHint:               "💡 Address and Master Key are entered in the bar above",
+		ConnectionHeroEyebrow:             "USBRIDGE ACCESS",
+		ConnectionPanelHint:               "Launch a saved profile or create a new one.",
+		ConnectionNameLabel:               "Name for saving:",
+		ConnectionNamePlaceholder:         "Connection name (e.g.: My PC)",
+		SaveButton:                        "💾 Save",
+		DeleteButton:                      "Delete",
+		EditButton:                        "✏️",
+		QRScannerButton:                   "📷 QR",
+		EditConnectionTitle:               "Edit connection",
+		AddConnectionTitle:                "Add connection",
+		AddNewDeviceTitle:                 "Add a new device",
+		NoSavedConnections:                "No saved connections yet",
+		NoSavedConnectionsHint:            "Use QR or add a connection below to get started.",
+		OnboardingStepConnect:             "Plug usb-c into target host for power and hid. Connect video path from target hdmi to capture dongle.",
+		OnboardingStepIP:                  "Navigate to settings -> internet to connect your network.",
+		OnboardingStepScan:                "Navigate to the Master Key section and scan the QR code. You can also enter the IP and Master Key manually.",
+		DeleteConnectionTitle:             "Delete connection",
+		DeleteConnectionConfirm:           "Are you sure you want to delete connection \"%s\"?",
+		TailscaleRegisterLabel:            "Register in Tailscale",
+		ConnectingToConnection:            "Connecting to \"%s\"…",
+		ConnectionsHeaderSubtitle:         "Your remote desktop and hardware control sessions.",
+		ConnectionsHeaderSubtitleMobile:   "Your remote desktop and hardware control sessions.",
+		ViewModeGrid:                      "Grid",
+		ViewModeList:                      "List",
+		AddNewConnectTitle:                "Add New Connect",
+		AddConnectHintLine1:               "Scan a QR code or paste a link",
+		AddConnectHintLine2:               "to add a hardware or software agent",
+		ScanQR:                            "Scan QR",
+		ScanQRShort:                       "QR",
+		PasteLink:                         "Paste Link",
+		ManualEntry:                       "Manual",
+		OrEnterManually:                   "OR ENTER MANUALLY",
+		AddConnectionSubtitle:             "Pair a hardware or software agent using its IP address and master key.",
+		TailscaleRedirectHint:             "After connection, the redirect will open on the web.",
+		AutoRegistrationBadge:             "AUTO-REGISTRATION",
+		ConnectionBadgeUnknown:            "Unknown",
+		ConnectionBadgeUnknownShort:       "Unk",
+		MenuPowerReset:                    "Power Reset",
+		MenuInfo:                          "Info",
+		MenuCommunity:                     "Community",
+		MenuAccount:                       "Account",
+		MenuWebsite:                       "Website",
+		TabLabelControl:                   "Control",
+		TabLabelDevices:                   "Devices",
+		TabLabelSnapshots:                 "Snapshots",
+		TabLabelScripts:                   "AI & Scripts",
+		AccountTitle:                      "Account",
+		AccountWaitingGoogle:              "Waiting for Google login to complete in your browser...",
+		AccountSignedInAs:                 "Signed in as",
+		AccountForgotPassphrase:           "Forgot passphrase? ",
+		AccountResetIt:                    "Reset it",
+		AccountLogOut:                     "Log out",
+		AccountLoginIntro:                 "Log in to see your USBridge licenses and sync your saved connections across devices.",
+		AccountLoginGoogle:                "Log in with Google",
+		AccountLicensesLoadErr:            "Could not load licenses: %v",
+		AccountNoLicenses:                 "No licenses on this account yet.",
+		AccountLoadingLicenses:            "Loading your licenses…",
+		AccountConnectionsSync:            "Connections sync",
+		AccountSyncOn:                     "on",
+		AccountSyncOff:                    "off",
+		AccountSyncOnDesc:                 "End-to-end encrypted sync of your saved connections across devices.",
+		AccountResetWarn:                  "Resetting starts fresh: this device's own saved connections will overwrite whatever is currently synced on this account under the old passphrase -- that old synced data becomes permanently unreadable the moment you do this. Enter a new passphrase:",
+		AccountNewPassphrase:              "New sync passphrase",
+		AccountResetOverwrite:             "Reset & overwrite",
+		AccountResetting:                  "Resetting...",
+		AccountResetFailed:                "Reset failed: %v",
+		AccountSetPassphraseHint:          "Set a sync passphrase to sync your saved connections across devices (never sent to our servers):",
+		AccountPassphrasePlaceholder:      "Sync passphrase",
+		AccountSetPassphrase:              "Set passphrase",
+		AccountLoginTimeout:               "Didn't detect a completed login yet — try \"Log in\" again.",
+		AccountLoginExpired:               "Login link expired — click \"Log in\" again.",
+		TailscaleSignInGoogle:             "Sign In With Google",
+		TailscaleSignOut:                  "Sign Out",
+		AgentCatalogSubtitle:              "Install the host service on the machine you want to control.",
+		AgentCatalogFooterHint:            "The Agent is installed on the target machine, not this client.",
+		AgentFeatLowLatency:               "Ultra-low latency streaming",
+		AgentFeatClipboard:                "Shared clipboard",
+		AgentFeatMultiMonitor:             "Multi-monitor support",
+		AgentFeatWebClient:                "Browser web client",
+		AgentFeatPreLogin:                 "Windows pre-login access",
+		AgentFeatFastConnect:              "Fast connect",
+		AgentFeat444:                      "4:4:4 color fidelity",
+		AgentFeatUSB:                      "USB device emulation",
+		AgentFeatRecording:                "Session recording and audit logs",
+		AgentFeatCompanyRollout:           "Built for company-wide rollout",
+		AgentChipBasic:                    "+ Basic",
+		AgentChipPro:                      "+ Pro",
+		VideoCodec:                        "Codec",
+		VideoLowLatencyFmt:                "Low Latency (%.1f %s)",
+		VideoHighFidelityFmt:              "High Fidelity (%.1f %s)",
+		DevicesMountNewISO:                "Mount New ISO",
+		DevicesMount:                      "Mount",
+		DevicesEmptyAudio:                 "No audio devices",
+		DevicesEmptyStorage:               "No storage or ISO media",
+		DevicesEmptyUSB:                   "No USB devices",
+		DevicesEmptyNetwork:               "No network bridge devices",
+		DevicesEmptyBackup:                "No backup devices",
+		DevicesCardNetwork:                "Network",
+		DevicesCardBackups:                "Backups",
+		SnapshotsTitle:                    "Snapshots",
+		SnapshotsHeaderSubtitle:           "Immutable restore points of your data. Mount one without changing the original.",
+		SnapshotsHeaderSubtitleMobile:     "Restore points. Mount without changing the original.",
+		SnapshotsCountFmt:                 "%d Snapshots",
+		SnapshotsColDate:                  "DATE",
+		SnapshotsColSize:                  "SIZE",
+		SnapshotsMountBackupFlash:         "Mount backup flash",
+		SnapshotsStatusAvailable:          "Available",
+		SnapshotsStatusMounted:            "Mounted",
+		ScriptsMCPSubtitle:                "Local signed MCP endpoint.",
+		ScriptsAutomationTitle:            "Automation Scripts",
+		ScriptsAutomationSubtitle:         "Starlark jobs on the device.",
+		ScriptsCountFmt:                   "%d Scripts",
+		ScriptsColSource:                  "SOURCE",
+		ScriptsNewEMMC:                    "New (eMMC)",
+		ScriptsNewSD:                      "New (SD Card)",
+		ScriptsNewEMMCMobile:              "(eMMC)",
+		ScriptsNewSDMobile:                "(SD Card)",
+		PCPanelPowerControls:              "Power controls",
+		PCPanelPowerHardwareOnly:          "Power controls are available on USBridge hardware only.",
+		PCPanelAction:                     "Action",
+		PCPanelHoldToConfirm:              "Hold to Confirm",
+		PCPanelDuration:                   "Duration",
+		PCPanelShortHold:                  "Short (0s)",
+		PCPanelLongHold:                   "Long (10s)",
+		PCPanelPowerOff:                   "Power Off",
+		ConnectingDevice:                  "connecting device",
+		SnapshotsEmpty:                    "No snapshots yet",
+		ScriptsEmpty:                      "No scripts yet",
+		ScriptsLocalEndpoint:              "Local endpoint",
+		ScriptsLocalModels:                "Local models",
+		ScriptsStateIdle:                  "Idle",
+		ScriptsStateStopped:               "Stopped",
+		ScriptsStateRunning:               "Running",
+		QRScanSuccess:                     "QR code successfully scanned",
+		ConnectionColOS:                   "OS",
+		ConnectionColName:                 "NAME",
+		ConnectionColInfo:                 "INFO",
+		ConnectionColState:                "STATE",
+		ConnectionColNetwork:              "NETWORK",
+		ConnectionColRouteBridge:          "ROUTE BRIDGE",
+		ConnectionColActions:              "ACTIONS",
+		MobileColAction:                   "ACTION",
+		ConnectionNameField:               "Name",
+		ConnectionLANPlaceholder:          "LAN address",
+		ConnectionTSPlaceholder:           "Tailscale address",
+		AwaitingConnection:                "Awaiting connection...",
+		FirmwarePromoTitle:                "USBridge Firmware",
+		FirmwarePromoSubtitle:             "Turn your board into a hardware KVM",
+		FirmwarePromoTrial:                "Download",
+		FirmwarePromoFeatureBIOS:          "BIOS-in-terminal (OCR)",
 		FirmwarePromoFeatureLatency:       "Ultra-low latency video",
 		FirmwarePromoFeatureLatencyMobile: "Ultra-low latency video",
-		FirmwarePromoFeatureScripts:   "Automation scripts",
-		FirmwarePromoFeatureSnapshot:  "Immutable snapshot",
-		FirmwarePromoFeatureL0:        "0-layer host access",
-		FirmwarePromoSDCardOnly:       "SD Card only",
-		FirmwarePromoSDCardEMMC:       "SD Card / eMMC",
+		FirmwarePromoFeatureScripts:       "Automation scripts",
+		FirmwarePromoFeatureSnapshot:      "Immutable snapshot",
+		FirmwarePromoFeatureL0:            "0-layer host access",
+		FirmwarePromoSDCardOnly:           "SD Card only",
+		FirmwarePromoSDCardEMMC:           "SD Card / eMMC",
 
 		// Video Widget
 		VideoNotStarted:      "Video not started",
@@ -917,7 +917,7 @@ func EN() *LocalizedStrings {
 
 		// Auto-update
 		UpdateAvailableTitle:     "Update Available",
-		UpdateAvailableMessage:   "Version %s is available (you have %s). Update now?",
+		UpdateAvailableMessage:   "Version %s is ready to install. You're on %s.",
 		UpdateNowButton:          "Update",
 		UpdateLaterButton:        "Not Now",
 		UpdateDownloadingTitle:   "Updating…",
@@ -1213,7 +1213,7 @@ func ES() *LocalizedStrings {
 	locale.Close = "Cerrar"
 	locale.ConnectionTitle = "Conexion"
 	locale.UpdateAvailableTitle = "Actualizacion disponible"
-	locale.UpdateAvailableMessage = "La version %s esta disponible (tienes %s). Actualizar ahora?"
+	locale.UpdateAvailableMessage = "La version %s esta lista para instalar. Tienes %s."
 	locale.UpdateNowButton = "Actualizar"
 	locale.UpdateLaterButton = "Ahora no"
 	locale.UpdateDownloadingTitle = "Actualizando…"
@@ -1517,7 +1517,7 @@ func UKProper() *LocalizedStrings {
 	locale.Close = "Закрити"
 	locale.ConnectionTitle = "З'єднання"
 	locale.UpdateAvailableTitle = "Доступне оновлення"
-	locale.UpdateAvailableMessage = "Доступна версія %s (у вас %s). Оновити зараз?"
+	locale.UpdateAvailableMessage = "Версія %s готова до встановлення. У вас %s."
 	locale.UpdateNowButton = "Оновити"
 	locale.UpdateLaterButton = "Не зараз"
 	locale.UpdateDownloadingTitle = "Оновлення…"

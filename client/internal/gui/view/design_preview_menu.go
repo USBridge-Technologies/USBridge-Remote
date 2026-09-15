@@ -35,8 +35,8 @@ type sizeMenuSlider struct {
 }
 
 var (
-	_ fyne.Tappable     = (*sizeMenuSlider)(nil)
-	_ fyne.Draggable    = (*sizeMenuSlider)(nil)
+	_ fyne.Tappable      = (*sizeMenuSlider)(nil)
+	_ fyne.Draggable     = (*sizeMenuSlider)(nil)
 	_ desktop.Cursorable = (*sizeMenuSlider)(nil)
 )
 
@@ -103,7 +103,7 @@ func (s *sizeMenuSlider) setFromX(x float32) {
 	s.SetValue(s.Min + float64(rel)*(s.Max-s.Min))
 }
 
-func (s *sizeMenuSlider) Tapped(e *fyne.PointEvent) { s.setFromX(e.Position.X) }
+func (s *sizeMenuSlider) Tapped(e *fyne.PointEvent)        { s.setFromX(e.Position.X) }
 func (s *sizeMenuSlider) TappedSecondary(*fyne.PointEvent) {}
 func (s *sizeMenuSlider) Dragged(e *fyne.DragEvent)        { s.setFromX(e.Position.X) }
 func (s *sizeMenuSlider) DragEnd() {
@@ -112,7 +112,9 @@ func (s *sizeMenuSlider) DragEnd() {
 	}
 }
 func (s *sizeMenuSlider) Cursor() desktop.Cursor { return desktop.PointerCursor }
-func (s *sizeMenuSlider) MinSize() fyne.Size     { return fyne.NewSize(sizeMenuSliderMinW, sizeMenuSliderH) }
+func (s *sizeMenuSlider) MinSize() fyne.Size {
+	return fyne.NewSize(sizeMenuSliderMinW, sizeMenuSliderH)
+}
 
 func (s *sizeMenuSlider) CreateRenderer() fyne.WidgetRenderer {
 	s.track = canvas.NewRectangle(design.ColorBorder)
