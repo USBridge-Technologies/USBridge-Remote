@@ -118,6 +118,12 @@ object VulkanOverlayBridge {
         val sv = surfaceView ?: return
         val activity = MainActivity.getInstance() ?: return
         activity.runOnUiThread {
+            // Hide may have parked after this setRect was queued. Re-check
+            // on the UI thread or a stale applyRect brings Vulkan back over Devices.
+            if (parked) {
+                applyRect(sv, PARK_MARGIN, PARK_MARGIN, lastW, lastH)
+                return@runOnUiThread
+            }
             applyRect(sv, lastX, lastY, lastW, lastH)
         }
     }

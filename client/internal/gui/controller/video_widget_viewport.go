@@ -191,6 +191,17 @@ func (vw *VideoWidget) InvalidateOverlayGeometry() {
 	vw.RefreshViewportGeometry()
 }
 
+// SyncNativeOverlayVisibility applies NavVideoHidden / popup state to the
+// native video surface immediately. Tab switches must not wait for the next
+// render tick: after zoom the Control container can already be size 0, and
+// a delayed hide left Vulkan covering Devices.
+func (vw *VideoWidget) SyncNativeOverlayVisibility() {
+	if vw == nil {
+		return
+	}
+	vw.updateMetalVideoFrame()
+}
+
 // RefreshViewportGeometry recomputes the touchpad/content rect against the
 // viewport wrapper's current (now-visible) size. The pre-set block in
 // startVideoWithParamsInternal only takes effect if the Control tab is

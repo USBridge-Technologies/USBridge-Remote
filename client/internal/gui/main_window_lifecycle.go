@@ -157,6 +157,7 @@ func (mw *MainWindow) syncVideoOverlayForNav() {
 		view.NotifyOverlayHide()
 		mw.videoOverlayHiddenByNav = false
 	}
+	mw.videoWidget.SyncNativeOverlayVisibility()
 }
 
 func (mw *MainWindow) scheduleControlBootstrap() {

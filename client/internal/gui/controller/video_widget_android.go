@@ -46,7 +46,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 
 	// Wire overlay lifecycle hooks so menus/popups hide the VK SurfaceView.
 	view.OnOverlayShow = func() { service.VKVideoAndroidSetHidden(true) }
-	view.OnOverlayHide = func() { service.VKVideoAndroidSetHidden(false) }
+	view.OnOverlayHide = func() { service.VKVideoAndroidSetHidden(view.VideoShouldBeHidden()) }
 
 	// Compute the actual pixel rect for the video area now, before creating
 	// the overlay.  Passing (0,0,0,0) would cause the SurfaceView to be
@@ -147,8 +147,8 @@ func (vw *VideoWidget) HandleAppBackgrounded() {
 // view.OverlayActive() here avoids fighting that mechanism.
 func (vw *VideoWidget) HandleAppForegrounded() {
 	vw.scheduleVideoReconcile("app-resumed")
-	if service.VKVideoAndroidIsActive() && !view.OverlayActive() {
-		service.VKVideoAndroidSetHidden(false)
+	if service.VKVideoAndroidIsActive() {
+		service.VKVideoAndroidSetHidden(view.VideoShouldBeHidden())
 	}
 }
 
@@ -224,6 +224,13 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	if !service.VKVideoAndroidIsActive() {
 		return
 	}
+	// Hide first, even if the Control container already has a 0-size after
+	// a tab switch (zoom + Devices used to skip this and leave Vulkan up).
+	hidden := view.VideoShouldBeHidden()
+	service.VKVideoAndroidSetHidden(hidden)
+	if hidden {
+		return
+	}
 	x, y, w, h := vw.videoCanvasFrame()
 	if w <= 0 || h <= 0 {
 		return
@@ -243,9 +250,6 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	}
 	vkLastRenderedX, vkLastRenderedY = px, py
 	vkLastRenderedW, vkLastRenderedH = pw, ph
-	// Poll nav+popup every tick (same as Windows). Overlay depth can stick
-	// after a menu; NavVideoHidden is last-write and self-heals on tab return.
-	service.VKVideoAndroidSetHidden(view.VideoShouldBeHidden())
 	service.VKVideoAndroidUpdateRect(px, py, pw, ph)
 	vw.updateNativeViewportAndCursor()
 }
