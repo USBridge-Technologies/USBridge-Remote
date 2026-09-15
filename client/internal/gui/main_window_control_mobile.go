@@ -49,6 +49,18 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileKeyboardToggle = kb
 	mw.mobileKeyboardBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), kb)
 
+	vid := newHeaderStatusBadgeButton(assets.CameraIcon, func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowCurrentVideoSettings(false)
+		}
+	})
+	vid.SetIconSize(fyne.NewSize(16, 16))
+	vid.SetBadgeText("")
+	vid.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	mw.mobileVideoSettingsToggle = vid
+	mw.mobileVideoSettingsBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), vid)
+	mw.mobileVideoSettingsBtn.Hide()
+
 	fs := newHeaderStatusBadgeButton(assets.FullscreenIconFooter, func() {
 		if mw.videoWidget != nil {
 			mw.videoWidget.ShowFullscreen()
@@ -315,7 +327,7 @@ func (mw *MainWindow) buildLandscapeConnectedChrome() fyne.CanvasObject {
 	return mw.buildTabsFooterStrip(true)
 }
 
-// buildControlFooterStrip is Control-only: burger left, fullscreen / pan / mouse / keyboard right.
+// buildControlFooterStrip is Control-only: burger left, video / fullscreen / pan / mouse / keyboard right.
 func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject {
 	var left fyne.CanvasObject
 	if mw.mobileControlBurgerWrap != nil {
@@ -364,6 +376,9 @@ func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject 
 
 func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	var parts []fyne.CanvasObject
+	if mw.mobileVideoSettingsBtn != nil {
+		parts = append(parts, mw.mobileVideoSettingsBtn)
+	}
 	if mw.mobileFullscreenBtn != nil {
 		parts = append(parts, mw.mobileFullscreenBtn)
 	}
@@ -426,9 +441,9 @@ func newConnectedChromeStrip(inner fyne.CanvasObject) fyne.CanvasObject {
 	return container.NewStack(bg, view.NewTopLine(inner, accent))
 }
 
-// mobileControlFooterAlignLayout keeps the burger and the pan/mouse/keyboard
-// cluster on one baseline: left stays left, the rest pack to the right,
-// all vertically centered. Border+GridWrap used to top-align the burger.
+// mobileControlFooterAlignLayout keeps the burger and the video/fullscreen/
+// pan/mouse/keyboard cluster on one baseline: left stays left, the rest pack
+// to the right, all vertically centered. Border+GridWrap used to top-align the burger.
 type mobileControlFooterAlignLayout struct {
 	gap float32
 }

@@ -1367,12 +1367,62 @@ func (l *videoDialogToggleLayout) Layout(objs []fyne.CanvasObject, size fyne.Siz
 	desc.Resize(fyne.NewSize(descWidth, descHeight))
 }
 
+// videoDialogToggleTap makes the whole feature row a hit target, not just
+// the 16px checkbox -- the box is easy to miss on a phone and fiddly on
+// desktop. Tap on the box still reaches the checkbox (deeper Tappable);
+// tap on the title / hint / card padding hits this wrapper and forwards.
+type videoDialogToggleTap struct {
+	widget.BaseWidget
+	check *videoDialogCheckbox
+	inner fyne.CanvasObject
+}
+
+func newVideoDialogToggleTap(check *videoDialogCheckbox, inner fyne.CanvasObject) *videoDialogToggleTap {
+	t := &videoDialogToggleTap{check: check, inner: inner}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (t *videoDialogToggleTap) Tapped(*fyne.PointEvent) {
+	if t.check != nil {
+		t.check.Tapped(nil)
+	}
+}
+
+func (t *videoDialogToggleTap) TappedSecondary(*fyne.PointEvent) {}
+
+func (t *videoDialogToggleTap) MouseIn(*desktop.MouseEvent) {
+	if t.check != nil {
+		t.check.MouseIn(nil)
+	}
+}
+
+func (t *videoDialogToggleTap) MouseMoved(*desktop.MouseEvent) {}
+
+func (t *videoDialogToggleTap) MouseOut() {
+	if t.check != nil {
+		t.check.MouseOut()
+	}
+}
+
+func (t *videoDialogToggleTap) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (t *videoDialogToggleTap) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(t.inner)
+}
+
+func newVideoDialogToggleRowInner(check *videoDialogCheckbox, titleText fyne.CanvasObject, badge fyne.CanvasObject, description fyne.CanvasObject) *fyne.Container {
+	return container.New(&videoDialogToggleLayout{}, check, titleText, badge, description)
+}
+
 // newVideoDialogToggleRow lays out one checkbox row in the reference
 // design: the checkbox and a bold title + badge share the first line, and
 // the description sits on its own line below, indented to the title's own
-// left edge.
-func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasObject, badge fyne.CanvasObject, description fyne.CanvasObject) *fyne.Container {
-	return container.New(&videoDialogToggleLayout{}, check, titleText, badge, description)
+// left edge. The whole row is tappable (see videoDialogToggleTap).
+func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasObject, badge fyne.CanvasObject, description fyne.CanvasObject) fyne.CanvasObject {
+	return newVideoDialogToggleTap(check, newVideoDialogToggleRowInner(check, titleText, badge, description))
 }
 
 // newVideoDialogBoxedToggleRow wraps newVideoDialogToggleRow's content in
@@ -1380,20 +1430,20 @@ func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasOb
 // own "special" treatment. Every other toggle in this dialog (VSync, 4:4:4)
 // stays a plain inline row instead -- boxing every row made the whole
 // section too tall to fit comfortably.
-func newVideoDialogBoxedToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasObject, badge fyne.CanvasObject, description fyne.CanvasObject) *fyne.Container {
+func newVideoDialogBoxedToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasObject, badge fyne.CanvasObject, description fyne.CanvasObject) fyne.CanvasObject {
 	cardBG := canvas.NewRectangle(design.ColorGray950)
 	cardBG.CornerRadius = design.RadiusMD
 	cardBorder := canvas.NewRectangle(color.Transparent)
 	cardBorder.CornerRadius = design.RadiusMD
 	cardBorder.StrokeColor = videoDialogBorderColor
 	cardBorder.StrokeWidth = 1
-	row := newVideoDialogToggleRow(check, titleText, badge, description)
+	row := newVideoDialogToggleRowInner(check, titleText, badge, description)
 	// NewInsetExact, not NewInset -- this padding needs to match
 	// videoDialogToggleDescWidth's own subtraction exactly (see that
 	// function's doc comment); NewInset's extra, undocumented
 	// theme.Padding() on top of what's asked would silently widen the gap
 	// between this formula and the row's real available width.
-	return container.NewStack(cardBG, cardBorder, NewInsetExact(row, videoDialogBoxedInsetLR, videoDialogBoxedInsetLR, 8, 8))
+	return newVideoDialogToggleTap(check, container.NewStack(cardBG, cardBorder, NewInsetExact(row, videoDialogBoxedInsetLR, videoDialogBoxedInsetLR, 8, 8)))
 }
 
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {

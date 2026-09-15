@@ -1621,6 +1621,14 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.fullscreenIcon.Refresh()
 		}
+		if mw.mobileVideoSettingsBtn != nil {
+			if videoStreaming {
+				mw.mobileVideoSettingsBtn.Show()
+			} else {
+				mw.mobileVideoSettingsBtn.Hide()
+			}
+			mw.mobileVideoSettingsBtn.Refresh()
+		}
 		if mw.mobileFullscreenBtn != nil {
 			if videoStreaming {
 				mw.mobileFullscreenBtn.Show()

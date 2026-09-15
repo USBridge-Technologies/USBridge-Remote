@@ -1,12 +1,14 @@
 package view
 
 import (
+	"image/color"
 	"os"
 	"testing"
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 )
 
@@ -158,5 +160,35 @@ func TestConfigure_CodecNotOfferedByDeviceFallsBackToFirstAvailable(t *testing.T
 
 	if got := vsd.selectedModeID(); got != models.VideoModeH264 {
 		t.Fatalf("selectedModeID() = %q, want %q (only mode the device offers)", got, models.VideoModeH264)
+	}
+}
+
+func TestVideoDialogToggleRow_TapTogglesCheckbox(t *testing.T) {
+	check := newVideoDialogCheckbox(false, nil)
+	row := newVideoDialogToggleRow(
+		check,
+		newVideoDialogRowTitle("VSync"),
+		newVideoDialogBadge("Recommended", color.White),
+		newVideoDialogDescription("hint", 200),
+	)
+	win := test.NewWindow(row)
+	defer win.Close()
+	win.Resize(fyne.NewSize(320, 80))
+
+	tap, ok := row.(fyne.Tappable)
+	if !ok {
+		t.Fatal("feature row should be tappable, not only the checkbox")
+	}
+	tap.Tapped(nil)
+	if !check.Checked {
+		t.Fatal("tapping the feature row should turn the checkbox on")
+	}
+	tap.Tapped(nil)
+	if check.Checked {
+		t.Fatal("tapping the feature row again should turn the checkbox off")
+	}
+	test.Tap(check)
+	if !check.Checked {
+		t.Fatal("tapping the checkbox itself should still toggle")
 	}
 }
