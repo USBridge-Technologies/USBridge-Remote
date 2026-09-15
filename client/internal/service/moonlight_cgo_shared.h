@@ -240,6 +240,21 @@ int do_li_start(
     ar.stop               = ar_stop;
     ar.cleanup            = ar_cleanup;
     ar.decodeAndPlaySample = ar_decode;
+    // Requests AudioPacketDuration=10ms instead of the 5ms
+    // lowest-latency default (SdpGenerator.c) -- the official protocol's
+    // own branch for this, not a wire-format deviation: 5ms frames are
+    // CELT-only by the Opus spec and can never carry Opus's own inband FEC
+    // no matter what the host does, only the fixed-33%/20ms-block outer
+    // Reed-Solomon FEC (RtpAudioQueue's 4+2 scheme) protects them. 10ms
+    // frames are SILK/Hybrid-eligible, letting a host that enables inband
+    // FEC (see rust-shine's OpusEncoder::set_inband_fec) actually recover
+    // a single lost packet from the very next one, no RS block wait
+    // needed. This client doesn't have a genuinely slow decoder -- the
+    // capability bit is repurposed here purely to opt into the duration
+    // it happens to gate, matching what the user explicitly chose over
+    // the alternative (a custom >10ms duration outside what the real
+    // protocol's own SdpGenerator.c logic ever produces).
+    ar.capabilities = CAPABILITY_SLOW_OPUS_DECODER;
 
     CONNECTION_LISTENER_CALLBACKS cl;
     LiInitializeConnectionCallbacks(&cl);

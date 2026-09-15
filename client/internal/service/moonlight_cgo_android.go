@@ -509,6 +509,10 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     ar.stop                = ar_stop;
     ar.cleanup             = ar_cleanup;
     ar.decodeAndPlaySample = ar_decode;
+    // See moonlight_cgo_shared.h's identical assignment for why -- requests
+    // AudioPacketDuration=10ms (protocol-native branch) so a host's Opus
+    // inband FEC (5ms is CELT-only, can never carry it) actually works.
+    ar.capabilities        = CAPABILITY_SLOW_OPUS_DECODER;
 
     CONNECTION_LISTENER_CALLBACKS cl;
     LiInitializeConnectionCallbacks(&cl);
