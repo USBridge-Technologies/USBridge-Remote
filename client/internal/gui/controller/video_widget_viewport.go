@@ -8,21 +8,46 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// mobileControlChromeBelow estimates Control's tab bar + AppFooter under the
-// video when AbsolutePosition has not settled yet. Stacked tab icons+labels
-// are ~48dp; AppFooterOuterHeight covers the version strip.
-const mobileControlTabBarEstimate = float32(48)
+// Portrait Control chrome under the video: 52dp row + 6/10 pads + 1dp TopLine.
+// Landscape uses the compact strip only (version sits in that row).
+const (
+	mobileControlPortraitStrip  = float32(52 + 6 + 10 + 1)
+	mobileControlLandscapeStrip = float32(36 + 4 + 4 + 1)
+)
 
 func videoChromeBelow() float32 {
-	h := view.AppFooterOuterHeight()
-	if view.IsMobile() {
-		h += mobileControlTabBarEstimate
+	if !view.IsMobile() {
+		return view.AppFooterOuterHeight()
 	}
-	return h
+	if view.IsLandscape() {
+		return mobileControlLandscapeStrip
+	}
+	return mobileControlPortraitStrip + view.AppFooterOuterHeight()
 }
 
-// videoContainerOrigin is the video container's top-left in window-canvas
-// dp. Native overlays used to derive Y as canvasH − containerH, which is
+// overlayWindowPos maps Fyne mobile AbsolutePosition (InteractiveArea-relative)
+// to window-canvas dp. Native overlays sit on the Activity decorView, whose
+// (0,0) is the physical screen origin — the same space as Canvas.Size(), not
+// the padded InteractiveArea. Without this, Vulkan is too high by the status
+// bar / camera-cutout inset (worse on punch-hole phones).
+func overlayWindowPos(absPos, interactiveOrigin fyne.Position) fyne.Position {
+	return fyne.NewPos(absPos.X+interactiveOrigin.X, absPos.Y+interactiveOrigin.Y)
+}
+
+func canvasInteractiveOrigin(c fyne.Canvas) fyne.Position {
+	if c == nil {
+		return fyne.NewPos(0, 0)
+	}
+	pos, _ := c.InteractiveArea()
+	return pos
+}
+
+// videoContainerOrigin is the video container's top-left from
+// AbsolutePositionForObject. On mobile Fyne that is InteractiveArea-relative
+// (status bar / cutout already subtracted). Native overlays on the Activity
+// window must add canvasInteractiveOrigin via overlayWindowPos.
+//
+// Native overlays used to derive Y as canvasH − containerH, which is
 // only correct when the container is flush with the canvas bottom. Control's
 // AppFooter sits below the video, so that formula shifts the overlay down by
 // the footer height (gap above, overlay covering the footer).
@@ -79,6 +104,15 @@ func (vw *VideoWidget) videoContainerOrigin() fyne.Position {
 
 func estimatedVideoOriginY(vw *VideoWidget, containerH, canvasH float32) float32 {
 	chrome := videoChromeBelow()
+	// Keep this IA-relative: mobile AbsolutePosition subtracts InteractiveArea,
+	// and overlayWindowPos adds it back for the SurfaceView. Using full
+	// canvasH here would include the status-bar inset twice.
+	areaH := canvasH
+	if vw != nil && vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+		if _, area := vw.parentWindow.Canvas().InteractiveArea(); area.Height > 0 {
+			areaH = area.Height
+		}
+	}
 	if vw != nil && vw.parentWindow != nil && containerH > 0 {
 		content := vw.parentWindow.Content()
 		if content != nil {
@@ -87,10 +121,6 @@ func estimatedVideoOriginY(vw *VideoWidget, containerH, canvasH float32) float32
 					root := drv.AbsolutePositionForObject(content)
 					ch := content.Size().Height
 					if ch > containerH {
-						// Content is already laid out inside the safe-area
-						// pad, so root.Y is safeTop. This yields safeTop+header
-						// without double-counting safeBottom (canvasH−height
-						// overshoots by the bottom inset).
 						y := root.Y + (ch - containerH - chrome)
 						if y < root.Y {
 							y = root.Y
@@ -101,10 +131,10 @@ func estimatedVideoOriginY(vw *VideoWidget, containerH, canvasH float32) float32
 			}
 		}
 	}
-	if canvasH <= 0 || containerH <= 0 {
+	if areaH <= 0 || containerH <= 0 {
 		return 0
 	}
-	y := canvasH - containerH - chrome
+	y := areaH - containerH - chrome
 	if y < 0 {
 		return 0
 	}

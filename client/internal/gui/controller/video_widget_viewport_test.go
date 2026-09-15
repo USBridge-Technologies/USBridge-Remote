@@ -1,6 +1,10 @@
 package controller
 
-import "testing"
+import (
+	"testing"
+
+	"fyne.io/fyne/v2"
+)
 
 // Regression test for the "pinch-zoom jumps to the bottom of the picture"
 // bug: recalculateViewport used to default an overflowing (contentH >
@@ -286,5 +290,34 @@ func TestPlaceVirtualCursorAtViewCenter_UsesVisibleCentre(t *testing.T) {
 	// Viewport must not have been moved by placing the cursor.
 	if vw.panOffsetX != 500 {
 		t.Errorf("panOffsetX changed to %v, want 500", vw.panOffsetX)
+	}
+}
+
+func TestOverlayWindowPosAddsSafeAreaInset(t *testing.T) {
+	// Punch-hole phone: Fyne AbsolutePosition is header-relative (40dp),
+	// InteractiveArea top is the 48dp status/cutout inset. Vulkan on
+	// decorView must start at 88dp, not 40dp (too high, overlapping header).
+	abs := fyne.NewPos(0, 40)
+	inset := fyne.NewPos(0, 48)
+	got := overlayWindowPos(abs, inset)
+	if got.X != 0 || got.Y != 88 {
+		t.Errorf("overlayWindowPos = %v, want (0, 88)", got)
+	}
+}
+
+func TestOverlayWindowPosNoopWithoutInset(t *testing.T) {
+	abs := fyne.NewPos(12, 40)
+	got := overlayWindowPos(abs, fyne.NewPos(0, 0))
+	if got != abs {
+		t.Errorf("overlayWindowPos = %v, want %v (desktop / inset-cleared keyboard)", got, abs)
+	}
+}
+
+func TestOverlayWindowPosLandscapeCutout(t *testing.T) {
+	abs := fyne.NewPos(8, 36)
+	inset := fyne.NewPos(44, 0) // left punch-hole in landscape
+	got := overlayWindowPos(abs, inset)
+	if got.X != 52 || got.Y != 36 {
+		t.Errorf("overlayWindowPos = %v, want (52, 36)", got)
 	}
 }

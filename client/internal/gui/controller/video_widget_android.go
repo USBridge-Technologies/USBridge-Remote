@@ -215,10 +215,10 @@ func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {
 	}
 }
 
-// vkLastRenderedW/H track the last pixel size sent to the Vulkan overlay.
-// Any change (rotation, keyboard, fullscreen) triggers a forced swapchain recreation
-// so the render thread picks up the new surface dimensions immediately.
-var vkLastRenderedW, vkLastRenderedH int
+// vkLastRendered* track the last pixel rect sent to the Vulkan overlay.
+// Any change (rotation, keyboard, fullscreen, safe-area) triggers a forced
+// swapchain recreation so the render thread picks up the new surface immediately.
+var vkLastRenderedX, vkLastRenderedY, vkLastRenderedW, vkLastRenderedH int
 
 func (vw *VideoWidget) updateMetalVideoFrame() {
 	if !service.VKVideoAndroidIsActive() {
@@ -233,6 +233,15 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		scale = vw.parentWindow.Canvas().Scale()
 	}
 	px, py, pw, ph := vkSurfacePx(x, y, w, h, scale)
+	if px != vkLastRenderedX || py != vkLastRenderedY || pw != vkLastRenderedW || ph != vkLastRenderedH {
+		inset := fyne.NewPos(0, 0)
+		if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+			inset = canvasInteractiveOrigin(vw.parentWindow.Canvas())
+		}
+		logrus.Infof("[Android/VK] overlay dp=(%.1f,%.1f %.1fx%.1f) inset=(%.1f,%.1f) px=(%d,%d %dx%d) scale=%.2f",
+			x, y, w, h, inset.X, inset.Y, px, py, pw, ph, scale)
+	}
+	vkLastRenderedX, vkLastRenderedY = px, py
 	vkLastRenderedW, vkLastRenderedH = pw, ph
 	// Poll nav+popup every tick (same as Windows). Overlay depth can stick
 	// after a menu; NavVideoHidden is last-write and self-heals on tab return.
@@ -417,34 +426,36 @@ func (vw *VideoWidget) androidCursorScale() int {
 	return s
 }
 
-// vkSurfacePx converts the Fyne dp frame to SurfaceView pixels.
-// Last top-seam test: 10 physical pixels. Bottom pad stays the 1px that
-// closed the footer; height is compensated so that edge does not move.
-const vkOverlayTopPadPx = 10
-const vkOverlayBottomPadPx = 1
-
+// vkSurfacePx converts a window-canvas dp frame to SurfaceView pixels.
+// Y is already in decorView space (InteractiveArea added in videoCanvasFrame).
+// Top/bottom edges are rounded independently so round(y)+round(h) cannot
+// overshoot the footer hairline by a pixel.
 func vkSurfacePx(x, y, w, h, scale float32) (px, py, pw, ph int) {
 	px = int(math.Round(float64(x * scale)))
-	py = int(math.Round(float64(y * scale))) + vkOverlayTopPadPx
-	pw = int(math.Round(float64(w * scale)))
-	ph = int(math.Round(float64(h * scale))) - vkOverlayTopPadPx + vkOverlayBottomPadPx
+	py = int(math.Round(float64(y * scale)))
+	pw = int(math.Round(float64((x+w)*scale))) - px
+	ph = int(math.Round(float64((y+h)*scale))) - py
+	if pw < 1 {
+		pw = 1
+	}
 	if ph < 1 {
 		ph = 1
 	}
 	return
 }
 
-// videoCanvasFrame returns the Vulkan SurfaceView rect in window-local dp coords.
+// videoCanvasFrame returns the Vulkan SurfaceView rect in window-local dp coords
+// (same origin as Canvas.Size / the Activity decorView — not InteractiveArea).
 //   - Fullscreen: full canvas (Vulkan expands to fill the screen).
 //   - Keyboard visible: video area above the keyboard panel.
-//   - Normal: the video container's real canvas origin (not canvasH−height —
-//     that assumed the container was flush with the window bottom and covers
-//     Control's tab bar + AppFooter once those sit under the video).
+//   - Normal: container origin + safe-area inset so punch-hole / status-bar
+//     height is included on every device.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.parentWindow == nil {
 		return
 	}
-	cs := vw.parentWindow.Canvas().Size()
+	c := vw.parentWindow.Canvas()
+	cs := c.Size()
 
 	// In fullscreen mode the Vulkan SurfaceView covers the whole screen.
 	if vw.fullscreenDialog != nil && vw.fullscreenDialog.IsFullscreen() {
@@ -455,29 +466,22 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return
 	}
 	sz := vw.container.Size()
-	pos := vw.videoContainerOrigin()
-	// Vulkan sits above Fyne. A 1dp drop covers the header seam; +3dp on
-	// the bottom covers the footer seam. Fullscreen / special-keys keep
-	// their own flush frames below.
-	headerClearance := float32(0)
-	footerBleed := float32(4)
-	if vw.specialKeysInMainHeader() && vw.IsVirtualKeyboardVisible() {
-		headerClearance = 0
-		footerBleed = 0
+	abs := vw.videoContainerOrigin()
+	inset := canvasInteractiveOrigin(c)
+	// Keyboard stack owns the cutout band and zeros the top inset. Skip a
+	// stale safe-top so Vulkan does not slide over the special keys.
+	if vw.specialKeysHeaderReserve > 0 {
+		inset = fyne.NewPos(inset.X, 0)
 	}
+	pos := overlayWindowPos(abs, inset)
+	// Stop at the container bottom so the Control footer hairline stays
+	// visible. A dp bleed used to cover that 1dp TopLine.
 	keysH := vw.specialKeysOverlayHeightDp()
-	top := headerClearance + keysH
-
-	// With setZOrderOnTop(true) Fyne cannot paint over Vulkan pixels. Mobile
-	// special keys replace the main header (above the surface); any residual
-	// keysH inset is for non-header overlay paths only.
-	videoTop := pos.Y + top
-	if r := vw.specialKeysHeaderReserve; r > 0 {
-		// Pin to the special-keys band in window coords so a later safe-area
-		// inset flip does not slide Vulkan over the keys and then drop it.
+	videoTop := pos.Y + keysH
+	if r := vw.specialKeysHeaderReserve; r > 0 && videoTop < r {
 		videoTop = r
 	}
-	videoBottom := pos.Y + sz.Height + footerBleed
+	videoBottom := pos.Y + sz.Height
 	if videoBottom < videoTop {
 		videoBottom = videoTop
 	}
