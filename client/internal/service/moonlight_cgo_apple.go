@@ -50,11 +50,27 @@ static double mono_sec(void) {
 
 #define CA_NUM_BUFFERS 32
 
+// Frames buffered (enqueued, not yet started) before AudioQueueStart is
+// actually called -- both on the very first frame AND after every
+// was_empty/long_gap-triggered restart below. Without this, playback used
+// to start (or resume) the instant a single frame arrived, so any
+// FEC-recovery latency or ordinary jitter right after immediately drained
+// the queue again, forcing another audible Stop/Start cycle -- confirmed
+// live via a real packet-loss sweep: CoreAudio queue restarts climbed into
+// the thousands well before any real data was actually lost (drops/plc
+// stayed at 0), i.e. the crackling was a client-side buffering-depth
+// problem, not a server/FEC one. 3 frames at this client's negotiated
+// 10ms Opus duration (see moonlight_cgo_shared.h's CAPABILITY_SLOW_OPUS_DECODER)
+// is a ~30ms one-time latency cost, deliberately kept small since this
+// whole pipeline is tuned for low latency.
+#define CA_PREBUFFER_FRAMES 3
+
 static AudioQueueRef        g_ca_queue    = NULL;
 static AudioQueueBufferRef  g_ca_bufs[CA_NUM_BUFFERS];  // all allocated buffers
 static AudioQueueBufferRef  g_ca_free[CA_NUM_BUFFERS];  // free-pool stack
 static int                  g_ca_free_cnt = 0;
 static int                  g_ca_started  = 0;
+static int                  g_ca_prebuffer_cnt = 0; // frames enqueued while waiting to (re)start
 static pthread_mutex_t      g_ca_mu       = PTHREAD_MUTEX_INITIALIZER;
 
 static void ca_callback(void *userData, AudioQueueRef aq, AudioQueueBufferRef buf) {
@@ -146,6 +162,7 @@ void platform_ar_init(int channels, int sample_rate) {
     pthread_mutex_lock(&g_ca_mu);
     g_ca_free_cnt    = 0;
     g_ca_started     = 0;
+    g_ca_prebuffer_cnt = 0;
     g_ca_drop_count    = 0;
     g_ca_restart_count = 0;
     g_ca_frame_count   = 0;
@@ -175,6 +192,7 @@ void platform_ar_cleanup(void) {
     g_ca_queue         = NULL;
     g_ca_free_cnt      = 0;
     g_ca_started       = 0;
+    g_ca_prebuffer_cnt = 0;
     g_ca_drop_count    = 0;
     g_ca_restart_count = 0;
     g_ca_frame_count   = 0;
@@ -207,11 +225,20 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
         memcpy(buf->mAudioData, pcm, byte_count);
         buf->mAudioDataByteSize = (UInt32)byte_count;
         g_ca_frame_count++;
-        // Lazy start on first frame; property listener handles restarts after that.
+        // Buffer CA_PREBUFFER_FRAMES frames before actually starting
+        // playback -- both the very first start and every restart below
+        // route through this same "not started yet" branch (a restart
+        // sets g_ca_started back to 0 instead of calling AudioQueueStart
+        // immediately). See CA_PREBUFFER_FRAMES's doc comment for why.
         if (!g_ca_started) {
-            g_ca_started = 1;
-            g_ca_stats_start = mono_sec();
             AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
+            g_ca_prebuffer_cnt++;
+            if (g_ca_prebuffer_cnt < CA_PREBUFFER_FRAMES) {
+                return; // still filling the cushion, not started yet
+            }
+            g_ca_started = 1;
+            g_ca_prebuffer_cnt = 0;
+            g_ca_stats_start = mono_sec();
             AudioQueueStart(g_ca_queue, NULL);
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
             ca_log_device();
@@ -252,8 +279,16 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             g_ca_force_restart = 1;            // suppress listener during stop/start
             AudioQueueStop(g_ca_queue, true);  // synchronous: flushes stale buffers only
             AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL); // this frame's audio, onto the clean queue
-            AudioQueueStart(g_ca_queue, NULL); // fresh hardware timeline
             g_ca_force_restart = 0;
+            // Re-enter the pre-buffer cushion instead of calling
+            // AudioQueueStart immediately with just this one frame queued --
+            // restarting with zero cushion is exactly what made restarts
+            // cascade under real jitter (this frame plays, queue empties
+            // again before the next one arrives, restart again...). The
+            // next `CA_PREBUFFER_FRAMES - 1` calls take the `!g_ca_started`
+            // branch above and actually call AudioQueueStart once buffered.
+            g_ca_started = 0;
+            g_ca_prebuffer_cnt = 1; // this frame already enqueued, counts toward the cushion
         } else {
             AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
         }
