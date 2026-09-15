@@ -6,16 +6,37 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+
+	"usbridge-client/internal/gui/view"
 )
 
 // scheduleCombine debounces concurrent loader completions into a single
 // combineDrives + refresh cycle. Multiple calls within the 80 ms window
 // collapse into one. Must be called on the Fyne event-loop thread.
+//
+// Deferred entirely while the video overlay is the visible nav destination
+// (Control tab, actively streaming): combineDrives' list rebuild +
+// refreshDashboard() cascade measured 150-220ms of main-thread time on real
+// hardware -- even with zero drives, since the cost is in the Devices
+// dashboard's widget tree (footers/buttons/list) invalidating, not the
+// drive count -- and every one of those ms blocks AppKit's run loop, which
+// stalls the Metal CADisplayLink tied to it (confirmed live: this ticket's
+// benchmark caught a stall logged by [Metal]'s own "AppKit/DisplayLink
+// stalled" profiler at the exact same timestamp as this widget's periodic
+// 10s refresh, repeating every 10s for the whole run). The Devices tab
+// isn't even visible then, so skipping the rebuild is free: pendingCombine
+// still clears so the next scheduleCombine call (from the next periodic
+// loader tick, at most 10s later) tries again, and it actually runs the
+// moment the user leaves Control.
 func (dw *DiskWidget) scheduleCombine() {
 	if dw.pendingCombine.Swap(true) {
 		return // already scheduled
 	}
 	time.AfterFunc(80*time.Millisecond, func() {
+		if !view.NavVideoHidden() {
+			dw.pendingCombine.Store(false)
+			return
+		}
 		fyne.Do(func() {
 			dw.pendingCombine.Store(false)
 			dw.combineDrives()
