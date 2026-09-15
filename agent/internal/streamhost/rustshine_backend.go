@@ -180,7 +180,7 @@ func NewRustshine(exeDir, stateDir, logPath string) Backend {
 
 // DisplayName identifies this backend for display purposes only (GUI
 // status, /api/status, logs) — see streamhost.Identity.
-func (b *rustshineBackend) DisplayName() string { return "RustShine (Proprietary)" }
+func (b *rustshineBackend) DisplayName() string { return "USBridge Streamer (Proprietary)" }
 
 // SetSharedSecret sets the secret Start() passes to gamestream-server as
 // --webrtc-shared-secret. Called via an optional-interface probe from

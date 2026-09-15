@@ -2085,6 +2085,14 @@ func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string)
 		return
 	}
 	log.Printf("[app] rustshine updated to %s", version)
+	// Same bundled usb-broker re-stage DownloadRustShine's initial click does
+	// (see its doc comment) -- without this, a fix that only ships in a
+	// newer usb-broker build would never reach an agent whose owner only
+	// ever runs the silent background watchdog, not the original "Download"
+	// button. Non-fatal for the same reason DownloadRustShine's own call is.
+	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
+		log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
+	}
 	a.entMu.Lock()
 	a.entStatus.RustShineStaged = a.rustshineStaged()
 	a.entMu.Unlock()
@@ -2306,6 +2314,14 @@ func (a *App) CheckRustShineUpdateNow() error {
 		return err
 	}
 	log.Printf("[app] rustshine updated to %s", version)
+	// Same bundled usb-broker re-stage DownloadRustShine's initial click does
+	// (see its doc comment) -- without this, a fix that only ships in a
+	// newer usb-broker build would never reach an agent whose owner only
+	// ever clicks "Check for updates", not the original "Download" button.
+	// Non-fatal for the same reason DownloadRustShine's own call is.
+	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, token, nil); err != nil {
+		log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
+	}
 	a.entMu.Lock()
 	a.entStatus.RustShineStaged = a.rustshineStaged()
 	a.entMu.Unlock()
@@ -2795,6 +2811,18 @@ func (a *App) StreamerName() string {
 		return "unknown"
 	}
 	return a.stream.DisplayName()
+}
+
+// StreamerRunning reports whether the active streaming host backend's own
+// child process is currently alive -- for the GUI's status traffic light
+// (see ui/window.go's streamerStatusDot), distinct from StreamerName (which
+// backend it is) and entitlement.Status.RustShineStaged (whether it's
+// downloaded at all, regardless of whether it's running right now).
+func (a *App) StreamerRunning() bool {
+	if a.stream == nil {
+		return false
+	}
+	return a.stream.Running()
 }
 
 // AdminUser returns the streaming host's admin-API username.
