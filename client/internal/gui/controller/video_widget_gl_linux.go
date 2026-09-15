@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -245,6 +246,25 @@ var vkMouseQuit chan struct{}
 // vkMouseCheckPending prevents multiple concurrent checkMouseConnected goroutines.
 var vkMouseCheckPending int32 // atomic
 
+type vkMouseEv struct {
+	typ, x, y, btn int
+}
+
+// vkMouseDoPending/vkMousePending coalesce bursts of X11 events into a single
+// fyne.Do dispatch per animation-loop turn instead of one per sample. Xlib
+// selects PointerMotionMask (uncompressed) on the overlay window, so a fast
+// mouse can queue dozens of MotionNotify events per 4ms poll tick; issuing
+// one fyne.Do per event previously serialized that whole burst onto the
+// GLFW/Fyne main goroutine — the same goroutine that drives frame
+// presentation — which is what caused the video to visibly stutter only
+// while the mouse was moving. Mirrors the Windows implementation
+// (video_widget_windows.go's queueVKWinMouseBatch), which already did this.
+var (
+	vkMouseDoPending int32
+	vkMousePendingMu sync.Mutex
+	vkMousePending   []vkMouseEv
+)
+
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
 	quit := make(chan struct{})
@@ -258,35 +278,66 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 			case <-quit:
 				return
 			case <-ticker.C:
+				var batch []vkMouseEv
 				for {
 					typ, ex, ey, btn, ok := service.VKVideoNextEvent()
 					if !ok {
 						break
 					}
-					// Capture for closure — each iteration needs its own copy.
-					evTyp, evX, evY, evBtn := typ, ex, ey, btn
-					fyne.Do(func() {
-						if !service.VKVideoIsActive() {
-							return
-						}
-						// Re-read scale each call: handles HiDPI changes and
-						// fullscreen vs windowed transitions at runtime.
-						s := scale
-						if fsWin := vkFullscreenWindow; fsWin != nil {
-							if fsWin.Canvas() != nil {
-								s = fsWin.Canvas().Scale()
-							}
-						} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
-							s = vw.parentWindow.Canvas().Scale()
-						}
-						x := float32(evX) / s
-						y := float32(evY) / s
-						vw.dispatchVKMouseEvent(evTyp, x, y, evBtn)
-					})
+					// Coalesce consecutive moves so a burst from the overlay
+					// queue does not enqueue one fyne.Do per sample.
+					if typ == 1 && len(batch) > 0 && batch[len(batch)-1].typ == 1 {
+						batch[len(batch)-1] = vkMouseEv{typ, ex, ey, btn}
+						continue
+					}
+					batch = append(batch, vkMouseEv{typ, ex, ey, btn})
 				}
+				if len(batch) == 0 {
+					continue
+				}
+				vw.queueVKMouseBatch(scale, batch)
 			}
 		}
 	}()
+}
+
+func (vw *VideoWidget) queueVKMouseBatch(scale float32, batch []vkMouseEv) {
+	vkMousePendingMu.Lock()
+	vkMousePending = append(vkMousePending, batch...)
+	vkMousePendingMu.Unlock()
+	if !atomic.CompareAndSwapInt32(&vkMouseDoPending, 0, 1) {
+		return
+	}
+	fyne.Do(func() {
+		vkMousePendingMu.Lock()
+		evs := vkMousePending
+		vkMousePending = nil
+		vkMousePendingMu.Unlock()
+		if service.VKVideoIsActive() && len(evs) > 0 {
+			// Re-read scale once per dispatch: handles HiDPI changes and
+			// fullscreen vs windowed transitions at runtime.
+			s := scale
+			if fsWin := vkFullscreenWindow; fsWin != nil {
+				if fsWin.Canvas() != nil {
+					s = fsWin.Canvas().Scale()
+				}
+			} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+				s = vw.parentWindow.Canvas().Scale()
+			}
+			for _, ev := range evs {
+				x := float32(ev.x) / s
+				y := float32(ev.y) / s
+				vw.dispatchVKMouseEvent(ev.typ, x, y, ev.btn)
+			}
+		}
+		atomic.StoreInt32(&vkMouseDoPending, 0)
+		vkMousePendingMu.Lock()
+		more := len(vkMousePending) > 0
+		vkMousePendingMu.Unlock()
+		if more {
+			vw.queueVKMouseBatch(scale, nil)
+		}
+	})
 }
 
 func (vw *VideoWidget) stopVKMouseForwarding() {
@@ -295,6 +346,9 @@ func (vw *VideoWidget) stopVKMouseForwarding() {
 		vkMouseQuit = nil
 		logrus.Info("[VK/Linux] mouse forwarding stopped")
 	}
+	vkMousePendingMu.Lock()
+	vkMousePending = nil
+	vkMousePendingMu.Unlock()
 }
 
 // dispatchVKMouseEvent dispatches a forwarded X11 pointer event to TouchpadWrapper.
