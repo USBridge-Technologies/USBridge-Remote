@@ -203,7 +203,7 @@ func (s *Service) KillGamestreamServerElevated() error {
 	if err != nil {
 		return err
 	}
-	paramsPtr, err := syscall.UTF16PtrFromString("/F /IM gamestream-server.exe /T")
+	paramsPtr, err := syscall.UTF16PtrFromString("/F /IM usbridge-streamer.exe /IM gamestream-server.exe /T")
 	if err != nil {
 		return err
 	}

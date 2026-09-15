@@ -2142,16 +2142,19 @@ func (a *App) stopRustShineForUpdate() bool {
 	// unconditionally by name as a belt-and-suspenders guarantee that
 	// nothing named gamestream-server.exe survives this point, regardless
 	// of how it got there or whether this backend ever tracked it.
-	killCmd := exec.Command("taskkill", "/F", "/IM", "gamestream-server.exe")
+	killCmd := exec.Command("taskkill", "/F", "/IM", "usbridge-streamer.exe")
 	maybeHideWindow(killCmd)
 	_ = killCmd.Run()
+	legacyKillCmd := exec.Command("taskkill", "/F", "/IM", "gamestream-server.exe")
+	maybeHideWindow(legacyKillCmd)
+	_ = legacyKillCmd.Run()
 	// Stop() only signals termination; give the OS a moment to actually
 	// release the exe's image-section file lock before the upcoming rename.
 	time.Sleep(500 * time.Millisecond)
 	// Confirmed live: the plain taskkill above can still leave a
-	// gamestream-server.exe alive with "Access is denied" even from this
+	// usbridge-streamer.exe alive with "Access is denied" even from this
 	// same agent's own same-user call -- root cause not fully pinned down
-	// (not self-spawned: gamestream-server's own source spawns no child
+	// (not self-spawned: usbridge-streamer's own source spawns no child
 	// processes on Windows), but reproducible: a manual StageRustShine
 	// against a genuinely clean process list staged and renamed in ~1.3s
 	// every time, while this exact flow, with a survivor still present,
@@ -2166,8 +2169,8 @@ func (a *App) stopRustShineForUpdate() bool {
 	// failure/decline/no-desktop-to-prompt-on -- StageRustShine's own
 	// caller already retries at the next interval and falls back to
 	// relaunching the old binary regardless of how this returns.
-	if a.perms != nil && processRunning("gamestream-server.exe") {
-		log.Printf("[app] gamestream-server.exe survived the plain taskkill -- requesting elevation to force it (a UAC prompt may appear)")
+	if a.perms != nil && (processRunning("usbridge-streamer.exe") || processRunning("gamestream-server.exe")) {
+		log.Printf("[app] usbridge-streamer.exe survived the plain taskkill -- requesting elevation to force it (a UAC prompt may appear)")
 		if err := a.perms.KillGamestreamServerElevated(); err != nil {
 			log.Printf("[app] elevated taskkill failed or was declined: %v", err)
 		} else {

@@ -443,7 +443,8 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 			// for display; if some future tag ever doesn't have it, this
 			// just falls back to showing the raw tag untouched rather than
 			// hiding real version info.
-			version = strings.TrimPrefix(st.RustShineVersion, "gamestream-server-v")
+			version = strings.TrimPrefix(st.RustShineVersion, "usbridge-streamer-v")
+			version = strings.TrimPrefix(version, "gamestream-server-v")
 		}
 		if w.streamerVersionLabel.Text != version {
 			w.streamerVersionLabel.SetText(version)
@@ -778,7 +779,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}
 		}()
 	})
-	w.rustshineWebRTCRow = container.NewHBox(widget.NewLabel("RustShine Web (WebRTC)"), layout.NewSpacer(), w.rustshineWebRTCCheck)
+	w.rustshineWebRTCRow = container.NewHBox(widget.NewLabel("USBridge-streamer Web (WebRTC)"), layout.NewSpacer(), w.rustshineWebRTCCheck)
 	w.rustshineWebRTCRow.Hide()
 
 	// USB passthrough driver install -- shown only while RustShine is
@@ -986,8 +987,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 		win.Clipboard().SetContent(rustshineWebURL)
 	})
 	sunWebLinkInfoBtn := widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
-		dialog.ShowInformation("RustShine Web Client",
-			"Open this link in a browser on any device to stream via RustShine's "+
+		dialog.ShowInformation("USBridge-streamer Web Client",
+			"Open this link in a browser on any device to stream via USBridge-streamer's "+
 				"built-in WebRTC client -- no Moonlight app needed. Uses the same "+
 				"pairing/master key as everything else in this agent.",
 			win)
@@ -1321,9 +1322,9 @@ func (w *Window) refreshSupportButton(st entitlement.Status) {
 	}
 	switch {
 	case st.ActiveBackend == "rustshine":
-		w.supportBtn.SetText("RustShine active")
+		w.supportBtn.SetText("USBridge-streamer active")
 	case st.Linked:
-		w.supportBtn.SetText("RustShine ready")
+		w.supportBtn.SetText("USBridge-streamer ready")
 	default:
 		w.supportBtn.SetText("Support us")
 	}
@@ -1335,9 +1336,9 @@ func (w *Window) refreshSupportButton(st entitlement.Status) {
 // tell rows apart in its OnChanged switch.
 const (
 	licenseRowSunshine            = "Sunshine (Open Source) — free"
-	licenseRowRustShineFree       = "RustShine — Free"
-	licenseRowRustShinePro        = "RustShine — Pro · $8/mo (4:4:4 color)"
-	licenseRowRustShineEnterprise = "RustShine — Enterprise · $25/mo (session logs, team access)"
+	licenseRowRustShineFree       = "USBridge-streamer — Free"
+	licenseRowRustShinePro        = "USBridge-streamer — Pro · $8/mo (4:4:4 color)"
+	licenseRowRustShineEnterprise = "USBridge-streamer — Enterprise · $25/mo (session logs, team access)"
 )
 
 // tierDisplayName renders a bare tier string ("pro"/"enterprise") as the
@@ -1345,9 +1346,9 @@ const (
 func tierDisplayName(tier string) string {
 	switch tier {
 	case "pro":
-		return "RustShine Pro"
+		return "USBridge-streamer Pro"
 	case "enterprise":
-		return "RustShine Enterprise"
+		return "USBridge-streamer Enterprise"
 	default:
 		return tier
 	}

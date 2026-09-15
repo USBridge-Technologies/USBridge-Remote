@@ -206,31 +206,55 @@ func (b *rustshineBackend) SetWebRTCEnabled(enabled bool) {
 	b.mu.Unlock()
 }
 
-// binaryName is bin/gamestream-server's build output name, per its
-// Cargo.toml package name — "gamestream-server(.exe)", not "rust-shine".
+// binaryName is bin/usbridge-streamer's build output name, per its
+// Cargo.toml package name — "usbridge-streamer(.exe)".
 func binaryName() string {
+	if runtime.GOOS == "windows" {
+		return "usbridge-streamer.exe"
+	}
+	return "usbridge-streamer"
+}
+
+func legacyBinaryName() string {
 	if runtime.GOOS == "windows" {
 		return "gamestream-server.exe"
 	}
 	return "gamestream-server"
 }
 
-// BinaryPath resolves the staged gamestream-server binary: stateDir/rustshine/
+// BinaryPath resolves the staged usbridge-streamer binary: stateDir/usbridge-streamer/
 // (see entitlement.StagePath's doc comment for why stateDir and not exeDir),
-// falling back to exeDir/rustshine/ for anything staged there by an older
-// build of this agent before that fix, then PATH for local dev where it's
+// falling back to legacy paths and PATH for local dev where it's
 // just been cargo-built and symlinked.
 func (b *rustshineBackend) BinaryPath() string {
 	if b.launchPath != "" {
 		return b.launchPath
 	}
+	// New standard paths
+	if p := filepath.Join(b.stateDir, "usbridge-streamer", binaryName()); fileExists(p) {
+		return p
+	}
+	if p := filepath.Join(b.exeDir, "usbridge-streamer", binaryName()); fileExists(p) {
+		return p
+	}
+	// Legacy stage dir paths
 	if p := filepath.Join(b.stateDir, "rustshine", binaryName()); fileExists(p) {
+		return p
+	}
+	if p := filepath.Join(b.stateDir, "rustshine", legacyBinaryName()); fileExists(p) {
 		return p
 	}
 	if p := filepath.Join(b.exeDir, "rustshine", binaryName()); fileExists(p) {
 		return p
 	}
+	if p := filepath.Join(b.exeDir, "rustshine", legacyBinaryName()); fileExists(p) {
+		return p
+	}
+	// LookPath on PATH
 	if path, err := exec.LookPath(binaryName()); err == nil {
+		return path
+	}
+	if path, err := exec.LookPath(legacyBinaryName()); err == nil {
 		return path
 	}
 	return ""
