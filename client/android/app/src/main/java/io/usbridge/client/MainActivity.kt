@@ -11,8 +11,11 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -202,6 +205,58 @@ class MainActivity : GoNativeActivity() {
         gyroSensorManager.start()
 
         clipboardManager.addPrimaryClipChangedListener { clipChangeCount++ }
+        setupSystemBack()
+    }
+
+    // Gesture-nav Back on API 33+ never reaches onBackPressed; without this
+    // Samsung just backgrounds the activity and fullscreen cannot be exited.
+    private var backInvokedCallback: Any? = null
+    @Volatile private var lastSystemBackAt = 0L
+
+    private fun setupSystemBack() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return
+        }
+        val cb = OnBackInvokedCallback {
+            handleSystemBack()
+        }
+        backInvokedCallback = cb
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(
+            OnBackInvokedDispatcher.PRIORITY_OVERLAY,
+            cb,
+        )
+        Log.i(TAG, "OnBackInvokedCallback registered")
+    }
+
+    /** True when Go consumed Back (fullscreen / keyboard / popup). */
+    private fun handleSystemBack(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSystemBackAt < 350) {
+            return true
+        }
+        lastSystemBackAt = now
+        try {
+            if (BackBridge.onSystemBack()) {
+                Log.i(TAG, "⬅️ System Back consumed by Go")
+                return true
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "⬅️ onSystemBack JNI failed: ${e.message}")
+        }
+        if (stickyIME || isKeyboardIgnoresTopSafeArea()) {
+            Log.i(TAG, "⬅️ System Back: dismissing sticky IME")
+            try {
+                KeyboardBridge.onIMEUserDismissed()
+            } catch (e: Exception) {
+                Log.e(TAG, "⬅️ IME dismiss fallback failed: ${e.message}")
+                stickyIME = false
+                org.golang.app.GoNativeActivity.hideKeyboard()
+            }
+            return true
+        }
+        Log.i(TAG, "⬅️ System Back: moveTaskToBack")
+        moveTaskToBack(true)
+        return true
     }
 
     private fun reportLanguage() {
@@ -353,6 +408,12 @@ class MainActivity : GoNativeActivity() {
     }
 
     override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            (backInvokedCallback as? OnBackInvokedCallback)?.let {
+                onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it)
+            }
+            backInvokedCallback = null
+        }
         try {
             unregisterReceiver(inputMethodReceiver)
         } catch (e: Exception) {
@@ -371,16 +432,11 @@ class MainActivity : GoNativeActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Consume Back before the IME swallows it, so sticky+special-keys
-        // collapse together (IME alone would only hide GBoard).
-        if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN && stickyIME) {
-            Log.i(TAG, "⌨️ [IME] KEYCODE_BACK while sticky — dismissing Go keyboard stack")
-            try {
-                KeyboardBridge.onIMEUserDismissed()
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ [IME] onIMEUserDismissed failed: ${e.message}")
-                stickyIME = false
-                org.golang.app.GoNativeActivity.hideKeyboard()
+        // 3-button Back still arrives as KEYCODE_BACK. Consume it so Fyne
+        // does not treat unfocused Back as finish()/GoBack.
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                handleSystemBack()
             }
             return true
         }
@@ -673,23 +729,7 @@ class MainActivity : GoNativeActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (stickyIME || isKeyboardIgnoresTopSafeArea()) {
-            // Let Go CloseAllKeyboards → setStickyIME(false) so special-keys
-            // and the footer keyboard toggle clear together with the soft IME.
-            // Do not clear stickyIME locally first: that used to leave Go's
-            // stack open after Back only hid GBoard.
-            try {
-                KeyboardBridge.onIMEUserDismissed()
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ [IME] onIMEUserDismissed failed: ${e.message}")
-                stickyIME = false
-                setKeyboardIgnoresTopSafeArea(false)
-                org.golang.app.GoNativeActivity.hideKeyboard()
-            }
-            return
-        }
-        @Suppress("DEPRECATION")
-        super.onBackPressed()
+        handleSystemBack()
     }
 
     fun getVpnPermissionState(): Int = vpnPermissionState
