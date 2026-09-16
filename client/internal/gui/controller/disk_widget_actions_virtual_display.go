@@ -21,29 +21,47 @@ func (dw *DiskWidget) handleAddVirtualDisplay() {
 	fpsEntry := widget.NewEntry()
 	fpsEntry.SetText("60")
 
-	presets := widget.NewSelect([]string{"1080p (1920x1080)", "1440p (2560x1440)", "4K (3840x2160)"}, func(s string) {
+	var form *widget.Form
+	widthItem := widget.NewFormItem("Width", widthEntry)
+	heightItem := widget.NewFormItem("Height", heightEntry)
+	fpsItem := widget.NewFormItem("Refresh Rate (FPS)", fpsEntry)
+
+	presets := widget.NewSelect([]string{"1080p (1920x1080) @ 60Hz", "1440p (2560x1440) @ 60Hz", "4K (3840x2160) @ 60Hz", "Custom..."}, func(s string) {})
+	presets.OnChanged = func(s string) {
 		switch s {
-		case "1080p (1920x1080)":
+		case "1080p (1920x1080) @ 60Hz":
 			widthEntry.SetText("1920")
 			heightEntry.SetText("1080")
-		case "1440p (2560x1440)":
+			fpsEntry.SetText("60")
+		case "1440p (2560x1440) @ 60Hz":
 			widthEntry.SetText("2560")
 			heightEntry.SetText("1440")
-		case "4K (3840x2160)":
+			fpsEntry.SetText("60")
+		case "4K (3840x2160) @ 60Hz":
 			widthEntry.SetText("3840")
 			heightEntry.SetText("2160")
+			fpsEntry.SetText("60")
 		}
-	})
-	presets.SetSelected("1080p (1920x1080)")
 
-	items := []*widget.FormItem{
-		widget.NewFormItem("Preset", presets),
-		widget.NewFormItem("Width", widthEntry),
-		widget.NewFormItem("Height", heightEntry),
-		widget.NewFormItem("Refresh Rate (FPS)", fpsEntry),
+		isCustom := s == "Custom..."
+		if isCustom {
+			if len(form.Items) == 1 {
+				form.AppendItem(widthItem)
+				form.AppendItem(heightItem)
+				form.AppendItem(fpsItem)
+			}
+		} else {
+			if len(form.Items) > 1 {
+				form.Items = []*widget.FormItem{form.Items[0]}
+				form.Refresh()
+			}
+		}
 	}
 
-	dialog.ShowForm("Add Virtual Display", "Add", "Cancel", items, func(b bool) {
+	form = widget.NewForm(widget.NewFormItem("Preset", presets))
+	presets.SetSelected("1080p (1920x1080) @ 60Hz")
+
+	dialog.ShowCustomConfirm("Add Virtual Display", "Add", "Cancel", form, func(b bool) {
 		if !b {
 			return
 		}
