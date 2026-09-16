@@ -282,7 +282,15 @@ chmod +x "$OUTPUT_APPIMAGE"
 # linuxdeploy embedded into the AppImage -- not $OUTPUT_APPIMAGE itself:
 # the AppImage is a compressed (zstd) squashfs image, so `strings` on the
 # whole file finds nothing at all, compressed data isn't printable text.
-if ! strings "$APPDIR/usr/bin/$EXE_NAME" | grep -qx "$VERSION"; then
+# Piping straight into `grep -qx` is unsafe under `set -o pipefail`: grep -q
+# exits the instant it finds a match, which can SIGPIPE `strings` before it
+# finishes writing, and pipefail then reports that 141 as the pipeline's
+# exit status regardless of grep's own (matching) result -- confirmed live,
+# this made the check fail nondeterministically even on a binary that DOES
+# contain the version string. Capturing strings' output into a variable
+# first removes the pipe (and the SIGPIPE race) entirely.
+BINARY_STRINGS="$(strings "$APPDIR/usr/bin/$EXE_NAME")"
+if ! grep -qx "$VERSION" <<<"$BINARY_STRINGS"; then
     echo -e "${RED}❌ $APPDIR/usr/bin/$EXE_NAME does not contain version string '$VERSION' -- packaging picked up a stale binary${NC}"
     exit 1
 fi
