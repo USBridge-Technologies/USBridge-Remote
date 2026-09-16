@@ -114,9 +114,15 @@ func (b *rustshineBackend) HdrStatus() (active bool, available bool) {
 }
 
 // VirtualDisplaySupported reports whether this backend supports native
-// virtual displays. True on Windows and macOS.
+// virtual displays: Windows (SudoVDA), macOS (CGVirtualDisplay), and Linux
+// desktop builds (the in-tree vkms kernel module -- see rust-shine's
+// virtual_display::linux doc comment). The desktop Linux AppImage/deb this
+// agent ever stages is always built with the "desktop" feature (KMS
+// capture, the only realistic desktop-screen-capture path), which is the
+// same feature vkms support is gated behind -- so unconditionally true
+// here mirrors Windows/macOS, not a runtime capability probe.
 func (b *rustshineBackend) VirtualDisplaySupported() bool {
-	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	return runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "linux"
 }
 
 // SupportedVideoCodecs reuses the exact same /serverinfo NvHTTP probe as
