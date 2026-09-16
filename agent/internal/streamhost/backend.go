@@ -122,6 +122,9 @@ type CodecProbe interface {
 	// docs, and rust-shine's docs/COLOR_MODES.md for why this is an
 	// independent axis (today: macOS-only, unlike 4:4:4 which is Linux-only).
 	HdrStatus() (active bool, available bool)
+	// VirtualDisplaySupported reports whether this backend supports native
+	// virtual displays (creation and streaming) without external physical monitors.
+	VirtualDisplaySupported() bool
 }
 
 // Client is a Moonlight client paired with the streaming host.

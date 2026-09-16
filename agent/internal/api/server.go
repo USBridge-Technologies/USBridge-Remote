@@ -62,8 +62,11 @@ type Application interface {
 	// (hardware AND license tier). Always (false, false) on Sunshine.
 	Color444Status() (active bool, available bool)
 	// HdrStatus mirrors Color444Status exactly, for the RustShine HDR color
-	// upgrade (HEVC Main10, BT.2020 + PQ) instead of 4:4:4 chroma.
+	// upgrade.
 	HdrStatus() (active bool, available bool)
+	// VirtualDisplaySupported reports whether the current stream backend
+	// supports native virtual displays.
+	VirtualDisplaySupported() bool
 	AudioSinks() ([]AudioSink, error)
 	CurrentAudioSink() (string, error)
 	SetAudioSink(sink string) error
@@ -733,8 +736,9 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		// RustShine's HDR color upgrade -- mirrors color_444_active/
 		// color_444_available exactly, see Application.HdrStatus's doc
 		// comment.
-		"hdr_active":    hdrActive,
-		"hdr_available": hdrAvailable,
+		"hdr_active":                hdrActive,
+		"hdr_available":             hdrAvailable,
+		"virtual_display_supported": s.app.VirtualDisplaySupported(),
 	})
 }
 
@@ -888,6 +892,28 @@ func filterDevices(devices []DeviceRequest) []DeviceRequest {
 
 func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
 	devices := s.app.VideoDevices()
+	
+	if s.app.VirtualDisplaySupported() {
+		devices = append(devices, VideoDeviceInfo{
+			Name:      "Virtual Display (1080p)",
+			Path:      "virtual:1920x1080@60",
+			Bus:       "virtual",
+			Connected: true,
+		})
+		devices = append(devices, VideoDeviceInfo{
+			Name:      "Virtual Display (1440p)",
+			Path:      "virtual:2560x1440@60",
+			Bus:       "virtual",
+			Connected: true,
+		})
+		devices = append(devices, VideoDeviceInfo{
+			Name:      "Virtual Display (4K)",
+			Path:      "virtual:3840x2160@60",
+			Bus:       "virtual",
+			Connected: true,
+		})
+	}
+
 	s.ok(w, "video devices list", map[string]any{"devices": devices, "count": len(devices)})
 }
 

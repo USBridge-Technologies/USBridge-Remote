@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime"
 	"time"
 )
 
@@ -110,6 +111,12 @@ func (b *rustshineBackend) HdrStatus() (active bool, available bool) {
 		return false, false
 	}
 	return status.ActiveHdr, status.HdrAvailable
+}
+
+// VirtualDisplaySupported reports whether this backend supports native
+// virtual displays. True on Windows and macOS.
+func (b *rustshineBackend) VirtualDisplaySupported() bool {
+	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 }
 
 // SupportedVideoCodecs reuses the exact same /serverinfo NvHTTP probe as

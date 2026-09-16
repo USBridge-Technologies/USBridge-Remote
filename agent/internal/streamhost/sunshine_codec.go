@@ -211,6 +211,12 @@ func (b *sunshineBackend) HdrStatus() (active bool, available bool) {
 	return false, false
 }
 
+// VirtualDisplaySupported: Sunshine (opensource) does not support our native
+// virtual display APIs.
+func (b *sunshineBackend) VirtualDisplaySupported() bool {
+	return false
+}
+
 func (b *sunshineBackend) SupportedVideoCodecs(adminPort int) []string {
 	b.supportedCodecsCache.mu.Lock()
 	if !b.supportedCodecsCache.fetchedAt.IsZero() && time.Since(b.supportedCodecsCache.fetchedAt) < supportedCodecsCacheTTL {

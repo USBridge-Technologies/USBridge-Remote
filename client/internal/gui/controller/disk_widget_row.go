@@ -637,6 +637,8 @@ func formatVideoBusLabel(bus string) string {
 		return "USB 1.1"
 	case "usb":
 		return "USB"
+	case "virtual":
+		return "VIRT"
 	default:
 		return ""
 	}

@@ -2896,6 +2896,15 @@ func (a *App) HdrStatus() (active bool, available bool) {
 	return a.stream.HdrStatus()
 }
 
+// VirtualDisplaySupported reports whether the current stream backend
+// supports native virtual displays (without external physical monitors).
+func (a *App) VirtualDisplaySupported() bool {
+	if a.stream == nil {
+		return false
+	}
+	return a.stream.VirtualDisplaySupported()
+}
+
 // UnpairSunshineClient removes the Moonlight client with the given UUID from
 // Sunshine's authorized client list.
 func (a *App) UnpairSunshineClient(uniqueID string) error {
