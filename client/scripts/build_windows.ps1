@@ -167,8 +167,20 @@ done
 export PATH="$BIN_DIR:$PATH"
 ./scripts/build_windows.sh
 '@
-$build = Invoke-Native -ScriptBlock {
-    & $msys2Shell -ucrt64 -defterm -no-start -where $ClientDir -c $buildCmd
+# msys2_shell.cmd is a batch file: passing $buildCmd (multi-line) straight
+# as a -c argument gives cmd.exe an argument containing embedded newlines,
+# which its line-based batch parser silently mangles -- msys2_shell then
+# exits 0 without ever running build_windows.sh, and no output is produced.
+# Writing the command to a script file and invoking that keeps the -c
+# argument a single line, which cmd.exe parses correctly.
+$runnerPath = Join-Path $ClientDir ".msys2_build_runner.sh"
+[System.IO.File]::WriteAllText($runnerPath, $buildCmd.Replace("`r`n", "`n"))
+try {
+    $build = Invoke-Native -ScriptBlock {
+        & $msys2Shell -ucrt64 -defterm -no-start -where $ClientDir -c "bash ./.msys2_build_runner.sh"
+    }
+} finally {
+    Remove-Item -LiteralPath $runnerPath -Force -ErrorAction SilentlyContinue
 }
 if ($build.ExitCode -ne 0) {
     throw "Build failed (exit $($build.ExitCode))"

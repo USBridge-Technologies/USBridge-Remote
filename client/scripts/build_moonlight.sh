@@ -13,11 +13,12 @@ echo "==============================================="
 echo " Building Moonlight Core (moonlight-common-c)  "
 echo "==============================================="
 
-if [ ! -d "${BUILD_DIR}/src" ]; then
-    echo "⬇️ Initialising moonlight-common-c submodule (pinned commit)..."
+SUBMODULE_STATUS="$(git -C "${PROJECT_ROOT}" submodule status -- moonlight-common-c 2>/dev/null | cut -c1)"
+if [ ! -d "${BUILD_DIR}/src" ] || [ "${SUBMODULE_STATUS}" != " " ]; then
+    echo "⬇️ Syncing moonlight-common-c submodule to pinned commit..."
     git -C "${PROJECT_ROOT}" submodule update --init --recursive moonlight-common-c
 else
-    echo "✅ moonlight-common-c already present ($(git -C "${BUILD_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))."
+    echo "✅ moonlight-common-c already up to date ($(git -C "${BUILD_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))."
 fi
 
 # Upstream's CMakeLists.txt calls CHECK_FUNCTION_EXISTS() without including
