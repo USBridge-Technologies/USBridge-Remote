@@ -149,7 +149,12 @@ type StartOptions struct {
 // at once on the same machine.
 func Start(opts StartOptions, version string) error {
 	if opts.Attach != "" {
-		client, err := adminapi.Dial(opts.Attach)
+		// The Windows service can hand us --attach a few hundred ms before
+		// the engine has actually called Listen on that socket (it used to
+		// bind only after tsnet came up). Retry instead of dying on the
+		// first refused connection — otherwise the tray helper exits and
+		// the user is left with a running engine and no window.
+		client, err := dialAdminSocket(opts.Attach, 15*time.Second)
 		if err != nil {
 			return fmt.Errorf("attach to admin socket %s: %w", opts.Attach, err)
 		}
@@ -161,15 +166,39 @@ func Start(opts StartOptions, version string) error {
 	if err != nil {
 		return err
 	}
-	// EnsureState only creates cfg.StateDir if missing — needed up front so
-	// the admin socket path is known, but otherwise side-effect-free (no
-	// goroutines, no network binds), so probing before committing to owning
-	// the engine is safe.
+
+	socketPath := adminapi.SocketPath(cfg.StateDir)
+	// Dial before EnsureState: a LocalSystem config.yaml sitting next to
+	// the exe points state_dir at SYSTEM's profile, and MkdirAll of that
+	// path fails for an interactive user ("Cannot create a file when that
+	// file already exists"). If the engine is already up we can still
+	// attach without creating anything.
+	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
+		if opts.Headless {
+			client.Close()
+			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
+		}
+		return runThinClientGUI(client, opts.Tray)
+	}
+
+	if !config.DirIsUsable(cfg.StateDir) {
+		fallback := config.Default().StateDir
+		log.Printf("[app] state dir %s is not writable by this process; using %s", cfg.StateDir, fallback)
+		cfg.StateDir = fallback
+		socketPath = adminapi.SocketPath(cfg.StateDir)
+		if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
+			if opts.Headless {
+				client.Close()
+				return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
+			}
+			return runThinClientGUI(client, opts.Tray)
+		}
+	}
+
 	if err := cfg.EnsureState(); err != nil {
 		return err
 	}
 
-	socketPath := adminapi.SocketPath(cfg.StateDir)
 	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
 		if opts.Headless {
 			client.Close()
@@ -321,6 +350,39 @@ func AdminSocketPath() (string, bool) {
 	return adminapi.SocketPath(a.cfg.StateDir), true
 }
 
+// AdminSocketReady is AdminSocketPath plus a live Dial — the path exists as
+// soon as Run() assigns currentInstance, but Listen only happens once the
+// admin server is up. The Windows service's tray helper must wait for the
+// latter or it dies on "connection refused" and the user gets no window.
+func AdminSocketReady() (string, bool) {
+	path, ok := AdminSocketPath()
+	if !ok {
+		return "", false
+	}
+	client, err := adminapi.Dial(path)
+	if err != nil {
+		return "", false
+	}
+	client.Close()
+	return path, true
+}
+
+func dialAdminSocket(path string, wait time.Duration) (*adminapi.Client, error) {
+	deadline := time.Now().Add(wait)
+	var last error
+	for {
+		client, err := adminapi.Dial(path)
+		if err == nil {
+			return client, nil
+		}
+		last = err
+		if wait <= 0 || time.Now().After(deadline) {
+			return nil, last
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 func New() (*App, error) {
 	cfgPath := resolveConfigPath()
 	cfg, err := config.Load(cfgPath)
@@ -328,7 +390,12 @@ func New() (*App, error) {
 		return nil, err
 	}
 	if err := cfg.EnsureState(); err != nil {
-		return nil, err
+		fallback := config.Default().StateDir
+		if fallback == cfg.StateDir || !config.DirIsUsable(fallback) {
+			return nil, err
+		}
+		log.Printf("[app] state dir %s is not writable; using %s", cfg.StateDir, fallback)
+		cfg.StateDir = fallback
 	}
 
 	// Generate master key on first run.
@@ -413,9 +480,7 @@ func New() (*App, error) {
 	if cfg.AccountToken != "" {
 		instance.accStatus.LoggedIn = true
 		instance.accStatus.Email = cfg.AccountEmail
-		// Licenses populated lazily -- the License dialog's own open
-		// triggers a refresh (see window.go), no need to hit the backend
-		// on every agent launch before anyone's even looked.
+		go instance.refreshAccountLicenses(context.Background())
 	}
 	return instance, nil
 }
@@ -429,6 +494,14 @@ func resolveExeDir() string {
 
 func resolveConfigPath() string {
 	candidates := make([]string, 0, 8)
+	// Prefer this process's own config dir first — it matches
+	// config.Default().StateDir. Putting exeDir first meant a LocalSystem
+	// Windows service would write dist/windows/config.yaml with
+	// state_dir under SYSTEM's profile; the next interactive launch then
+	// loaded that file and died in MkdirAll.
+	if base, err := os.UserConfigDir(); err == nil && strings.TrimSpace(base) != "" {
+		candidates = append(candidates, filepath.Join(base, "usbridge-agent", "config.yaml"))
+	}
 	// Under an AppImage, exeDir is the AppImage's read-only squashfs mount
 	// (a fresh, ephemeral path each launch) — never usable as a config
 	// location, so it's excluded both from the search and from the fallback
@@ -458,14 +531,29 @@ func resolveConfigPath() string {
 	}
 
 	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+		if _, err := os.Stat(candidate); err != nil {
+			continue
 		}
+		cfg, err := config.Load(candidate)
+		if err != nil {
+			continue
+		}
+		if !config.DirIsUsable(cfg.StateDir) {
+			log.Printf("[app] ignoring %s: state dir %s is not writable by this process", candidate, cfg.StateDir)
+			continue
+		}
+		return candidate
 	}
 	if skipExeDir && homeCandidate != "" {
 		return homeCandidate
 	}
-	return candidates[0]
+	if base, err := os.UserConfigDir(); err == nil && strings.TrimSpace(base) != "" {
+		return filepath.Join(base, "usbridge-agent", "config.yaml")
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return filepath.Join(".", "config.yaml")
 }
 
 // Run starts the engine (HTTP server, Sunshine, tsnet, admin socket) and
@@ -507,6 +595,21 @@ func (a *App) Run(headless, startHidden bool) error {
 	currentInstance.a = a
 	currentInstance.mu.Unlock()
 
+	// Bind the admin socket before Sunshine/tsnet so a Windows tray helper
+	// can attach as soon as AdminSocketPath is known. This used to run
+	// after initTailscale(), which can block for tens of seconds; the
+	// helper then dialed a path that wasn't listening yet and exited.
+	if srv, err := adminapi.NewServer(adminapi.SocketPath(a.cfg.StateDir), a, a.perms, a.ts, func() config.Config { return a.cfg }); err != nil {
+		log.Printf("[app] warning: admin socket unavailable: %v", err)
+	} else {
+		a.adminSrv = srv
+		go func() {
+			if err := srv.Serve(); err != nil {
+				log.Printf("[app] admin socket server error: %v", err)
+			}
+		}()
+	}
+
 	keepDisplayAwake(ctx)
 
 	log.Printf("[app] starting http=%s:%d headless=%v", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, headless)
@@ -544,19 +647,6 @@ func (a *App) Run(headless, startHidden bool) error {
 	}
 
 	a.initTailscale(ctx)
-
-	if srv, err := adminapi.NewServer(adminapi.SocketPath(a.cfg.StateDir), a, a.perms, a.ts, func() config.Config { return a.cfg }); err != nil {
-		// Non-fatal: the engine itself works fine without it, it just means
-		// no separate GUI process can attach to this instance later.
-		log.Printf("[app] warning: admin socket unavailable: %v", err)
-	} else {
-		a.adminSrv = srv
-		go func() {
-			if err := srv.Serve(); err != nil {
-				log.Printf("[app] admin socket server error: %v", err)
-			}
-		}()
-	}
 
 	if headless {
 		<-ctx.Done()
