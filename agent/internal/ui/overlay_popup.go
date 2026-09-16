@@ -7,6 +7,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -117,6 +118,7 @@ func showOverlayPopup(parent fyne.Window, spec overlayPopupSpec) *widget.PopUp {
 	popup := widget.NewPopUp(content, parent.Canvas())
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())
+	beginOverlay()
 	watchOverlayPopup(parent, popup)
 	popup.Show()
 	return popup
@@ -159,6 +161,7 @@ func watchOverlayPopup(parent fyne.Window, popup *widget.PopUp) {
 			if currentVisible {
 				wasShown = true
 			} else if wasShown {
+				fyne.Do(endOverlay)
 				return
 			}
 
@@ -204,7 +207,20 @@ func (c *overlayTapCatcher) Tapped(*fyne.PointEvent) {
 
 func (c *overlayTapCatcher) TappedSecondary(*fyne.PointEvent) {}
 
-var _ fyne.Tappable = (*overlayTapCatcher)(nil)
+func (c *overlayTapCatcher) MouseIn(*desktop.MouseEvent) {
+	clearCardHovers()
+}
+
+func (c *overlayTapCatcher) MouseMoved(*desktop.MouseEvent) {}
+
+func (c *overlayTapCatcher) MouseOut() {}
+
+func (c *overlayTapCatcher) Cursor() desktop.Cursor { return desktop.DefaultCursor }
+
+var (
+	_ fyne.Tappable     = (*overlayTapCatcher)(nil)
+	_ desktop.Hoverable = (*overlayTapCatcher)(nil)
+)
 
 // newBrandedDialogPanel is the Token/Account card chrome: accent hairline,
 // title + corner X, full-bleed header/footer separators, Gray900 fill.
@@ -235,7 +251,10 @@ func newBrandedDialogPanelInsets(title string, width, padX, bodyPadT float32, bo
 	if footer != nil {
 		bodyPadB = 8
 	}
-	center := container.NewVBox(widthLock, newExactInset(body, padX, padX, bodyPadT, bodyPadB))
+	center := container.NewBorder(
+		widthLock, nil, nil, nil,
+		newExactInset(body, padX, padX, bodyPadT, bodyPadB),
+	)
 
 	var footerBlock fyne.CanvasObject
 	if footer != nil {

@@ -69,8 +69,8 @@ var googleLogoBytes []byte
 const (
 	headerIconFill = "#41e0c3"
 	chipIconFill   = "#c3c6b4"
-	proIconFill    = "#9c58f9"
-	onProIconFill  = "#f5f5f5"
+	proIconFill    = "#b39ef1"
+	onProIconFill  = "#0b0f12"
 )
 
 // GitHubIcon is the octocat mark for the USB driver chip (muted chrome).
@@ -89,8 +89,8 @@ var (
 // GoogleLogo is the colorful G for the Account "Log in with Google" chip.
 var GoogleLogo = fyne.NewStaticResource("google-logo.webp", googleLogoBytes)
 
-// StarProIcon is the Protocol-card Pro/Enterprise glyph (#9c58f9).
-// StarChipIcon matches Change-chip chrome; StarOnProIcon is the hover fill.
+// StarProIcon is the Protocol-card Pro/Enterprise glyph (#b39ef1).
+// StarChipIcon matches Change-chip chrome; StarOnProIcon is the Buy fill.
 var (
 	StarProIcon   = tintedStar("star-pro.svg", starSVG, proIconFill)
 	StarChipIcon  = tintedStar("star-chip.svg", starSVG, chipIconFill)

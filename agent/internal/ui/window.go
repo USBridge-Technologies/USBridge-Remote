@@ -913,14 +913,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	// supportBtn lives in the Protocol card header next to Change.
 	w.supportBtn = newSupportButton("Buy Pro", func() {
-		if w.token != nil {
-			st := w.token.EntitlementStatus()
-			if protocolNeedsPurchase(w.protocolPick, st, w.token.AccountStatus()) {
-				w.requestPaidTier(win, st, protocolPurchaseTier(w.protocolPick), w.finishProtocolSwitch)
-				return
-			}
-		}
-		w.showLicenseDialog(win)
+		w.onProtocolBuyClicked(win)
 	})
 
 	w.streamerNameLabel = makeStatusName("")
@@ -1499,6 +1492,20 @@ func tierDisplayName(tier string) string {
 	default:
 		return tier
 	}
+}
+
+func currentLicenseRow(st entitlement.Status) string {
+	if st.ActiveBackend == "rustshine" {
+		switch st.Tier {
+		case "pro":
+			return licenseRowRustShinePro
+		case "enterprise":
+			return licenseRowRustShineEnterprise
+		default:
+			return licenseRowRustShineFree
+		}
+	}
+	return licenseRowSunshine
 }
 
 // showLicenseDialog is the single entry point for the whole hardware-bound
@@ -3746,7 +3753,7 @@ func (b *closeButton) Tapped(*fyne.PointEvent) {
 
 // supportButton is the Protocol header's Buy Pro chip — same chrome as
 // Change (dark fill, 22px, muted label) with a dim purple outline at rest,
-// filling ColorPro when hovered or accented (pending purchase).
+// filling ColorProSoft when hovered or accented (pending purchase).
 type supportButton struct {
 	widget.BaseWidget
 	Text     string
@@ -3778,9 +3785,9 @@ func (b *supportButton) CreateRenderer() fyne.WidgetRenderer {
 	bg := canvas.NewRectangle(design.ColorGray950)
 	bg.CornerRadius = 6
 	bg.StrokeWidth = 1
-	bg.StrokeColor = design.ColorProIdle
+	bg.StrokeColor = design.ColorProSoft
 
-	icon := canvas.NewImageFromResource(assets.StarChipIcon)
+	icon := canvas.NewImageFromResource(assets.StarProIcon)
 	icon.FillMode = canvas.ImageFillContain
 
 	text := canvas.NewText(b.Text, design.ColorTailscaleChipLabel)
@@ -3859,15 +3866,15 @@ func (r *supportButtonRenderer) Objects() []fyne.CanvasObject {
 func (r *supportButtonRenderer) Refresh() {
 	r.text.Text = r.button.Text
 	if r.button.hovered || r.button.accent {
-		r.bg.FillColor = design.ColorPro
-		r.bg.StrokeColor = design.ColorPro
-		r.text.Color = design.ColorTextLight
+		r.bg.FillColor = design.ColorProSoft
+		r.bg.StrokeColor = design.ColorProSoft
+		r.text.Color = design.ColorGray950
 		r.icon.Resource = assets.StarOnProIcon
 	} else {
 		r.bg.FillColor = design.ColorGray950
-		r.bg.StrokeColor = design.ColorProIdle
+		r.bg.StrokeColor = design.ColorProSoft
 		r.text.Color = design.ColorTailscaleChipLabel
-		r.icon.Resource = assets.StarChipIcon
+		r.icon.Resource = assets.StarProIcon
 	}
 	r.bg.Refresh()
 	r.text.Refresh()

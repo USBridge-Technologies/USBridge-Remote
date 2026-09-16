@@ -36,10 +36,11 @@ func chromeForProtocol(kind string) chromePalette {
 			Accent:       design.ColorTextLight,
 			AccentHover:  design.ColorWhite,
 			CardHover:    design.ColorMutedOlive,
+			HeaderLine:   design.ColorAlphaWhite24,
 			OnAccent:     design.ColorGray950,
 			IconHex:      "#f5f5f5",
 			Logo:         assets.LogoUSBridgeLockupOpen,
-			HeaderLineOn: false,
+			HeaderLineOn: true,
 		}
 	case protocolPro, protocolEnterprise:
 		return chromePalette{
@@ -77,6 +78,7 @@ var (
 	chromePanels   []*themedPanel
 	chromeUnhover  *time.Timer
 	brandLockup    *canvas.Image
+	overlayDepth   int
 )
 
 func currentChrome() chromePalette {
@@ -204,7 +206,31 @@ func clearCardHovers() {
 	}
 }
 
+func beginOverlay() {
+	chromeMu.Lock()
+	overlayDepth++
+	chromeMu.Unlock()
+	clearCardHovers()
+}
+
+func endOverlay() {
+	chromeMu.Lock()
+	if overlayDepth > 0 {
+		overlayDepth--
+	}
+	chromeMu.Unlock()
+}
+
+func overlayBlockingChrome() bool {
+	chromeMu.Lock()
+	defer chromeMu.Unlock()
+	return overlayDepth > 0
+}
+
 func noteChromeHoverIn(abs fyne.Position) {
+	if overlayBlockingChrome() {
+		return
+	}
 	chromeMu.Lock()
 	if chromeUnhover != nil {
 		chromeUnhover.Stop()

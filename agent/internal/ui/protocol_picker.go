@@ -47,7 +47,7 @@ func protocolBadgeColors(key string) (fg color.Color, line color.Color) {
 		}
 		return design.ColorTeal, design.ColorTeal
 	case protocolPro, protocolEnterprise:
-		return design.ColorPro, design.ColorPro
+		return design.ColorProSoft, design.ColorProSoft
 	default:
 		return design.ColorMutedOlive, design.ColorChromeOlive
 	}
@@ -56,8 +56,8 @@ func protocolBadgeColors(key string) (fg color.Color, line color.Color) {
 var protocolOptions = []protocolOption{
 	{protocolOpensource, "Sunshine", "Opensource", design.ColorMutedOlive, design.ColorChromeOlive, nil},
 	{protocolFree, "USBridge Streamer", "Free", design.ColorTeal, design.ColorTeal, nil},
-	{protocolPro, "USBridge", "Pro", design.ColorPro, design.ColorPro, assets.StarProIcon},
-	{protocolEnterprise, "USBridge", "Enterprise", design.ColorPro, design.ColorPro, assets.StarProIcon},
+	{protocolPro, "USBridge", "Pro", design.ColorProSoft, design.ColorProSoft, assets.StarProIcon},
+	{protocolEnterprise, "USBridge", "Enterprise", design.ColorProSoft, design.ColorProSoft, assets.StarProIcon},
 }
 
 func protocolKeyFromStatus(st entitlement.Status) string {
@@ -200,13 +200,8 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 			w.setProtocolHover(opt.key, on)
 		})
 		w.protocolRows = append(w.protocolRows, row)
-		if opt.key == protocolOpensource {
-			rows = append(rows, row)
-			continue
-		}
 		info := newTinyGlyphButtonColored(theme.InfoIcon(), design.ColorNameMutedOlive, func() {
-			title, body := protocolInfoCopy(opt.key)
-			dialog.ShowInformation(title, body, parent)
+			w.showTariffPickerDialog(parent, opt.key)
 		})
 		rows = append(rows, container.New(&flushEndsLayout{}, row, info))
 	}
@@ -225,27 +220,28 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 	return newPanel(panelIconProtocol, "Protocol", headerBtns, container.New(&tightVBoxLayout{gap: 4}, rows...))
 }
 
-func protocolInfoCopy(key string) (title, body string) {
-	switch key {
-	case protocolFree:
-		return "USBridge Streamer — Free",
-			"The proprietary USBridge streamer with no paid subscription. Pro adds 4:4:4 color and USB passthrough."
-	case protocolPro:
-		return "USBridge Streamer — Pro",
-			"$8/mo. Unlocks 4:4:4 color and USB passthrough."
-	case protocolEnterprise:
-		return "USBridge Streamer — Enterprise",
-			"$25/mo. Everything in Pro, plus session logs and team access."
-	default:
-		return "", ""
-	}
-}
-
 func (w *Window) protocolStatus() (entitlement.Status, account.Status) {
 	if w.token == nil {
 		return entitlement.Status{}, account.Status{}
 	}
 	return w.token.EntitlementStatus(), w.token.AccountStatus()
+}
+
+// onProtocolBuyClicked: accented Buy Pro / Buy Enterprise goes straight to
+// Stripe; the muted chip (Sunshine or Free selected) opens the tariff info
+// on the Pro tab.
+func (w *Window) onProtocolBuyClicked(parent fyne.Window) {
+	pick := w.protocolPick
+	if pick == "" {
+		st, _ := w.protocolStatus()
+		pick = protocolKeyFromStatus(st)
+	}
+	switch pick {
+	case protocolPro, protocolEnterprise:
+		w.openTariffCheckout(parent, protocolPurchaseTier(pick))
+	default:
+		w.showTariffPickerDialog(parent, protocolPro)
+	}
 }
 
 func (w *Window) selectProtocolPick(key string) {
