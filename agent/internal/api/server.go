@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -93,6 +94,9 @@ type Server struct {
 	usb *usbpass.Service
 
 	clipboardBlobs *clipboardBlobStore
+
+	virtMu          sync.Mutex
+	virtualDisplays []VideoDeviceInfo
 }
 
 type loggingResponseWriter struct {
@@ -186,6 +190,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
 	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/video/set_device", sec.LimitPolling(s.videoSetDevice))
+	mux.HandleFunc("POST /api/video/virtual_displays", sec.LimitPolling(s.virtualDisplayCreate))
+	mux.HandleFunc("DELETE /api/video/virtual_displays/{id}", sec.LimitPolling(s.virtualDisplayDelete))
 	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))
 	mux.HandleFunc("/api/devices", sec.LimitPolling(s.devicesLegacy))
 	mux.HandleFunc("/api/pcpanel/leds", sec.LimitPolling(s.leds))
@@ -894,27 +900,77 @@ func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
 	devices := s.app.VideoDevices()
 	
 	if s.app.VirtualDisplaySupported() {
-		devices = append(devices, VideoDeviceInfo{
-			Name:      "Virtual Display (1080p)",
-			Path:      "virtual:1920x1080@60",
-			Bus:       "virtual",
-			Connected: true,
-		})
-		devices = append(devices, VideoDeviceInfo{
-			Name:      "Virtual Display (1440p)",
-			Path:      "virtual:2560x1440@60",
-			Bus:       "virtual",
-			Connected: true,
-		})
-		devices = append(devices, VideoDeviceInfo{
-			Name:      "Virtual Display (4K)",
-			Path:      "virtual:3840x2160@60",
-			Bus:       "virtual",
-			Connected: true,
-		})
+		s.virtMu.Lock()
+		devices = append(devices, s.virtualDisplays...)
+		s.virtMu.Unlock()
 	}
 
 	s.ok(w, "video devices list", map[string]any{"devices": devices, "count": len(devices)})
+}
+
+func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
+	if !s.app.VirtualDisplaySupported() {
+		s.fail(w, http.StatusBadRequest, "virtual_displays_unsupported", nil)
+		return
+	}
+	var req struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+		FPS    int `json:"fps"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	if req.Width <= 0 || req.Height <= 0 || req.FPS <= 0 {
+		s.fail(w, http.StatusBadRequest, "invalid_resolution", nil)
+		return
+	}
+
+	path := fmt.Sprintf("virtual:%dx%d@%d", req.Width, req.Height, req.FPS)
+
+	vd := VideoDeviceInfo{
+		Name:      fmt.Sprintf("Virtual Display (%dx%d@%d)", req.Width, req.Height, req.FPS),
+		Path:      path,
+		Bus:       "virtual",
+		Connected: true,
+	}
+
+	s.virtMu.Lock()
+	// Only add if not already present
+	exists := false
+	for _, existing := range s.virtualDisplays {
+		if existing.Path == path {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		s.virtualDisplays = append(s.virtualDisplays, vd)
+	}
+	s.virtMu.Unlock()
+
+	s.ok(w, "virtual_display_created", vd)
+}
+
+func (s *Server) virtualDisplayDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := url.PathUnescape(r.PathValue("id"))
+	if err != nil {
+		id = r.PathValue("id")
+	}
+	
+	s.virtMu.Lock()
+	defer s.virtMu.Unlock()
+	
+	filtered := make([]VideoDeviceInfo, 0, len(s.virtualDisplays))
+	for _, vd := range s.virtualDisplays {
+		if vd.Path != id {
+			filtered = append(filtered, vd)
+		}
+	}
+	s.virtualDisplays = filtered
+
+	s.ok(w, "virtual_display_deleted", nil)
 }
 
 // videoSetDevice pins Sunshine's capture to the monitor identified by
