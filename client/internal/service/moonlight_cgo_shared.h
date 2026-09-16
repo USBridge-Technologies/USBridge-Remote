@@ -231,23 +231,23 @@ int do_li_start(
     // change at all client-side until this was added) -- silently, with no
     // error, since ReferenceFrameInvalidationSupported alone was never
     // enough on its own.
-    // CAPABILITY_DIRECT_SUBMIT deliberately NOT set here (unlike Windows/Android,
-    // which set it in their own separate LiStartConnection call sites) -- it makes
-    // moonlight-common-c call submitDecodeUnit synchronously from the RTP receive
-    // thread itself (VideoStream.c's VideoReceiveThreadProc), skipping the library's
-    // own queue+decoder-thread machinery (decodeUnitQueue/VideoDecoderThreadProc in
-    // VideoDepacketizer.c/VideoStream.c) entirely. That machinery is also where the
-    // adaptive playout jitter buffer lives (VideoDepacketizer.c's playoutDelayForFrame) --
-    // with DIRECT_SUBMIT set, that code was linked in but never executed on any
-    // platform using this shared setup (confirmed live: the buffer's own debug
-    // logging showed it computing correct jitter estimates the whole time, since
-    // that part runs unconditionally, but "applied" delay stayed at 0 for an entire
-    // 90s test run, because the function it's applied in was simply never called).
-    // Without DIRECT_SUBMIT, decode/render moves off the network receive thread
-    // onto its own thread, which is also generally better for real-time behavior
-    // regardless of the jitter buffer specifically -- a slow decode/render no
-    // longer stalls receipt of the next packet.
-    dr.capabilities = CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
+    // CAPABILITY_DIRECT_SUBMIT: an attempt to remove this (to activate
+    // moonlight-common-c's own queue+decoder-thread machinery in
+    // VideoDepacketizer.c/VideoStream.c, where an adaptive playout jitter
+    // buffer was added -- see that file's playoutDelayForFrame) was tried
+    // live and reverted. It fixed the buffer (confirmed working: applied
+    // delay tracked jitter correctly, stalls dropped sharply), but moving
+    // decode/render off the network receive thread onto a separate thread
+    // caused a *different*, worse regression: real render throughput to the
+    // screen collapsed to ~10-15fps while decode itself kept running at the
+    // full ~60fps (confirmed via the VT-decode-fps vs Metal-rendered-fps
+    // counters diverging live) -- something about this Metal/CVDisplayLink
+    // path doesn't tolerate decode happening off its accustomed thread, and
+    // it wasn't safe to leave running while diagnosing further. Keep
+    // CAPABILITY_DIRECT_SUBMIT set until that's understood; the jitter
+    // buffer code is left in place (harmless, unreachable while this flag
+    // is set) for whoever picks this back up.
+    dr.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
 
     AUDIO_RENDERER_CALLBACKS ar;
     LiInitializeAudioCallbacks(&ar);
