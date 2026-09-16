@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 	"net/url"
 	"strings"
@@ -238,6 +239,54 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 	sep2 := canvas.NewRectangle(design.ColorDialogSep)
 	sep2.SetMinSize(fyne.NewSize(0, 1))
 
+	// licensesBody: lets a customer who bought a license on another machine
+	// move it onto this one, same "rebind" call as billing.usbridge.io/manage
+	// (see internal/account's doc comment) -- only rendered when there's
+	// actually another license on the account to offer, so the common
+	// single-device case doesn't grow a menu row it'll never use.
+	licensesBody := container.NewVBox()
+	var renderLicenses func(acc account.Status)
+	renderLicenses = func(acc account.Status) {
+		licensesBody.RemoveAll()
+		for _, lic := range acc.Licenses {
+			if !strings.EqualFold(lic.Status, "licensed") {
+				continue
+			}
+			lic := lic
+			tail := lic.Identifier
+			if len(tail) > 8 {
+				tail = tail[len(tail)-8:]
+			}
+			name := canvas.NewText(fmt.Sprintf("%s ·%s", accountTierLabel(lic.Tier), tail), design.ColorTextLight)
+			name.TextSize = 10
+			if acc.RebindInProgress {
+				state := canvas.NewText("Moving…", design.ColorMutedOlive)
+				state.TextSize = 10
+				licensesBody.Add(container.New(&flushEndsLayout{}, name, state))
+				continue
+			}
+			useBtn := newAccountDialogTextButton("Use here", func() {
+				go func() {
+					_ = w.token.RebindLicenseToThisDevice(lic.Identifier)
+					fyne.Do(func() {
+						next := w.token.AccountStatus()
+						paintAccountPlan(next)
+						renderLicenses(next)
+						w.syncProtocolPicker(w.token.EntitlementStatus())
+					})
+				}()
+			})
+			licensesBody.Add(container.New(&flushEndsLayout{}, name, useBtn))
+		}
+		if len(licensesBody.Objects) > 0 {
+			hint := canvas.NewText("Your licenses", design.ColorEmptyHint)
+			hint.TextSize = 9
+			licensesBody.Objects = append([]fyne.CanvasObject{hint}, licensesBody.Objects...)
+		}
+		licensesBody.Refresh()
+	}
+	renderLicenses(acc)
+
 	var popup *tealMenuPopup
 	logout := newCardHeaderButton("Log out", headerLogoutIcon, func() {
 		if popup != nil {
@@ -258,6 +307,7 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 		sep1,
 		container.New(&flushEndsLayout{}, subLabel, subValue),
 		container.New(&flushEndsLayout{}, planLabel, planValue),
+		licensesBody,
 		sep2,
 		container.New(&centerHLayout{}, logout),
 	)
@@ -321,6 +371,7 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 					return
 				}
 				paintAccountPlan(acc)
+				renderLicenses(acc)
 				if w.token != nil {
 					w.syncProtocolPicker(w.token.EntitlementStatus())
 				}
@@ -339,6 +390,17 @@ func accountHasPaidLicense(acc account.Status) bool {
 		}
 	}
 	return false
+}
+
+func accountTierLabel(tier string) string {
+	switch strings.ToLower(tier) {
+	case "pro":
+		return "Pro"
+	case "enterprise":
+		return "Enterprise"
+	default:
+		return "Free"
+	}
 }
 
 func accountSubscriptionLabel(acc account.Status) string {

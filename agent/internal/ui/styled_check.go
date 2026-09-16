@@ -168,40 +168,104 @@ func (r *styledCheckRenderer) Refresh() {
 func (r *styledCheckRenderer) Objects() []fyne.CanvasObject { return r.objects }
 func (r *styledCheckRenderer) Destroy()                     {}
 
-// permStatusChip is a non-interactive Accessibility / Screen Capture
-// indicator: the same 10px #c5c8b5 label as Tailscale "Account", and a
-// lime tick with no circle. Not a button — no hover cursor.
+// permStatusChip is the Accessibility / Screen Capture indicator: the same
+// 10px label as Tailscale "Account", with a lime tick once granted. When
+// onRequest is non-nil (this platform/capture-mode actually has something to
+// request -- see the showAccessButton/showScreenCaptureButton gating in
+// ShowAndRun, mirroring the old dedicated "Request" buttons), the whole chip
+// is tappable and its label turns teal as a click hint; not-granted with a
+// nil onRequest (nothing actionable here, e.g. Windows/X11) stays plain
+// muted text with no pointer cursor, same as before this was made tappable.
 type permStatusChip struct {
-	root *fyne.Container
-	mark *canvas.Image
+	widget.BaseWidget
+	root      *fyne.Container
+	mark      *canvas.Image
+	labelT    *canvas.Text
+	baseLabel string
+	onRequest func()
+	granted   bool
+	busy      bool
 }
 
-func newPermStatusChip(label string) *permStatusChip {
+func newPermStatusChip(label string, onRequest func()) *permStatusChip {
 	slot := canvas.NewRectangle(color.Transparent)
 	slot.SetMinSize(fyne.NewSize(11, 11))
 	mark := newCheckImage(checkGlyphLime)
 	mark.SetMinSize(fyne.NewSize(11, 11))
 	labelT := canvas.NewText(label, design.ColorMutedOlive)
 	labelT.TextSize = 10
-	c := &permStatusChip{mark: mark}
+	c := &permStatusChip{mark: mark, labelT: labelT, baseLabel: label, onRequest: onRequest}
 	c.root = container.New(&tightHBoxLayout{gap: 3},
 		container.NewStack(slot, container.New(&checkNudgeLayout{dy: -1}, mark)),
 		labelT)
+	c.ExtendBaseWidget(c)
 	c.SetChecked(false)
 	return c
+}
+
+func (c *permStatusChip) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(c.root)
 }
 
 func (c *permStatusChip) SetChecked(on bool) {
 	if c == nil {
 		return
 	}
+	c.granted = on
 	if on {
 		c.mark.Show()
 	} else {
 		c.mark.Hide()
 	}
 	c.mark.Refresh()
+	c.refreshVisuals()
 }
+
+func (c *permStatusChip) refreshVisuals() {
+	if c.labelT == nil {
+		return
+	}
+	if c.onRequest != nil && !c.granted {
+		c.labelT.Text = c.baseLabel + " · Grant"
+		c.labelT.Color = design.ColorTeal
+	} else {
+		c.labelT.Text = c.baseLabel
+		c.labelT.Color = design.ColorMutedOlive
+	}
+	c.labelT.Refresh()
+}
+
+func (c *permStatusChip) Tapped(*fyne.PointEvent) {
+	if c.onRequest == nil || c.busy {
+		return
+	}
+	c.busy = true
+	c.onRequest()
+}
+
+// requestDone lets the caller clear the busy flag once its (async) request
+// finishes -- SetChecked alone doesn't imply that, since a request can
+// legitimately end without changing the granted state (denied, or already
+// granted before the call).
+func (c *permStatusChip) requestDone() {
+	if c == nil {
+		return
+	}
+	c.busy = false
+}
+
+func (c *permStatusChip) TappedSecondary(*fyne.PointEvent) {}
+
+func (c *permStatusChip) Cursor() desktop.Cursor {
+	if c.onRequest != nil && !c.granted {
+		return desktop.PointerCursor
+	}
+	return desktop.DefaultCursor
+}
+
+func (c *permStatusChip) MouseIn(*desktop.MouseEvent)    {}
+func (c *permStatusChip) MouseOut()                      {}
+func (c *permStatusChip) MouseMoved(*desktop.MouseEvent) {}
 
 type checkNudgeLayout struct{ dx, dy float32 }
 
