@@ -16,6 +16,14 @@ import (
 
 const footerBusySpinnerSize float32 = 14
 const footerBusySpinnerInterval = 140 * time.Millisecond
+const footerIdleMessageDuration = 8 * time.Second
+
+const (
+	footerHintProtocol        = "Changing protocol..."
+	footerHintCheckingUpdates = "Checking for updates..."
+	footerHintUpToDate        = "Already up to date"
+	footerHintUpdateFailed    = "Update check failed"
+)
 
 // footerBusyHint is the agent footer's muted-olive dot spinner + status copy.
 type footerBusyHint struct {
@@ -40,19 +48,38 @@ func newFooterBusyHint(hint string) *footerBusyHint {
 	return s
 }
 
+func (s *footerBusyHint) SetHint(hint string) {
+	s.hint = hint
+	if s.label != nil {
+		s.label.Text = hint
+		s.label.Refresh()
+	}
+}
+
 func (s *footerBusyHint) Start() {
 	s.mu.Lock()
-	if s.active {
-		s.mu.Unlock()
-		return
+	already := s.active
+	var stop chan struct{}
+	if !already {
+		s.active = true
+		stop = make(chan struct{})
+		s.stop = stop
 	}
-	s.active = true
-	stop := make(chan struct{})
-	s.stop = stop
 	s.mu.Unlock()
 
+	if s.label != nil {
+		s.label.Text = s.hint
+		s.label.Refresh()
+	}
+	if s.img != nil {
+		s.img.Show()
+	}
 	s.Show()
 	s.Refresh()
+	if already {
+		return
+	}
+
 	frames := assets.LoadingMutedFrames
 	if s.img != nil && len(frames) > 0 {
 		s.img.Resource = frames[0]
@@ -88,7 +115,7 @@ func (s *footerBusyHint) Start() {
 	}()
 }
 
-func (s *footerBusyHint) Stop() {
+func (s *footerBusyHint) stopTicker() {
 	s.mu.Lock()
 	if !s.active {
 		s.mu.Unlock()
@@ -101,7 +128,23 @@ func (s *footerBusyHint) Stop() {
 	if stop != nil {
 		close(stop)
 	}
+}
+
+func (s *footerBusyHint) Stop() {
+	s.stopTicker()
 	s.Hide()
+	s.Refresh()
+}
+
+// ShowIdle stops the spinner and leaves hint visible — used for a short
+// "Already up to date" after a streamer update check finds nothing.
+func (s *footerBusyHint) ShowIdle(hint string) {
+	s.stopTicker()
+	s.SetHint(hint)
+	if s.img != nil {
+		s.img.Hide()
+	}
+	s.Show()
 	s.Refresh()
 }
 
@@ -125,18 +168,50 @@ func (s *footerBusyHint) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(s.box)
 }
 
-func (w *Window) startProtocolBusy() {
+func (w *Window) startFooterBusy(hint string) {
 	if w.protocolBusy == nil {
 		return
 	}
+	w.footerMsgGen++
+	w.protocolBusy.SetHint(hint)
 	w.protocolBusy.Start()
 }
 
-func (w *Window) stopProtocolBusy() {
+func (w *Window) stopFooterBusy() {
 	if w.protocolBusy == nil {
 		return
 	}
+	w.footerMsgGen++
 	w.protocolBusy.Stop()
+}
+
+func (w *Window) showFooterIdle(hint string, d time.Duration) {
+	if w.protocolBusy == nil {
+		return
+	}
+	w.footerMsgGen++
+	gen := w.footerMsgGen
+	w.protocolBusy.ShowIdle(hint)
+	if d <= 0 {
+		return
+	}
+	go func() {
+		time.Sleep(d)
+		fyne.Do(func() {
+			if w.footerMsgGen != gen || w.protocolBusy == nil {
+				return
+			}
+			w.protocolBusy.Stop()
+		})
+	}()
+}
+
+func (w *Window) startProtocolBusy() {
+	w.startFooterBusy(footerHintProtocol)
+}
+
+func (w *Window) stopProtocolBusy() {
+	w.stopFooterBusy()
 }
 
 func (w *Window) finishProtocolSwitch() {

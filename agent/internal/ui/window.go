@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/url"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,7 +21,6 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
-	qrcode "github.com/skip2/go-qrcode"
 
 	"usbridge_agent/assets"
 	"usbridge_agent/internal/account"
@@ -257,6 +255,7 @@ type Window struct {
 	protocolRows    []*protocolPickRow
 	protocolChange  *cardHeaderButton
 	protocolBusy    *footerBusyHint
+	footerMsgGen    uint64
 
 	// streamerNameLabel / streamerKindLabel show StreamerName() split into
 	// the product ("Sunshine" / "USBridge Streamer") and the smaller
@@ -280,6 +279,11 @@ type Window struct {
 	// no manual update path at all (see streamerVersionLabel's doc
 	// comment on why), so this button never applies to it.
 	rustshineUpdateBtn *iconActionButton
+	// streamerUpdateChecking is true from the moment the Status-card
+	// refresh glyph is clicked until CheckRustShineUpdateNow finishes
+	// (and the footer idle copy is shown). Keeps the button disabled
+	// even before EntitlementStatus.RustShineUpdateInProgress flips on.
+	streamerUpdateChecking bool
 
 	// ownsEngine is true only when this window's process itself started the
 	// engine (App.Run(headless=false)) — as opposed to a thin client
@@ -426,6 +430,29 @@ func (w *Window) refreshClipboardToolUI() {
 // refreshRustShineUI).
 const rustshineWebURL = "https://web.usbridge.io"
 
+// formatStreamerVersion keeps the Status-card "v…" tag for both backends.
+// Sunshine uses the agent build; USBridge Streamer uses the staged release
+// tag, which entitlement stores as "usbridge-streamer-v1.2.3" /
+// "gamestream-server-v1.2.3" — those prefixes are stripped so the header
+// matches Sunshine's short "v1.2.3" rather than losing the "v" or showing
+// the whole tag.
+func formatStreamerVersion(appVer, rustshineVer string, rustshineActive bool) string {
+	raw := strings.TrimSpace(appVer)
+	if rustshineActive {
+		tag := strings.TrimSpace(rustshineVer)
+		tag = strings.TrimPrefix(tag, "usbridge-streamer-v")
+		tag = strings.TrimPrefix(tag, "gamestream-server-v")
+		if tag != "" {
+			raw = tag
+		}
+	}
+	raw = strings.TrimPrefix(raw, "v")
+	if raw == "" {
+		return ""
+	}
+	return "v" + raw
+}
+
 // refreshRustShineUI keeps the standalone WebRTC checkbox (moved out of
 // showLicenseDialog so it's visible without opening that popup) and the
 // Status panel's web-UI row in sync with entitlement.Status on every
@@ -434,21 +461,7 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 	active := st.ActiveBackend == "rustshine"
 
 	if w.streamerVersionLabel != nil {
-		version := "v" + appVersion
-		if active {
-			// st.RustShineVersion is the raw release tag
-			// entitlement.StagedVersion recorded (e.g.
-			// "gamestream-server-v0.3.16", see that function's own doc
-			// comment) -- showing that whole tag next to "RustShine
-			// (Proprietary)" visibly stretched/wrapped this row (confirmed
-			// live: "RustShine(Proprietary)   vgamestream-server-v0.3.16").
-			// Strip the known release-tag prefix down to the bare version
-			// for display; if some future tag ever doesn't have it, this
-			// just falls back to showing the raw tag untouched rather than
-			// hiding real version info.
-			version = strings.TrimPrefix(st.RustShineVersion, "usbridge-streamer-v")
-			version = strings.TrimPrefix(version, "gamestream-server-v")
-		}
+		version := formatStreamerVersion(appVersion, st.RustShineVersion, active)
 		if w.streamerVersionLabel.Text != version {
 			w.streamerVersionLabel.Text = version
 			w.streamerVersionLabel.Refresh()
@@ -462,7 +475,7 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 			// nothing to check an update *against* before RustShine has
 			// even been downloaded once.
 			w.rustshineUpdateBtn.Hide()
-		case st.RustShineUpdateInProgress:
+		case st.RustShineUpdateInProgress || w.streamerUpdateChecking:
 			w.rustshineUpdateBtn.Show()
 			w.rustshineUpdateBtn.Disable()
 		default:
@@ -498,6 +511,72 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 			w.sunWebSunshineRow.Show()
 		}
 	}
+}
+
+func (w *Window) beginStreamerUpdateCheck() {
+	if w.token == nil || w.streamerUpdateChecking {
+		return
+	}
+	w.streamerUpdateChecking = true
+	if w.rustshineUpdateBtn != nil {
+		w.rustshineUpdateBtn.Disable()
+	}
+	before := w.token.EntitlementStatus()
+	w.startFooterBusy(footerHintCheckingUpdates)
+	go func() {
+		err := w.token.CheckRustShineUpdateNow()
+		if err != nil {
+			logrus.WithError(err).Warn("rustshine update check failed")
+		}
+		if !w.ownsEngine && err == nil {
+			w.waitUntilRustShineUpdateSettles()
+		}
+		fyne.Do(func() {
+			w.finishStreamerUpdateCheck(before, err)
+		})
+	}()
+}
+
+// waitUntilRustShineUpdateSettles is the thin-client path: the admin API
+// returns before the engine finishes, so we poll RustShineUpdateInProgress
+// until it has been seen and then cleared (or a short grace expires).
+func (w *Window) waitUntilRustShineUpdateSettles() {
+	if w.token == nil {
+		return
+	}
+	start := time.Now()
+	seen := false
+	for time.Since(start) < 3*time.Minute {
+		st := w.token.EntitlementStatus()
+		if st.RustShineUpdateInProgress {
+			seen = true
+		} else if seen || time.Since(start) > 1500*time.Millisecond {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr error) {
+	w.streamerUpdateChecking = false
+	st := entitlement.Status{}
+	if w.token != nil {
+		st = w.token.EntitlementStatus()
+	}
+	if w.rustshineUpdateBtn != nil && !st.RustShineUpdateInProgress {
+		w.rustshineUpdateBtn.Enable()
+	}
+
+	failed := checkErr != nil || (st.LastError != "" && st.LastError != before.LastError)
+	if failed {
+		w.showFooterIdle(footerHintUpdateFailed, footerIdleMessageDuration)
+		return
+	}
+	if st.RustShineVersion != "" && st.RustShineVersion != before.RustShineVersion {
+		w.stopFooterBusy()
+		return
+	}
+	w.showFooterIdle(footerHintUpToDate, footerIdleMessageDuration)
 }
 
 // refreshUSBPassthroughUI keeps usbDriverRow in sync -- shown only while
@@ -784,41 +863,38 @@ func (w *Window) ShowAndRun(onClose func()) {
 	permTop = append(permTop, w.usbDriverRow)
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
-	moonlightAddBtn := newIconActionButton("", theme.ContentAddIcon(), func() {
+	moonlightAddBtn := newTinyGlyphButtonColored(theme.ContentAddIcon(), design.ColorNameMutedOlive, func() {
 		w.showMoonlightPINDialog(win)
 	})
-	moonlightAddBtn.Tiny = true
-	w.moonlightBtn = newIconActionButton("0", theme.AccountIcon(), func() {
+	w.moonlightBtn = newIconActionButton("0", theme.NewColoredResource(theme.AccountIcon(), design.ColorNameMutedOlive), func() {
 		w.showMoonlightClientsDialog(win)
 	})
 	w.moonlightBtn.Tiny = true
 	moonlightDeleteAllBtn := newDangerGlyphButton(func() {
-		dialog.ShowConfirm("Remove All Clients",
-			"Remove all paired Moonlight devices?",
-			func(yes bool) {
-				if !yes || w.token == nil {
+		showConfirmToast("Remove all paired Moonlight devices?", func(yes bool) {
+			if !yes || w.token == nil {
+				return
+			}
+			go func() {
+				clients, err := w.token.ListSunshineClients()
+				if err != nil {
 					return
 				}
-				go func() {
-					clients, err := w.token.ListSunshineClients()
-					if err != nil {
-						return
+				for _, c := range clients {
+					_ = w.token.UnpairSunshineClient(c.UniqueID)
+				}
+				// Unpairing only blocks future reconnects — a client
+				// already mid-stream keeps going until the stream host
+				// itself is restarted (same reasoning as
+				// RegenerateMasterKey's own client wipe).
+				_ = w.token.RestartSunshine()
+				fyne.Do(func() {
+					if w.moonlightBtn != nil {
+						w.moonlightBtn.SetText("0")
 					}
-					for _, c := range clients {
-						_ = w.token.UnpairSunshineClient(c.UniqueID)
-					}
-					// Unpairing only blocks future reconnects — a client
-					// already mid-stream keeps going until the stream host
-					// itself is restarted (same reasoning as
-					// RegenerateMasterKey's own client wipe).
-					_ = w.token.RestartSunshine()
-					fyne.Do(func() {
-						if w.moonlightBtn != nil {
-							w.moonlightBtn.SetText("0")
-						}
-					})
-				}()
-			}, win)
+				})
+			}()
+		}, win)
 	})
 	mlLabel := canvas.NewText("Moonlight Clients", design.ColorSectionTitle)
 	mlLabel.TextSize = 11
@@ -853,18 +929,13 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.setStreamerDisplay(w.token.StreamerName())
 	w.streamerStatusDot = newStatusDot()
 	w.streamerVersionLabel = newTSMetaLabel("")
-	// Fires the check in the engine process and returns immediately --
-	// refreshRustShineUI's own 2s poll of EntitlementStatus is what shows
-	// the "checking…"/new-version/error result, the same fire-and-forget
-	// shape the "Download RustShine" button in showLicenseDialog already
-	// uses (see CheckRustShineUpdateNow's doc comment for why this is safe
-	// to not wait on here).
+	// Starts the footer spinner immediately; CheckRustShineUpdateNow is
+	// what actually talks to the backend. In-process this call blocks
+	// until the check (and any download) finishes; a thin-client GUI
+	// gets a fire-and-forget HTTP 200 and polls EntitlementStatus
+	// instead (see handleCheckRustShineUpdateNow).
 	w.rustshineUpdateBtn = newTinyGlyphButtonColored(theme.ViewRefreshIcon(), design.ColorNameMutedOlive, func() {
-		go func() {
-			if err := w.token.CheckRustShineUpdateNow(); err != nil {
-				logrus.WithError(err).Warn("rustshine update check failed")
-			}
-		}()
+		w.beginStreamerUpdateCheck()
 	})
 	streamerLabel := newStatusRow(
 		container.New(&tightHBoxLayout{gap: 6},
@@ -947,11 +1018,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		win.Clipboard().SetContent(rustshineWebURL)
 	})
 	sunWebLinkInfoBtn := newTinyGlyphButtonColored(theme.InfoIcon(), design.ColorNameMutedOlive, func() {
-		dialog.ShowInformation("USBridge-streamer Web Client",
-			"Open this link in a browser on any device to stream via USBridge-streamer's "+
-				"built-in WebRTC client -- no Moonlight app needed. Uses the same "+
-				"pairing/master key as everything else in this agent.",
-			win)
+		w.showWebClientInfoDialog(win)
 	})
 	w.sunWebRustshineRow = newStatusRow(
 		container.New(&tightHBoxLayout{gap: 6},
@@ -2285,143 +2352,6 @@ func isActiveTailscalePeer(p tailscale.Peer) bool {
 	return false
 }
 
-func (w *Window) showTokenDialog(parent fyne.Window) {
-	if parent == nil {
-		return
-	}
-
-	linkLabel := widget.NewLabel("")
-	linkLabel.Alignment = fyne.TextAlignCenter
-	linkLabel.Wrapping = fyne.TextWrapBreak
-
-	qrImage := canvas.NewImageFromResource(nil)
-	qrImage.FillMode = canvas.ImageFillContain
-	qrImage.SetMinSize(fyne.NewSize(200, 200))
-	qrMessage := widget.NewLabel("")
-	qrMessage.Alignment = fyne.TextAlignCenter
-	qrMessage.Wrapping = fyne.TextWrapWord
-	qrContent := container.NewCenter(qrImage)
-	qrMessage.Hide()
-	qrPanelBody := container.NewVBox(qrContent, qrMessage)
-
-	copyLinkBtn := newIconActionButton("Copy Link", theme.ContentCopyIcon(), func() {
-		masterKey := strings.TrimSpace(w.cfg.MasterKey)
-		internalHost, tailscaleHost, protocol := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol)
-		if link != "" {
-			parent.Clipboard().SetContent(link)
-		}
-	})
-	regenerateBtn := newIconActionButton("Regenerate Key", theme.ViewRefreshIcon(), nil)
-
-	topGap := spacerSize(1, 8)
-	linkGap := spacerSize(1, 2)
-	buttonGap := spacerSize(1, 6)
-	closeTopGap := spacerSize(1, 8)
-	closeBottomGap := spacerSize(1, 0)
-
-	copyLinkSlot := container.NewCenter(container.NewGridWrap(fyne.NewSize(260, copyLinkBtn.MinSize().Height), copyLinkBtn))
-	regenerateSlot := container.NewCenter(container.NewGridWrap(fyne.NewSize(260, regenerateBtn.MinSize().Height), regenerateBtn))
-	linkActions := container.NewCenter(container.NewGridWithColumns(2,
-		copyLinkSlot,
-		regenerateSlot,
-	))
-
-	var tokenDialog *widget.PopUp
-	closeDialogBtn := widget.NewButton("Close", func() {
-		if tokenDialog != nil {
-			tokenDialog.Hide()
-		}
-	})
-
-	contentWidth := canvas.NewRectangle(color.Transparent)
-	contentWidth.SetMinSize(fyne.NewSize(620, 1))
-	contentBody := container.NewVBox(
-		contentWidth,
-		topGap,
-		qrPanelBody,
-		linkGap,
-		container.NewPadded(linkLabel),
-		buttonGap,
-		linkActions,
-		closeTopGap,
-		container.NewCenter(closeDialogBtn),
-		closeBottomGap,
-	)
-	// Remove the top margin completely to lift the QR code
-	pL := canvas.NewRectangle(color.Transparent)
-	pL.SetMinSize(fyne.NewSize(8, 1))
-	pR := canvas.NewRectangle(color.Transparent)
-	pR.SetMinSize(fyne.NewSize(8, 1))
-	pB := canvas.NewRectangle(color.Transparent)
-	pB.SetMinSize(fyne.NewSize(1, 0))
-	dialogContent := container.NewBorder(nil, pB, pL, pR, contentBody)
-
-	dialogCard := wrapDialogCard(dialogContent)
-	dialogBody := container.NewCenter(dialogCard)
-
-	// Create a local theme with zero padding only for this dialog
-	compactTheme := &compactTheme{Theme: design.NewBrandTheme()}
-	tokenDialog = widget.NewModalPopUp(container.NewThemeOverride(dialogBody, compactTheme), parent.Canvas())
-
-	tokenDialog.Resize(parent.Canvas().Size())
-
-	refreshDialogContent := func() {
-		masterKey := strings.TrimSpace(w.cfg.MasterKey)
-		if masterKey == "" {
-			masterKey = "unavailable"
-		}
-		internalHost, tailscaleHost, protocol := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol)
-
-		linkLabel.SetText(link)
-		if link == "" {
-			copyLinkBtn.Disable()
-		} else {
-			copyLinkBtn.Enable()
-		}
-
-		if link == "" {
-			qrImage.Resource = nil
-			qrImage.Hide()
-			qrMessage.Show()
-			qrMessage.SetText("QR link unavailable until the agent has a reachable address.")
-			return
-		}
-
-		pngBytes, err := qrcode.Encode(link, qrcode.Medium, 320)
-		if err != nil {
-			qrImage.Resource = nil
-			qrImage.Hide()
-			qrMessage.Show()
-			qrMessage.SetText(fmt.Sprintf("QR unavailable: %v", err))
-			return
-		}
-
-		qrImage.Resource = fyne.NewStaticResource("agent-token-qr.png", pngBytes)
-		qrImage.Show()
-		qrImage.Refresh()
-		qrMessage.Hide()
-		qrMessage.SetText("")
-	}
-
-	regenerateBtn.OnTapped = func() {
-		if w.token == nil {
-			return
-		}
-		cfg, err := w.token.RegenerateMasterKey()
-		if err != nil {
-			dialog.ShowError(err, parent)
-			return
-		}
-		w.cfg = cfg
-		refreshDialogContent()
-	}
-
-	refreshDialogContent()
-	tokenDialog.Show()
-}
-
 func buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol string) string {
 	masterKey = strings.TrimSpace(masterKey)
 	if masterKey == "" || masterKey == "unavailable" {
@@ -2469,343 +2399,6 @@ func (w *Window) quickConnectTargets() (internalHost string, tailscaleHost strin
 
 func localQuickConnectIPv4() string {
 	return netutil.PreferredIPv4()
-}
-
-func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
-	if w.token == nil || parent == nil {
-		return
-	}
-
-	listBox := container.NewVBox()
-	var dlg *widget.PopUp
-	var refreshList func()
-
-	refreshList = func() {
-		go func() {
-			clients, err := w.token.ListSunshineClients()
-			fyne.Do(func() {
-				listBox.RemoveAll()
-				if err != nil {
-					listBox.Add(widget.NewLabel("Error: " + err.Error()))
-					listBox.Refresh()
-					return
-				}
-				if len(clients) == 0 {
-					emptyLabel := widget.NewLabel("No paired clients")
-					emptyLabel.Alignment = fyne.TextAlignCenter
-					listBox.Add(emptyLabel)
-				} else {
-					for _, c := range clients {
-						c := c
-						displayName := strings.TrimSpace(c.Name)
-						if displayName == "" {
-							// Sunshine often leaves the name blank — show the UUID instead
-							displayName = c.UniqueID
-						}
-						nameLabel := widget.NewLabel(displayName)
-						nameLabel.Truncation = fyne.TextTruncateEllipsis
-						removeBtn := newDangerGlyphButton(func() {
-							go func() {
-								if err := w.token.UnpairSunshineClient(c.UniqueID); err != nil {
-									log.Printf("[ui] unpair moonlight client: %v", err)
-								} else {
-									// Unpairing only blocks future reconnects
-									// — a client already mid-stream keeps
-									// going until the stream host itself is
-									// restarted.
-									_ = w.token.RestartSunshine()
-								}
-								refreshList()
-							}()
-						})
-						row := container.NewBorder(nil, nil, nil, removeBtn, nameLabel)
-						listBox.Add(row)
-					}
-				}
-				listBox.Refresh()
-			})
-		}()
-	}
-
-	closeBtn := widget.NewButton("Close", func() {
-		if dlg != nil {
-			dlg.Hide()
-		}
-	})
-
-	minWidth := canvas.NewRectangle(color.Transparent)
-	minWidth.SetMinSize(fyne.NewSize(340, 1))
-
-	titleLabel := newDialogTitle("MOONLIGHT CLIENTS")
-
-	content := container.NewVBox(
-		titleLabel,
-		minWidth,
-		widget.NewSeparator(),
-		listBox,
-		widget.NewSeparator(),
-		container.NewCenter(closeBtn),
-	)
-
-	card := wrapDialogCard(container.NewPadded(content))
-
-	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
-	refreshList()
-	dlg.Show()
-}
-
-func (w *Window) showMoonlightPINDialog(parent fyne.Window) {
-	if w.token == nil || parent == nil {
-		return
-	}
-
-	entry := widget.NewEntry()
-	entry.SetPlaceHolder("4-digit PIN from Moonlight")
-
-	statusLabel := widget.NewLabel("")
-	statusLabel.Alignment = fyne.TextAlignCenter
-	statusLabel.Hide()
-
-	var dlg *widget.PopUp
-
-	var submitBtn *widget.Button
-	submitBtn = widget.NewButton("Submit", func() {
-		pin := strings.TrimSpace(entry.Text)
-		if len(pin) == 0 {
-			statusLabel.SetText("Enter the PIN shown in Moonlight")
-			statusLabel.Show()
-			return
-		}
-		submitBtn.Disable()
-		go func() {
-			err := w.token.SubmitMoonlightPIN(pin)
-			fyne.Do(func() {
-				if err != nil {
-					statusLabel.SetText("Error: " + err.Error())
-					statusLabel.Show()
-					submitBtn.Enable()
-				} else {
-					if dlg != nil {
-						dlg.Hide()
-					}
-				}
-			})
-		}()
-	})
-	submitBtn.Importance = widget.HighImportance
-
-	cancelBtn := widget.NewButton("Cancel", func() {
-		if dlg != nil {
-			dlg.Hide()
-		}
-	})
-
-	titleLabel := newDialogTitle("PAIR MOONLIGHT CLIENT")
-
-	minWidth := canvas.NewRectangle(color.Transparent)
-	minWidth.SetMinSize(fyne.NewSize(320, 1))
-
-	content := container.NewVBox(
-		titleLabel,
-		minWidth,
-		widget.NewSeparator(),
-		widget.NewLabel("Open Moonlight → Add PC → enter PIN shown here:"),
-		entry,
-		statusLabel,
-		widget.NewSeparator(),
-		container.NewCenter(container.NewHBox(submitBtn, cancelBtn)),
-	)
-
-	card := wrapDialogCard(container.NewPadded(content))
-	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
-	dlg.Show()
-}
-
-func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
-	if parent == nil {
-		return
-	}
-
-	sunshineURL := fmt.Sprintf("https://127.0.0.1:%d", port)
-
-	var dlg *widget.PopUp
-
-	copyRow := func(labelText, valueText string) fyne.CanvasObject {
-		lbl := canvas.NewText(labelText, design.ColorTextMuted)
-		lbl.TextSize = 11
-		lbl.TextStyle.Bold = true
-		lblBox := container.NewGridWrap(fyne.NewSize(52, 16), lbl)
-		val := widget.NewLabel(valueText)
-		val.Truncation = fyne.TextTruncateEllipsis
-		copyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
-			parent.Clipboard().SetContent(valueText)
-		})
-		return container.NewBorder(nil, nil, lblBox, copyBtn, val)
-	}
-
-	openBtn := widget.NewButtonWithIcon("Open in Browser", theme.ComputerIcon(), func() {
-		if parsed, err := url.Parse(sunshineURL); err == nil {
-			_ = w.app.OpenURL(parsed)
-		}
-	})
-
-	titleLabel := newDialogTitle("SUNSHINE WEB UI")
-
-	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
-		if dlg != nil {
-			dlg.Hide()
-		}
-	})
-	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
-
-	minWidth := canvas.NewRectangle(color.Transparent)
-	minWidth.SetMinSize(fyne.NewSize(360, 1))
-
-	// Password row: built dynamically so it reflects the value set by the
-	// async bootstrap goroutine even if the dialog opens before it completes.
-	passLabel := widget.NewLabel(w.token.AdminPass())
-	passLabel.Truncation = fyne.TextTruncateEllipsis
-	passLbl := canvas.NewText("Pass:", design.ColorTextMuted)
-	passLbl.TextSize = 11
-	passLbl.TextStyle.Bold = true
-	passLblBox := container.NewGridWrap(fyne.NewSize(52, 16), passLbl)
-	passCopyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
-		parent.Clipboard().SetContent(w.token.AdminPass())
-	})
-	passRow := container.NewBorder(nil, nil, passLblBox, passCopyBtn, passLabel)
-	// If password is not yet available (bootstrap still running), poll until ready.
-	if passLabel.Text == "" {
-		go func() {
-			for i := 0; i < 40; i++ {
-				time.Sleep(500 * time.Millisecond)
-				if p := w.token.AdminPass(); p != "" {
-					fyne.Do(func() { passLabel.SetText(p) })
-					return
-				}
-			}
-		}()
-	}
-
-	content := container.NewVBox(
-		titleRow,
-		minWidth,
-		widget.NewSeparator(),
-		copyRow("URL:", sunshineURL),
-		copyRow("Login:", w.token.AdminUser()),
-		passRow,
-		widget.NewSeparator(),
-		container.NewCenter(openBtn),
-	)
-
-	card := wrapDialogCard(container.NewPadded(content))
-	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
-	dlg.Show()
-}
-
-// showEditSunStreamDialog lets the user change the IP Sunshine advertises to
-// Moonlight clients (external_ip in sunshine.conf) and the streaming port.
-// The web/admin port is always streamPort+1. Changes are applied by restarting
-// Sunshine immediately.
-func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *canvas.Text, streamWarn *canvas.Text, webLabel *canvas.Text) {
-	if parent == nil {
-		return
-	}
-
-	var dlg *widget.PopUp
-
-	currentStreamPort := w.cfg.SunshinePort - 1
-	if currentStreamPort <= 0 {
-		currentStreamPort = 47989
-	}
-	currentIP := w.token.SunshineStreamHost()
-	if currentIP == "" {
-		currentIP = "0.0.0.0"
-	}
-
-	displays, valueFor, currentDisplay := ipSelectOptions(currentIP)
-	hostSelect := widget.NewSelect(displays, nil)
-	hostSelect.SetSelected(currentDisplay)
-
-	portEntry := widget.NewEntry()
-	portEntry.SetText(strconv.Itoa(currentStreamPort))
-
-	errLabel := widget.NewLabel("")
-	errLabel.Alignment = fyne.TextAlignCenter
-	errLabel.Hide()
-
-	var saveBtn *widget.Button
-	saveBtn = widget.NewButton("Save", func() {
-		host := valueFor[hostSelect.Selected]
-		if host == "" {
-			host = "0.0.0.0"
-		}
-		streamPort, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
-		if err != nil || streamPort < 1 || streamPort > 65534 {
-			errLabel.SetText("Invalid port (1–65534)")
-			errLabel.Show()
-			return
-		}
-		saveBtn.Disable()
-		go func() {
-			if w.token == nil {
-				fyne.Do(func() { saveBtn.Enable() })
-				return
-			}
-			cfg, err := w.token.UpdateSunshineStreamAddr(host, streamPort)
-			fyne.Do(func() {
-				if err != nil {
-					errLabel.SetText("Error: " + err.Error())
-					errLabel.Show()
-					saveBtn.Enable()
-					return
-				}
-				w.cfg = cfg
-				streamLabel.Text = fmt.Sprintf("%s:%d", host, streamPort)
-				streamLabel.Refresh()
-				if needsWarnBadge(host) {
-					streamWarn.Show()
-					streamWarn.Refresh()
-				} else {
-					streamWarn.Hide()
-					streamWarn.Refresh()
-				}
-				webLabel.Text = fmt.Sprintf("127.0.0.1:%d", streamPort+1)
-				webLabel.Refresh()
-				if dlg != nil {
-					dlg.Hide()
-				}
-			})
-		}()
-	})
-	saveBtn.Importance = widget.HighImportance
-
-	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
-		if dlg != nil {
-			dlg.Hide()
-		}
-	})
-	titleLabel := newDialogTitle("SUNSHINE STREAMING")
-	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
-
-	noteLabel := canvas.NewText("Sets external_ip + port in sunshine.conf · restarts Sunshine", design.ColorMutedOlive)
-	noteLabel.TextSize = 10
-
-	minWidth := canvas.NewRectangle(color.Transparent)
-	minWidth.SetMinSize(fyne.NewSize(340, 1))
-
-	content := container.NewVBox(
-		titleRow, minWidth,
-		widget.NewSeparator(),
-		widget.NewLabel("IP (advertised to Moonlight clients):"), hostSelect,
-		widget.NewLabel("Streaming port:"), portEntry,
-		noteLabel, errLabel,
-		widget.NewSeparator(),
-		container.NewCenter(saveBtn),
-	)
-
-	card := wrapDialogCard(container.NewPadded(content))
-	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
-	dlg.Show()
 }
 
 // needsWarnBadge reports whether a host binding warrants a ⚠ warning.
@@ -2961,14 +2554,14 @@ func osHeaderIcon() fyne.Resource {
 }
 
 // newStatusDot returns a small filled circle for a running/stopped traffic
-// light next to a status row -- starts red (design.ColorError); callers set
-// the actual state via setStatusDot on the next refresh tick rather than
+// light next to a status row -- starts red (design.ColorStatusOff); callers
+// set the actual state via setStatusDot on the next refresh tick rather than
 // guessing an initial value here. Wrapped in a fixed-size GridWrap, not
 // placed directly in an HBox/Center: canvas.Circle.MinSize() is hardcoded to
 // (1,1) with no setter (see fyne's own canvas/circle.go), so any layout that
 // sizes children by their own MinSize collapses it to a 1px speck otherwise.
 func newStatusDot() *canvas.Circle {
-	dot := canvas.NewCircle(design.ColorError)
+	dot := canvas.NewCircle(design.ColorStatusOff)
 	dot.StrokeWidth = 0
 	return dot
 }
@@ -2981,17 +2574,17 @@ func statusDotBox(dot *canvas.Circle) fyne.CanvasObject {
 		container.NewGridWrap(fyne.NewSize(8, 8), dot))
 }
 
-// setStatusDot recolors dot to design.ColorAccent (green, running) or
-// design.ColorError (red, not running) and refreshes it -- nil-safe so
+// setStatusDot recolors dot to design.ColorStatusOn (lime, running) or
+// design.ColorStatusOff (rose, not running) and refreshes it -- nil-safe so
 // callers don't need their own guard when a row's widgets haven't been
 // built yet (e.g. a thin-client GUI attached before its first poll).
 func setStatusDot(dot *canvas.Circle, running bool) {
 	if dot == nil {
 		return
 	}
-	want := design.ColorError
+	want := design.ColorStatusOff
 	if running {
-		want = design.ColorAccent
+		want = design.ColorStatusOn
 	}
 	if dot.FillColor != want {
 		dot.FillColor = want
@@ -3085,184 +2678,6 @@ func ipSelectOptions(currentVal string) (displays []string, valueFor map[string]
 		currentDisplay = currentVal
 	}
 	return
-}
-
-// showEditHTTPAddrDialog opens a modal to change the agent's HTTP listen
-// host and port. Updates valLabel and warnBadge immediately after save.
-// The HTTP server itself is NOT hot-reloaded — the user must restart the app.
-func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Text, warnBadge *canvas.Text) {
-	if parent == nil {
-		return
-	}
-
-	var dlg *widget.PopUp
-
-	displays, valueFor, currentDisplay := ipSelectOptions(w.cfg.EffectiveListenHost())
-	hostSelect := widget.NewSelect(displays, nil)
-	hostSelect.SetSelected(currentDisplay)
-
-	portEntry := widget.NewEntry()
-	portEntry.SetText(strconv.Itoa(w.cfg.HTTPPort))
-
-	errLabel := widget.NewLabel("")
-	errLabel.Alignment = fyne.TextAlignCenter
-	errLabel.Hide()
-
-	var saveBtn *widget.Button
-	saveBtn = widget.NewButton("Save", func() {
-		host := valueFor[hostSelect.Selected]
-		if host == "" {
-			host = "0.0.0.0"
-		}
-		port, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
-		if err != nil || port < 1 || port > 65535 {
-			errLabel.SetText("Invalid port (1–65535)")
-			errLabel.Show()
-			return
-		}
-		saveBtn.Disable()
-		go func() {
-			if w.token == nil {
-				fyne.Do(func() { saveBtn.Enable() })
-				return
-			}
-			cfg, err := w.token.UpdateListenAddr(host, port)
-			fyne.Do(func() {
-				if err != nil {
-					errLabel.SetText("Error: " + err.Error())
-					errLabel.Show()
-					saveBtn.Enable()
-					return
-				}
-				w.cfg = cfg
-				valLabel.Text = fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort)
-				valLabel.Refresh()
-				if needsWarnBadge(cfg.EffectiveListenHost()) {
-					warnBadge.Show()
-					warnBadge.Refresh()
-				} else {
-					warnBadge.Hide()
-					warnBadge.Refresh()
-				}
-				if dlg != nil {
-					dlg.Hide()
-				}
-			})
-		}()
-	})
-	saveBtn.Importance = widget.HighImportance
-
-	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
-		if dlg != nil {
-			dlg.Hide()
-		}
-	})
-	titleLabel := newDialogTitle("HTTP LISTEN ADDRESS")
-	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
-
-	minWidth := canvas.NewRectangle(color.Transparent)
-	minWidth.SetMinSize(fyne.NewSize(300, 1))
-
-	content := container.NewVBox(
-		titleRow, minWidth,
-		widget.NewSeparator(),
-		widget.NewLabel("Host:"), hostSelect,
-		widget.NewLabel("Port:"), portEntry,
-		errLabel,
-		widget.NewSeparator(),
-		container.NewCenter(saveBtn),
-	)
-
-	card := wrapDialogCard(container.NewPadded(content))
-	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
-	dlg.Show()
-}
-
-// showEditSunPortDialog opens a modal to change the Sunshine admin API port.
-// Updates valLabel (Sun web) and streamLabel (Sunshine GameStream) immediately;
-// also writes sunshine.conf and restarts Sunshine.
-func (w *Window) showEditSunPortDialog(parent fyne.Window, valLabel *canvas.Text, streamLabel *canvas.Text) {
-	if parent == nil {
-		return
-	}
-
-	var dlg *widget.PopUp
-
-	currentPort := w.cfg.SunshinePort
-	if currentPort == 0 {
-		currentPort = 47990
-	}
-
-	portEntry := widget.NewEntry()
-	portEntry.SetText(strconv.Itoa(currentPort))
-
-	errLabel := widget.NewLabel("")
-	errLabel.Alignment = fyne.TextAlignCenter
-	errLabel.Hide()
-
-	var saveBtn *widget.Button
-	saveBtn = widget.NewButton("Save", func() {
-		port, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
-		if err != nil || port < 1 || port > 65535 {
-			errLabel.SetText("Invalid port (1–65535)")
-			errLabel.Show()
-			return
-		}
-		saveBtn.Disable()
-		go func() {
-			if w.token == nil {
-				fyne.Do(func() { saveBtn.Enable() })
-				return
-			}
-			cfg, err := w.token.UpdateSunshinePort(port)
-			fyne.Do(func() {
-				if err != nil {
-					errLabel.SetText("Error: " + err.Error())
-					errLabel.Show()
-					saveBtn.Enable()
-					return
-				}
-				w.cfg = cfg
-				valLabel.Text = fmt.Sprintf("127.0.0.1:%d", port)
-				valLabel.Refresh()
-				if streamLabel != nil {
-					streamLabel.Text = fmt.Sprintf("0.0.0.0:%d", port-1)
-					streamLabel.Refresh()
-				}
-				if dlg != nil {
-					dlg.Hide()
-				}
-			})
-		}()
-	})
-	saveBtn.Importance = widget.HighImportance
-
-	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
-		if dlg != nil {
-			dlg.Hide()
-		}
-	})
-	titleLabel := newDialogTitle("SUNSHINE ADMIN PORT")
-	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
-
-	noteLabel := canvas.NewText("Restarts Sunshine to apply", design.ColorMutedOlive)
-	noteLabel.TextSize = 11
-
-	minWidth := canvas.NewRectangle(color.Transparent)
-	minWidth.SetMinSize(fyne.NewSize(280, 1))
-
-	content := container.NewVBox(
-		titleRow, minWidth,
-		widget.NewSeparator(),
-		widget.NewLabel("Port:"), portEntry,
-		noteLabel, errLabel,
-		widget.NewSeparator(),
-		container.NewCenter(saveBtn),
-	)
-
-	card := wrapDialogCard(container.NewPadded(content))
-	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
-	dlg.Show()
 }
 
 func newDialogTitle(text string) *canvas.Text {
@@ -3976,6 +3391,7 @@ type iconActionButton struct {
 	Tiny     bool
 	Accent   bool
 	CTA      bool
+	Danger   bool
 	hovered  bool
 }
 
@@ -4218,6 +3634,10 @@ func (r *iconActionButtonRenderer) Refresh() {
 			r.bg.FillColor = design.ColorCTA
 			r.bg.StrokeColor = design.ColorCTA
 		}
+	} else if r.button.Danger && r.button.hovered {
+		r.bg.FillColor = design.ColorLogoutHoverFill
+		r.bg.StrokeColor = design.ColorLogoutHoverStroke
+		r.text.Color = design.ColorLogoutHoverLabel
 	} else if r.button.hovered {
 		ch := currentChrome()
 		r.bg.FillColor = design.ColorSurfaceLight
@@ -4227,6 +3647,18 @@ func (r *iconActionButtonRenderer) Refresh() {
 		r.bg.FillColor = color.Transparent
 		r.bg.StrokeColor = design.ColorChromeOlive
 		r.text.Color = design.ColorMutedOlive
+	}
+	if r.icon != nil && r.button.Icon != nil && r.button.Compact {
+		tint := design.ColorNameMutedOlive
+		switch {
+		case r.button.Disabled():
+			tint = theme.ColorNameDisabled
+		case r.button.Danger && r.button.hovered:
+			tint = design.ColorNameLogoutHoverLabel
+		case r.button.hovered:
+			tint = theme.ColorNameForeground
+		}
+		r.icon.Resource = theme.NewColoredResource(r.button.Icon, tint)
 	}
 	r.bg.Refresh()
 	r.text.Refresh()

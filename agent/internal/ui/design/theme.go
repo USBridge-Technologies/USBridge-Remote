@@ -57,17 +57,22 @@ var (
 	ColorCTA             = color.NRGBA{R: 0xC4, G: 0xE7, B: 0x7A, A: 0xFF}
 	ColorCTAHover        = color.NRGBA{R: 0xD6, G: 0xF7, B: 0x9C, A: 0xFF}
 	ColorCTALabel        = color.NRGBA{R: 0x4C, G: 0x68, B: 0x03, A: 0xFF}
-	ColorTeal            = color.NRGBA{R: 0x41, G: 0xE0, B: 0xC3, A: 0xFF} // Agent identity
-	ColorTealHover       = color.NRGBA{R: 0x61, G: 0xF0, B: 0xD3, A: 0xFF}
-	ColorChromeOlive     = color.NRGBA{R: 0x42, G: 0x46, B: 0x38, A: 0xFF}
-	ColorMutedOlive      = color.NRGBA{R: 0xC5, G: 0xC8, B: 0xB5, A: 0xFF}
-	ColorEmptyHint       = color.NRGBA{R: 0x9A, G: 0x9D, B: 0x8C, A: 0xFF} // dimmer empty-state copy
-	ColorAddress         = color.NRGBA{R: 0xEB, G: 0xFF, B: 0xBC, A: 0xFF} // LAN/TS host
-	ColorSectionTitle    = color.NRGBA{R: 0xE0, G: 0xE3, B: 0xE7, A: 0xFF}
-	ColorDivider         = color.NRGBA{R: 0x29, G: 0x2D, B: 0x27, A: 0xFF}
-	ColorDialogSep       = color.NRGBA{R: 0x30, G: 0x34, B: 0x2E, A: 0xFF}
-	ColorOverlayDim      = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72}
-	ColorScrollBar       = color.NRGBA{R: 0x5A, G: 0x5E, B: 0x62, A: 0xFF}
+
+	// Status-card traffic lights (Streamer / USB Broker) — same lime as
+	// the logged-in avatar and the header Tailscale switch, rose when off.
+	ColorStatusOn     = ColorCTA
+	ColorStatusOff    = color.NRGBA{R: 0x82, G: 0x34, B: 0x37, A: 0xFF} // #823437
+	ColorTeal         = color.NRGBA{R: 0x41, G: 0xE0, B: 0xC3, A: 0xFF} // Agent identity
+	ColorTealHover    = color.NRGBA{R: 0x61, G: 0xF0, B: 0xD3, A: 0xFF}
+	ColorChromeOlive  = color.NRGBA{R: 0x42, G: 0x46, B: 0x38, A: 0xFF}
+	ColorMutedOlive   = color.NRGBA{R: 0xC5, G: 0xC8, B: 0xB5, A: 0xFF}
+	ColorEmptyHint    = color.NRGBA{R: 0x9A, G: 0x9D, B: 0x8C, A: 0xFF} // dimmer empty-state copy
+	ColorAddress      = color.NRGBA{R: 0xEB, G: 0xFF, B: 0xBC, A: 0xFF} // LAN/TS host
+	ColorSectionTitle = color.NRGBA{R: 0xE0, G: 0xE3, B: 0xE7, A: 0xFF}
+	ColorDivider      = color.NRGBA{R: 0x29, G: 0x2D, B: 0x27, A: 0xFF}
+	ColorDialogSep    = color.NRGBA{R: 0x30, G: 0x34, B: 0x2E, A: 0xFF}
+	ColorOverlayDim   = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72}
+	ColorScrollBar    = color.NRGBA{R: 0x5A, G: 0x5E, B: 0x62, A: 0xFF}
 
 	ColorAlphaWhite15 = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0x26}
 	ColorAlphaWhite24 = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0x3D}
@@ -106,8 +111,9 @@ const RadiusLG float32 = 10
 // Extra Color() names so Fyne's NewColoredResource can tint glyphs to our
 // palette (info/copy #e9fdbb, edit/refresh #c5c8b5) without string-munging SVGs.
 const (
-	ColorNameBrandLimeSoft fyne.ThemeColorName = "brandLimeSoft"
-	ColorNameMutedOlive    fyne.ThemeColorName = "mutedOlive"
+	ColorNameBrandLimeSoft    fyne.ThemeColorName = "brandLimeSoft"
+	ColorNameMutedOlive       fyne.ThemeColorName = "mutedOlive"
+	ColorNameLogoutHoverLabel fyne.ThemeColorName = "logoutHoverLabel"
 )
 
 type BrandTheme struct {
@@ -125,10 +131,10 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNameMenuBackground:
 		return ColorGray950
 	case fynetheme.ColorNameOverlayBackground:
-		// Translucent dim so widget.PopUp shows the window behind it,
-		// matching the client's overlay treatment. Dialog cards paint
-		// their own opaque Gray900 fill on top.
-		return ColorOverlayDim
+		// Transparent -- widget.PopUp always paints this across the whole
+		// canvas. Dialogs draw their own dim rectangle (ColorOverlayDim);
+		// the confirm toast passes a transparent dim so it has no backdrop.
+		return color.Transparent
 	case fynetheme.ColorNameButton:
 		return ColorSurfaceLight
 	case fynetheme.ColorNameDisabled:
@@ -177,6 +183,8 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 		return ColorBrandLimeSoft
 	case ColorNameMutedOlive:
 		return ColorMutedOlive
+	case ColorNameLogoutHoverLabel:
+		return ColorLogoutHoverLabel
 	}
 	return t.fallback.Color(name, fynetheme.VariantDark)
 }

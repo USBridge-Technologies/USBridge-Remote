@@ -123,7 +123,7 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 	thumbColor := design.ColorGray400
 
 	if t.on {
-		trackColor = design.ColorAccent
+		trackColor = design.ColorCTA
 		thumbColor = design.ColorWhite
 	}
 	if t.disabled || t.loading {
