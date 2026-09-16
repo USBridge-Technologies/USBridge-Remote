@@ -169,6 +169,8 @@ type DiskWidget struct {
 	audioConnectGen       atomic.Uint64 // incremented on every manual audio connect to cancel in-flight auto-start
 	pendingAudioPath      atomic.Value  // string: effective audio path while switch is in-flight; cleared after onAudioConnect returns
 	imagePickerInFlight   atomic.Bool
+	virtualDisplaySupported atomic.Bool
+	videoCardHadVirtualDisplay bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
 	isClosing      atomic.Bool

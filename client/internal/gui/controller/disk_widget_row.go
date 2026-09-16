@@ -48,9 +48,15 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 				dw.openQuickStartDocs()
 			})
 		} else if section.key == "video" {
-			info := PeekVideoInfoData()
-			if info != nil && info.VirtualDisplaySupported {
+			if dw.virtualDisplaySupported.Load() {
 				sectionAction = view.NewDeviceSectionAddButton(dw.handleAddVirtualDisplay)
+				if !dw.videoCardHadVirtualDisplay {
+					delete(dw.cardsCache, "video")
+					dw.videoCardHadVirtualDisplay = true
+				}
+			} else if dw.videoCardHadVirtualDisplay {
+				delete(dw.cardsCache, "video")
+				dw.videoCardHadVirtualDisplay = false
 			}
 		}
 
