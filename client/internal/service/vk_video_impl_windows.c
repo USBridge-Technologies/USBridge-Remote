@@ -33,6 +33,19 @@
 
 extern void goVKLog(char *msg, int level);
 
+// win_vk_hwdev_get (moonlight_cgo_windows.go) — lazily creates (or returns
+// already-created) the shared ffmpeg-owned Vulkan hwaccel device used for
+// decode, and hands back its raw VkInstance/VkPhysicalDevice/VkDevice plus a
+// presentable graphics queue family index. When this succeeds, decode and
+// presentation share one VkDevice/VkImage with zero cross-device copy; see
+// the long comment at vk_video_init_common's call site for why this is the
+// ONLY device-sharing direction that's actually been proven to work.
+extern int win_vk_hwdev_get(void **out_inst, void **out_phys, void **out_dev, uint32_t *out_gfx_qf);
+// vk_frame_release_avframe (moonlight_cgo_windows.go) — drops the AVFrame ref
+// that was keeping a zero-copy decoded VkImage's memory alive, once our own
+// GPU read of it has retired. Passed back via the pending-frame slot below.
+extern void vk_frame_release_avframe(void *ctx);
+
 // Video rect atomics — declared early so vk_wnd_proc can read them.
 static atomic_int g_dst_x, g_dst_y, g_dst_w, g_dst_h;
 
@@ -56,6 +69,7 @@ static volatile int  g_eq_head = 0, g_eq_tail = 0; // [tail, head)
 static CRITICAL_SECTION g_eq_cs;
 static int           g_eq_cs_init = 0;
 static volatile int  g_raw_mouse  = 0; // 1 = Raw Input registered; WM_MOUSEMOVE becomes no-op
+static volatile int  g_btn_down_mask = 0; // bit0=left bit1=middle bit2=right — held-button tracking for raw-input bounds gating
 
 static void vk_eq_push(int type, int x, int y, int btn) {
     if (!g_eq_cs_init) return;
@@ -182,7 +196,27 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
                                 GetCursorPos(&cur);
                             }
                             if (hw) ScreenToClient(hw, &cur);
-                            vk_eq_push(1, cur.x, cur.y, 0);
+                            // RIDEV_INPUTSINK reports every hardware sample system-wide as
+                            // long as our window is foreground, regardless of where the
+                            // cursor physically is. Foreground alone is not "the pointer is
+                            // over the remote video" -- e.g. the cursor can sit on another
+                            // monitor, the taskbar, or just outside our window edge while
+                            // this window keeps focus. Forwarding those samples anyway
+                            // clamps PositionToAbsolute to the nearest edge and drives the
+                            // remote cursor straight into a corner on every such sample, as
+                            // if the client were stuck replaying its own local pointer
+                            // instead of the real one. Only forward when the cursor is
+                            // actually inside our client area, or a button we own is still
+                            // held (so an in-progress drag that briefly overshoots the edge
+                            // keeps tracking, matching MouseUp's own implicit-capture logic).
+                            RECT rc;
+                            BOOL inside = FALSE;
+                            if (hw && GetClientRect(hw, &rc)) {
+                                inside = PtInRect(&rc, cur);
+                            }
+                            if (inside || g_btn_down_mask != 0) {
+                                vk_eq_push(1, cur.x, cur.y, 0);
+                            }
                         }
                     }
                 }
@@ -196,12 +230,12 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
             vk_eq_push(1, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 0);
         return 0;
     }
-    if (msg == WM_LBUTTONDOWN) { vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 1); return 0; }
-    if (msg == WM_LBUTTONUP)   { vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 1); return 0; }
-    if (msg == WM_RBUTTONDOWN) { vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 3); return 0; }
-    if (msg == WM_RBUTTONUP)   { vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 3); return 0; }
-    if (msg == WM_MBUTTONDOWN) { vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 2); return 0; }
-    if (msg == WM_MBUTTONUP)   { vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 2); return 0; }
+    if (msg == WM_LBUTTONDOWN) { g_btn_down_mask |= 1; vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 1); return 0; }
+    if (msg == WM_LBUTTONUP)   { g_btn_down_mask &= ~1; vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 1); return 0; }
+    if (msg == WM_RBUTTONDOWN) { g_btn_down_mask |= 4; vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 3); return 0; }
+    if (msg == WM_RBUTTONUP)   { g_btn_down_mask &= ~4; vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 3); return 0; }
+    if (msg == WM_MBUTTONDOWN) { g_btn_down_mask |= 2; vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 2); return 0; }
+    if (msg == WM_MBUTTONUP)   { g_btn_down_mask &= ~2; vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 2); return 0; }
     if (msg == WM_MOUSEWHEEL) {
         // Encode scroll as button 4 (up) / 5 (down) — same convention as Linux X11.
         int btn = GET_WHEEL_DELTA_WPARAM(wp) > 0 ? 4 : 5;
@@ -306,6 +340,65 @@ static VkImage                 *g_swap_imgs    = NULL;
 static VkImageView             *g_swap_views   = NULL;
 static VkFormat                 g_swap_fmt     = VK_FORMAT_UNDEFINED;
 static VkExtent2D               g_swap_ext     = {0,0};
+
+// 1 when g_inst/g_pdev/g_dev were adopted from win_vk_hwdev_get() (ffmpeg
+// owns their lifetime via its AVBufferRef) rather than created by
+// vk_create_instance/vk_create_device — vk_full_cleanup must NOT destroy
+// them in that case.
+static int                      g_ext_device   = 0;
+
+// ─── zero-copy Vulkan-decode frame path ──────────────────────────────────────
+// Parallel to the RGBA staging/blit path above: when decode is running on the
+// shared Vulkan hwaccel device (moonlight_cgo_windows.go's win_deliver_frame_
+// vulkan), frames arrive as an already-decoded VkImage instead of CPU pixels.
+// g_frame_mode picks which payload the render thread's single-slot queue
+// currently holds; a session uses exactly one mode throughout (decided once
+// by which hwaccel tier win_av_init committed to).
+#define VK_FRAME_MODE_RGBA    0
+#define VK_FRAME_MODE_VKIMAGE 1
+static int g_frame_mode = VK_FRAME_MODE_RGBA;
+
+typedef struct {
+    VkSamplerYcbcrConversion conv;
+    VkSampler                sampler;
+    VkDescriptorSetLayout    dsl;
+    VkPipelineLayout         playout;
+    VkPipeline               pipeline;
+    VkDescriptorPool         dpool;
+    VkFormat                 fmt; // VK_FORMAT_UNDEFINED = unused slot
+} VkYcbcrPipeline;
+#define VK_YCBCR_PIPELINE_CACHE_SIZE 4
+static VkYcbcrPipeline g_ycbcr_pipelines[VK_YCBCR_PIPELINE_CACHE_SIZE];
+
+// Small LRU-ish cache of VkImageView (+ its descriptor set) keyed by the
+// source VkImage handle — ffmpeg's internal Vulkan frame pool round-robins a
+// small, fixed set of VkImages, so this stays tiny in practice.
+typedef struct {
+    VkImage       img;
+    VkImageView   view;
+    VkDescriptorSet dset;
+    VkFormat      fmt; // which g_ycbcr_pipelines[] entry dset was built against
+} VkImgViewCacheEntry;
+#define VK_IMGVIEW_CACHE_SIZE 8
+static VkImgViewCacheEntry g_imgview_cache[VK_IMGVIEW_CACHE_SIZE];
+
+// Pending zero-copy frame — single-slot, parallel to g_buf/g_ready above.
+static VkImage    g_vkf_img          = VK_NULL_HANDLE;
+static VkFormat   g_vkf_fmt          = VK_FORMAT_UNDEFINED;
+static VkImageLayout g_vkf_layout    = VK_IMAGE_LAYOUT_UNDEFINED;
+static int        g_vkf_w = 0, g_vkf_h = 0;
+static void      *g_vkf_release_ctx  = NULL;
+static void      (*g_vkf_release_fn)(void*) = NULL;
+static volatile int g_vkf_ready      = 0;
+
+// Previous frame's release context — freed once the NEXT frame's render
+// fence-wait confirms our GPU read of it has fully retired (mirrors the
+// existing g_fence wait-then-reset pattern in vk_render_frame).
+static void      *g_vkf_prev_release_ctx = NULL;
+static void      (*g_vkf_prev_release_fn)(void*) = NULL;
+
+static VkQueue    g_decode_queue = VK_NULL_HANDLE;
+static uint32_t   g_decode_qfam  = UINT32_MAX;
 
 // Staging buffer (host-visible, coherent) — one per in-flight frame is fine for
 // the 1-frame queue we use; no need for double-buffering.
@@ -684,6 +777,392 @@ static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
     vkCmdPipelineBarrier(cb, src_st, dst_st, 0, 0, NULL, 0, NULL, 1, &b);
 }
 
+// ─── zero-copy Vulkan-decode render path ─────────────────────────────────────
+// Renders a decoded VkImage (NV12 8-bit or P010 10-bit, whichever the source
+// stream negotiated) directly into the swapchain via a real
+// VkSamplerYcbcrConversion + fragment shader — the GPU does the YCbCr->RGB
+// conversion during sampling, so there is no CPU-side pixel path at all.
+// Validated standalone (vk_ycbcr_render_test.c: decoded solid-red test frame
+// sampled through this exact mechanism read back as RGBA(254,0,0,255)) before
+// being wired in here.
+
+#include "shader_arrays.h"
+
+static VkShaderModule vk_shader_from_spv(const uint32_t *code, size_t code_size) {
+    VkShaderModuleCreateInfo ci = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    ci.codeSize = code_size;
+    ci.pCode    = code;
+    VkShaderModule mod = VK_NULL_HANDLE;
+    vkCreateShaderModule(g_dev, &ci, NULL, &mod);
+    return mod;
+}
+
+// vk_ycbcr_pipeline_get returns the cached ycbcr sampler+pipeline bundle for
+// the given multi-planar VkFormat (NV12 8-bit and P010 10-bit HDR each get
+// their own entry — the sampler's YCbCr conversion is format-specific),
+// creating it on first use. Returns NULL on failure.
+static VkYcbcrPipeline *vk_ycbcr_pipeline_get(VkFormat fmt) {
+    for (int i = 0; i < VK_YCBCR_PIPELINE_CACHE_SIZE; i++) {
+        if (g_ycbcr_pipelines[i].fmt == fmt) return &g_ycbcr_pipelines[i];
+    }
+    int slot = -1;
+    for (int i = 0; i < VK_YCBCR_PIPELINE_CACHE_SIZE; i++) {
+        if (g_ycbcr_pipelines[i].fmt == VK_FORMAT_UNDEFINED) { slot = i; break; }
+    }
+    if (slot < 0) { goVKLog("vk_ycbcr_pipeline_get: cache full", 2); return NULL; }
+    VkYcbcrPipeline *p = &g_ycbcr_pipelines[slot];
+
+    VkSamplerYcbcrConversionCreateInfo convCI = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO };
+    convCI.format = fmt;
+    convCI.ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_601;
+    convCI.ycbcrRange = VK_SAMPLER_YCBCR_RANGE_ITU_NARROW;
+    convCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    convCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    convCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    convCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    convCI.xChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
+    convCI.yChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
+    convCI.chromaFilter = VK_FILTER_LINEAR;
+    if (vkCreateSamplerYcbcrConversion(g_dev, &convCI, NULL, &p->conv) != VK_SUCCESS) {
+        goVKLog("vk_ycbcr_pipeline_get: vkCreateSamplerYcbcrConversion failed", 2);
+        memset(p, 0, sizeof(*p)); return NULL;
+    }
+
+    VkSamplerYcbcrConversionInfo convInfo = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO };
+    convInfo.conversion = p->conv;
+    VkSamplerCreateInfo sampCI = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    sampCI.pNext = &convInfo;
+    sampCI.magFilter = VK_FILTER_LINEAR;
+    sampCI.minFilter = VK_FILTER_LINEAR;
+    sampCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(g_dev, &sampCI, NULL, &p->sampler) != VK_SUCCESS) {
+        goVKLog("vk_ycbcr_pipeline_get: vkCreateSampler failed", 2);
+        vkDestroySamplerYcbcrConversion(g_dev, p->conv, NULL);
+        memset(p, 0, sizeof(*p)); return NULL;
+    }
+
+    VkDescriptorSetLayoutBinding binding = {0};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    binding.pImmutableSamplers = &p->sampler;
+    VkDescriptorSetLayoutCreateInfo dslCI = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    dslCI.bindingCount = 1; dslCI.pBindings = &binding;
+    if (vkCreateDescriptorSetLayout(g_dev, &dslCI, NULL, &p->dsl) != VK_SUCCESS) goto fail;
+
+    {
+        VkPipelineLayoutCreateInfo plCI = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+        plCI.setLayoutCount = 1; plCI.pSetLayouts = &p->dsl;
+        if (vkCreatePipelineLayout(g_dev, &plCI, NULL, &p->playout) != VK_SUCCESS) goto fail;
+    }
+
+    // Pool sized for the small image-view cache — one descriptor set per
+    // cached VkImage, all bound to this format's immutable sampler.
+    {
+        VkDescriptorPoolSize poolSize = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_IMGVIEW_CACHE_SIZE };
+        VkDescriptorPoolCreateInfo poolCI = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        poolCI.maxSets = VK_IMGVIEW_CACHE_SIZE; poolCI.poolSizeCount = 1; poolCI.pPoolSizes = &poolSize;
+        if (vkCreateDescriptorPool(g_dev, &poolCI, NULL, &p->dpool) != VK_SUCCESS) goto fail;
+    }
+
+    {
+        VkShaderModule vs = vk_shader_from_spv(g_ycbcr_vert_spv, sizeof(g_ycbcr_vert_spv));
+        VkShaderModule fs = vk_shader_from_spv(g_ycbcr_frag_spv, sizeof(g_ycbcr_frag_spv));
+        if (!vs || !fs) {
+            if (vs) vkDestroyShaderModule(g_dev, vs, NULL);
+            if (fs) vkDestroyShaderModule(g_dev, fs, NULL);
+            goto fail;
+        }
+        VkPipelineShaderStageCreateInfo stages[2] = {0};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT; stages[0].module = vs; stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT; stages[1].module = fs; stages[1].pName = "main";
+
+        VkPipelineVertexInputStateCreateInfo vi = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+        VkPipelineInputAssemblyStateCreateInfo ia = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkPipelineViewportStateCreateInfo vpState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+        vpState.viewportCount = 1; vpState.scissorCount = 1; // dynamic
+        VkDynamicState dynStates[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo dynCI = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+        dynCI.dynamicStateCount = 2; dynCI.pDynamicStates = dynStates;
+        VkPipelineRasterizationStateCreateInfo rs = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+        rs.polygonMode = VK_POLYGON_MODE_FILL; rs.cullMode = VK_CULL_MODE_NONE; rs.lineWidth = 1.0f;
+        VkPipelineMultisampleStateCreateInfo ms = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        VkPipelineColorBlendAttachmentState cba = {0};
+        cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendStateCreateInfo cb = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+        cb.attachmentCount = 1; cb.pAttachments = &cba;
+
+        VkPipelineRenderingCreateInfo renderingCI = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+        renderingCI.colorAttachmentCount = 1; renderingCI.pColorAttachmentFormats = &g_swap_fmt;
+
+        VkGraphicsPipelineCreateInfo pipeCI = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        pipeCI.pNext = &renderingCI;
+        pipeCI.stageCount = 2; pipeCI.pStages = stages;
+        pipeCI.pVertexInputState = &vi; pipeCI.pInputAssemblyState = &ia;
+        pipeCI.pViewportState = &vpState; pipeCI.pRasterizationState = &rs;
+        pipeCI.pMultisampleState = &ms; pipeCI.pColorBlendState = &cb;
+        pipeCI.pDynamicState = &dynCI;
+        pipeCI.layout = p->playout;
+        VkResult pr = vkCreateGraphicsPipelines(g_dev, VK_NULL_HANDLE, 1, &pipeCI, NULL, &p->pipeline);
+        vkDestroyShaderModule(g_dev, vs, NULL);
+        vkDestroyShaderModule(g_dev, fs, NULL);
+        if (pr != VK_SUCCESS) goto fail;
+    }
+
+    p->fmt = fmt;
+    return p;
+
+fail:
+    if (p->pipeline) vkDestroyPipeline(g_dev, p->pipeline, NULL);
+    if (p->playout)  vkDestroyPipelineLayout(g_dev, p->playout, NULL);
+    if (p->dpool)    vkDestroyDescriptorPool(g_dev, p->dpool, NULL);
+    if (p->dsl)      vkDestroyDescriptorSetLayout(g_dev, p->dsl, NULL);
+    if (p->sampler)  vkDestroySampler(g_dev, p->sampler, NULL);
+    if (p->conv)     vkDestroySamplerYcbcrConversion(g_dev, p->conv, NULL);
+    memset(p, 0, sizeof(*p));
+    goVKLog("vk_ycbcr_pipeline_get: pipeline creation failed", 2);
+    return NULL;
+}
+
+// vk_imgview_cache_get returns a descriptor set bound to (img, fmt), creating
+// and caching the VkImageView + VkDescriptorSet on first sight of this
+// VkImage. ffmpeg's internal Vulkan frame pool round-robins a small fixed set
+// of images, so this cache stays tiny (VK_IMGVIEW_CACHE_SIZE) in practice.
+static VkDescriptorSet vk_imgview_cache_get(VkImage img, VkFormat fmt, VkYcbcrPipeline *pl) {
+    int free_slot = -1;
+    for (int i = 0; i < VK_IMGVIEW_CACHE_SIZE; i++) {
+        if (g_imgview_cache[i].img == img && g_imgview_cache[i].fmt == fmt) return g_imgview_cache[i].dset;
+        if (free_slot < 0 && g_imgview_cache[i].img == VK_NULL_HANDLE) free_slot = i;
+    }
+    if (free_slot < 0) {
+        // Cache full — reuse slot 0. vkDeviceWaitIdle in the caller's fence
+        // wait already guarantees no in-flight command buffer references the
+        // old view before we get here (single command buffer, single frame
+        // in flight, same as the RGBA path above).
+        free_slot = 0;
+        if (g_imgview_cache[0].view) vkDestroyImageView(g_dev, g_imgview_cache[0].view, NULL);
+    }
+
+    VkSamplerYcbcrConversionInfo convInfo = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO };
+    convInfo.conversion = pl->conv;
+    VkImageViewCreateInfo viewCI = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    viewCI.pNext = &convInfo;
+    viewCI.image = img;
+    viewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewCI.format = fmt;
+    viewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewCI.subresourceRange.levelCount = 1;
+    viewCI.subresourceRange.layerCount = 1;
+    VkImageView view;
+    if (vkCreateImageView(g_dev, &viewCI, NULL, &view) != VK_SUCCESS) {
+        goVKLog("vk_imgview_cache_get: vkCreateImageView failed", 2);
+        return VK_NULL_HANDLE;
+    }
+
+    VkDescriptorSet dset = g_imgview_cache[free_slot].dset;
+    if (!dset) {
+        VkDescriptorSetAllocateInfo dsAI = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        dsAI.descriptorPool = pl->dpool; dsAI.descriptorSetCount = 1; dsAI.pSetLayouts = &pl->dsl;
+        if (vkAllocateDescriptorSets(g_dev, &dsAI, &dset) != VK_SUCCESS) {
+            goVKLog("vk_imgview_cache_get: vkAllocateDescriptorSets failed", 2);
+            vkDestroyImageView(g_dev, view, NULL);
+            return VK_NULL_HANDLE;
+        }
+    }
+    VkDescriptorImageInfo imgInfo = { VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+    VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    write.dstSet = dset; write.dstBinding = 0; write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imgInfo;
+    vkUpdateDescriptorSets(g_dev, 1, &write, 0, NULL);
+
+    g_imgview_cache[free_slot].img  = img;
+    g_imgview_cache[free_slot].fmt  = fmt;
+    g_imgview_cache[free_slot].view = view;
+    g_imgview_cache[free_slot].dset = dset;
+    return dset;
+}
+
+// vk_render_frame_vkimage — zero-copy counterpart to vk_render_frame: samples
+// a decoded VkImage directly into the swapchain instead of blitting an
+// uploaded RGBA staging texture. Same acquire/fence/present machinery.
+static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_layout, int fw, int fh) {
+    if (!g_dev || !g_swap) return 0;
+    char _dbg[96];
+
+    VkYcbcrPipeline *pl = vk_ycbcr_pipeline_get(fmt);
+    if (!pl) return 0;
+    VkDescriptorSet dset = vk_imgview_cache_get(img, fmt, pl);
+    if (!dset) return 0;
+
+    // In-order-execution sync: our own graphics-queue command buffer is
+    // recorded/submitted strictly after this wait, so waiting for the
+    // decode queue to go idle here guarantees the image's decode write has
+    // completed before we sample it — the same mechanism proven correct in
+    // the standalone same-device prototype (vk_samedev_readback_test.c /
+    // vk_ycbcr_render_test.c), used here instead of the AVVkFrame timeline-
+    // semaphore fields to avoid also having to hand ffmpeg's frame state
+    // back in sync (layout/access/sem_value) after an external read.
+    if (g_decode_queue) vkQueueWaitIdle(g_decode_queue);
+
+    uint32_t img_idx = 0;
+    g_render_stage = 3; // acquire
+    double t0 = mono_sec();
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    double dt = mono_sec() - t0;
+    if (dt > 0.1) {
+        snprintf(_dbg, sizeof(_dbg), "SLOW AcquireNextImage %.0f ms res=%d", dt * 1000.0, (int)res);
+        goVKLog(_dbg, 1);
+    }
+    if (res == VK_TIMEOUT) {
+        goVKLog("AcquireNextImage TIMEOUT 3s — possible DWM/driver deadlock", 2);
+        g_render_stage = 1; return 0;
+    }
+    if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+        g_render_stage = 7; vk_recreate_swapchain(); g_render_stage = 1; return 0;
+    }
+    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
+        snprintf(_dbg, sizeof(_dbg), "AcquireNextImage failed res=%d", (int)res);
+        goVKLog(_dbg, 2);
+        g_render_stage = 1; return 0;
+    }
+
+    g_render_stage = 4; // fence-wait
+    t0 = mono_sec();
+    VkResult fence_res = vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
+    dt = mono_sec() - t0;
+    if (fence_res == VK_TIMEOUT) {
+        goVKLog("WaitForFences TIMEOUT 2s — GPU hang?", 2);
+        vkResetFences(g_dev, 1, &g_fence);
+        g_render_stage = 1; return 0;
+    }
+    if (dt > 0.1) {
+        snprintf(_dbg, sizeof(_dbg), "SLOW WaitForFences %.0f ms", dt * 1000.0);
+        goVKLog(_dbg, 1);
+    }
+    vkResetFences(g_dev, 1, &g_fence);
+
+    // Our own render work reading the previous frame's VkImage is now known
+    // to have retired (the fence we just waited on guards exactly that) —
+    // safe to release the AVFrame ref keeping it alive.
+    if (g_vkf_prev_release_fn) { g_vkf_prev_release_fn(g_vkf_prev_release_ctx); }
+    g_vkf_prev_release_ctx = NULL; g_vkf_prev_release_fn = NULL;
+
+    vkResetCommandBuffer(g_cmdbuf, 0);
+    VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(g_cmdbuf, &bi);
+
+    // Decoded image: transition from ffmpeg's actual current layout (passed
+    // through from AVVkFrame.layout[0]) -> SHADER_READ_ONLY. Using
+    // VK_IMAGE_LAYOUT_UNDEFINED here (as an earlier version of this code
+    // did) tells the driver it may discard the image's existing contents
+    // instead of preserving/converting them -- that produced a solid green
+    // frame (correct decode, garbage/discarded data by the time the shader
+    // sampled it), exactly the bug the standalone prototype's real-layout
+    // barrier (vk_ycbcr_render_test.c) never hit.
+    {
+        VkImageMemoryBarrier b = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        b.oldLayout = src_layout;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = img;
+        b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b.subresourceRange.levelCount = 1; b.subresourceRange.layerCount = 1;
+        b.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(g_cmdbuf, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                              0, 0, NULL, 0, NULL, 1, &b);
+    }
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+    // Aspect-ratio letterboxing, same math as the RGBA blit path.
+    int sw = g_swap_ext.width, sh = g_swap_ext.height;
+    float fa = (float)fw / (float)(fh ? fh : 1);
+    float wa = (float)sw / (float)(sh ? sh : 1);
+    int dx = 0, dy = 0, dw = sw, dh = sh;
+    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
+    else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+
+    PFN_vkCmdBeginRendering pfnBeginRendering = (PFN_vkCmdBeginRendering)vkGetDeviceProcAddr(g_dev, "vkCmdBeginRendering");
+    PFN_vkCmdEndRendering   pfnEndRendering   = (PFN_vkCmdEndRendering)vkGetDeviceProcAddr(g_dev, "vkCmdEndRendering");
+    if (!pfnBeginRendering || !pfnEndRendering) {
+        goVKLog("vk_render_frame_vkimage: vkCmdBeginRendering unavailable (need Vulkan 1.3)", 2);
+        vkEndCommandBuffer(g_cmdbuf);
+        g_render_stage = 1; return 0;
+    }
+
+    VkRenderingAttachmentInfo colorAtt = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+    colorAtt.imageView = g_swap_views[img_idx];
+    colorAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAtt.clearValue.color.float32[3] = 1.0f;
+
+    VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+    renderInfo.renderArea.extent.width = (uint32_t)sw; renderInfo.renderArea.extent.height = (uint32_t)sh;
+    renderInfo.layerCount = 1;
+    renderInfo.colorAttachmentCount = 1; renderInfo.pColorAttachments = &colorAtt;
+
+    pfnBeginRendering(g_cmdbuf, &renderInfo);
+    VkViewport vp = { (float)dx, (float)dy, (float)dw, (float)dh, 0.0f, 1.0f };
+    VkRect2D sc = { { dx, dy }, { (uint32_t)dw, (uint32_t)dh } };
+    vkCmdSetViewport(g_cmdbuf, 0, 1, &vp);
+    vkCmdSetScissor(g_cmdbuf, 0, 1, &sc);
+    vkCmdBindPipeline(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pl->pipeline);
+    vkCmdBindDescriptorSets(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pl->playout, 0, 1, &dset, 0, NULL);
+    vkCmdDraw(g_cmdbuf, 3, 1, 0, 0);
+    pfnEndRendering(g_cmdbuf);
+
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
+    vkEndCommandBuffer(g_cmdbuf);
+
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
+    si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
+    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    g_render_stage = 5; // queue-submit
+    vkQueueSubmit(g_queue, 1, &si, g_fence);
+
+    VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
+    pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
+    g_render_stage = 6; // present
+    t0 = mono_sec();
+    res = vkQueuePresentKHR(g_queue, &pi);
+    dt = mono_sec() - t0;
+    if (dt > 0.1) {
+        snprintf(_dbg, sizeof(_dbg), "SLOW QueuePresent %.0f ms res=%d", dt * 1000.0, (int)res);
+        goVKLog(_dbg, 1);
+    }
+    g_render_stage = 1;
+    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+        g_render_stage = 7; vk_recreate_swapchain(); g_render_stage = 1;
+        return 1;
+    }
+    if (res != VK_SUCCESS) {
+        snprintf(_dbg, sizeof(_dbg), "QueuePresent failed res=%d", (int)res);
+        goVKLog(_dbg, 2);
+    }
+    return (res == VK_SUCCESS) ? 1 : 0;
+}
+
 // ─── render one frame ─────────────────────────────────────────────────────────
 // Called from the render thread. Returns 1 on success, 0 on recoverable error
 // (e.g. swapchain out of date), -1 on fatal error.
@@ -932,24 +1411,56 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             hb_log_t = hb_now;
         }
 
-        uint8_t *tmp = NULL;
-        int fw = 0, fh = 0, fs = 0;
-        EnterCriticalSection(&g_cs);
-        if (g_ready && g_buf) {
-            fw = g_fw; fh = g_fh; fs = g_fs;
-            size_t sz = (size_t)fh * (size_t)fs;
-            tmp = (uint8_t*)malloc(sz);
-            if (tmp) memcpy(tmp, g_buf, sz);
-            g_ready = 0;
+        int rf;
+        int fw = 0, fh = 0;
+        if (g_frame_mode == VK_FRAME_MODE_VKIMAGE) {
+            VkImage img = VK_NULL_HANDLE; VkFormat fmt = VK_FORMAT_UNDEFINED;
+            VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            void *rel_ctx = NULL;
+            void (*rel_fn)(void*) = NULL;
+            EnterCriticalSection(&g_cs);
+            if (g_vkf_ready) {
+                img = g_vkf_img; fmt = g_vkf_fmt; layout = g_vkf_layout; fw = g_vkf_w; fh = g_vkf_h;
+                rel_ctx = g_vkf_release_ctx; rel_fn = g_vkf_release_fn;
+                g_vkf_ready = 0;
+            }
+            LeaveCriticalSection(&g_cs);
+
+            if (img == VK_NULL_HANDLE) continue;
+            g_has_frame = 1;
+
+            g_render_stage = 1; // got frame — entering vk_render_frame_vkimage
+            rf = vk_render_frame_vkimage(img, fmt, layout, fw, fh);
+            if (rf) {
+                // Fence-wait at the top of the NEXT call confirms this
+                // frame's GPU read has retired before its ref is dropped.
+                g_vkf_prev_release_ctx = rel_ctx;
+                g_vkf_prev_release_fn  = rel_fn;
+            } else if (rel_fn) {
+                // No GPU work was submitted for this frame (acquire/pipeline
+                // failure) — nothing reads the image, safe to release now.
+                rel_fn(rel_ctx);
+            }
+        } else {
+            uint8_t *tmp = NULL;
+            int fs = 0;
+            EnterCriticalSection(&g_cs);
+            if (g_ready && g_buf) {
+                fw = g_fw; fh = g_fh; fs = g_fs;
+                size_t sz = (size_t)fh * (size_t)fs;
+                tmp = (uint8_t*)malloc(sz);
+                if (tmp) memcpy(tmp, g_buf, sz);
+                g_ready = 0;
+            }
+            LeaveCriticalSection(&g_cs);
+
+            if (!tmp) continue;
+            g_has_frame = 1;
+
+            g_render_stage = 1; // got frame — entering vk_render_frame
+            rf = vk_render_frame(tmp, fw, fh, fs);
+            free(tmp);
         }
-        LeaveCriticalSection(&g_cs);
-
-        if (!tmp) continue;
-        g_has_frame = 1;
-
-        g_render_stage = 1; // got frame — entering vk_render_frame
-        int rf = vk_render_frame(tmp, fw, fh, fs);
-        free(tmp);
         if (!rf) {
             consec_fail++;
             if (consec_fail == 10 || consec_fail == 100 || (consec_fail % 300 == 0)) {
@@ -1014,6 +1525,43 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     return 1;
 }
 
+// vk_video_try_submit_vkframe — zero-copy counterpart to vk_video_try_submit:
+// hands a decoded VkImage straight to the render thread instead of copying
+// RGBA pixels. release_fn(release_ctx) is called once the renderer's GPU
+// read of vk_frame has retired (or immediately, if the frame is dropped
+// without ever being read) — see moonlight_cgo_windows.go's
+// win_deliver_frame_vulkan for the AVFrame-ref lifetime this protects.
+// Returns 1 if the frame was accepted (release_fn will be called later), 0
+// if rejected (caller must release immediately).
+int vk_video_try_submit_vkframe(void *vk_image, int vk_format, int vk_layout, int width, int height,
+                                 int narrow_range, void *release_ctx, void (*release_fn)(void *)) {
+    (void)narrow_range; // reserved: VK_SAMPLER_YCBCR_RANGE_ITU_NARROW is currently hardcoded, matches Moonlight's H264/HEVC streams
+    if (!atomic_load(&g_active) || !g_cs_init) return 0;
+    EnterCriticalSection(&g_cs);
+    if (!atomic_load(&g_active)) {
+        LeaveCriticalSection(&g_cs);
+        return 0;
+    }
+    g_frame_mode = VK_FRAME_MODE_VKIMAGE;
+    // Single-slot, drop-on-full semantics (same as the RGBA path): if a
+    // previous submission is still waiting to be picked up by the render
+    // thread, release it now — its data was never read by anyone.
+    if (g_vkf_ready && g_vkf_release_fn) {
+        g_vkf_release_fn(g_vkf_release_ctx);
+    }
+    g_vkf_img = (VkImage)vk_image;
+    g_vkf_fmt = (VkFormat)vk_format;
+    g_vkf_layout = (VkImageLayout)vk_layout;
+    g_vkf_w = width; g_vkf_h = height;
+    g_vkf_release_ctx = release_ctx;
+    g_vkf_release_fn  = release_fn;
+    g_vkf_ready = 1;
+    g_submitted++;
+    LeaveCriticalSection(&g_cs);
+    SetEvent(g_event);
+    return 1;
+}
+
 void vk_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active)) return;
     // In standalone mode the window IS the full screen — nothing to reposition.
@@ -1057,6 +1605,29 @@ static void vk_full_cleanup(void) {
         if (g_tex)     { vkDestroyImage(g_dev, g_tex, NULL);      g_tex = VK_NULL_HANDLE; }
         if (g_tex_mem) { vkFreeMemory(g_dev, g_tex_mem, NULL);    g_tex_mem = VK_NULL_HANDLE; }
         g_tex_w = 0; g_tex_h = 0;
+
+        // Zero-copy path: drop any pending/in-flight decoded frame refs, and
+        // tear down the cached image views + per-format ycbcr pipelines.
+        if (g_vkf_ready && g_vkf_release_fn) { g_vkf_release_fn(g_vkf_release_ctx); }
+        g_vkf_ready = 0; g_vkf_img = VK_NULL_HANDLE; g_vkf_release_ctx = NULL; g_vkf_release_fn = NULL;
+        if (g_vkf_prev_release_fn) { g_vkf_prev_release_fn(g_vkf_prev_release_ctx); }
+        g_vkf_prev_release_ctx = NULL; g_vkf_prev_release_fn = NULL;
+        for (int i = 0; i < VK_IMGVIEW_CACHE_SIZE; i++) {
+            if (g_imgview_cache[i].view) vkDestroyImageView(g_dev, g_imgview_cache[i].view, NULL);
+            memset(&g_imgview_cache[i], 0, sizeof(g_imgview_cache[i]));
+        }
+        for (int i = 0; i < VK_YCBCR_PIPELINE_CACHE_SIZE; i++) {
+            VkYcbcrPipeline *p = &g_ycbcr_pipelines[i];
+            if (p->pipeline) vkDestroyPipeline(g_dev, p->pipeline, NULL);
+            if (p->playout)  vkDestroyPipelineLayout(g_dev, p->playout, NULL);
+            if (p->dpool)    vkDestroyDescriptorPool(g_dev, p->dpool, NULL);
+            if (p->dsl)      vkDestroyDescriptorSetLayout(g_dev, p->dsl, NULL);
+            if (p->sampler)  vkDestroySampler(g_dev, p->sampler, NULL);
+            if (p->conv)     vkDestroySamplerYcbcrConversion(g_dev, p->conv, NULL);
+            memset(p, 0, sizeof(*p));
+        }
+        g_decode_queue = VK_NULL_HANDLE; g_decode_qfam = UINT32_MAX;
+
         if (g_img_sem) { vkDestroySemaphore(g_dev, g_img_sem, NULL); g_img_sem = VK_NULL_HANDLE; }
         if (g_rnd_sem) { vkDestroySemaphore(g_dev, g_rnd_sem, NULL); g_rnd_sem = VK_NULL_HANDLE; }
         if (g_fence)   { vkDestroyFence(g_dev, g_fence, NULL);       g_fence = VK_NULL_HANDLE; }
@@ -1064,10 +1635,16 @@ static void vk_full_cleanup(void) {
         if (g_cmdpool) { vkDestroyCommandPool(g_dev, g_cmdpool, NULL); g_cmdpool = VK_NULL_HANDLE; }
         vk_destroy_swapchain();
         if (g_surf) { vkDestroySurfaceKHR(g_inst, g_surf, NULL); g_surf = VK_NULL_HANDLE; }
-        vkDestroyDevice(g_dev, NULL); g_dev = VK_NULL_HANDLE;
+        // g_dev/g_inst are owned by ffmpeg's AVBufferRef when adopted
+        // (g_ext_device) -- only destroy them when WE created them.
+        if (!g_ext_device) vkDestroyDevice(g_dev, NULL);
+        g_dev = VK_NULL_HANDLE;
     }
-    if (g_inst) { vkDestroyInstance(g_inst, NULL); g_inst = VK_NULL_HANDLE; }
+    if (g_inst && !g_ext_device) vkDestroyInstance(g_inst, NULL);
+    g_inst = VK_NULL_HANDLE;
     g_pdev = VK_NULL_HANDLE;
+    g_ext_device = 0;
+    g_frame_mode = VK_FRAME_MODE_RGBA;
 
     // Overlay HWND was already posted WM_CLOSE at the start of cleanup.
     if (g_hwnd_thread) { WaitForSingleObject(g_hwnd_thread, 3000); CloseHandle(g_hwnd_thread); g_hwnd_thread = NULL; }
@@ -1097,6 +1674,7 @@ static void vk_full_cleanup(void) {
     g_parent_hwnd = NULL;
     g_raw_mouse = 0;
     g_standalone = 0;
+    g_btn_down_mask = 0;
     g_rendered = 0; g_submitted = 0;
 }
 
@@ -1133,10 +1711,53 @@ static int vk_video_init_common(int x, int y, int w, int h) {
     }
     CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL;
 
-    // Vulkan init
-    if (!vk_create_instance()) { goVKLog("vk_video: vkCreateInstance failed", 2); goto fail; }
-    if (!vk_select_device())   { goVKLog("vk_video: no suitable GPU found", 2);   goto fail; }
-    if (!vk_create_device())   { goVKLog("vk_video: vkCreateDevice failed", 2);   goto fail; }
+    // Vulkan init. Prefer adopting the shared ffmpeg-owned Vulkan hwaccel
+    // device (win_vk_hwdev_get, moonlight_cgo_windows.go) so decode and
+    // presentation share one VkDevice/VkImage with zero cross-device copy --
+    // validated standalone before this integration (real Vulkan Video Decode,
+    // same-device plane readback, and a real VkSamplerYcbcrConversion render
+    // pass all confirmed correct on this GPU/driver). Only ffmpeg's own
+    // auto-create path reliably initializes a Vulkan-video-decode-capable
+    // device; handing ffmpeg a from-scratch manually-created VkDevice (the
+    // reverse direction) crashed deep in libavcodec's decode internals even
+    // after matching every extension/feature ffmpeg's own auto-create enables,
+    // so that direction is not attempted. Falls back to creating our own
+    // plain graphics-only device (today's behavior, no decode capability)
+    // when the shared device is unavailable -- decode then independently
+    // falls back to D3D11VA/software in moonlight_cgo_windows.go.
+    {
+        void *ext_inst = NULL, *ext_phys = NULL, *ext_dev = NULL;
+        uint32_t ext_gfx_qf = 0;
+        if (win_vk_hwdev_get(&ext_inst, &ext_phys, &ext_dev, &ext_gfx_qf)) {
+            g_inst = (VkInstance)ext_inst;
+            g_pdev = (VkPhysicalDevice)ext_phys;
+            g_dev  = (VkDevice)ext_dev;
+            g_qfam = ext_gfx_qf;
+            g_ext_device = 1;
+            vkGetDeviceQueue(g_dev, g_qfam, 0, &g_queue);
+
+            // Also grab a video-decode-capable queue (if any) for the
+            // in-order vkQueueWaitIdle sync the zero-copy submit path uses
+            // before sampling a just-decoded frame — proven sufficient for
+            // correctness in the standalone same-device prototype.
+            uint32_t qn = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(g_pdev, &qn, NULL);
+            VkQueueFamilyProperties *qp = (VkQueueFamilyProperties*)malloc(qn * sizeof(*qp));
+            vkGetPhysicalDeviceQueueFamilyProperties(g_pdev, &qn, qp);
+            for (uint32_t j = 0; j < qn; j++) {
+                if (qp[j].queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) { g_decode_qfam = j; break; }
+            }
+            free(qp);
+            if (g_decode_qfam != UINT32_MAX) vkGetDeviceQueue(g_dev, g_decode_qfam, 0, &g_decode_queue);
+
+            goVKLog("vk_video: adopted shared Vulkan hwaccel device (decode+render on one VkDevice)", 0);
+        } else {
+            g_ext_device = 0;
+            if (!vk_create_instance()) { goVKLog("vk_video: vkCreateInstance failed", 2); goto fail; }
+            if (!vk_select_device())   { goVKLog("vk_video: no suitable GPU found", 2);   goto fail; }
+            if (!vk_create_device())   { goVKLog("vk_video: vkCreateDevice failed", 2);   goto fail; }
+        }
+    }
 
     {
         VkWin32SurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
