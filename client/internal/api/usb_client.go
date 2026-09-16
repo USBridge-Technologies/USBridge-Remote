@@ -1911,6 +1911,9 @@ func (c *USBClient) AddVirtualDisplay(width, height, fps int) (*models.APIRespon
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
 	return &apiResp, nil
 }
 
@@ -1922,6 +1925,9 @@ func (c *USBClient) RemoveVirtualDisplay(id string) (*models.APIResponse, error)
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
 	}
 	return &apiResp, nil
 }

@@ -68,7 +68,7 @@ func (dw *DiskWidget) handleAddVirtualDisplay() {
 			return
 		}
 		
-		dw.requestDevicesRefresh()
+		dw.loadVideoDevices()
 	}, dw.window)
 }
 
@@ -92,6 +92,6 @@ func (dw *DiskWidget) handleDeleteVirtualDisplay(id string) {
 			return
 		}
 		
-		dw.requestDevicesRefresh()
+		dw.loadVideoDevices()
 	}, dw.window)
 }

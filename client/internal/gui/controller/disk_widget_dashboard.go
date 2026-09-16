@@ -318,14 +318,20 @@ func (dw *DiskWidget) refreshDashboard() {
 			if videoActive {
 				icon = view.DeviceDashboardCameraIconActive
 			}
+			var extras []fyne.CanvasObject
+			if drive.VideoDevice != nil && drive.VideoDevice.Bus == "virtual" {
+				extras = append(extras, dw.newDashboardVirtualDisplayDeleteButton(drive))
+			}
+			extras = append(extras, dw.newDashboardVideoSettingsButton(drive))
+			extras = append(extras, dw.newDashboardVideoRadio(drive))
+			
 			videoRows = append(videoRows, view.NewDeviceDashboardVideoRow(
 				icon,
 				dw.captureDeviceBaseTitle(drive),
 				videoActive,
 				chipText,
 				tealChip,
-				dw.newDashboardVideoSettingsButton(drive),
-				dw.newDashboardVideoRadio(drive),
+				extras...,
 			))
 		case drive.IsAudio || drive.IsUSBAudio:
 			var extras []fyne.CanvasObject
