@@ -127,7 +127,18 @@ $requiredPkgs = @(
 Write-Step "Checking installed MSYS2/UCRT64 packages"
 $pkgList = Invoke-Native -CaptureStdout -ScriptBlock { & $bashExe -lc "pacman -Qq" }
 $installed = @($pkgList.Stdout | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-$missing = $requiredPkgs | Where-Object { $installed -notcontains $_ }
+
+# mingw-w64-ucrt-x86_64-toolchain is a pacman *group*, not an installable
+# package -- `pacman -Qq` never lists a group as installed, so comparing it
+# directly against $installed always looked "missing" and re-triggered a
+# full `pacman -Syu` (re-downloading every repo database) on every build,
+# even when every package the group expands to was already present. Check
+# its member packages instead.
+$checkPkgs = $requiredPkgs | Where-Object { $_ -ne "mingw-w64-ucrt-x86_64-toolchain" }
+$toolchainMembers = Invoke-Native -CaptureStdout -ScriptBlock { & $bashExe -lc "pacman -Sgq mingw-w64-ucrt-x86_64-toolchain" }
+$checkPkgs += @($toolchainMembers.Stdout | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$checkPkgs = $checkPkgs | Select-Object -Unique
+$missing = $checkPkgs | Where-Object { $installed -notcontains $_ }
 
 if ($missing.Count -gt 0) {
     Write-Step "Installing missing packages: $($missing -join ', ')"

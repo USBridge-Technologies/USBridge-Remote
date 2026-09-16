@@ -1069,6 +1069,21 @@ func (dw *DiskWidget) newDashboardVideoSettingsButton(drive DriveItem) fyne.Canv
 	return btn
 }
 
+func (dw *DiskWidget) newDashboardVirtualDisplayDeleteButton(drive DriveItem) fyne.CanvasObject {
+	if drive.VideoDevice == nil {
+		return nil
+	}
+	id := drive.VideoDevice.Path
+	btn := view.NewDeviceDashboardDeleteButton(func() {
+		if dw.controlsLocked() {
+			return
+		}
+		dw.handleDeleteVirtualDisplay(id)
+	}, dw.dashboardVideoHover)
+	btn.SetDisabled(dw.controlsLocked())
+	return btn
+}
+
 // syncDashboardFooter shows Devices' footer "Disconnect All" only while
 // something is actually mounted (same condition the old compact unmount
 // button used). No-op until GetDashboardContainer has built the footer.
