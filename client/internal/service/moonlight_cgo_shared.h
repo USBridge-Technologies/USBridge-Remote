@@ -231,7 +231,23 @@ int do_li_start(
     // change at all client-side until this was added) -- silently, with no
     // error, since ReferenceFrameInvalidationSupported alone was never
     // enough on its own.
-    dr.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
+    // CAPABILITY_DIRECT_SUBMIT deliberately NOT set here (unlike Windows/Android,
+    // which set it in their own separate LiStartConnection call sites) -- it makes
+    // moonlight-common-c call submitDecodeUnit synchronously from the RTP receive
+    // thread itself (VideoStream.c's VideoReceiveThreadProc), skipping the library's
+    // own queue+decoder-thread machinery (decodeUnitQueue/VideoDecoderThreadProc in
+    // VideoDepacketizer.c/VideoStream.c) entirely. That machinery is also where the
+    // adaptive playout jitter buffer lives (VideoDepacketizer.c's playoutDelayForFrame) --
+    // with DIRECT_SUBMIT set, that code was linked in but never executed on any
+    // platform using this shared setup (confirmed live: the buffer's own debug
+    // logging showed it computing correct jitter estimates the whole time, since
+    // that part runs unconditionally, but "applied" delay stayed at 0 for an entire
+    // 90s test run, because the function it's applied in was simply never called).
+    // Without DIRECT_SUBMIT, decode/render moves off the network receive thread
+    // onto its own thread, which is also generally better for real-time behavior
+    // regardless of the jitter buffer specifically -- a slow decode/render no
+    // longer stalls receipt of the next packet.
+    dr.capabilities = CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
 
     AUDIO_RENDERER_CALLBACKS ar;
     LiInitializeAudioCallbacks(&ar);
