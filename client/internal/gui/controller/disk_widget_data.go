@@ -629,6 +629,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	if info, err := getVideoInfoData(dw.usbClient); err == nil && info != nil {
 		currentVideoPath = info.Device
 		videoStreaming = info.Streaming
+		dw.virtualDisplaySupported.Store(info.VirtualDisplaySupported)
 	}
 
 	var currentAudioPath string

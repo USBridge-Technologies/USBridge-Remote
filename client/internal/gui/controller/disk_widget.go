@@ -83,6 +83,9 @@ type DiskWidget struct {
 	// picker is in flight, without rebuilding it every refresh.
 	dashboardAddImageBtn *view.DeviceDashboardHeaderButton
 
+	// dashboardAddVirtualDisplayBtn is the dynamic header action for Video.
+	dashboardAddVirtualDisplayBtn *view.DeviceDashboardHeaderButton
+
 	// dashboardFooterDisconnect is Devices' own footer "Disconnect All"
 	// text action -- shown only while something is actually mounted.
 	dashboardFooterDisconnect *view.DeviceDashboardFooterTextButton
@@ -169,6 +172,8 @@ type DiskWidget struct {
 	audioConnectGen       atomic.Uint64 // incremented on every manual audio connect to cancel in-flight auto-start
 	pendingAudioPath      atomic.Value  // string: effective audio path while switch is in-flight; cleared after onAudioConnect returns
 	imagePickerInFlight   atomic.Bool
+	virtualDisplaySupported atomic.Bool
+	videoCardHadVirtualDisplay bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
 	isClosing      atomic.Bool

@@ -158,10 +158,35 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
 static uint64_t g_last_dl_time = 0;
 static uint64_t g_last_submit_time = 0;
 
+// TEMP DIAGNOSTIC (render-throughput regression investigation): counts every
+// displayLinkFired call and every time it found a pending buffer, logged
+// every ~2s -- distinguishes "CVDisplayLink itself isn't firing at the
+// display refresh rate" from "it's firing fine but g_pendingBuf is usually
+// empty/stale by the time it checks".
+static uint64_t g_dl_fire_count = 0;
+static uint64_t g_dl_hit_count = 0;
+static double g_dl_diag_start = 0.0;
+
 @implementation MetalDisplayLinkTarget
 - (void)displayLinkFired:(CADisplayLink __unused *)link {
     if (!atomic_load(&g_active)) return;
-    
+
+    g_dl_fire_count++;
+    double diagNow = mono_sec();
+    if (g_dl_diag_start == 0.0) g_dl_diag_start = diagNow;
+    double diagElapsed = diagNow - g_dl_diag_start;
+    if (diagElapsed >= 2.0) {
+        char diagMsg[160];
+        snprintf(diagMsg, sizeof(diagMsg),
+                 "[DIAG] DisplayLink fire_rate=%.1fHz hit_rate=%.1fHz (fires=%llu hits=%llu window=%.1fs)",
+                 (double)g_dl_fire_count / diagElapsed, (double)g_dl_hit_count / diagElapsed,
+                 (unsigned long long)g_dl_fire_count, (unsigned long long)g_dl_hit_count, diagElapsed);
+        goMetalLog(diagMsg, 0);
+        g_dl_fire_count = 0;
+        g_dl_hit_count = 0;
+        g_dl_diag_start = diagNow;
+    }
+
     // Stutter Profiler: DisplayLink stall detection
     uint64_t now = mach_absolute_time();
     if (g_last_dl_time != 0) {
@@ -181,6 +206,7 @@ static uint64_t g_last_submit_time = 0;
     g_pendingBuf = NULL;
     pthread_mutex_unlock(&g_mu);
     if (!buf) return;
+    g_dl_hit_count++;
     metal_render_main_with_buf(buf); // already on main thread
 }
 @end

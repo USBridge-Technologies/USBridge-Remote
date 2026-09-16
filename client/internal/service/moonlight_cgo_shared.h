@@ -231,6 +231,22 @@ int do_li_start(
     // change at all client-side until this was added) -- silently, with no
     // error, since ReferenceFrameInvalidationSupported alone was never
     // enough on its own.
+    // CAPABILITY_DIRECT_SUBMIT: an attempt to remove this (to activate
+    // moonlight-common-c's own queue+decoder-thread machinery in
+    // VideoDepacketizer.c/VideoStream.c, where an adaptive playout jitter
+    // buffer was added -- see that file's playoutDelayForFrame) was tried
+    // live and reverted. It fixed the buffer (confirmed working: applied
+    // delay tracked jitter correctly, stalls dropped sharply), but moving
+    // decode/render off the network receive thread onto a separate thread
+    // caused a *different*, worse regression: real render throughput to the
+    // screen collapsed to ~10-15fps while decode itself kept running at the
+    // full ~60fps (confirmed via the VT-decode-fps vs Metal-rendered-fps
+    // counters diverging live) -- something about this Metal/CVDisplayLink
+    // path doesn't tolerate decode happening off its accustomed thread, and
+    // it wasn't safe to leave running while diagnosing further. Keep
+    // CAPABILITY_DIRECT_SUBMIT set until that's understood; the jitter
+    // buffer code is left in place (harmless, unreachable while this flag
+    // is set) for whoever picks this back up.
     dr.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
 
     AUDIO_RENDERER_CALLBACKS ar;

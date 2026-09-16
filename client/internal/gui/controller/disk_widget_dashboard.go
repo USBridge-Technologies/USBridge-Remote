@@ -71,6 +71,15 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	addImageBtn.OnHover = dw.dashboardStorageHover
 	dw.dashboardAddImageBtn = addImageBtn
 
+	vdPlusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
+	vdLabel := "Add"
+	if view.IsMobile() {
+		vdLabel = ""
+	}
+	addVirtualDisplayBtn := view.NewDeviceDashboardHeaderButton(vdLabel, vdPlusGlyph, view.DeviceDashboardAccentLime, dw.handleAddVirtualDisplay)
+	addVirtualDisplayBtn.OnHover = dw.dashboardVideoHover
+	dw.dashboardAddVirtualDisplayBtn = addVirtualDisplayBtn
+
 	dashboardNetworkCard := view.NewDeviceDashboardCard(view.DeviceDashboardNetworkIconSVG, i18n.Current.DevicesCardNetwork, "", nil, dw.dashboardNetworkRows, networkBind)
 	dw.dashboardNetworkCard = dashboardNetworkCard
 	dw.dashboardNetworkCard.Hide() // only shown once a real RNDIS device exists -- see refreshDashboard
@@ -87,7 +96,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	narrowColumn := container.NewVBox(
 		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", nil, dw.dashboardHID, hidBind),
 		view.NewDeviceDashboardCardGap(),
-		view.NewDeviceDashboardCard(view.DeviceDashboardVideoIconSVG, "Video Pipe & EDID", "", nil, dw.dashboardVideo, videoBind),
+		view.NewDeviceDashboardCard(view.DeviceDashboardVideoIconSVG, "Video Pipe & EDID", "", dw.dashboardAddVirtualDisplayBtn, dw.dashboardVideo, videoBind),
 		dw.dashboardAudioGap,
 		dw.dashboardAudioCard,
 	)
@@ -309,14 +318,20 @@ func (dw *DiskWidget) refreshDashboard() {
 			if videoActive {
 				icon = view.DeviceDashboardCameraIconActive
 			}
+			var extras []fyne.CanvasObject
+			if drive.VideoDevice != nil && drive.VideoDevice.Bus == "virtual" {
+				extras = append(extras, dw.newDashboardVirtualDisplayDeleteButton(drive))
+			}
+			extras = append(extras, dw.newDashboardVideoSettingsButton(drive))
+			extras = append(extras, dw.newDashboardVideoRadio(drive))
+			
 			videoRows = append(videoRows, view.NewDeviceDashboardVideoRow(
 				icon,
 				dw.captureDeviceBaseTitle(drive),
 				videoActive,
 				chipText,
 				tealChip,
-				dw.newDashboardVideoSettingsButton(drive),
-				dw.newDashboardVideoRadio(drive),
+				extras...,
 			))
 		case drive.IsAudio || drive.IsUSBAudio:
 			var extras []fyne.CanvasObject
@@ -414,6 +429,13 @@ func (dw *DiskWidget) refreshDashboard() {
 		}
 		setDashboardRows(dw.dashboardAudio, audioRows, i18n.Current.DevicesEmptyAudio)
 	}
+
+	if dw.virtualDisplaySupported.Load() {
+		dw.dashboardAddVirtualDisplayBtn.Show()
+	} else {
+		dw.dashboardAddVirtualDisplayBtn.Hide()
+	}
+
 	setDashboardRows(dw.dashboardStorage, storageRows, i18n.Current.DevicesEmptyStorage)
 	if dw.dashboardEmulation != nil {
 		setDashboardRows(dw.dashboardEmulation, emulationRows, i18n.Current.DevicesEmptyUSB)
