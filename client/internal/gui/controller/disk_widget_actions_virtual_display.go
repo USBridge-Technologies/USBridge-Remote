@@ -3,16 +3,16 @@ package controller
 import (
 	"fmt"
 
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
+	"usbridge-client/internal/gui/view"
 )
 
 func (dw *DiskWidget) handleAddVirtualDisplay() {
 	if dw.usbClient == nil {
 		return
 	}
-	
+
 	// Create a simple form for adding a virtual display
 	widthEntry := widget.NewEntry()
 	widthEntry.SetText("1920")
@@ -61,7 +61,7 @@ func (dw *DiskWidget) handleAddVirtualDisplay() {
 	form = widget.NewForm(widget.NewFormItem("Preset", presets))
 	presets.SetSelected("1080p (1920x1080) @ 60Hz")
 
-	dialog.ShowCustomConfirm("Add Virtual Display", "Add", "Cancel", form, func(b bool) {
+	view.ShowCustomConfirmDialog("Add Virtual Display", "Add", "Cancel", form, func(b bool) {
 		if !b {
 			return
 		}
@@ -72,7 +72,7 @@ func (dw *DiskWidget) handleAddVirtualDisplay() {
 		fmt.Sscanf(fpsEntry.Text, "%d", &f)
 
 		if w <= 0 || h <= 0 || f <= 0 {
-			dialog.ShowError(fmt.Errorf("Invalid resolution or FPS"), dw.window)
+			view.ShowErrorDialog(fmt.Errorf("Invalid resolution or FPS"), dw.window)
 			return
 		}
 
@@ -82,10 +82,10 @@ func (dw *DiskWidget) handleAddVirtualDisplay() {
 		_, err := dw.usbClient.AddVirtualDisplay(w, h, f)
 		if err != nil {
 			logrus.Errorf("Failed to add virtual display: %v", err)
-			dialog.ShowError(fmt.Errorf("Failed to add virtual display: %v", err), dw.window)
+			view.ShowErrorDialog(fmt.Errorf("Failed to add virtual display: %v", err), dw.window)
 			return
 		}
-		
+
 		dw.loadVideoDevices()
 	}, dw.window)
 }
@@ -94,22 +94,22 @@ func (dw *DiskWidget) handleDeleteVirtualDisplay(id string) {
 	if dw.usbClient == nil {
 		return
 	}
-	
-	dialog.ShowConfirm("Delete Virtual Display", "Are you sure you want to remove this virtual display?", func(b bool) {
+
+	view.ShowConfirmYesLeft("Delete Virtual Display", "Are you sure you want to remove this virtual display?", func(b bool) {
 		if !b {
 			return
 		}
-		
+
 		dw.userOperationInFlight.Store(true)
 		defer dw.userOperationInFlight.Store(false)
 
 		_, err := dw.usbClient.RemoveVirtualDisplay(id)
 		if err != nil {
 			logrus.Errorf("Failed to remove virtual display: %v", err)
-			dialog.ShowError(fmt.Errorf("Failed to remove virtual display: %v", err), dw.window)
+			view.ShowErrorDialog(fmt.Errorf("Failed to remove virtual display: %v", err), dw.window)
 			return
 		}
-		
+
 		dw.loadVideoDevices()
 	}, dw.window)
 }
