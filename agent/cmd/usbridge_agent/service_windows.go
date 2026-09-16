@@ -109,7 +109,7 @@ loop:
 // only appears later still gets a helper then.
 func launchTrayHelperWhenReady() {
 	for i := 0; i < 60; i++ {
-		if socketPath, ok := app.AdminSocketPath(); ok {
+		if socketPath, ok := app.AdminSocketReady(); ok {
 			app.LaunchTrayHelperInActiveSession(socketPath)
 			return
 		}
