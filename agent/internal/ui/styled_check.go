@@ -263,9 +263,19 @@ func (c *permStatusChip) Cursor() desktop.Cursor {
 	return desktop.DefaultCursor
 }
 
-func (c *permStatusChip) MouseIn(*desktop.MouseEvent)    {}
-func (c *permStatusChip) MouseOut()                      {}
-func (c *permStatusChip) MouseMoved(*desktop.MouseEvent) {}
+func (c *permStatusChip) MouseIn(ev *desktop.MouseEvent) {
+	if ev != nil {
+		noteChromeHoverIn(ev.AbsolutePosition)
+	}
+}
+
+func (c *permStatusChip) MouseMoved(ev *desktop.MouseEvent) {
+	if ev != nil {
+		noteChromeHoverIn(ev.AbsolutePosition)
+	}
+}
+
+func (c *permStatusChip) MouseOut() { noteChromeHoverOut() }
 
 type checkNudgeLayout struct{ dx, dy float32 }
 
@@ -345,7 +355,10 @@ func (r *permToggleRow) Tapped(*fyne.PointEvent) {
 
 func (r *permToggleRow) TappedSecondary(*fyne.PointEvent) {}
 
-func (r *permToggleRow) MouseIn(*desktop.MouseEvent) {
+func (r *permToggleRow) MouseIn(ev *desktop.MouseEvent) {
+	if ev != nil {
+		noteChromeHoverIn(ev.AbsolutePosition)
+	}
 	if r.check == nil {
 		return
 	}
@@ -354,6 +367,7 @@ func (r *permToggleRow) MouseIn(*desktop.MouseEvent) {
 }
 
 func (r *permToggleRow) MouseOut() {
+	noteChromeHoverOut()
 	if r.check == nil {
 		return
 	}
@@ -361,7 +375,11 @@ func (r *permToggleRow) MouseOut() {
 	r.check.Refresh()
 }
 
-func (r *permToggleRow) MouseMoved(*desktop.MouseEvent) {}
+func (r *permToggleRow) MouseMoved(ev *desktop.MouseEvent) {
+	if ev != nil {
+		noteChromeHoverIn(ev.AbsolutePosition)
+	}
+}
 
 func (r *permToggleRow) Cursor() desktop.Cursor {
 	if r.check != nil && r.check.Disabled() {
