@@ -268,6 +268,9 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	}
 
 	if request != nil {
+		// Mirrors into the GL/GDI fallback (video_widget_gl_linux.go, video_widget_windows.go)
+		// and the Vulkan overlay's swapchain present-mode choice (vk_video_impl_windows.c).
+		vw.enableVSync = request.EnableVSync
 		if request.VideoWidth > 0 && request.VideoHeight > 0 {
 			vw.videoClient.SetExpectedVideoSize(request.VideoWidth, request.VideoHeight)
 			// Pre-set viewport dims from the requested resolution so absolute mouse mapping

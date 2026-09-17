@@ -58,7 +58,7 @@ func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
 	}
 
 	// Create the standalone fullscreen VK window on the client's monitor.
-	if !service.VKVideoCreateStandalone(hintHWND) {
+	if !service.VKVideoCreateStandalone(hintHWND, vw.enableVSync) {
 		logrus.Error("[Win/FS] VKVideoCreateStandalone failed — cannot enter fullscreen")
 		fd.windowlessVKFullscreen = false
 		fd.isFullscreen = false

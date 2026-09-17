@@ -60,7 +60,7 @@ type VideoWidget struct {
 	isStreaming      bool
 	isVideoConnected bool
 	isMouseConnected bool // Flag for whether the mouse is connected
-	enableVSync      bool // mirrors VideoStartRequest.EnableVSync for the GL overlay
+	enableVSync      bool // mirrors VideoStartRequest.EnableVSync; set in startVideoWithParamsInternal
 
 	// Services
 	usbClient             *api.USBClient
