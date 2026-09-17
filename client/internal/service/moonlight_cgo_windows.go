@@ -1,6 +1,6 @@
 //go:build windows && cgo
 
-// Cache-bust (rev 5): go build's cache doesn't see changes to libmoonlight-common-c.a
+// Cache-bust (rev 8): go build's cache doesn't see changes to libmoonlight-common-c.a
 // (only referenced via CGO_LDFLAGS -l, not a tracked Go source dependency), so
 // a C-only submodule edit silently relinks against a stale .a unless some .go
 // file in this package also changes. Bump this comment whenever that happens.
@@ -33,6 +33,7 @@ package service
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
 #include <Limelight.h>
+#include <Platform.h>
 #include <opus_multistream.h>
 #include <stdlib.h>
 #include <string.h>
@@ -635,7 +636,38 @@ static void dr_start(void)   {}
 static void dr_stop(void)    {}
 static void dr_cleanup(void) {}
 
+// Latency breakdown, logged periodically so the ~500ms of perceived glass-to-
+// glass lag reported live ("джиттер в пол секунды") can be attributed to a
+// stage instead of guessed at: PlayoutBuffer's own "SLOW direct-submit" log
+// (VideoDepacketizer.c) already accounts for everything from reassembleFrame()
+// (~= enqueueTimeUs) through submitDecodeUnit() returning, and that's been
+// confirmed fast (submitDecodeUnit ~0.4-0.6ms, Vulkan zero-copy). What's NOT
+// instrumented anywhere is receiveTimeUs -> enqueueTimeUs (time this frame's
+// packets actually took to arrive+reassemble over the network -- large values
+// here mean real network/host delay, not anything this client controls) and
+// frameHostProcessingLatency (the host's own self-reported capture+encode
+// time). PltGetMicroseconds() (Platform.h) shares its epoch with
+// du->receiveTimeUs/enqueueTimeUs (both are moonlight-common-c timestamps),
+// unlike win_mono_ms() above which is deliberately on a separate clock.
+static unsigned int g_latency_log_ctr;
+#define LATENCY_LOG_FRAMES 120 // ~2s at 60fps, matches PlayoutBuffer's own status cadence
+
 static int dr_submit(PDECODE_UNIT du) {
+    if (++g_latency_log_ctr >= LATENCY_LOG_FRAMES) {
+        g_latency_log_ctr = 0;
+        uint64_t nowUs = PltGetMicroseconds();
+        uint64_t recvToEnqueueUs = du->enqueueTimeUs - du->receiveTimeUs;
+        uint64_t enqueueToNowUs = nowUs - du->enqueueTimeUs;
+        char msg[192];
+        snprintf(msg, sizeof(msg),
+                 "Latency: hostProc=%.1fms recvToEnqueue=%lluus (network+reassembly) enqueueToSubmit=%lluus frame=%d",
+                 du->frameHostProcessingLatency / 10.0,
+                 (unsigned long long)recvToEnqueueUs,
+                 (unsigned long long)enqueueToNowUs,
+                 du->frameNumber);
+        goVTLog(msg);
+    }
+
     if (!g_av_cs_init) { InitializeCriticalSection(&g_av_cs); g_av_cs_init = 1; }
     EnterCriticalSection(&g_av_cs);
     if (!g_avctx) win_av_init();
