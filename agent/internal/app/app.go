@@ -756,6 +756,12 @@ func (a *App) startSunshineNow() {
 			log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
 		}
 	}
+	// Runs on every call, including the no-op "already running" path inside
+	// Start() below: a stuck-in-an-encoder-retry-loop Sunshine never exits
+	// on its own (see reconcileOutputName's doc comment), so this periodic
+	// tick from sunshineWatchdog is the only thing that ever re-checks and
+	// fixes a stale output_name for an already-"running" process.
+	a.reconcileOutputName()
 	if err := a.stream.Start(a.cfg.SunshinePort); err != nil {
 		log.Printf("[app] failed to start Sunshine: %v", err)
 	} else {
@@ -3127,6 +3133,65 @@ func (a *App) SunshineOutputName() string {
 		}
 	}
 	return a.cfg.SunshineOutputName
+}
+
+// reconcileOutputName snaps a persisted OutputName back onto a currently
+// valid capture device when it no longer matches any device the backend
+// currently reports. This is the fix for a real deadlock: a monitor
+// (physical or virtual) that was selected and then torn down or
+// disconnected leaves its old connector index behind in sunshine.conf, but
+// Sunshine/RustShine's own connector indices aren't stable identifiers --
+// see streamhost.CaptureDevice's own doc comment -- so removing e.g. a
+// second, virtual monitor renumbers the remaining real one out from under
+// the stale saved index (observed live: "Monitor 1 is DP-2" + "Monitor 0 is
+// Virtual-1" before, "Monitor 0 is DP-2" after, with output_name still
+// pinned to "1"). Sunshine then fails every encoder against a monitor index
+// that no longer exists ("Couldn't find monitor [1]") and loops forever
+// inside its own process without ever exiting, so nothing else in the
+// agent notices or recovers automatically -- this call, made on every
+// startSunshineNow (i.e. every sunshineWatchdog tick), is what breaks that
+// loop.
+//
+// Deliberately left alone whenever more than one valid device remains:
+// with two or more genuinely still-connected choices (which may well
+// include a deliberately-configured virtual display), the stale value's
+// intended target is ambiguous, and guessing wrong would silently override
+// a manual pick instead of fixing one that's actually broken.
+func (a *App) reconcileOutputName() {
+	if a.stream == nil {
+		return
+	}
+	current := a.stream.OutputName()
+	if current == "" {
+		return
+	}
+	if strings.HasPrefix(current, "virtual:") {
+		// RustShine's virtual-display pick (see rustshineBackend.SetOutputName)
+		// deliberately isn't a real KMS connector, so it never shows up in
+		// ListCaptureDevices' real-monitor enumeration -- that's expected,
+		// not staleness, and must never be "corrected" away from here.
+		return
+	}
+	devices := a.stream.ListCaptureDevices()
+	if len(devices) == 0 {
+		// No correlation data yet (fresh boot, or the backend hasn't
+		// reported anything this session) -- nothing to validate against.
+		return
+	}
+	for _, d := range devices {
+		if d.OutputName == current {
+			return
+		}
+	}
+	if len(devices) != 1 {
+		log.Printf("[app] output_name %q matches none of %d current capture devices; leaving it as-is (ambiguous -- needs a manual pick)", current, len(devices))
+		return
+	}
+	only := devices[0]
+	log.Printf("[app] output_name %q no longer matches any current capture device (stale/disconnected monitor); snapping to the only one currently reported: %q (%q)", current, only.Key, only.OutputName)
+	if err := a.SetSunshineOutputName(only.OutputName); err != nil {
+		log.Printf("[app] failed to auto-correct output_name: %v", err)
+	}
 }
 
 // SetSunshineOutputName pins Sunshine's capture to the given monitor
