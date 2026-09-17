@@ -25,6 +25,7 @@ import (
 	"usbridge_agent/assets"
 	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/autostart"
+	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/netutil"
@@ -661,9 +662,79 @@ func (w *Window) ShowAndRun(onClose func()) {
 	if runtime.GOOS == "linux" {
 		accessLabelBase = "Input Control"
 	}
-	w.accessCheck = newPermStatusChip(accessLabelBase)
-	w.screenCaptureCheck = newPermStatusChip("Screen Capture")
-	permStatusRow := container.New(&flushEndsLayout{}, w.accessCheck.root, w.screenCaptureCheck.root)
+
+	// Mirrors the pre-redesign dedicated "Request" buttons' own platform/
+	// capture-mode gating: Input Control is requestable on macOS/Linux
+	// unconditionally (an OS-level grant with no display-server dependency);
+	// Screen Capture's own request is only meaningful for macOS's System
+	// Settings flow or Linux/Wayland's portal flow -- X11/KMS capture needs
+	// no such request (KMS's own capability grant is handled below via
+	// linuxCaptureUIEnabled instead, same as before).
+	showAccessButton := runtime.GOOS == "darwin" || runtime.GOOS == "linux"
+	showScreenCaptureButton := runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")
+	linuxCapture := w.linuxCaptureUIEnabled()
+
+	var onRequestAccess func()
+	if showAccessButton {
+		onRequestAccess = func() {
+			if w.perms == nil {
+				if w.accessCheck != nil {
+					w.accessCheck.requestDone()
+				}
+				return
+			}
+			go func() {
+				granted := w.perms.RequestAccessibility()
+				fyne.Do(func() {
+					if w.accessCheck != nil {
+						w.accessCheck.requestDone()
+					}
+				})
+				if !granted {
+					if e, ok := w.perms.(interface{ LastAccessibilityError() string }); ok {
+						if msg := e.LastAccessibilityError(); msg != "" {
+							fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg), win) })
+						}
+					}
+				}
+				w.performRefresh()
+			}()
+		}
+	}
+
+	var onRequestCapture func()
+	if showScreenCaptureButton || linuxCapture {
+		onRequestCapture = func() {
+			go func() {
+				switch {
+				case w.linuxCaptureUIEnabled() && w.token.SunshineCaptureMode() == "kms":
+					w.token.RequestKMSCapture()
+				case runtime.GOOS == "darwin" && w.perms != nil:
+					// Screen recording must be granted to Sunshine (a
+					// separate process) via System Settings -- we can't
+					// request it on Sunshine's behalf, so open the pane and
+					// restart Sunshine to pick up the new permission once
+					// the user grants it there.
+					_ = w.perms.OpenScreenRecordingSettings()
+					if w.token != nil {
+						_ = w.token.RestartSunshine()
+					}
+				case w.perms != nil:
+					_ = w.perms.RequestScreenRecording()
+				}
+				fyne.Do(func() {
+					if w.screenCaptureCheck != nil {
+						w.screenCaptureCheck.requestDone()
+					}
+					w.refreshScreenCaptureUI()
+				})
+			}()
+		}
+	}
+
+	w.accessCheck = newPermStatusChip(accessLabelBase, onRequestAccess)
+	w.screenCaptureCheck = newPermStatusChip("Screen Capture", onRequestCapture)
+	permStatusRow := container.New(&flushEndsLayout{}, w.accessCheck, w.screenCaptureCheck)
 
 	// Autostart at Boot: installs the OS-native autostart mechanism (a
 	// system-wide systemd unit on Linux — so it starts at boot before any

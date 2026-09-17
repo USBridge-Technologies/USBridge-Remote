@@ -100,6 +100,7 @@ type VideoStatus struct {
 	SupportedModes    []VideoTransportMode `json:"supported_modes,omitempty"`
 	ClientsCount      int                  `json:"clients_count"`
 	Streaming         bool                 `json:"streaming"`
+
 	// Color444Active is whether the most recently started (or currently
 	// running) session actually negotiated RustShine Pro 4:4:4 chroma --
 	// post-fallback truth, the same way Encoding is (see agent's
@@ -108,16 +109,17 @@ type VideoStatus struct {
 	// AND license tier) -- the video-settings popup shows/enables its
 	// 4:4:4 checkbox based on this, before the user has ever started
 	// streaming.
-	Color444Active    bool `json:"color_444_active"`
-	Color444Available bool `json:"color_444_available"`
+	Color444Active          bool `json:"color_444_active"`
+	Color444Available       bool `json:"color_444_available"`
 	// HdrActive/HdrAvailable mirror Color444Active/Color444Available
 	// exactly, for RustShine HDR (HEVC Main10, BT.2020 + PQ) instead of
 	// 4:4:4 chroma -- see rust-shine's docs/COLOR_MODES.md for why these
 	// are independent axes with independent availability (today: HDR is
 	// macOS-only, 4:4:4 is Linux-only, a given agent can report either,
 	// both, or neither true).
-	HdrActive    bool `json:"hdr_active"`
-	HdrAvailable bool `json:"hdr_available"`
+	HdrActive               bool `json:"hdr_active"`
+	HdrAvailable            bool `json:"hdr_available"`
+	VirtualDisplaySupported bool `json:"virtual_display_supported"`
 }
 
 const (

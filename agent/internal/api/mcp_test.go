@@ -94,6 +94,7 @@ func (a *mcpTestApp) Screen() interface {
 	return mcpTestScreen{}
 }
 func (a *mcpTestApp) VideoDevices() []VideoDeviceInfo       { return nil }
+func (a *mcpTestApp) VirtualDisplaySupported() bool         { return false }
 func (a *mcpTestApp) SunshineOutputName() string            { return "" }
 func (a *mcpTestApp) SetSunshineOutputName(string) error    { return nil }
 func (a *mcpTestApp) SunshineStreamHost() string            { return "" }

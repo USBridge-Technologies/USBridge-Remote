@@ -47,6 +47,17 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 			sectionTrailingAction = view.NewFooterIconButton(assets.QuestionIconDim, assets.QuestionIcon, fyne.NewSize(13, 13), func() {
 				dw.openQuickStartDocs()
 			})
+		} else if section.key == "video" {
+			if dw.virtualDisplaySupported.Load() {
+				sectionAction = view.NewDeviceSectionAddButton(dw.handleAddVirtualDisplay)
+				if !dw.videoCardHadVirtualDisplay {
+					delete(dw.cardsCache, "video")
+					dw.videoCardHadVirtualDisplay = true
+				}
+			} else if dw.videoCardHadVirtualDisplay {
+				delete(dw.cardsCache, "video")
+				dw.videoCardHadVirtualDisplay = false
+			}
 		}
 
 		card, ok := dw.cardsCache[section.key]
@@ -359,6 +370,8 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			if !isBackupFlash {
 				shouldShowDelete = true
 			}
+		} else if drive.IsVideo && drive.VideoDevice != nil && drive.VideoDevice.Bus == "virtual" {
+			shouldShowDelete = true
 		}
 	}
 	if shouldShowDelete {
@@ -523,6 +536,14 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				dw.handleUploadImage(rowID)
 			}
 		})
+	} else if drive.IsVideo && drive.VideoDevice != nil && drive.VideoDevice.Bus == "virtual" {
+		vdPath := drive.VideoDevice.Path
+		deleteBtn.SetOnTapped(func() {
+			if !dw.controlsLocked() {
+				dw.handleDeleteVirtualDisplay(vdPath)
+			}
+		})
+		uploadBtn.SetOnTapped(nil)
 	} else {
 		deleteBtn.SetOnTapped(nil)
 		uploadBtn.SetOnTapped(nil)
@@ -637,6 +658,8 @@ func formatVideoBusLabel(bus string) string {
 		return "USB 1.1"
 	case "usb":
 		return "USB"
+	case "virtual":
+		return "VIRT"
 	default:
 		return ""
 	}

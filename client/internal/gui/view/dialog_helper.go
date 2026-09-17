@@ -227,6 +227,97 @@ func ShowConfirmYesLeft(title, message string, callback func(bool), parent fyne.
 	showConfirmDialog(title, message, callback, parent, false)
 }
 
+// ShowCustomConfirmDialog shows a dialog with a custom content payload, using the app's custom styling
+func ShowCustomConfirmDialog(title, yesText, noText string, content fyne.CanvasObject, callback func(bool), parent fyne.Window) {
+	var popup *widget.PopUp
+	var once sync.Once
+	invokeCallback := func(ok bool) {
+		once.Do(func() {
+			if callback != nil {
+				callback(ok)
+			}
+		})
+	}
+	closePopup := func(ok bool) {
+		invokeCallback(ok)
+		if popup != nil {
+			popup.Hide()
+		}
+	}
+
+	titleText := NewBrandText(title, 19, design.ColorTextLight, true)
+	titleText.Alignment = fyne.TextAlignCenter
+
+	closeBtn := newConfirmDialogCloseButton(func() {
+		closePopup(false)
+	})
+	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
+
+	yesBtn := widget.NewButton(yesText, func() {
+		closePopup(true)
+	})
+	yesBtn.Importance = widget.HighImportance
+
+	noBtn := widget.NewButton(noText, func() {
+		closePopup(false)
+	})
+
+	buttons := container.New(&confirmDialogButtonsLayout{gap: 12}, noBtn, yesBtn)
+	body := container.NewVBox(
+		titleBar,
+		NewInset(content, 0, 0, 16, 14),
+		buttons,
+	)
+
+	panelContent := body
+	if parent != nil {
+		var minW float32 = 408
+		canvasSize := parent.Canvas().Size()
+		if UseCompactLayout(canvasSize.Width) {
+			minW = canvasSize.Width * 0.85
+			if minW < 280 {
+				minW = 280
+			}
+		}
+		panelContent = container.New(&minWidthLayout{minWidth: minW}, body)
+	}
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(
+		bg,
+		NewInset(panelContent, 18, 18, 16, 16),
+		border,
+	)
+
+	popup = ShowOverlayPopup(parent, OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			if maxWidth <= 0 {
+				maxWidth = 1
+			}
+			if maxHeight <= 0 {
+				maxHeight = 1
+			}
+			minSize := panel.MinSize()
+			return fyne.NewSize(minFloat32(maxWidth, minSize.Width), minFloat32(maxHeight, minSize.Height))
+		},
+		OnOutsideTap: func() {
+			closePopup(false)
+		},
+	})
+}
+
 // ShowConfirmYesLeftDanger — same as ShowConfirmYesLeft, but the "Yes" button is red (DangerImportance).
 // Used for confirming power and reboot actions.
 func ShowConfirmYesLeftDanger(title, message string, callback func(bool), parent fyne.Window) {

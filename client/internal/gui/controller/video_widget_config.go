@@ -43,6 +43,12 @@ func getVideoInfoData(usbClient *api.USBClient) (*models.VideoInfoData, error) {
 	return getVideoInfoDataForDevice(usbClient, "")
 }
 
+func PeekVideoInfoData() *models.VideoInfoData {
+	videoInfoCacheMu.Lock()
+	defer videoInfoCacheMu.Unlock()
+	return videoInfoCachedData
+}
+
 func getVideoInfoDataForDevice(usbClient *api.USBClient, devicePath string) (*models.VideoInfoData, error) {
 	if usbClient == nil {
 		return nil, fmt.Errorf("%s", i18n.Current.ErrorNoConnection)

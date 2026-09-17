@@ -938,7 +938,10 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		if frameNum == 1 && !vw.isClosing.Load() && vw.isStreaming {
 			go vw.startMetalVideoOnWindow(vw.parentWindow, false)
 		}
-		// Log FPS for Metal path (frame=nil means VT→Metal bypasses Go image).
+		// Log FPS for the native zero-copy overlay path (frame=nil means the
+		// C side already submitted straight to Metal/Vulkan/GL, bypassing the
+		// Go image entirely) -- not Metal-specific despite the old label below;
+		// this branch fires identically on Windows/Vulkan and Linux/GL.
 		if frameNum%60 == 0 {
 			now := time.Now().UnixNano()
 			prev := vw.fpsWindowStart.Swap(now)
@@ -952,9 +955,9 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 					}
 				}
 				if configuredFPS > 0 && measuredFPS < float64(configuredFPS)*0.75 {
-					logrus.Warnf("⚠️ [FPS] delivery=%.1f fps configured=%d fps (Metal path) — Sunshine sending less than requested.", measuredFPS, configuredFPS)
+					logrus.Warnf("⚠️ [FPS] delivery=%.1f fps configured=%d fps (native overlay path) — Sunshine sending less than requested.", measuredFPS, configuredFPS)
 				} else {
-					logrus.Infof("📊 [VIDEO FPS] Metal callback: %.1f fps (frame=%d configured=%d)", measuredFPS, frameNum, configuredFPS)
+					logrus.Infof("📊 [VIDEO FPS] native overlay callback: %.1f fps (frame=%d configured=%d)", measuredFPS, frameNum, configuredFPS)
 				}
 			}
 		}

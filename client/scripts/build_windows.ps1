@@ -127,7 +127,18 @@ $requiredPkgs = @(
 Write-Step "Checking installed MSYS2/UCRT64 packages"
 $pkgList = Invoke-Native -CaptureStdout -ScriptBlock { & $bashExe -lc "pacman -Qq" }
 $installed = @($pkgList.Stdout | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-$missing = $requiredPkgs | Where-Object { $installed -notcontains $_ }
+
+# mingw-w64-ucrt-x86_64-toolchain is a pacman *group*, not an installable
+# package -- `pacman -Qq` never lists a group as installed, so comparing it
+# directly against $installed always looked "missing" and re-triggered a
+# full `pacman -Syu` (re-downloading every repo database) on every build,
+# even when every package the group expands to was already present. Check
+# its member packages instead.
+$checkPkgs = $requiredPkgs | Where-Object { $_ -ne "mingw-w64-ucrt-x86_64-toolchain" }
+$toolchainMembers = Invoke-Native -CaptureStdout -ScriptBlock { & $bashExe -lc "pacman -Sgq mingw-w64-ucrt-x86_64-toolchain" }
+$checkPkgs += @($toolchainMembers.Stdout | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$checkPkgs = $checkPkgs | Select-Object -Unique
+$missing = $checkPkgs | Where-Object { $installed -notcontains $_ }
 
 if ($missing.Count -gt 0) {
     Write-Step "Installing missing packages: $($missing -join ', ')"
@@ -167,8 +178,20 @@ done
 export PATH="$BIN_DIR:$PATH"
 ./scripts/build_windows.sh
 '@
-$build = Invoke-Native -ScriptBlock {
-    & $msys2Shell -ucrt64 -defterm -no-start -where $ClientDir -c $buildCmd
+# msys2_shell.cmd is a batch file: passing $buildCmd (multi-line) straight
+# as a -c argument gives cmd.exe an argument containing embedded newlines,
+# which its line-based batch parser silently mangles -- msys2_shell then
+# exits 0 without ever running build_windows.sh, and no output is produced.
+# Writing the command to a script file and invoking that keeps the -c
+# argument a single line, which cmd.exe parses correctly.
+$runnerPath = Join-Path $ClientDir ".msys2_build_runner.sh"
+[System.IO.File]::WriteAllText($runnerPath, $buildCmd.Replace("`r`n", "`n"))
+try {
+    $build = Invoke-Native -ScriptBlock {
+        & $msys2Shell -ucrt64 -defterm -no-start -where $ClientDir -c "bash ./.msys2_build_runner.sh"
+    }
+} finally {
+    Remove-Item -LiteralPath $runnerPath -Force -ErrorAction SilentlyContinue
 }
 if ($build.ExitCode -ne 0) {
     throw "Build failed (exit $($build.ExitCode))"

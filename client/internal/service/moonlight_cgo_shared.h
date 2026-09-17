@@ -231,6 +231,22 @@ int do_li_start(
     // change at all client-side until this was added) -- silently, with no
     // error, since ReferenceFrameInvalidationSupported alone was never
     // enough on its own.
+    // CAPABILITY_DIRECT_SUBMIT: an attempt to remove this (to activate
+    // moonlight-common-c's own queue+decoder-thread machinery in
+    // VideoDepacketizer.c/VideoStream.c, where an adaptive playout jitter
+    // buffer was added -- see that file's playoutDelayForFrame) was tried
+    // live and reverted. It fixed the buffer (confirmed working: applied
+    // delay tracked jitter correctly, stalls dropped sharply), but moving
+    // decode/render off the network receive thread onto a separate thread
+    // caused a *different*, worse regression: real render throughput to the
+    // screen collapsed to ~10-15fps while decode itself kept running at the
+    // full ~60fps (confirmed via the VT-decode-fps vs Metal-rendered-fps
+    // counters diverging live) -- something about this Metal/CVDisplayLink
+    // path doesn't tolerate decode happening off its accustomed thread, and
+    // it wasn't safe to leave running while diagnosing further. Keep
+    // CAPABILITY_DIRECT_SUBMIT set until that's understood; the jitter
+    // buffer code is left in place (harmless, unreachable while this flag
+    // is set) for whoever picks this back up.
     dr.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
 
     AUDIO_RENDERER_CALLBACKS ar;
@@ -240,6 +256,21 @@ int do_li_start(
     ar.stop               = ar_stop;
     ar.cleanup            = ar_cleanup;
     ar.decodeAndPlaySample = ar_decode;
+    // Requests AudioPacketDuration=10ms instead of the 5ms
+    // lowest-latency default (SdpGenerator.c) -- the official protocol's
+    // own branch for this, not a wire-format deviation: 5ms frames are
+    // CELT-only by the Opus spec and can never carry Opus's own inband FEC
+    // no matter what the host does, only the fixed-33%/20ms-block outer
+    // Reed-Solomon FEC (RtpAudioQueue's 4+2 scheme) protects them. 10ms
+    // frames are SILK/Hybrid-eligible, letting a host that enables inband
+    // FEC (see rust-shine's OpusEncoder::set_inband_fec) actually recover
+    // a single lost packet from the very next one, no RS block wait
+    // needed. This client doesn't have a genuinely slow decoder -- the
+    // capability bit is repurposed here purely to opt into the duration
+    // it happens to gate, matching what the user explicitly chose over
+    // the alternative (a custom >10ms duration outside what the real
+    // protocol's own SdpGenerator.c logic ever produces).
+    ar.capabilities = CAPABILITY_SLOW_OPUS_DECODER;
 
     CONNECTION_LISTENER_CALLBACKS cl;
     LiInitializeConnectionCallbacks(&cl);

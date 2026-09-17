@@ -296,6 +296,18 @@ func (b *rustshineBackend) capExecPathFor() string {
 // need staging: only the file setcap actually writes to (capexec) has to be
 // writable — the target binary capexec execs stays wherever it already is,
 // its own RPATH resolution is unaffected by where capexec sits.
+//
+// Stages into the same sharedCapExecRuntimeDir sunshineBackend uses — this
+// is the identical cmd/sunshine_capexec binary either way (see
+// capExecPathFor's own doc comment), and a capability grant is a property of
+// one specific inode: staging each backend into its own directory used to
+// mean RequestKMSCapture while RustShine was active setcap'd a file
+// sunshineBackend never looks at (and vice versa), so the Screen Capture
+// chip showed granted for whichever backend was active when the user last
+// clicked "Grant" and permanently unchecked for the other — confirmed live
+// as "checked with RustShine, unchecked and un-grantable-looking with
+// Sunshine". Sharing one staged copy makes the grant carry over regardless
+// of which backend is active when it's requested.
 func (b *rustshineBackend) runtimeCapExecPath() string {
 	capexecSrc := b.capExecPathFor()
 	if runtime.GOOS != "linux" || capexecSrc == "" || b.stateDir == "" {
@@ -304,7 +316,7 @@ func (b *rustshineBackend) runtimeCapExecPath() string {
 	if os.Getenv("APPIMAGE") == "" {
 		return capexecSrc
 	}
-	staged, err := stageCapExecBinary(capexecSrc, filepath.Join(b.stateDir, "rustshine-capexec-runtime"))
+	staged, err := stageCapExecBinary(capexecSrc, filepath.Join(b.stateDir, sharedCapExecRuntimeDir))
 	if err != nil {
 		log.Printf("[rustshine] failed to stage writable copy for KMS setcap: %v", err)
 		return capexecSrc

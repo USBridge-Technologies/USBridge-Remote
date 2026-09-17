@@ -110,7 +110,13 @@ func (b *rustshineBackend) AudioSink() string {
 // (the connector name), so ListCaptureDevices packs both into OutputName as
 // "cardPath|connector" (see its doc comment) for this to split back apart.
 func (b *rustshineBackend) SetOutputName(name string) error {
-	if runtime.GOOS == "windows" {
+	if strings.HasPrefix(name, "virtual:") {
+		spec := strings.TrimPrefix(name, "virtual:")
+		return b.SetConfigKey("virtual_display", spec)
+	}
+	_ = b.SetConfigKey("virtual_display", "")
+
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		return b.SetConfigKey("monitor_index", name)
 	}
 	card, connector, ok := strings.Cut(name, "|")
@@ -147,7 +153,10 @@ func (b *rustshineBackend) SetOutputName(name string) error {
 }
 
 func (b *rustshineBackend) OutputName() string {
-	if runtime.GOOS == "windows" {
+	if virt := b.ConfigKey("virtual_display"); virt != "" {
+		return "virtual:" + virt
+	}
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		return b.ConfigKey("monitor_index")
 	}
 	return b.ConfigKey("adapter_name") + "|" + b.ConfigKey("kms_connector")

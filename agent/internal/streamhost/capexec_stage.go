@@ -5,6 +5,16 @@ import (
 	"path/filepath"
 )
 
+// sharedCapExecRuntimeDir is the stateDir subdirectory both sunshineBackend
+// and rustshineBackend stage cmd/sunshine_capexec's writable copy into (see
+// stageCapExecBinary). It's the identical launcher binary either way, so
+// both backends deliberately share one staged file/inode: setcap grants
+// CAP_SYS_ADMIN to a specific inode, and staging each backend into its own
+// directory used to mean a grant made while one backend was active never
+// applied to the other — see rustshineBackend.runtimeCapExecPath's doc
+// comment for the confirmed symptom.
+const sharedCapExecRuntimeDir = "capexec-runtime"
+
 // stageCapExecBinary copies the bundled sunshine-capexec launcher (a single
 // static file — cmd/sunshine_capexec) from src into destDir/sunshine-capexec,
 // skipping the copy if a matching one (by size + mtime) is already staged

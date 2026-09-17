@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
 	"github.com/sirupsen/logrus"
@@ -198,6 +199,17 @@ func (bw *BackupWidget) startPeriodicRefresh() {
 				// App exit uses Shutdown() to close refreshStop so this
 				// loop actually returns.
 				if bw.isClosing.Load() {
+					continue
+				}
+				if !view.NavVideoHidden() {
+					// Same class of bug fixed in disk_widget_refresh.go's
+					// scheduleCombine: loadSnapshots()'s eventual
+					// updateUIAsync callback calls ui.Refresh(), which
+					// rebuilds the whole snapshots list on the Fyne main
+					// thread via fyne.Do -- confirmed by the freeze
+					// correlator to line up with real UI stalls while a
+					// video overlay is active. Skip this tick; the next
+					// one 10s later re-checks.
 					continue
 				}
 				bw.Refresh()
