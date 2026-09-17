@@ -119,6 +119,7 @@ $requiredPkgs = @(
     "mingw-w64-ucrt-x86_64-brotli",
     "mingw-w64-ucrt-x86_64-libjxl",
     "mingw-w64-ucrt-x86_64-libogg",
+    "mingw-w64-ucrt-x86_64-libusb",
     "zip",
     "unzip",
     "git"

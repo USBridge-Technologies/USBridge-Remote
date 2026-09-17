@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -24,9 +25,19 @@ func TryClaimGousb(dev *ExportedDevice) error {
 		if uint16(desc.Vendor) != dev.VID || uint16(desc.Product) != dev.PID {
 			return false
 		}
-		// When BusID is a real Linux busid, Busnum/Devnum are parsed from it
-		// and uniquely identify the stick (multiple same VID:PID otherwise).
-		if dev.Busnum != 0 && dev.Devnum != 0 {
+		// When BusID is a real Linux busid, Busnum/Devnum are read straight
+		// from sysfs (resolveUSBBusDev) and are the same addresses gousb
+		// itself reports, so they uniquely identify the stick (multiple
+		// same VID:PID otherwise). On every other platform BusID is a
+		// synthetic hash of the SetupAPI instance id (StableUSBIPBusID),
+		// needed only to satisfy usbip-win2 VHCI's wire format -- it is NOT
+		// a real bus/address, so resolveUSBBusDev's fallback parse of it
+		// still leaves Busnum/Devnum non-zero. Confirmed live: filtering by
+		// it there made this always report "no device" for a gamepad that
+		// was actually plugged in and WinUSB-bound, because the hashed
+		// bus=6/addr=12 essentially never matches gousb's real bus/address
+		// for the same device. Only trust this filter on Linux.
+		if runtime.GOOS == "linux" && dev.Busnum != 0 && dev.Devnum != 0 {
 			return uint8(desc.Bus) == uint8(dev.Busnum) && uint8(desc.Address) == uint8(dev.Devnum)
 		}
 		return true

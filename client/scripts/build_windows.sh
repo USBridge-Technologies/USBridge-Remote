@@ -150,6 +150,7 @@ build_cache_fingerprint() {
 
     printf "BUILD_VARIANT=%s\n" "$BUILD_VARIANT"
     printf "BUILD_LDFLAGS=%s\n" "$BUILD_LDFLAGS"
+    printf "BUILD_TAGS=%s\n" "${BUILD_TAGS:-}"
     printf "GOOS=%s\n" "$GOOS"
     printf "GOARCH=%s\n" "$GOARCH"
     printf "CGO_ENABLED=%s\n" "${CGO_ENABLED:-}"
@@ -280,6 +281,22 @@ else
     echo "   Moonlight will fall back to software decode using bundled opus/openssl only"
 fi
 
+# USB passthrough claim path (backend_gousb.go, see docs/USB_PASSTHROUGH.md):
+# libusb-1.0 talks to whatever interface Zadig bound to WinUSB. Same
+# -tags usbpass_gousb build_linux.sh has always used; Windows just never
+# passed it, so the shipped client silently fell back to
+# backend_nogousb.go's disabled stub ("gousb claim disabled") regardless of
+# how a target device's driver was bound.
+echo -e "\n${YELLOW}🔌 Check libusb-1.0 (USB passthrough claim path)...${NC}"
+HAS_LIBUSB=0
+if "$PKG_CONFIG" --exists libusb-1.0 2>/dev/null; then
+    HAS_LIBUSB=1
+    echo -e "${GREEN}✓${NC} libusb-1.0 found (USB passthrough claim enabled)"
+else
+    echo -e "${YELLOW}⚠${NC} libusb-1.0 not found via pkg-config — USB passthrough claim will stay disabled in this build"
+    echo "   Install: pacman -S mingw-w64-ucrt-x86_64-libusb"
+fi
+
 # 3. Check fyne
 echo -e "\n${YELLOW}📦 Check fyne...${NC}"
 FYNE_BIN=""
@@ -342,6 +359,10 @@ if [ "${DEBUG_CONSOLE:-0}" = "1" ]; then
     BUILD_LDFLAGS="-H=console -X main.version=$VERSION"
     BUILD_VARIANT="console"
     echo -e "${YELLOW}⚠${NC} DEBUG_CONSOLE=1: building console version"
+fi
+BUILD_TAGS=""
+if [ "$HAS_LIBUSB" = "1" ]; then
+    BUILD_TAGS="usbpass_gousb"
 fi
 BUILD_CACHE_DIR="$BUILD_CACHE_ROOT/$BUILD_VARIANT"
 BUILD_CACHE_APP_EXE="$BUILD_CACHE_DIR/$APP_EXE_NAME"
@@ -416,7 +437,9 @@ if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
     else
         echo -e "${YELLOW}⚠${NC} go-winres unavailable - main app will be without icon"
     fi
-    go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_APP_EXE" "$REPO_ROOT/cmd"
+    GOBUILD_TAGS_ARGS=()
+    [ -n "$BUILD_TAGS" ] && GOBUILD_TAGS_ARGS=(-tags "$BUILD_TAGS")
+    go build -trimpath "${GOBUILD_TAGS_ARGS[@]}" -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_APP_EXE" "$REPO_ROOT/cmd"
     rm -f "$APP_SYSO"
     mv "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT"
 else
@@ -997,6 +1020,48 @@ else
     echo "   To bundle: export TAILSCALE_ROOT=/path/to/tailscale && rebuild"
 fi
 
+# 7g. Bundle the closed rust-shine USB passthrough broker
+# (usbridge-usb-broker.exe) -- SetupAPI device enumeration + WinUSB claim
+# relay behind the Devices tab / USB passthrough attach on Windows (see
+# internal/usbpass/list.go's ResolveBroker, which looks for it flat next to
+# the client .exe or in a "usb-broker" subdir there -- this bundles the flat
+# candidate). build_linux.sh has always had the equivalent of this step for
+# its AppImage; this one was simply missing here, so a Windows dist built by
+# this script never had the broker and USB passthrough silently listed no
+# devices no matter how a target device's driver was bound. Same
+# "prefer explicit path, else best-effort local search, warn instead of
+# fail" pattern as build_linux.sh's copy of this: USB passthrough stays
+# optional for anyone who hasn't built/staged the closed rust-shine broker.
+echo -e "\n${YELLOW}🔌 Bundling USB passthrough broker (usbridge-usb-broker.exe)...${NC}"
+USB_BROKER_SRC="${USBRIDGE_USB_BROKER:-}"
+if [ -z "$USB_BROKER_SRC" ] || [ ! -f "$USB_BROKER_SRC" ]; then
+    for _cand in \
+        "$REPO_ROOT/../rust-shine/target/release/usbridge-usb-broker.exe" \
+        "$HOME/Projects/rust-shine/target/release/usbridge-usb-broker.exe"
+    do
+        if [ -f "$_cand" ]; then
+            USB_BROKER_SRC="$_cand"
+            break
+        fi
+    done
+fi
+# Dev convenience specific to Windows: agent/internal/entitlement's
+# StageUSBBroker downloads its own signed copy into the agent's state dir
+# the first time USB passthrough is set up on the agent side of this same
+# machine. If that already happened, reuse it instead of requiring a
+# separate rust-shine checkout just to build the client.
+if { [ -z "$USB_BROKER_SRC" ] || [ ! -f "$USB_BROKER_SRC" ]; } && [ -n "${APPDATA:-}" ]; then
+    _appdata_posix="$(cygpath -u "$APPDATA" 2>/dev/null || echo "$APPDATA")"
+    _staged_broker="$_appdata_posix/usbridge-agent/usb-broker/usbridge-usb-broker.exe"
+    [ -f "$_staged_broker" ] && USB_BROKER_SRC="$_staged_broker"
+fi
+if [ -n "$USB_BROKER_SRC" ] && [ -f "$USB_BROKER_SRC" ]; then
+    cp "$USB_BROKER_SRC" "$DIST_WIN_BIN/usbridge-usb-broker.exe"
+    echo -e "   ${GREEN}✓${NC} bin/usbridge-usb-broker.exe (from $USB_BROKER_SRC)"
+else
+    echo -e "   ${YELLOW}⚠${NC} usbridge-usb-broker.exe not found -- Devices tab USB passthrough listing/attach will stay unavailable until you build rust-shine -p usb-broker and rebuild, or set USBRIDGE_USB_BROKER"
+fi
+
 # 8. README
 
 cat > "$DIST_WIN/README.txt" << 'README'
@@ -1011,6 +1076,7 @@ Folder structure:
   bin\tailscaled.exe           — Tailscale daemon (run as service for best performance)
   bin\qemu-nbd.exe             — QEMU NBD (for   VMDK/QCOW2/VDI )
   bin\qemu-img.exe             — QEMU image tool
+  bin\usbridge-usb-broker.exe  — USB passthrough device listing/attach helper (Devices tab; optional)
   lib\                         — runtime DLLs (FFmpeg, OpenSSL, MinGW runtime, etc.)
 
 Tailscale / networking:

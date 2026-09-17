@@ -82,6 +82,9 @@ func ListLocal() ([]models.USBPassthroughDevice, error) {
 	if runtime.GOOS == "android" {
 		return listUSBAndroid()
 	}
+	if runtime.GOOS == "windows" {
+		return listSetupAPI()
+	}
 	if exe == "" {
 		return nil, fmt.Errorf("usb-broker not staged")
 	}
@@ -90,6 +93,15 @@ func ListLocal() ([]models.USBPassthroughDevice, error) {
 
 func listViaBroker(exe string) ([]models.USBPassthroughDevice, error) {
 	cmd := exec.Command(exe, "--list")
+	// ListLocal is polled every 10s (see disk_widget_data.go's
+	// loadUSBPassthroughDevices), so on Windows this spawns a console
+	// process that often -- an unhidden child console window flashing on
+	// screen repeatedly. hideBrokerWindow was written for exactly this
+	// (exec_windows.go/exec_others.go) but was never actually wired up to a
+	// call site after usbaes_attach.go's rewrite removed the old
+	// exec.Command("usbridge-usb-broker", "--role", "client", ...) spawn
+	// that presumably used it.
+	hideBrokerWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -125,8 +137,8 @@ func listViaBroker(exe string) ([]models.USBPassthroughDevice, error) {
 		devices = append(devices, models.USBPassthroughDevice{
 			BusID:         busID,
 			InstanceID:    inst,
-			VID:           vid,
-			PID:           pid,
+			VID:           strings.ToLower(vid),
+			PID:           strings.ToLower(pid),
 			Protected:     parts[2] == "true",
 			PreferredTest: parts[3] == "true",
 			Description:   parts[4],
