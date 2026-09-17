@@ -1,12 +1,23 @@
 package graphics
 
 import (
+	"time"
+
 	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	prefKeyboardWindowW     = "window.keyboard.w"
+	prefKeyboardWindowH     = "window.keyboard.h"
+	defaultKeyboardWindowW  = float32(860)
+	defaultKeyboardWindowH  = float32(320)
+	minKeyboardWindowW      = float32(560)
+	minKeyboardWindowH      = float32(220)
 )
 
 // VirtualKeyboard virtual keyboard for fullscreen mode
@@ -45,6 +56,23 @@ type VirtualKeyboard struct {
 
 	// Called after keyboardWindow.Show() — platform code can use this to adjust Z-order.
 	onWindowShown func(fyne.Window)
+
+	// rebuildCompactKeys refreshes the special-keys chrome (portrait vs
+	// landscape packing, Fn / F-key row). Set by createCompactKeysChrome.
+	rebuildCompactKeys func()
+	compactFnOn        bool
+	// onDismiss closes the special-keys + system IME stack (mobile header).
+	onDismiss func()
+
+	// Compact-styled keys used by the desktop floating window (and optional
+	// extra copies of Shift/Ctrl/etc. on the right half of the board).
+	ctrlKey, ctrlKeyR         *compactKey
+	altKey, altKeyR           *compactKey
+	shiftKey, shiftKeyR       *compactKey
+	capsLockKey               *compactKey
+	winKey, winKeyR           *compactKey
+
+	keyboardSaveArmed bool
 }
 
 // NewVirtualKeyboard creates a new virtual keyboard.
@@ -162,22 +190,27 @@ func (vk *VirtualKeyboard) toggleModifier(keyCode int) {
 	case 224, 228: // Ctrl (Left/Right)
 		vk.ctrlPressed = !vk.ctrlPressed
 		vk.updateModifierButton(vk.ctrlBtn, "Ctrl", vk.ctrlPressed)
+		setCompactKeyActive(vk.ctrlPressed, vk.ctrlKey, vk.ctrlKeyR)
 		logrus.Infof("⌨️ Ctrl toggled: %v", vk.ctrlPressed)
 	case 226, 230: // Alt (Left/Right)
 		vk.altPressed = !vk.altPressed
 		vk.updateModifierButton(vk.altBtn, "Alt", vk.altPressed)
+		setCompactKeyActive(vk.altPressed, vk.altKey, vk.altKeyR)
 		logrus.Infof("⌨️ Alt toggled: %v", vk.altPressed)
 	case 225, 229: // Shift (Left/Right)
 		vk.shiftPressed = !vk.shiftPressed
 		vk.updateModifierButton(vk.shiftBtn, "Shift", vk.shiftPressed)
+		setCompactKeyActive(vk.shiftPressed, vk.shiftKey, vk.shiftKeyR)
 		logrus.Infof("⌨️ Shift toggled: %v", vk.shiftPressed)
 	case 227, 231: // Win/GUI (Left/Right)
 		vk.winPressed = !vk.winPressed
 		vk.updateModifierButton(vk.winBtn, "Win", vk.winPressed)
+		setCompactKeyActive(vk.winPressed, vk.winKey, vk.winKeyR)
 		logrus.Infof("⌨️ Win toggled: %v", vk.winPressed)
 	case 57: // Caps Lock
 		vk.capsLockPressed = !vk.capsLockPressed
 		vk.updateModifierButton(vk.capsLockBtn, "Caps", vk.capsLockPressed)
+		setCompactKeyActive(vk.capsLockPressed, vk.capsLockKey)
 		if vk.onKeyPress != nil {
 			vk.onKeyPress(57, 0)
 		}
@@ -197,6 +230,14 @@ func (vk *VirtualKeyboard) updateModifierButton(btn *widget.Button, label string
 		btn.Importance = widget.MediumImportance
 	}
 	btn.Refresh()
+}
+
+func setCompactKeyActive(on bool, keys ...*compactKey) {
+	for _, k := range keys {
+		if k != nil {
+			k.SetActive(on)
+		}
+	}
 }
 
 // handleKeyPress handles key press
@@ -283,24 +324,44 @@ func (vk *VirtualKeyboard) ShowInSeparateWindow() {
 
 	logrus.Info("⌨️ Opening virtual keyboard in a separate window")
 
+	size := loadKeyboardWindowSize()
+	vk.keyboardSaveArmed = false
 	vk.keyboardWindow = fyne.CurrentApp().NewWindow(i18n.Current.VirtualKeyboard)
+	vk.keyboardWindow.SetPadded(false)
 	vk.keyboardWindow.SetContent(vk.keyboard)
-	vk.keyboardWindow.Resize(fyne.NewSize(600, 260))
+	vk.keyboardWindow.Resize(size)
 	vk.keyboardWindow.CenterOnScreen()
 
 	vk.keyboardWindow.SetOnClosed(func() {
 		logrus.Info("⌨️ Virtual keyboard window closed")
+		vk.persistKeyboardWindowSize()
 		vk.isVisible = false
 		vk.keyboardWindow = nil
+		vk.keyboardSaveArmed = false
 	})
 
 	vk.isVisible = true
 	vk.keyboard.Show()
 	vk.keyboardWindow.Show()
+	// Fyne/GLFW ignores Resize before the HWND exists; apply again after Show
+	// so the first Layout does not persist the default 860×320 over the saved size.
+	vk.keyboardWindow.Resize(size)
 
 	if vk.onWindowShown != nil {
 		vk.onWindowShown(vk.keyboardWindow)
 	}
+	vk.keyboardWindow.Resize(size)
+
+	win := vk.keyboardWindow
+	time.AfterFunc(200*time.Millisecond, func() {
+		fyne.Do(func() {
+			if vk.keyboardWindow != win || win == nil {
+				return
+			}
+			win.Resize(loadKeyboardWindowSize())
+			vk.keyboardSaveArmed = true
+		})
+	})
 
 	logrus.Info("⌨️ Virtual keyboard shown in a separate window")
 }
@@ -314,6 +375,7 @@ func (vk *VirtualKeyboard) Hide() {
 	vk.isVisible = false
 
 	if vk.keyboardWindow != nil {
+		vk.persistKeyboardWindowSize()
 		vk.keyboardWindow.Close()
 		vk.keyboardWindow = nil
 	}
@@ -354,7 +416,14 @@ func (vk *VirtualKeyboard) UpdatePosition(windowSize fyne.Size) {
 	vk.toggleBtn.Resize(btnSize)
 }
 
-// SetVisibleState sets visibility state without showing a separate window
+// SetOnDismiss registers the special-keys hide control callback (mobile).
+func (vk *VirtualKeyboard) SetOnDismiss(fn func()) {
+	vk.onDismiss = fn
+}
+
+// SetVisibleState sets visibility state without showing a separate window.
+// Does not blur the IME entry — sticky system IME may remain open with the
+// special-keys overlay hidden (or vice versa).
 func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 	vk.isVisible = visible
 	if vk.keyboard == nil {
@@ -366,5 +435,57 @@ func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 	}
 	vk.setIMEOffset(0)
 	vk.keyboard.Hide()
-	vk.BlurInput()
+}
+
+func loadKeyboardWindowSize() fyne.Size {
+	size := fyne.NewSize(defaultKeyboardWindowW, defaultKeyboardWindowH)
+	app := fyne.CurrentApp()
+	if app == nil {
+		return size
+	}
+	w := app.Preferences().Int(prefKeyboardWindowW)
+	h := app.Preferences().Int(prefKeyboardWindowH)
+	if float32(w) < minKeyboardWindowW || float32(h) < minKeyboardWindowH {
+		return size
+	}
+	return fyne.NewSize(float32(w), float32(h))
+}
+
+func saveKeyboardWindowSize(sz fyne.Size) {
+	if sz.Width < minKeyboardWindowW || sz.Height < minKeyboardWindowH {
+		return
+	}
+	app := fyne.CurrentApp()
+	if app == nil {
+		return
+	}
+	app.Preferences().SetInt(prefKeyboardWindowW, int(sz.Width))
+	app.Preferences().SetInt(prefKeyboardWindowH, int(sz.Height))
+}
+
+func (vk *VirtualKeyboard) persistKeyboardWindowSize() {
+	if vk == nil || vk.keyboardWindow == nil {
+		return
+	}
+	c := vk.keyboardWindow.Canvas()
+	if c == nil {
+		return
+	}
+	saveKeyboardWindowSize(c.Size())
+}
+
+func (vk *VirtualKeyboard) rememberKeyboardWindowSize(sz fyne.Size) {
+	if vk == nil || !vk.keyboardSaveArmed {
+		return
+	}
+	saveKeyboardWindowSize(sz)
+}
+
+// ApplySavedWindowSize re-applies the last saved keyboard window size
+// after the OS window exists (Windows Show/topmost path).
+func (vk *VirtualKeyboard) ApplySavedWindowSize() {
+	if vk == nil || vk.keyboardWindow == nil {
+		return
+	}
+	vk.keyboardWindow.Resize(loadKeyboardWindowSize())
 }

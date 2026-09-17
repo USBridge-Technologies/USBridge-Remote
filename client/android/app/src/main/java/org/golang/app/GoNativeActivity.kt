@@ -4,6 +4,7 @@ import android.app.NativeActivity
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -15,6 +16,7 @@ import android.view.KeyEvent
 import android.view.KeyCharacterMap
 import android.view.View
 import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -29,6 +31,8 @@ open class GoNativeActivity : NativeActivity() {
     private var defaultKeyListener: android.text.method.KeyListener? = null
     private var ignoreKey = false
     private var keyboardUp = false
+    /** Last EditText contents while sticky IME is active (for LCP diff). */
+    private var lastStickyText = " "
 
     init {
         goNativeActivity = this
@@ -38,8 +42,9 @@ open class GoNativeActivity : NativeActivity() {
         loadLibraryFromManifest()
         preloadNativeRuntime()
         super.onCreate(savedInstanceState)
+        applySystemChrome()
         setupEntry()
-        updateLayout()
+        setupSafeAreaInsets()
     }
 
     open fun launchQRScanner() = Unit
@@ -50,16 +55,204 @@ open class GoNativeActivity : NativeActivity() {
     private external fun keyboardDelete()
     private external fun backPressed()
 
+    // Matches design.ColorGray900 (header) / ColorGray950 (footer + nav strip).
+    private val headerBarColor = 0xFF181C1F.toInt()
+    private val footerBarColor = 0xFF0B0F12.toInt()
+
+    /**
+     * While the mobile keyboard stack is open, report top/side insets as 0 and
+     * hide the status bar so special keys sit in that band (safe-area lift).
+     */
+    @Volatile
+    private var keyboardIgnoresTopSafeArea = false
+
+    private fun applySystemChrome() {
+        try {
+            // Edge-to-edge so cutout/status insets are reported to Fyne instead
+            // of being swallowed by a Fullscreen theme (top inset=0 under camera).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.setDecorFitsSystemWindows(false)
+            }
+            window.statusBarColor = headerBarColor
+            // Match AppFooter — the system nav band below Fyne's bottom inset
+            // reads as a continuation of the footer, not a foreign grey strip.
+            window.navigationBarColor = footerBarColor
+            @Suppress("DEPRECATION")
+            var flags = window.decorView.systemUiVisibility
+            flags = flags or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            flags = flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags = flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+            }
+            window.decorView.systemUiVisibility = flags
+            applyImmersiveSystemBars(isLandscape())
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun isLandscape(): Boolean {
+        return resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    }
+
+    // Landscape: hide status + nav bars (immersive sticky) so our Fyne chrome
+    // owns the full screen. Portrait keeps system bars for the camera cutout,
+    // except while the keyboard stack ignores the top safe area.
+    private fun applyImmersiveSystemBars(landscape: Boolean) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val controller = window.insetsController ?: return
+                val status = WindowInsets.Type.statusBars()
+                val nav = WindowInsets.Type.navigationBars()
+                if (landscape) {
+                    controller.hide(status or nav)
+                    controller.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else if (keyboardIgnoresTopSafeArea) {
+                    // Free the status/cutout band for special keys; keep nav.
+                    controller.hide(status)
+                    controller.show(nav)
+                    controller.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else {
+                    controller.show(status or nav)
+                }
+                return
+            }
+            @Suppress("DEPRECATION")
+            var flags = window.decorView.systemUiVisibility
+            if (landscape) {
+                flags = flags or View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            } else if (keyboardIgnoresTopSafeArea) {
+                flags = flags or View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                flags = flags and View.SYSTEM_UI_FLAG_HIDE_NAVIGATION.inv()
+            } else {
+                flags = flags and View.SYSTEM_UI_FLAG_FULLSCREEN.inv() and
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION.inv() and
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY.inv()
+            }
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = flags
+        } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * Open keyboard stack: zero top/side safe insets and hide the status bar
+     * so special keys own that band. Close stack: restore normal insets/bars.
+     */
+    fun setKeyboardIgnoresTopSafeArea(ignore: Boolean) {
+        runOnUiThread {
+            if (keyboardIgnoresTopSafeArea == ignore) {
+                return@runOnUiThread
+            }
+            keyboardIgnoresTopSafeArea = ignore
+            Log.i(TAG, "⌨️ keyboardIgnoresTopSafeArea=$ignore")
+            applyImmersiveSystemBars(isLandscape())
+            try {
+                window.decorView.requestApplyInsets()
+            } catch (_: Throwable) {
+            }
+            updateLayout()
+        }
+    }
+
+    fun isKeyboardIgnoresTopSafeArea(): Boolean = keyboardIgnoresTopSafeArea
+
+    // Fullscreen theme used to hide the status bar and report top inset=0 even
+    // with a camera cutout, so Fyne laid content under the notch. Always fold
+    // display-cutout + system-bars (incl. ignoring visibility) into the insets
+    // we push to Go / InteractiveArea.
+    private fun setupSafeAreaInsets() {
+        val decor = window.decorView
+        decor.setOnApplyWindowInsetsListener { v, insets ->
+            pushSafeAreaInsets(insets)
+            v.onApplyWindowInsets(insets)
+        }
+        decor.requestApplyInsets()
+        // First layout may arrive before the listener fires.
+        decor.post { updateLayout() }
+    }
+
     private fun updateLayout() {
         try {
-            val insets: WindowInsets = window.decorView.rootWindowInsets ?: return
-            @Suppress("DEPRECATION")
-            insetsChanged(
-                insets.systemWindowInsetTop,
-                insets.systemWindowInsetBottom,
-                insets.systemWindowInsetLeft,
-                insets.systemWindowInsetRight,
+            val insets = window.decorView.rootWindowInsets ?: return
+            pushSafeAreaInsets(insets)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun pushSafeAreaInsets(insets: WindowInsets) {
+        var top: Int
+        var bottom: Int
+        var left: Int
+        var right: Int
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bars = insets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
             )
+            val cutout = insets.getInsets(WindowInsets.Type.displayCutout())
+            top = maxOf(bars.top, cutout.top)
+            bottom = maxOf(bars.bottom, cutout.bottom)
+            left = maxOf(bars.left, cutout.left)
+            right = maxOf(bars.right, cutout.right)
+        } else {
+            @Suppress("DEPRECATION")
+            top = insets.systemWindowInsetTop
+            @Suppress("DEPRECATION")
+            bottom = insets.systemWindowInsetBottom
+            @Suppress("DEPRECATION")
+            left = insets.systemWindowInsetLeft
+            @Suppress("DEPRECATION")
+            right = insets.systemWindowInsetRight
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val cutout = insets.displayCutout
+                if (cutout != null) {
+                    top = maxOf(top, cutout.safeInsetTop)
+                    bottom = maxOf(bottom, cutout.safeInsetBottom)
+                    left = maxOf(left, cutout.safeInsetLeft)
+                    right = maxOf(right, cutout.safeInsetRight)
+                }
+            }
+        }
+        // Bottom inset stays 0 in portrait: Fyne paints under the nav chrome;
+        // Connections grows its own footer pad instead of a system safe-zone.
+        bottom = 0
+        // Landscape immersive: zero ALL insets so Fyne chrome draws edge-to-
+        // edge. Leaving cutout left/right pads painted only ColorNameBackground
+        // (no header hairline / wrong footer tone) and shifted the layout.
+        if (isLandscape()) {
+            top = 0
+            left = 0
+            right = 0
+            bottom = 0
+        }
+        // Keyboard stack open: drop top/side safe pad so special keys rise into
+        // the former status-bar / cutout band (status bar is hidden separately).
+        if (keyboardIgnoresTopSafeArea) {
+            top = 0
+            left = 0
+            right = 0
+        }
+        try {
+            insetsChanged(top, bottom, left, right)
+        } catch (_: Throwable) {
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Orientation / size class changes swap which edges are status vs
+        // nav / cutout. Re-apply chrome and push fresh insets so the header
+        // does not keep a stale portrait top pad in landscape (and vice versa).
+        applySystemChrome()
+        try {
+            window.decorView.requestApplyInsets()
+            window.decorView.post { updateLayout() }
         } catch (_: Throwable) {
         }
     }
@@ -88,10 +281,15 @@ open class GoNativeActivity : NativeActivity() {
             edit.setText(" ")
             edit.setSelection(edit.text.length)
             ignoreKey = false
+            lastStickyText = " "
 
             edit.addTextChangedListener(object : TextWatcher {
                 override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
                     if (ignoreKey || count <= 0) {
+                        return
+                    }
+                    // Sticky IME uses afterTextChanged diff → KeyboardBridge.
+                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
                         return
                     }
                     keyboardTyped(s.subSequence(start, start + count).toString())
@@ -101,19 +299,68 @@ open class GoNativeActivity : NativeActivity() {
                     if (ignoreKey || count <= 0) {
                         return
                     }
+                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+                        return
+                    }
                     repeat(count) {
                         keyboardDelete()
                     }
                 }
 
                 override fun afterTextChanged(s: Editable) {
-                    if (s.length >= 1) {
+                    if (ignoreKey) {
                         return
                     }
-                    ignoreKey = true
-                    edit.setText(" ")
-                    edit.setSelection(edit.text.length)
-                    ignoreKey = false
+                    if (s.length < 1) {
+                        // Soft IME deleted the last local character (often our
+                        // sentinel space). Mirror deletes to the host: typed
+                        // chars after the sentinel, or one BKSP into remote
+                        // text that never lived in this EditText.
+                        val prev = lastStickyText
+                        ignoreKey = true
+                        edit.setText(" ")
+                        edit.setSelection(edit.text.length)
+                        ignoreKey = false
+                        lastStickyText = " "
+                        if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+                            val del = when {
+                                prev.startsWith(" ") -> {
+                                    val typed = prev.length - 1
+                                    if (typed > 0) typed else 1
+                                }
+                                prev.isEmpty() -> 1
+                                else -> prev.length
+                            }
+                            Log.i(TAG, "⌨️ stickyIME empty-buffer del=$del (was '$prev')")
+                            try {
+                                io.usbridge.client.KeyboardBridge.onIMETextInput(del, "")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "onIMETextInput failed", e)
+                            }
+                        }
+                        return
+                    }
+                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() != true) {
+                        return
+                    }
+                    val cur = s.toString()
+                    val prev = lastStickyText
+                    var i = 0
+                    val lim = minOf(prev.length, cur.length)
+                    while (i < lim && prev[i] == cur[i]) {
+                        i++
+                    }
+                    val del = prev.length - i
+                    val ins = cur.substring(i)
+                    lastStickyText = cur
+                    if (del > 0 || ins.isNotEmpty()) {
+                        Log.i(TAG, "⌨️ stickyIME diff del=$del ins='$ins' (prev='$prev' cur='$cur')")
+                        try {
+                            io.usbridge.client.KeyboardBridge.onIMETextInput(del, ins)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "onIMETextInput failed", e)
+                        }
+                    }
                 }
             })
 
@@ -146,6 +393,13 @@ open class GoNativeActivity : NativeActivity() {
             }
 
             edit.imeOptions = imeOptions or EditorInfo.IME_FLAG_NO_FULLSCREEN
+            // Visible-password + no-suggestions strongly reduces GBoard composition
+            // (whole-word replaces) that caused duplicated host input.
+            if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+                inputType = InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
+                    InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            }
             edit.inputType = inputType
             edit.keyListener = if (keys != null) {
                 DigitsKeyListener.getInstance(keys)
@@ -154,7 +408,11 @@ open class GoNativeActivity : NativeActivity() {
             }
             edit.setOnEditorActionListener(TextView.OnEditorActionListener { _, actionId, _: KeyEvent? ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    keyboardTyped("\n")
+                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+                        io.usbridge.client.KeyboardBridge.onIMETextInput(0, "\n")
+                    } else {
+                        keyboardTyped("\n")
+                    }
                 }
                 false
             })
@@ -163,6 +421,7 @@ open class GoNativeActivity : NativeActivity() {
             edit.setText(" ")
             edit.setSelection(edit.text.length)
             ignoreKey = false
+            lastStickyText = " "
 
             edit.visibility = View.VISIBLE
             edit.bringToFront()

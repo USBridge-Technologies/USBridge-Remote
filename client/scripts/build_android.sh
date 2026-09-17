@@ -8,6 +8,14 @@ set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# build_moonlight.sh's Android cross-compile block (opus, moonlight-common-c)
+# needs ANDROID_NDK_HOME set to run; build_android_gradle.sh normally
+# resolves it via export_android_env, but that happens too late for
+# build_moonlight.sh below. Resolve it here first so opus actually gets
+# built instead of silently skipping and failing later at the Go cgo step.
+source "$SCRIPTS_DIR/android_env.sh"
+export_android_env
+
 echo "=> Building Moonlight Core (Android only, host build skipped)..."
 MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 "$SCRIPTS_DIR/build_moonlight.sh" || {
     echo "❌ Failed to build Moonlight Core"; exit 1

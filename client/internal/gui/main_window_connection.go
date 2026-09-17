@@ -32,12 +32,28 @@ func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol str
 // handleConnectionFromManager handles connection from the manager (arrow on the card).
 // masterKey is the API secret (from QR sync).
 func (mw *MainWindow) handleConnectionFromManager(host, masterKey, protocol string, tailscaleRegister bool) {
-	mw.hostEntry.SetText(host)
-	mw.tokenEntry.SetText(masterKey)
-	mw.pendingTailscaleRegister = tailscaleRegister
-	if protocol != "" {
-		mw.protocolSelect.SetSelected(protocol)
+	setForm := func() {
+		mw.hostEntry.SetText(host)
+		mw.tokenEntry.SetText(masterKey)
+		if protocol != "" {
+			mw.protocolSelect.SetSelected(protocol)
+		}
 	}
+	// Silently, via connectionManager -- for the OnUse (Grid/List card)
+	// caller, cm.SelectConnection(idx) already just populated these same
+	// entries under its own syncingForm guard; setting them again here
+	// unguarded fires OnChanged -> HandleFormEdited, which (before this fix)
+	// compared against a value the form was never actually populated with
+	// and wrongly cleared cm.selectedIndex mid-connect -- see
+	// HandleFormEdited's and SetFormTextSilently's doc comments for the
+	// full chain (it also desyncs SetConnectionPending's redundant-call
+	// activeIndex, which is what made the toast/button flicker).
+	if mw.connectionManager != nil {
+		mw.connectionManager.SetFormTextSilently(setForm)
+	} else {
+		setForm()
+	}
+	mw.pendingTailscaleRegister = tailscaleRegister
 	mw.handleConnectionToggle()
 }
 
@@ -75,6 +91,50 @@ func (mw *MainWindow) canAttemptConnection() bool {
 func (mw *MainWindow) setConnectionLoading(loading bool) {
 	mw.isConnectionLoading = loading
 	mw.refreshConnectionControls()
+}
+
+// connectingToastBarDuration paces the connecting toast's progress bar --
+// deliberately NOT mw.config.APITimeout: that bounds only the first network
+// call inside doConnect, while several earlier steps (tsnet's own 25s
+// WaitUntilReady waits, sync, Tailscale registration polling) run on their
+// own separate timeouts and can make the real wall-clock attempt take
+// noticeably longer than APITimeout before anything actually resolves. The
+// bar reaching 100% doesn't close the toast (handleConnectingStateChange
+// only closes it once the real attempt resolves) -- it just gives a sense
+// of pace for a typical attempt without pretending to know the real one.
+const connectingToastBarDuration = 15 * time.Second
+
+// handleConnectingStateChange is ConnectionManager's connectingStateSink --
+// wired up once in createConnectionAddressBar (main_window_layout.go),
+// alongside the header's other cross-package status sinks. Shows/hides the
+// bottom "Connecting to X…" toast (view.ShowConnectingToast) in lockstep
+// with connectionPending's own start/stop, so it tracks a Connect press
+// regardless of which button started it (Grid card, List row, or a saved
+// deep link) without any of those call sites needing to know about the
+// toast themselves.
+func (mw *MainWindow) handleConnectingStateChange(connecting bool, name string) {
+	fyne.Do(func() {
+		if !connecting && mw.suppressConnectingToastClose {
+			// A connect failure just called ShowError on this same toast
+			// (see handleConnectFailure) -- leave it open instead of
+			// closing it out from under that transform.
+			mw.suppressConnectingToastClose = false
+			return
+		}
+
+		if mw.connectingToast != nil {
+			logrus.Infof("🔌 [CONNECT-TOAST] closing (connecting=%v name=%q)", connecting, name)
+			mw.connectingToast.Close()
+			mw.connectingToast = nil
+		}
+		if !connecting {
+			return
+		}
+
+		logrus.Infof("🔌 [CONNECT-TOAST] showing (name=%q)", name)
+		message := fmt.Sprintf(i18n.Current.ConnectingToConnection, name)
+		mw.connectingToast = view.ShowConnectingToast(message, connectingToastBarDuration, mw.window)
+	})
 }
 
 func (mw *MainWindow) clearConnectionPending() {
@@ -140,8 +200,32 @@ var connectionRecoveryRetryDelays = []time.Duration{
 	20 * time.Second,
 }
 
+// shouldAttemptConnectionRecovery is true only for Tailscale paths, where a
+// transport blip can be a real tsnet/DERP re-handshake that we should ride
+// out. A direct LAN KVM that just lost power will never come back within
+// the multi-minute recovery budget, and leaving widgets attached during
+// that wait freezes the Fyne loop (HTTP timeouts + Vulkan overlay input).
+func (mw *MainWindow) shouldAttemptConnectionRecovery() bool {
+	if mw.connectedProtocol == models.ConnectionProtocolTailscale {
+		return true
+	}
+	host := ""
+	if mw.hostEntry != nil {
+		host = mw.hostEntry.Text
+	}
+	return isLikelyTailscaleHost(host)
+}
+
 func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, lastErr error) bool {
 	if client == nil || client != mw.usbClient || !mw.isConnected {
+		return false
+	}
+	if !mw.shouldAttemptConnectionRecovery() {
+		host := ""
+		if mw.hostEntry != nil {
+			host = mw.hostEntry.Text
+		}
+		logrus.Infof("⏭️ Skipping automatic connection recovery for non-Tailscale host=%s protocol=%s", host, mw.connectedProtocol)
 		return false
 	}
 
@@ -193,6 +277,10 @@ func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
 		return
 	}
 
+	// Detach pollers / overlay / clipboard *before* any recovery wait so the
+	// Fyne loop stays responsive even if the host never comes back.
+	mw.pauseDeadConnectionIO()
+
 	if mw.tryRecoverConnectionAfterLoss(client, err) {
 		logrus.Infof("✅ Connection recovered automatically after transport loss")
 		mw.connectionLossInProgress.Store(false)
@@ -210,20 +298,56 @@ func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
 		mw.protocolSelect.Enable()
 		mw.updateStatus()
 		mw.showConnectionManager()
-		view.ShowErrorDialog(fmt.Errorf(i18n.Current.ConnectionLost, err), mw.window)
+		view.ShowConnectionErrorDialog(fmt.Errorf(i18n.Current.ConnectionLost, err), mw.window)
 	})
 
 	mw.connectionLossInProgress.Store(false)
 }
 
-func (mw *MainWindow) cleanupDeadConnectionState() {
-	mw.isConnected = false
-	mw.isStreaming = false
+// pauseDeadConnectionIO stops every client that still holds a pointer to the
+// dead USBClient. cleanupDeadConnectionState used to only nil mw.usbClient
+// and tear down video — disk/backup/pcpanel/scripts/clipboard kept polling
+// the powered-off KVM (15s HTTP timeouts) and video reconcile kept retrying
+// Moonlight with desiredStreaming=true.
+func (mw *MainWindow) pauseDeadConnectionIO() {
+	if mw.clipboardSync != nil {
+		mw.clipboardSync.Stop()
+		mw.clipboardSync = nil
+	}
 
 	if mw.videoWidget != nil {
+		mw.videoWidget.MarkUserStopped()
 		mw.videoWidget.HandleConnectionLost()
 	}
 
+	fyne.Do(func() {
+		if mw.diskWidget != nil {
+			mw.diskWidget.UpdateClient(nil)
+		}
+		if mw.videoWidget != nil {
+			mw.videoWidget.UpdateClient(nil)
+		}
+		if mw.backupWidget != nil {
+			mw.backupWidget.UpdateClient(nil)
+		}
+		if mw.pcpanelWidget != nil {
+			mw.pcpanelWidget.SetClient(nil)
+		}
+		if mw.scriptsWidget != nil {
+			mw.scriptsWidget.SetClient(nil)
+		}
+	})
+}
+
+func (mw *MainWindow) cleanupDeadConnectionState() {
+	mw.isConnected = false
+	mw.isStreaming = false
+	if mw.appState != nil {
+		mw.appState.IsConnected = false
+		mw.appState.IsStreaming = false
+	}
+
+	mw.pauseDeadConnectionIO()
 	mw.usbClient = nil
 }
 
@@ -775,6 +899,17 @@ func (mw *MainWindow) verifyActiveConnection() error {
 func (mw *MainWindow) handleConnectFailure(message string, err error) {
 	logrus.Errorf("%s: %v", message, err)
 	fyne.Do(func() {
+		// If the "Connecting to X…" toast is up for this attempt, keep it
+		// open through clearConnectionPending (which would otherwise close
+		// it via handleConnectingStateChange) so the error below can
+		// transform that same toast in place instead of closing it and
+		// popping a separate dialog on top. Not when the app is closing --
+		// there's no error to show then, so let the toast close normally
+		// instead of leaving it open with nothing left to transform it.
+		closing := mw.isClosing.Load()
+		toast := mw.connectingToast
+		mw.suppressConnectingToastClose = !closing && toast != nil
+
 		mw.clearConnectionPending()
 		mw.isConnected = false
 		mw.connectedProtocol = ""
@@ -782,8 +917,15 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
 		mw.protocolSelect.Enable()
-		if !mw.isClosing.Load() {
-			view.ShowErrorDialog(fmt.Errorf("%s: %w", message, err), mw.window)
+		if closing {
+			return
+		}
+
+		fullErr := fmt.Errorf("%s: %w", message, err)
+		if toast != nil {
+			toast.ShowError(fullErr.Error())
+		} else {
+			view.ShowConnectionErrorDialog(fullErr, mw.window)
 		}
 	})
 }
@@ -831,61 +973,74 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.connectionLossInProgress.Store(false)
 	mw.appState.LastDisconnected = time.Now()
 
-	// 2. Immediately update the UI (go back to the login screen)
-	fyne.Do(func() {
-		mw.showConnectionManager()
-		if mw.mainExitBtn != nil {
-			mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
-				Fill:        design.ColorSurfaceLight,
-				Foreground:  design.ColorTextLight,
-				Stroke:      color.NRGBA{R: 0xd6, G: 0x6d, B: 0x6d, A: 0xff},
-				StrokeWidth: 1.2,
-				Icon:        assets.ExitIcon,
-				IconSize:    fyne.NewSize(24, 24),
-			})
-		}
+	closing := mw.isClosing.Load()
 
-		if mw.diskWidget != nil {
-			mw.diskWidget.UpdateClient(nil)
-		}
-		if video != nil {
-			video.UpdateClient(nil)
-		}
-		if backup != nil {
-			backup.UpdateClient(nil)
-		}
+	// 2. Immediately update the UI (go back to the login screen).
+	// Skip this on app shutdown -- rebuilding the connection manager
+	// queues fyne.Do work into a main loop that is about to Quit, which
+	// can freeze the process after "quitting app".
+	if !closing {
+		fyne.Do(func() {
+			mw.showConnectionManager()
+			if mw.mainExitBtn != nil {
+				mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
+					Fill:            design.ColorExitButtonFill,
+					Foreground:      design.ColorExitButtonText,
+					Stroke:          design.ColorExitButtonBorder,
+					StrokeWidth:     1.2,
+					Icon:            assets.ExitIcon,
+					IconSize:        fyne.NewSize(12, 12),
+					HoverFill:       design.ColorExitButtonHoverFill,
+					HoverStroke:     design.ColorExitButtonHoverBorder,
+					HoverForeground: design.ColorExitButtonHoverText,
+					HoverIcon:       assets.ExitIconHover,
+				})
+			}
 
-		mw.usbClient = nil
+			if mw.diskWidget != nil {
+				mw.diskWidget.UpdateClient(nil)
+			}
+			if video != nil {
+				video.UpdateClient(nil)
+			}
+			if backup != nil {
+				backup.UpdateClient(nil)
+			}
 
-		mw.clearConnectionPending()
-		mw.refreshConnectionControls()
+			mw.usbClient = nil
 
-		if mw.pcpanelWidget != nil {
-			mw.pcpanelWidget.SetClient(nil)
-		}
-		if mw.scriptsWidget != nil {
-			mw.scriptsWidget.SetClient(nil)
-		}
+			mw.clearConnectionPending()
+			mw.refreshConnectionControls()
 
-		mw.updateStatus()
-		mw.config.VideoBindHost = "127.0.0.1"
+			if mw.pcpanelWidget != nil {
+				mw.pcpanelWidget.SetClient(nil)
+			}
+			if mw.scriptsWidget != nil {
+				mw.scriptsWidget.SetClient(nil)
+			}
 
-		if !mw.isClosing.Load() {
+			mw.updateStatus()
+			mw.config.VideoBindHost = "127.0.0.1"
+
 			mw.hostEntry.Enable()
 			mw.tokenEntry.Enable()
 			mw.protocolSelect.Enable()
-		}
 
-		mw.updateStatusBar()
-	})
+			mw.updateStatusBar()
+		})
+	} else {
+		mw.usbClient = nil
+	}
 
 	// 3. Do the heavy lifting in the BACKGROUND
+	done := make(chan struct{})
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				logrus.Errorf("🔥 PANIC in background disconnect cleanup: %v", r)
 			}
 			logrus.Info("✅ [shutdown] Background disconnect cleanup complete")
+			close(done)
 		}()
 
 		logrus.Info("⏳ [shutdown] Background cleanup starting...")
@@ -927,8 +1082,18 @@ func (mw *MainWindow) handleDisconnect() {
 		if diskWidget != nil {
 			logrus.Info("🛑 [shutdown] Stopping disk widget NBD servers...")
 			diskWidget.StopAllNBDServers()
+			logrus.Info("🛑 [shutdown] Stopping USB passthrough export...")
+			diskWidget.StopUSBPassthrough()
 		}
 	}()
+
+	if closing {
+		select {
+		case <-done:
+		case <-time.After(8 * time.Second):
+			logrus.Warn("[shutdown] background disconnect cleanup timed out")
+		}
+	}
 }
 
 // handleRefresh handles a refresh

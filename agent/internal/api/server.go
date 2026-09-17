@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/display"
+	"usbridge_agent/internal/usbpass"
 )
 
 type Application interface {
@@ -55,6 +57,17 @@ type Application interface {
 	// SupportedVideoCodecs returns which of h264/h265/av1 the host's hardware
 	// encoder can actually produce right now (Sunshine's live capability probe).
 	SupportedVideoCodecs() []string
+	// Color444Status reports the RustShine Pro color upgrade's state: active
+	// is whether the current/most recent session actually negotiated 4:4:4
+	// chroma, available is whether this host could offer it right now
+	// (hardware AND license tier). Always (false, false) on Sunshine.
+	Color444Status() (active bool, available bool)
+	// HdrStatus mirrors Color444Status exactly, for the RustShine HDR color
+	// upgrade.
+	HdrStatus() (active bool, available bool)
+	// VirtualDisplaySupported reports whether the current stream backend
+	// supports native virtual displays.
+	VirtualDisplaySupported() bool
 	AudioSinks() ([]AudioSink, error)
 	CurrentAudioSink() (string, error)
 	SetAudioSink(sink string) error
@@ -78,7 +91,12 @@ type Server struct {
 	sunshinePort int
 	sec          *SecurityMiddleware
 
+	usb *usbpass.Service
+
 	clipboardBlobs *clipboardBlobStore
+
+	virtMu          sync.Mutex
+	virtualDisplays []VideoDeviceInfo
 }
 
 type loggingResponseWriter struct {
@@ -172,6 +190,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
 	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/video/set_device", sec.LimitPolling(s.videoSetDevice))
+	mux.HandleFunc("POST /api/video/virtual_displays", sec.LimitPolling(s.virtualDisplayCreate))
+	mux.HandleFunc("DELETE /api/video/virtual_displays/{id}", sec.LimitPolling(s.virtualDisplayDelete))
 	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))
 	mux.HandleFunc("/api/devices", sec.LimitPolling(s.devicesLegacy))
 	mux.HandleFunc("/api/pcpanel/leds", sec.LimitPolling(s.leds))
@@ -181,6 +201,9 @@ func (s *Server) Routes() http.Handler {
 	// the client's MCP proxy (client/internal/api/mcp_proxy.go) forwards to
 	// whichever of the two it's paired with without needing to know which.
 	mux.HandleFunc("/api/mcp", sec.LimitPolling(s.mcp))
+	mux.HandleFunc("/api/usb/passthrough/status", sec.LimitPolling(s.usbPassthroughStatus))
+	mux.HandleFunc("/api/usb/passthrough/install", sec.LimitPolling(s.usbPassthroughInstall))
+	mux.HandleFunc("/api/usb/passthrough/session", sec.LimitPolling(s.usbPassthroughSession))
 
 	return s.withCORS(s.withLogging(s.withRecovery(mux)))
 }
@@ -692,6 +715,8 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 
 	moonlightHost := s.app.SunshineStreamHost()
 	sunshinePort := s.app.SunshineAdminPort()
+	color444Active, color444Available := s.app.Color444Status()
+	hdrActive, hdrAvailable := s.app.HdrStatus()
 	s.ok(w, "video_info", map[string]any{
 		"device":            devicePath,
 		"width":             width,
@@ -706,6 +731,20 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		"available_devices": devices,
 		"moonlight_host":    moonlightHost,
 		"sunshine_port":     sunshinePort,
+		// RustShine Pro's $8/mo color upgrade -- see
+		// Application.Color444Status's doc comment. "active" reflects the
+		// most recently started session (post-fallback truth, same as
+		// "encoding"); "available" is whether the popup's 4:4:4 checkbox
+		// should even be shown/enabled before the user has started
+		// streaming at all.
+		"color_444_active":    color444Active,
+		"color_444_available": color444Available,
+		// RustShine's HDR color upgrade -- mirrors color_444_active/
+		// color_444_available exactly, see Application.HdrStatus's doc
+		// comment.
+		"hdr_active":                hdrActive,
+		"hdr_available":             hdrAvailable,
+		"virtual_display_supported": s.app.VirtualDisplaySupported(),
 	})
 }
 
@@ -859,7 +898,79 @@ func filterDevices(devices []DeviceRequest) []DeviceRequest {
 
 func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
 	devices := s.app.VideoDevices()
+	
+	if s.app.VirtualDisplaySupported() {
+		s.virtMu.Lock()
+		devices = append(devices, s.virtualDisplays...)
+		s.virtMu.Unlock()
+	}
+
 	s.ok(w, "video devices list", map[string]any{"devices": devices, "count": len(devices)})
+}
+
+func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
+	if !s.app.VirtualDisplaySupported() {
+		s.fail(w, http.StatusBadRequest, "virtual_displays_unsupported", nil)
+		return
+	}
+	var req struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+		FPS    int `json:"fps"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	if req.Width <= 0 || req.Height <= 0 || req.FPS <= 0 {
+		s.fail(w, http.StatusBadRequest, "invalid_resolution", nil)
+		return
+	}
+
+	path := fmt.Sprintf("virtual:%dx%d@%d", req.Width, req.Height, req.FPS)
+
+	vd := VideoDeviceInfo{
+		Name:      fmt.Sprintf("Virtual Display (%dx%d@%d)", req.Width, req.Height, req.FPS),
+		Path:      path,
+		Bus:       "virtual",
+		Connected: true,
+	}
+
+	s.virtMu.Lock()
+	// Only add if not already present
+	exists := false
+	for _, existing := range s.virtualDisplays {
+		if existing.Path == path {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		s.virtualDisplays = append(s.virtualDisplays, vd)
+	}
+	s.virtMu.Unlock()
+
+	s.ok(w, "virtual_display_created", vd)
+}
+
+func (s *Server) virtualDisplayDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := url.PathUnescape(r.PathValue("id"))
+	if err != nil {
+		id = r.PathValue("id")
+	}
+	
+	s.virtMu.Lock()
+	defer s.virtMu.Unlock()
+	
+	filtered := make([]VideoDeviceInfo, 0, len(s.virtualDisplays))
+	for _, vd := range s.virtualDisplays {
+		if vd.Path != id {
+			filtered = append(filtered, vd)
+		}
+	}
+	s.virtualDisplays = filtered
+
+	s.ok(w, "virtual_display_deleted", nil)
 }
 
 // videoSetDevice pins Sunshine's capture to the monitor identified by

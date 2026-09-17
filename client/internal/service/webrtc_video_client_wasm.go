@@ -308,6 +308,15 @@ func (c *WebRTCVideoClient) SetExpectedVideoSize(width, height int) {}
 func (c *WebRTCVideoClient) SetFPS(fps int)                         {}
 func (c *WebRTCVideoClient) SetBitrate(kbps int)                    {}
 
+// SetColor444: the RustShine Pro color upgrade is HEVC/VAAPI-specific
+// (moonlight-common-c ANNOUNCE negotiation) -- no WebRTC equivalent, same
+// reasoning as SetVideoMode above.
+func (c *WebRTCVideoClient) SetColor444(enabled bool) {}
+
+// SetHdr: same reasoning as SetColor444 -- the RustShine HDR upgrade is
+// also moonlight-common-c ANNOUNCE-specific, no WebRTC equivalent.
+func (c *WebRTCVideoClient) SetHdr(enabled bool) {}
+
 // NegotiatedVideoCodecName: the browser's RTCPeerConnection negotiates
 // this internally (via the SDP answer's codec preference order); exposing
 // which one it actually picked would need reading back
@@ -402,6 +411,15 @@ func (c *WebRTCVideoClient) SendMoonlightControllerEvent(controllerNumber uint16
 	// VideoWidget's mouse/keyboard paths actually exercise today (see its
 	// own doc comment). No gamepad UI is wired up to the web client yet
 	// either, so there's nothing that would call this in practice.
+}
+
+func (c *WebRTCVideoClient) SendMoonlightPenEvent(
+	eventType, toolType, penButtons uint8,
+	x, y, pressureOrDistance float32,
+	rotation uint16, tilt uint8,
+) {
+	// Not implemented yet -- no browser-side pen/tablet capture exists (see
+	// SendMoonlightControllerEvent's doc comment for the same reasoning).
 }
 
 func (c *WebRTCVideoClient) SendMoonlightUtf8Text(text string) {

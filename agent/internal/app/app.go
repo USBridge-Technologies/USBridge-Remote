@@ -40,6 +40,7 @@ import (
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/update"
+	"usbridge_agent/internal/usbpass"
 )
 
 type deviceState struct {
@@ -67,6 +68,7 @@ type App struct {
 	apiServer *api.Server
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
+	usbBroker *usbpass.Service
 	adminSrv  *adminapi.Server
 
 	// gpuClockArmed records whether applyGPUClockLock has already launched
@@ -112,6 +114,31 @@ type App struct {
 	accPollCancel context.CancelFunc
 }
 
+// StartOptions configures Start -- see main.go's flag definitions for the
+// user-facing meaning of each field.
+type StartOptions struct {
+	// Headless runs the engine (HTTP server, Sunshine, tsnet) with no GUI
+	// at all -- see Start's doc comment.
+	Headless bool
+	// Tray, when this launch ends up showing a GUI (either owning the
+	// engine or attaching to one already running), starts that window
+	// hidden -- minimized to the tray -- instead of shown. Used by the
+	// login-time tray helper (see internal/autostart's per-platform
+	// Enable) so it never visibly pops a window at login; a no-op if this
+	// session turns out to have no usable tray host at all (see
+	// ui.Window's startHidden field doc).
+	Tray bool
+	// Attach, if non-empty, dials this exact admin-socket path directly and
+	// attaches a thin-client GUI to it, bypassing the normal config-path
+	// discovery below entirely. Windows-only in practice: a LocalSystem
+	// service already knows its own socket path, which lives under a
+	// different profile (SYSTEM's) than whatever interactive user session
+	// this process gets launched into via sessionlaunch -- see
+	// service_windows.go's SessionChange handling, which is the only
+	// caller that ever sets this.
+	Attach string
+}
+
 // Start is the sole entry point from main(). It decides, based on mode and
 // whether another instance's admin socket is already reachable, whether
 // this process owns the engine (HTTP server, Sunshine, tsnet) or just
@@ -120,27 +147,64 @@ type App struct {
 // a `--headless` systemd/launchd/autostart service and as the normal GUI
 // app without ever running two engines (and two Sunshine/tsnet instances)
 // at once on the same machine.
-func Start(headless bool, version string) error {
+func Start(opts StartOptions, version string) error {
+	if opts.Attach != "" {
+		// The Windows service can hand us --attach a few hundred ms before
+		// the engine has actually called Listen on that socket (it used to
+		// bind only after tsnet came up). Retry instead of dying on the
+		// first refused connection — otherwise the tray helper exits and
+		// the user is left with a running engine and no window.
+		client, err := dialAdminSocket(opts.Attach, 15*time.Second)
+		if err != nil {
+			return fmt.Errorf("attach to admin socket %s: %w", opts.Attach, err)
+		}
+		return runThinClientGUI(client, opts.Tray)
+	}
+
 	cfgPath := resolveConfigPath()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
 	}
-	// EnsureState only creates cfg.StateDir if missing — needed up front so
-	// the admin socket path is known, but otherwise side-effect-free (no
-	// goroutines, no network binds), so probing before committing to owning
-	// the engine is safe.
+
+	socketPath := adminapi.SocketPath(cfg.StateDir)
+	// Dial before EnsureState: a LocalSystem config.yaml sitting next to
+	// the exe points state_dir at SYSTEM's profile, and MkdirAll of that
+	// path fails for an interactive user ("Cannot create a file when that
+	// file already exists"). If the engine is already up we can still
+	// attach without creating anything.
+	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
+		if opts.Headless {
+			client.Close()
+			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
+		}
+		return runThinClientGUI(client, opts.Tray)
+	}
+
+	if !config.DirIsUsable(cfg.StateDir) {
+		fallback := config.Default().StateDir
+		log.Printf("[app] state dir %s is not writable by this process; using %s", cfg.StateDir, fallback)
+		cfg.StateDir = fallback
+		socketPath = adminapi.SocketPath(cfg.StateDir)
+		if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
+			if opts.Headless {
+				client.Close()
+				return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
+			}
+			return runThinClientGUI(client, opts.Tray)
+		}
+	}
+
 	if err := cfg.EnsureState(); err != nil {
 		return err
 	}
 
-	socketPath := adminapi.SocketPath(cfg.StateDir)
 	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
-		if headless {
+		if opts.Headless {
 			client.Close()
 			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
 		}
-		return runThinClientGUI(client)
+		return runThinClientGUI(client, opts.Tray)
 	}
 
 	// Mandatory startup update check — only here, not on a thin-GUI attach
@@ -152,7 +216,7 @@ func Start(headless bool, version string) error {
 	// instead asks via a confirm dialog once the window exists — see
 	// internal/ui's ShowAndRun, which runs the same Check/DownloadAndApply
 	// pair gated on the user's answer.
-	if headless {
+	if opts.Headless {
 		update.CheckAndApply(context.Background(), version)
 	}
 
@@ -160,14 +224,16 @@ func Start(headless bool, version string) error {
 	if err != nil {
 		return err
 	}
-	return instance.Run(headless)
+	return instance.Run(opts.Headless, opts.Tray)
 }
 
 // runThinClientGUI shows the GUI backed by an already-running headless
 // instance's admin socket instead of starting a second engine. Closing the
 // window here does NOT stop the headless instance — only a process actually
-// owning the engine (see App.Run/shutdownEngine) does that.
-func runThinClientGUI(client *adminapi.Client) error {
+// owning the engine (see App.Run/shutdownEngine) does that. startHidden is
+// forwarded to ui.Window.SetStartHidden -- see StartOptions.Tray's doc
+// comment.
+func runThinClientGUI(client *adminapi.Client, startHidden bool) error {
 	cfg, err := client.CurrentConfig()
 	if err != nil {
 		client.Close()
@@ -194,7 +260,9 @@ func runThinClientGUI(client *adminapi.Client) error {
 	// to notice and pick up the change.
 	localPerms := permissions.New()
 	token := &thinClientToken{Client: client, perms: localPerms}
-	ui.NewWindow(fyneApp, cfg, localPerms, client, token).ShowAndRun(func() {
+	win := ui.NewWindow(fyneApp, cfg, localPerms, client, token)
+	win.SetStartHidden(startHidden)
+	win.ShowAndRun(func() {
 		client.Close()
 	})
 	return nil
@@ -265,6 +333,56 @@ func NotifySessionChange() {
 	}
 }
 
+// AdminSocketPath returns the currently running instance's admin-socket
+// path, or ok=false if no instance has started yet (e.g. this races the
+// service's own startup). Windows-only caller: service_windows.go hands
+// this to LaunchTrayHelperInActiveSession as an explicit --attach target,
+// since a LocalSystem service's own config/state dir lives under a
+// different profile than whatever interactive session that helper actually
+// runs in -- see StartOptions.Attach's doc comment for the full picture.
+func AdminSocketPath() (string, bool) {
+	currentInstance.mu.Lock()
+	a := currentInstance.a
+	currentInstance.mu.Unlock()
+	if a == nil {
+		return "", false
+	}
+	return adminapi.SocketPath(a.cfg.StateDir), true
+}
+
+// AdminSocketReady is AdminSocketPath plus a live Dial — the path exists as
+// soon as Run() assigns currentInstance, but Listen only happens once the
+// admin server is up. The Windows service's tray helper must wait for the
+// latter or it dies on "connection refused" and the user gets no window.
+func AdminSocketReady() (string, bool) {
+	path, ok := AdminSocketPath()
+	if !ok {
+		return "", false
+	}
+	client, err := adminapi.Dial(path)
+	if err != nil {
+		return "", false
+	}
+	client.Close()
+	return path, true
+}
+
+func dialAdminSocket(path string, wait time.Duration) (*adminapi.Client, error) {
+	deadline := time.Now().Add(wait)
+	var last error
+	for {
+		client, err := adminapi.Dial(path)
+		if err == nil {
+			return client, nil
+		}
+		last = err
+		if wait <= 0 || time.Now().After(deadline) {
+			return nil, last
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 func New() (*App, error) {
 	cfgPath := resolveConfigPath()
 	cfg, err := config.Load(cfgPath)
@@ -272,7 +390,12 @@ func New() (*App, error) {
 		return nil, err
 	}
 	if err := cfg.EnsureState(); err != nil {
-		return nil, err
+		fallback := config.Default().StateDir
+		if fallback == cfg.StateDir || !config.DirIsUsable(fallback) {
+			return nil, err
+		}
+		log.Printf("[app] state dir %s is not writable; using %s", cfg.StateDir, fallback)
+		cfg.StateDir = fallback
 	}
 
 	// Generate master key on first run.
@@ -339,6 +462,8 @@ func New() (*App, error) {
 	instance.syncSunshineCaptureMode()
 	instance.syncSunshineCapExec()
 	apiServer := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort)
+	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort)
+	apiServer.SetUSBPassthrough(instance.usbBroker)
 	instance.apiServer = apiServer
 	handler := apiServer.Routes()
 	instance.handler = handler
@@ -355,9 +480,7 @@ func New() (*App, error) {
 	if cfg.AccountToken != "" {
 		instance.accStatus.LoggedIn = true
 		instance.accStatus.Email = cfg.AccountEmail
-		// Licenses populated lazily -- the License dialog's own open
-		// triggers a refresh (see window.go), no need to hit the backend
-		// on every agent launch before anyone's even looked.
+		go instance.refreshAccountLicenses(context.Background())
 	}
 	return instance, nil
 }
@@ -371,6 +494,14 @@ func resolveExeDir() string {
 
 func resolveConfigPath() string {
 	candidates := make([]string, 0, 8)
+	// Prefer this process's own config dir first — it matches
+	// config.Default().StateDir. Putting exeDir first meant a LocalSystem
+	// Windows service would write dist/windows/config.yaml with
+	// state_dir under SYSTEM's profile; the next interactive launch then
+	// loaded that file and died in MkdirAll.
+	if base, err := os.UserConfigDir(); err == nil && strings.TrimSpace(base) != "" {
+		candidates = append(candidates, filepath.Join(base, "usbridge-agent", "config.yaml"))
+	}
 	// Under an AppImage, exeDir is the AppImage's read-only squashfs mount
 	// (a fresh, ephemeral path each launch) — never usable as a config
 	// location, so it's excluded both from the search and from the fallback
@@ -400,29 +531,84 @@ func resolveConfigPath() string {
 	}
 
 	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+		if _, err := os.Stat(candidate); err != nil {
+			continue
 		}
+		cfg, err := config.Load(candidate)
+		if err != nil {
+			continue
+		}
+		if !config.DirIsUsable(cfg.StateDir) {
+			log.Printf("[app] ignoring %s: state dir %s is not writable by this process", candidate, cfg.StateDir)
+			continue
+		}
+		return candidate
 	}
 	if skipExeDir && homeCandidate != "" {
 		return homeCandidate
 	}
-	return candidates[0]
+	if base, err := os.UserConfigDir(); err == nil && strings.TrimSpace(base) != "" {
+		return filepath.Join(base, "usbridge-agent", "config.yaml")
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return filepath.Join(".", "config.yaml")
 }
 
 // Run starts the engine (HTTP server, Sunshine, tsnet, admin socket) and
 // then either blocks headlessly on ctx.Done() (headless==true — no Fyne
 // driver ever touched, so no display connection is required) or shows the
 // GUI window backed directly by this same in-process engine (headless==false).
-func (a *App) Run(headless bool) error {
+// startHidden is forwarded to ui.Window.SetStartHidden when a window is
+// shown at all -- see StartOptions.Tray's doc comment.
+func (a *App) Run(headless, startHidden bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Diagnostic-only, additive: signal.Notify fans a delivered signal out to
+	// every channel registered for it, so this doesn't steal anything from
+	// NotifyContext's own internal channel above -- it just also logs which
+	// exact signal arrived before the graceful shutdown it triggers proceeds.
+	// Added to chase a live symptom (full agent — tsnet, HTTP, the rustshine
+	// child — self-terminating cleanly with no Windows Event Log crash
+	// record, no scheduled task, and no self-update in the log) where nothing
+	// so far has identified *what* delivered the interrupt: on Windows, Go's
+	// runtime maps CTRL_C_EVENT/CTRL_BREAK_EVENT to os.Interrupt and
+	// CTRL_CLOSE_EVENT/CTRL_LOGOFF_EVENT/CTRL_SHUTDOWN_EVENT to
+	// syscall.SIGTERM -- so which one of these two fires tells us whether
+	// this is a console control event at all, or (if this line never logs
+	// when the next occurrence happens) that shutdownEngine is instead being
+	// reached via the GUI window's own close-intercept path (see
+	// ui/window.go's SetCloseIntercept, which also logs now) with no OS
+	// signal involved at all.
+	diagSigCh := make(chan os.Signal, 2)
+	signal.Notify(diagSigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-diagSigCh
+		log.Printf("[app] DIAG: OS signal received: %v (os.Interrupt=CTRL_C/CTRL_BREAK; SIGTERM=CTRL_CLOSE/CTRL_LOGOFF/CTRL_SHUTDOWN) -- this will trigger shutdownEngine via ctx cancellation", sig)
+	}()
 
 	// See NotifySessionChange's doc comment for why this needs to be
 	// reachable from outside the normal Start()->New()->Run() call chain.
 	currentInstance.mu.Lock()
 	currentInstance.a = a
 	currentInstance.mu.Unlock()
+
+	// Bind the admin socket before Sunshine/tsnet so a Windows tray helper
+	// can attach as soon as AdminSocketPath is known. This used to run
+	// after initTailscale(), which can block for tens of seconds; the
+	// helper then dialed a path that wasn't listening yet and exited.
+	if srv, err := adminapi.NewServer(adminapi.SocketPath(a.cfg.StateDir), a, a.perms, a.ts, func() config.Config { return a.cfg }); err != nil {
+		log.Printf("[app] warning: admin socket unavailable: %v", err)
+	} else {
+		a.adminSrv = srv
+		go func() {
+			if err := srv.Serve(); err != nil {
+				log.Printf("[app] admin socket server error: %v", err)
+			}
+		}()
+	}
 
 	keepDisplayAwake(ctx)
 
@@ -451,24 +637,16 @@ func (a *App) Run(headless bool) error {
 	go a.entitlementWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
+	if a.usbBroker != nil {
+		if err := a.usbBroker.Start(); err != nil {
+			log.Printf("[usbpass] broker not started: %v", err)
+		}
+	}
 	if a.clipboard != nil {
 		go a.clipboard.Run(ctx)
 	}
 
 	a.initTailscale(ctx)
-
-	if srv, err := adminapi.NewServer(adminapi.SocketPath(a.cfg.StateDir), a, a.perms, a.ts, func() config.Config { return a.cfg }); err != nil {
-		// Non-fatal: the engine itself works fine without it, it just means
-		// no separate GUI process can attach to this instance later.
-		log.Printf("[app] warning: admin socket unavailable: %v", err)
-	} else {
-		a.adminSrv = srv
-		go func() {
-			if err := srv.Serve(); err != nil {
-				log.Printf("[app] admin socket server error: %v", err)
-			}
-		}()
-	}
 
 	if headless {
 		<-ctx.Done()
@@ -485,6 +663,7 @@ func (a *App) Run(headless bool) error {
 	go a.handleShutdown(ctx, cancel)
 	win := ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a)
 	win.SetOwnsEngine(true)
+	win.SetStartHidden(startHidden)
 	win.ShowAndRun(cancel)
 	return nil
 }
@@ -577,6 +756,12 @@ func (a *App) startSunshineNow() {
 			log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
 		}
 	}
+	// Runs on every call, including the no-op "already running" path inside
+	// Start() below: a stuck-in-an-encoder-retry-loop Sunshine never exits
+	// on its own (see reconcileOutputName's doc comment), so this periodic
+	// tick from sunshineWatchdog is the only thing that ever re-checks and
+	// fixes a stale output_name for an already-"running" process.
+	a.reconcileOutputName()
 	if err := a.stream.Start(a.cfg.SunshinePort); err != nil {
 		log.Printf("[app] failed to start Sunshine: %v", err)
 	} else {
@@ -691,7 +876,11 @@ func (a *App) restartStreamProxy() {
 		return
 	}
 	basePort := a.cfg.SunshinePort - 1 // SunshinePort is the admin port; NvHTTP base = admin - 1
-	a.tsProxy = a.ts.StartStreamProxy(basePort)
+	usbPort := a.cfg.UsbPassthroughPort
+	if usbPort <= 0 {
+		usbPort = usbpass.DefaultURBPort
+	}
+	a.tsProxy = a.ts.StartStreamProxy(basePort, usbPort)
 }
 
 func (a *App) initTailscale(ctx context.Context) {
@@ -765,6 +954,9 @@ func (a *App) shutdownEngine() {
 	}
 	if a.stream != nil {
 		_ = a.stream.Stop()
+	}
+	if a.usbBroker != nil {
+		a.usbBroker.Stop()
 	}
 	if a.adminSrv != nil {
 		_ = a.adminSrv.Close()
@@ -1360,23 +1552,30 @@ func (a *App) applyIssuedToken(token, hwID string) {
 	go a.ensureRustShineFresh(context.Background(), token)
 }
 
-// bootstrapFreeTier silently links a fresh install to today's unconditional
-// free tier (see recheckEntitlement's call site) -- deliberately NOT
-// applyIssuedToken: this runs with no user action at all (just the app
-// starting up), so it must not also kick off an immediate multi-MB
-// RustShine download on every single install regardless of whether that
-// install ever wants RustShine. A later explicit tier pick in the license
-// dialog (StartFreeTrial/StartPurchase's own applyIssuedToken) is what
-// actually triggers that download.
-func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) {
+// bootstrapFreeTier silently links a fresh install (or a just-downgraded
+// one, see recheckEntitlement's call sites) to today's unconditional free
+// tier -- deliberately NOT applyIssuedToken: this runs with no user action
+// at all (just the app starting up, or a refund just having been detected),
+// so it must not also kick off an immediate multi-MB RustShine download on
+// every single install regardless of whether that install ever wants
+// RustShine. A later explicit tier pick in the license dialog
+// (StartFreeTrial/StartPurchase's own applyIssuedToken) is what actually
+// triggers that download.
+//
+// Returns true once a fresh, locally-verifying free token is cached; false
+// on any transient failure (network down, backend unreachable, or a
+// well-formed but non-verifying response), so entitlementWatchdog knows to
+// retry at entitlementRetryInterval rather than leaving this install
+// without a token until the next full entitlementRecheckInterval tick.
+func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) bool {
 	res, err := entitlement.RefreshLicense(ctx, hwID)
 	if err != nil {
-		log.Printf("[app] entitlement bootstrap failed (will retry next interval): %v", err)
-		return
+		log.Printf("[app] entitlement bootstrap failed (will retry sooner than the next scheduled interval): %v", err)
+		return false
 	}
 	if _, err := entitlement.VerifyForHardware(res.Token, hwID); err != nil {
 		log.Printf("[app] entitlement bootstrap: backend returned a token that doesn't verify locally: %v", err)
-		return
+		return false
 	}
 
 	next := a.cfg
@@ -1385,6 +1584,7 @@ func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) {
 		log.Printf("[app] warning: failed to persist entitlement token: %v", err)
 	}
 	a.refreshLocalEntitlementStatus()
+	return true
 }
 
 // AccountStatus returns a snapshot of the account-login state (see
@@ -1654,7 +1854,41 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 		a.setEntError(fmt.Sprintf("download failed: %v", err))
 		return err
 	}
+
+	// USB passthrough (usbridge-usb-broker) ships in the same release as
+	// RustShine and is gated by the same entitlement token, so it stages
+	// on the same click. Non-fatal: not every platform/release has a
+	// broker build yet (see StageUSBBroker's doc comment), and RustShine
+	// itself must keep working even when USB passthrough isn't available.
+	if err := entitlement.StageUSBBroker(context.Background(), a.cfg.StateDir, token, nil); err != nil {
+		log.Printf("[app] usb-broker not staged (USB passthrough unavailable): %v", err)
+	}
 	return nil
+}
+
+// USBPassthroughStatus reports the USB passthrough broker/driver status for
+// this machine (see usbpass.Service.Status's own doc comment for the
+// per-platform driver detection it does). Nil-safe: usbBroker is always
+// constructed today (New's call site in New()), but this mirrors every
+// other a.usbBroker != nil guard in this file rather than assuming that
+// stays true.
+func (a *App) USBPassthroughStatus() usbpass.Status {
+	if a.usbBroker == nil {
+		return usbpass.Status{Available: false, Platform: "disabled"}
+	}
+	return a.usbBroker.Status()
+}
+
+// InstallUSBDriver installs this platform's USB passthrough driver
+// (usbip + vhci-hcd on Linux; see usbpass.Service.InstallDrivers). Windows
+// has no equivalent call: usbip-win2 ships its own signed installer, so the
+// GUI just opens https://github.com/vadimgrn/usbip-win2/releases/latest in
+// the browser directly (ui/window.go) instead of routing through here.
+func (a *App) InstallUSBDriver() error {
+	if a.usbBroker == nil {
+		return fmt.Errorf("usb passthrough not available")
+	}
+	return a.usbBroker.InstallDrivers()
 }
 
 // ClearLicense clears the saved entitlement token and switches back to
@@ -1706,21 +1940,36 @@ func (a *App) downgradeToSunshine() {
 	}
 }
 
-// entitlementRecheckInterval is how often entitlementWatchdog re-verifies a
-// licensed customer's purchase against the backend (a trial's validity is
-// entirely local -- see recheckEntitlement's own doc comment on why only a
-// license, not a trial, needs a network re-check at all). Far longer than
-// sunshineWatchdogInterval deliberately: there's no reason to check more
-// than a few times a day, and a refund is a rare, human-initiated event,
-// not something that needs sub-hour detection latency.
+// entitlementRecheckInterval is how often entitlementWatchdog re-verifies
+// entitlement against the backend in the steady state (both to catch a
+// license refund/cancellation and to proactively renew a free-tier token
+// well before its own local expiry -- see recheckEntitlement's own doc
+// comment on why free is no longer treated as "purely local, no network
+// call needed"). Far longer than sunshineWatchdogInterval deliberately:
+// there's no reason to check more than a few times a day in the healthy
+// case, and a refund is a rare, human-initiated event, not something that
+// needs sub-hour detection latency.
 const entitlementRecheckInterval = 6 * time.Hour
 
-// entitlementWatchdog periodically re-verifies entitlement and downgrades
-// to Sunshine the moment it no longer holds up (a refund, a trial that's
-// now expired) -- mirrors sunshineWatchdog's shape. Run also fires one
-// immediate recheckEntitlement shortly after startup (not gated on this
-// ticker), so a refund is caught quickly after a restart instead of
-// waiting up to a full interval.
+// entitlementRetryInterval is how soon entitlementWatchdog retries after a
+// FAILED recheck (network down, backend unreachable), instead of leaving
+// whatever gap that failure caused sitting until the next full
+// entitlementRecheckInterval tick. Matters most for a free-tier token: with
+// no retry sooner than 6h, a machine that happens to be offline right when
+// its cached free token's local expiry passes would sit downgraded to
+// Sunshine for up to 6h even after connectivity comes back, purely because
+// nothing asked the backend again sooner. Short enough to recover quickly,
+// long enough not to hammer the backend while genuinely offline.
+const entitlementRetryInterval = 5 * time.Minute
+
+// entitlementWatchdog periodically re-verifies entitlement, downgrades to
+// Sunshine the moment a license no longer holds up (a refund), and
+// proactively renews whatever's cached (free or paid) so it never sits
+// un-refreshed for the full 6h steady-state interval after a transient
+// failure -- mirrors sunshineWatchdog's shape. Run also fires one immediate
+// recheckEntitlement shortly after startup (not gated on this ticker), so a
+// refund or a lapsed free token is caught quickly after a restart instead
+// of waiting up to a full interval.
 func (a *App) entitlementWatchdog(ctx context.Context) {
 	ticker := time.NewTicker(entitlementRecheckInterval)
 	defer ticker.Stop()
@@ -1729,26 +1978,43 @@ func (a *App) entitlementWatchdog(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			a.recheckEntitlement(ctx)
+		}
+		// Keep retrying at entitlementRetryInterval (rather than only at
+		// the next full 6h tick) until a recheck actually succeeds -- see
+		// entitlementRetryInterval's own doc comment for why this matters
+		// most for a free-tier token that's sitting downgraded because the
+		// backend was briefly unreachable right when it needed renewing.
+		for !a.recheckEntitlement(ctx) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(entitlementRetryInterval):
+			case <-ticker.C:
+			}
 		}
 	}
 }
 
 // recheckEntitlement re-verifies whatever's currently cached in
 // cfg.EntitlementToken and downgrades to Sunshine if it no longer holds up.
-// A no-op if there's no cached token at all (never trialed/purchased, or
-// already cleared).
+// Returns true if this tick is "settled" (nothing more to usefully retry
+// sooner than the next scheduled interval), false if it hit a transient
+// failure entitlementWatchdog should retry at entitlementRetryInterval
+// instead of waiting out the full entitlementRecheckInterval.
 //
-// A cached LICENSE token gets a real network re-check (RefreshLicense) --
-// this is the only thing a refund can invalidate, so it's the only case
-// that needs to ask the backend at all. A cached TRIAL token does NOT get
-// a network call: a trial can't be revoked (there's nothing to refund), so
-// its validity is entirely captured by its own signed `exp`, which the
-// local hardware-bound verify below already checks -- asking the backend
-// again would only ever reproduce the same still-active trial or (once
-// past exp) a signature check that already failed locally anyway.
+// BOTH a cached LICENSE token and a cached FREE/TRIAL token now get a real
+// network re-check (RefreshLicense) every tick -- this used to skip the
+// network call entirely for free/trial (a trial can't be revoked, so
+// nothing was thought to change), but that missed the actual point of
+// calling at all: RefreshLicense doesn't just re-confirm the same tier, it
+// mints a FRESH token with a FRESH expiry. Skipping it for free meant a
+// free-tier token only ever got renewed reactively, after it had already
+// expired and downgraded the customer to Sunshine — see the 2026-09-14
+// conversation this changed in. Renewing proactively, every interval,
+// keeps a continuously-running free install from ever locally expiring in
+// the first place, the same guarantee paid licenses already had.
 //
-// A transient failure on the license path (network down, backend
+// A transient failure on the network path (network down, backend
 // unreachable) does NOT downgrade immediately by itself — but it also
 // doesn't just do nothing: it falls back to checking the *cached* token's
 // own embedded expiry locally (entitlement.VerifyForHardware, no network
@@ -1759,12 +2025,16 @@ func (a *App) entitlementWatchdog(ctx context.Context) {
 // only at the next restart, via New()'s own local check), silently
 // breaking the "offline grace is bounded by the token's TTL" guarantee
 // this whole scheme is supposed to provide. This closes that gap: the
-// bound is enforced continuously, not just at the next restart.
-func (a *App) recheckEntitlement(ctx context.Context) {
+// bound is enforced continuously, not just at the next restart -- and once
+// that bound is hit, the immediate bootstrapFreeTier call below (rather
+// than waiting for entitlementWatchdog's own next tick) means connectivity
+// coming back is picked up within entitlementRetryInterval, not up to a
+// full entitlementRecheckInterval later.
+func (a *App) recheckEntitlement(ctx context.Context) bool {
 	hwID, err := hwid.Get()
 	if err != nil {
 		log.Printf("[app] entitlement recheck: could not determine hardware id: %v", err)
-		return
+		return true // not a transient/retryable failure -- a local config problem
 	}
 
 	if strings.TrimSpace(a.cfg.EntitlementToken) == "" {
@@ -1778,35 +2048,36 @@ func (a *App) recheckEntitlement(ctx context.Context) {
 		// shouldn't silently pull down a multi-MB RustShine build nobody
 		// asked for yet; that still only happens once the user actually
 		// picks RustShine in the dialog.
-		a.bootstrapFreeTier(ctx, hwID)
-		return
+		return a.bootstrapFreeTier(ctx, hwID)
 	}
 
 	claims, verifyErr := entitlement.VerifyForHardware(a.cfg.EntitlementToken, hwID)
 	if verifyErr != nil {
 		log.Printf("[app] cached entitlement token is no longer valid locally — switching back to Sunshine: %v", verifyErr)
 		a.downgradeToSunshine()
-		return
-	}
-	if claims.Provider == entitlement.ProviderDesktopTrial {
-		// This provider string now means "free tier" (see
-		// usbridge-entitlement-backend's desktopLicense.ts module doc
-		// comment for why it kept the old trial name) -- still locally
-		// valid (checked above) and not network-revocable, since free has
-		// nothing to refund. Nothing more to do until it expires on its
-		// own (and even then, the next refresh just gets a fresh one).
-		return
+		// downgradeToSunshine clears cfg.EntitlementToken -- immediately
+		// try to bootstrap a fresh free token rather than leaving the
+		// customer on Sunshine until whatever's left of this watchdog's
+		// cadence, same reasoning as entitlementRetryInterval itself.
+		return a.bootstrapFreeTier(ctx, hwID)
 	}
 
 	res, err := entitlement.RefreshLicense(ctx, hwID)
 	if err != nil {
-		log.Printf("[app] entitlement recheck failed (will retry next interval): %v", err)
-		return // cached token already verified locally above -- keep trusting it until it actually expires or a retry succeeds
+		log.Printf("[app] entitlement recheck failed (will retry sooner than the next scheduled interval): %v", err)
+		return false // cached token already verified locally above -- keep trusting it until it actually expires or a retry succeeds
 	}
-	if res.Status == "free" {
+
+	if claims.Provider != entitlement.ProviderDesktopTrial && res.Status == "free" {
+		// A previously PAID record is no longer paid (refund/cancellation)
+		// -- this is the one transition that actually means "revoke."
+		// Deliberately gated on the CACHED token's own provider, not just
+		// res.Status alone: a free/trial token refreshing into "free"
+		// again is the expected, normal renewal every single tick, never a
+		// downgrade -- there's nothing below free to fall back to.
 		log.Printf("[app] license no longer on record for this hardware (refunded/canceled?) — switching back to Sunshine")
 		a.downgradeToSunshine()
-		return
+		return true
 	}
 
 	next := a.cfg
@@ -1816,6 +2087,7 @@ func (a *App) recheckEntitlement(ctx context.Context) {
 	}
 	a.refreshLocalEntitlementStatus()
 	a.ensureRustShineFresh(ctx, res.Token)
+	return true
 }
 
 // ensureRustShineFresh makes sure a licensed/trialing customer always has
@@ -1909,6 +2181,14 @@ func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string)
 		return
 	}
 	log.Printf("[app] rustshine updated to %s", version)
+	// Same bundled usb-broker re-stage DownloadRustShine's initial click does
+	// (see its doc comment) -- without this, a fix that only ships in a
+	// newer usb-broker build would never reach an agent whose owner only
+	// ever runs the silent background watchdog, not the original "Download"
+	// button. Non-fatal for the same reason DownloadRustShine's own call is.
+	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
+		log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
+	}
 	a.entMu.Lock()
 	a.entStatus.RustShineStaged = a.rustshineStaged()
 	a.entMu.Unlock()
@@ -1966,16 +2246,19 @@ func (a *App) stopRustShineForUpdate() bool {
 	// unconditionally by name as a belt-and-suspenders guarantee that
 	// nothing named gamestream-server.exe survives this point, regardless
 	// of how it got there or whether this backend ever tracked it.
-	killCmd := exec.Command("taskkill", "/F", "/IM", "gamestream-server.exe")
+	killCmd := exec.Command("taskkill", "/F", "/IM", "usbridge-streamer.exe")
 	maybeHideWindow(killCmd)
 	_ = killCmd.Run()
+	legacyKillCmd := exec.Command("taskkill", "/F", "/IM", "gamestream-server.exe")
+	maybeHideWindow(legacyKillCmd)
+	_ = legacyKillCmd.Run()
 	// Stop() only signals termination; give the OS a moment to actually
 	// release the exe's image-section file lock before the upcoming rename.
 	time.Sleep(500 * time.Millisecond)
 	// Confirmed live: the plain taskkill above can still leave a
-	// gamestream-server.exe alive with "Access is denied" even from this
+	// usbridge-streamer.exe alive with "Access is denied" even from this
 	// same agent's own same-user call -- root cause not fully pinned down
-	// (not self-spawned: gamestream-server's own source spawns no child
+	// (not self-spawned: usbridge-streamer's own source spawns no child
 	// processes on Windows), but reproducible: a manual StageRustShine
 	// against a genuinely clean process list staged and renamed in ~1.3s
 	// every time, while this exact flow, with a survivor still present,
@@ -1990,8 +2273,8 @@ func (a *App) stopRustShineForUpdate() bool {
 	// failure/decline/no-desktop-to-prompt-on -- StageRustShine's own
 	// caller already retries at the next interval and falls back to
 	// relaunching the old binary regardless of how this returns.
-	if a.perms != nil && processRunning("gamestream-server.exe") {
-		log.Printf("[app] gamestream-server.exe survived the plain taskkill -- requesting elevation to force it (a UAC prompt may appear)")
+	if a.perms != nil && (processRunning("usbridge-streamer.exe") || processRunning("gamestream-server.exe")) {
+		log.Printf("[app] usbridge-streamer.exe survived the plain taskkill -- requesting elevation to force it (a UAC prompt may appear)")
 		if err := a.perms.KillGamestreamServerElevated(); err != nil {
 			log.Printf("[app] elevated taskkill failed or was declined: %v", err)
 		} else {
@@ -2127,6 +2410,14 @@ func (a *App) CheckRustShineUpdateNow() error {
 		return err
 	}
 	log.Printf("[app] rustshine updated to %s", version)
+	// Same bundled usb-broker re-stage DownloadRustShine's initial click does
+	// (see its doc comment) -- without this, a fix that only ships in a
+	// newer usb-broker build would never reach an agent whose owner only
+	// ever clicks "Check for updates", not the original "Download" button.
+	// Non-fatal for the same reason DownloadRustShine's own call is.
+	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, token, nil); err != nil {
+		log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
+	}
 	a.entMu.Lock()
 	a.entStatus.RustShineStaged = a.rustshineStaged()
 	a.entMu.Unlock()
@@ -2618,6 +2909,18 @@ func (a *App) StreamerName() string {
 	return a.stream.DisplayName()
 }
 
+// StreamerRunning reports whether the active streaming host backend's own
+// child process is currently alive -- for the GUI's status traffic light
+// (see ui/window.go's streamerStatusDot), distinct from StreamerName (which
+// backend it is) and entitlement.Status.RustShineStaged (whether it's
+// downloaded at all, regardless of whether it's running right now).
+func (a *App) StreamerRunning() bool {
+	if a.stream == nil {
+		return false
+	}
+	return a.stream.Running()
+}
+
 // AdminUser returns the streaming host's admin-API username.
 func (a *App) AdminUser() string {
 	if a.stream == nil {
@@ -2668,6 +2971,34 @@ func (a *App) SupportedVideoCodecs() []string {
 		port = 47990
 	}
 	return a.stream.SupportedVideoCodecs(port)
+}
+
+// Color444Status reports the RustShine Pro color upgrade's state -- see
+// Application interface's doc comment. (false, false) with no active
+// backend, matching CurrentVideoCodec's own "nothing to report yet" default.
+func (a *App) Color444Status() (active bool, available bool) {
+	if a.stream == nil {
+		return false, false
+	}
+	return a.stream.Color444Status()
+}
+
+// HdrStatus mirrors Color444Status exactly, for the RustShine HDR color
+// upgrade -- see Application interface's doc comment.
+func (a *App) HdrStatus() (active bool, available bool) {
+	if a.stream == nil {
+		return false, false
+	}
+	return a.stream.HdrStatus()
+}
+
+// VirtualDisplaySupported reports whether the current stream backend
+// supports native virtual displays (without external physical monitors).
+func (a *App) VirtualDisplaySupported() bool {
+	if a.stream == nil {
+		return false
+	}
+	return a.stream.VirtualDisplaySupported()
 }
 
 // UnpairSunshineClient removes the Moonlight client with the given UUID from
@@ -2804,6 +3135,65 @@ func (a *App) SunshineOutputName() string {
 	return a.cfg.SunshineOutputName
 }
 
+// reconcileOutputName snaps a persisted OutputName back onto a currently
+// valid capture device when it no longer matches any device the backend
+// currently reports. This is the fix for a real deadlock: a monitor
+// (physical or virtual) that was selected and then torn down or
+// disconnected leaves its old connector index behind in sunshine.conf, but
+// Sunshine/RustShine's own connector indices aren't stable identifiers --
+// see streamhost.CaptureDevice's own doc comment -- so removing e.g. a
+// second, virtual monitor renumbers the remaining real one out from under
+// the stale saved index (observed live: "Monitor 1 is DP-2" + "Monitor 0 is
+// Virtual-1" before, "Monitor 0 is DP-2" after, with output_name still
+// pinned to "1"). Sunshine then fails every encoder against a monitor index
+// that no longer exists ("Couldn't find monitor [1]") and loops forever
+// inside its own process without ever exiting, so nothing else in the
+// agent notices or recovers automatically -- this call, made on every
+// startSunshineNow (i.e. every sunshineWatchdog tick), is what breaks that
+// loop.
+//
+// Deliberately left alone whenever more than one valid device remains:
+// with two or more genuinely still-connected choices (which may well
+// include a deliberately-configured virtual display), the stale value's
+// intended target is ambiguous, and guessing wrong would silently override
+// a manual pick instead of fixing one that's actually broken.
+func (a *App) reconcileOutputName() {
+	if a.stream == nil {
+		return
+	}
+	current := a.stream.OutputName()
+	if current == "" {
+		return
+	}
+	if strings.HasPrefix(current, "virtual:") {
+		// RustShine's virtual-display pick (see rustshineBackend.SetOutputName)
+		// deliberately isn't a real KMS connector, so it never shows up in
+		// ListCaptureDevices' real-monitor enumeration -- that's expected,
+		// not staleness, and must never be "corrected" away from here.
+		return
+	}
+	devices := a.stream.ListCaptureDevices()
+	if len(devices) == 0 {
+		// No correlation data yet (fresh boot, or the backend hasn't
+		// reported anything this session) -- nothing to validate against.
+		return
+	}
+	for _, d := range devices {
+		if d.OutputName == current {
+			return
+		}
+	}
+	if len(devices) != 1 {
+		log.Printf("[app] output_name %q matches none of %d current capture devices; leaving it as-is (ambiguous -- needs a manual pick)", current, len(devices))
+		return
+	}
+	only := devices[0]
+	log.Printf("[app] output_name %q no longer matches any current capture device (stale/disconnected monitor); snapping to the only one currently reported: %q (%q)", current, only.Key, only.OutputName)
+	if err := a.SetSunshineOutputName(only.OutputName); err != nil {
+		log.Printf("[app] failed to auto-correct output_name: %v", err)
+	}
+}
+
 // SetSunshineOutputName pins Sunshine's capture to the given monitor
 // (Sunshine's connected-output index, stringified, or "" to auto-pick),
 // persists it into both sunshine.conf and the agent config, and restarts
@@ -2812,12 +3202,28 @@ func (a *App) SetSunshineOutputName(name string) error {
 	if a.stream == nil {
 		return nil
 	}
-	unchanged := a.stream.OutputName() == name && a.stream.Running()
+	// Compares against OutputName() *after* SetOutputName runs, not the raw
+	// `name` argument against the pre-write value -- RustShine's own
+	// SetOutputName resolves a bare numeric index (what videoSetDevice
+	// sends for a "drm:N" device path) into its real stored
+	// "cardPath|connector" form internally (see rustshineBackend's own
+	// doc comment), so a before/raw-`name` comparison could never match
+	// that already-canonical stored string, even when the client is just
+	// re-confirming the exact same monitor it already has selected.
+	// Confirmed live: this made every /api/video/set_device call for an
+	// unchanged device force a full Sunshine/RustShine restart -- and the
+	// client calls it on every reconnect, so every reconnect was hard-
+	// killing and relaunching the stream host from scratch, tearing down
+	// whatever encode/packetize work (including a multi-threaded FEC
+	// block build) happened to be mid-flight at that exact moment.
+	before := a.stream.OutputName()
 	if err := a.stream.SetOutputName(name); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
 	}
+	after := a.stream.OutputName()
+	unchanged := before == after && a.stream.Running()
 	next := a.cfg
-	next.SunshineOutputName = name
+	next.SunshineOutputName = after
 	if err := a.SaveConfig(next); err != nil {
 		return err
 	}

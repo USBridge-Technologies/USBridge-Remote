@@ -49,11 +49,13 @@ const cursorDotHeightPx = 19
 // wasm equivalent of the Android/iOS versions of this same method.
 func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	if isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
-		vw.vcMu.Lock()
-		targetU := vw.virtualCursorU
-		targetV := vw.virtualCursorV
-		vw.vcMu.Unlock()
-		vw.centerViewportOnVirtualCursor(targetU, targetV)
+		if !vw.multiTouchActive && !vw.viewportManualControl {
+			vw.vcMu.Lock()
+			targetU := vw.virtualCursorU
+			targetV := vw.virtualCursorV
+			vw.vcMu.Unlock()
+			vw.centerViewportOnVirtualCursor(targetU, targetV)
+		}
 	}
 	syncCursorDot(vw)
 	syncVideoOverlay(vw)

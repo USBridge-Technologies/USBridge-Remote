@@ -29,15 +29,15 @@ type ProgressFunc func(downloaded, total int64)
 const progressInterval = 100 * time.Millisecond
 const downloadTimeout = 5 * time.Minute
 
-// binaryName is bin/gamestream-server's build output name (its Cargo.toml
+// binaryName is bin/usbridge-streamer's build output name (its Cargo.toml
 // package name), mirrored from streamhost.rustshineBackend's own
 // unexported binaryName() -- duplicated rather than imported so this
 // package stays self-contained (see its doc comment).
 func binaryName() string {
 	if runtime.GOOS == "windows" {
-		return "gamestream-server.exe"
+		return "usbridge-streamer.exe"
 	}
-	return "gamestream-server"
+	return "usbridge-streamer"
 }
 
 // StagePath is exactly what streamhost.rustshineBackend.BinaryPath()
@@ -54,21 +54,38 @@ func binaryName() string {
 // macOS's TCC subsystem, which silently denies every permission check
 // (Screen Recording, etc.) for it and everything it launches, no matter how
 // many times the user grants access in System Settings -- this was the
-// actual root cause behind RustShine's ScreenCaptureKit captures always
+// actual root cause behind USBridge-streamer's ScreenCaptureKit captures always
 // failing, not a missing permission. stateDir is never part of any signed
 // bundle on any platform, so this can't happen there. Same directory
 // TokenFilePath already uses, for the same reason.
 func StagePath(stateDir string) string {
-	return filepath.Join(stateDir, "rustshine", binaryName())
+	return filepath.Join(stateDir, "usbridge-streamer", binaryName())
+}
+
+// legacyStagePath is the old pre-rename staging path for backward compatibility.
+func legacyStagePath(stateDir string) string {
+	legacyBinary := "gamestream-server"
+	if runtime.GOOS == "windows" {
+		legacyBinary = "gamestream-server.exe"
+	}
+	return filepath.Join(stateDir, "rustshine", legacyBinary)
 }
 
 // stagedVersionPath is a plain-text marker file recording which release
-// (the backend's release tag, e.g. "gamestream-server-v0.2.2") was most
+// (the backend's release tag, e.g. "usbridge-streamer-v0.3.50") was most
 // recently staged at StagePath -- written by StageRustShine, read by
 // CheckRustShineUpdate so a later check can tell whether a newer build
 // exists without downloading anything just to find out.
 func stagedVersionPath(stateDir string) string {
-	return filepath.Join(filepath.Dir(StagePath(stateDir)), "VERSION")
+	p := filepath.Join(filepath.Dir(StagePath(stateDir)), "VERSION")
+	if fileExists(p) {
+		return p
+	}
+	legacyP := filepath.Join(filepath.Dir(legacyStagePath(stateDir)), "VERSION")
+	if fileExists(legacyP) {
+		return legacyP
+	}
+	return p
 }
 
 // StagedVersion returns whichever version string StageRustShine last
@@ -97,7 +114,7 @@ func StagedVersion(stateDir string) string {
 // were published. See App.checkRustShineUpdate (agent/internal/app) for the
 // periodic caller.
 func CheckRustShineUpdate(ctx context.Context, stateDir, entitlementToken string) (needsUpdate bool, latestVersion string, err error) {
-	if _, statErr := os.Stat(StagePath(stateDir)); statErr != nil {
+	if !fileExists(StagePath(stateDir)) && !fileExists(legacyStagePath(stateDir)) {
 		return false, "", nil
 	}
 	platform := Platform()
@@ -166,6 +183,65 @@ func StageRustShine(ctx context.Context, stateDir, entitlementToken string, onPr
 		_ = os.WriteFile(stagedVersionPath(stateDir), []byte(info.Version), 0o644)
 	}
 	return nil
+}
+
+// brokerBinaryName is bin/usb-broker's build output name (its Cargo.toml
+// [[bin]] name), mirrored from usbpass.brokerName() -- duplicated rather
+// than imported for the same reason binaryName() above is (see its doc
+// comment): this package stays self-contained.
+func brokerBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "usbridge-usb-broker.exe"
+	}
+	return "usbridge-usb-broker"
+}
+
+// BrokerStagePath is exactly what usbpass.Service.resolveBroker()'s first
+// candidate resolves to (stateDir/usb-broker/<name>) -- staging here means
+// zero changes needed on that side once a download completes. Same
+// stateDir-not-exeDir reasoning as StagePath above.
+func BrokerStagePath(stateDir string) string {
+	return filepath.Join(stateDir, "usb-broker", brokerBinaryName())
+}
+
+// StageUSBBroker resolves, downloads, verifies, and extracts the
+// usbridge-usb-broker (USB passthrough) build for this platform, the same
+// way StageRustShine does for gamestream-server -- both ship in the same
+// signed rust-shine release/manifest (see usbridge-entitlement-backend's
+// Manifest.broker field), just a different backend route and a different
+// entry in that one manifest. Returns an error if this platform/release
+// combination has no broker asset at all (e.g. macOS, or a release that
+// only rebuilt gamestream-server) -- callers that consider USB passthrough
+// optional should treat that as non-fatal, see App.DownloadRustShine.
+func StageUSBBroker(ctx context.Context, stateDir, entitlementToken string, onProgress ProgressFunc) error {
+	platform := Platform()
+	if platform == "" {
+		return fmt.Errorf("entitlement: no usb-broker build for this platform (%s/%s)", runtime.GOOS, runtime.GOARCH)
+	}
+
+	info, err := ResolveUSBBrokerDownload(ctx, entitlementToken, platform)
+	if err != nil {
+		return fmt.Errorf("entitlement: resolve usb-broker download: %w", err)
+	}
+
+	dlCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+	archivePath, err := downloadArchive(dlCtx, info.URL, info.SHA256, onProgress)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(archivePath)
+
+	dest := BrokerStagePath(stateDir)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("entitlement: create usb-broker dir: %w", err)
+	}
+	if runtime.GOOS == "windows" {
+		err = extractFromZip(archivePath, brokerBinaryName(), dest)
+	} else {
+		err = extractFromTarGz(archivePath, brokerBinaryName(), dest)
+	}
+	return err
 }
 
 func downloadArchive(ctx context.Context, url, wantSHA256Hex string, onProgress ProgressFunc) (path string, err error) {
@@ -405,4 +481,9 @@ func renameWithRetry(oldpath, newpath string) error {
 		}
 	}
 	return err
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

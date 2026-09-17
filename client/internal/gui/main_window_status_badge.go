@@ -31,6 +31,26 @@ type headerStatusBadgeButton struct {
 	onTapped           func()
 	hovered            bool
 	iconSize           fyne.Size
+	// hoverColor/hoverRadius override the default hover highlight (a faint
+	// white overlay, RadiusMD corners) -- nil/0 keeps that default, so
+	// connection_header.go's gear/language/community/info buttons (which
+	// never call SetHoverStyle) are unaffected. Only the status-indicator
+	// strip's video/audio icons set these, to match that strip's own
+	// peripheral-icon hover color (main_window_status_indicator_bar.go).
+	hoverColor  color.Color
+	hoverRadius float32
+	// hoverIconRes swaps the icon resource itself while hovered -- an SVG's
+	// color is baked in at asset build time, so hoverColor (the background
+	// chip) alone made hover hard to notice against this strip's already
+	// light background. nil keeps the icon unchanged on hover, so a caller
+	// that never calls SetHoverIcon is unaffected.
+	hoverIconRes fyne.Resource
+	// selected/selectedFill/selectedIcon are a sticky pressed look (the
+	// mobile footer keyboard toggle) -- fill + icon stay on until cleared,
+	// independent of hover.
+	selected     bool
+	selectedFill color.Color
+	selectedIcon fyne.Resource
 
 	bg        *canvas.Rectangle
 	icon      *canvas.Image
@@ -43,12 +63,41 @@ type headerStatusBadgeButton struct {
 func newHeaderStatusBadgeButton(icon fyne.Resource, onTapped func()) *headerStatusBadgeButton {
 	b := &headerStatusBadgeButton{
 		iconRes:   icon,
-		badgeText: "0",
+		badgeText: "",
 		onTapped:  onTapped,
 		iconSize:  fyne.NewSize(22, 22),
 	}
 	b.ExtendBaseWidget(b)
 	return b
+}
+
+// SetHoverStyle overrides this button's hover highlight color/corner
+// radius -- see the hoverColor/hoverRadius field doc comment.
+func (b *headerStatusBadgeButton) SetHoverStyle(hoverColor color.Color, radius float32) {
+	b.hoverColor = hoverColor
+	b.hoverRadius = radius
+	b.Refresh()
+}
+
+// SetHoverIcon sets the icon resource shown while hovered -- see the
+// hoverIconRes field doc comment.
+func (b *headerStatusBadgeButton) SetHoverIcon(icon fyne.Resource) {
+	b.hoverIconRes = icon
+	b.Refresh()
+}
+
+func (b *headerStatusBadgeButton) SetSelectedStyle(fill color.Color, icon fyne.Resource) {
+	b.selectedFill = fill
+	b.selectedIcon = icon
+	b.Refresh()
+}
+
+func (b *headerStatusBadgeButton) SetSelected(on bool) {
+	if b.selected == on {
+		return
+	}
+	b.selected = on
+	b.Refresh()
 }
 
 func (b *headerStatusBadgeButton) SetIcon(icon fyne.Resource) {
@@ -193,13 +242,29 @@ func (r *headerStatusBadgeButtonRenderer) MinSize() fyne.Size {
 }
 
 func (r *headerStatusBadgeButtonRenderer) Refresh() {
+	radius := design.RadiusMD
+	if r.button.hoverRadius > 0 {
+		radius = r.button.hoverRadius
+	}
+	r.button.bg.CornerRadius = radius
+
 	r.button.bg.FillColor = color.Transparent
-	if r.button.hovered {
+	if r.button.selected && r.button.selectedFill != nil {
+		r.button.bg.FillColor = r.button.selectedFill
+	} else if r.button.hovered {
 		r.button.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
+		if r.button.hoverColor != nil {
+			r.button.bg.FillColor = r.button.hoverColor
+		}
 	}
 	r.button.bg.Refresh()
 
 	r.button.icon.Resource = r.button.iconRes
+	if r.button.selected && r.button.selectedIcon != nil {
+		r.button.icon.Resource = r.button.selectedIcon
+	} else if r.button.hovered && r.button.hoverIconRes != nil {
+		r.button.icon.Resource = r.button.hoverIconRes
+	}
 	r.button.icon.Refresh()
 
 	r.button.badgeTxt.Text = r.button.badgeText

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -17,7 +18,7 @@ import (
 
 const serviceName = "USBridgeAgent"
 
-func runMain(headless bool) {
+func runMain(headless, tray bool, attach string) {
 	isSvc, err := svc.IsWindowsService()
 	if err != nil {
 		log.Printf("failed to determine if we are running in an interactive session: %v", err)
@@ -39,7 +40,7 @@ func runMain(headless bool) {
 		}
 		return
 	}
-	doStart(headless)
+	doStart(headless, tray, attach)
 }
 
 type agentService struct{}
@@ -55,7 +56,15 @@ func (m *agentService) Execute(args []string, r <-chan svc.ChangeRequest, change
 	changes <- svc.Status{State: svc.StartPending}
 
 	// Start headless mode in background
-	go doStart(true)
+	go doStart(true, false, "")
+
+	// Covers "service (re)started while a user is already logged in" -- the
+	// one case the SessionChange handling below can't catch on its own,
+	// since WTS_SESSION_LOGON/WTS_CONSOLE_CONNECT only fire on a *future*
+	// login/session switch. Polls briefly for doStart's engine to finish
+	// enough of its startup to have an admin socket at all (see
+	// app.AdminSocketPath) before attempting the launch once.
+	go launchTrayHelperWhenReady()
 
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 loop:
@@ -78,6 +87,7 @@ loop:
 			// otherwise-fine stream for no reason.
 			if c.EventType == windows.WTS_SESSION_LOGON || c.EventType == windows.WTS_CONSOLE_CONNECT {
 				go app.NotifySessionChange()
+				go launchTrayHelperWhenReady()
 			}
 			changes <- c.CurrentStatus
 		case svc.Stop, svc.Shutdown:
@@ -86,6 +96,25 @@ loop:
 	}
 	changes <- svc.Status{State: svc.StopPending}
 	return
+}
+
+// launchTrayHelperWhenReady polls for app.AdminSocketPath to become
+// available (the engine started by doStart above hasn't necessarily
+// finished enough of its own startup yet to have one) and, once it does,
+// launches the tray helper into whatever session is currently active --
+// see app.LaunchTrayHelperInActiveSession's doc comment for why the
+// service has to do this itself rather than relying on a normal autostart
+// entry. Gives up silently after ~30s: LaunchTrayHelperInActiveSession is
+// also called on every subsequent session-change event, so a session that
+// only appears later still gets a helper then.
+func launchTrayHelperWhenReady() {
+	for i := 0; i < 60; i++ {
+		if socketPath, ok := app.AdminSocketReady(); ok {
+			app.LaunchTrayHelperInActiveSession(socketPath)
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func manageService(action string) error {

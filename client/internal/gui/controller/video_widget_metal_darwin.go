@@ -3,10 +3,10 @@
 package controller
 
 import (
+	"C"
 	"image"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
@@ -19,62 +19,100 @@ import (
 
 // ── Metal mouse event forwarding ──────────────────────────────────────────────
 //
-// USBridgeMetalView (ObjC) captures all pointer events from AppKit and queues
-// them. This goroutine polls metal_video_next_event at ~250 Hz and dispatches
-// to TouchpadWrapper via fyne.Do — same pattern as Linux X11 / Windows Vulkan.
+// USBridgeMetalView (ObjC) captures all pointer events from AppKit and pushes
+// each one straight into the goMetalMouseEvent CGO export as it happens (no
+// polling tick, unlike the Linux X11 / Windows Vulkan overlays). Events are
+// coalesced into metalMousePending and dispatched to TouchpadWrapper via a
+// single fyne.Do per animation-loop turn — see dispatchMetalMouseBatch.
 
 var (
-	metalMouseMu             sync.Mutex
-	metalMouseQuit           chan struct{}
-	metalFullscreenWindow    fyne.Window
-	metalMouseCheckPending   int32 // atomic
-	lastMetalFrameMu         sync.Mutex
+	metalFullscreenWindow            fyne.Window
+	metalMouseCheckPending           int32 // atomic
+	lastMetalFrameMu                 sync.Mutex
 	lastMetalFrameX, lastMetalFrameY float32
 	lastMetalFrameW, lastMetalFrameH float32
+
+	// activeVideoWidget is used by the CGO callback to route events.
+	// We only ever have one active Metal overlay at a time.
+	activeVideoWidget atomic.Pointer[VideoWidget]
 )
 
-func (vw *VideoWidget) startMetalMouseForwarding() {
-	vw.stopMetalMouseForwarding()
-	metalMouseMu.Lock()
-	quit := make(chan struct{})
-	metalMouseQuit = quit
-	metalMouseMu.Unlock()
+type metalMouseEv struct {
+	typ, btn int
+	x, y     float32
+}
 
-	logrus.Info("[Metal/Mac] mouse forwarding started")
-	go func() {
-		ticker := time.NewTicker(4 * time.Millisecond) // ~250 Hz
-		defer ticker.Stop()
-		for {
-			select {
-			case <-quit:
-				return
-			case <-ticker.C:
-				for {
-					typ, btn, x, y, ok := service.MetalVideoNextEvent()
-					if !ok {
-						break
-					}
-					evTyp, evBtn, evX, evY := typ, btn, x, y
-					fyne.Do(func() {
-						if !service.MetalVideoIsActive() {
-							return
-						}
-						vw.dispatchMetalMouseEvent(evTyp, evX, evY, evBtn)
-					})
-				}
+// metalMouseDoPending/metalMousePending coalesce bursts of AppKit mouseMoved:
+// events into a single fyne.Do dispatch instead of one per sample. Unlike
+// Linux/Windows, USBridgeMetalView pushes straight into goMetalMouseEvent
+// per-event (no polling tick to batch against), so a fast mouse can call
+// this CGO export many times within a single Fyne animation-loop turn; the
+// old code fired one fyne.Do per call, serializing that whole burst onto
+// the same goroutine that drives Metal frame presentation and causing the
+// video to visibly stutter only while the mouse was moving. Mirrors the
+// batching fix applied to video_widget_gl_linux.go / video_widget_windows.go.
+var (
+	metalMouseDoPending int32
+	metalMousePendingMu sync.Mutex
+	metalMousePending   []metalMouseEv
+)
+
+//export goMetalMouseEvent
+func goMetalMouseEvent(typ C.int, x C.float, y C.float, btn C.int) {
+	ev := metalMouseEv{typ: int(typ), btn: int(btn), x: float32(x), y: float32(y)}
+
+	metalMousePendingMu.Lock()
+	// Coalesce consecutive moves so a fast mouse does not enqueue one
+	// fyne.Do per sample.
+	if ev.typ == 1 && len(metalMousePending) > 0 && metalMousePending[len(metalMousePending)-1].typ == 1 {
+		metalMousePending[len(metalMousePending)-1] = ev
+	} else {
+		metalMousePending = append(metalMousePending, ev)
+	}
+	metalMousePendingMu.Unlock()
+
+	dispatchMetalMouseBatch()
+}
+
+// dispatchMetalMouseBatch claims the single in-flight fyne.Do slot (if free)
+// and drains metalMousePending on the Fyne main goroutine. If more events
+// arrive while that dispatch is running, it re-claims the slot itself once
+// done so nothing is dropped.
+func dispatchMetalMouseBatch() {
+	if !atomic.CompareAndSwapInt32(&metalMouseDoPending, 0, 1) {
+		return
+	}
+	fyne.Do(func() {
+		metalMousePendingMu.Lock()
+		evs := metalMousePending
+		metalMousePending = nil
+		metalMousePendingMu.Unlock()
+		if vw := activeVideoWidget.Load(); vw != nil && service.MetalVideoIsActive() {
+			for _, ev := range evs {
+				vw.dispatchMetalMouseEvent(ev.typ, ev.x, ev.y, ev.btn)
 			}
 		}
-	}()
+		atomic.StoreInt32(&metalMouseDoPending, 0)
+		metalMousePendingMu.Lock()
+		more := len(metalMousePending) > 0
+		metalMousePendingMu.Unlock()
+		if more {
+			dispatchMetalMouseBatch()
+		}
+	})
+}
+
+func (vw *VideoWidget) startMetalMouseForwarding() {
+	activeVideoWidget.Store(vw)
+	logrus.Info("[Metal/Mac] mouse forwarding started via CGO callback")
 }
 
 func (vw *VideoWidget) stopMetalMouseForwarding() {
-	metalMouseMu.Lock()
-	defer metalMouseMu.Unlock()
-	if metalMouseQuit != nil {
-		close(metalMouseQuit)
-		metalMouseQuit = nil
-		logrus.Info("[Metal/Mac] mouse forwarding stopped")
-	}
+	activeVideoWidget.Store(nil)
+	metalMousePendingMu.Lock()
+	metalMousePending = nil
+	metalMousePendingMu.Unlock()
+	logrus.Info("[Metal/Mac] mouse forwarding stopped")
 }
 
 func (vw *VideoWidget) dispatchMetalMouseEvent(typ int, x, y float32, button int) {
@@ -282,14 +320,12 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return
 	}
 
-	// Fyne's AbsolutePositionForObject is unreliable on mobile canvases,
-	// and we match the robust iOS math here for consistency.
-	szMain := vw.container.Size()
-	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - szMain.Height
-
+	// Desktop: AbsolutePositionForObject is the canvas origin of the
+	// container. canvasH − height assumed the video was flush with the
+	// window bottom and shifted the overlay once Control grew a footer.
+	pos := vw.videoContainerOrigin()
 	szVideo := vw.touchpadWrapper.Size()
-	return 0, topOffset, szVideo.Width, szVideo.Height
+	return pos.X, pos.Y, szVideo.Width, szVideo.Height
 }
 
 // metalVideoEnterFullscreen tears down the main-window overlay and creates a

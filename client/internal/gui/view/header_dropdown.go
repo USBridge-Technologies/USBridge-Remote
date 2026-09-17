@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 	"time"
@@ -43,11 +44,36 @@ func (t *dropdownMenuTheme) Size(name fyne.ThemeSizeName) float32 {
 type HeaderDropdown struct {
 	widget.BaseWidget
 
-	Options    []string
-	Selected   string
-	OnSelected func(string)
-	MinWidth   float32
-	Compact    bool
+	Options          []string
+	Selected         string
+	OnSelected       func(string)
+	MinWidth         float32
+	Compact          bool
+	UltraCompact     bool
+	BorderColor      color.Color
+	CornerRadius     float32
+	TextColor        color.Color
+	TextSize         float32
+	// DetailTextSize sizes the optional Details hint in the popup. 0 keeps
+	// it the same as TextSize (resolution hints, etc.).
+	DetailTextSize   float32
+	HoverBorderColor color.Color
+	HoverFillColor   color.Color
+	IconColor        color.Color
+	OnHover          func(bool)
+	// Details holds an optional per-option secondary hint line shown under
+	// its label in the popup (e.g. an aspect-ratio hint next to a
+	// resolution) -- nil, or a value with no entry, just renders no
+	// secondary line, same as before this field existed.
+	Details map[string]string
+	// ShortLabels holds an optional abbreviated display string per option
+	// (e.g. "1920x1080" for the full "1920 x 1080 (YUYV)" option/key), shown
+	// on the closed control and used to size it -- the popup's own rows
+	// always show the full option text via Options, and Selected/OnSelected
+	// still carry the real (long) value. nil, or a value with no entry,
+	// falls back to showing/measuring the value itself, same as before this
+	// field existed.
+	ShortLabels map[string]string
 
 	disabled bool
 	hovered  bool
@@ -65,9 +91,15 @@ type HeaderDropdown struct {
 
 func NewHeaderDropdown(options []string, selected string, onSelected func(string)) *HeaderDropdown {
 	d := &HeaderDropdown{
-		Options:    append([]string(nil), options...),
-		Selected:   selected,
-		OnSelected: onSelected,
+		Options:          append([]string(nil), options...),
+		Selected:         selected,
+		OnSelected:       onSelected,
+		BorderColor:      design.ColorBorder,
+		CornerRadius:     design.RadiusMD,
+		TextColor:        design.ColorTextLight,
+		TextSize:         14,
+		HoverBorderColor: design.ColorBorder,
+		HoverFillColor:   design.ColorSurfaceLight,
 	}
 	d.updateMinWidth()
 	d.ExtendBaseWidget(d)
@@ -76,17 +108,21 @@ func NewHeaderDropdown(options []string, selected string, onSelected func(string
 
 func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 	d.bg = canvas.NewRectangle(design.ColorSurface)
-	d.bg.CornerRadius = design.RadiusMD
+	d.bg.CornerRadius = d.CornerRadius
 
 	d.border = canvas.NewRectangle(color.Transparent)
-	d.border.CornerRadius = design.RadiusMD
-	d.border.StrokeColor = design.ColorBorder
+	d.border.CornerRadius = d.CornerRadius
+	d.border.StrokeColor = d.BorderColor
 	d.border.StrokeWidth = 1
 
-	d.label = canvas.NewText(d.Selected, design.ColorTextLight)
-	d.label.TextSize = 14
+	d.label = canvas.NewText(d.displayText(d.Selected), d.TextColor)
+	d.label.TextSize = d.TextSize
+	if d.UltraCompact {
+		d.label.TextStyle.Monospace = true
+	}
 
-	d.icon = canvas.NewImageFromResource(theme.Icon(theme.IconNameArrowDropDown))
+	var res fyne.Resource = coloredArrowDown(d.IconColor)
+	d.icon = canvas.NewImageFromResource(res)
 	d.icon.FillMode = canvas.ImageFillContain
 	d.icon.SetMinSize(fyne.NewSize(16, 16))
 
@@ -104,14 +140,26 @@ func (d *HeaderDropdown) MinSize() fyne.Size {
 	if d.MinWidth > 0 {
 		return fyne.NewSize(d.MinWidth, height)
 	}
-	label := canvas.NewText(d.Selected, design.ColorTextLight)
-	label.TextSize = 14
+	label := canvas.NewText(d.displayText(d.Selected), d.TextColor)
+	label.TextSize = d.TextSize
+	if d.UltraCompact {
+		label.TextStyle.Monospace = true
+	}
 	width := label.MinSize().Width + d.horizontalPadding()
 	minWidth := d.minimumWidth()
 	if width < minWidth {
 		width = minWidth
 	}
 	return fyne.NewSize(width, height)
+}
+
+// displayText returns value's abbreviated ShortLabels entry when one exists,
+// else value itself -- see the ShortLabels field's doc comment.
+func (d *HeaderDropdown) displayText(value string) string {
+	if short, ok := d.ShortLabels[value]; ok && short != "" {
+		return short
+	}
+	return value
 }
 
 func (d *HeaderDropdown) Tapped(*fyne.PointEvent) {
@@ -130,6 +178,9 @@ func (d *HeaderDropdown) TappedSecondary(*fyne.PointEvent) {}
 func (d *HeaderDropdown) MouseIn(*desktop.MouseEvent) {
 	d.hovered = true
 	d.refreshVisuals()
+	if d.OnHover != nil {
+		d.OnHover(true)
+	}
 }
 
 func (d *HeaderDropdown) MouseMoved(*desktop.MouseEvent) {}
@@ -137,6 +188,9 @@ func (d *HeaderDropdown) MouseMoved(*desktop.MouseEvent) {}
 func (d *HeaderDropdown) MouseOut() {
 	d.hovered = false
 	d.refreshVisuals()
+	if d.OnHover != nil {
+		d.OnHover(false)
+	}
 }
 
 func (d *HeaderDropdown) SetOptions(options []string) {
@@ -151,17 +205,34 @@ func (d *HeaderDropdown) SetSelected(value string) {
 	d.Refresh()
 }
 
+// SetDetails sets the per-option secondary hint text shown in this
+// dropdown's popup -- see the Details field's doc comment.
+func (d *HeaderDropdown) SetDetails(details map[string]string) {
+	d.Details = details
+}
+
+// SetShortLabels sets the per-option abbreviated display text -- see the
+// ShortLabels field's doc comment.
+func (d *HeaderDropdown) SetShortLabels(labels map[string]string) {
+	d.ShortLabels = labels
+	d.updateMinWidth()
+	d.Refresh()
+}
+
 func (d *HeaderDropdown) updateMinWidth() {
-	longest := strings.TrimSpace(d.Selected)
+	longest := strings.TrimSpace(d.displayText(d.Selected))
 	for _, option := range d.Options {
-		option = strings.TrimSpace(option)
+		option = strings.TrimSpace(d.displayText(option))
 		if len(option) > len(longest) {
 			longest = option
 		}
 	}
 
-	label := canvas.NewText(longest, design.ColorTextLight)
-	label.TextSize = 14
+	label := canvas.NewText(longest, d.TextColor)
+	label.TextSize = d.TextSize
+	if d.UltraCompact {
+		label.TextStyle.Monospace = true
+	}
 	width := label.MinSize().Width + d.horizontalPadding()
 	if width < d.minimumWidth() {
 		width = d.minimumWidth()
@@ -200,13 +271,18 @@ func (d *HeaderDropdown) openPopup() {
 	rows := make([]fyne.CanvasObject, 0, len(d.Options))
 	for _, option := range d.Options {
 		value := option
-		rows = append(rows, newDropdownItem(value, "", value == d.Selected, func() {
+		item := newDropdownItem(value, d.Details[value], value == d.Selected, func() {
 			d.SetSelected(value)
 			d.closePopup()
 			if d.OnSelected != nil {
 				d.OnSelected(value)
 			}
-		}))
+		})
+		item.textColor = d.TextColor
+		item.textSize = d.TextSize
+		item.detailTextSize = d.DetailTextSize
+		item.monospace = d.UltraCompact
+		rows = append(rows, item)
 	}
 
 	menuBG := canvas.NewRectangle(design.ColorGray950)
@@ -214,7 +290,7 @@ func (d *HeaderDropdown) openPopup() {
 
 	menuBorder := canvas.NewRectangle(color.Transparent)
 	menuBorder.CornerRadius = design.RadiusMD
-	menuBorder.StrokeColor = design.ColorBorder
+	menuBorder.StrokeColor = d.BorderColor
 	menuBorder.StrokeWidth = 1
 
 	menuList := container.NewVBox(rows...)
@@ -231,9 +307,15 @@ func (d *HeaderDropdown) openPopup() {
 	}
 
 	menuWidth := menu.MinSize().Width
+	if d.Size().Width > menuWidth {
+		menuWidth = d.Size().Width
+	}
 	for _, option := range d.Options {
 		label := canvas.NewText(option, design.ColorTextLight)
-		label.TextSize = 14
+		label.TextSize = d.TextSize
+		if d.UltraCompact {
+			label.TextStyle.Monospace = true
+		}
 		optionWidth := label.MinSize().Width + d.menuOptionPadding()
 		if optionWidth > menuWidth {
 			menuWidth = optionWidth
@@ -298,10 +380,14 @@ func (d *HeaderDropdown) openPopup() {
 		fyne.NewSize(menuWidth, popupHeight),
 		d.popupDismissed,
 	)
+	d.popup.anchor = d
+
+	downIcon := coloredArrowDown(d.IconColor)
+	upIcon := coloredArrowUp(d.IconColor)
 
 	d.popup.ShowAtPosition(fyne.NewPos(popupX, popupY))
 	d.opened = true
-	d.animateArrow(theme.Icon(theme.IconNameArrowDropDown), theme.Icon(theme.IconNameArrowDropUp))
+	d.animateArrow(downIcon, upIcon)
 	d.Refresh()
 }
 
@@ -311,9 +397,13 @@ func (d *HeaderDropdown) closePopup() {
 		d.popup.Hide()
 		d.popup = nil
 	}
+
+	downIcon := coloredArrowDown(d.IconColor)
+	upIcon := coloredArrowUp(d.IconColor)
+
 	d.opened = false
 	d.hovered = false
-	d.animateArrow(theme.Icon(theme.IconNameArrowDropUp), theme.Icon(theme.IconNameArrowDropDown))
+	d.animateArrow(upIcon, downIcon)
 	d.Refresh()
 }
 
@@ -330,13 +420,16 @@ func (d *HeaderDropdown) refreshVisuals() {
 		return
 	}
 
-	fill := design.ColorGray900
-	textColor := design.ColorTextLight
-	iconResource := theme.Icon(theme.IconNameArrowDropDown)
-	iconTranslucency := float64(0)
+	var fill color.Color = design.ColorGray900
+	textColor := d.TextColor
+	borderColor := d.BorderColor
+	var iconResource fyne.Resource
 	if d.opened {
-		iconResource = theme.Icon(theme.IconNameArrowDropUp)
+		iconResource = coloredArrowUp(d.IconColor)
+	} else {
+		iconResource = coloredArrowDown(d.IconColor)
 	}
+	iconTranslucency := float64(0)
 
 	switch {
 	case d.disabled:
@@ -344,13 +437,16 @@ func (d *HeaderDropdown) refreshVisuals() {
 		textColor = design.ColorBorder
 		iconTranslucency = 0.35
 	case d.opened:
-		fill = design.ColorSurfaceLight
+		fill = d.HoverFillColor
+		borderColor = d.HoverBorderColor
 	case d.hovered:
-		fill = design.ColorSurfaceLight
+		fill = d.HoverFillColor
+		borderColor = d.HoverBorderColor
 	}
 
 	d.bg.FillColor = fill
-	d.label.Text = d.Selected
+	d.border.StrokeColor = borderColor
+	d.label.Text = d.displayText(d.Selected)
 	d.label.Color = textColor
 	d.icon.Resource = iconResource
 	d.icon.Translucency = iconTranslucency
@@ -361,6 +457,9 @@ func (d *HeaderDropdown) refreshVisuals() {
 }
 
 func (d *HeaderDropdown) controlHeight() float32 {
+	if d.UltraCompact {
+		return 26
+	}
 	if d.Compact {
 		return 32
 	}
@@ -368,6 +467,9 @@ func (d *HeaderDropdown) controlHeight() float32 {
 }
 
 func (d *HeaderDropdown) horizontalPadding() float32 {
+	if d.UltraCompact {
+		return 32
+	}
 	if d.Compact {
 		return 40
 	}
@@ -375,6 +477,9 @@ func (d *HeaderDropdown) horizontalPadding() float32 {
 }
 
 func (d *HeaderDropdown) minimumWidth() float32 {
+	if d.UltraCompact {
+		return 64
+	}
 	if d.Compact {
 		return 74
 	}
@@ -389,6 +494,9 @@ func (d *HeaderDropdown) menuInset() float32 {
 }
 
 func (d *HeaderDropdown) menuOptionPadding() float32 {
+	if d.UltraCompact {
+		return 16
+	}
 	if d.Compact {
 		return 28
 	}
@@ -447,49 +555,117 @@ type dropdownItem struct {
 	bg             *canvas.Rectangle
 	label          *canvas.Text
 	secondaryLabel *canvas.Text
+	textColor      color.Color
+	textSize       float32
+	detailTextSize float32
+	monospace      bool
+	// minHeight overrides MinSize's own 36/32/24 row height when > 0 -- see
+	// StyledMenuOptions.RowHeight.
+	minHeight float32
+	iconRes   fyne.Resource
+	iconSide  float32
+	icon      *canvas.Image
 }
 
 func newDropdownItem(text, secondary string, selected bool, onTap func()) *dropdownItem {
-	i := &dropdownItem{text: text, secondary: secondary, selected: selected, onTap: onTap}
+	i := &dropdownItem{
+		text:      text,
+		secondary: secondary,
+		selected:  selected,
+		onTap:     onTap,
+		textColor: design.ColorTextLight,
+		textSize:  14,
+	}
 	i.ExtendBaseWidget(i)
 	return i
 }
 
 func (i *dropdownItem) CreateRenderer() fyne.WidgetRenderer {
 	i.bg = canvas.NewRectangle(color.Transparent)
-	i.bg.CornerRadius = design.RadiusMD
-	i.label = canvas.NewText(i.text, design.ColorTextLight)
-	i.label.TextSize = 14
+	i.bg.CornerRadius = 4
+	i.label = canvas.NewText(i.text, i.textColor)
+	i.label.TextSize = i.textSize
+	if i.monospace {
+		i.label.TextStyle.Monospace = true
+	}
 	i.secondaryLabel = canvas.NewText(i.secondary, design.ColorTextMuted)
-	i.secondaryLabel.TextSize = 14
+	i.secondaryLabel.TextSize = i.secondaryTextSize()
+	if i.monospace {
+		i.secondaryLabel.TextStyle.Monospace = true
+	}
+	parts := []fyne.CanvasObject{i.bg, i.label, i.secondaryLabel}
+	if i.iconRes != nil {
+		side := i.iconGlyphSize()
+		i.icon = canvas.NewImageFromResource(i.iconRes)
+		i.icon.FillMode = canvas.ImageFillContain
+		i.icon.SetMinSize(fyne.NewSize(side, side))
+		parts = []fyne.CanvasObject{i.bg, i.icon, i.label, i.secondaryLabel}
+	}
 	r := &dropdownItemRenderer{
 		item:    i,
-		objects: []fyne.CanvasObject{container.NewWithoutLayout(i.bg, i.label, i.secondaryLabel)},
+		objects: []fyne.CanvasObject{container.NewWithoutLayout(parts...)},
 	}
 	r.Refresh()
 	return r
 }
 
 func (i *dropdownItem) MinSize() fyne.Size {
-	label := canvas.NewText(i.text, design.ColorTextLight)
-	label.TextSize = 14
-	width := label.MinSize().Width + 28
+	label := canvas.NewText(i.text, i.textColor)
+	label.TextSize = i.textSize
+	if i.monospace {
+		label.TextStyle.Monospace = true
+	}
+
+	padding := float32(28)
+	if i.monospace {
+		padding = 16
+	}
+	width := label.MinSize().Width + padding
+	if i.iconRes != nil {
+		width += i.iconGlyphSize() + 8
+	}
+
 	if i.secondary != "" {
 		secondary := canvas.NewText(i.secondary, design.ColorTextMuted)
-		secondary.TextSize = 14
+		secondary.TextSize = i.secondaryTextSize()
+		if i.monospace {
+			secondary.TextStyle.Monospace = true
+		}
 		width += secondary.MinSize().Width + 18
 	}
-	if width < 72 {
-		width = 72
-	}
+
+	minWidth := float32(72)
 	height := float32(36)
-	if len(i.text) <= 4 && i.secondary == "" {
+
+	if i.monospace {
+		minWidth = 0
+		height = 24
+	} else if len(i.text) <= 4 && i.secondary == "" {
 		height = 32
-		if width < 64 {
-			width = 64
-		}
+		minWidth = 64
+	}
+
+	if width < minWidth {
+		width = minWidth
+	}
+	if i.minHeight > 0 {
+		height = i.minHeight
 	}
 	return fyne.NewSize(width, height)
+}
+
+func (i *dropdownItem) secondaryTextSize() float32 {
+	if i.detailTextSize > 0 {
+		return i.detailTextSize
+	}
+	return i.textSize
+}
+
+func (i *dropdownItem) iconGlyphSize() float32 {
+	if i.iconSide > 0 {
+		return i.iconSide
+	}
+	return 16
 }
 
 func (i *dropdownItem) Tapped(*fyne.PointEvent) {
@@ -547,7 +723,9 @@ func (r *headerDropdownRenderer) Layout(size fyne.Size) {
 		labelWidth = 24
 	}
 	labelX := float32(16)
-	if d.Compact {
+	if d.UltraCompact {
+		labelX = 8
+	} else if d.Compact {
 		labelX = 12
 	}
 	d.label.Move(fyne.NewPos(labelX, (size.Height-labelMin.Height)/2))
@@ -556,7 +734,9 @@ func (r *headerDropdownRenderer) Layout(size fyne.Size) {
 	iconSize := fyne.NewSize(16, 16)
 	d.icon.Resize(iconSize)
 	iconX := size.Width - 28
-	if d.Compact {
+	if d.UltraCompact {
+		iconX = size.Width - 20
+	} else if d.Compact {
 		iconX = size.Width - 24
 	}
 	d.icon.Move(fyne.NewPos(iconX, (size.Height-iconSize.Height)/2))
@@ -587,6 +767,7 @@ type dropdownPopup struct {
 
 	content   fyne.CanvasObject
 	canvas    fyne.Canvas
+	anchor    fyne.CanvasObject
 	pos       fyne.Position
 	size      fyne.Size
 	shown     bool
@@ -598,6 +779,7 @@ type StyledMenuItem struct {
 	SecondaryLabel string
 	Selected       bool
 	OnTap          func()
+	Icon           fyne.Resource
 }
 
 type StyledMenuOptions struct {
@@ -605,6 +787,28 @@ type StyledMenuOptions struct {
 	Centered  bool
 	Width     float32
 	MaxHeight float32
+	// TextColor/TextSize override each row's default (design.ColorTextLight,
+	// 14) -- nil/0 keeps the default. Used to make a menu read like a
+	// HeaderDropdown's own popup (e.g. the header's language menu wants the
+	// same teal/small-size look the per-connection protocol dropdown's
+	// AUTO/TS/LAN popup already has) without dragging every other
+	// ShowStyledMenu caller's look along with it.
+	TextColor color.Color
+	TextSize  float32
+	// RowHeight overrides each row's default height (dropdownItem.MinSize's
+	// own 36/32/24) when > 0 -- the default reads as too much top/bottom
+	// padding once TextSize shrinks a row's text down from the default 14.
+	RowHeight float32
+	// IconSize is the left-side glyph for StyledMenuItem.Icon. 0 keeps
+	// dropdownItem's own 16px default.
+	IconSize float32
+	// IgnoreAnchorWidth skips the "never narrower than anchor" step below --
+	// every other caller (dropdowns, the header's icon menus) wants the menu
+	// at least as wide as the control that opened it, but a text entry's own
+	// right-click menu (ShowEntryContextMenu) shouldn't stretch to match a
+	// wide field; it should size to its own longest row (Select All) like a
+	// normal context menu.
+	IgnoreAnchorWidth bool
 }
 
 func newDropdownPopup(content fyne.CanvasObject, canvas fyne.Canvas, size fyne.Size, onDismiss func()) *dropdownPopup {
@@ -634,6 +838,56 @@ func ShowStyledMenuCentered(anchor fyne.CanvasObject, items []StyledMenuItem, wi
 	})
 }
 
+// ShowStyledMenuTeal is ShowStyledMenu with rows recolored/resized to match
+// the per-connection protocol dropdown's own AUTO/TS/LAN popup (teal text,
+// design.ColorConnectionBadgeText, at 10px) -- for a menu that should read
+// as "the same style" as that dropdown without becoming one itself (see the
+// header's language menu, gui.ConnectionManager.showLanguageMenu).
+func ShowStyledMenuTeal(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, tealStyledMenuOptions(false))
+}
+
+// ShowMobileLanguageMenu is the phone language picker — same teal rows as
+// the Connections settings panel (13px / 38-tall / 220 wide), not the
+// compact 10px desktop teal menu.
+func ShowMobileLanguageMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, mobileStyledMenuOptions(false))
+}
+
+// ShowMobileStyledMenuAbove is ShowMobileLanguageMenu opening upward —
+// Control footer mouse/keyboard anchors would clip below the window.
+func ShowMobileStyledMenuAbove(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, mobileStyledMenuOptions(true))
+}
+
+func mobileStyledMenuOptions(openAbove bool) StyledMenuOptions {
+	return StyledMenuOptions{
+		OpenAbove: openAbove,
+		TextColor: design.ColorConnectionBadgeText,
+		TextSize:  13,
+		RowHeight: 38,
+		Width:     236,
+		IconSize:  16,
+	}
+}
+
+// ShowStyledMenuTealAbove is ShowStyledMenuTeal opening upward — footer
+// anchors (Desktop/Mobile preview) need this so the menu is not clipped
+// below the window.
+func ShowStyledMenuTealAbove(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, tealStyledMenuOptions(true))
+}
+
+func tealStyledMenuOptions(openAbove bool) StyledMenuOptions {
+	return StyledMenuOptions{
+		OpenAbove: openAbove,
+		TextColor: design.ColorConnectionBadgeText,
+		TextSize:  10,
+		RowHeight: 26,
+		IconSize:  12,
+	}
+}
+
 func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options StyledMenuOptions) {
 	if anchor == nil || len(items) == 0 {
 		return
@@ -658,7 +912,23 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 				menuItem.OnTap()
 			}
 		}
-		rows = append(rows, newDropdownItem(menuItem.Label, menuItem.SecondaryLabel, menuItem.Selected, onTap))
+		row := newDropdownItem(menuItem.Label, menuItem.SecondaryLabel, menuItem.Selected, onTap)
+		if menuItem.Icon != nil {
+			row.iconRes = menuItem.Icon
+			if options.IconSize > 0 {
+				row.iconSide = options.IconSize
+			}
+		}
+		if options.TextColor != nil {
+			row.textColor = options.TextColor
+		}
+		if options.TextSize > 0 {
+			row.textSize = options.TextSize
+		}
+		if options.RowHeight > 0 {
+			row.minHeight = options.RowHeight
+		}
+		rows = append(rows, row)
 		rowCallbacks = append(rowCallbacks, onTap)
 	}
 
@@ -682,17 +952,25 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		return
 	}
 
+	rowTextSize := float32(14)
+	if options.TextSize > 0 {
+		rowTextSize = options.TextSize
+	}
+
 	menuMin := menu.MinSize()
 	width := menuMin.Width
 	for _, option := range items {
 		label := canvas.NewText(option.Label, design.ColorTextLight)
-		label.TextSize = 14
+		label.TextSize = rowTextSize
 		optionWidth := label.MinSize().Width + 40
+		if option.Icon != nil {
+			optionWidth += 24
+		}
 		if optionWidth > width {
 			width = optionWidth
 		}
 	}
-	if anchor.Size().Width > width {
+	if !options.IgnoreAnchorWidth && anchor.Size().Width > width {
 		width = anchor.Size().Width
 	}
 	if options.Width > width {
@@ -727,6 +1005,7 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		// case -- safe to call unconditionally on every dismiss.
 		detachTouchScroll,
 	)
+	popup.anchor = anchor
 
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
 	popupPos := fyne.NewPos(
@@ -798,6 +1077,88 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 	}
 }
 
+// ShowStyledInfoDropdown pops up content below anchor in the same shell
+// ShowStyledMenu's own popup uses (design.ColorGray950 background,
+// design.ColorBorder outline, RadiusMD corners) -- but content is whatever
+// the caller built and is purely informational: no rows, no hover, no tap
+// handling of its own. Dismisses on an outside click/tap like any other
+// dropdown popup here (dropdownPopup.Tapped). Used by the Control header's
+// storage chip (main_window_storage_dialog.go) instead of a modal dialog.
+func ShowStyledInfoDropdown(anchor fyne.CanvasObject, content fyne.CanvasObject, minWidth float32) {
+	showStyledPanel(anchor, content, minWidth, false)
+}
+
+// showStyledPanelAbove is ShowStyledInfoDropdown opening upward — footer
+// panels (phone preview + scale slider) need this so they are not clipped
+// below the window.
+func showStyledPanelAbove(anchor fyne.CanvasObject, content fyne.CanvasObject, minWidth float32) *dropdownPopup {
+	return showStyledPanel(anchor, content, minWidth, true)
+}
+
+func showStyledPanel(anchor fyne.CanvasObject, content fyne.CanvasObject, minWidth float32, openAbove bool) *dropdownPopup {
+	if anchor == nil || content == nil {
+		return nil
+	}
+
+	menuBG := canvas.NewRectangle(design.ColorGray950)
+	menuBG.CornerRadius = design.RadiusMD
+
+	menuBorder := canvas.NewRectangle(color.Transparent)
+	menuBorder.CornerRadius = design.RadiusMD
+	menuBorder.StrokeColor = design.ColorBorder
+	menuBorder.StrokeWidth = 1
+
+	// Same 6px inset showStyledMenu's own menuContent uses -- this popup
+	// should read as "one of this header's menus", not a bigger, more
+	// padded thing next to them.
+	menu := container.NewThemeOverride(
+		container.NewStack(menuBG, NewInset(content, 8, 8, 8, 8), menuBorder),
+		&dropdownMenuTheme{base: design.NewBrandTheme()},
+	)
+
+	canvasForObj := fyne.CurrentApp().Driver().CanvasForObject(anchor)
+	if canvasForObj == nil {
+		return nil
+	}
+
+	menuMin := menu.MinSize()
+	width := menuMin.Width
+	if minWidth > width {
+		width = minWidth
+	}
+	height := menuMin.Height
+
+	popup := newDropdownPopup(menu, canvasForObj, fyne.NewSize(width, height), nil)
+	popup.anchor = anchor
+
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
+	popupPos := fyne.NewPos(
+		pos.X+(anchor.Size().Width-width)/2,
+		pos.Y+anchor.Size().Height+6,
+	)
+	if openAbove {
+		popupPos = fyne.NewPos(
+			pos.X+(anchor.Size().Width-width)/2,
+			pos.Y-height-6,
+		)
+	}
+	canvasSize := canvasForObj.Size()
+	if popupPos.X < 8 {
+		popupPos.X = 8
+	}
+	if popupPos.X+width > canvasSize.Width-8 {
+		popupPos.X = canvasSize.Width - width - 8
+	}
+	if !openAbove && popupPos.Y+height > canvasSize.Height-8 {
+		popupPos.Y = canvasSize.Height - height - 8
+	}
+	if popupPos.Y < 8 {
+		popupPos.Y = 8
+	}
+	popup.ShowAtPosition(popupPos)
+	return popup
+}
+
 func (p *dropdownPopup) CreateRenderer() fyne.WidgetRenderer {
 	return &dropdownPopupRenderer{
 		popup:   p,
@@ -813,7 +1174,31 @@ func (p *dropdownPopup) Tapped(ev *fyne.PointEvent) {
 	if p.isInside(ev.Position) {
 		return
 	}
-	p.Hide() // onDismiss and overlayHide are called inside Hide()
+	pos := dropdownTapAbs(ev)
+	if p.anchor != nil && objectContainsAbs(p.anchor, pos) {
+		p.Hide()
+		return
+	}
+
+	target := menuSwapTargetAt(pos)
+	if target == nil && p.canvas != nil {
+		target = findCompactTappable(p.canvas.Content(), pos)
+	}
+	if target != nil && target != p.anchor {
+		overlayHoldNativeHidden(true)
+		p.Hide()
+		if t, ok := target.(fyne.Tappable); ok {
+			abs := fyne.CurrentApp().Driver().AbsolutePositionForObject(target)
+			t.Tapped(&fyne.PointEvent{
+				Position:         fyne.NewPos(pos.X-abs.X, pos.Y-abs.Y),
+				AbsolutePosition: pos,
+			})
+		}
+		overlayHoldNativeHidden(false)
+		overlayReleaseNativeIfIdle()
+		return
+	}
+	p.Hide()
 }
 
 func (p *dropdownPopup) TappedSecondary(ev *fyne.PointEvent) {
@@ -896,8 +1281,16 @@ func (r *dropdownItemRenderer) Layout(size fyne.Size) {
 	r.item.bg.Resize(size)
 	labelMin := r.item.label.MinSize()
 	labelX := float32(14)
-	if len(r.item.text) <= 4 && r.item.secondary == "" {
+	if r.item.monospace {
+		labelX = 8
+	} else if len(r.item.text) <= 4 && r.item.secondary == "" {
 		labelX = 12
+	}
+	if r.item.icon != nil {
+		side := r.item.iconGlyphSize()
+		r.item.icon.Resize(fyne.NewSize(side, side))
+		r.item.icon.Move(fyne.NewPos(labelX, (size.Height-side)/2))
+		labelX += side + 8
 	}
 	r.item.label.Move(fyne.NewPos(labelX, (size.Height-labelMin.Height)/2))
 	r.item.label.Resize(labelMin)
@@ -937,6 +1330,95 @@ func (r *dropdownItemRenderer) Objects() []fyne.CanvasObject {
 
 func (r *dropdownItemRenderer) Destroy() {}
 
+func dropdownTapAbs(ev *fyne.PointEvent) fyne.Position {
+	if ev == nil {
+		return fyne.Position{}
+	}
+	if ev.AbsolutePosition != (fyne.Position{}) {
+		return ev.AbsolutePosition
+	}
+	return ev.Position
+}
+
+func objectContainsAbs(obj fyne.CanvasObject, pos fyne.Position) bool {
+	if obj == nil || !obj.Visible() {
+		return false
+	}
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return false
+	}
+	abs := app.Driver().AbsolutePositionForObject(obj)
+	s := obj.Size()
+	return pos.X >= abs.X && pos.Y >= abs.Y && pos.X < abs.X+s.Width && pos.Y < abs.Y+s.Height
+}
+
+// Compact chrome (header chips, FPS/resolution text, storage) is smaller
+// than this. The video/touch surface is much larger and must not receive a
+// retargeted click -- that would inject a remote click just to dismiss a menu.
+const menuSwapMaxWidth = 360
+const menuSwapMaxHeight = 72
+
+func dispatchCompactTappable(root fyne.CanvasObject, pos fyne.Position) {
+	obj := findCompactTappable(root, pos)
+	if obj == nil {
+		return
+	}
+	t, ok := obj.(fyne.Tappable)
+	if !ok {
+		return
+	}
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return
+	}
+	abs := app.Driver().AbsolutePositionForObject(obj)
+	t.Tapped(&fyne.PointEvent{
+		Position:         fyne.NewPos(pos.X-abs.X, pos.Y-abs.Y),
+		AbsolutePosition: pos,
+	})
+}
+
+func findCompactTappable(obj fyne.CanvasObject, pos fyne.Position) fyne.CanvasObject {
+	var best fyne.CanvasObject
+	bestArea := float32(1e12)
+	var walk func(fyne.CanvasObject)
+	walk = func(obj fyne.CanvasObject) {
+		if obj == nil || !obj.Visible() {
+			return
+		}
+		if !objectContainsAbs(obj, pos) {
+			return
+		}
+		if _, ok := obj.(fyne.Tappable); ok {
+			s := obj.Size()
+			if s.Width > 0 && s.Height > 0 && s.Width <= menuSwapMaxWidth && s.Height <= menuSwapMaxHeight {
+				area := s.Width * s.Height
+				if area < bestArea {
+					bestArea = area
+					best = obj
+				}
+			}
+		}
+		if c, ok := obj.(*fyne.Container); ok {
+			for _, ch := range c.Objects {
+				walk(ch)
+			}
+		}
+		if w, ok := obj.(fyne.Widget); ok {
+			if r := w.CreateRenderer(); r != nil {
+				for _, ch := range r.Objects() {
+					if ch != nil && ch != obj {
+						walk(ch)
+					}
+				}
+			}
+		}
+	}
+	walk(obj)
+	return best
+}
+
 var (
 	_ fyne.Tappable     = (*HeaderDropdown)(nil)
 	_ desktop.Hoverable = (*HeaderDropdown)(nil)
@@ -946,3 +1428,23 @@ var (
 	_ fyne.Tappable     = (*dropdownItem)(nil)
 	_ desktop.Hoverable = (*dropdownItem)(nil)
 )
+
+func coloredArrowDown(c color.Color) fyne.Resource {
+	if c == nil {
+		return theme.Icon(theme.IconNameArrowDropDown)
+	}
+	r, g, b, _ := c.RGBA()
+	colorStr := fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+	svg := fmt.Sprintf("<svg viewBox=\"0 0 24 24\" fill=\"%s\"><path d=\"M7 10l5 5 5-5z\"/></svg>", colorStr)
+	return fyne.NewStaticResource("custom_arrow_down.svg", []byte(svg))
+}
+
+func coloredArrowUp(c color.Color) fyne.Resource {
+	if c == nil {
+		return theme.Icon(theme.IconNameArrowDropUp)
+	}
+	r, g, b, _ := c.RGBA()
+	colorStr := fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+	svg := fmt.Sprintf("<svg viewBox=\"0 0 24 24\" fill=\"%s\"><path d=\"M7 14l5-5 5 5z\"/></svg>", colorStr)
+	return fyne.NewStaticResource("custom_arrow_up.svg", []byte(svg))
+}

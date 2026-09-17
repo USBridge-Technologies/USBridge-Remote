@@ -8,48 +8,69 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/view"
 )
 
-// Keyboard grid constants (like hardware): width/height of one key "unit"
 const (
-	keyUnitW  = 30
-	keyUnitH  = 28
-	keyGap    = 2
-	keyboardW = 600
-	keyboardH = 180
-	// Content width of the longest row in units (row 1 and 4: 15)
-	keyboardContentUnits = 15
+	desktopKBUnitsW = float32(15)
+	desktopKBRows   = 6
 )
 
-// Left margin: center content in the grid so buttons do not press against the left edge
-var keyboardLeftMargin = float32((keyboardW - keyboardContentUnits*keyUnitW) / 2)
-
-// centerKeyboardLayout centers the keyboard content when the area size changes
-type centerKeyboardLayout struct {
-	width  float32
-	height float32
+type desktopKeySlot struct {
+	obj fyne.CanvasObject
+	row int
+	col float32
+	w   float32
 }
 
-func (c *centerKeyboardLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	x := (size.Width - c.width) / 2
-	if x < 0 {
-		x = 0
+// scaleKeyboardLayout sizes every key from the window: 15 units wide × 6 rows.
+type scaleKeyboardLayout struct {
+	slots []desktopKeySlot
+	vk    *VirtualKeyboard
+}
+
+func (l *scaleKeyboardLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	pad := float32(12)
+	gap := float32(5)
+	innerW := size.Width - pad*2
+	innerH := size.Height - pad*2
+	if innerW < 80 {
+		innerW = 80
 	}
-	y := (size.Height - c.height) / 2
-	if y < 0 {
-		y = 0
+	if innerH < 80 {
+		innerH = 80
 	}
-	for _, o := range objects {
-		o.Move(fyne.NewPos(x, y))
-		o.Resize(fyne.NewSize(c.width, c.height))
+	unitW := innerW / desktopKBUnitsW
+	unitH := innerH / float32(desktopKBRows)
+	face := unitH * 0.36
+	for _, s := range l.slots {
+		x := pad + s.col*unitW + gap/2
+		y := pad + float32(s.row)*unitH + gap/2
+		w := s.w*unitW - gap
+		h := unitH - gap
+		if w < 8 {
+			w = 8
+		}
+		if h < 8 {
+			h = 8
+		}
+		s.obj.Move(fyne.NewPos(x, y))
+		s.obj.Resize(fyne.NewSize(w, h))
+		if k, ok := s.obj.(*compactKey); ok {
+			k.SetFaceSize(face)
+		}
+	}
+	if l.vk != nil {
+		l.vk.rememberKeyboardWindowSize(size)
 	}
 }
 
-func (c *centerKeyboardLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(c.width, c.height)
+func (l *scaleKeyboardLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(560, 220)
 }
 
-// Dummy types for desktop
 type backspaceEntry struct {
 	widget.Entry
 }
@@ -58,7 +79,6 @@ type imeSpacerLayout struct {
 	height float32
 }
 
-// Dummy methods for desktop
 func (vk *VirtualKeyboard) RegisterAsIMETarget()                         {}
 func (vk *VirtualKeyboard) UnregisterAsIMETarget()                       {}
 func (vk *VirtualKeyboard) FocusInput()                                  {}
@@ -68,56 +88,70 @@ func (vk *VirtualKeyboard) setIMEOffset(imeH float32)                    {}
 func (vk *VirtualKeyboard) adjustForIME(open bool)                       {}
 func (vk *VirtualKeyboard) ResetIMEState()                               {}
 
-// placeKey places a button in the grid: row/col in key "units", widthUnits is the width in units (1 = normal key).
-func (vk *VirtualKeyboard) placeKey(grid *fyne.Container, btn *widget.Button, row int, col float32, widthUnits float32) {
-	x := keyboardLeftMargin + col*keyUnitW + keyGap/2
-	y := float32(row)*keyUnitH + keyGap/2
-	w := widthUnits*keyUnitW - keyGap
-	h := keyUnitH - keyGap
-	btn.Resize(fyne.NewSize(w, float32(h)))
-	btn.Move(fyne.NewPos(x, y))
-	grid.Add(btn)
+func GetLastIMEH() float32 { return 0 }
+
+func SetStickySystemIME(_ bool) {}
+
+func SetIMETextHandler(_ func(deleteCount int, text string)) {}
+
+func SetIMEUserDismissedHandler(_ func()) {}
+
+func (vk *VirtualKeyboard) newDesktopKey(label string, keyCode, modifiers int) *compactKey {
+	k := newCompactKey(vk, label, compactKeyNormal, 16, func() {
+		vk.handleKeyPress(keyCode, modifiers)
+	})
+	k.radius = design.RadiusMD
+	k.minH = 16
+	return k
 }
 
-// placeInvisiblePlaceholder adds an invisible rectangle (background color) to the grid - for column alignment
-func (vk *VirtualKeyboard) placeInvisiblePlaceholder(grid *fyne.Container, row int, col float32) {
-	x := keyboardLeftMargin + col*keyUnitW + keyGap/2
-	y := float32(row)*keyUnitH + keyGap/2
-	w := keyUnitW - keyGap
-	h := keyUnitH - keyGap
-	rect := canvas.NewRectangle(theme.BackgroundColor())
-	rect.Resize(fyne.NewSize(float32(w), float32(h)))
-	rect.Move(fyne.NewPos(x, y))
-	grid.Add(rect)
+func (vk *VirtualKeyboard) newDesktopIconKey(icon fyne.Resource, keyCode, modifiers int) *compactKey {
+	k := newCompactIconKey(vk, icon, 16, func() {
+		vk.handleKeyPress(keyCode, modifiers)
+	})
+	k.radius = design.RadiusMD
+	k.minH = 16
+	return k
 }
 
-// createKeyboardLayout creates the desktop keyboard layout
-// GetLastIMEH dummy for desktop
-func GetLastIMEH() float32 {
-	return 0
+func (vk *VirtualKeyboard) newDesktopModKey(label string, keyCode int) *compactKey {
+	k := newCompactKey(vk, label, compactKeyNormal, 16, func() {
+		vk.toggleModifier(keyCode)
+	})
+	k.radius = design.RadiusMD
+	k.minH = 16
+	return k
+}
+
+func (vk *VirtualKeyboard) placeDesktopKey(lay *scaleKeyboardLayout, obj fyne.CanvasObject, row int, col, widthUnits float32) {
+	lay.slots = append(lay.slots, desktopKeySlot{obj: obj, row: row, col: col, w: widthUnits})
 }
 
 func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
-	grid := container.NewWithoutLayout()
-	background := canvas.NewRectangle(theme.BackgroundColor())
-	background.FillColor = theme.BackgroundColor()
-	grid.Add(background)
+	if view.IsMobile() {
+		return vk.createCompactSpecialKeysLayout()
+	}
+
+	lay := &scaleKeyboardLayout{vk: vk}
+	keys := make([]fyne.CanvasObject, 0, 80)
+
+	add := func(obj fyne.CanvasObject, row int, col, w float32) {
+		vk.placeDesktopKey(lay, obj, row, col, w)
+		keys = append(keys, obj)
+	}
 
 	var col float32
 
-	// Row 0: Esc, F1-F12, Del
-	col = 0
-	vk.placeKey(grid, vk.createKey("Esc", 41, 0), 0, col, 1)
-	col++
+	add(vk.newDesktopKey("Esc", 41, 0), 0, 0, 1)
+	col = 1
 	fLabels := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"}
 	fCodes := []int{58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69}
 	for i := 0; i < 12; i++ {
-		vk.placeKey(grid, vk.createKey(fLabels[i], fCodes[i], 0), 0, col, 1)
+		add(vk.newDesktopKey(fLabels[i], fCodes[i], 0), 0, col, 1)
 		col++
 	}
-	vk.placeKey(grid, vk.createKey("Del", 76, 0), 0, col, 1)
+	add(vk.newDesktopKey("Del", 76, 0), 0, col, 1)
 
-	// Row 1: ` 1 2 3 4 5 6 7 8 9 0 - = Backspace(2)
 	col = 0
 	for _, pair := range []struct {
 		l string
@@ -125,14 +159,13 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}{
 		{"`", 53}, {"1", 30}, {"2", 31}, {"3", 32}, {"4", 33}, {"5", 34}, {"6", 35}, {"7", 36}, {"8", 37}, {"9", 38}, {"0", 39}, {"-", 45}, {"=", 46},
 	} {
-		vk.placeKey(grid, vk.createKey(pair.l, pair.c, 0), 1, col, 1)
+		add(vk.newDesktopKey(pair.l, pair.c, 0), 1, col, 1)
 		col++
 	}
-	vk.placeKey(grid, vk.createKey("Bksp", 42, 0), 1, col, 2)
+	add(vk.newDesktopKey("Bksp", 42, 0), 1, col, 2)
 
-	// Row 2: Tab(1.5) Q W E R T Y U I O P [ ] \
 	col = 0
-	vk.placeKey(grid, vk.createKey("Tab", 43, 0), 2, col, 1.5)
+	add(vk.newDesktopKey("Tab", 43, 0), 2, col, 1.5)
 	col += 1.5
 	for _, pair := range []struct {
 		l string
@@ -140,14 +173,13 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}{
 		{"Q", 20}, {"W", 26}, {"E", 8}, {"R", 21}, {"T", 23}, {"Y", 28}, {"U", 24}, {"I", 12}, {"O", 18}, {"P", 19}, {"[", 47}, {"]", 48}, {"\\", 49},
 	} {
-		vk.placeKey(grid, vk.createKey(pair.l, pair.c, 0), 2, col, 1)
+		add(vk.newDesktopKey(pair.l, pair.c, 0), 2, col, 1)
 		col++
 	}
 
-	// Row 3: Caps(1.75) A S D F G H J K L ; ' Enter(2.25)
-	vk.capsLockBtn = vk.createModifierKey("Caps", 57)
+	vk.capsLockKey = vk.newDesktopModKey("Caps", 57)
 	col = 0
-	vk.placeKey(grid, vk.capsLockBtn, 3, col, 1.75)
+	add(vk.capsLockKey, 3, col, 1.75)
 	col += 1.75
 	for _, pair := range []struct {
 		l string
@@ -155,15 +187,15 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}{
 		{"A", 4}, {"S", 22}, {"D", 7}, {"F", 9}, {"G", 10}, {"H", 11}, {"J", 13}, {"K", 14}, {"L", 15}, {";", 51}, {"'", 52},
 	} {
-		vk.placeKey(grid, vk.createKey(pair.l, pair.c, 0), 3, col, 1)
+		add(vk.newDesktopKey(pair.l, pair.c, 0), 3, col, 1)
 		col++
 	}
-	vk.placeKey(grid, vk.createKey("Enter", 40, 0), 3, col, 2.25)
+	add(vk.newDesktopKey("Enter", 40, 0), 3, col, 2.25)
 
-	// Row 4: Shift(1.5) Z X C V B N M , . / Shift(1.5) ↑ [invisible]
-	vk.shiftBtn = vk.createModifierKey("Shift", 225)
+	vk.shiftKey = vk.newDesktopModKey("Shift", 225)
+	vk.shiftKeyR = vk.newDesktopModKey("Shift", 229)
 	col = 0
-	vk.placeKey(grid, vk.shiftBtn, 4, col, 1.5)
+	add(vk.shiftKey, 4, col, 1.5)
 	col += 1.5
 	for _, pair := range []struct {
 		l string
@@ -171,45 +203,44 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}{
 		{"Z", 29}, {"X", 27}, {"C", 6}, {"V", 25}, {"B", 5}, {"N", 17}, {"M", 16}, {",", 54}, {".", 55}, {"/", 56},
 	} {
-		vk.placeKey(grid, vk.createKey(pair.l, pair.c, 0), 4, col, 1)
+		add(vk.newDesktopKey(pair.l, pair.c, 0), 4, col, 1)
 		col++
 	}
-	vk.placeKey(grid, vk.createModifierKey("Shift", 229), 4, col, 1.5)
+	add(vk.shiftKeyR, 4, col, 1.5)
 	col += 1.5
-	vk.placeKey(grid, vk.createIconKey(theme.MoveUpIcon(), 82, 0), 4, col, 1)
-	col++
-	vk.placeInvisiblePlaceholder(grid, 4, col)
+	add(vk.newDesktopIconKey(theme.MoveUpIcon(), 82, 0), 4, col, 1)
 
-	// Row 5: Ctrl(1.25) Win(1.25) Alt(1.25) Space(3.5) Alt Win Menu Ctrl ← ↓ →
-	vk.ctrlBtn = vk.createModifierKey("Ctrl", 224)
-	vk.winBtn = vk.createModifierKey("⊞", 227)
-	vk.altBtn = vk.createModifierKey("Alt", 226)
+	vk.ctrlKey = vk.newDesktopModKey("Ctrl", 224)
+	vk.ctrlKeyR = vk.newDesktopModKey("Ctrl", 228)
+	vk.winKey = vk.newDesktopModKey("Win", 227)
+	vk.winKeyR = vk.newDesktopModKey("Win", 231)
+	vk.altKey = vk.newDesktopModKey("Alt", 226)
+	vk.altKeyR = vk.newDesktopModKey("Alt", 230)
 	col = 0
-	vk.placeKey(grid, vk.ctrlBtn, 5, col, 1.25)
+	add(vk.ctrlKey, 5, col, 1.25)
 	col += 1.25
-	vk.placeKey(grid, vk.winBtn, 5, col, 1.25)
+	add(vk.winKey, 5, col, 1.25)
 	col += 1.25
-	vk.placeKey(grid, vk.altBtn, 5, col, 1.25)
+	add(vk.altKey, 5, col, 1.25)
 	col += 1.25
-	vk.placeKey(grid, vk.createKey("Space", 44, 0), 5, col, 3.5)
+	add(vk.newDesktopKey("Space", 44, 0), 5, col, 3.5)
 	col += 3.5
-	vk.placeKey(grid, vk.createKey("Alt", 230, 0), 5, col, 1.25)
+	add(vk.altKeyR, 5, col, 1.25)
 	col += 1.25
-	vk.placeKey(grid, vk.createModifierKey("⊞", 231), 5, col, 1.25)
+	add(vk.winKeyR, 5, col, 1.25)
 	col += 1.25
-	vk.placeKey(grid, vk.createKey("☰", 232, 0), 5, col, 1)
+	add(vk.newDesktopKey("Menu", 232, 0), 5, col, 1)
 	col++
-	vk.placeKey(grid, vk.createModifierKey("Ctrl", 228), 5, col, 1.25)
+	add(vk.ctrlKeyR, 5, col, 1.25)
 	col += 1.25
-	vk.placeKey(grid, vk.createIconKey(theme.NavigateBackIcon(), 80, 0), 5, col, 1)
+	add(vk.newDesktopIconKey(theme.NavigateBackIcon(), 80, 0), 5, col, 1)
 	col++
-	vk.placeKey(grid, vk.createIconKey(theme.MoveDownIcon(), 81, 0), 5, col, 1)
+	add(vk.newDesktopIconKey(theme.MoveDownIcon(), 81, 0), 5, col, 1)
 	col++
-	vk.placeKey(grid, vk.createIconKey(theme.NavigateNextIcon(), 79, 0), 5, col, 1)
+	add(vk.newDesktopIconKey(theme.NavigateNextIcon(), 79, 0), 5, col, 1)
 
-	background.Move(fyne.NewPos(0, 0))
-	background.Resize(fyne.NewSize(keyboardW, keyboardH))
-
-	layout := &centerKeyboardLayout{width: keyboardW, height: keyboardH}
-	return container.New(layout, grid)
+	bg := canvas.NewRectangle(design.ColorGray950)
+	board := container.New(lay, keys...)
+	themed := container.NewThemeOverride(board, design.NewBrandTheme())
+	return container.NewStack(bg, themed)
 }

@@ -10,6 +10,7 @@ import (
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/service"
+	"usbridge-client/internal/usbpass"
 
 	"github.com/sirupsen/logrus"
 )
@@ -86,6 +87,7 @@ func (dw *DiskWidget) loadISOSpace() {
 
 // updateSDStorageInfo updates the progress bar in the main window via callback
 func (dw *DiskWidget) updateSDStorageInfo() {
+	dw.syncDashboardBackupSpace()
 	if dw.sdSpaceInfo == nil || dw.sdSpaceInfo.TotalSpace <= 0 {
 		if dw.onStorageInfoUpdate != nil {
 			dw.onStorageInfoUpdate(0, 0, 0)
@@ -98,6 +100,33 @@ func (dw *DiskWidget) updateSDStorageInfo() {
 	if dw.onStorageInfoUpdate != nil {
 		dw.onStorageInfoUpdate(usedPct/100, available, total)
 	}
+}
+
+// syncDashboardBackupSpace fills the Backups card header meter from the
+// latest SD-card reading (same ISOSpaceInfo the header chip uses). Hidden
+// until a real total is known -- GetDashboardContainer may not have built
+// the meter yet, which is why this no-ops on a nil widget.
+func (dw *DiskWidget) syncDashboardBackupSpace() {
+	if dw.dashboardBackupSpace == nil {
+		return
+	}
+	info := dw.sdSpaceInfo
+	if info == nil || info.TotalSpace <= 0 {
+		dw.dashboardBackupSpace.Clear()
+		return
+	}
+	used := info.UsedSpace
+	if used <= 0 {
+		used = info.TotalSpace - info.AvailableSpace
+		if used < 0 {
+			used = 0
+		}
+	}
+	pct := info.UsedPercent / 100
+	if pct <= 0 && info.TotalSpace > 0 {
+		pct = float64(used) / float64(info.TotalSpace)
+	}
+	dw.dashboardBackupSpace.Set(pct, models.FormatStorageSizeOnly(used, info.TotalSpace))
 }
 
 // loadLocalFiles loads local files from the isos folder
@@ -453,6 +482,24 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, usbAudioItem)
 	}
 
+	for i := range dw.usbPassDevices {
+		d := dw.usbPassDevices[i]
+		name := d.Description
+		if name == "" {
+			name = d.VID + ":" + d.PID
+		}
+		if d.Protected {
+			name = name + " (" + i18n.Current.USBPassthroughProtected + ")"
+		}
+		dw.allDrives = append(dw.allDrives, DriveItem{
+			Name:             name,
+			Size:             d.VID + ":" + d.PID,
+			Source:           "usbpass",
+			IsUSBPassthrough: true,
+			USBPassthrough:   &dw.usbPassDevices[i],
+		})
+	}
+
 	// Restore the upload and mount state
 	for i := range dw.allDrives {
 		if dw.allDrives[i].DiskInfo != nil {
@@ -498,6 +545,20 @@ func (dw *DiskWidget) loadGamepadDevices() {
 	})
 }
 
+func (dw *DiskWidget) loadUSBPassthroughDevices() {
+	go func() {
+		devs, err := usbpass.ListLocal()
+		if err != nil {
+			logrus.Debugf("usb passthrough list: %v", err)
+			devs = nil
+		}
+		dw.updateUIAsync(func() {
+			dw.usbPassDevices = devs
+			dw.scheduleCombine()
+		})
+	}()
+}
+
 // loadMountedDevices loads mounted devices via the API
 func (dw *DiskWidget) loadMountedDevices() {
 	if !dw.loadingMountedInfo.CompareAndSwap(false, true) {
@@ -517,13 +578,20 @@ func (dw *DiskWidget) loadMountedDevices() {
 			return
 		}
 
-		logrus.Debugf("Loaded %d mounted devices, agentOS='%s'", len(deviceInfo.Devices), deviceInfo.AgentOS)
+		var passSessions []string
+		if st, err := dw.usbClient.GetUSBPassthroughStatus(); err == nil && st != nil {
+			passSessions = append([]string(nil), st.Sessions...)
+		}
+
+		logrus.Debugf("Loaded %d mounted devices, agentOS='%s', usbpass_sessions=%d",
+			len(deviceInfo.Devices), deviceInfo.AgentOS, len(passSessions))
 		dw.updateUIAsync(func() {
 			dw.mountedDevices = make([]*models.DeviceInfo, len(deviceInfo.Devices))
 			for i := range deviceInfo.Devices {
 				dw.mountedDevices[i] = &deviceInfo.Devices[i]
 			}
 			dw.agentOS = deviceInfo.AgentOS
+			dw.usbPassSessions = passSessions
 			// Only propagate the server's MountInProgress flag when no local user
 			// operation is in flight — a stale poll response must not re-lock the UI
 			// after endOperation() already cleared the flag.
@@ -561,6 +629,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	if info, err := getVideoInfoData(dw.usbClient); err == nil && info != nil {
 		currentVideoPath = info.Device
 		videoStreaming = info.Streaming
+		dw.virtualDisplaySupported.Store(info.VirtualDisplaySupported)
 	}
 
 	var currentAudioPath string
@@ -609,6 +678,24 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			}
 			drive.IsMounted = isMounted
 			logrus.Debugf("🔊 %s (%s): %v -> %v", drive.Name, drive.Source, oldStatus, drive.IsMounted)
+			continue
+		}
+
+		// USB passthrough green = this client's local export is active.
+		// Do NOT use agent /status sessions alone: the broker historically
+		// left stale entries after detach, so disconnect looked still mounted.
+		if drive.IsUSBPassthrough {
+			if drive.USBPassthrough != nil {
+				bus := drive.USBPassthrough.BusID
+				for _, id := range usbpass.ActiveBusIDs() {
+					if strings.EqualFold(id, bus) {
+						isMounted = true
+						break
+					}
+				}
+			}
+			drive.IsMounted = isMounted
+			logrus.Debugf("🔌 %s (usbpass): %v -> %v", drive.Name, oldStatus, drive.IsMounted)
 			continue
 		}
 
@@ -798,4 +885,5 @@ func (dw *DiskWidget) updateDevicesStatus() {
 
 	dw.updateButtons()
 	dw.syncGamepadCaptures()
+	dw.syncPenCaptures()
 }

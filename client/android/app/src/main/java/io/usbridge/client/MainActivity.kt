@@ -11,8 +11,11 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -125,11 +128,15 @@ class MainActivity : GoNativeActivity() {
     @Volatile
     private var vpnPermissionState: Int = 0
 
+    /** When true, re-show the soft keyboard if Android dismisses it (system/auto mode). */
+    @Volatile
+    private var stickyIME: Boolean = false
+
     private val gyroSensorManager: GyroSensorManager by lazy { GyroSensorManager(this) }
 
-    // Two-finger gesture tracker — mode (PAN_ZOOM vs SCROLL) is locked at gesture start.
-    // Threshold is 30% of the smaller screen dimension: fingers closer than this → scroll
-    // wheel only, farther apart → pan+zoom (resize) only. The two never fire together.
+    // Two-finger: mode locked at second-finger down by spacing.
+    // Close → scroll only; far → pinch zoom only. Never both in one gesture.
+    // One-finger canvas pan is the Control footer move button.
     private val gestureTracker: TwoFingerGestureTracker by lazy {
         val dm = resources.displayMetrics
         val minDimensionPx = minOf(dm.widthPixels, dm.heightPixels)
@@ -183,6 +190,10 @@ class MainActivity : GoNativeActivity() {
         super.onCreate(savedInstanceState)
         instance = this
         Log.i(TAG, "MainActivity created")
+        // Parent paints status/nav to header/footer colors; re-apply after
+        // Fyne's NativeActivity setup so OEM overlays don't reset them.
+        window.statusBarColor = 0xFF181C1F.toInt()
+        window.navigationBarColor = 0xFF0B0F12.toInt()
         setupIMEListener()
 
         connectivityManager = getSystemService(ConnectivityManager::class.java)
@@ -194,6 +205,58 @@ class MainActivity : GoNativeActivity() {
         gyroSensorManager.start()
 
         clipboardManager.addPrimaryClipChangedListener { clipChangeCount++ }
+        setupSystemBack()
+    }
+
+    // Gesture-nav Back on API 33+ never reaches onBackPressed; without this
+    // Samsung just backgrounds the activity and fullscreen cannot be exited.
+    private var backInvokedCallback: Any? = null
+    @Volatile private var lastSystemBackAt = 0L
+
+    private fun setupSystemBack() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return
+        }
+        val cb = OnBackInvokedCallback {
+            handleSystemBack()
+        }
+        backInvokedCallback = cb
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(
+            OnBackInvokedDispatcher.PRIORITY_OVERLAY,
+            cb,
+        )
+        Log.i(TAG, "OnBackInvokedCallback registered")
+    }
+
+    /** True when Go consumed Back (fullscreen / keyboard / popup). */
+    private fun handleSystemBack(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSystemBackAt < 350) {
+            return true
+        }
+        lastSystemBackAt = now
+        try {
+            if (BackBridge.onSystemBack()) {
+                Log.i(TAG, "⬅️ System Back consumed by Go")
+                return true
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "⬅️ onSystemBack JNI failed: ${e.message}")
+        }
+        if (stickyIME || isKeyboardIgnoresTopSafeArea()) {
+            Log.i(TAG, "⬅️ System Back: dismissing sticky IME")
+            try {
+                KeyboardBridge.onIMEUserDismissed()
+            } catch (e: Exception) {
+                Log.e(TAG, "⬅️ IME dismiss fallback failed: ${e.message}")
+                stickyIME = false
+                org.golang.app.GoNativeActivity.hideKeyboard()
+            }
+            return true
+        }
+        Log.i(TAG, "⬅️ System Back: moveTaskToBack")
+        moveTaskToBack(true)
+        return true
     }
 
     private fun reportLanguage() {
@@ -299,20 +362,25 @@ class MainActivity : GoNativeActivity() {
                 Log.d(TAG, "⌨️ [IME] height changed: imeHeight=$imeHeight (visible=$visibleImeHeight, navBar=$navBarHeight) screenHeight=$screenHeight")
 
                 if (visibleImeHeight == 0 && wasKeyboardVisible) {
-                    // The IME just hid (user pressed ↓ or the collapse button).
-                    // Sync GoNativeActivity's state: keyboardUp=false and textEdit=GONE.
-                    // Without this: the "Back" button sees keyboardUp=true and doesn't exit
-                    // fullscreen; and in normal mode Fyne doesn't know the keyboard is gone and
-                    // doesn't relayout.
-                    Log.d(TAG, "⌨️ [IME] hidden — resetting keyboardUp via hideKeyboard()")
-                    org.golang.app.GoNativeActivity.hideKeyboard()
-
-                    // Clear focus from the input field so Fyne relayouts.
-                    // Without this, in normal mode the layout doesn't return to place until the
-                    // window is clicked.
+                    // Soft IME went away (system Back, GBoard ↓, focus loss, …).
+                    // Always collapse our sticky + special-keys stack in Go —
+                    // do not re-show: Back used to clear only the soft IME and
+                    // leave the header keys + footer toggle stuck on.
+                    Log.i(TAG, "⌨️ [IME] soft keyboard hidden — dismissing Go keyboard stack")
+                    stickyIME = false
+                    try {
+                        org.golang.app.GoNativeActivity.hideKeyboard()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ [IME] hideKeyboard failed: ${e.message}")
+                    }
                     currentFocus?.let {
                         Log.d(TAG, "⌨️ [IME] clearing focus from ${it.javaClass.simpleName}")
                         it.clearFocus()
+                    }
+                    try {
+                        KeyboardBridge.onIMEUserDismissed()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ [IME] onIMEUserDismissed failed: ${e.message}")
                     }
                 } else if (imeHeight == 0 && isInitialLayout) {
                     // First launch: Fyne uses the full canvas including the nav bar.
@@ -340,6 +408,12 @@ class MainActivity : GoNativeActivity() {
     }
 
     override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            (backInvokedCallback as? OnBackInvokedCallback)?.let {
+                onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it)
+            }
+            backInvokedCallback = null
+        }
         try {
             unregisterReceiver(inputMethodReceiver)
         } catch (e: Exception) {
@@ -358,6 +432,14 @@ class MainActivity : GoNativeActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // 3-button Back still arrives as KEYCODE_BACK. Consume it so Fyne
+        // does not treat unfocused Back as finish()/GoBack.
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                handleSystemBack()
+            }
+            return true
+        }
         // In GyroMouse mode intercept volume buttons as LMB/RMB instead of changing volume.
         if (GyroBridge.isGyroMouseModeActive()) {
             when (event.keyCode) {
@@ -609,6 +691,45 @@ class MainActivity : GoNativeActivity() {
         runOnUiThread {
             reportLanguage()
         }
+    }
+
+    /**
+     * Sticky system soft keyboard: show and keep open until setStickyIME(false).
+     * Used by the Control footer "System keyboard" mode.
+     */
+    fun setStickyIME(enabled: Boolean) {
+        stickyIME = enabled
+        Log.i(TAG, "⌨️ [IME] sticky=$enabled")
+        // Drop Fyne top/side safe pad + hide status bar so special keys rise
+        // into that band. Restored when sticky turns off.
+        setKeyboardIgnoresTopSafeArea(enabled)
+        runOnUiThread {
+            if (enabled) {
+                window.decorView.post {
+                    if (stickyIME) {
+                        try {
+                            org.golang.app.GoNativeActivity.showKeyboard(0)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ [IME] sticky show failed: ${e.message}")
+                        }
+                    }
+                }
+            } else {
+                try {
+                    org.golang.app.GoNativeActivity.hideKeyboard()
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [IME] sticky hide failed: ${e.message}")
+                }
+                currentFocus?.clearFocus()
+            }
+        }
+    }
+
+    fun isStickyIME(): Boolean = stickyIME
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        handleSystemBack()
     }
 
     fun getVpnPermissionState(): Int = vpnPermissionState

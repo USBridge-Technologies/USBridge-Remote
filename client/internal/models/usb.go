@@ -42,7 +42,29 @@ type NBDStatus struct {
 	Export    string `json:"export"`
 }
 
-// USBDeviceInfo USB device information
+// USBPassthroughStatus is the thin REST view of rust-shine usb-broker.
+type USBPassthroughStatus struct {
+	Available   bool     `json:"available"`
+	Platform    string   `json:"platform"`
+	BrokerAlive bool     `json:"broker_alive"`
+	StubDriver  bool     `json:"stub_driver"`
+	VhciDriver  bool     `json:"vhci_driver"`
+	ListenPort  int      `json:"listen_port"`
+	Sessions    []string `json:"sessions"`
+	BrokerError string   `json:"broker_error,omitempty"`
+	DriverHint  string   `json:"driver_hint,omitempty"`
+}
+
+// USBPassthroughDevice is a local USB device listed by the closed broker.
+type USBPassthroughDevice struct {
+	BusID         string `json:"bus_id"`      // Linux-style USB/IP busid (N-M)
+	InstanceID    string `json:"instance_id"` // Windows SetupAPI instance id
+	VID           string `json:"vid"`
+	PID           string `json:"pid"`
+	Description   string `json:"description"`
+	Protected     bool   `json:"protected"`
+	PreferredTest bool   `json:"preferred_test"`
+}
 type USBDeviceInfo struct {
 	Connected       bool   `json:"connected"`
 	GadgetName      string `json:"gadget_name"`
@@ -78,6 +100,26 @@ type VideoStatus struct {
 	SupportedModes    []VideoTransportMode `json:"supported_modes,omitempty"`
 	ClientsCount      int                  `json:"clients_count"`
 	Streaming         bool                 `json:"streaming"`
+
+	// Color444Active is whether the most recently started (or currently
+	// running) session actually negotiated RustShine Pro 4:4:4 chroma --
+	// post-fallback truth, the same way Encoding is (see agent's
+	// Application.Color444Status doc comment). Color444Available is
+	// whether the agent could offer 4:4:4 right now at all (hardware probe
+	// AND license tier) -- the video-settings popup shows/enables its
+	// 4:4:4 checkbox based on this, before the user has ever started
+	// streaming.
+	Color444Active          bool `json:"color_444_active"`
+	Color444Available       bool `json:"color_444_available"`
+	// HdrActive/HdrAvailable mirror Color444Active/Color444Available
+	// exactly, for RustShine HDR (HEVC Main10, BT.2020 + PQ) instead of
+	// 4:4:4 chroma -- see rust-shine's docs/COLOR_MODES.md for why these
+	// are independent axes with independent availability (today: HDR is
+	// macOS-only, 4:4:4 is Linux-only, a given agent can report either,
+	// both, or neither true).
+	HdrActive               bool `json:"hdr_active"`
+	HdrAvailable            bool `json:"hdr_available"`
+	VirtualDisplaySupported bool `json:"virtual_display_supported"`
 }
 
 const (
@@ -298,6 +340,25 @@ type VideoStartRequest struct {
 	VideoMode          string `json:"video_mode,omitempty"`
 	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
 	EnableVSync        bool   `json:"enable_vsync,omitempty"`
+	// Color444 requests RustShine Pro 4:4:4 chroma for this session --
+	// purely a local hint to the client's own Moonlight connection setup
+	// (VideoWidget.startVideoWithParamsInternal -> VideoClient.SetColor444),
+	// never sent to the agent's capture-card REST API: the real
+	// negotiation happens entirely client-side via moonlight-common-c's
+	// own ANNOUNCE (chromaSamplingType), gated on the agent/RustShine
+	// actually advertising SCM_HEVC_REXT8_444 in /serverinfo. Ignored
+	// (silently has no effect) for any mode other than "h265", the only
+	// codec this project's hardware encode path wires 4:4:4 up for.
+	Color444 bool `json:"-"`
+	// Hdr requests RustShine HDR (HEVC Main10, BT.2020 + PQ) for this
+	// session -- mirrors Color444 exactly: a local hint to the client's own
+	// Moonlight connection setup (VideoWidget.startVideoWithParamsInternal
+	// -> VideoClient.SetHdr), never sent to the agent's capture-card REST
+	// API, gated on the agent/RustShine advertising SCM_HEVC_MAIN10 in
+	// /serverinfo. Ignored for any mode other than "h265", and independent
+	// of Color444 (see rust-shine's docs/COLOR_MODES.md: chroma and dynamic
+	// range are separate axes).
+	Hdr bool `json:"-"`
 	// ClientPort - client port to receive UDP stream (server will take IP from HTTP)
 	ClientHost string `json:"client_host,omitempty"`
 	ClientPort int    `json:"client_port,omitempty"`
@@ -341,7 +402,13 @@ type VideoDeviceConfig struct {
 	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
 	ShowMouse          bool   `json:"show_mouse,omitempty"`
 	EnableVSync        bool   `json:"enable_vsync,omitempty"`
-	LastAppliedAt      int64  `json:"last_applied_at,omitempty"`
+	// Color444 persists the user's RustShine Pro 4:4:4 checkbox choice for
+	// this capture device -- see VideoStartRequest.Color444's doc comment.
+	Color444 bool `json:"color_444,omitempty"`
+	// Hdr persists the user's RustShine HDR checkbox choice for this
+	// capture device -- see VideoStartRequest.Hdr's doc comment.
+	Hdr           bool  `json:"hdr,omitempty"`
+	LastAppliedAt int64 `json:"last_applied_at,omitempty"`
 }
 
 func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
@@ -356,6 +423,8 @@ func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 		CapturePixelFormat: c.CapturePixelFormat,
 		ShowMouse:          c.ShowMouse,
 		EnableVSync:        c.EnableVSync,
+		Color444:           c.Color444,
+		Hdr:                c.Hdr,
 	}
 }
 

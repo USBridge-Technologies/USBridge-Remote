@@ -13,12 +13,13 @@ import (
 )
 
 type Config struct {
-	AppName          string `yaml:"app_name"`
-	ListenHost       string `yaml:"listen_host"`
-	HTTPPort         int    `yaml:"http_port"`
-	TailscaleEnabled bool   `yaml:"tailscale_enabled"`
-	NBDMountCommand  string `yaml:"nbd_mount_command"`
-	StateDir         string `yaml:"state_dir"`
+	AppName            string `yaml:"app_name"`
+	ListenHost         string `yaml:"listen_host"`
+	HTTPPort           int    `yaml:"http_port"`
+	UsbPassthroughPort int    `yaml:"usb_passthrough_port"`
+	TailscaleEnabled   bool   `yaml:"tailscale_enabled"`
+	NBDMountCommand    string `yaml:"nbd_mount_command"`
+	StateDir           string `yaml:"state_dir"`
 	// Moonlight/Sunshine protocol
 	MasterKey    string `yaml:"master_key"`
 	SunshinePort int    `yaml:"sunshine_port"`
@@ -85,13 +86,14 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		AppName:          "USBridge Agent",
-		ListenHost:       "0.0.0.0",
-		HTTPPort:         8080,
-		TailscaleEnabled: true,
-		NBDMountCommand:  "",
-		StateDir:         defaultStateDir(),
-		SunshinePort:     47990,
+		AppName:            "USBridge Agent",
+		ListenHost:         "0.0.0.0",
+		HTTPPort:           8080,
+		UsbPassthroughPort: 8090,
+		TailscaleEnabled:   true,
+		NBDMountCommand:    "",
+		StateDir:           defaultStateDir(),
+		SunshinePort:       47990,
 
 		ClipboardSyncEnabled: true,
 		ClipboardMaxBytes:    200 * 1024 * 1024,
@@ -146,6 +148,30 @@ func GenerateSecureToken() (string, error) {
 
 func (c Config) EnsureState() error {
 	return os.MkdirAll(c.StateDir, 0o755)
+}
+
+// DirIsUsable reports whether this process can create and write dir.
+// os.MkdirAll alone is not enough: on Windows it can fail with
+// ERROR_ALREADY_EXISTS ("Cannot create a file when that file already
+// exists") against LocalSystem's profile (…\system32\config\systemprofile)
+// when a later interactive user loads a config.yaml the service wrote next
+// to the exe. A successful MkdirAll of an existing-but-unwritable directory
+// is also possible, so we probe with a throwaway file.
+func DirIsUsable(dir string) bool {
+	if strings.TrimSpace(dir) == "" {
+		return false
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false
+	}
+	probe := filepath.Join(dir, ".write-probe")
+	f, err := os.Create(probe)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	_ = os.Remove(probe)
+	return true
 }
 
 func defaultStateDir() string {

@@ -494,6 +494,52 @@ func (c *USBClient) GetISOSpace() (*models.ISOSpaceInfo, error) {
 }
 
 // GetDeviceStatus gets device status (new API)
+func (c *USBClient) GetUSBPassthroughStatus() (*models.USBPassthroughStatus, error) {
+	resp, err := c.makeRequest("GET", "/api/usb/passthrough/status", nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, err
+	}
+	var st models.USBPassthroughStatus
+	if err := json.Unmarshal(raw, &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+func (c *USBClient) InstallUSBPassthroughDrivers() (*models.APIResponse, error) {
+	resp, err := c.makeRequest("POST", "/api/usb/passthrough/install", nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return &apiResp, nil
+}
+
+func (c *USBClient) OpenUSBPassthroughSession() (*models.APIResponse, error) {
+	body, _ := json.Marshal(map[string]string{"action": "ready"})
+	resp, err := c.makeRequest("POST", "/api/usb/passthrough/session", body)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return &apiResp, nil
+}
+
+// GetDeviceStatus gets device status (new API)
 func (c *USBClient) GetDeviceStatus() (*models.DeviceStatusResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/device/status", nil)
 	if err != nil {
@@ -1845,4 +1891,43 @@ func (c *USBClient) SaveScript(path, content string) error {
 	}
 
 	return nil
+}
+
+func (c *USBClient) AddVirtualDisplay(width, height, fps int) (*models.APIResponse, error) {
+	payload := map[string]int{
+		"width":  width,
+		"height": height,
+		"fps":    fps,
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.makeRequest("POST", "/api/video/virtual_displays", bodyBytes)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+	return &apiResp, nil
+}
+
+func (c *USBClient) RemoveVirtualDisplay(id string) (*models.APIResponse, error) {
+	resp, err := c.makeRequest("DELETE", "/api/video/virtual_displays/"+url.PathEscape(id), nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("API error: %s", apiResp.Message)
+	}
+	return &apiResp, nil
 }

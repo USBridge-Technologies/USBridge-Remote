@@ -2,24 +2,190 @@ package controller
 
 import (
 	"runtime"
+	"sort"
 	"strings"
 
+	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
+	"github.com/sirupsen/logrus"
 )
 
+// connectionsViewModePrefKey persists the Grid/List toggle (view.
+// ConnectionManagerUI's viewMode) across restarts via app.Preferences() --
+// the same small key/value store already used for e.g. "language" and
+// "clipboard_sync_enabled" elsewhere in this package. Defaults to "grid"
+// (view.NewConnectionManagerUI's own fallback) the first time the app runs,
+// before this key has ever been set.
+const connectionsViewModePrefKey = "connections_view_mode"
+
+// addCardDismissedPrefKey persists Grid mode's "Add New Connect" tile being
+// closed -- the footer chip restores it. Same small prefs store as
+// connectionsViewModePrefKey / "language".
+const addCardDismissedPrefKey = "connections.add_card.dismissed"
+
+// firmwarePromoDismissedPrefKey persists the firmware banner being closed
+// -- the footer "software" chip restores it.
+const firmwarePromoDismissedPrefKey = "connections.firmware_promo.dismissed"
+
 func (cm *ConnectionManager) createInterface() {
+	cm.addCardDismissed = cm.app.Preferences().BoolWithFallback(addCardDismissedPrefKey, false)
+	cm.promoChip = view.NewFooterTintChip("+", design.ColorTextMuted, cm.restoreAddConnectionCard)
+	cm.promoChip.Hide()
+	cm.firmwarePromoDismissed = cm.app.Preferences().BoolWithFallback(firmwarePromoDismissedPrefKey, false)
+	cm.firmwareBanner = view.NewFirmwarePromoBanner()
+	cm.firmwareBanner.SetOnDismiss(cm.dismissFirmwarePromo)
+	cm.firmwareBanner.SetOnTrial(cm.openFirmwarePromo)
+	cm.firmwareChip = view.NewFooterHardwareChip("Hardware Agent")
+	cm.firmwareChip.SetOnOpen(cm.openFirmwarePromo)
+	cm.firmwareChip.SetOnRestore(cm.restoreFirmwarePromo)
+	cm.agentChip = view.NewFooterTintChip("Software Agent", design.ColorConnectionBadgeText, cm.showAgentCatalog)
 	cm.ui = view.NewConnectionManagerUI(
 		cm.handleQRScan,
 		cm.showAddDialog,
-		cm.openQuickStartDocs,
+		cm.openInfoPage,
 		cm.openHardwarePromo,
-		cm.handleTailscaleToggleAction,
+		cm.handlePasteLink,
+		cm.handleConnectionSortToggle,
+		cm.app.Preferences().StringWithFallback(connectionsViewModePrefKey, "grid"),
+		func(mode string) {
+			cm.app.Preferences().SetString(connectionsViewModePrefKey, mode)
+		},
 	)
+	cm.ui.SetFirmwarePromo(cm.firmwareBanner)
+	cm.syncAddCardPromo()
+	cm.syncFirmwarePromo()
 	cm.refreshConnectionsList()
 	cm.initTailscaleMode()
+}
+
+// PromoFooterChip is the Connections footer's right-side "+" that restores
+// a dismissed Add New Connect tile -- nil-safe so createConnectionFooterBar
+// can ask before the manager exists.
+func (cm *ConnectionManager) PromoFooterChip() fyne.CanvasObject {
+	if cm == nil {
+		return nil
+	}
+	return cm.promoChip
+}
+
+// FirmwareFooterChip is the Connections footer's Hardware Agent stand-in
+// when the firmware banner is dismissed: the label restores the promo,
+// the external icon opens the landing page.
+func (cm *ConnectionManager) FirmwareFooterChip() fyne.CanvasObject {
+	if cm == nil {
+		return nil
+	}
+	return cm.firmwareChip
+}
+
+// AgentFooterChip is the Connections footer's always-visible turquoise
+// "Agent" action -- opens the software-agent catalog dialog.
+func (cm *ConnectionManager) AgentFooterChip() fyne.CanvasObject {
+	if cm == nil {
+		return nil
+	}
+	return cm.agentChip
+}
+
+// ShowAgentCatalog opens the desktop Software Agent editions dialog.
+func (cm *ConnectionManager) ShowAgentCatalog() {
+	if cm == nil {
+		return
+	}
+	cm.showAgentCatalog()
+}
+
+// OpenHardwareAgentPage opens the firmware / hardware-agent landing page.
+func (cm *ConnectionManager) OpenHardwareAgentPage() {
+	if cm == nil {
+		return
+	}
+	cm.openFirmwarePromo()
+}
+
+func (cm *ConnectionManager) showAgentCatalog() {
+	if cm.window == nil {
+		return
+	}
+	downloadLabel := "Download"
+	subtitle := ""
+	hint := ""
+	if i18n.Current != nil {
+		if i18n.Current.FirmwarePromoTrial != "" {
+			downloadLabel = i18n.Current.FirmwarePromoTrial
+		}
+		subtitle = i18n.Current.AgentCatalogSubtitle
+		hint = i18n.Current.AgentCatalogFooterHint
+	}
+	website := newScriptDialogTealButton(downloadLabel, nil, func() {
+		cm.openExternalLink(view.AgentCatalogWebsiteURL, "software agent page")
+	})
+	github := newScriptDialogLimeButton("GitHub", nil, func() {
+		cm.openExternalLink(view.AgentCatalogGitHubURL, "software agent GitHub")
+	})
+	if view.IsMobile() {
+		hint = ""
+	}
+	showBrandedOverlayDialog(brandedOverlayDialogSpec{
+		parent:       cm.window,
+		title:        view.AgentCatalogTitle,
+		subtitle:     subtitle,
+		body:         view.NewAgentCatalogBody(),
+		rightButtons: []fyne.CanvasObject{github, website},
+		tightFooter:  true,
+		footerHint:   hint,
+		panelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
+			return agentCatalogPanelSize(canvasSize)
+		},
+	})
+}
+
+func agentCatalogPanelSize(canvasSize fyne.Size) fyne.Size {
+	margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+	if view.IsMobile() {
+		margin = clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 16, 22)
+	}
+	maxW := canvasSize.Width - margin*2
+	maxH := canvasSize.Height - margin*2
+	if maxW < 0 {
+		maxW = canvasSize.Width
+	}
+	if maxH < 0 {
+		maxH = canvasSize.Height
+	}
+	w := minFloat32(maxW, 640)
+	h := minFloat32(maxH, 420)
+	return fyne.NewSize(w, h)
+}
+
+func (cm *ConnectionManager) openFirmwarePromo() {
+	cm.openExternalLink(view.FirmwarePromoURL, "firmware promo URL")
+}
+
+func (cm *ConnectionManager) dismissFirmwarePromo() {
+	cm.firmwarePromoDismissed = true
+	cm.app.Preferences().SetBool(firmwarePromoDismissedPrefKey, true)
+	cm.syncFirmwarePromo()
+}
+
+func (cm *ConnectionManager) restoreFirmwarePromo() {
+	cm.firmwarePromoDismissed = false
+	cm.app.Preferences().SetBool(firmwarePromoDismissedPrefKey, false)
+	cm.syncFirmwarePromo()
+}
+
+func (cm *ConnectionManager) syncFirmwarePromo() {
+	if cm.ui != nil {
+		cm.ui.SetFirmwarePromoVisible(!cm.firmwarePromoDismissed)
+	}
+	if cm.firmwareChip != nil {
+		cm.firmwareChip.SetActive(cm.firmwarePromoDismissed)
+	}
 }
 
 func (cm *ConnectionManager) initTailscaleMode() {
@@ -41,9 +207,14 @@ func (cm *ConnectionManager) initTailscaleMode() {
 	go cm.refreshTailscaleStatus()
 }
 
+// showLanguageMenu is the header's language button's tap callback (see
+// gui.connectionHeaderActions.OnShowLanguageMenu) -- styled via
+// ShowStyledMenuTeal to read like the per-connection protocol dropdown's
+// own AUTO/TS/LAN popup (teal, 10px), even though this stays a plain
+// ShowStyledMenu (full language names, no HeaderDropdown trigger).
 func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
-	currentLanguage := cm.app.Preferences().StringWithFallback("language", "en")
-	view.ShowStyledMenu(anchor, []view.StyledMenuItem{
+	currentLanguage := cm.app.Preferences().StringWithFallback(i18n.LanguagePrefKey, "en")
+	items := []view.StyledMenuItem{
 		{
 			Label:    "English",
 			Selected: currentLanguage == "en",
@@ -65,6 +236,74 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 				cm.setLanguage("uk")
 			},
 		},
+	}
+	if view.IsMobile() {
+		view.ShowMobileLanguageMenu(anchor, items)
+		return
+	}
+	view.ShowStyledMenuTeal(anchor, items)
+}
+
+// ShowLanguageMenu is showLanguageMenu, exported for
+// createConnectionAddressBar (package gui) to call.
+func (cm *ConnectionManager) ShowLanguageMenu(anchor fyne.CanvasObject) {
+	cm.showLanguageMenu(anchor)
+}
+
+func (cm *ConnectionManager) showLinkMenu(anchor fyne.CanvasObject, items []view.StyledMenuItem) {
+	if view.IsMobile() {
+		view.ShowMobileLanguageMenu(anchor, items)
+		return
+	}
+	view.ShowStyledMenuTeal(anchor, items)
+}
+
+// ShowInfoMenu is the connections header "?" button: Software / Hardware
+// GitHub plus the public website — same teal popup as the language menu.
+func (cm *ConnectionManager) ShowInfoMenu(anchor fyne.CanvasObject) {
+	cm.showLinkMenu(anchor, []view.StyledMenuItem{
+		{
+			Label: "Software",
+			Icon:  assets.GitHubIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://github.com/USBridge-Technologies/USBridge-Remote", "software GitHub URL")
+			},
+		},
+		{
+			Label: "Hardware",
+			Icon:  assets.GitHubIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://github.com/USBridge-Technologies/USBridge-KVM-2.0/tree/main/docs", "hardware GitHub URL")
+			},
+		},
+		{
+			Label: i18n.Current.MenuWebsite,
+			Icon:  assets.OpenExternalIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://www.usbridge.io/", "website URL")
+			},
+		},
+	})
+}
+
+// ShowCommunityMenu is the connections header community button: Discord
+// (same invite as OpenDiscordInvite) plus Reddit.
+func (cm *ConnectionManager) ShowCommunityMenu(anchor fyne.CanvasObject) {
+	cm.showLinkMenu(anchor, []view.StyledMenuItem{
+		{
+			Label: "Discord",
+			Icon:  assets.DiscordBrandIconTeal,
+			OnTap: func() {
+				cm.openDiscordInvite()
+			},
+		},
+		{
+			Label: "Reddit",
+			Icon:  assets.RedditIconTeal,
+			OnTap: func() {
+				cm.openExternalLink("https://www.reddit.com/r/USBridge/", "Reddit URL")
+			},
+		},
 	})
 }
 
@@ -72,6 +311,16 @@ func (cm *ConnectionManager) openQuickStartDocs() {
 	const docsURL = "https://www.usbridge.io/docs/getting-started/quick-start-guide/"
 
 	cm.openExternalLink(docsURL, "docs URL")
+}
+
+// openInfoPage opens the USBridge Remote product page -- the destination for
+// the connections screen's own "?" footer icon (distinct from the header's
+// helpBtn in main_window_layout.go, which links here too, and from
+// openQuickStartDocs' getting-started guide).
+func (cm *ConnectionManager) openInfoPage() {
+	const infoURL = "https://www.usbridge.io/usbridge-remote"
+
+	cm.openExternalLink(infoURL, "info URL")
 }
 
 func (cm *ConnectionManager) openDiscordInvite() {
@@ -106,21 +355,130 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 		// struct literal with no UI at all.
 		return
 	}
-	if len(cm.connections) == 0 {
-		cm.ui.SetEmptyState()
-		cm.notifyConnectionsState()
-		return
+	order := cm.connectionsDisplayOrder()
+
+	rows := make([]view.ConnectionListItem, 0, len(cm.connections))
+	cards := make([]fyne.CanvasObject, 0, len(cm.connections)+1)
+	remoteOSValues := make([]string, 0, len(cm.connections))
+	for _, idx := range order {
+		conn := cm.connections[idx]
+		rows = append(rows, cm.createConnectionRow(conn, idx))
+		cards = append(cards, cm.createConnectionGridCard(conn, idx))
+		remoteOSValues = append(remoteOSValues, conn.RemoteOS)
+	}
+	// Grid mode's own tile, last when it hasn't been dismissed -- with zero
+	// connections this is the only card, so the grid never goes empty (see
+	// view.ConnectionManagerUI.applyConnectionsContent). Closing it leaves
+	// a footer chip instead. List's equivalent (rows has no such tile) is
+	// addConnectionCardActions() below, used only when rows itself is empty
+	// -- see connection_list_table.go's newConnectionListAddRow.
+	showAddCard := !cm.addCardDismissed
+	if view.UseMobileConnections() {
+		// Phone: the dashed add tile is only the empty-state helper.
+		// Header "+" stays the add path once any connection exists.
+		showAddCard = showAddCard && len(order) == 0
+	}
+	if showAddCard {
+		cards = append(cards, cm.newAddConnectionGridCard())
 	}
 
-	rows := make([]*fyne.Container, 0, len(cm.connections))
-	for i, conn := range cm.connections {
-		rows = append(rows, cm.createConnectionRow(conn, i))
+	editIndex := -1
+	var editPanel fyne.CanvasObject
+	if !view.UseMobileConnections() && cm.editingListIndex >= 0 && cm.editingListIndex < len(cm.connections) {
+		// editIndex is a position in the (possibly reordered) rows slice,
+		// not a cm.connections index -- NewConnectionsListSplit highlights
+		// rows[editIndex], so it has to point at wherever editingListIndex's
+		// connection actually landed in this render's display order.
+		for pos, idx := range order {
+			if idx == cm.editingListIndex {
+				editIndex = pos
+				break
+			}
+		}
+		editPanel = cm.buildListEditPanel(cm.editingListIndex)
 	}
-	cm.ui.SetRows(rows)
+	cm.ui.SetRows(rows, cards, view.SummarizeConnections(remoteOSValues), editIndex, editPanel, cm.addConnectionCardActions())
 	cm.notifyConnectionsState()
 }
 
-func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) *fyne.Container {
+// addConnectionCardActions are the Scan QR/Paste Link/blank-dialog entry
+// points shared by Grid mode's add tile (newAddConnectionGridCard) and List
+// mode's equivalent placeholder row (view.ConnectionManagerUI.SetRows'
+// addActions, used only when there are zero saved connections). OnDismiss
+// is Grid-only -- List's empty-state row is not closable.
+func (cm *ConnectionManager) addConnectionCardActions() view.AddConnectionCardActions {
+	return view.AddConnectionCardActions{
+		OnAdd:       cm.showAddDialog,
+		OnQR:        cm.handleQRScan,
+		OnPasteLink: cm.handlePasteLink,
+		OnDismiss:   cm.dismissAddConnectionCard,
+	}
+}
+
+func (cm *ConnectionManager) dismissAddConnectionCard() {
+	cm.addCardDismissed = true
+	cm.app.Preferences().SetBool(addCardDismissedPrefKey, true)
+	cm.syncAddCardPromo()
+	cm.refreshConnectionsList()
+}
+
+func (cm *ConnectionManager) restoreAddConnectionCard() {
+	cm.addCardDismissed = false
+	cm.app.Preferences().SetBool(addCardDismissedPrefKey, false)
+	cm.syncAddCardPromo()
+	cm.refreshConnectionsList()
+}
+
+func (cm *ConnectionManager) syncAddCardPromo() {
+	if cm.promoChip == nil {
+		return
+	}
+	cm.promoChip.SetActive(cm.addCardDismissed)
+}
+
+// connectionsDisplayOrder returns cm.connections' indices in the order the
+// List/Grid should render them: unchanged (creation-date order) by default,
+// or with the matching category (KVM, Agent, or Unknown) stably moved to
+// the front when that header badge is active (connectionSortMode) --
+// nothing is hidden, only reordered, and each group keeps its own original
+// relative order (sort.SliceStable).
+func (cm *ConnectionManager) connectionsDisplayOrder() []int {
+	order := make([]int, len(cm.connections))
+	for i := range order {
+		order[i] = i
+	}
+	if cm.connectionSortMode == "" {
+		return order
+	}
+
+	wantKVM := cm.connectionSortMode == "kvm"
+	wantUnknown := cm.connectionSortMode == "unknown"
+	rank := func(idx int) int {
+		isAgent, isKVM := view.ClassifyConnectionRemoteOS(cm.connections[idx].RemoteOS)
+		switch {
+		case wantKVM && isKVM, !wantKVM && !wantUnknown && isAgent, wantUnknown && !isAgent && !isKVM:
+			return 0
+		default:
+			return 1
+		}
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return rank(order[i]) < rank(order[j])
+	})
+	return order
+}
+
+// handleConnectionSortToggle is the connections header's count-badge tap
+// callback (connectionsHeaderActions.OnSortToggle). kind is "kvm", "agent",
+// "unknown", or "" -- tapping the already-active badge turns it back off (view.
+// newConnectionsHeader computes that toggle), reverting to plain
+// creation-date order.
+func (cm *ConnectionManager) handleConnectionSortToggle(kind string) {
+	cm.connectionSortMode = kind
+	cm.refreshConnectionsList()
+}
+
+func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) view.ConnectionListItem {
 	conn.Protocol = normalizeConnectionProtocol(conn.Protocol)
 	internalHost, tailscaleHost := classifyConnectionHosts(conn)
 	rowState := view.ConnectionRowState{
@@ -138,11 +496,13 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 		})
 	}
 
-	return view.NewConnectionRow(
-		view.ConnectionRowData{
-			Name:           conn.Name,
-			AddressSummary: formatConnectionAddressSummary(internalHost, tailscaleHost),
-			ProtocolBadge:  connectionProtocolBadge(conn.Protocol),
+	return view.ConnectionListItem{
+		Data: view.ConnectionRowData{
+			Name:             conn.Name,
+			AddressSummary:   formatConnectionAddressSummary(internalHost, tailscaleHost),
+			LANAddress:       internalHost,
+			TailscaleAddress: tailscaleHost,
+			ProtocolBadge:    connectionProtocolBadge(conn.Protocol),
 			ProtocolOptions: []string{
 				connectionProtocolBadge(models.ConnectionProtocolAuto),
 				connectionProtocolBadge(models.ConnectionProtocolTailscale),
@@ -158,8 +518,8 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			RegisterVisible:      tailscaleRegisterUISupported() && internalHost != "" && tailscaleHost == "",
 			RemoteOS:             conn.RemoteOS,
 		},
-		rowState,
-		view.ConnectionRowActions{
+		State: rowState,
+		Actions: view.ConnectionRowActions{
 			OnSelect: fillForm,
 			OnUse: func() {
 				if !cm.beginConnectionFromRow(idx) {
@@ -182,7 +542,20 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				if cm.connectionPending {
 					return
 				}
-				cm.showEditDialog(idx)
+				if view.UseMobileConnections() {
+					cm.showMobileConnectionEdit(idx)
+					return
+				}
+				// Splits the List view instead of popping the modal
+				// (showEditDialog is now unused by List -- see
+				// buildListEditPanel/connection_manager_list_edit.go).
+				cm.editingListIndex = idx
+				fyne.Do(func() {
+					cm.refreshConnectionsList()
+				})
+			},
+			OnDelete: func() {
+				cm.handleDeleteConnection(idx, nil)
 			},
 			OnProtocolChange: func(label string) {
 				if cm.connectionPending {
@@ -202,7 +575,152 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				}
 			},
 		},
+	}
+}
+
+// createConnectionGridCard builds the same connection's Grid-mode card
+// (NewConnectionGridCard), mirroring createConnectionRow's data/actions so
+// the Grid/List toggle shows equivalent content either way.
+func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx int) fyne.CanvasObject {
+	conn.Protocol = normalizeConnectionProtocol(conn.Protocol)
+	internalHost, tailscaleHost := classifyConnectionHosts(conn)
+	rowState := view.ConnectionRowState{
+		Disabled: cm.connectionPending,
+		Loading:  cm.connectionPending && cm.activeConnectionIndex == idx,
+		Editing:  cm.editingGridIndex == idx,
+	}
+
+	fillForm := func() {
+		if cm.connectionPending {
+			return
+		}
+
+		fyne.Do(func() {
+			cm.SelectConnection(idx)
+		})
+	}
+
+	return view.NewConnectionGridCard(
+		view.ConnectionCardData{
+			Name:             conn.Name,
+			RemoteOS:         conn.RemoteOS,
+			LANAddress:       internalHost,
+			TailscaleAddress: tailscaleHost,
+			MasterKey:        conn.MasterKey,
+			ProtocolBadge:    connectionProtocolBadge(conn.Protocol),
+			ProtocolOptions: []string{
+				connectionProtocolBadge(models.ConnectionProtocolAuto),
+				connectionProtocolBadge(models.ConnectionProtocolTailscale),
+				connectionProtocolBadge(models.ConnectionProtocolDirect),
+			},
+		},
+		rowState,
+		view.ConnectionCardActions{
+			OnSelect: fillForm,
+			OnEdit: func() {
+				if cm.connectionPending {
+					return
+				}
+				if view.UseMobileConnections() {
+					cm.showMobileConnectionEdit(idx)
+					return
+				}
+				// Grid's pencil edits the card in place instead of opening
+				// the modal (List's showEditDialog stays modal -- see
+				// createConnectionRow's own OnEdit above).
+				cm.editingGridIndex = idx
+				fyne.Do(func() {
+					cm.refreshConnectionsList()
+				})
+			},
+			OnSave: func(name, lanAddress, tailscaleAddress, masterKey string) {
+				cm.saveGridCardEdit(idx, name, lanAddress, tailscaleAddress, masterKey)
+			},
+			OnDelete: func() {
+				cm.handleDeleteConnection(idx, nil)
+			},
+			OnCancel: func() {
+				// Discard the in-progress edit and go back to the normal
+				// card layout -- no validation, no save.
+				cm.editingGridIndex = -1
+				fyne.Do(func() {
+					cm.refreshConnectionsList()
+				})
+			},
+			OnUse: func() {
+				if !cm.beginConnectionFromRow(idx) {
+					return
+				}
+
+				fyne.Do(func() {
+					cm.SelectConnection(idx)
+					if cm.onConnect != nil {
+						conn := cm.connections[idx]
+						protocol := normalizeConnectionProtocol(conn.Protocol)
+						host := cm.resolveHostForProtocol(conn, protocol)
+						cm.onConnect(host, conn.MasterKey, protocol, conn.TailscaleRegister)
+						return
+					}
+					cm.SetConnectionPending(false)
+				})
+			},
+			OnProtocolChange: func(label string) {
+				if cm.connectionPending {
+					return
+				}
+				cm.updateConnectionProtocol(idx, connectionProtocolFromBadge(label))
+			},
+		},
 	)
+}
+
+// newAddConnectionGridCard builds Grid mode's "Add New Connect" placeholder
+// tile (view.NewAddConnectionGridCard) -- appended after the real cards by
+// refreshConnectionsList. Its "+" opens the same blank Add Connection dialog
+// the header's own Add button does; QR/paste-link are shortcuts into the
+// same flow via a prefilled dialog once they've got something to fill in
+// with (showPrefilledAddDialog).
+func (cm *ConnectionManager) newAddConnectionGridCard() fyne.CanvasObject {
+	return view.NewAddConnectionGridCard(cm.addConnectionCardActions())
+}
+
+// saveGridCardEdit commits a Grid card's inline edit (ConnectionCardActions.
+// OnSave) -- same validation/merge shape as the modal editor's onSave
+// (showEditDialog in connection_manager_dialogs.go), just without the
+// Tailscale-register toggle the compact card has no room for, and without a
+// bool return since the card has nowhere to surface a "rejected" state --
+// an invalid save just leaves the card in edit mode instead.
+func (cm *ConnectionManager) saveGridCardEdit(idx int, name, internalHost, tailscaleHost, masterKey string) {
+	if idx < 0 || idx >= len(cm.connections) {
+		return
+	}
+	name = strings.TrimSpace(name)
+	internalHost = strings.TrimSpace(internalHost)
+	tailscaleHost = strings.TrimSpace(tailscaleHost)
+	if name == "" || (internalHost == "" && tailscaleHost == "") {
+		logrus.Warn("name and at least one address are required")
+		return
+	}
+
+	conn := cm.connections[idx]
+	cm.connections[idx] = SavedConnection{
+		Name:              name,
+		InternalHost:      internalHost,
+		TailscaleHost:     tailscaleHost,
+		Host:              fallbackText(internalHost, tailscaleHost),
+		MasterKey:         strings.TrimSpace(masterKey),
+		Protocol:          conn.Protocol,
+		TailscaleRegister: conn.TailscaleRegister,
+		RemoteOS:          conn.RemoteOS,
+	}
+	cm.selectedIndex = idx
+	cm.editingGridIndex = -1
+	cm.saveConnections()
+	fyne.Do(func() {
+		cm.SelectConnection(idx)
+		cm.refreshConnectionsList()
+	})
+	logrus.Infof("Updated connection: %s", name)
 }
 
 func (cm *ConnectionManager) updateConnectionProtocol(idx int, protocol string) {
@@ -221,8 +739,4 @@ func formatConnectionAddressSummary(internalHost, tailscaleHost string) string {
 		tailscaleHost = "none"
 	}
 	return "LAN: " + internalHost + "\nTS: " + tailscaleHost
-}
-
-func (cm *ConnectionManager) ShowLanguageMenu(anchor fyne.CanvasObject) {
-	cm.showLanguageMenu(anchor)
 }

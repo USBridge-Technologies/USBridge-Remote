@@ -116,6 +116,7 @@ func (s *stubApp) Screen() interface {
 	return stubScreen{}
 }
 func (s *stubApp) VideoDevices() []VideoDeviceInfo       { return nil }
+func (s *stubApp) VirtualDisplaySupported() bool         { return false }
 func (s *stubApp) SunshineOutputName() string            { return "" }
 func (s *stubApp) SetSunshineOutputName(string) error    { return nil }
 func (s *stubApp) SunshineStreamHost() string            { return "" }
@@ -123,6 +124,8 @@ func (s *stubApp) SunshineAdminPort() int                { return 0 }
 func (s *stubApp) SubmitMoonlightPIN(string) error       { return nil }
 func (s *stubApp) CurrentVideoCodec() string             { return "" }
 func (s *stubApp) SupportedVideoCodecs() []string        { return []string{"h264"} }
+func (s *stubApp) Color444Status() (bool, bool)          { return false, false }
+func (s *stubApp) HdrStatus() (bool, bool)               { return false, false }
 func (s *stubApp) AudioSinks() ([]AudioSink, error)      { return nil, nil }
 func (s *stubApp) CurrentAudioSink() (string, error)     { return "", nil }
 func (s *stubApp) SetAudioSink(string) error             { return nil }

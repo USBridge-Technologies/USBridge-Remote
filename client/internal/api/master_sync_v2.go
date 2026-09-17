@@ -70,3 +70,7 @@ func (c *USBClient) MasterSyncV2(ctx context.Context, payload MasterSyncPayloadV
 func (c *USBClient) SetAPISecretV2(secret []byte) {
 	c.apiSecret = secret
 }
+
+func (c *USBClient) APISecret() []byte {
+	return c.apiSecret
+}

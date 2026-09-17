@@ -58,6 +58,18 @@ static int     g_fullWindow  = 0; // 1 when overlay covers the full contentView 
 // Last rendered pixel buffer — retained for pause snapshot (read by metal_video_get_last_frame_rgba).
 static CVPixelBufferRef g_lastRenderedBuf = NULL;
 
+// Desired EDR presentation state, set by metal_video_set_hdr -- persisted
+// independently of g_layer's own lifetime (metal_video_create tears down
+// and rebuilds a fresh CALayer on every new session) so a call that arrives
+// before metal_video_create runs isn't silently lost: metal_video_create
+// applies this value to the freshly-created layer itself, and
+// metal_video_set_hdr applies it directly whenever g_layer already exists.
+static atomic_int g_hdr_enabled = 0;
+
+// Forward declaration -- defined further down (near metal_video_set_hdr),
+// used by metal_video_create above that definition.
+static void apply_dynamic_range(CALayer *layer, BOOL hdr);
+
 static double mono_sec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -141,14 +153,60 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
 @interface MetalDisplayLinkTarget : NSObject
 - (void)displayLinkFired:(CADisplayLink *)link;
 @end
+#include <mach/mach_time.h>
+
+static uint64_t g_last_dl_time = 0;
+static uint64_t g_last_submit_time = 0;
+
+// TEMP DIAGNOSTIC (render-throughput regression investigation): counts every
+// displayLinkFired call and every time it found a pending buffer, logged
+// every ~2s -- distinguishes "CVDisplayLink itself isn't firing at the
+// display refresh rate" from "it's firing fine but g_pendingBuf is usually
+// empty/stale by the time it checks".
+static uint64_t g_dl_fire_count = 0;
+static uint64_t g_dl_hit_count = 0;
+static double g_dl_diag_start = 0.0;
+
 @implementation MetalDisplayLinkTarget
 - (void)displayLinkFired:(CADisplayLink __unused *)link {
     if (!atomic_load(&g_active)) return;
+
+    g_dl_fire_count++;
+    double diagNow = mono_sec();
+    if (g_dl_diag_start == 0.0) g_dl_diag_start = diagNow;
+    double diagElapsed = diagNow - g_dl_diag_start;
+    if (diagElapsed >= 2.0) {
+        char diagMsg[160];
+        snprintf(diagMsg, sizeof(diagMsg),
+                 "[DIAG] DisplayLink fire_rate=%.1fHz hit_rate=%.1fHz (fires=%llu hits=%llu window=%.1fs)",
+                 (double)g_dl_fire_count / diagElapsed, (double)g_dl_hit_count / diagElapsed,
+                 (unsigned long long)g_dl_fire_count, (unsigned long long)g_dl_hit_count, diagElapsed);
+        goMetalLog(diagMsg, 0);
+        g_dl_fire_count = 0;
+        g_dl_hit_count = 0;
+        g_dl_diag_start = diagNow;
+    }
+
+    // Stutter Profiler: DisplayLink stall detection
+    uint64_t now = mach_absolute_time();
+    if (g_last_dl_time != 0) {
+        mach_timebase_info_data_t tb;
+        mach_timebase_info(&tb);
+        uint64_t elapsed_ns = (now - g_last_dl_time) * tb.numer / tb.denom;
+        if (elapsed_ns > 50000000) { // 50ms
+            char msg[128];
+            snprintf(msg, sizeof(msg), "⚠️ [Profiler] AppKit/DisplayLink stalled for %llu ms (UI freeze!)", elapsed_ns / 1000000);
+            goMetalLog(msg, 2); // warn
+        }
+    }
+    g_last_dl_time = now;
+
     pthread_mutex_lock(&g_mu);
     CVPixelBufferRef buf = g_pendingBuf;
     g_pendingBuf = NULL;
     pthread_mutex_unlock(&g_mu);
     if (!buf) return;
+    g_dl_hit_count++;
     metal_render_main_with_buf(buf); // already on main thread
 }
 @end
@@ -176,9 +234,37 @@ double metal_video_last_fps(void) {
     return (double)g_fpsFrames / elapsed;
 }
 
+// One-shot diagnostic for the HDR black-screen investigation (2026-09-14):
+// logs into app.log (unlike metal_video_impl_ios.m's NSLog-only equivalent,
+// which never reaches it) exactly which of the two early-out checks below
+// -- inactive overlay vs. no IOSurface -- is actually responsible when every
+// frame silently drops on the CPU-fallback-rejects-10-bit path in
+// moonlight_cgo_apple.go's vt_callback. Safe to leave in: fires once per
+// process, not per frame.
+static _Atomic int g_submit_call_count = 0;
 int metal_video_try_submit(CVImageBufferRef img) {
+    if (atomic_fetch_add(&g_submit_call_count, 1) == 0) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "metal_video_try_submit: first call (active=%d has_iosurface=%d)",
+                 atomic_load(&g_active), CVPixelBufferGetIOSurface(img) != NULL ? 1 : 0);
+        goMetalLog(msg, 0);
+    }
     if (!atomic_load(&g_active)) return 0;
     if (!CVPixelBufferGetIOSurface(img)) return 0;
+
+    // Stutter Profiler: Decoder stall detection
+    uint64_t now = mach_absolute_time();
+    if (g_last_submit_time != 0) {
+        mach_timebase_info_data_t tb;
+        mach_timebase_info(&tb);
+        uint64_t elapsed_ns = (now - g_last_submit_time) * tb.numer / tb.denom;
+        if (elapsed_ns > 50000000) { // 50ms
+            char msg[128];
+            snprintf(msg, sizeof(msg), "⚠️ [Profiler] Moonlight Decoder/Network stalled for %llu ms (Dropped packets or host keyframe!)", elapsed_ns / 1000000);
+            goMetalLog(msg, 2); // warn
+        }
+    }
+    g_last_submit_time = now;
 
     CVPixelBufferRetain(img);
 
@@ -236,41 +322,11 @@ void metal_video_clear_overlay(void) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Mouse event queue — same ring-buffer pattern as vk_video_impl_linux.c.
-// USBridgeMetalView enqueues all pointer events; Go polls via metal_video_next_event.
-// Thread-safe: AppKit main thread writes, CGO goroutine reads.
-// ─────────────────────────────────────────────────────────────────────────────
-
-#define METAL_EQ_CAP 512
-typedef struct { int type; float x, y; int btn; } MetalMouseEvt;
-// type: 1=move  2=button-press  3=button-release
-// btn press/release: 1=left 2=middle 3=right
-// btn 4=wheel-up 5=wheel-down encoded as type=2
-
-static MetalMouseEvt    g_meq[METAL_EQ_CAP];
-static volatile int     g_meq_head = 0, g_meq_tail = 0;
-static pthread_mutex_t  g_meq_mu   = PTHREAD_MUTEX_INITIALIZER;
-
-static void metal_eq_push(int type, float x, float y, int btn) {
-    pthread_mutex_lock(&g_meq_mu);
-    int next = (g_meq_head + 1) % METAL_EQ_CAP;
-    if (next != g_meq_tail) {
-        g_meq[g_meq_head].type = type;
-        g_meq[g_meq_head].x    = x;
-        g_meq[g_meq_head].y    = y;
-        g_meq[g_meq_head].btn  = btn;
-        g_meq_head = next;
-    }
-    pthread_mutex_unlock(&g_meq_mu);
-}
+// Forward declaration — CGO generates this export from video_widget_metal_darwin.go.
+extern void goMetalMouseEvent(int typ, float x, float y, int btn);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// USBridgeMetalView: captures all pointer events and queues them for Go.
-// Mirrors how the Linux X11 child window + XSelectInput works but in AppKit.
-// The view accepts first responder so mouseDown:/Up: are delivered without a
-// preceding click; the tracking area delivers mouseMoved: while the cursor is
-// over the video without requiring focus.
+// USBridgeMetalView: captures all pointer events and sends them directly to Go.
 // ─────────────────────────────────────────────────────────────────────────────
 @interface USBridgeMetalView : NSView
 @end
@@ -294,11 +350,11 @@ static void metal_eq_push(int type, float x, float y, int btn) {
 // NSView coordinates have origin at bottom-left; Fyne expects top-left.
 - (void)pushMoveEvent:(NSEvent *)e {
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    metal_eq_push(1, (float)pt.x, (float)(self.bounds.size.height - pt.y), 0);
+    goMetalMouseEvent(1, (float)pt.x, (float)(self.bounds.size.height - pt.y), 0);
 }
 - (void)pushButtonEvent:(int)type btn:(int)btn event:(NSEvent *)e {
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    metal_eq_push(type, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
+    goMetalMouseEvent(type, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
 }
 
 // ── mouse movement (no button held) ───────────────────────────────────────
@@ -318,7 +374,7 @@ static void metal_eq_push(int type, float x, float y, int btn) {
 - (void)scrollWheel:(NSEvent *)e {
     int btn = (e.scrollingDeltaY >= 0) ? 4 : 5; // 4=up 5=down
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    metal_eq_push(2, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
+    goMetalMouseEvent(2, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
 }
 
 @end
@@ -358,6 +414,12 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         vl.contentsGravity = kCAGravityResizeAspect;
         vl.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
         vl.contentsScale   = NSScreen.mainScreen.backingScaleFactor;
+        // Applies whatever metal_video_set_hdr's most recent call requested
+        // -- see g_hdr_enabled's own doc comment: this layer is rebuilt
+        // fresh every session, so the desired state has to be re-applied
+        // here rather than assumed to survive from a previous session's
+        // (now-destroyed) layer.
+        apply_dynamic_range(vl, atomic_load(&g_hdr_enabled) != 0);
         [ov.layer addSublayer:vl];
 
         CALayer *ol = [CALayer layer];
@@ -376,6 +438,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         g_submitCount = 0; g_renderCount = 0;
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
         g_lastW = 0;       g_lastH = 0;
+        atomic_store(&g_submit_call_count, 0); // re-arm the one-shot try_submit diagnostic for this session
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;
@@ -474,6 +537,63 @@ void metal_video_set_hidden(int hidden) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
+// apply_dynamic_range sets a layer's EDR presentation mode via whichever API
+// this OS actually has: `preferredDynamicRange` (macOS 26+) is the
+// non-deprecated replacement for `wantsExtendedDynamicRangeContent`
+// (deprecated in the same release, still the only option before it) -- see
+// CALayer.h's own API_AVAILABLE/API_DEPRECATED annotations. This project's
+// floor is macOS 14 (see this file's own CADisplayLink usage), well below
+// 26, so the deprecated property is still the only thing that actually
+// exists at runtime on most machines this ships to today; branching at
+// runtime rather than picking one gets both "works everywhere this ships"
+// and "no deprecated-API warning/behavior on the OS that already moved on".
+static void apply_dynamic_range(CALayer *layer, BOOL hdr) {
+    if (@available(macOS 26.0, *)) {
+        layer.preferredDynamicRange = hdr ? CADynamicRangeHigh : CADynamicRangeStandard;
+    } else {
+        // Deliberate: this is the guarded pre-26 fallback for a property
+        // deprecated exactly at 26 -- there is no other API to use here on
+        // an OS this old, so the deprecation warning is expected noise, not
+        // a real "you should update this" signal.
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        layer.wantsExtendedDynamicRangeContent = hdr;
+        #pragma clang diagnostic pop
+    }
+}
+
+// metal_video_set_hdr toggles g_layer's EDR (extended dynamic range)
+// presentation mode -- called from moonlight_cgo_apple.go's
+// platform_set_video_format the moment the negotiated codec is known (see
+// that function's own comment), before the first frame ever reaches
+// metal_render_main_with_buf. Deliberately just this one property, no
+// custom shader/texture pipeline: the video layer here is a PLAIN CALayer
+// (not CAMetalLayer, despite this file's name -- see
+// metal_render_main_with_buf's own "IOSurface path" comment) whose
+// `contents` is set directly to the decoded frame's IOSurface every frame;
+// Core Animation's own compositor already does the accurate YUV(BT.2020,PQ)
+// -> display conversion using the color primaries/transfer function/matrix
+// VideoToolbox tagged onto that IOSurface from the stream's own signaled
+// colorimetry (see rust-shine's video-encode::videotoolbox module, which
+// sets those tags explicitly for an HDR session) -- letting the system do
+// this rather than hand-rolling a PQ EOTF conversion in a shader is both
+// the more correct (accurate, tested-by-Apple color science) and the
+// faster (zero extra GPU work beyond what SDR frames already do) choice.
+// See apply_dynamic_range's own doc comment for which actual CALayer
+// property this ends up touching on a given OS version.
+void metal_video_set_hdr(int enabled) {
+    atomic_store(&g_hdr_enabled, enabled != 0);
+    dispatch_block_t blk = ^{
+        if (!g_layer) return; // metal_video_create (see its own comment) applies g_hdr_enabled once it exists
+        BOOL want = (atomic_load(&g_hdr_enabled) != 0);
+        apply_dynamic_range(g_layer, want);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "HDR presentation %s", want ? "enabled" : "disabled");
+        goMetalLog(msg, 0);
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
 void metal_video_destroy(void) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_active, 0);
@@ -486,10 +606,6 @@ void metal_video_destroy(void) {
         g_display_link = nil;
     }
 
-    // Flush the mouse event queue so the polling goroutine stops seeing stale events.
-    pthread_mutex_lock(&g_meq_mu);
-    g_meq_head = g_meq_tail = 0;
-    pthread_mutex_unlock(&g_meq_mu);
     dispatch_block_t blk = ^{
         if (g_view) {
             [g_view removeFromSuperview];
@@ -517,26 +633,4 @@ void metal_video_destroy(void) {
     if ([NSThread isMainThread]) blk(); else dispatch_sync(dispatch_get_main_queue(), blk);
 }
 
-// metal_video_next_event — drain one pending pointer event from the Metal overlay view.
-// Returns 1 if an event was consumed; type values:
-//   1=move  2=button/scroll press  3=button release
-// Buttons: 1=left 2=middle 3=right 4=wheel-up 5=wheel-down.
-// Coordinates are in NSView points with top-left origin (ready for Fyne dp).
-// Thread-safe; called from the Go polling goroutine.
-int metal_video_next_event(int *type_out, float *x_out, float *y_out, int *btn_out) {
-    *type_out = 0;
-    if (!atomic_load(&g_active)) return 0;
-    pthread_mutex_lock(&g_meq_mu);
-    if (g_meq_tail == g_meq_head) {
-        pthread_mutex_unlock(&g_meq_mu);
-        return 0;
-    }
-    *type_out = g_meq[g_meq_tail].type;
-    *x_out    = g_meq[g_meq_tail].x;
-    *y_out    = g_meq[g_meq_tail].y;
-    *btn_out  = g_meq[g_meq_tail].btn;
-    g_meq_tail = (g_meq_tail + 1) % METAL_EQ_CAP;
-    pthread_mutex_unlock(&g_meq_mu);
-    return 1;
-}
 #endif // !TARGET_OS_IPHONE

@@ -17,8 +17,19 @@ type Status struct {
 	// comment) but the JSON field name is kept stable -- nothing
 	// downstream needs to change just because what "linked" means
 	// underneath did.
-	Linked    bool      `json:"linked"`
-	Tier      string    `json:"tier,omitempty"` // "free", "pro", or "enterprise" -- see entitlement.Claims.Tier
+	Linked bool `json:"linked"`
+	// Tier is "free", "pro", or "enterprise" -- see entitlement.Claims.Tier.
+	// "pro" ($8/mo) gates both RustShine's 4:4:4 color upgrade end-to-end
+	// (see rust-shine's video-encode/vaapi.rs and
+	// gamestream_proto::server_state::GameStreamConfig::color444_supported)
+	// and USB passthrough (rust-shine's bin/usb-broker require_licensed()).
+	// "enterprise" ($25/mo) is a strict superset of "pro" -- billable today
+	// but has no gated feature of its own yet beyond what "pro" already
+	// unlocks; reserved for per-session logging + team/workspace access
+	// once that work starts. See usbridge-entitlement-backend's
+	// desktopLicense.ts tier doc comment for the full billing-side
+	// reasoning.
+	Tier      string    `json:"tier,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 
 	// ActiveBackend is "sunshine" or "rustshine" -- which one is actually

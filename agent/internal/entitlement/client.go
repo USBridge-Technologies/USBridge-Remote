@@ -125,8 +125,20 @@ type DownloadInfo struct {
 // backend independently re-checks, since a token could be locally valid
 // but for a platform/version combination it no longer wants to serve).
 func ResolveDownload(ctx context.Context, entitlementToken, platform string) (*DownloadInfo, error) {
+	return resolveDownload(ctx, entitlementToken, platform, "rustshine")
+}
+
+// ResolveUSBBrokerDownload is ResolveDownload's usbridge-usb-broker (USB
+// passthrough) counterpart -- same signed-manifest release as RustShine
+// (see usbridge-entitlement-backend's Manifest.broker field), just a
+// different backend route and a different entry inside that one manifest.
+func ResolveUSBBrokerDownload(ctx context.Context, entitlementToken, platform string) (*DownloadInfo, error) {
+	return resolveDownload(ctx, entitlementToken, platform, "usb-broker")
+}
+
+func resolveDownload(ctx context.Context, entitlementToken, platform, app string) (*DownloadInfo, error) {
 	var out DownloadInfo
-	path := "/v1/download/rustshine?platform=" + url.QueryEscape(platform)
+	path := "/v1/download/" + app + "?platform=" + url.QueryEscape(platform)
 	if err := doJSON(ctx, http.MethodGet, path, nil, entitlementToken, &out); err != nil {
 		return nil, err
 	}

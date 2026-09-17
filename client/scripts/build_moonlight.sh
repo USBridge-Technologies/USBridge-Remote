@@ -13,11 +13,12 @@ echo "==============================================="
 echo " Building Moonlight Core (moonlight-common-c)  "
 echo "==============================================="
 
-if [ ! -d "${BUILD_DIR}/src" ]; then
-    echo "⬇️ Initialising moonlight-common-c submodule (pinned commit)..."
+SUBMODULE_STATUS="$(git -C "${PROJECT_ROOT}" submodule status -- moonlight-common-c 2>/dev/null | cut -c1)"
+if [ ! -d "${BUILD_DIR}/src" ] || [ "${SUBMODULE_STATUS}" != " " ]; then
+    echo "⬇️ Syncing moonlight-common-c submodule to pinned commit..."
     git -C "${PROJECT_ROOT}" submodule update --init --recursive moonlight-common-c
 else
-    echo "✅ moonlight-common-c already present ($(git -C "${BUILD_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))."
+    echo "✅ moonlight-common-c already up to date ($(git -C "${BUILD_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))."
 fi
 
 # Upstream's CMakeLists.txt calls CHECK_FUNCTION_EXISTS() without including
@@ -86,12 +87,21 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
 
             if [ ! -d "${OPENSSL_SRC}" ]; then
                 TARBALL="${BUILD_DIR}/openssl-${OPENSSL_VERSION}.tar.gz"
+                if [ -f "${TARBALL}" ] && ! gzip -t "${TARBALL}" 2>/dev/null; then
+                    echo "  ⚠️ Existing OpenSSL tarball is corrupt/truncated, re-downloading..."
+                    rm -f "${TARBALL}"
+                fi
                 if [ ! -f "${TARBALL}" ]; then
                     echo "  Downloading OpenSSL ${OPENSSL_VERSION}..."
                     wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
                         -O "${TARBALL}" \
                         || curl -fsSL "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
                             -o "${TARBALL}"
+                    if ! gzip -t "${TARBALL}" 2>/dev/null; then
+                        echo "❌ Downloaded OpenSSL tarball is corrupt/truncated (network issue?)"
+                        rm -f "${TARBALL}"
+                        exit 1
+                    fi
                 fi
                 tar xzf "${TARBALL}" -C "${BUILD_DIR}"
             fi
@@ -131,12 +141,21 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
 
         if [ ! -d "${OPUS_SRC}" ]; then
             OPUS_TARBALL="${BUILD_DIR}/opus-${OPUS_VERSION}.tar.gz"
+            if [ -f "${OPUS_TARBALL}" ] && ! gzip -t "${OPUS_TARBALL}" 2>/dev/null; then
+                echo "  ⚠️ Existing Opus tarball is corrupt/truncated, re-downloading..."
+                rm -f "${OPUS_TARBALL}"
+            fi
             if [ ! -f "${OPUS_TARBALL}" ]; then
                 echo "  Downloading Opus ${OPUS_VERSION}..."
                 wget -q "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
                     -O "${OPUS_TARBALL}" \
                     || curl -fsSL "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
                         -o "${OPUS_TARBALL}"
+                if ! gzip -t "${OPUS_TARBALL}" 2>/dev/null; then
+                    echo "❌ Downloaded Opus tarball is corrupt/truncated (network issue?)"
+                    rm -f "${OPUS_TARBALL}"
+                    exit 1
+                fi
             fi
             tar xzf "${OPUS_TARBALL}" -C "${BUILD_DIR}"
         fi

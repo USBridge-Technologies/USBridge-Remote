@@ -256,27 +256,27 @@ func (b *sunshineBackend) capExecPathFor() string {
 }
 
 // runtimeCapExecPath returns the path sunshine_capexec should actually be
-// setcap'd and launched from, mirroring runtimeBinaryPath: inside an
-// AppImage the bundled copy lives on the read-only squashfs mount, so
-// pkexec setcap needs the writable staged copy instead. Shares the same
-// staging pass as runtimeBinaryPath — both binaries are copied together by
-// stageSunshineRuntime — so the two are consistent as long as both are
-// called while stageSunshineRuntime's staleness check (keyed off the
-// sunshine binary) still holds.
+// setcap'd and launched from: inside an AppImage the bundled copy lives on
+// the read-only squashfs mount, so pkexec setcap needs a writable staged
+// copy instead. Staged via the same sharedCapExecRuntimeDir rustshineBackend
+// uses (not stageSunshineRuntime's own tree) — see
+// rustshineBackend.runtimeCapExecPath's doc comment for why a capability
+// grant has to land on one file both backends agree to check, not a
+// per-backend copy.
 func (b *sunshineBackend) runtimeCapExecPath() string {
 	capexecSrc := b.capExecPathFor()
-	sunshineSrc := b.binaryPath()
-	if runtime.GOOS != "linux" || capexecSrc == "" || sunshineSrc == "" || b.stateDir == "" {
+	if runtime.GOOS != "linux" || capexecSrc == "" || b.stateDir == "" {
 		return capexecSrc
 	}
 	if os.Getenv("APPIMAGE") == "" {
 		return capexecSrc
 	}
-	if _, err := stageSunshineRuntime(sunshineSrc, b.stateDir); err != nil {
+	staged, err := stageCapExecBinary(capexecSrc, filepath.Join(b.stateDir, sharedCapExecRuntimeDir))
+	if err != nil {
 		log.Printf("[sunshine] failed to stage writable copy for KMS setcap: %v", err)
 		return capexecSrc
 	}
-	return filepath.Join(b.stateDir, "sunshine-runtime", "usr", "bin", "sunshine-capexec")
+	return staged
 }
 
 // runtimeBinaryPath returns the path Sunshine should actually be launched
@@ -370,15 +370,8 @@ func stageSunshineRuntime(src, stateDir string) (string, error) {
 		}
 	}
 
-	// sunshine_capexec (cmd/sunshine_capexec) sits alongside sunshine in
-	// usr/bin — stage it too so runtimeCapExecPath's writable copy exists
-	// for pkexec setcap.
-	srcCapExec := filepath.Join(appDir, "usr", "bin", "sunshine-capexec")
-	if info, err := os.Stat(srcCapExec); err == nil && !info.IsDir() {
-		if err := copyFile(srcCapExec, filepath.Join(tmpRoot, "usr", "bin", "sunshine-capexec"), info.Mode()); err != nil {
-			return "", err
-		}
-	}
+	// sunshine_capexec is staged separately, into sharedCapExecRuntimeDir
+	// (see runtimeCapExecPath) — not copied into this tree.
 
 	// Swap the fully-built tree into place. os.Rename is atomic when both
 	// paths are on the same filesystem (guaranteed: both under stateDir),
@@ -526,13 +519,12 @@ func (b *sunshineBackend) Start(adminPort int) error {
 		log.Printf("[sunshine] warning: could not set web_bind_address: %v", err)
 	}
 
-	// On Windows the portable build expects sunshine_state.json to already
+	// The portable build expects sunshine_state.json to already
 	// exist before --creds can write into it; create an empty-but-valid
-	// template so the file is there when --creds runs.
-	if runtime.GOOS == "windows" {
-		if err := b.ensureSunshineStateFile(); err != nil {
-			log.Printf("[sunshine] warning: could not pre-create sunshine_state.json: %v", err)
-		}
+	// template so the file is there when --creds runs. This also heals
+	// 0-byte corrupt files on Linux that cause --creds to fail silently.
+	if err := b.ensureSunshineStateFile(); err != nil {
+		log.Printf("[sunshine] warning: could not pre-create sunshine_state.json: %v", err)
 	}
 
 	// Set a fresh random admin password before starting Sunshine so the

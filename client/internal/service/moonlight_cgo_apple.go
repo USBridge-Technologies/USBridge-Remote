@@ -26,6 +26,10 @@ extern void goAIVisionSample(uint8_t *rgba, int width, int height, int stride);
 extern int metal_video_try_submit(CVImageBufferRef img);
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
 extern int metal_video_is_active(void);
+// HDR toggle -- macOS-only (metal_video_impl_darwin.m is excluded from iOS
+// builds entirely, see that file's own TARGET_OS_IPHONE guard), see
+// platform_set_video_format below and that function's own doc comment.
+extern void metal_video_set_hdr(int enabled);
 #endif
 
 #include "moonlight_cgo_shared.h"
@@ -46,11 +50,27 @@ static double mono_sec(void) {
 
 #define CA_NUM_BUFFERS 32
 
+// Frames buffered (enqueued, not yet started) before AudioQueueStart is
+// actually called -- both on the very first frame AND after every
+// was_empty/long_gap-triggered restart below. Without this, playback used
+// to start (or resume) the instant a single frame arrived, so any
+// FEC-recovery latency or ordinary jitter right after immediately drained
+// the queue again, forcing another audible Stop/Start cycle -- confirmed
+// live via a real packet-loss sweep: CoreAudio queue restarts climbed into
+// the thousands well before any real data was actually lost (drops/plc
+// stayed at 0), i.e. the crackling was a client-side buffering-depth
+// problem, not a server/FEC one. 3 frames at this client's negotiated
+// 10ms Opus duration (see moonlight_cgo_shared.h's CAPABILITY_SLOW_OPUS_DECODER)
+// is a ~30ms one-time latency cost, deliberately kept small since this
+// whole pipeline is tuned for low latency.
+#define CA_PREBUFFER_FRAMES 3
+
 static AudioQueueRef        g_ca_queue    = NULL;
 static AudioQueueBufferRef  g_ca_bufs[CA_NUM_BUFFERS];  // all allocated buffers
 static AudioQueueBufferRef  g_ca_free[CA_NUM_BUFFERS];  // free-pool stack
 static int                  g_ca_free_cnt = 0;
 static int                  g_ca_started  = 0;
+static int                  g_ca_prebuffer_cnt = 0; // frames enqueued while waiting to (re)start
 static pthread_mutex_t      g_ca_mu       = PTHREAD_MUTEX_INITIALIZER;
 
 static void ca_callback(void *userData, AudioQueueRef aq, AudioQueueBufferRef buf) {
@@ -142,6 +162,7 @@ void platform_ar_init(int channels, int sample_rate) {
     pthread_mutex_lock(&g_ca_mu);
     g_ca_free_cnt    = 0;
     g_ca_started     = 0;
+    g_ca_prebuffer_cnt = 0;
     g_ca_drop_count    = 0;
     g_ca_restart_count = 0;
     g_ca_frame_count   = 0;
@@ -171,6 +192,7 @@ void platform_ar_cleanup(void) {
     g_ca_queue         = NULL;
     g_ca_free_cnt      = 0;
     g_ca_started       = 0;
+    g_ca_prebuffer_cnt = 0;
     g_ca_drop_count    = 0;
     g_ca_restart_count = 0;
     g_ca_frame_count   = 0;
@@ -203,11 +225,20 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
         memcpy(buf->mAudioData, pcm, byte_count);
         buf->mAudioDataByteSize = (UInt32)byte_count;
         g_ca_frame_count++;
-        // Lazy start on first frame; property listener handles restarts after that.
+        // Buffer CA_PREBUFFER_FRAMES frames before actually starting
+        // playback -- both the very first start and every restart below
+        // route through this same "not started yet" branch (a restart
+        // sets g_ca_started back to 0 instead of calling AudioQueueStart
+        // immediately). See CA_PREBUFFER_FRAMES's doc comment for why.
         if (!g_ca_started) {
-            g_ca_started = 1;
-            g_ca_stats_start = mono_sec();
             AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
+            g_ca_prebuffer_cnt++;
+            if (g_ca_prebuffer_cnt < CA_PREBUFFER_FRAMES) {
+                return; // still filling the cushion, not started yet
+            }
+            g_ca_started = 1;
+            g_ca_prebuffer_cnt = 0;
+            g_ca_stats_start = mono_sec();
             AudioQueueStart(g_ca_queue, NULL);
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
             ca_log_device();
@@ -248,8 +279,16 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             g_ca_force_restart = 1;            // suppress listener during stop/start
             AudioQueueStop(g_ca_queue, true);  // synchronous: flushes stale buffers only
             AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL); // this frame's audio, onto the clean queue
-            AudioQueueStart(g_ca_queue, NULL); // fresh hardware timeline
             g_ca_force_restart = 0;
+            // Re-enter the pre-buffer cushion instead of calling
+            // AudioQueueStart immediately with just this one frame queued --
+            // restarting with zero cushion is exactly what made restarts
+            // cascade under real jitter (this frame plays, queue empties
+            // again before the next one arrives, restart again...). The
+            // next `CA_PREBUFFER_FRAMES - 1` calls take the `!g_ca_started`
+            // branch above and actually call AudioQueueStart once buffered.
+            g_ca_started = 0;
+            g_ca_prebuffer_cnt = 1; // this frame already enqueued, counts toward the cushion
         } else {
             AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
         }
@@ -297,13 +336,29 @@ static uint8_t g_sps_data[1024]; static size_t g_sps_len = 0;
 static uint8_t g_pps_data[256];  static size_t g_pps_len = 0;
 static uint64_t g_vt_frame_count = 0;
 
-// Codec type set by platform_set_video_format() before LiStartConnection.
+// Codec type set by platform_set_video_format(), called from dr_setup with
+// moonlight-common-c's real NegotiatedVideoFormat (see moonlight_cgo_shared.h's
+// dr_setup) -- despite this comment previously saying "before LiStartConnection",
+// that's mid-connection, once RTSP negotiation has actually completed.
 // 0x0001=H264, 0x0100=H265, 0x1000=AV1_MAIN8 (matches VIDEO_FORMAT_* constants)
 static int g_video_format = 0x0001;
+
+// VIDEO_FORMAT_MASK_10BIT (Limelight.h) -- HEVC Main10, HEVC RExt10_444,
+// AV1 Main10, AV1 High10_444: every format bit this project's RustShine
+// HDR color upgrade (see docs/COLOR_MODES.md) can end up negotiating.
+#define VIDEO_FORMAT_MASK_10BIT 0xAA00
 
 void platform_set_video_format(int videoFormat) {
     g_video_format = videoFormat ? videoFormat : 0x0001;
     g_vps_len = 0; g_sps_len = 0; g_pps_len = 0; // clear old parameter sets
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
+    // Toggle EDR presentation the moment the negotiated format is known,
+    // before vt_create_session ever builds a session (let alone before the
+    // first frame reaches metal_render_main_with_buf) -- see
+    // metal_video_set_hdr's own doc comment for why this is the only
+    // render-side change HDR needs.
+    metal_video_set_hdr((g_video_format & VIDEO_FORMAT_MASK_10BIT) != 0);
+#endif
 }
 
 // FPS counter for VT decode delivery.
@@ -411,6 +466,24 @@ static void vt_callback(
         return;
     }
 
+    // This fallback assumes a single-plane, 4-bytes/pixel BGRA buffer --
+    // never true for the 10-bit biplanar YCbCr format an HDR session
+    // decodes to (see vt_create_session): CVPixelBufferGetBaseAddress
+    // returns NULL for a planar buffer (the per-plane accessors are a
+    // different API), so blindly running the byte-swap loop below against
+    // it would dereference NULL rather than merely produce wrong colors.
+    // In practice this fallback is barely reachable at all (IOSurface
+    // backing is unconditionally requested in vt_create_session's own
+    // buffer attributes, so metal_video_try_submit essentially always
+    // succeeds -- see that function's own doc comment) -- but "essentially
+    // always" isn't "always", so this stays a clean dropped-frame instead
+    // of a crash if it ever is.
+    if (g_video_format & VIDEO_FORMAT_MASK_10BIT) {
+        goVTLog((char*)"VT: HDR frame missed the zero-copy IOSurface path -- dropping (CPU fallback doesn't support 10-bit YCbCr)");
+        goVTFrame(NULL, (int)CVPixelBufferGetWidth(img), (int)CVPixelBufferGetHeight(img), 0);
+        return;
+    }
+
     // ── CPU fallback: BGRA→RGBA conversion into pre-allocated buffer ──────────
     CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
     int w   = (int)CVPixelBufferGetWidth(img);
@@ -418,7 +491,7 @@ static void vt_callback(
     size_t bpr = CVPixelBufferGetBytesPerRow(img);
     const uint8_t *src = (const uint8_t *)CVPixelBufferGetBaseAddress(img);
 
-    // VT outputs kCVPixelFormatType_32BGRA (native HW format, always supported).
+    // VT outputs kCVPixelFormatType_32BGRA for SDR sessions (native HW format, always supported).
     // Convert BGRA→RGBA into a pre-allocated buffer to avoid per-frame malloc.
     // VT callbacks are serialised by VT's dispatch queue so no mutex is needed.
     size_t needed = (size_t)w * (size_t)h * 4;
@@ -516,19 +589,61 @@ static int vt_create_session(void) {
         return -1;
     }
 
-    int32_t fmt = kCVPixelFormatType_32BGRA;
+    // 10-bit HDR sessions decode straight to the 10-bit 4:2:0 YCbCr format
+    // (matches rust-shine's own HDR capture/encode pixel format, see
+    // video-encode::videotoolbox's module docs) instead of BGRA -- still
+    // IOSurface-backed (same kCVPixelBufferIOSurfacePropertiesKey below), so
+    // this stays on the zero-copy metal_video_try_submit fast path exactly
+    // like the SDR case, no extra CPU work. Core Animation's own compositor
+    // does the YUV(BT.2020,PQ) -> display conversion using the color tags
+    // VideoToolbox attaches from this session's format description (which
+    // carries the stream's own signaled colorimetry) -- see
+    // metal_video_set_hdr's doc comment for the full reasoning.
+    int32_t fmt = ((g_video_format & VIDEO_FORMAT_MASK_10BIT) != 0)
+        ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+        : kCVPixelFormatType_32BGRA;
     CFNumberRef cfFmt = CFNumberCreate(NULL, kCFNumberSInt32Type, &fmt);
-    const void *keys[] = { kCVPixelBufferPixelFormatTypeKey };
-    const void *vals[] = { cfFmt };
-    CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, vals, 1,
+    
+    int32_t min_buf_cnt = 24;
+    CFNumberRef cfMinBuf = CFNumberCreate(NULL, kCFNumberSInt32Type, &min_buf_cnt);
+
+    // IOSurface-backed output buffers are required for metal_video_try_submit's
+    // zero-copy fast path (see metal_video_impl_darwin.m:181, which gates on
+    // CVPixelBufferGetIOSurface(img) != NULL) -- without this key VT is free
+    // to hand back plain CPU-only CVPixelBuffers, which silently disables
+    // that fast path on every frame, every session, forcing the slow
+    // CPU-copy fallback in vt_callback below to run synchronously inside
+    // VT's own serialized decode-callback queue. Confirmed live: without
+    // this, goVTFrame's fec-debug trace showed nilBuf=false (CPU path) for
+    // every single frame, and VT's callback stopped firing entirely after
+    // ~6-8 frames despite VTDecompressionSessionDecodeFrame continuing to
+    // accept and report success on new submissions -- consistent with VT's
+    // internal buffer pool backing up behind a callback queue that can't
+    // drain fast enough once every frame requires a lock+copy+synchronous
+    // cgo round-trip before the next one can even start.
+    CFDictionaryRef ioSurfaceProps = CFDictionaryCreate(NULL, NULL, NULL, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const void *keys[] = { kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferPoolMinimumBufferCountKey };
+    const void *vals[] = { cfFmt, ioSurfaceProps, cfMinBuf };
+    CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, vals, 3,
         &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFRelease(cfFmt);
+    CFRelease(ioSurfaceProps);
+    CFRelease(cfMinBuf);
+
+    CFDictionaryRef decoderSpec = CFDictionaryCreate(NULL,
+        (const void **)&kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
+        (const void **)&kCFBooleanTrue,
+        1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 
     VTDecompressionOutputCallbackRecord cb = { vt_callback, NULL };
-    s = VTDecompressionSessionCreate(kCFAllocatorDefault, g_vt_fmt_desc, NULL, attrs, &cb, &g_vt_session);
+    s = VTDecompressionSessionCreate(kCFAllocatorDefault, g_vt_fmt_desc, decoderSpec, attrs, &cb, &g_vt_session);
     CFRelease(attrs);
+    CFRelease(decoderSpec);
     if (s != noErr) {
-        goVTLog((char*)"VT: VTDecompressionSessionCreate FAILED");
+        char errBuf[128];
+        snprintf(errBuf, sizeof(errBuf), "VT: VTDecompressionSessionCreate FAILED (status=%d)", (int)s);
+        goVTLog(errBuf);
         CFRelease(g_vt_fmt_desc); g_vt_fmt_desc = NULL;
         return -1;
     }
@@ -602,35 +717,9 @@ static void vt_handle_nal(const uint8_t *nal, int len, void *ptr) {
         // H.264: NAL type = nal[0] & 0x1F
         int nal_type = nal[0] & 0x1F;
         if (nal_type == 7) { // SPS
-            if (len <= (int)sizeof(g_sps_data)) {
-                // Apply Moonlight SPS Fixup for VideoToolbox compatibility
-                h264_stream_t* stream = h264_new();
-                read_nal_unit(stream, (uint8_t*)nal, len);
-                
-                stream->sps->num_ref_frames = 1;
-                stream->sps->vui.max_dec_frame_buffering = 1;
-                if (!stream->sps->vui.bitstream_restriction_flag) {
-                    stream->sps->vui.bitstream_restriction_flag = 1;
-                    stream->sps->vui.motion_vectors_over_pic_boundaries_flag = 1;
-                    stream->sps->vui.max_bytes_per_pic_denom = 2;
-                    stream->sps->vui.max_bits_per_mb_denom = 1;
-                    stream->sps->vui.log2_max_mv_length_horizontal = 16;
-                    stream->sps->vui.log2_max_mv_length_vertical = 16;
-                    stream->sps->vui.num_reorder_frames = 0;
-                }
-                
-                uint8_t out[1024];
-                int out_len = write_nal_unit(stream, out, sizeof(out));
-                if (out_len > 1 && out_len - 1 <= (int)sizeof(g_sps_data)) {
-                    int final_len = out_len - 1;
-                    uint8_t *final_sps = out + 1;
-                    if (g_sps_len != (size_t)final_len || memcmp(g_sps_data, final_sps, final_len) != 0) {
-                        memcpy(g_sps_data, final_sps, final_len); 
-                        g_sps_len = final_len; 
-                        ctx->new_params = 1;
-                    }
-                }
-                h264_free(stream);
+            if (len <= (int)sizeof(g_sps_data) &&
+                (g_sps_len != (size_t)len || memcmp(g_sps_data, nal, len) != 0)) {
+                memcpy(g_sps_data, nal, len); g_sps_len = len; ctx->new_params = 1;
             }
             return;
         }

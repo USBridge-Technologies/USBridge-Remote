@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/media"
@@ -37,6 +38,9 @@ func (vw *VideoWidget) createInterface() {
 	vw.infoLabel = vw.ui.InfoLabel
 	vw.statsLabel = vw.ui.StatsLabel
 	vw.contentContainer = vw.ui.ContentContainer
+	vw.keyboardOverlay = vw.ui.KeyboardOverlay
+	vw.collapseFAB = vw.ui.CollapseFAB
+	vw.initKeyboardCollapseFAB()
 
 	vw.startStatsLoop()
 	vw.startRenderTicker()
@@ -74,21 +78,12 @@ func (vw *VideoWidget) handleStartVideo() {
 			}
 		})
 
-		if vw.startDialog == nil {
-			if vw.parentWindow == nil {
-				logrus.Warn("⚠️ Parent window not set")
-				fyne.Do(func() {
-					vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
-				})
-				return
-			}
-			vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
-			vw.startDialog.SetLiveCodecProvider(func() (string, bool) {
-				if vw.videoClient == nil {
-					return "", false
-				}
-				return vw.videoClient.NegotiatedVideoCodecName()
+		if vw.parentWindow == nil {
+			logrus.Warn("⚠️ Parent window not set")
+			fyne.Do(func() {
+				vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
 			})
+			return
 		}
 
 		preferredConfig, preferredErr := vw.resolvePreferredVideoConfig()
@@ -97,7 +92,7 @@ func (vw *VideoWidget) handleStartVideo() {
 			preferredDevicePath = preferredConfig.DevicePath
 		}
 
-		videoInfo := vw.fetchVideoInfoForStartDialog(preferredDevicePath)
+		videoInfo := vw.fetchVideoInfoForStartDialogAttempts(preferredDevicePath, 5)
 
 		// Check whether the widget was closed while the HTTP requests were in flight
 		if vw.isClosing.Load() {
@@ -149,6 +144,7 @@ func (vw *VideoWidget) handleStartVideo() {
 		}
 
 		fyne.Do(func() {
+			vw.ensureStartDialog()
 			vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
 			vw.startDialog.SetDeviceLabel("")
 			vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
@@ -173,7 +169,13 @@ func (vw *VideoWidget) handleStartVideo() {
 }
 
 func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.VideoInfoData {
-	const maxAttempts = 5
+	return vw.fetchVideoInfoForStartDialogAttempts(devicePath, 5)
+}
+
+func (vw *VideoWidget) fetchVideoInfoForStartDialogAttempts(devicePath string, maxAttempts int) *models.VideoInfoData {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
 
 	var lastInfo *models.VideoInfoData
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -204,7 +206,7 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 	// Fall back to the default device query to get the actual V4L2 capabilities.
 	if devicePath != "" && (lastInfo == nil || len(lastInfo.CaptureModes) == 0) {
 		logrus.Infof("ℹ️ No capture modes for device=%s, falling back to default device query", devicePath)
-		fallback := vw.fetchVideoInfoForStartDialog("")
+		fallback := vw.fetchVideoInfoForStartDialogAttempts("", maxAttempts)
 		if fallback != nil && len(fallback.CaptureModes) > 0 {
 			if lastInfo != nil {
 				// Preserve current status (width/height/fps/streaming) but inject capture modes
@@ -247,16 +249,7 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 
 // handleVideoStartWithParams handles video start with parameters from the dialog.
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
-	cfg := models.VideoDeviceConfig{
-		DevicePath:         request.VideoDevice,
-		VideoWidth:         request.VideoWidth,
-		VideoHeight:        request.VideoHeight,
-		VideoFPS:           request.VideoFPS,
-		VideoQuality:       request.VideoQuality,
-		VideoBitrate:       request.VideoBitrate,
-		VideoMode:          request.VideoMode,
-		CapturePixelFormat: request.CapturePixelFormat,
-	}
+	cfg := videoDeviceConfigFromRequest(request.VideoDevice, "", request)
 	if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
 		logrus.Warnf("⚠️ cannot start video from request: %v", err)
 		fyne.Do(func() {
@@ -298,6 +291,8 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		if request.VideoMode != "" {
 			vw.videoClient.SetVideoMode(request.VideoMode)
 		}
+		vw.videoClient.SetColor444(request.Color444)
+		vw.videoClient.SetHdr(request.Hdr)
 		if request.VideoFPS > 0 {
 			vw.videoClient.SetFPS(request.VideoFPS)
 		}
@@ -670,12 +665,22 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 
 		if isConnectedStorageDevice(device) {
 			storageConnected = true
+			logrus.Infof("💿 [HID] storage-like device device=%q type=%q name=%q status=%q",
+				device.Device, device.Type, device.Name, device.Status)
 		}
 	}
 
 	if storageConnected {
-		logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
-		return nil
+		// Software-agent HID is OS-level input, not a USB gadget composite.
+		// Skipping here left stale nbd/local rows on the agent forever and
+		// also blocked keyboard/mouse auto-connect.
+		if !isUSBridgeAgentOS(deviceInfo.AgentOS) {
+			logrus.Infof("💿 Control HID auto-connect: ignoring leftover storage on software agent (agentOS=%q)", deviceInfo.AgentOS)
+			storageConnected = false
+		} else {
+			logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
+			return nil
+		}
 	}
 
 	if xinputGamepadConnected {
@@ -786,7 +791,7 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 }
 
 func (vw *VideoWidget) BootstrapControlSessionAsync() {
-	if vw.userStoppedVideo.Load() {
+	if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
 		// The user explicitly pressed stop; this call is one of
 		// scheduleControlBootstrap's timers (main_window_lifecycle.go), which
 		// fire on a schedule tied to which tab is visible, not to user intent
@@ -902,9 +907,26 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		}
 	}()
 
-	// frame is nil when the native GPU overlay (Metal/GL) is active and has
-	// already received the frame at the C level. We still update counters so
-	// the Go-level FPS display and trace logging stay accurate.
+	// frame is nil in two distinct cases that both come through as the same
+	// NULL from goVTFrame's C side, indistinguishable from here:
+	//   1. The native GPU overlay (Metal/GL) is already active and received
+	//      this frame at the C level -- the common case, nothing to do.
+	//   2. moonlight_cgo_apple.go's vt_callback: 10-bit HDR frame whose CPU
+	//      fallback can't handle 10-bit YCbCr, AND the zero-copy Metal path
+	//      also declined because the overlay isn't active yet -- the frame
+	//      was silently dropped, not handled by anyone. Without the
+	//      frameNum==1 bootstrap below (mirroring the non-nil branch's own),
+	//      case 2 on a fresh HDR connect never creates the overlay in the
+	//      first place, since HDR's frame 1 -- unlike H264/8-bit HEVC, whose
+	//      CPU fallback always produces a real RGBA frame 1 -- arrives nil
+	//      too, so the trigger below never used to fire: permanently stuck
+	//      metal_video_try_submit-active=0 -> CPU-fallback-drop loop, a solid
+	//      black screen for the entire session, confirmed live via
+	//      metal_video_try_submit's one-shot diagnostic log showing
+	//      "active=0 has_iosurface=1" and no "overlay created" line ever
+	//      following it. Calling startMetalVideoOnWindow here when the
+	//      overlay already exists (case 1) is a safe no-op/replace -- see
+	//      MetalVideoCreate's own "creates (or replaces)" doc comment.
 	if frame == nil {
 		vw.frameMutex.Lock()
 		vw.frameCount++
@@ -913,7 +935,13 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		vw.frameMutex.Unlock()
 		vw.frameDecoder.IncrementFrameCount()
 		vw.noteVideoTraceFirstFrame(frameNum)
-		// Log FPS for Metal path (frame=nil means VT→Metal bypasses Go image).
+		if frameNum == 1 && !vw.isClosing.Load() && vw.isStreaming {
+			go vw.startMetalVideoOnWindow(vw.parentWindow, false)
+		}
+		// Log FPS for the native zero-copy overlay path (frame=nil means the
+		// C side already submitted straight to Metal/Vulkan/GL, bypassing the
+		// Go image entirely) -- not Metal-specific despite the old label below;
+		// this branch fires identically on Windows/Vulkan and Linux/GL.
 		if frameNum%60 == 0 {
 			now := time.Now().UnixNano()
 			prev := vw.fpsWindowStart.Swap(now)
@@ -927,9 +955,9 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 					}
 				}
 				if configuredFPS > 0 && measuredFPS < float64(configuredFPS)*0.75 {
-					logrus.Warnf("⚠️ [FPS] delivery=%.1f fps configured=%d fps (Metal path) — Sunshine sending less than requested.", measuredFPS, configuredFPS)
+					logrus.Warnf("⚠️ [FPS] delivery=%.1f fps configured=%d fps (native overlay path) — Sunshine sending less than requested.", measuredFPS, configuredFPS)
 				} else {
-					logrus.Infof("📊 [VIDEO FPS] Metal callback: %.1f fps (frame=%d configured=%d)", measuredFPS, frameNum, configuredFPS)
+					logrus.Infof("📊 [VIDEO FPS] native overlay callback: %.1f fps (frame=%d configured=%d)", measuredFPS, frameNum, configuredFPS)
 				}
 			}
 		}
@@ -1028,15 +1056,177 @@ func (vw *VideoWidget) ShowFullscreen() {
 	vw.fullscreenDialog.Show()
 }
 
-// HandleVirtualKeyboard handles opening/closing the virtual keyboard.
+// HandleVirtualKeyboard toggles the special-keys overlay only (legacy path).
 func (vw *VideoWidget) HandleVirtualKeyboard() {
 	vw.platformHandleVirtualKeyboard()
+}
+
+func (vw *VideoWidget) IsVirtualKeyboardVisible() bool {
+	return vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible()
+}
+
+// SetSystemIMESticky toggles the system soft keyboard so it stays open until
+// explicitly dismissed, independent of Entry focus (Android native sticky;
+// iOS focuses the hidden IME entry).
+func (vw *VideoWidget) SetSystemIMESticky(on bool) {
+	vw.platformSetSystemIMESticky(on)
+}
+
+func (vw *VideoWidget) IsSystemIMESticky() bool {
+	return vw.systemIMESticky.Load()
+}
+
+// SetSpecialKeysHeaderReserve records the mobile special-keys header height
+// so the Vulkan SurfaceView never starts under that band.
+func (vw *VideoWidget) SetSpecialKeysHeaderReserve(h float32) {
+	if vw == nil {
+		return
+	}
+	if h < 0 {
+		h = 0
+	}
+	vw.specialKeysHeaderReserve = h
+}
+
+// OpenKeyboardStack shows special-keys overlay + system IME together.
+func (vw *VideoWidget) OpenKeyboardStack() {
+	vw.ensureMobileVirtualKeyboard()
+	if vw.virtualKeyboard == nil {
+		return
+	}
+	vw.imeStackArmedAt = time.Now()
+	vw.imeConfirmedOpen.Store(false)
+	vw.imeShowRetryUsed.Store(false)
+	if !vw.IsVirtualKeyboardVisible() {
+		vw.showSpecialKeysOverlay()
+	}
+	// Header must land before GBoard: fyne.Do would delay it a frame and the
+	// system IME would paint first. This callback is sync (footer tap is
+	// already on the UI thread).
+	if vw.onKeyboardChromeSync != nil {
+		vw.onKeyboardChromeSync()
+	} else if vw.onKeyboardStackChanged != nil {
+		vw.onKeyboardStackChanged()
+	}
+	vw.applyImmediateKeyboardViewport()
+	if !vw.IsSystemIMESticky() {
+		vw.SetSystemIMESticky(true)
+	}
+	vw.setKeyboardCollapseFABVisible(true)
+}
+
+// CloseAllKeyboards hides the special-keys overlay and dismisses sticky system IME.
+func (vw *VideoWidget) CloseAllKeyboards() {
+	if vw.IsSystemIMESticky() {
+		vw.SetSystemIMESticky(false)
+	}
+	if vw.IsVirtualKeyboardVisible() {
+		vw.hideSpecialKeysOverlay()
+	}
+	vw.setKeyboardCollapseFABVisible(false)
+	vw.keyboardViewportLift = false
+	vw.bottomInset = 0
+	vw.SetSpecialKeysHeaderReserve(0)
+	vw.imeConfirmedOpen.Store(false)
+	if vw.onKeyboardChromeSync != nil {
+		vw.onKeyboardChromeSync()
+	} else if vw.onKeyboardStackChanged != nil {
+		vw.onKeyboardStackChanged()
+	}
+	vw.applyImmediateKeyboardViewport()
+}
+
+// ToggleKeyboardStack opens or closes the combined IME + special-keys stack.
+func (vw *VideoWidget) ToggleKeyboardStack() {
+	if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
+		vw.CloseAllKeyboards()
+		return
+	}
+	vw.OpenKeyboardStack()
+}
+
+// SetOnKeyboardStackChanged registers a UI refresh when the keyboard stack opens/closes.
+func (vw *VideoWidget) SetOnKeyboardStackChanged(fn func()) {
+	vw.onKeyboardStackChanged = fn
+}
+
+// SetOnKeyboardChromeSync applies the special-keys header synchronously on
+// the UI thread so Vulkan can reserve space before the system IME appears.
+func (vw *VideoWidget) SetOnKeyboardChromeSync(fn func()) {
+	vw.onKeyboardChromeSync = fn
+}
+
+// SetOnKeyboardViewportSettle runs once after IME/header animation, just
+// before Vulkan applies the final overlay rect.
+func (vw *VideoWidget) SetOnKeyboardViewportSettle(fn func()) {
+	vw.onKeyboardViewportSettle = fn
+}
+
+// SetViewportPanMode arms/disarms one-finger video pan (mobile Control footer).
+// Mode stays on until the footer button is tapped again (or Control is left) —
+// it must not clear on TouchUp/DragEnd, which Android can deliver mid-stroke.
+func (vw *VideoWidget) SetViewportPanMode(on bool) {
+	if vw == nil || vw.viewportPanMode == on {
+		return
+	}
+	vw.viewportPanMode = on
+	if !on {
+		vw.viewportPanDragActive = false
+		vw.snapViewportAlignment()
+		vw.updateNativeViewportAndCursor()
+	}
+	if vw.onViewportPanModeChanged != nil {
+		vw.onViewportPanModeChanged(on)
+	}
+}
+
+// ToggleViewportPanMode flips one-finger video pan mode.
+func (vw *VideoWidget) ToggleViewportPanMode() {
+	if vw == nil {
+		return
+	}
+	vw.SetViewportPanMode(!vw.viewportPanMode)
+}
+
+// IsViewportPanMode reports whether one-finger video pan is armed.
+func (vw *VideoWidget) IsViewportPanMode() bool {
+	return vw != nil && vw.viewportPanMode
+}
+
+// SetOnViewportPanModeChanged registers a UI refresh when pan mode toggles.
+func (vw *VideoWidget) SetOnViewportPanModeChanged(fn func(bool)) {
+	if vw == nil {
+		return
+	}
+	vw.onViewportPanModeChanged = fn
+}
+
+// applyOneFingerViewportPan pans the zoomed video by a finger delta (dp).
+func (vw *VideoWidget) applyOneFingerViewportPan(dx, dy float32) {
+	if vw == nil || (dx == 0 && dy == 0) {
+		return
+	}
+	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
+		return
+	}
+	availableH := vw.touchpadSizeH - vw.bottomInset
+	if availableH < 0 {
+		availableH = 0
+	}
+	focusX := vw.touchpadSizeW / 2
+	focusY := availableH / 2
+	vw.applyViewportGesture(1, focusX, focusY, dx, dy)
+	vw.updateNativeViewportAndCursor()
+}
+
+// GetVirtualKeyboard returns the embedded special-keys keyboard, if created.
+func (vw *VideoWidget) GetVirtualKeyboard() *graphics.VirtualKeyboard {
+	return vw.virtualKeyboard
 }
 
 // updateStats updates statistics.
 func (vw *VideoWidget) updateStats() {
 	vw.frameMutex.RLock()
-	lastFrameTime := vw.lastFrameTime
 	vw.frameMutex.RUnlock()
 
 	decoderStats := vw.frameDecoder.GetFrameStats()
@@ -1050,8 +1240,11 @@ func (vw *VideoWidget) updateStats() {
 		}
 	}
 
-	stats := fmt.Sprintf("FPS: %.1f | %s", fps, lastFrameTime.Format("15:04:05"))
-	vw.statsLabel.SetText(stats)
+	// Updating Fyne UI texts causes layout invalidations.
+	// We no longer update the statsLabel (which was removed) here,
+	// and we skip calling SetBadgeText in updateVideoIconLabel
+	// when streaming via Native Video.
+
 	if vw.onFPSChanged != nil {
 		vw.onFPSChanged(math.Round(fps*10) / 10)
 	}
@@ -1093,6 +1286,17 @@ func (vw *VideoWidget) SetOnFPSChanged(fn func(float64)) {
 	vw.onFPSChanged = fn
 }
 
+// SetOnResolutionChanged wires a callback fired with the newly applied
+// capture width/height every time applyVideoDeviceConfig actually applies
+// one -- both the header's own quick-pick menu (ApplyVideoResolution) and
+// the Video Parameters dialog's Apply button funnel through there. Without
+// this, the header's resolution label had no way to learn about a change:
+// it read a static, never-updated models.AppConfig field instead (see
+// MainWindow.updateVideoIconLabel).
+func (vw *VideoWidget) SetOnResolutionChanged(fn func(width, height int)) {
+	vw.onResolutionChanged = fn
+}
+
 // UpdateClient updates the USB client.
 func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.usbClient = usbClient
@@ -1100,6 +1304,9 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 		vw.isClosing.Store(false)
 		vw.userStoppedVideo.Store(false)
 		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
+		vw.PrefetchCaptureModesAsync()
+	} else {
+		clearCaptureModesCache()
 	}
 	vw.updateButtons()
 }
@@ -1150,19 +1357,26 @@ func (vw *VideoWidget) StopVideo() {
 
 // HandleConnectionLost stops local video/input resources without contacting the server.
 func (vw *VideoWidget) HandleConnectionLost() {
+	// Stop reconcile retries *before* Disconnect: onStateChanged("disconnected")
+	// otherwise schedules another Moonlight connect against the dead host.
+	vw.MarkUserStopped()
+	vw.setDesiredStreaming(false)
 	resetVideoInfoCache()
+
+	vw.isStreaming = false
+	vw.isVideoConnected = false
+	vw.isMouseConnected = false
+	vw.hideConnectingSpinner()
+	vw.stopRenderTicker()
+	// Tear down the overlay/mouse pump first so the window starts accepting
+	// clicks even if Moonlight's graceful ENet disconnect later blocks ~2s.
+	vw.clearVideo()
 
 	if vw.videoClient != nil {
 		if err := vw.videoClient.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Failed to disconnect video client after transport loss: %v", err)
 		}
 	}
-
-	vw.isStreaming = false
-	vw.isVideoConnected = false
-	vw.isMouseConnected = false
-	vw.hideConnectingSpinner()
-	vw.clearVideo()
 
 	fyne.Do(func() {
 		vw.updateButtons()
@@ -1207,10 +1421,18 @@ func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 	return true
 }
 
-// clearVideo clears the video.
+func (vw *VideoWidget) stopRenderTicker() {
+	if vw.renderTickerStop != nil {
+		close(vw.renderTickerStop)
+		vw.renderTickerStop = nil
+	}
+}
+
 func (vw *VideoWidget) clearVideo() {
 	vw.clearVideoMu.Lock()
 	defer vw.clearVideoMu.Unlock()
+
+	vw.stopRenderTicker()
 
 	vw.frameMutex.Lock()
 	lastFrame := vw.currentFrame // saved for darkened pause display (Fyne canvas path)
@@ -1358,9 +1580,7 @@ func (vw *VideoWidget) startRenderTicker(fps ...int) {
 	if len(fps) > 0 && fps[0] > 0 {
 		targetFPS = fps[0]
 	}
-	if vw.renderTickerStop != nil {
-		close(vw.renderTickerStop)
-	}
+	vw.stopRenderTicker()
 	stop := make(chan struct{})
 	vw.renderTickerStop = stop
 

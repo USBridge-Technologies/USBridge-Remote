@@ -2,6 +2,7 @@ package design
 
 import (
 	"image/color"
+	"runtime"
 
 	"fyne.io/fyne/v2"
 	fynetheme "fyne.io/fyne/v2/theme"
@@ -18,17 +19,132 @@ var (
 	ColorTextMuted          = color.NRGBA{R: 0xc9, G: 0xc9, B: 0xc9, A: 0xff} // --cs-text-muted
 	ColorBorder             = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff} // --cs-border-color
 	ColorSurfaceLight       = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff} // --cs-surface-light
-	ColorGray900            = color.NRGBA{R: 0x2c, G: 0x2c, B: 0x2c, A: 0xff} // --cs-gray-900
-	ColorGray950            = color.NRGBA{R: 0x1d, G: 0x1d, B: 0x1d, A: 0xff} // --cs-gray-950
+	ColorGray900            = color.NRGBA{R: 0x18, G: 0x1c, B: 0x1f, A: 0xff} // --cs-gray-900 (Header)
+	ColorGray950            = color.NRGBA{R: 0x0b, G: 0x0f, B: 0x12, A: 0xff} // --cs-gray-950 (Window)
 	ColorGray400            = color.NRGBA{R: 0xc8, G: 0xc8, B: 0xc8, A: 0xff} // --cs-gray-400
+	ColorAlphaWhite07       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x12} // --cs-alpha-white-07
+	ColorAlphaWhite12       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1f} // --cs-alpha-white-12
 	ColorAlphaWhite15       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x26} // --cs-alpha-white-15
 	ColorAlphaWhite24       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x3d} // --cs-alpha-white-24
 	ColorAlphaAccent22      = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0x38} // --cs-alpha-accent-22
 	ColorAlphaAccent55      = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0x8c} // --cs-alpha-accent-55
 	ColorAlphaAccentHover55 = color.NRGBA{R: 0xb6, G: 0xea, B: 0x93, A: 0x8c} // --cs-alpha-accent-hover-55
+	ColorWhite              = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+
+	// Tailscale header chip: distinct from the main ColorAccent/ColorAccentHover
+	// used everywhere else, used only by the Tailscale toggle border/label in
+	// its default (off, enabled) state.
+	ColorTailscaleChipBorder = color.NRGBA{R: 0x42, G: 0x46, B: 0x38, A: 0xff} // was #e5f5b4
+	ColorTailscaleChipLabel  = color.NRGBA{R: 0xc3, G: 0xc6, B: 0xb4, A: 0xff}
+
+	// ColorHeaderAccentLine is the brand accent color for the thin line under
+	// the connections screen's header bar (previously also the standalone
+	// "USBridge" wordmark's text color, before that got folded into the
+	// combined logo+wordmark lockup image). Also used for the thin line under
+	// the connections section header (ConnectionsSummary badges + actions).
+	ColorHeaderAccentLine = color.NRGBA{R: 0x42, G: 0x46, B: 0x38, A: 0xff} // was #e7fbba
+
+	// Connections section header's category-count badges ("2 Agent",
+	// "3 KVM"): border, solid fill, and text are three independent colors
+	// now (was border+fill both derived from one accent, at #30d4bd). Border
+	// happens to match ColorHeaderAccentLine's value -- kept as its own
+	// token since it's a different role that could diverge later.
+	ColorConnectionBadgeBorder = color.NRGBA{R: 0x42, G: 0x46, B: 0x38, A: 0xff}
+	ColorConnectionBadgeFill   = color.NRGBA{R: 0x1c, G: 0x20, B: 0x23, A: 0xff}
+	ColorConnectionBadgeText   = color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0xff} // was #30d4bd
+
+	// ColorPro is the purple used for Pro markers (4:4:4 star, Agent
+	// catalog Pro/Enterprise rows) -- #9c58f9.
+	ColorPro = color.NRGBA{R: 0x9c, G: 0x58, B: 0xf9, A: 0xff}
+
+	// ColorConnectionAddFill/Hover are the connections section header's "+"
+	// button -- deliberately light-on-dark inverted from every other button
+	// in this app (see iconChromeButtonSpec.LabelColor). Hover shade is a
+	// placeholder guess (lightened fill) pending design review.
+	ColorConnectionAddFill      = color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff} // was #c3f270
+	ColorConnectionAddFillHover = color.NRGBA{R: 0xd6, G: 0xf7, B: 0x9c, A: 0xff}
+
+	// ColorConnectionsSectionIcon tints the QR/paste-link icons in the
+	// connections section header. Their border reuses ColorHeaderAccentLine
+	// (same #424638) rather than a separate token, since it's the same role.
+	ColorConnectionsSectionIcon = color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff}
+
+	// ColorConnectionsSectionTitle/Subtitle are the "Connections" title and
+	// the "Your active..." line under it.
+	ColorConnectionsSectionTitle    = color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff}
+	ColorConnectionsSectionSubtitle = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff} // was #e9fdbb
+
+	// ColorConnectionsSectionMutedText is shared by the subtitle's tone and
+	// the Grid/List toggle's inactive side -- same #c5c8b5 as
+	// ColorConnectionsSectionSubtitle, kept separate since they're different
+	// roles.
+	ColorConnectionsSectionMutedText = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+
+	// ColorConnectionsSectionUnderline is the thin line under the
+	// connections section header -- its own color, distinct from
+	// ColorHeaderAccentLine (the app header's equivalent line).
+	ColorConnectionsSectionUnderline = color.NRGBA{R: 0x26, G: 0x29, B: 0x24, A: 0xff}
+
+	// ColorLoginAvatarBg/Text are the placeholder account/login avatar in
+	// the app header (connection_header.go's loginAvatarButton). Border
+	// reuses ColorHeaderAccentLine.
+	ColorLoginAvatarBg   = color.NRGBA{R: 0x2d, G: 0x2f, B: 0x34, A: 0xff}
+	ColorLoginAvatarText = color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff}
+
+	// ColorDanger marks an error state (e.g. the connecting toast turning
+	// into an inline error -- view.ConnectingToastHandle.ShowError). Muted
+	// rather than a harsh saturated red, to match this palette's generally
+	// desaturated tones (compare ColorAlert's muted orange).
+	ColorDanger = color.NRGBA{R: 0xd9, G: 0x5c, B: 0x5c, A: 0xff}
+
+	// ColorStatusBarBorder/Fill/Divider are the Control header's own
+	// video/peripherals/storage indicator strip (main_window_status_indicator_bar.go)
+	// -- its own bordered pill, distinct from every other header surface, so
+	// kept as its own tokens even though Border/Divider share one value.
+	ColorStatusBarBorder  = color.NRGBA{R: 0x44, G: 0x48, B: 0x39, A: 0xff}
+	ColorStatusBarFill    = color.NRGBA{R: 0x12, G: 0x17, B: 0x1a, A: 0xff}
+	ColorStatusBarDivider = color.NRGBA{R: 0x44, G: 0x48, B: 0x39, A: 0xff}
+
+	// ColorStatusBarAccent is the video icon + fps text color inside that
+	// strip -- same hex as ColorConnectionAddFill but a different role, kept
+	// separate the way ColorConnectionBadgeBorder/ColorHeaderAccentLine are.
+	ColorStatusBarAccent = color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
+
+	// ColorStatusBarResolutionText is that strip's "1080p@60Hz" label.
+	ColorStatusBarResolutionText = color.NRGBA{R: 0xcb, G: 0xd5, B: 0xe1, A: 0xff}
+
+	// ColorStatusBarIconChip is the hover highlight behind every icon
+	// button in that strip (video + every peripheral) -- one shared color
+	// so none of them reads as a mismatched hover color next to the others.
+	// No background at rest (see main_window_status_indicator_bar.go).
+	ColorStatusBarIconChip = color.NRGBA{R: 0x21, G: 0x26, B: 0x28, A: 0xff}
+
+	// ColorStatusBarIndicatorText is the storage chip's "12/32 GB" line and
+	// the muted tone of that strip's passive-indicator icons (SD card, SD
+	// disk, gamepad, snapshots -- see assets.SDCardIconIndicator etc.) --
+	// same #c5c8b5 muted tone as MonitorTabIconMuted elsewhere in the app.
+	ColorStatusBarIndicatorText = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+
+	// ColorExitButton{Border,Fill,Text} are the Control header's Exit
+	// (LAN/Tailscale) button in its resting state; ColorExitButtonHover*
+	// are the same three roles while hovered -- a shift toward red/danger
+	// tones, distinct from every other button's hover treatment in this
+	// app since Exit is a destructive-ish action.
+	ColorExitButtonBorder      = color.NRGBA{R: 0x35, G: 0x39, B: 0x31, A: 0xff}
+	ColorExitButtonFill        = color.NRGBA{R: 0x23, G: 0x27, B: 0x2a, A: 0xff}
+	ColorExitButtonText        = color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff}
+	ColorExitButtonHoverBorder = color.NRGBA{R: 0x4e, G: 0x13, B: 0x28, A: 0xff}
+	ColorExitButtonHoverFill   = color.NRGBA{R: 0x1d, G: 0x13, B: 0x1b, A: 0xff}
+	ColorExitButtonHoverText   = color.NRGBA{R: 0xf4, G: 0x6e, B: 0x81, A: 0xff}
+
+	// ColorScrollBar is the app-wide scrollbar thumb (theme.ColorNameScrollBar).
+	// Gray, not the brand lime -- hover thickens the same thumb, it does not
+	// recolor it, so a green resting color read as "old Fyne green on hover".
+	ColorScrollBar = color.NRGBA{R: 0x5a, G: 0x5e, B: 0x62, A: 0xff}
 )
 
 const RadiusMD float32 = 8
+const RadiusLG float32 = 10
 
 const (
 	ColorNameCodeKeyword fyne.ThemeColorName = "code-keyword"
@@ -38,6 +154,13 @@ const (
 	ColorNameCodeNumber  fyne.ThemeColorName = "code-number"
 	ColorNameCodeDefault fyne.ThemeColorName = "code-default"
 )
+
+// SizeNameToastText is the small text size the bottom "Connecting to X…"
+// toast uses for its message -- shared with its error state (see
+// view.ConnectingToastHandle.ShowError) so the error text reads at the same
+// small scale as the progress message it replaces, instead of jumping up to
+// the app's normal (much larger) body text size.
+const SizeNameToastText fyne.ThemeSizeName = "toast-text"
 
 // BrandTheme fixes the application to the current brand dark palette.
 // Until a separate light palette is defined, both theme variants use the same colors.
@@ -52,6 +175,13 @@ func NewBrandTheme() fyne.Theme {
 func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
 	switch name {
 	case fynetheme.ColorNameBackground:
+		// On Android NativeActivity the GL surface is fullscreen: the strip
+		// above Fyne's InteractiveArea (camera / status bar) is this clear
+		// color, not window.statusBarColor. Match ColorGray900 so it lines
+		// up with the Connections/Control header chrome.
+		if runtime.GOOS == "android" {
+			return ColorGray900
+		}
 		return ColorGray950
 	case fynetheme.ColorNameButton:
 		return ColorSurfaceLight
@@ -78,7 +208,19 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNameMenuBackground:
 		return ColorGray950
 	case fynetheme.ColorNameOverlayBackground:
-		return ColorGray950
+		// Transparent, not ColorGray950 (fully opaque) -- widget.PopUp's own
+		// renderer (fyne's popup.go) always paints this color across the
+		// *entire* canvas as its background layer, underneath whatever
+		// content the popup was given. Every dialog in this app
+		// (view.NewOverlayPopup/ShowOverlayPopup) draws its own translucent
+		// "dim" rectangle plus an opaque panel background as part of that
+		// content -- so with this opaque, the real backdrop was always
+		// Fyne's own 100%-opaque layer sitting behind it, making the
+		// carefully-tuned translucent dim rect (e.g. DimColor's A:0x72)
+		// pointless: the window behind a dialog read as flat black instead
+		// of dimmed-but-visible. Transparent here hands full control of the
+		// backdrop to each dialog's own dim rectangle, which is the point.
+		return color.Transparent
 	case fynetheme.ColorNamePlaceHolder:
 		return ColorTextMuted
 	case fynetheme.ColorNamePressed:
@@ -86,7 +228,7 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNamePrimary:
 		return ColorAccent
 	case fynetheme.ColorNameScrollBar:
-		return ColorBorder
+		return ColorScrollBar
 	case fynetheme.ColorNameScrollBarBackground:
 		return ColorGray950
 	case fynetheme.ColorNameSelection:
@@ -128,6 +270,12 @@ func (t *BrandTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
 	case fynetheme.SizeNameInputRadius, fynetheme.SizeNameSelectionRadius, fynetheme.SizeNameWindowButtonRadius:
 		return RadiusMD
+	case fynetheme.SizeNameScrollBar:
+		return 6
+	case fynetheme.SizeNameScrollBarSmall:
+		return 3
+	case SizeNameToastText:
+		return 10
 	}
 	return t.fallback.Size(name)
 }

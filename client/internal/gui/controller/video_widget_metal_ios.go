@@ -162,21 +162,20 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
 
 	if ime := getImeExpandHeightDp(); ime > 0 {
-		// Clip = area above the button panel (ESC/Tab/etc.), which sits between the
-		// video and the system keyboard. canvasH - ime = full area above keyboard;
-		// subtract the button panel height so the overlay doesn't cover it.
-		videoH := canvasH - ime
-		if vw.contentContainer != nil && vw.contentContainer.Visible() {
-			if kh := vw.contentContainer.Size().Height; kh > 0 {
-				videoH -= kh
-			}
-		}
+		// Clip = area above the system IME. Special-keys take a top inset so
+		// the Fyne strip stays visible above the Metal overlay.
+		keysH := vw.specialKeysOverlayHeightDp()
+		videoH := canvasH - ime - keysH
 		if videoH > 0 {
-			return 0, 0, szMain.Width, videoH
+			return 0, keysH, szMain.Width, videoH
 		}
 	}
 
 	szVideo := vw.touchpadWrapper.Size()
+	keysH := vw.specialKeysOverlayHeightDp()
+	if keysH > 0 && szVideo.Height > keysH {
+		return 0, topOffset + keysH, szVideo.Width, szVideo.Height - keysH
+	}
 	return 0, topOffset, szVideo.Width, szVideo.Height
 }
 
@@ -270,16 +269,18 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 // to keep the cursor centred on screen, then repositions the Metal overlay.
 func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	if isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
-		vw.vcMu.Lock()
-		targetU := vw.virtualCursorU
-		targetV := vw.virtualCursorV
-		vw.vcMu.Unlock()
+		if !vw.multiTouchActive && !vw.viewportManualControl {
+			vw.vcMu.Lock()
+			targetU := vw.virtualCursorU
+			targetV := vw.virtualCursorV
+			vw.vcMu.Unlock()
 
-		vw.centerViewportOnVirtualCursor(targetU, targetV)
+			vw.centerViewportOnVirtualCursor(targetU, targetV)
 
-		// Recompute contentRect after the pan change.
-		if tw := vw.activeViewportWrapper(); tw != nil {
-			vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			// Recompute contentRect after the pan change.
+			if tw := vw.activeViewportWrapper(); tw != nil {
+				vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			}
 		}
 	}
 	vw.updateMetalVideoFrame()
@@ -310,10 +311,20 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	// [0, maxPanY] range biased toward the bottom edge.
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
-		idealPanY := ch * (0.5 - v)
+		focusY := float32(0.5)
+		extraUp := float32(0)
+		if vw.keyboardViewportLift {
+			focusY = keyboardFocusYFrac
+			extraUp = availH * keyboardFocusExtraLiftFrac
+			if extraUp < keyboardFocusExtraLiftMinDp {
+				extraUp = keyboardFocusExtraLiftMinDp
+			}
+		}
+		idealPanY := availH*(focusY-0.5) + ch*(0.5-v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
-		vw.panOffsetY = iosSoftClamp(idealPanY, -maxPanY, maxPanY, zoneY)
+		extraDown := extraUp
+		vw.panOffsetY = iosSoftClamp(idealPanY, -maxPanY-extraUp, maxPanY+extraDown, zoneY)
 	} else {
 		vw.panOffsetY = 0
 	}
@@ -419,8 +430,12 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	} else {
 		setImeExpandHeightDp(0)
 	}
+	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
 	lastMetalClipH = 0 // force cache miss → immediate layout update
 	vw.forceCanvasRefresh.Store(true)
+	if imeOpen && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
+		vw.focusViewportOnVirtualCursorForKeyboard()
+	}
 }
 
 // iosCursorImagePixels rasterizes cursor-pointer.svg at 3× (54×72 px) —

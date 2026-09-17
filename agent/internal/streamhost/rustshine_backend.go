@@ -180,7 +180,7 @@ func NewRustshine(exeDir, stateDir, logPath string) Backend {
 
 // DisplayName identifies this backend for display purposes only (GUI
 // status, /api/status, logs) — see streamhost.Identity.
-func (b *rustshineBackend) DisplayName() string { return "RustShine (Proprietary)" }
+func (b *rustshineBackend) DisplayName() string { return "USBridge Streamer (Proprietary)" }
 
 // SetSharedSecret sets the secret Start() passes to gamestream-server as
 // --webrtc-shared-secret. Called via an optional-interface probe from
@@ -206,31 +206,55 @@ func (b *rustshineBackend) SetWebRTCEnabled(enabled bool) {
 	b.mu.Unlock()
 }
 
-// binaryName is bin/gamestream-server's build output name, per its
-// Cargo.toml package name — "gamestream-server(.exe)", not "rust-shine".
+// binaryName is bin/usbridge-streamer's build output name, per its
+// Cargo.toml package name — "usbridge-streamer(.exe)".
 func binaryName() string {
+	if runtime.GOOS == "windows" {
+		return "usbridge-streamer.exe"
+	}
+	return "usbridge-streamer"
+}
+
+func legacyBinaryName() string {
 	if runtime.GOOS == "windows" {
 		return "gamestream-server.exe"
 	}
 	return "gamestream-server"
 }
 
-// BinaryPath resolves the staged gamestream-server binary: stateDir/rustshine/
+// BinaryPath resolves the staged usbridge-streamer binary: stateDir/usbridge-streamer/
 // (see entitlement.StagePath's doc comment for why stateDir and not exeDir),
-// falling back to exeDir/rustshine/ for anything staged there by an older
-// build of this agent before that fix, then PATH for local dev where it's
+// falling back to legacy paths and PATH for local dev where it's
 // just been cargo-built and symlinked.
 func (b *rustshineBackend) BinaryPath() string {
 	if b.launchPath != "" {
 		return b.launchPath
 	}
+	// New standard paths
+	if p := filepath.Join(b.stateDir, "usbridge-streamer", binaryName()); fileExists(p) {
+		return p
+	}
+	if p := filepath.Join(b.exeDir, "usbridge-streamer", binaryName()); fileExists(p) {
+		return p
+	}
+	// Legacy stage dir paths
 	if p := filepath.Join(b.stateDir, "rustshine", binaryName()); fileExists(p) {
+		return p
+	}
+	if p := filepath.Join(b.stateDir, "rustshine", legacyBinaryName()); fileExists(p) {
 		return p
 	}
 	if p := filepath.Join(b.exeDir, "rustshine", binaryName()); fileExists(p) {
 		return p
 	}
+	if p := filepath.Join(b.exeDir, "rustshine", legacyBinaryName()); fileExists(p) {
+		return p
+	}
+	// LookPath on PATH
 	if path, err := exec.LookPath(binaryName()); err == nil {
+		return path
+	}
+	if path, err := exec.LookPath(legacyBinaryName()); err == nil {
 		return path
 	}
 	return ""
@@ -272,6 +296,18 @@ func (b *rustshineBackend) capExecPathFor() string {
 // need staging: only the file setcap actually writes to (capexec) has to be
 // writable — the target binary capexec execs stays wherever it already is,
 // its own RPATH resolution is unaffected by where capexec sits.
+//
+// Stages into the same sharedCapExecRuntimeDir sunshineBackend uses — this
+// is the identical cmd/sunshine_capexec binary either way (see
+// capExecPathFor's own doc comment), and a capability grant is a property of
+// one specific inode: staging each backend into its own directory used to
+// mean RequestKMSCapture while RustShine was active setcap'd a file
+// sunshineBackend never looks at (and vice versa), so the Screen Capture
+// chip showed granted for whichever backend was active when the user last
+// clicked "Grant" and permanently unchecked for the other — confirmed live
+// as "checked with RustShine, unchecked and un-grantable-looking with
+// Sunshine". Sharing one staged copy makes the grant carry over regardless
+// of which backend is active when it's requested.
 func (b *rustshineBackend) runtimeCapExecPath() string {
 	capexecSrc := b.capExecPathFor()
 	if runtime.GOOS != "linux" || capexecSrc == "" || b.stateDir == "" {
@@ -280,7 +316,7 @@ func (b *rustshineBackend) runtimeCapExecPath() string {
 	if os.Getenv("APPIMAGE") == "" {
 		return capexecSrc
 	}
-	staged, err := stageCapExecBinary(capexecSrc, filepath.Join(b.stateDir, "rustshine-capexec-runtime"))
+	staged, err := stageCapExecBinary(capexecSrc, filepath.Join(b.stateDir, sharedCapExecRuntimeDir))
 	if err != nil {
 		log.Printf("[rustshine] failed to stage writable copy for KMS setcap: %v", err)
 		return capexecSrc

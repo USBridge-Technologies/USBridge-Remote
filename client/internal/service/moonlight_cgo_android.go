@@ -496,7 +496,11 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     dr.setup            = dr_setup;
     dr.submitDecodeUnit = dr_submit;
     dr.cleanup          = dr_cleanup;
-    dr.capabilities     = CAPABILITY_DIRECT_SUBMIT;
+    // See moonlight_cgo_shared.h's identical assignment for why the RFI
+    // bits are added here too -- both sides (host DESCRIBE flag + this
+    // capability bit) are required before moonlight-common-c actually uses
+    // reference-frame-invalidation recovery instead of a full IDR request.
+    dr.capabilities     = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
 
     AUDIO_RENDERER_CALLBACKS ar;
     LiInitializeAudioCallbacks(&ar);
@@ -505,6 +509,10 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     ar.stop                = ar_stop;
     ar.cleanup             = ar_cleanup;
     ar.decodeAndPlaySample = ar_decode;
+    // See moonlight_cgo_shared.h's identical assignment for why -- requests
+    // AudioPacketDuration=10ms (protocol-native branch) so a host's Opus
+    // inband FEC (5ms is CELT-only, can never carry it) actually works.
+    ar.capabilities        = CAPABILITY_SLOW_OPUS_DECODER;
 
     CONNECTION_LISTENER_CALLBACKS cl;
     LiInitializeConnectionCallbacks(&cl);
@@ -626,6 +634,11 @@ void do_send_mouse_button(char act, int btn) {
 void do_send_scroll(signed char c) { LiSendScrollEvent(c); }
 void do_send_multi_controller(unsigned short cn, unsigned short am, unsigned short b, unsigned char lt, unsigned char rt, short lx, short ly, short rx, short ry) {
     LiSendMultiControllerEvent(cn, am, b, lt, rt, lx, ly, rx, ry);
+}
+void do_send_pen(unsigned char eventType, unsigned char toolType, unsigned char penButtons,
+                  float x, float y, float pressureOrDistance,
+                  unsigned short rotation, unsigned char tilt) {
+    LiSendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance, 0.0f, 0.0f, rotation, tilt);
 }
 */
 import "C"
@@ -942,6 +955,20 @@ func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {
 	C.do_send_utf8_text(cs, C.uint(len(text)))
 }
 
+func (w *MoonlightCgoWrapper) SendMoonlightPenEvent(
+	eventType, toolType, penButtons uint8,
+	x, y, pressureOrDistance float32,
+	rotation uint16, tilt uint8,
+) {
+	if liStartConnectionActive.Load() {
+		C.do_send_pen(
+			C.uchar(eventType), C.uchar(toolType), C.uchar(penButtons),
+			C.float(x), C.float(y), C.float(pressureOrDistance),
+			C.ushort(rotation), C.uchar(tilt),
+		)
+	}
+}
+
 //export goMoonlightStage
 func goMoonlightStage(s, r, e C.int) {
 	stages := []string{"none", "platform-init", "name-resolution", "audio-stream-init", "rtsp-handshake", "control-stream-init", "video-stream-init", "input-stream-init", "control-stream-start", "video-stream-start", "audio-stream-start", "input-stream-start"}
@@ -959,7 +986,10 @@ func goMoonlightStage(s, r, e C.int) {
 }
 
 //export goMoonlightConnected
-func goMoonlightConnected() { logrus.Info("🌕 [Moonlight] connected ✅") }
+func goMoonlightConnected() {
+	logrus.Info("🌕 [Moonlight] connected ✅")
+	notifyMoonlightStreamReady()
+}
 
 //export goMoonlightTerminated
 func goMoonlightTerminated(e C.int) {

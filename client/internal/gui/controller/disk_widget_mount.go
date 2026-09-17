@@ -3,7 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
+	"usbridge-client/internal/usbpass"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -48,11 +52,34 @@ func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatch
 	return nil, lastErr
 }
 
+func (dw *DiskWidget) setConnectingHints(busy bool) {
+	hints := make([]*view.DeviceDashboardBusySpinner, 0, 1+len(dw.connectingHints))
+	if dw.dashboardBusySpinner != nil {
+		hints = append(hints, dw.dashboardBusySpinner)
+	}
+	hints = append(hints, dw.connectingHints...)
+	for _, hint := range hints {
+		if hint == nil {
+			continue
+		}
+		if busy {
+			hint.Start()
+			continue
+		}
+		hint.Stop()
+	}
+}
+
 // beginOperation locks the UI before starting a mount/unmount operation.
 // Called from the Fyne thread.
 func (dw *DiskWidget) beginOperation() {
 	dw.userOperationInFlight.Store(true)
 	dw.setButtonsEnabled(false)
+	dw.setConnectingHints(true)
+	dw.refreshDashboard()
+	if dw.dashboardContainer != nil {
+		dw.dashboardContainer.Refresh()
+	}
 }
 
 // endOperation finishes a mount/unmount operation.
@@ -69,6 +96,7 @@ func (dw *DiskWidget) endOperation() {
 	var newMounted []*models.DeviceInfo
 	var newLocalDrives []*models.LocalDrive
 	var newAgentOS string
+	var newPassSessions []string
 
 	if dw.usbClient != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -92,6 +120,10 @@ func (dw *DiskWidget) endOperation() {
 		} else {
 			logrus.Errorf("endOperation: GetLocalDrives: %v", err)
 		}
+
+		if st, err := dw.usbClient.GetUSBPassthroughStatus(); err == nil && st != nil {
+			newPassSessions = append([]string(nil), st.Sessions...)
+		}
 	}
 
 	// All changes happen in one fyne.Do — atomic from the event loop's point of view.
@@ -105,6 +137,7 @@ func (dw *DiskWidget) endOperation() {
 		if newLocalDrives != nil {
 			dw.localDrives = newLocalDrives
 		}
+		dw.usbPassSessions = newPassSessions
 		// Reset all mounting animations
 		for i := range dw.allDrives {
 			dw.allDrives[i].IsMounting = false
@@ -113,6 +146,10 @@ func (dw *DiskWidget) endOperation() {
 		// so controlsLocked() returns false and buttons are guaranteed to re-enable.
 		dw.userOperationInFlight.Store(false)
 		dw.apiMountInProgress.Store(false)
+		dw.setConnectingHints(false)
+		if dw.dashboardContainer != nil {
+			dw.dashboardContainer.Refresh()
+		}
 		// Rebuild status and list from fresh data
 		dw.updateDevicesStatus() // updates IsMounted, calls updateButtons
 		dw.lastDrivesTraceSig = ""
@@ -128,6 +165,9 @@ func (dw *DiskWidget) endOperation() {
 func (dw *DiskWidget) handleMount() {
 	logrus.Infof("📍 [MOUNT] handleMount called, GOOS: %s", runtime.GOOS)
 
+	if dw.controlsLocked() {
+		return
+	}
 	if dw.usbClient == nil {
 		if dw.window != nil {
 			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
@@ -156,12 +196,46 @@ func (dw *DiskWidget) handleMount() {
 	}
 
 	mountedGadgetCount := 0
+	hidMountedCount := 0
+	xinputMountedCount := 0
 	for _, d := range dw.allDrives {
 		if d.IsMounted && !d.IsVideo {
 			mountedGadgetCount++
 		}
+		if d.IsMounted && (d.IsKeyboard || d.IsMouse) {
+			hidMountedCount++
+		}
+		if d.IsMounted && d.IsGamepad && normalizeGamepadMode(d.GamepadMode) == gamepadModeXInput {
+			xinputMountedCount++
+		}
 	}
-	if mountedGadgetCount+len(selectedDrives) > MaxDevicesToMount {
+
+	hasXInputSelected := false
+	hidSelectedCount := 0
+	xinputSelectedCount := 0
+	for _, d := range selectedDrives {
+		if d.IsGamepad && normalizeGamepadMode(d.GamepadMode) == gamepadModeXInput {
+			hasXInputSelected = true
+			xinputSelectedCount++
+		}
+		if d.IsKeyboard || d.IsMouse {
+			hidSelectedCount++
+		}
+	}
+	dropHIDForGamepad := hasXInputSelected && (hidSelectedCount > 0 || hidMountedCount > 0)
+	dropGamepadForHID := hidSelectedCount > 0 && xinputMountedCount > 0 && !dropHIDForGamepad
+
+	effectiveMounted := mountedGadgetCount
+	effectiveAdding := len(selectedDrives)
+	if dropHIDForGamepad {
+		effectiveMounted -= hidMountedCount
+		effectiveAdding -= hidSelectedCount
+	}
+	if dropGamepadForHID {
+		effectiveMounted -= xinputMountedCount
+		effectiveAdding -= xinputSelectedCount
+	}
+	if effectiveMounted+effectiveAdding > MaxDevicesToMount {
 		if dw.window != nil {
 			view.ShowInfoDialog(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
 		}
@@ -169,31 +243,84 @@ func (dw *DiskWidget) handleMount() {
 	}
 
 	logrus.Infof("📁 [MOUNT] mounted: %d, adding: %d", mountedGadgetCount, len(selectedDrives))
+	for _, d := range selectedDrives {
+		bus := ""
+		if d.USBPassthrough != nil {
+			bus = d.USBPassthrough.BusID
+		}
+		logrus.Infof("📁 [MOUNT] selected name=%q source=%q usbpass=%v bus=%q",
+			d.Name, d.Source, d.IsUSBPassthrough, bus)
+	}
 
-	// An XInput gamepad is incompatible with keyboard/mouse in the same composite device:
-	// Windows won't initialize the remaining HID interfaces under the Xbox VID/PID.
-	// Check both the new selection and the already-mounted devices.
-	if dw.window != nil {
-		hasXInputSelected := false
-		hasHIDSelected := false
-		for _, d := range selectedDrives {
-			if d.IsGamepad && normalizeGamepadMode(d.GamepadMode) == gamepadModeXInput {
-				hasXInputSelected = true
-			}
-			if d.IsKeyboard || d.IsMouse {
-				hasHIDSelected = true
-			}
+	var pass []DriveItem
+	var rest []DriveItem
+	for _, d := range selectedDrives {
+		if d.IsUSBPassthrough {
+			pass = append(pass, d)
+		} else {
+			rest = append(rest, d)
 		}
-		hasHIDMounted := false
-		for _, d := range dw.allDrives {
-			if d.IsMounted && (d.IsKeyboard || d.IsMouse) {
-				hasHIDMounted = true
-			}
-		}
-		if hasXInputSelected && (hasHIDSelected || hasHIDMounted) {
-			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.XInputIncompatibleWithHID), dw.window)
+	}
+	if len(pass) > 0 {
+		dw.mountUSBPassthrough(pass)
+	}
+	if len(rest) == 0 {
+		return
+	}
+	selectedDrives = rest
+
+	// An XInput gamepad is incompatible with keyboard/mouse in the same
+	// composite device: Windows won't initialize the remaining HID
+	// interfaces under the Xbox VID/PID. Offer to drop the conflicting
+	// side and continue, using the same bottom toast ISO delete uses.
+	if dropHIDForGamepad {
+		if dw.window == nil {
 			return
 		}
+		selectedCopy := append([]DriveItem(nil), selectedDrives...)
+		view.ShowConfirmToast(i18n.Current.GamepadDisconnectHIDConfirm, func(ok bool) {
+			if !ok {
+				dw.requestDevicesRefresh()
+				return
+			}
+			dw.mountReplacing(selectedCopy, conflictsWithXInputGamepad)
+		}, dw.window)
+		return
+	}
+	if dropGamepadForHID {
+		if dw.window == nil {
+			return
+		}
+		selectedCopy := append([]DriveItem(nil), selectedDrives...)
+		view.ShowConfirmToast(i18n.Current.HIDDisconnectGamepadConfirm, func(ok bool) {
+			if !ok {
+				dw.requestDevicesRefresh()
+				return
+			}
+			dw.mountReplacing(selectedCopy, func(d DriveItem) bool {
+				return d.IsGamepad
+			})
+		}, dw.window)
+		return
+	}
+
+	// The agent allows only one mtp:// source. A mounted snapshot occupies
+	// that slot, so adding the backup flash with merge=true fails. Offer to
+	// unmount the snapshot and continue, same Yes/No toast as the gamepad.
+	if selectedIncludesBackupFlash(selectedDrives) && dw.hasConflictingSnapshotMTP() {
+		logrus.Infof("📁 [MOUNT] backup flash requested while a snapshot MTP is mounted")
+		if dw.window == nil {
+			return
+		}
+		selectedCopy := append([]DriveItem(nil), selectedDrives...)
+		view.ShowConfirmToast(i18n.Current.BackupFlashDisconnectSnapshotConfirm, func(ok bool) {
+			if !ok {
+				dw.requestDevicesRefresh()
+				return
+			}
+			dw.mountReplacingGadget(selectedCopy, func(DriveItem) bool { return false }, false)
+		}, dw.window)
+		return
 	}
 
 	// Progress dialog for files from Google Drive
@@ -216,6 +343,7 @@ func (dw *DiskWidget) handleMount() {
 		}
 	}
 
+	dw.markSelectedDrivesMounting()
 	dw.beginOperation()
 
 	go func() {
@@ -247,6 +375,15 @@ func (dw *DiskWidget) handleMount() {
 		if len(deviceRequests) == 0 {
 			dw.showErrorAsync(fmt.Errorf("failed to prepare devices for mounting"))
 			return
+		}
+
+		// Software-agent /api/device/start historically ignored merge=true and
+		// replaced the whole set with this payload. A one-card keyboard/mouse
+		// toggle then dropped the sibling HID. Keep already-mounted HID in the
+		// batch so both survive even against those agents.
+		if keep := dw.keepMountedHIDRequests(selectedDrives); len(keep) > 0 {
+			deviceRequests = append(keep, deviceRequests...)
+			logrus.Infof("📎 [MOUNT] including %d already-mounted HID device(s) in merge batch", len(keep))
 		}
 
 		// Determine NBD export names for the mounting animation
@@ -290,6 +427,191 @@ func (dw *DiskWidget) handleMount() {
 		}
 
 		logrus.Infof("✅ [MOUNT] Mounting complete, waiting for endOperation()")
+	}()
+}
+
+func isBackupFlashDrive(d DriveItem) bool {
+	return isDashboardBackupDrive(d)
+}
+
+func selectedIncludesBackupFlash(drives []DriveItem) bool {
+	for _, d := range drives {
+		if isBackupFlashDrive(d) {
+			return true
+		}
+	}
+	return false
+}
+
+func (dw *DiskWidget) hasMountedSnapshotMTP() bool {
+	for _, device := range dw.mountedDevices {
+		if device == nil || device.Status != "connected" {
+			continue
+		}
+		if !IsMTPGadget(device.Type, device.Device) {
+			continue
+		}
+		if device.Name == backupFlashMTPName {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// hasConflictingSnapshotMTP is the Devices-tab check: the snapshot gadget
+// often does not show up as a DriveItem, and GetDeviceInfo may omit it, so
+// we also trust BackupWidget's last GetSnapshots and a live lookup.
+func (dw *DiskWidget) hasConflictingSnapshotMTP() bool {
+	if dw.dashboardSnapshotMounted {
+		return true
+	}
+	if dw.hasMountedSnapshotMTP() {
+		return true
+	}
+	if dw.usbClient == nil {
+		return false
+	}
+	resp, err := dw.usbClient.GetSnapshots()
+	if err != nil || resp == nil {
+		logrus.Debugf("📁 [MOUNT] GetSnapshots for MTP conflict: %v", err)
+		return false
+	}
+	for i := range resp.Snapshots {
+		if resp.Snapshots[i].Connected {
+			dw.dashboardSnapshotMounted = true
+			return true
+		}
+	}
+	return false
+}
+
+// conflictsWithXInputGamepad is the agent's exclusive-USB rule: an XInput
+// gamepad cannot share the gadget with keyboard, mouse, RNDIS, or drives.
+func conflictsWithXInputGamepad(d DriveItem) bool {
+	switch {
+	case d.IsKeyboard, d.IsMouse, d.IsRNDIS:
+		return true
+	case d.IsGamepad, d.IsVideo, d.IsAudio, d.IsUSBAudio:
+		return false
+	default:
+		return true
+	}
+}
+
+// mountReplacing continues a mount after the user agreed to drop
+// conflicting gadgets (keyboard/mouse vs XInput gamepad). The agent
+// validates exclusive XInput against the currently bound gadget, so a
+// single Full Replace while keyboard/mouse are still up returns 400.
+// Stop the current USB gadget first, wait for UDC to release, then
+// start the replacement set without the dropped devices.
+func (dw *DiskWidget) mountReplacing(selectedDrives []DriveItem, drop func(DriveItem) bool) {
+	dw.mountReplacingGadget(selectedDrives, drop, true)
+}
+
+func (dw *DiskWidget) mountReplacingGadget(selectedDrives []DriveItem, drop func(DriveItem) bool, stopFirst bool) {
+	var filtered []DriveItem
+	for _, d := range selectedDrives {
+		if drop(d) {
+			continue
+		}
+		filtered = append(filtered, d)
+	}
+	if len(filtered) == 0 {
+		return
+	}
+
+	var keepMounted []DriveItem
+	for _, d := range dw.allDrives {
+		if d.IsMounted && !d.IsVideo && !d.IsAudio && !drop(d) {
+			keepMounted = append(keepMounted, d)
+		}
+	}
+
+	dw.selectedItemsMu.Lock()
+	for i, d := range dw.allDrives {
+		if drop(d) {
+			delete(dw.selectedItems, i)
+		}
+	}
+	dw.selectedItemsMu.Unlock()
+
+	dw.markSelectedDrivesMounting()
+	dw.beginOperation()
+
+	go func() {
+		defer dw.endOperation()
+
+		var deviceRequests []models.DeviceStartRequest
+		startedMouseMode := ""
+
+		for _, d := range keepMounted {
+			req, err := dw.buildDeviceRequestForDrive(d, true)
+			if err != nil || req == nil {
+				logrus.Warnf("⚠️ [MOUNT-XINPUT] Skip keep %s: %v", d.Name, err)
+				continue
+			}
+			deviceRequests = append(deviceRequests, *req)
+		}
+
+		for _, sel := range filtered {
+			req, mouseMode, err := dw.buildMountRequest(sel)
+			if err != nil {
+				dw.showErrorAsync(fmt.Errorf("error preparing %s: %v", sel.Name, err))
+				return
+			}
+			if mouseMode != "" {
+				startedMouseMode = mouseMode
+			}
+			if req != nil {
+				deviceRequests = append(deviceRequests, *req)
+			}
+		}
+
+		if len(deviceRequests) == 0 {
+			dw.showErrorAsync(fmt.Errorf("failed to prepare devices for mounting"))
+			return
+		}
+
+		mountingExportNames := dw.nbdExportNamesForRequests(deviceRequests)
+		if err := dw.waitForNBDServers(30 * time.Second); err != nil {
+			dw.showErrorAsync(err)
+			return
+		}
+
+		fyne.Do(func() {
+			dw.setMountingStateByExportNames(mountingExportNames, true)
+			dw.setAPIMountInProgress(true)
+			dw.selectedItemsMu.Lock()
+			dw.selectedItems = make(map[int]bool)
+			dw.selectedItemsMu.Unlock()
+			dw.requestDevicesRefresh()
+		})
+
+		if stopFirst {
+			logrus.Infof("🛑 [MOUNT-SWAP] Stopping current USB gadgets before replacement")
+			if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
+				logrus.Errorf("❌ [MOUNT-SWAP] Stop before replace: %v", err)
+				dw.showErrorAsync(fmt.Errorf("error disconnecting devices: %v", err))
+				return
+			}
+			time.Sleep(gadgetRebuildDelay)
+		}
+
+		logrus.Infof("🚀 [MOUNT-SWAP] Starting %d devices (Full Replace, stopFirst=%v)", len(deviceRequests), stopFirst)
+		dw.updateStatusAsync("Starting devices...")
+		if resp, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests), false); err != nil {
+			logrus.Errorf("❌ [MOUNT-SWAP] Error: %v", err)
+			dw.showErrorAsync(fmt.Errorf("error starting devices: %v", err))
+			return
+		} else {
+			logrus.Infof("✅ [MOUNT-SWAP] Success=%v Message=%s", resp.Success, resp.Message)
+		}
+
+		if dw.onMouseTypeChanged != nil && startedMouseMode != "" {
+			dw.preferredMouseMode = startedMouseMode
+			dw.onMouseTypeChanged(startedMouseMode)
+		}
 	}()
 }
 
@@ -469,6 +791,9 @@ func (dw *DiskWidget) waitForNBDServers(timeout time.Duration) error {
 
 // handleUnmount handles the Disconnect button press.
 func (dw *DiskWidget) handleUnmount() {
+	if dw.controlsLocked() {
+		return
+	}
 	if dw.usbClient == nil {
 		if dw.window != nil {
 			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
@@ -534,26 +859,67 @@ func (dw *DiskWidget) handleUnmount() {
 		snapSelected[k] = v
 	}
 
-	view.ShowConfirmYesLeft(i18n.Current.Confirmation, confirmMsg, func(ok bool) {
+	needsConfirm := false
+	if unmountAll {
+		for _, d := range mountedDrives {
+			if driveNeedsUnmountConfirm(d) {
+				needsConfirm = true
+				break
+			}
+		}
+	} else {
+		for i, d := range mountedDrives {
+			if snapSelected[mountedIndices[i]] && driveNeedsUnmountConfirm(d) {
+				needsConfirm = true
+				break
+			}
+		}
+	}
+
+	start := func() {
+		dw.startUnmount(unmountAll, snapSelected, snapMountedDrives, snapMountedIndices)
+	}
+	if !needsConfirm {
+		start()
+		return
+	}
+
+	view.ShowConfirmToast(confirmMsg, func(ok bool) {
 		if !ok {
 			return
 		}
-		dw.beginOperation()
-		// Immediately clear selection for visual feedback
-		dw.selectedItemsMu.Lock()
-		if unmountAll {
-			dw.selectedItems = make(map[int]bool)
-		} else {
-			for idx := range snapSelected {
-				delete(dw.selectedItems, idx)
-			}
-		}
-		dw.selectedItemsMu.Unlock()
-		dw.updateButtons()
-		dw.requestDevicesRefresh()
-
-		go dw.doUnmount(unmountAll, snapSelected, snapMountedDrives, snapMountedIndices)
+		start()
 	}, dw.window)
+}
+
+// driveNeedsUnmountConfirm is true only for mass-storage / flash (ISO,
+// USB stick, MTP backup). HID, network, video, and audio unmount without
+// a confirmation toast -- the toggle twitch on keyboard/mouse was the
+// confirm flipping the switch before the gadget actually dropped.
+func driveNeedsUnmountConfirm(d DriveItem) bool {
+	switch {
+	case d.IsKeyboard, d.IsMouse, d.IsGamepad, d.IsRNDIS, d.IsVideo, d.IsAudio, d.IsUSBAudio:
+		return false
+	default:
+		return true
+	}
+}
+
+func (dw *DiskWidget) startUnmount(unmountAll bool, snapSelected map[int]bool, snapMountedDrives []DriveItem, snapMountedIndices []int) {
+	dw.beginOperation()
+	dw.selectedItemsMu.Lock()
+	if unmountAll {
+		dw.selectedItems = make(map[int]bool)
+	} else {
+		for idx := range snapSelected {
+			delete(dw.selectedItems, idx)
+		}
+	}
+	dw.selectedItemsMu.Unlock()
+	dw.updateButtons()
+	dw.requestDevicesRefresh()
+
+	go dw.doUnmount(unmountAll, snapSelected, snapMountedDrives, snapMountedIndices)
 }
 
 // doUnmount performs the unmount in a goroutine.
@@ -567,6 +933,8 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		if dw.onAudioDisconnect != nil {
 			dw.onAudioDisconnect()
 		}
+		usbpass.StopSession()
+		dw.usbPassSessions = nil
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
 			logrus.Warnf("⚠️ [UNMOUNT-ALL] Stop error: %v", err)
@@ -587,6 +955,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 	}
 
 	drivesToUnmount := make([]DriveItem, 0, len(selectedIndices))
+	stopUSBPass := false
 	for idx := range selectedIndices {
 		if idx >= len(dw.allDrives) {
 			continue
@@ -597,7 +966,14 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		if dw.allDrives[idx].IsAudio && dw.onAudioDisconnect != nil {
 			dw.onAudioDisconnect()
 		}
+		if dw.allDrives[idx].IsUSBPassthrough {
+			stopUSBPass = true
+		}
 		drivesToUnmount = append(drivesToUnmount, dw.allDrives[idx])
+	}
+	if stopUSBPass {
+		usbpass.StopSession()
+		dw.usbPassSessions = nil
 	}
 
 	dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
@@ -637,6 +1013,22 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 // unmount button was not used.
 func (dw *DiskWidget) StopAllNBDServers() {
 	dw.stopNBDAndCleanup(nil, true)
+}
+
+// StopUSBPassthrough tears down the local USB/IP export + broker attach and
+// clears the green mounted marker. Safe to call when nothing is mounted.
+func (dw *DiskWidget) StopUSBPassthrough() {
+	usbpass.StopSession()
+	fyne.Do(func() {
+		dw.usbPassSessions = nil
+		for i := range dw.allDrives {
+			if dw.allDrives[i].IsUSBPassthrough {
+				dw.allDrives[i].IsMounted = false
+			}
+		}
+		dw.updateButtons()
+		dw.requestDevicesRefresh()
+	})
 }
 
 // stopNBDAndCleanup stops NBD servers and releases resources.
@@ -686,6 +1078,50 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 			}
 		}
 	}
+}
+
+// keepMountedHIDRequests rebuilds start requests for keyboard/mouse/gamepad
+// already shown as mounted, skipping kinds that are in this mount batch.
+func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.DeviceStartRequest {
+	skip := make(map[string]bool, 3)
+	for _, d := range selected {
+		switch {
+		case d.IsKeyboard:
+			skip["keyboard"] = true
+		case d.IsMouse:
+			skip["mouse"] = true
+		case d.IsGamepad:
+			skip["gamepad"] = true
+		}
+	}
+
+	var out []models.DeviceStartRequest
+	for _, d := range dw.allDrives {
+		if !d.IsMounted {
+			continue
+		}
+		kind := ""
+		switch {
+		case d.IsKeyboard:
+			kind = "keyboard"
+		case d.IsMouse:
+			kind = "mouse"
+		case d.IsGamepad:
+			kind = "gamepad"
+		default:
+			continue
+		}
+		if skip[kind] {
+			continue
+		}
+		req, err := dw.buildDeviceRequestForDrive(d, true)
+		if err != nil || req == nil {
+			logrus.Warnf("⚠️ [MOUNT] skip keep-mounted %s: %v", d.Name, err)
+			continue
+		}
+		out = append(out, *req)
+	}
+	return out
 }
 
 // buildDeviceRequestForDrive builds a DeviceStartRequest for an already-mounted device
@@ -832,6 +1268,7 @@ func (dw *DiskWidget) updateButtons() {
 	controlsLocked := dw.controlsLocked()
 
 	fyne.Do(func() {
+		dw.syncDashboardFooter()
 		if dw.unmountBtn == nil || dw.mountBtn == nil {
 			return
 		}
@@ -840,21 +1277,35 @@ func (dw *DiskWidget) updateButtons() {
 		if selectedCount == 0 && hasMountedDevices {
 			disconnectLabel = i18n.Current.DisconnectAllButton
 		}
-		dw.unmountBtn.SetText(disconnectLabel)
+		
+		if dw.unmountBtn.Text != disconnectLabel {
+			dw.unmountBtn.SetText(disconnectLabel)
+		}
+		// view.DeviceActionButton might not expose Label()
 		if dw.compactUnmountBtn != nil {
 			dw.compactUnmountBtn.SetLabel(disconnectLabel)
 		}
 
 		if selectedNotMountedCount == 0 {
-			dw.mountBtn.Hide()
+			if dw.mountBtn.Visible() {
+				dw.mountBtn.Hide()
+			}
 			if dw.compactMountBtn != nil {
-				dw.compactMountBtn.Hide()
+				if dw.compactMountBtn.Visible() {
+					dw.compactMountBtn.Hide()
+				}
+				// Disabled check? Fyne doesn't export Disabled() for some widgets, but view.DeviceActionButton might.
+				// Disabling a hidden button isn't visibly changing layout, but SetDisabled doesn't hurt.
 				dw.compactMountBtn.Disable()
 			}
 		} else {
-			dw.mountBtn.Show()
+			if !dw.mountBtn.Visible() {
+				dw.mountBtn.Show()
+			}
 			if dw.compactMountBtn != nil {
-				dw.compactMountBtn.Show()
+				if !dw.compactMountBtn.Visible() {
+					dw.compactMountBtn.Show()
+				}
 				if canAdd && !controlsLocked {
 					dw.compactMountBtn.Enable()
 				} else {
@@ -864,14 +1315,18 @@ func (dw *DiskWidget) updateButtons() {
 		}
 
 		if hasMountedDevices || selectedCount > 0 {
-			dw.unmountBtn.Show()
+			if !dw.unmountBtn.Visible() {
+				dw.unmountBtn.Show()
+			}
 			if controlsLocked {
 				dw.unmountBtn.Disable()
 			} else {
 				dw.unmountBtn.Enable()
 			}
 			if dw.compactUnmountBtn != nil {
-				dw.compactUnmountBtn.Show()
+				if !dw.compactUnmountBtn.Visible() {
+					dw.compactUnmountBtn.Show()
+				}
 				if controlsLocked {
 					dw.compactUnmountBtn.Disable()
 				} else {
@@ -879,9 +1334,13 @@ func (dw *DiskWidget) updateButtons() {
 				}
 			}
 		} else {
-			dw.unmountBtn.Hide()
+			if dw.unmountBtn.Visible() {
+				dw.unmountBtn.Hide()
+			}
 			if dw.compactUnmountBtn != nil {
-				dw.compactUnmountBtn.Hide()
+				if dw.compactUnmountBtn.Visible() {
+					dw.compactUnmountBtn.Hide()
+				}
 				dw.compactUnmountBtn.Disable()
 			}
 		}
@@ -899,9 +1358,11 @@ func (dw *DiskWidget) updateButtons() {
 		} else {
 			dw.mountBtn.Disable()
 		}
+
 		if dw.onButtonsChanged != nil {
 			dw.onButtonsChanged()
 		}
+
 	})
 }
 
@@ -961,6 +1422,71 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		}
 		if dw.onMouseModeReconfigured != nil {
 			dw.onMouseModeReconfigured()
+		}
+	}()
+}
+
+func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
+	dw.beginOperation()
+	go func() {
+		defer dw.endOperation()
+		var devices []models.USBPassthroughDevice
+		for _, it := range items {
+			if it.USBPassthrough == nil {
+				continue
+			}
+			if it.USBPassthrough.Protected {
+				dw.showErrorAsync(fmt.Errorf("%s", i18n.Current.USBPassthroughProtected))
+				return
+			}
+			devices = append(devices, *it.USBPassthrough)
+		}
+		if len(devices) == 0 {
+			return
+		}
+		// Go client owns the USB/IP server (export). rust-shine on the agent
+		// is the USB/IP client (win2 VHCI).
+		exportPort := 3240
+		if _, err := usbpass.StartSession(fmt.Sprintf("0.0.0.0:%d", exportPort), devices); err != nil {
+			dw.showErrorAsync(fmt.Errorf("USB/IP export: %w", err))
+			return
+		}
+		if _, err := dw.usbClient.OpenUSBPassthroughSession(); err != nil {
+			usbpass.StopSession()
+			dw.showErrorAsync(fmt.Errorf("%s: %w", i18n.Current.USBPassthroughEnterpriseHint, err))
+			return
+		}
+		base := dw.usbClient.GetBaseURL()
+		u, err := url.Parse(base)
+		if err != nil {
+			usbpass.StopSession()
+			dw.showErrorAsync(err)
+			return
+		}
+		port := 8090
+		if dw.config != nil && dw.config.USBPassthroughPort > 0 {
+			port = dw.config.USBPassthroughPort
+		}
+		addr := net.JoinHostPort(u.Hostname(), strconv.Itoa(port))
+		secret := string(dw.usbClient.APISecret())
+		for _, d := range devices {
+			inst := d.InstanceID
+			if inst == "" {
+				inst = d.BusID
+			}
+			if err := usbpass.Attach(usbpass.AttachOptions{
+				AgentAddr:     addr,
+				Secret:        secret,
+				InstanceID:    inst,
+				USBIPBusID:    d.BusID,
+				VID:           d.VID,
+				PID:           d.PID,
+				ExportService: strconv.Itoa(exportPort),
+			}); err != nil {
+				usbpass.StopSession()
+				dw.showErrorAsync(err)
+				return
+			}
 		}
 	}()
 }

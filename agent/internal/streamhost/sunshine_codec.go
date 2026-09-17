@@ -198,6 +198,25 @@ type serverInfoXML struct {
 // started", until the probing happened to let a launch through. Since
 // hardware encoder capability cannot change while Sunshine keeps running,
 // there is no reason to re-probe more than very rarely.
+// Color444Status: Sunshine (opensource) never offers the RustShine Pro
+// color upgrade -- it's a RustShine-only feature, see CodecProbe's doc
+// comment.
+func (b *sunshineBackend) Color444Status() (active bool, available bool) {
+	return false, false
+}
+
+// HdrStatus: mirrors Color444Status -- Sunshine never offers the RustShine
+// HDR color upgrade either, see CodecProbe's doc comment.
+func (b *sunshineBackend) HdrStatus() (active bool, available bool) {
+	return false, false
+}
+
+// VirtualDisplaySupported: Sunshine (opensource) does not support our native
+// virtual display APIs.
+func (b *sunshineBackend) VirtualDisplaySupported() bool {
+	return false
+}
+
 func (b *sunshineBackend) SupportedVideoCodecs(adminPort int) []string {
 	b.supportedCodecsCache.mu.Lock()
 	if !b.supportedCodecsCache.fetchedAt.IsZero() && time.Since(b.supportedCodecsCache.fetchedAt) < supportedCodecsCacheTTL {

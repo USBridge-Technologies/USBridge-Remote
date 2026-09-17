@@ -42,8 +42,10 @@ That's the whole setup. See the [top-level README](../README.md#-quick-start) fo
 ### Platform Notes (from the top-level README)
 
 * **Wayland (Linux):** full screen capture and input injection with no permission-prompt spam — KMS capture needs one `pkexec` grant, which persists across reboots.
+* **System Tray:** closing the window minimizes to a tray icon (status-aware, with Open/Restart Streaming/Autostart/Quit) instead of quitting; falls back to actually quitting on a Linux session with no reachable tray host (e.g. GNOME without the AppIndicator extension). Stays visible even when the engine runs headless — see [Launch at Login](../README.md#-launch-at-login-autostart) for how each platform gets a tray icon onto an otherwise-invisible background instance.
 * **Launch at Login:** reflects your OS's actual autostart state live (no separate on/off flag of its own); always launches with `--headless` so the engine comes up silently and a later normal launch just attaches a GUI to it.
 * **GPU Clock Lock (Windows + NVIDIA):** holds an NVML max-clock lock for the streaming session so the encoder doesn't stall waiting on a GPU that idled down between frames.
 * **RustShine / WebRTC (Patreon):** the standard Sunshine backend doesn't support WebRTC, so the [Web Client](https://web.usbridge.io) needs the Patreon-gated RustShine streaming engine to connect to an Agent. Toggle it from the Permissions column once unlocked.
+* **Lock screen / UAC (Windows):** the Windows Agent runs the streaming backend as SYSTEM inside the active session rather than the logged-in user's own token, so capture and input keep working straight through Win+L, sign-out to the logon screen, and UAC prompts — not just the ordinary unlocked desktop. It can also raise a synthetic Ctrl+Alt+Del on demand (`App.SendSAS()` / `POST /token/send-sas` on the Agent's local admin API) for machines where "require CTRL+ALT+DEL" is enabled, since Windows deliberately blocks ordinary keyboard injection from reaching that gesture on its own.
 
 See [`../README.md`](../README.md) for the full detail on each of these — this page indexes it, it doesn't duplicate it.

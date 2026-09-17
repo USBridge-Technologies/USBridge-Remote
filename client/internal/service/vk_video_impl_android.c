@@ -209,10 +209,19 @@ static atomic_int g_vp_v1_fp = ATOMIC_VAR_INIT(65536);
 // where the cursor flies to a completely wrong screen position.
 static pthread_mutex_t g_state_mu = PTHREAD_MUTEX_INITIALIZER;
 
-// When 1, the fitted video rect is bottom-aligned in the swapchain (dy = sh - dh)
-// instead of centered (dy = (sh - dh) / 2). Set while the system IME is open so
-// the video sits flush against the keyboard panel with no black gap below.
-static atomic_int g_align_bottom;
+// When non-zero: 1 = bottom-align fitted video, 2 = top-align (under special
+// keys). 0 = center. Bottom while IME-only; top while special keys own the
+// header so letterbox does not pool under the keys.
+static atomic_int g_v_align;
+
+// Extra destination blit offset in physical pixels (letterbox / zoom pan).
+// Applied after aspect-fit and uniform zoomScale. Zero when centered.
+static atomic_int g_blit_pan_x;
+static atomic_int g_blit_pan_y;
+// Uniform zoom of the fitted destination (fixed-point 65536 = 1.0). RustDesk-
+// style: scale the blit dest, keep source = full frame — never stretch a UV
+// crop to the swapchain (that deformed the picture horizontally).
+static atomic_int g_blit_zoom_fp = ATOMIC_VAR_INIT(65536);
 
 // ─── Virtual cursor ───────────────────────────────────────────────────────────
 static atomic_int g_cursor_visible;      // 0 = hidden
@@ -720,6 +729,97 @@ static int vk_ensure_staging(size_t sz) {
     return 1;
 }
 
+// vk_apply_fit_pan pans the aspect-fit destination, then clips both dest and
+// source so the blit stays inside the swapchain. This lets the fitted video
+// slide partially off-screen (letterbox / free pan) without Vulkan rejecting
+// out-of-bounds dest offsets — the old "keep full rect on screen" clamp was
+// fighting Go's pan and snapping the picture back toward center.
+static void vk_apply_fit_pan(int *dx, int *dy, int *dw, int *dh,
+                             int *sx0, int *sy0, int *sx1, int *sy1,
+                             int sw, int sh, int pan_x, int pan_y) {
+    if (*dw <= 0 || *dh <= 0) {
+        return;
+    }
+    int dest_x0 = *dx + pan_x;
+    int dest_y0 = *dy + pan_y;
+    int dest_x1 = dest_x0 + *dw;
+    int dest_y1 = dest_y0 + *dh;
+
+    int clip_x0 = dest_x0 < 0 ? 0 : dest_x0;
+    int clip_y0 = dest_y0 < 0 ? 0 : dest_y0;
+    int clip_x1 = dest_x1 > sw ? sw : dest_x1;
+    int clip_y1 = dest_y1 > sh ? sh : dest_y1;
+    if (clip_x1 <= clip_x0 || clip_y1 <= clip_y0) {
+        *dw = 0;
+        *dh = 0;
+        return;
+    }
+
+    int src0x = *sx0, src0y = *sy0, src1x = *sx1, src1y = *sy1;
+    float src_w = (float)(src1x - src0x);
+    float src_h = (float)(src1y - src0y);
+    float ndw = (float)(*dw);
+    float ndh = (float)(*dh);
+
+    float nx0 = (clip_x0 - dest_x0) / ndw;
+    float ny0 = (clip_y0 - dest_y0) / ndh;
+    float nx1 = (clip_x1 - dest_x0) / ndw;
+    float ny1 = (clip_y1 - dest_y0) / ndh;
+
+    *sx0 = src0x + (int)(src_w * nx0 + 0.5f);
+    *sy0 = src0y + (int)(src_h * ny0 + 0.5f);
+    *sx1 = src0x + (int)(src_w * nx1 + 0.5f);
+    *sy1 = src0y + (int)(src_h * ny1 + 0.5f);
+    *dx = clip_x0;
+    *dy = clip_y0;
+    *dw = clip_x1 - clip_x0;
+    *dh = clip_y1 - clip_y0;
+}
+
+// vk_layout_zoomed_dest aspect-fits the FULL frame into the swapchain, scales
+// that dest by zoom (pinch), applies pan, then clips. Source stays the full
+// frame UV; clipping dest proportionally crops src — uniform digital zoom
+// without aspect distortion.
+static void vk_layout_zoomed_dest(int fw, int fh, int sw, int sh,
+                                  float zoom, int pan_x, int pan_y,
+                                  int *dx, int *dy, int *dw, int *dh,
+                                  int *sx0, int *sy0, int *sx1, int *sy1) {
+    float fa = (float)fw / (float)(fh > 0 ? fh : 1);
+    float wa = (float)sw / (float)(sh > 0 ? sh : 1);
+    *dx = 0;
+    *dy = 0;
+    *dw = sw;
+    *dh = sh;
+    if (fa > wa) {
+        *dh = (int)(sw / fa + 0.5f);
+        switch (atomic_load(&g_v_align)) {
+            case 1: *dy = sh - *dh; break; // bottom
+            case 2: *dy = 0; break;         // top
+            default: *dy = (sh - *dh) / 2; break; // center
+        }
+    } else {
+        *dw = (int)(sh * fa + 0.5f);
+        *dx = (sw - *dw) / 2;
+    }
+    if (zoom < 1.0f) {
+        zoom = 1.0f;
+    }
+    if (zoom > 1.001f) {
+        int cx = *dx + *dw / 2;
+        int cy = *dy + *dh / 2;
+        *dw = (int)(*dw * zoom + 0.5f);
+        *dh = (int)(*dh * zoom + 0.5f);
+        *dx = cx - *dw / 2;
+        *dy = cy - *dh / 2;
+    }
+    // Full-frame source before clip; pan/zoom clip adjusts src with dest.
+    *sx0 = 0;
+    *sy0 = 0;
+    *sx1 = fw;
+    *sy1 = fh;
+    vk_apply_fit_pan(dx, dy, dw, dh, sx0, sy0, sx1, sy1, sw, sh, pan_x, pan_y);
+}
+
 static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
                               VkImageLayout old_l, VkImageLayout new_l,
                               VkAccessFlags src_acc, VkAccessFlags dst_acc,
@@ -829,28 +929,21 @@ static int vk_render_frame(int fw, int fh, int fs) {
     float snap_uc  = atomic_load(&g_cursor_uc_fp)  / 65536.0f;
     float snap_vc  = atomic_load(&g_cursor_vc_fp)  / 65536.0f;
     int   snap_vis = atomic_load(&g_cursor_visible);
+    int   snap_pan_x = atomic_load(&g_blit_pan_x);
+    int   snap_pan_y = atomic_load(&g_blit_pan_y);
+    float snap_zoom  = atomic_load(&g_blit_zoom_fp) / 65536.0f;
     pthread_mutex_unlock(&g_state_mu);
     if (u0 < 0.0f) u0 = 0.0f; if (u1 > 1.0f) u1 = 1.0f;
     if (v0 < 0.0f) v0 = 0.0f; if (v1 > 1.0f) v1 = 1.0f;
     if (u1 <= u0 + 0.001f) { u0 = 0.0f; u1 = 1.0f; }
     if (v1 <= v0 + 0.001f) { v0 = 0.0f; v1 = 1.0f; }
+    (void)u0; (void)v0; (void)u1; (void)v1;
 
-    int src_x0 = (int)(u0 * fw);
-    int src_y0 = (int)(v0 * fh);
-    int src_x1 = (int)(u1 * fw + 0.5f);
-    int src_y1 = (int)(v1 * fh + 0.5f);
-    if (src_x0 < 0) src_x0 = 0;
-    if (src_y0 < 0) src_y0 = 0;
-    if (src_x1 > fw) src_x1 = fw;
-    if (src_y1 > fh) src_y1 = fh;
-    if (src_x1 <= src_x0 || src_y1 <= src_y0) return 0;
-
+    int src_x0 = 0, src_y0 = 0, src_x1 = fw, src_y1 = fh;
     int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
-    float fa = (float)(src_x1 - src_x0) / (float)(src_y1 - src_y0);
-    float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
-    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = atomic_load(&g_align_bottom) ? (sh - dh) : (sh - dh) / 2; }
-    else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+    vk_layout_zoomed_dest(fw, fh, sw, sh, snap_zoom, snap_pan_x, snap_pan_y,
+                          &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
 
     VkClearColorValue black = {0};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -863,6 +956,7 @@ static int vk_render_frame(int fw, int fh, int fs) {
         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+    if (dw > 0 && dh > 0 && src_x1 > src_x0 && src_y1 > src_y0) {
     VkImageBlit blt = {0};
     blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blt.srcSubresource.layerCount = 1;
@@ -876,6 +970,7 @@ static int vk_render_frame(int fw, int fh, int fs) {
         g_tex,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &blt, VK_FILTER_LINEAR);
+    }
 
     // Draw virtual cursor (if visible) on top of the video.
     // Use the state snapshot taken at the start of this function so that cursor
@@ -884,9 +979,14 @@ static int vk_render_frame(int fw, int fh, int fs) {
         g_cursor_vk_buf != VK_NULL_HANDLE) {
         float uc = snap_uc;
         float vc = snap_vc;
-        float span_u = u1 - u0, span_v = v1 - v0;
-        float tu = (span_u > 0.001f) ? (uc - u0) / span_u : 0.5f;
-        float tv = (span_v > 0.001f) ? (vc - v0) / span_v : 0.5f;
+        // Map cursor through the visible source crop (after zoom/pan clip).
+        float src_u0 = (fw > 0) ? (float)src_x0 / (float)fw : 0.0f;
+        float src_v0 = (fh > 0) ? (float)src_y0 / (float)fh : 0.0f;
+        float src_u1 = (fw > 0) ? (float)src_x1 / (float)fw : 1.0f;
+        float src_v1 = (fh > 0) ? (float)src_y1 / (float)fh : 1.0f;
+        float span_u = src_u1 - src_u0, span_v = src_v1 - src_v0;
+        float tu = (span_u > 0.001f) ? (uc - src_u0) / span_u : 0.5f;
+        float tv = (span_v > 0.001f) ? (vc - src_v0) / span_v : 0.5f;
         int csx = dx + (int)(tu * dw + 0.5f);
         int csy = dy + (int)(tv * dh + 0.5f);
 
@@ -1145,28 +1245,20 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
     float snap_uc  = atomic_load(&g_cursor_uc_fp)  / 65536.0f;
     float snap_vc  = atomic_load(&g_cursor_vc_fp)  / 65536.0f;
     int   snap_vis = atomic_load(&g_cursor_visible);
+    int   snap_pan_x = atomic_load(&g_blit_pan_x);
+    int   snap_pan_y = atomic_load(&g_blit_pan_y);
+    float snap_zoom  = atomic_load(&g_blit_zoom_fp) / 65536.0f;
     pthread_mutex_unlock(&g_state_mu);
     if (u0 < 0.0f) u0 = 0.0f; if (u1 > 1.0f) u1 = 1.0f;
     if (v0 < 0.0f) v0 = 0.0f; if (v1 > 1.0f) v1 = 1.0f;
     if (u1 <= u0 + 0.001f) { u0 = 0.0f; u1 = 1.0f; }
     if (v1 <= v0 + 0.001f) { v0 = 0.0f; v1 = 1.0f; }
 
-    int src_x0 = (int)(u0 * fw);
-    int src_y0 = (int)(v0 * fh);
-    int src_x1 = (int)(u1 * fw + 0.5f);
-    int src_y1 = (int)(v1 * fh + 0.5f);
-    if (src_x0 < 0) src_x0 = 0;
-    if (src_y0 < 0) src_y0 = 0;
-    if (src_x1 > fw) src_x1 = fw;
-    if (src_y1 > fh) src_y1 = fh;
-    if (src_x1 <= src_x0 || src_y1 <= src_y0) return 0;
-
+    int src_x0 = 0, src_y0 = 0, src_x1 = fw, src_y1 = fh;
     int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
-    float fa = (float)(src_x1 - src_x0) / (float)(src_y1 - src_y0);
-    float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
-    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = atomic_load(&g_align_bottom) ? (sh - dh) : (sh - dh) / 2; }
-    else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+    vk_layout_zoomed_dest(fw, fh, sw, sh, snap_zoom, snap_pan_x, snap_pan_y,
+                          &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
 
     VkClearColorValue black = {0};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -1178,6 +1270,7 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+    if (dw > 0 && dh > 0 && src_x1 > src_x0 && src_y1 > src_y0) {
     VkImageBlit blt = {0};
     blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blt.srcSubresource.layerCount = 1;
@@ -1191,14 +1284,21 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
         srcImg,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &blt, VK_FILTER_LINEAR);
+    }
 
     if (snap_vis && g_cursor_nspans > 0 &&
         g_cursor_vk_buf != VK_NULL_HANDLE) {
         float uc = snap_uc;
         float vc = snap_vc;
-        float span_u = u1 - u0, span_v = v1 - v0;
-        float tu = (span_u > 0.001f) ? (uc - u0) / span_u : 0.5f;
-        float tv = (span_v > 0.001f) ? (vc - v0) / span_v : 0.5f;
+        // Map cursor through the visible source crop (after zoom/pan clip).
+        float src_u0 = (fw > 0) ? (float)src_x0 / (float)fw : 0.0f;
+        float src_v0 = (fh > 0) ? (float)src_y0 / (float)fh : 0.0f;
+        float src_u1 = (fw > 0) ? (float)src_x1 / (float)fw : 1.0f;
+        float src_v1 = (fh > 0) ? (float)src_y1 / (float)fh : 1.0f;
+        float span_u = src_u1 - src_u0, span_v = src_v1 - src_v0;
+        float tu = (span_u > 0.001f) ? (uc - src_u0) / span_u : 0.5f;
+        float tv = (span_v > 0.001f) ? (vc - src_v0) / span_v : 0.5f;
+        (void)u0; (void)v0; (void)u1; (void)v1;
         int csx = dx + (int)(tu * dw + 0.5f);
         int csy = dy + (int)(tv * dh + 0.5f);
 
@@ -1544,6 +1644,8 @@ int android_vk_create(int x, int y, int w, int h) {
     // Reset viewport to full frame and hide cursor for the new session.
     atomic_store(&g_vp_u0_fp, 0); atomic_store(&g_vp_v0_fp, 0);
     atomic_store(&g_vp_u1_fp, 65536); atomic_store(&g_vp_v1_fp, 65536);
+    atomic_store(&g_blit_pan_x, 0); atomic_store(&g_blit_pan_y, 0);
+    atomic_store(&g_blit_zoom_fp, 65536);
     atomic_store(&g_cursor_visible, 0);
     atomic_store(&g_cursor_uc_fp, 32768); atomic_store(&g_cursor_vc_fp, 32768);
     atomic_store(&g_cursor_dirty, 0);
@@ -1675,8 +1777,12 @@ void android_vk_update_rect(int x, int y, int w, int h) {
 
 void android_vk_set_hidden(int hidden) {
     if (!atomic_load(&g_active)) return;
-    atomic_store(&g_hidden, hidden ? 1 : 0);
-    java_set_visible(!hidden);
+    int want = hidden ? 1 : 0;
+    int prev = atomic_exchange(&g_hidden, want);
+    if (prev == want) return;
+    java_set_visible(!want);
+    // Samsung may have dropped the buffer while "hidden"; rebuild on show.
+    if (!want) atomic_store(&g_force_recreate, 1);
 }
 
 void android_vk_destroy(void) {
@@ -1690,7 +1796,13 @@ void android_vk_destroy(void) {
 // android_vk_set_align_bottom controls vertical alignment of the fitted video rect.
 // 0 = center (default); 1 = bottom-align (use while system IME is open).
 void android_vk_set_align_bottom(int bottom) {
-    atomic_store(&g_align_bottom, bottom ? 1 : 0);
+    atomic_store(&g_v_align, bottom ? 1 : 0);
+}
+
+// android_vk_set_align_top: flush-fit to the top of the SurfaceView (under
+// special keys). 0 = center; non-zero = top-align.
+void android_vk_set_align_top(int top) {
+    atomic_store(&g_v_align, top ? 2 : 0);
 }
 
 // android_vk_set_viewport sets the visible UV sub-rect of the frame (0..1 per axis).
@@ -1717,12 +1829,15 @@ void android_vk_set_cursor(float uc, float vc, int visible) {
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
 }
 
-// android_vk_set_viewport_and_cursor updates viewport UV and cursor position in
-// a single mutex-protected write.  The render thread always reads both under the
-// same mutex, so it will never see viewport from update N paired with cursor from
-// update N+1 (which causes the cursor to flash at a wrong screen position).
+// android_vk_set_viewport_and_cursor updates viewport, uniform zoom, letterbox
+// pan and cursor in one mutex-protected write. Zoom scales the aspect-fit dest
+// (RustDesk-style); UV is kept for compatibility but layout uses full frame.
 void android_vk_set_viewport_and_cursor(float u0, float v0, float u1, float v1,
-                                         float uc, float vc, int visible) {
+                                         float uc, float vc, int visible,
+                                         float blit_pan_x, float blit_pan_y,
+                                         float zoom_scale) {
+    if (zoom_scale < 1.0f) zoom_scale = 1.0f;
+    if (zoom_scale > 8.0f) zoom_scale = 8.0f;
     pthread_mutex_lock(&g_state_mu);
     atomic_store(&g_vp_u0_fp, (int)(u0 * 65536));
     atomic_store(&g_vp_v0_fp, (int)(v0 * 65536));
@@ -1731,6 +1846,9 @@ void android_vk_set_viewport_and_cursor(float u0, float v0, float u1, float v1,
     atomic_store(&g_cursor_uc_fp, (int)(uc * 65536));
     atomic_store(&g_cursor_vc_fp, (int)(vc * 65536));
     atomic_store(&g_cursor_visible, visible ? 1 : 0);
+    atomic_store(&g_blit_pan_x, (int)(blit_pan_x + (blit_pan_x >= 0 ? 0.5f : -0.5f)));
+    atomic_store(&g_blit_pan_y, (int)(blit_pan_y + (blit_pan_y >= 0 ? 0.5f : -0.5f)));
+    atomic_store(&g_blit_zoom_fp, (int)(zoom_scale * 65536.0f + 0.5f));
     pthread_mutex_unlock(&g_state_mu);
     atomic_store(&g_cursor_dirty, 1);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }

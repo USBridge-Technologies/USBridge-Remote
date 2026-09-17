@@ -62,16 +62,28 @@ func deliverViewportGestureStateFromJNI(active C.jboolean) {
 	vw.multiTouchActive = isActive
 	if isActive {
 		vw.lastMultiTouchAt = time.Now()
+		vw.viewportManualControl = true
+		vw.resetZoomScaleResidual()
 		vw.cancelLocalTouchState()
 		return
 	}
 	scrollAccumY = 0
 	vw.lastMultiTouchAt = time.Now()
+	vw.resetZoomScaleResidual()
 	vw.cancelLocalTouchState()
+	// Soft-snap to center / edges if the release pan is close, then re-push
+	// so the settled offset sticks (no layout path snapping elsewhere).
+	fyne.Do(func() {
+		vw.snapViewportAlignment()
+		vw.updateNativeViewportAndCursor()
+		vw.refreshViewportViews()
+	})
 }
 
 //export deliverViewportGestureUpdateFromJNI
 func deliverViewportGestureUpdateFromJNI(scaleFactor, focusX, focusY, panDx, panDy C.jfloat) {
+	// panDx/panDy ignored: two-finger grab-pan is footer-button only.
+	_, _ = panDx, panDy
 	vw := activeGestureVideoWidget()
 	if vw == nil || !fyne.CurrentDevice().IsMobile() {
 		return
@@ -103,9 +115,11 @@ func deliverViewportGestureUpdateFromJNI(scaleFactor, focusX, focusY, panDx, pan
 		localFocusY := float32(focusY)/scale - absPos.Y
 
 		vw.UpdateTouchpadAndContentRect(wrapperSize.Width, wrapperSize.Height, vw.GetCurrentFrame())
-		vw.applyViewportGesture(float32(scaleFactor), localFocusX, localFocusY, float32(panDx)/scale, float32(panDy)/scale)
+		// Two-finger path: zoom only. One-finger grab-pan is the footer button.
+		vw.applyViewportGesture(float32(scaleFactor), localFocusX, localFocusY, 0, 0)
+		// Push Vulkan viewport only — avoid touchpad Refresh/layout every MOVE,
+		// which was fighting pan and helping snap the picture back to center.
 		vw.updateNativeViewportAndCursor()
-		vw.refreshViewportViews()
 	})
 }
 
