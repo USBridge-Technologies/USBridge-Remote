@@ -11,23 +11,26 @@ import (
 // and the device-settings "Apply" dialog (ShowVideoDeviceSettings) each
 // hand-built a models.VideoDeviceConfig from the submitted
 // models.VideoStartRequest via their own separate struct literal, and both
-// literals forgot to carry over Color444/Hdr. Since Color444/Hdr have no
-// other persistence path, the save clobbered whatever was on disk with
-// false, and the very next reconcile/restart read that same false back via
-// VideoDeviceConfig.ToVideoStartRequest() -- so the checkboxes being checked
-// in the UI had no effect on the actual stream, from the very first
+// literals forgot to carry over Color444/Hdr/EnableVSync. Since none of
+// those have any other persistence path, the save clobbered whatever was on
+// disk with false, and the very next reconcile/restart read that same false
+// back via VideoDeviceConfig.ToVideoStartRequest() -- so the checkboxes being
+// checked in the UI had no effect on the actual stream, from the very first
 // Start/Apply onward, not just on a later reconnect. See the client log's
 // "[Moonlight/HDR-debug]" line: it always showed color444=false hdr=false
-// even with both boxes checked.
+// even with both boxes checked. EnableVSync hit the exact same bug: the
+// Vulkan overlay's swapchain present mode reverted to IMMEDIATE (tearing)
+// on the first reconcile after start, even with VSync checked.
 func TestVideoDeviceConfigFromRequestPreservesColor444AndHdr(t *testing.T) {
 	for _, tc := range []struct {
-		name          string
-		color444, hdr bool
+		name                 string
+		color444, hdr, vsync bool
 	}{
-		{"both off", false, false},
-		{"444 only", true, false},
-		{"hdr only", false, true},
-		{"both on", true, true},
+		{"all off", false, false, false},
+		{"444 only", true, false, false},
+		{"hdr only", false, true, false},
+		{"vsync only", false, false, true},
+		{"all on", true, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := &models.VideoStartRequest{
@@ -39,6 +42,7 @@ func TestVideoDeviceConfigFromRequestPreservesColor444AndHdr(t *testing.T) {
 				VideoMode:    models.VideoModeH265,
 				Color444:     tc.color444,
 				Hdr:          tc.hdr,
+				EnableVSync:  tc.vsync,
 			}
 
 			cfg := videoDeviceConfigFromRequest(request.VideoDevice, "Capture Card", request)
@@ -48,6 +52,9 @@ func TestVideoDeviceConfigFromRequestPreservesColor444AndHdr(t *testing.T) {
 			}
 			if cfg.Hdr != tc.hdr {
 				t.Errorf("Hdr = %v, want %v (request checkbox choice dropped on the way to VideoDeviceConfig)", cfg.Hdr, tc.hdr)
+			}
+			if cfg.EnableVSync != tc.vsync {
+				t.Errorf("EnableVSync = %v, want %v (request checkbox choice dropped on the way to VideoDeviceConfig)", cfg.EnableVSync, tc.vsync)
 			}
 
 			// Round-trip through ToVideoStartRequest, exactly what the next
@@ -59,6 +66,9 @@ func TestVideoDeviceConfigFromRequestPreservesColor444AndHdr(t *testing.T) {
 			}
 			if roundTripped.Hdr != tc.hdr {
 				t.Errorf("round-tripped Hdr = %v, want %v", roundTripped.Hdr, tc.hdr)
+			}
+			if roundTripped.EnableVSync != tc.vsync {
+				t.Errorf("round-tripped EnableVSync = %v, want %v", roundTripped.EnableVSync, tc.vsync)
 			}
 		})
 	}
