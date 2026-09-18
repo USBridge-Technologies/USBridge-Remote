@@ -130,14 +130,10 @@ func mobileConnectionPlatformLabel(data ConnectionCardData, isAgent, isKVM bool)
 	if label := strings.TrimSpace(data.PlatformLabel); label != "" {
 		return label
 	}
-	switch {
-	case isKVM:
-		return "Radxa"
-	case isAgent:
-		return "Opensource/Pro"
-	default:
-		return i18n.Current.AwaitingConnection
+	if label := ConnectionPlatformLabel(data.RemoteOS, ""); label != "" {
+		return label
 	}
+	return i18n.Current.AwaitingConnection
 }
 
 func newMobileConnectionCardStatsBox(lanAddress, tailscaleAddress string) fyne.CanvasObject {

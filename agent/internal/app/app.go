@@ -2732,18 +2732,18 @@ func (a *App) Status() api.SystemStatus {
 			Timestamp: time.Now(),
 			Uptime:    time.Since(a.state.startedAt).String(),
 		},
-		Timestamp: time.Now(),
-		OS:        runtime.GOOS,
-		Streamer:  a.StreamerName(),
+		Timestamp:     time.Now(),
+		OS:            runtime.GOOS,
+		Streamer:      a.StreamerName(),
+		AgentProtocol: a.EntitlementStatus().Protocol(),
 	}
 }
 
 func (a *App) DeviceInfo() api.DeviceInfoResponse {
 	a.state.mu.Lock()
-	defer a.state.mu.Unlock()
 	out := make([]api.DeviceInfo, len(a.state.devices))
 	copy(out, a.state.devices)
-	return api.DeviceInfoResponse{
+	resp := api.DeviceInfoResponse{
 		Devices:         out,
 		Count:           len(out),
 		MountInProgress: a.state.mountInProgress,
@@ -2751,6 +2751,9 @@ func (a *App) DeviceInfo() api.DeviceInfoResponse {
 		AgentOS:         capture.GetOSInfo(),
 		AgentDisplay:    capture.GetDisplayServer(),
 	}
+	a.state.mu.Unlock()
+	resp.AgentProtocol = a.EntitlementStatus().Protocol()
+	return resp
 }
 
 func (a *App) ReplaceDevices(reqs []api.DeviceRequest) error {

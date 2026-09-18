@@ -1384,11 +1384,11 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	var formContent fyne.CanvasObject = normalForm
 	if spec.onQR != nil {
-	qrLabel := i18n.Current.ScanQR
-	if view.IsMobile() {
-		qrLabel = i18n.Current.ScanQRShort
-	}
-	qrBtn := newConnectionDialogWideActionButton(qrLabel, assets.QRCodeTeal, design.ColorConnectionBadgeText, func() {
+		qrLabel := i18n.Current.ScanQR
+		if view.IsMobile() {
+			qrLabel = i18n.Current.ScanQRShort
+		}
+		qrBtn := newConnectionDialogWideActionButton(qrLabel, assets.QRCodeTeal, design.ColorConnectionBadgeText, func() {
 			if d != nil {
 				d.Hide()
 			}
@@ -1847,6 +1847,8 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 				MasterKey:         strings.TrimSpace(masterKey),
 				Protocol:          conn.Protocol,
 				TailscaleRegister: tailscaleRegister,
+				RemoteOS:          conn.RemoteOS,
+				RemoteProtocol:    conn.RemoteProtocol,
 			}
 			cm.selectedIndex = idx
 			cm.saveConnections()

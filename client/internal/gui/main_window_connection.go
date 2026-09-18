@@ -847,21 +847,26 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 		connMgr := mw.connectionManager
 		connHost := strings.TrimSpace(host)
 		go func() {
+			osName := ""
+			protocol := ""
 			deviceInfo, err := client.GetDeviceInfo()
 			if err == nil && deviceInfo != nil {
-				osName := strings.TrimSpace(deviceInfo.AgentOS)
-				if osName != "" {
-					connMgr.UpdateConnectionOS(connHost, osName)
-					return
+				osName = strings.TrimSpace(deviceInfo.AgentOS)
+				protocol = strings.TrimSpace(deviceInfo.AgentProtocol)
+			}
+			if osName == "" || protocol == "" {
+				status, statusErr := client.GetStatus()
+				if statusErr == nil && status != nil && status.Data != nil {
+					if osName == "" {
+						osName = strings.TrimSpace(status.Data.OS)
+					}
+					if protocol == "" {
+						protocol = strings.TrimSpace(status.Data.AgentProtocol)
+					}
 				}
 			}
-			status, err := client.GetStatus()
-			if err != nil || status == nil || status.Data == nil {
-				return
-			}
-			osName := strings.TrimSpace(status.Data.OS)
-			if osName != "" {
-				connMgr.UpdateConnectionOS(connHost, osName)
+			if osName != "" || protocol != "" {
+				connMgr.UpdateConnectionOS(connHost, osName, protocol)
 			}
 		}()
 	}

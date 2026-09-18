@@ -217,7 +217,7 @@ type Window struct {
 	moonlightBtn *iconActionButton
 
 	tsMeta    *tsMetaBlock
-	tsPeers   *widget.RichText
+	tsPeers   *fyne.Container
 	tsEmpty   *canvas.Text
 	tsAuthBtn *cardHeaderButton
 	tsToggle  *tailscaleHeaderToggle
@@ -1095,8 +1095,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		streamerLabel, w.usbBrokerRow, httpRow, sunStreamRow, w.sunWebSunshineRow, w.sunWebRustshineRow))
 
 	w.tsMeta = newTSMetaBlock()
-	w.tsPeers = widget.NewRichTextFromMarkdown("")
-	w.tsPeers.Wrapping = fyne.TextWrapWord
+	w.tsPeers = container.New(&tightVBoxLayout{gap: 8})
 	w.tsPeers.Hide()
 	w.tsEmpty = canvas.NewText("No active remote controllers", design.ColorEmptyHint)
 	w.tsEmpty.TextSize = 9
@@ -2129,18 +2128,23 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 	w.setTailscaleLoggedIn(true)
 
 	// Update active sessions
-	var activePeers []string
+	var activePeers []tsActivePeer
 	for _, p := range status.Peers {
 		if !isActiveTailscalePeer(p) {
 			continue
 		}
-		connType := "Relay (DERP)"
-		if p.CurAddr != "" {
-			connType = fmt.Sprintf("P2P DIRECT (%s)", p.CurAddr)
-		} else if p.Relay != "" {
-			connType = fmt.Sprintf("Relay (DERP %s)", p.Relay)
+		peer := tsActivePeer{
+			name: fallbackValue(p.UserLogin, p.HostName),
+			ip4:  p.IP4,
+			kind: "Relay (DERP)",
 		}
-		activePeers = append(activePeers, fmt.Sprintf("* **%s** (%s) - %s", fallbackValue(p.UserLogin, p.HostName), p.IP4, connType))
+		if p.CurAddr != "" {
+			peer.kind = "P2P DIRECT"
+			peer.via = p.CurAddr
+		} else if p.Relay != "" {
+			peer.kind = fmt.Sprintf("Relay (DERP %s)", p.Relay)
+		}
+		activePeers = append(activePeers, peer)
 	}
 
 	if len(activePeers) > 0 {
@@ -2150,7 +2154,40 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 	}
 }
 
-func (w *Window) setTailscaleSessions(peers []string) {
+type tsActivePeer struct {
+	name string
+	ip4  string
+	kind string
+	via  string
+}
+
+func newTSPeerRow(p tsActivePeer) fyne.CanvasObject {
+	name := canvas.NewText(p.name, design.ColorTextLight)
+	name.TextSize = 10
+	bits := []fyne.CanvasObject{name}
+	detail := p.kind
+	if p.ip4 != "" {
+		if detail != "" {
+			detail = fmt.Sprintf("(%s) - %s", p.ip4, detail)
+		} else {
+			detail = "(" + p.ip4 + ")"
+		}
+	}
+	if detail != "" {
+		line := canvas.NewText(detail, design.ColorMutedOlive)
+		line.TextSize = 9
+		bits = append(bits, line)
+	}
+	if p.via != "" {
+		via := canvas.NewText("("+p.via+")", design.ColorAddress)
+		via.TextSize = 9
+		via.TextStyle.Monospace = true
+		bits = append(bits, via)
+	}
+	return container.New(&tightVBoxLayout{gap: 1}, bits...)
+}
+
+func (w *Window) setTailscaleSessions(peers []tsActivePeer) {
 	if w.tsEmpty != nil {
 		if len(peers) == 0 {
 			w.tsEmpty.Show()
@@ -2163,11 +2200,17 @@ func (w *Window) setTailscaleSessions(peers []string) {
 		return
 	}
 	if len(peers) == 0 {
-		w.tsPeers.ParseMarkdown("")
+		w.tsPeers.Objects = nil
 		w.tsPeers.Hide()
+		w.tsPeers.Refresh()
 		return
 	}
-	w.tsPeers.ParseMarkdown(strings.Join(peers, "\n"))
+	rows := make([]fyne.CanvasObject, 0, len(peers))
+	for _, p := range peers {
+		rows = append(rows, newTSPeerRow(p))
+	}
+	w.tsPeers.Objects = rows
+	w.tsPeers.Refresh()
 	w.tsPeers.Show()
 }
 

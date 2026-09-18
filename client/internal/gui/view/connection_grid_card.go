@@ -38,11 +38,9 @@ type ConnectionCardData struct {
 	Name     string
 	RemoteOS string
 
-	// PlatformLabel/CapabilityText: the chip row under the title
-	// ("Radxa" * some capability note in the reference). Neither has a real
-	// data source yet -- PlatformLabel falls back to the literal "Radxa"
-	// (the only platform that exists right now) when empty; CapabilityText
-	// just hides that half of the row when empty, nothing to guess at there.
+	// PlatformLabel/CapabilityText: the chip row under the title.
+	// PlatformLabel is the agent tariff (Opensource / Free / Pro /
+	// Enterprise) or "Radxa" for KVM. Empty falls back in the card.
 	PlatformLabel  string
 	CapabilityText string
 
@@ -155,17 +153,8 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 	if !editing {
 		platformLabel := strings.TrimSpace(data.PlatformLabel)
 		if platformLabel == "" {
-			switch {
-			case isKVM:
-				// Only known KVM platform right now.
-				platformLabel = "Radxa"
-			case isAgent:
-				// Agent variant (Opensource vs Pro) isn't reported yet --
-				// show both until that distinction actually exists.
-				platformLabel = "Opensource/Pro"
-			default:
-				// No RemoteOS yet -- this connection has never successfully
-				// connected, so there's nothing real to classify.
+			platformLabel = ConnectionPlatformLabel(data.RemoteOS, "")
+			if platformLabel == "" {
 				platformLabel = i18n.Current.AwaitingConnection
 			}
 		}

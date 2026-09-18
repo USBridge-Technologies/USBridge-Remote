@@ -72,6 +72,40 @@ func ClassifyConnectionRemoteOS(remoteOS string) (isAgent bool, isKVM bool) {
 	}
 }
 
+// ConnectionPlatformLabel is the small plaque under a connection name.
+// KVM stays "Radxa". Software agents use the tariff the host reported
+// after connect (opensource / free / pro / enterprise); until then the
+// combined "Opensource/Pro" stub remains. Empty RemoteOS (never connected)
+// returns "" so callers can show their awaiting-connection copy.
+func ConnectionPlatformLabel(remoteOS, remoteProtocol string) string {
+	isAgent, isKVM := ClassifyConnectionRemoteOS(remoteOS)
+	if isKVM {
+		return "Radxa"
+	}
+	if !isAgent {
+		return ""
+	}
+	if label := protocolPlaqueText(remoteProtocol); label != "" {
+		return label
+	}
+	return "Opensource/Pro"
+}
+
+func protocolPlaqueText(protocol string) string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "opensource", "open source", "sunshine":
+		return "Opensource"
+	case "free":
+		return "Free"
+	case "pro":
+		return "Pro"
+	case "enterprise":
+		return "Enterprise"
+	default:
+		return ""
+	}
+}
+
 // SummarizeConnections counts a batch of saved connections' RemoteOS values
 // into the badges' two categories. Callers pass RemoteOS strings, not full
 // connection records, so this package doesn't need to know the controller's

@@ -1,6 +1,9 @@
 package entitlement
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Status is what the GUI (and, over adminapi, a thin-client GUI attached to
 // a separate headless engine process) needs to render the four-way
@@ -71,4 +74,20 @@ type Status struct {
 	// failed operation (checkout failed, download failed, ...) — cleared
 	// on the next successful step. Empty string means "nothing to report."
 	LastError string `json:"last_error,omitempty"`
+}
+
+// Protocol is the active tariff the client shows on a connection plaque:
+// "opensource" (Sunshine), or RustShine "free" / "pro" / "enterprise".
+func (s Status) Protocol() string {
+	if s.ActiveBackend != "rustshine" {
+		return "opensource"
+	}
+	switch strings.ToLower(s.Tier) {
+	case "pro":
+		return "pro"
+	case "enterprise":
+		return "enterprise"
+	default:
+		return "free"
+	}
 }

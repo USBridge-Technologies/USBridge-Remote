@@ -34,10 +34,14 @@ type SavedConnection struct {
 	Host          string `json:"host,omitempty"`
 	// MasterKey holds the API master secret (obtained by scanning the device QR code).
 	// It is used to sign requests and perform the initial sync.
-	MasterKey         string `json:"master_key"`
+	MasterKey string `json:"master_key"`
+	// Protocol is the connection route (AUTO/TS/LAN), not the agent tariff.
 	Protocol          string `json:"protocol,omitempty"`
 	TailscaleRegister bool   `json:"tailscale_register,omitempty"`
 	RemoteOS          string `json:"remote_os,omitempty"`
+	// RemoteProtocol is the agent tariff reported after a successful
+	// connect: opensource, free, pro, or enterprise.
+	RemoteProtocol string `json:"remote_protocol,omitempty"`
 }
 
 type ConnectionManager struct {

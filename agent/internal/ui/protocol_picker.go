@@ -61,17 +61,7 @@ var protocolOptions = []protocolOption{
 }
 
 func protocolKeyFromStatus(st entitlement.Status) string {
-	if st.ActiveBackend != "rustshine" {
-		return protocolOpensource
-	}
-	switch strings.ToLower(st.Tier) {
-	case "pro":
-		return protocolPro
-	case "enterprise":
-		return protocolEnterprise
-	default:
-		return protocolFree
-	}
+	return st.Protocol()
 }
 
 func protocolNeedsPurchase(pick string, st entitlement.Status, acc account.Status) bool {

@@ -18,12 +18,13 @@ type USBStatus struct {
 
 // StatusData status data
 type StatusData struct {
-	Service *ServiceStatus `json:"service"`
-	NBD     *NBDStatus     `json:"nbd"`
-	USB     *USBDeviceInfo `json:"usb"`
-	Kernel  *KernelInfo    `json:"kernel"`
-	Video   *VideoStatus   `json:"video"`
-	OS      string         `json:"os,omitempty"`
+	Service       *ServiceStatus `json:"service"`
+	NBD           *NBDStatus     `json:"nbd"`
+	USB           *USBDeviceInfo `json:"usb"`
+	Kernel        *KernelInfo    `json:"kernel"`
+	Video         *VideoStatus   `json:"video"`
+	OS            string         `json:"os,omitempty"`
+	AgentProtocol string         `json:"agent_protocol,omitempty"`
 }
 
 // ServiceStatus service status
@@ -82,24 +83,24 @@ type KernelInfo struct {
 
 // VideoStatus video status
 type VideoStatus struct {
-	Enabled           bool                 `json:"enabled"`
-	Device            string               `json:"device"`
-	Width             int                  `json:"width"`
-	Height            int                  `json:"height"`
-	FPS               int                  `json:"fps"`
-	Quality           int                  `json:"quality"`
-	Bitrate           string               `json:"bitrate"`
-	BufferSize        int                  `json:"buffer_size"`
-	Mode              string               `json:"mode"`
-	Transport         string               `json:"transport"`
-	Encoding          string               `json:"encoding"`
-	SourceFormat      string               `json:"source_format"`
-	DefaultPixelFormat string              `json:"default_pixel_format,omitempty"`
-	ServerDecodesJPEG bool                 `json:"server_decodes_jpeg"`
-	CaptureModes      []VideoCaptureMode   `json:"capture_modes,omitempty"`
-	SupportedModes    []VideoTransportMode `json:"supported_modes,omitempty"`
-	ClientsCount      int                  `json:"clients_count"`
-	Streaming         bool                 `json:"streaming"`
+	Enabled            bool                 `json:"enabled"`
+	Device             string               `json:"device"`
+	Width              int                  `json:"width"`
+	Height             int                  `json:"height"`
+	FPS                int                  `json:"fps"`
+	Quality            int                  `json:"quality"`
+	Bitrate            string               `json:"bitrate"`
+	BufferSize         int                  `json:"buffer_size"`
+	Mode               string               `json:"mode"`
+	Transport          string               `json:"transport"`
+	Encoding           string               `json:"encoding"`
+	SourceFormat       string               `json:"source_format"`
+	DefaultPixelFormat string               `json:"default_pixel_format,omitempty"`
+	ServerDecodesJPEG  bool                 `json:"server_decodes_jpeg"`
+	CaptureModes       []VideoCaptureMode   `json:"capture_modes,omitempty"`
+	SupportedModes     []VideoTransportMode `json:"supported_modes,omitempty"`
+	ClientsCount       int                  `json:"clients_count"`
+	Streaming          bool                 `json:"streaming"`
 
 	// Color444Active is whether the most recently started (or currently
 	// running) session actually negotiated RustShine Pro 4:4:4 chroma --
@@ -109,8 +110,8 @@ type VideoStatus struct {
 	// AND license tier) -- the video-settings popup shows/enables its
 	// 4:4:4 checkbox based on this, before the user has ever started
 	// streaming.
-	Color444Active          bool `json:"color_444_active"`
-	Color444Available       bool `json:"color_444_available"`
+	Color444Active    bool `json:"color_444_active"`
+	Color444Available bool `json:"color_444_available"`
 	// HdrActive/HdrAvailable mirror Color444Active/Color444Available
 	// exactly, for RustShine HDR (HEVC Main10, BT.2020 + PQ) instead of
 	// 4:4:4 chroma -- see rust-shine's docs/COLOR_MODES.md for why these
@@ -319,6 +320,7 @@ type DeviceInfoResponse struct {
 	LastMountError  string       `json:"last_mount_error"`  // last mount error
 	AgentOS         string       `json:"agent_os,omitempty"`
 	AgentDisplay    string       `json:"agent_display,omitempty"`
+	AgentProtocol   string       `json:"agent_protocol,omitempty"`
 }
 
 // DeviceStatusResponse device status response (new API)
@@ -391,13 +393,13 @@ type AudioInfoResponse struct {
 
 // VideoDeviceConfig video start config saved by client for a specific /dev/video*.
 type VideoDeviceConfig struct {
-	DevicePath    string `json:"device_path"`
-	DeviceName    string `json:"device_name,omitempty"`
-	VideoWidth    int    `json:"video_width"`
-	VideoHeight   int    `json:"video_height"`
-	VideoFPS      int    `json:"video_fps"`
-	VideoQuality  int    `json:"video_quality"`
-	VideoBitrate  string `json:"video_bitrate"`
+	DevicePath         string `json:"device_path"`
+	DeviceName         string `json:"device_name,omitempty"`
+	VideoWidth         int    `json:"video_width"`
+	VideoHeight        int    `json:"video_height"`
+	VideoFPS           int    `json:"video_fps"`
+	VideoQuality       int    `json:"video_quality"`
+	VideoBitrate       string `json:"video_bitrate"`
 	VideoMode          string `json:"video_mode"`
 	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
 	ShowMouse          bool   `json:"show_mouse,omitempty"`
@@ -413,11 +415,11 @@ type VideoDeviceConfig struct {
 
 func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 	return &VideoStartRequest{
-		VideoDevice:  c.DevicePath,
-		VideoWidth:   c.VideoWidth,
-		VideoHeight:  c.VideoHeight,
-		VideoFPS:     c.VideoFPS,
-		VideoQuality: c.VideoQuality,
+		VideoDevice:        c.DevicePath,
+		VideoWidth:         c.VideoWidth,
+		VideoHeight:        c.VideoHeight,
+		VideoFPS:           c.VideoFPS,
+		VideoQuality:       c.VideoQuality,
 		VideoBitrate:       c.VideoBitrate,
 		VideoMode:          c.VideoMode,
 		CapturePixelFormat: c.CapturePixelFormat,

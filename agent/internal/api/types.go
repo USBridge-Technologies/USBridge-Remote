@@ -74,6 +74,7 @@ type DeviceInfoResponse struct {
 	LastMountError  string       `json:"last_mount_error,omitempty"`
 	AgentOS         string       `json:"agent_os,omitempty"`
 	AgentDisplay    string       `json:"agent_display,omitempty"`
+	AgentProtocol   string       `json:"agent_protocol,omitempty"`
 }
 
 type MountDriveStatus struct {
@@ -134,10 +135,11 @@ type ServiceStatus struct {
 }
 
 type SystemStatus struct {
-	Service   ServiceStatus `json:"service"`
-	Timestamp time.Time     `json:"timestamp"`
-	OS        string        `json:"os,omitempty"`
-	Streamer  string        `json:"streamer,omitempty"`
+	Service       ServiceStatus `json:"service"`
+	Timestamp     time.Time     `json:"timestamp"`
+	OS            string        `json:"os,omitempty"`
+	Streamer      string        `json:"streamer,omitempty"`
+	AgentProtocol string        `json:"agent_protocol,omitempty"`
 }
 
 type ScreenSnapshot struct {

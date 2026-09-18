@@ -517,6 +517,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			RegisterChecked:      conn.TailscaleRegister && tailscaleRegisterUISupported(),
 			RegisterVisible:      tailscaleRegisterUISupported() && internalHost != "" && tailscaleHost == "",
 			RemoteOS:             conn.RemoteOS,
+			PlatformLabel:        view.ConnectionPlatformLabel(conn.RemoteOS, conn.RemoteProtocol),
 		},
 		State: rowState,
 		Actions: view.ConnectionRowActions{
@@ -604,6 +605,7 @@ func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx 
 		view.ConnectionCardData{
 			Name:             conn.Name,
 			RemoteOS:         conn.RemoteOS,
+			PlatformLabel:    view.ConnectionPlatformLabel(conn.RemoteOS, conn.RemoteProtocol),
 			LANAddress:       internalHost,
 			TailscaleAddress: tailscaleHost,
 			MasterKey:        conn.MasterKey,
@@ -712,6 +714,7 @@ func (cm *ConnectionManager) saveGridCardEdit(idx int, name, internalHost, tails
 		Protocol:          conn.Protocol,
 		TailscaleRegister: conn.TailscaleRegister,
 		RemoteOS:          conn.RemoteOS,
+		RemoteProtocol:    conn.RemoteProtocol,
 	}
 	cm.selectedIndex = idx
 	cm.editingGridIndex = -1

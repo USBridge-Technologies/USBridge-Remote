@@ -364,26 +364,21 @@ func newConnectionListNameCell(data ConnectionRowData, onEdit func(), isAgent, i
 	if isAgent {
 		accent = design.ColorConnectionBadgeText
 	}
-	platformLabel := connectionListPlatformLabel(isAgent, isKVM)
+	platformLabel := strings.TrimSpace(data.PlatformLabel)
+	if platformLabel == "" {
+		platformLabel = connectionListPlatformLabel(data.RemoteOS)
+	}
 	platformPlaque := newConnectionCardChipsRow(platformLabel, "", accent)
 
 	return container.New(&tightStatsVBoxLayout{Gap: 2}, nameRow, platformPlaque)
 }
 
-// connectionListPlatformLabel is the small muted line under the name --
-// the same "nothing real to source this from yet" situation
-// NewConnectionGridCard's chipsRow/PlatformLabel doc comment describes;
-// mirrors its exact fallback text so List and Grid agree until a real
-// per-model field exists.
-func connectionListPlatformLabel(isAgent, isKVM bool) string {
-	switch {
-	case isKVM:
-		return "Radxa"
-	case isAgent:
-		return "Opensource/Pro"
-	default:
-		return i18n.Current.AwaitingConnection
+// connectionListPlatformLabel is the small muted line under the name.
+func connectionListPlatformLabel(remoteOS string) string {
+	if label := ConnectionPlatformLabel(remoteOS, ""); label != "" {
+		return label
 	}
+	return i18n.Current.AwaitingConnection
 }
 
 func newConnectionListStateCell(isAgent, isKVM bool) fyne.CanvasObject {

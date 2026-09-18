@@ -120,9 +120,15 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	logrus.Infof("Saved new connection %q with resolved tailscale host=%s", name, tailscaleHost)
 }
 
-// UpdateConnectionOS updates the RemoteOS field for a saved connection by host.
-func (cm *ConnectionManager) UpdateConnectionOS(currentHost, os string) {
-	if cm == nil || strings.TrimSpace(os) == "" {
+// UpdateConnectionOS stores the host OS (and, when known, the active
+// agent protocol/tariff) after a successful connect.
+func (cm *ConnectionManager) UpdateConnectionOS(currentHost, os, protocol string) {
+	if cm == nil {
+		return
+	}
+	os = strings.TrimSpace(os)
+	protocol = strings.TrimSpace(protocol)
+	if os == "" && protocol == "" {
 		return
 	}
 	currentHost = strings.TrimSpace(currentHost)
@@ -130,10 +136,18 @@ func (cm *ConnectionManager) UpdateConnectionOS(currentHost, os string) {
 		conn := cm.connections[i]
 		savedInternal, savedTailscale := classifyConnectionHosts(conn)
 		if currentHost != "" && (strings.TrimSpace(conn.Host) == currentHost || savedInternal == currentHost || savedTailscale == currentHost) {
-			if cm.connections[i].RemoteOS == os {
+			changed := false
+			if os != "" && cm.connections[i].RemoteOS != os {
+				cm.connections[i].RemoteOS = os
+				changed = true
+			}
+			if protocol != "" && cm.connections[i].RemoteProtocol != protocol {
+				cm.connections[i].RemoteProtocol = protocol
+				changed = true
+			}
+			if !changed {
 				return
 			}
-			cm.connections[i].RemoteOS = os
 			cm.saveConnections()
 			fyne.Do(func() {
 				cm.refreshConnectionsList()

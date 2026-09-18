@@ -126,6 +126,7 @@ type ConnectionRowData struct {
 	RegisterChecked      bool
 	RegisterVisible      bool
 	RemoteOS             string
+	PlatformLabel        string
 }
 
 type ConnectionRowState struct {
