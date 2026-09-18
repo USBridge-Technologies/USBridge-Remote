@@ -235,7 +235,10 @@ func (mw *MainWindow) recreateContainers() {
 				mw.videoWidget.RecoverAfterControlDeviceRebuildAsync()
 			})
 			mw.diskWidget.SetOnVideoConfigRequested(func(devicePath string) {
-				mw.videoWidget.ShowVideoDeviceSettings(devicePath, mw.tabs != nil && mw.tabs.SelectedIndex() == mw.controlTabIndex(), false)
+				onControlTab := mw.tabs != nil && mw.tabs.SelectedIndex() == mw.controlTabIndex()
+				logrus.Infof("🎯 [CODEC-TRACE] video settings opened from device row: devicePath=%s selectedTab=%d controlTab=%d restartOnApply=%v",
+					devicePath, tabsSelectedIndexOrNegOne(mw.tabs), mw.controlTabIndex(), onControlTab)
+				mw.videoWidget.ShowVideoDeviceSettings(devicePath, onControlTab, false)
 			})
 			mw.diskWidget.SetOnVideoConnect(func(devicePath string) {
 				mw.videoWidget.StartVideoDevice(devicePath)
@@ -1824,6 +1827,15 @@ func (mw *MainWindow) toggleAudioMuted() {
 
 func (mw *MainWindow) controlTabIndex() int {
 	return 0
+}
+
+// tabsSelectedIndexOrNegOne is a nil-safe SelectedIndex() for logging --
+// mw.tabs can be nil before the tab strip is built.
+func tabsSelectedIndexOrNegOne(tabs *container.AppTabs) int {
+	if tabs == nil {
+		return -1
+	}
+	return tabs.SelectedIndex()
 }
 
 func (mw *MainWindow) devicesTabIndex() int {

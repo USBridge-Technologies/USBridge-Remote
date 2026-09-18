@@ -717,6 +717,9 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 	sunshinePort := s.app.SunshineAdminPort()
 	color444Active, color444Available := s.app.Color444Status()
 	hdrActive, hdrAvailable := s.app.HdrStatus()
+	currentCodec := s.app.CurrentVideoCodec()
+	supportedCodecs := s.app.SupportedVideoCodecs()
+	log.Printf("🎯 [CODEC-TRACE] GET /api/video/info device=%q -> encoding=%q supported=%v", devicePath, currentCodec, supportedCodecs)
 	s.ok(w, "video_info", map[string]any{
 		"device":            devicePath,
 		"width":             width,
@@ -724,10 +727,10 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		"fps":               fps,
 		"mode":              "moonlight",
 		"transport":         "moonlight",
-		"encoding":          s.app.CurrentVideoCodec(),
+		"encoding":          currentCodec,
 		"streaming":         false,
 		"capture_modes":     modes,
-		"supported_modes":   videoCodecModes(s.app.SupportedVideoCodecs()),
+		"supported_modes":   videoCodecModes(supportedCodecs),
 		"available_devices": devices,
 		"moonlight_host":    moonlightHost,
 		"sunshine_port":     sunshinePort,

@@ -292,7 +292,10 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 			})
 		}
 		if request.VideoMode != "" {
+			logrus.Infof("🎯 [CODEC-TRACE] startVideoWithParamsInternal: calling SetVideoMode(%q)", request.VideoMode)
 			vw.videoClient.SetVideoMode(request.VideoMode)
+		} else {
+			logrus.Warnf("🎯 [CODEC-TRACE] startVideoWithParamsInternal: request.VideoMode is empty -- SetVideoMode NOT called, videoClient keeps whatever mode it had before")
 		}
 		vw.videoClient.SetColor444(request.Color444)
 		vw.videoClient.SetHdr(request.Hdr)

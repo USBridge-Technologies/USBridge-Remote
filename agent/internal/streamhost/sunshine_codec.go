@@ -127,11 +127,11 @@ func (b *sunshineBackend) CurrentVideoCodec() string {
 		}
 		for i := endIdx - 1; i >= startIdx; i-- {
 			if codec, ok := creatingEncoderCodec(lines[i]); ok {
-				log.Printf("[sunshine] detected active codec=%s (source=session-anchored, line=%q)", codec, strings.TrimSpace(lines[i]))
+				log.Printf("🎯 [CODEC-TRACE] [sunshine] detected active codec=%s (source=session-anchored, line=%q)", codec, strings.TrimSpace(lines[i]))
 				return codec
 			}
 		}
-		log.Printf("[sunshine] session found (lines %d-%d) but no encoder-creation line within it — defaulting to h264", startIdx, endIdx)
+		log.Printf("🎯 [CODEC-TRACE] [sunshine] session found (lines %d-%d) but no encoder-creation line within it — defaulting to h264", startIdx, endIdx)
 		return "h264"
 	}
 
@@ -140,11 +140,11 @@ func (b *sunshineBackend) CurrentVideoCodec() string {
 	// best-effort scan so we still return something reasonable pre-launch.
 	for i := len(lines) - 1; i >= 0; i-- {
 		if codec, ok := creatingEncoderCodec(lines[i]); ok {
-			log.Printf("[sunshine] detected codec=%s (source=unanchored-fallback, line=%q)", codec, strings.TrimSpace(lines[i]))
+			log.Printf("🎯 [CODEC-TRACE] [sunshine] detected codec=%s (source=unanchored-fallback, line=%q)", codec, strings.TrimSpace(lines[i]))
 			return codec
 		}
 	}
-	log.Printf("[sunshine] could not detect active codec from log tail, defaulting to h264")
+	log.Printf("🎯 [CODEC-TRACE] [sunshine] could not detect active codec from log tail, defaulting to h264")
 	return "h264"
 }
 
@@ -281,6 +281,6 @@ func fetchSupportedVideoCodecs(adminPort int) []string {
 	if flags&scmMaskAV1 != 0 {
 		codecs = append(codecs, "av1")
 	}
-	log.Printf("[sunshine] serverinfo codec support: flags=0x%08X -> %v", flags, codecs)
+	log.Printf("🎯 [CODEC-TRACE] [sunshine] serverinfo codec support: flags=0x%08X -> %v", flags, codecs)
 	return codecs
 }

@@ -502,9 +502,11 @@ func goVideoFormatNegotiated(format C.int) {
 	name, ok := videoFormatCodecName(int32(format))
 	if !ok {
 		logrus.Warnf("🎬 [Moonlight/HW] negotiated video format: unrecognized 0x%04X", int(format))
+		logrus.Warnf("🎯 [CODEC-TRACE] dr_setup: server negotiated an UNRECOGNIZED format 0x%04X", int(format))
 		return
 	}
 	logrus.Infof("🎬 [Moonlight/HW] negotiated video format: %s (0x%04X)", name, int(format))
+	logrus.Infof("🎯 [CODEC-TRACE] dr_setup: SERVER ACTUALLY NEGOTIATED codec=%s (0x%04X) -- this is the ground truth for what's really streaming, compare against the videoMode logged before Launch()/StartStream above", name, int(format))
 }
 
 // NegotiatedVideoCodecName returns the codec moonlight-common-c actually
