@@ -443,8 +443,24 @@ func writeAtomic(dest string, src io.Reader, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := renameWithRetry(tmpPath, dest); err != nil {
-		return fmt.Errorf("entitlement: install staged binary: %w", err)
+	if err := os.Rename(tmpPath, dest); err != nil {
+		// Windows refuses to replace a running .exe. The update path used
+		// to answer that with a UAC-elevated taskkill, which lands on the
+		// secure desktop after the streamer has already been stopped — a
+		// remote session cannot dismiss it and video is already gone.
+		// Stage beside the locked file instead of spinning renameWithRetry
+		// for 20s; rustshine BinaryPath prefers dest+".new" on the next launch.
+		if runtime.GOOS == "windows" && strings.HasSuffix(strings.ToLower(dest), ".exe") {
+			sidecar := dest + ".new"
+			_ = os.Remove(sidecar)
+			if err2 := os.Rename(tmpPath, sidecar); err2 == nil {
+				ok = true
+				return nil
+			}
+		}
+		if err := renameWithRetry(tmpPath, dest); err != nil {
+			return fmt.Errorf("entitlement: install staged binary: %w", err)
+		}
 	}
 	ok = true
 	return nil

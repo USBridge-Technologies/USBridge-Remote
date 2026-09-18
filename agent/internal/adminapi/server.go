@@ -34,6 +34,9 @@ type TokenBackend interface {
 	GPUClockLockSupported() bool
 	LockGPUClocksEnabled() bool
 	SetLockGPUClocksEnabled(enabled bool) error
+	StreamerAutoUpdateEnabled() bool
+	SetStreamerAutoUpdate(enabled bool) error
+	SnoozeStreamerUpdate(version string) error
 	RestartSunshine() error
 	SendSAS() error
 	ListSunshineClients() ([]streamhost.Client, error)
@@ -190,6 +193,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/gpu-clock-lock-supported", s.handleGPUClockLockSupported)
 	mux.HandleFunc("GET /token/gpu-clock-lock-enabled", s.handleGPUClockLockEnabled)
 	mux.HandleFunc("POST /token/gpu-clock-lock-enabled", s.handleSetGPUClockLockEnabled)
+	mux.HandleFunc("GET /token/streamer-auto-update", s.handleStreamerAutoUpdate)
+	mux.HandleFunc("POST /token/streamer-auto-update", s.handleSetStreamerAutoUpdate)
+	mux.HandleFunc("POST /token/snooze-streamer-update", s.handleSnoozeStreamerUpdate)
 	mux.HandleFunc("POST /token/restart-sunshine", s.handleRestartSunshine)
 	mux.HandleFunc("POST /token/send-sas", s.handleSendSAS)
 	mux.HandleFunc("GET /token/clients", s.handleListClients)
@@ -328,6 +334,36 @@ func (s *Server) handleSetGPUClockLockEnabled(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err := s.token.SetLockGPUClocksEnabled(body.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleStreamerAutoUpdate(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, boolBody{Value: s.token.StreamerAutoUpdateEnabled()})
+}
+
+func (s *Server) handleSetStreamerAutoUpdate(w http.ResponseWriter, r *http.Request) {
+	var body boolBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetStreamerAutoUpdate(body.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleSnoozeStreamerUpdate(w http.ResponseWriter, r *http.Request) {
+	var body stringBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SnoozeStreamerUpdate(body.Value); err != nil {
 		writeError(w, err)
 		return
 	}

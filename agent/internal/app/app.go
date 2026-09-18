@@ -100,9 +100,10 @@ type App struct {
 
 	// entMu guards the fields below, all touched from both the GUI/adminapi
 	// goroutine (user clicks) and entitlementWatchdog's background goroutine.
-	entMu         sync.Mutex
-	entStatus     entitlement.Status
-	entPollCancel context.CancelFunc // cancels an in-flight StartPurchase's post-checkout poll loop, if any
+	entMu                 sync.Mutex
+	entStatus             entitlement.Status
+	entPollCancel         context.CancelFunc // cancels an in-flight StartPurchase's post-checkout poll loop, if any
+	pendingStreamerUpdate string             // newer USBridge-streamer tag seen while auto-update is off
 
 	// accMu guards the account-login fields below -- see StartAccountLogin's
 	// doc comment. Separate mutex/status from entMu above: this is a
@@ -635,6 +636,7 @@ func (a *App) Run(headless, startHidden bool) error {
 	// covered by the same ticker without needing separate "start the
 	// watchdog now" bookkeeping.
 	go a.entitlementWatchdog(ctx)
+	go a.streamerUpdateWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.usbBroker != nil {
@@ -1336,11 +1338,14 @@ func (a *App) refreshLocalEntitlementStatus() {
 func (a *App) EntitlementStatus() entitlement.Status {
 	a.entMu.Lock()
 	st := a.entStatus
+	pending := a.pendingStreamerUpdate
 	a.entMu.Unlock()
 	st.ActiveBackend = a.currentStreamKind()
 	st.RustShineStaged = a.rustshineStaged()
 	st.RustShineVersion = entitlement.StagedVersion(a.cfg.StateDir)
 	st.WebRTCEnabled = !a.cfg.RustShineWebRTCDisabled
+	st.RustShineAvailableVersion = pending
+	st.RustShineUpdateOffer = pending != "" && pending != a.cfg.StreamerUpdateSnoozed
 	return st
 }
 
@@ -1941,15 +1946,24 @@ func (a *App) downgradeToSunshine() {
 }
 
 // entitlementRecheckInterval is how often entitlementWatchdog re-verifies
-// entitlement against the backend in the steady state (both to catch a
-// license refund/cancellation and to proactively renew a free-tier token
+// the cached license against the backend in the steady state (both to catch
+// a license refund/cancellation and to proactively renew a free-tier token
 // well before its own local expiry -- see recheckEntitlement's own doc
-// comment on why free is no longer treated as "purely local, no network
-// call needed"). Far longer than sunshineWatchdogInterval deliberately:
-// there's no reason to check more than a few times a day in the healthy
-// case, and a refund is a rare, human-initiated event, not something that
-// needs sub-hour detection latency.
+// comment). Far longer than sunshineWatchdogInterval deliberately: there's
+// no reason to check more than a few times a day in the healthy case, and
+// a refund is a rare, human-initiated event, not something that needs
+// sub-hour detection latency. USBridge-streamer version checks are a
+// separate, cheaper ticker -- see streamerUpdateCheckInterval.
 const entitlementRecheckInterval = 6 * time.Hour
+
+// streamerUpdateCheckInterval is how often streamerUpdateWatchdog asks the
+// backend whether a newer USBridge-streamer build exists -- a cheap
+// metadata call only; the archive is downloaded only if auto-update is on
+// or the user confirms. 1 minute is the current test cadence so a staged
+// release is easy to notice live. Flip to 1 * time.Hour before a production
+// cut: frequent enough to pick up a release the same day, rare enough not
+// to add load or interrupt a stream.
+const streamerUpdateCheckInterval = 1 * time.Minute
 
 // entitlementRetryInterval is how soon entitlementWatchdog retries after a
 // FAILED recheck (network down, backend unreachable), instead of leaving
@@ -1993,6 +2007,42 @@ func (a *App) entitlementWatchdog(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// streamerUpdateWatchdog periodically checks whether a newer
+// USBridge-streamer build is published. Separate from entitlementWatchdog
+// so license re-verify stays at 6h while this cadence can be tightened for
+// testing (see streamerUpdateCheckInterval). Fires once immediately so a
+// just-started agent doesn't wait a full interval to notice an already-
+// published release.
+func (a *App) streamerUpdateWatchdog(ctx context.Context) {
+	a.tickStreamerUpdate(ctx)
+	ticker := time.NewTicker(streamerUpdateCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.tickStreamerUpdate(ctx)
+		}
+	}
+}
+
+func (a *App) tickStreamerUpdate(ctx context.Context) {
+	token := a.cfg.EntitlementToken
+	if strings.TrimSpace(token) == "" {
+		return
+	}
+	// First-time StageRustShine still lives on ensureRustShineFresh
+	// (purchase / 6h entitlement tick). This loop is only the cheap
+	// "is there a newer tagged build?" check against an already-staged
+	// binary -- running the full initial download every minute would be
+	// the opposite of a light probe.
+	if !a.rustshineStaged() {
+		return
+	}
+	a.checkRustShineUpdate(ctx, token)
 }
 
 // recheckEntitlement re-verifies whatever's currently cached in
@@ -2143,8 +2193,19 @@ func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string)
 		return
 	}
 	if !needsUpdate {
+		a.entMu.Lock()
+		a.pendingStreamerUpdate = ""
+		a.entMu.Unlock()
 		return
 	}
+	if !a.cfg.StreamerAutoUpdateEnabled() {
+		a.entMu.Lock()
+		a.pendingStreamerUpdate = version
+		a.entMu.Unlock()
+		log.Printf("[app] rustshine update available (%s) — auto-update off, waiting for the user", version)
+		return
+	}
+
 	// Same reentrancy guard as CheckRustShineUpdateNow (see its doc comment)
 	// -- this silent background tick and a manual "check for updates" click
 	// share the same StageRustShine/stopRustShineForUpdate sequence and can
@@ -2164,35 +2225,41 @@ func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string)
 		a.setRustShineUpdatePaused(false)
 	}()
 
+	if err := a.applyRustShineUpdate(ctx, entitlementToken, version); err != nil {
+		log.Printf("[app] rustshine auto-update to %s failed (will retry next interval): %v", version, err)
+	}
+}
+
+// applyRustShineUpdate downloads and stages a newer USBridge-streamer
+// build, then hot-swaps the running backend if it's already rustshine.
+// Callers must hold the RustShineUpdateInProgress / UpdatePauser pairing
+// around this (checkRustShineUpdate and CheckRustShineUpdateNow).
+func (a *App) applyRustShineUpdate(ctx context.Context, entitlementToken, version string) error {
 	log.Printf("[app] rustshine update available (%s) — downloading", version)
 	stopped := a.stopRustShineForUpdate()
 	if err := entitlement.StageRustShine(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
-		// On Windows this shouldn't fire anymore now that
-		// stopRustShineForUpdate releases the file lock first -- if it
-		// still does (AV scan holding the file, some other locker), it's
-		// non-fatal: retried at the next watchdog interval. Relaunch
-		// immediately (on the still-old binary) if we stopped an actively
-		// streaming backend for this attempt, rather than leaving the user
-		// without video until the next 15s watchdog tick.
-		log.Printf("[app] rustshine auto-update to %s failed (will retry next interval): %v", version, err)
 		if stopped {
 			a.startSunshineNow()
 		}
-		return
+		return err
 	}
 	log.Printf("[app] rustshine updated to %s", version)
-	// Same bundled usb-broker re-stage DownloadRustShine's initial click does
-	// (see its doc comment) -- without this, a fix that only ships in a
-	// newer usb-broker build would never reach an agent whose owner only
-	// ever runs the silent background watchdog, not the original "Download"
-	// button. Non-fatal for the same reason DownloadRustShine's own call is.
 	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
 		log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
 	}
 	a.entMu.Lock()
 	a.entStatus.RustShineStaged = a.rustshineStaged()
+	a.pendingStreamerUpdate = ""
 	a.entMu.Unlock()
+	if strings.TrimSpace(a.cfg.StreamerUpdateSnoozed) != "" {
+		next := a.cfg
+		next.StreamerUpdateSnoozed = ""
+		if err := a.SaveConfig(next); err != nil {
+			log.Printf("[app] warning: could not clear snoozed streamer update: %v", err)
+		}
+	}
 	a.restartRustShineIfActive()
+	return nil
 }
 
 // setRustShineUpdatePaused tells the active backend (if it implements
@@ -2255,40 +2322,23 @@ func (a *App) stopRustShineForUpdate() bool {
 	// Stop() only signals termination; give the OS a moment to actually
 	// release the exe's image-section file lock before the upcoming rename.
 	time.Sleep(500 * time.Millisecond)
-	// Confirmed live: the plain taskkill above can still leave a
-	// usbridge-streamer.exe alive with "Access is denied" even from this
-	// same agent's own same-user call -- root cause not fully pinned down
-	// (not self-spawned: usbridge-streamer's own source spawns no child
-	// processes on Windows), but reproducible: a manual StageRustShine
-	// against a genuinely clean process list staged and renamed in ~1.3s
-	// every time, while this exact flow, with a survivor still present,
-	// lost to "Access is denied" for the entire 20s renameWithRetry budget
-	// regardless. Escalating to a UAC-elevated taskkill closes that gap the
-	// same-level sweep above can't: an elevated `taskkill /F` carries
-	// enough privilege to reach a process a plain same-user one can't, the
-	// same reason Task Manager's own "End task" needs "Run as
-	// administrator" for some processes. Only fires when something is
-	// actually still there (a UAC prompt on every single update, needed or
-	// not, would be needlessly disruptive) and is itself non-fatal on
-	// failure/decline/no-desktop-to-prompt-on -- StageRustShine's own
-	// caller already retries at the next interval and falls back to
-	// relaunching the old binary regardless of how this returns.
-	if a.perms != nil && (processRunning("usbridge-streamer.exe") || processRunning("gamestream-server.exe")) {
-		log.Printf("[app] usbridge-streamer.exe survived the plain taskkill -- requesting elevation to force it (a UAC prompt may appear)")
-		if err := a.perms.KillGamestreamServerElevated(); err != nil {
-			log.Printf("[app] elevated taskkill failed or was declined: %v", err)
-		} else {
-			time.Sleep(500 * time.Millisecond)
-		}
+	// Do not escalate to a UAC-elevated taskkill. A consent prompt runs on
+	// the secure desktop: the update flow has already stopped capture, so
+	// video is gone, and a remote client cannot click Yes. Leftover
+	// elevated copies (Autostart-at-Boot LocalSystem instance before
+	// reboot, GPU clock-lock daemon using the same .exe) are left alone;
+	// StageRustShine writes dest+".new" when dest is still locked.
+	if processRunning("usbridge-streamer.exe") || processRunning("gamestream-server.exe") {
+		log.Printf("[app] usbridge-streamer.exe still running after taskkill — not requesting UAC; staging will use a sidecar if the .exe stays locked")
 	}
 	return true
 }
 
 // processRunning reports whether any process named imageName (e.g.
 // "gamestream-server.exe") is currently running, via `tasklist`'s own
-// image-name filter -- used by stopRustShineForUpdate to decide whether the
-// plain taskkill above actually needs the elevated escalation, rather than
-// firing a UAC prompt unconditionally on every update.
+// image-name filter -- used by stopRustShineForUpdate only to log that a
+// leftover instance is still holding the .exe (staging then writes a
+// sidecar instead of prompting UAC).
 func processRunning(imageName string) bool {
 	cmd := exec.Command("tasklist", "/NH", "/FI", "IMAGENAME eq "+imageName)
 	maybeHideWindow(cmd)
@@ -2397,31 +2447,16 @@ func (a *App) CheckRustShineUpdateNow() error {
 	}
 	if !needsUpdate {
 		log.Printf("[app] rustshine is already up to date")
+		a.entMu.Lock()
+		a.pendingStreamerUpdate = ""
+		a.entMu.Unlock()
 		return nil
 	}
 
-	log.Printf("[app] rustshine update available (%s) — downloading (manual check)", version)
-	stopped := a.stopRustShineForUpdate()
-	if err := entitlement.StageRustShine(ctx, a.cfg.StateDir, token, nil); err != nil {
+	if err := a.applyRustShineUpdate(ctx, token, version); err != nil {
 		a.setEntError(fmt.Sprintf("update failed: %v", err))
-		if stopped {
-			a.startSunshineNow()
-		}
 		return err
 	}
-	log.Printf("[app] rustshine updated to %s", version)
-	// Same bundled usb-broker re-stage DownloadRustShine's initial click does
-	// (see its doc comment) -- without this, a fix that only ships in a
-	// newer usb-broker build would never reach an agent whose owner only
-	// ever clicks "Check for updates", not the original "Download" button.
-	// Non-fatal for the same reason DownloadRustShine's own call is.
-	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, token, nil); err != nil {
-		log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
-	}
-	a.entMu.Lock()
-	a.entStatus.RustShineStaged = a.rustshineStaged()
-	a.entMu.Unlock()
-	a.restartRustShineIfActive()
 	return nil
 }
 
@@ -2542,6 +2577,41 @@ func (a *App) GPUClockLockSupported() bool {
 // LockGPUClocksEnabled returns the persisted "Lock GPU clocks" setting.
 func (a *App) LockGPUClocksEnabled() bool {
 	return a.cfg.LockGPUClocksEnabled
+}
+
+func (a *App) StreamerAutoUpdateEnabled() bool {
+	return a.cfg.StreamerAutoUpdateEnabled()
+}
+
+func (a *App) SetStreamerAutoUpdate(enabled bool) error {
+	next := a.cfg
+	v := enabled
+	next.StreamerAutoUpdate = &v
+	if enabled {
+		next.StreamerUpdateSnoozed = ""
+	}
+	if err := a.SaveConfig(next); err != nil {
+		return err
+	}
+	if enabled {
+		a.entMu.Lock()
+		pending := a.pendingStreamerUpdate
+		a.entMu.Unlock()
+		if pending != "" {
+			go func() {
+				if err := a.CheckRustShineUpdateNow(); err != nil {
+					log.Printf("[app] rustshine apply after enabling auto-update failed: %v", err)
+				}
+			}()
+		}
+	}
+	return nil
+}
+
+func (a *App) SnoozeStreamerUpdate(version string) error {
+	next := a.cfg
+	next.StreamerUpdateSnoozed = strings.TrimSpace(version)
+	return a.SaveConfig(next)
 }
 
 // SetLockGPUClocksEnabled persists the "Lock GPU clocks" setting and, if

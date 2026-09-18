@@ -57,6 +57,15 @@ type Status struct {
 	// for updates…" instead of the first-download copy without the two
 	// call sites racing each other's spinner text.
 	RustShineUpdateInProgress bool `json:"rustshine_update_in_progress"`
+	// RustShineAvailableVersion is a newer USBridge-streamer tag than the
+	// one currently staged, when auto-update is off and the streamer
+	// update watchdog has already seen it. Empty while auto-update is
+	// applying (or when nothing newer exists). The Status-card version
+	// prefix reads this.
+	RustShineAvailableVersion string `json:"rustshine_available_version,omitempty"`
+	// RustShineUpdateOffer is true when AvailableVersion is set and the
+	// user has not declined that tag yet -- the GUI shows the Yes/No toast.
+	RustShineUpdateOffer bool `json:"rustshine_update_offer,omitempty"`
 	// WebRTCEnabled mirrors cfg.RustShineWebRTCDisabled (inverted) -- the
 	// GUI's RustShine web-client checkbox reflects and toggles this.
 	// Meaningful only when ActiveBackend == "rustshine"; Sunshine has no

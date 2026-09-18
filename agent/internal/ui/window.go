@@ -50,6 +50,9 @@ type TokenProvider interface {
 	GPUClockLockSupported() bool
 	LockGPUClocksEnabled() bool
 	SetLockGPUClocksEnabled(enabled bool) error
+	StreamerAutoUpdateEnabled() bool
+	SetStreamerAutoUpdate(enabled bool) error
+	SnoozeStreamerUpdate(version string) error
 	RestartSunshine() error
 	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
@@ -295,6 +298,14 @@ type Window struct {
 	// (and the footer idle copy is shown). Keeps the button disabled
 	// even before EntitlementStatus.RustShineUpdateInProgress flips on.
 	streamerUpdateChecking bool
+	// streamerBgUpdateWatching is true while a background auto-update is in
+	// flight and this window didn't start it (the refresh button uses
+	// streamerUpdateChecking instead). Drives the footer spinner.
+	streamerBgUpdateWatching bool
+	streamerVersionAtBusy    string
+	// streamerUpdatePromptedVersion is the tag we already showed the
+	// Yes/No toast for this session, so performRefresh doesn't re-pop it.
+	streamerUpdatePromptedVersion string
 
 	// ownsEngine is true only when this window's process itself started the
 	// engine (App.Run(headless=false)) — as opposed to a thin client
@@ -478,6 +489,9 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 
 	if w.streamerVersionLabel != nil {
 		version := formatStreamerVersion(appVersion, st.RustShineVersion, active)
+		if active && strings.TrimSpace(st.RustShineAvailableVersion) != "" {
+			version = loc().UpdateAvailableHint + "  " + version
+		}
 		if w.streamerVersionLabel.Text != version {
 			w.streamerVersionLabel.Text = version
 			w.streamerVersionLabel.Refresh()
@@ -527,6 +541,57 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 			w.sunWebSunshineRow.Show()
 		}
 	}
+
+	w.syncStreamerUpdateFooter(st)
+	w.maybeOfferStreamerUpdate(st)
+}
+
+func (w *Window) syncStreamerUpdateFooter(st entitlement.Status) {
+	if w.streamerUpdateChecking {
+		return
+	}
+	if st.RustShineUpdateInProgress {
+		if !w.streamerBgUpdateWatching {
+			w.streamerVersionAtBusy = st.RustShineVersion
+			w.startFooterBusy(loc().CheckingUpdates)
+			w.streamerBgUpdateWatching = true
+		}
+		return
+	}
+	if !w.streamerBgUpdateWatching {
+		return
+	}
+	w.streamerBgUpdateWatching = false
+	if st.RustShineVersion != "" && st.RustShineVersion != w.streamerVersionAtBusy {
+		w.showFooterIdle(loc().StreamerUpdated, footerIdleMessageDuration)
+		return
+	}
+	w.stopFooterBusy()
+}
+
+func (w *Window) maybeOfferStreamerUpdate(st entitlement.Status) {
+	if st.ActiveBackend != "rustshine" || !st.RustShineUpdateOffer {
+		return
+	}
+	ver := strings.TrimSpace(st.RustShineAvailableVersion)
+	if ver == "" || w.streamerUpdatePromptedVersion == ver {
+		return
+	}
+	if w.guiWin == nil || w.token == nil || w.streamerUpdateChecking || st.RustShineUpdateInProgress {
+		return
+	}
+	w.streamerUpdatePromptedVersion = ver
+	showConfirmToast(loc().StreamerUpdateAsk, func(yes bool) {
+		if yes {
+			w.beginStreamerUpdateCheck()
+			return
+		}
+		go func() {
+			if err := w.token.SnoozeStreamerUpdate(ver); err != nil {
+				logrus.WithError(err).Warn("could not snooze streamer update")
+			}
+		}()
+	}, w.guiWin)
 }
 
 func (w *Window) beginStreamerUpdateCheck() {
@@ -589,7 +654,7 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 		return
 	}
 	if st.RustShineVersion != "" && st.RustShineVersion != before.RustShineVersion {
-		w.stopFooterBusy()
+		w.showFooterIdle(loc().StreamerUpdated, footerIdleMessageDuration)
 		return
 	}
 	w.showFooterIdle(loc().AlreadyUpToDate, footerIdleMessageDuration)
@@ -1517,9 +1582,10 @@ func (w *Window) showSettingsMenu(win fyne.Window, anchor fyne.CanvasObject) {
 	if win == nil || anchor == nil {
 		return
 	}
-	showStyledTealMenu(anchor, []styledMenuItem{
-		{Label: loc().Language, Icon: assets.LanguageIconTeal, OnTap: func() { w.showLanguageMenu(anchor) }},
-		{Label: loc().Info, Icon: assets.InfoIconTeal, OnTap: func() { w.showInfoMenu(anchor) }},
+	showStyledLightMenu(anchor, []styledMenuItem{
+		{Label: loc().GeneralSettings, Icon: assets.SettingsIconLight, OnTap: func() { w.showGeneralSettingsDialog(win) }},
+		{Label: loc().Language, Icon: assets.LanguageIconLight, OnTap: func() { w.showLanguageMenu(anchor) }},
+		{Label: loc().Info, Icon: assets.InfoIconLight, OnTap: func() { w.showInfoMenu(anchor) }},
 	})
 }
 
@@ -1527,14 +1593,14 @@ func (w *Window) showInfoMenu(anchor fyne.CanvasObject) {
 	if anchor == nil {
 		return
 	}
-	showStyledTealMenu(anchor, []styledMenuItem{
-		{Label: loc().Software, Icon: assets.GitHubIconTeal, OnTap: func() {
+	showStyledLightMenu(anchor, []styledMenuItem{
+		{Label: loc().Software, Icon: assets.GitHubIcon, OnTap: func() {
 			w.openExternalLink("https://github.com/USBridge-Technologies/USBridge-Remote")
 		}},
-		{Label: loc().Hardware, Icon: assets.GitHubIconTeal, OnTap: func() {
+		{Label: loc().Hardware, Icon: assets.GitHubIcon, OnTap: func() {
 			w.openExternalLink("https://github.com/USBridge-Technologies/USBridge-KVM-2.0/tree/main/docs")
 		}},
-		{Label: loc().Website, Icon: assets.OpenExternalIconTeal, OnTap: func() {
+		{Label: loc().Website, Icon: assets.OpenExternalIconLight, OnTap: func() {
 			w.openExternalLink("https://www.usbridge.io/")
 		}},
 	})
@@ -1566,7 +1632,7 @@ func (w *Window) showLanguageMenu(anchor fyne.CanvasObject) {
 		i18n.SetLanguage(code)
 		w.applyLanguage()
 	}
-	showStyledTealMenu(anchor, []styledMenuItem{
+	showStyledLightMenu(anchor, []styledMenuItem{
 		{Label: "English", Selected: current == "en", OnTap: func() { setLang("en") }},
 		{Label: "Español", Selected: current == "es", OnTap: func() { setLang("es") }},
 		{Label: "Українська", Selected: current == "uk" || current == "ua", OnTap: func() { setLang("uk") }},
@@ -1633,7 +1699,9 @@ func (w *Window) applyLanguage() {
 		w.protocolPanel.SetTitle(c.Protocol)
 	}
 	if w.token != nil {
-		w.refreshSupportButton(w.token.EntitlementStatus())
+		st := w.token.EntitlementStatus()
+		w.refreshSupportButton(st)
+		w.refreshRustShineUI(st)
 	}
 	if w.tsAuthBtn != nil {
 		if w.tsAuthBtn.logout {

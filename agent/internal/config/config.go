@@ -71,6 +71,19 @@ type Config struct {
 	// the web client working without needing to opt in.
 	RustShineWebRTCDisabled bool `yaml:"rustshine_webrtc_disabled,omitempty"`
 
+	// StreamerAutoUpdate is the General Settings "USBridge protocol auto-update"
+	// checkbox for USBridge-streamer. Nil (omitted in YAML) means on --
+	// the product default -- so existing config files keep silent
+	// background updates. A pointer is required so an explicit false
+	// round-trips instead of collapsing to that default. Checks still
+	// piggyback on streamerUpdateWatchdog (1 minute while testing, 1 hour
+	// in production -- see streamerUpdateCheckInterval).
+	StreamerAutoUpdate *bool `yaml:"streamer_auto_update,omitempty"`
+	// StreamerUpdateSnoozed is the USBridge-streamer release tag the user
+	// declined ("No" on the update toast). The header still shows that an
+	// update is available; the toast is not shown again for this tag.
+	StreamerUpdateSnoozed string `yaml:"streamer_update_snoozed,omitempty"`
+
 	// Account login (see agent/internal/account) -- a SEPARATE identity
 	// from EntitlementToken above: this is "which USBridge account (Google
 	// login) is the human running this agent signed into", used only to
@@ -106,6 +119,13 @@ func (c Config) EffectiveListenHost() string {
 		return "127.0.0.1"
 	}
 	return host
+}
+
+// StreamerAutoUpdateEnabled is true unless the user turned the General
+// Settings checkbox off. Omitted YAML (nil) is on, matching the product
+// default.
+func (c Config) StreamerAutoUpdateEnabled() bool {
+	return c.StreamerAutoUpdate == nil || *c.StreamerAutoUpdate
 }
 
 func Load(path string) (Config, error) {

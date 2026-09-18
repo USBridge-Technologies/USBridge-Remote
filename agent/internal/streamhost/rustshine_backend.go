@@ -111,7 +111,7 @@ type rustshineBackend struct {
 	logPath     string
 	proc        rustshineProcess // see the rustshineProcess doc comment above
 	watchdog    *exec.Cmd        // macOS only, see rustshine_process_other.go
-	onExit      func()    // see SetOnExit
+	onExit      func()           // see SetOnExit
 
 	activeAdminPassword string
 	adminPort           int // set by Start; CurrentVideoCodec needs it despite taking no args itself
@@ -215,6 +215,30 @@ func binaryName() string {
 	return "usbridge-streamer"
 }
 
+// resolveStagedStreamer returns the streamer binary under dir/usbridge-streamer/.
+// On Windows, StageRustShine may have left dest+".new" because dest was still
+// locked (GPU clock-lock daemon, leftover LocalSystem instance, ...). Prefer
+// that sidecar so an update can take effect without a UAC-elevated taskkill.
+func resolveStagedStreamer(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	dest := filepath.Join(dir, "usbridge-streamer", binaryName())
+	sidecar := dest + ".new"
+	if fileExists(sidecar) {
+		if err := os.Rename(sidecar, dest); err == nil {
+			return dest
+		}
+		if fileExists(sidecar) {
+			return sidecar
+		}
+	}
+	if fileExists(dest) {
+		return dest
+	}
+	return ""
+}
+
 func legacyBinaryName() string {
 	if runtime.GOOS == "windows" {
 		return "gamestream-server.exe"
@@ -230,11 +254,13 @@ func (b *rustshineBackend) BinaryPath() string {
 	if b.launchPath != "" {
 		return b.launchPath
 	}
-	// New standard paths
-	if p := filepath.Join(b.stateDir, "usbridge-streamer", binaryName()); fileExists(p) {
+	// New standard paths. Prefer a Windows sidecar (binaryName+".new")
+	// when the live .exe is still locked by another instance — see
+	// entitlement.writeAtomic.
+	if p := resolveStagedStreamer(b.stateDir); p != "" {
 		return p
 	}
-	if p := filepath.Join(b.exeDir, "usbridge-streamer", binaryName()); fileExists(p) {
+	if p := resolveStagedStreamer(b.exeDir); p != "" {
 		return p
 	}
 	// Legacy stage dir paths
@@ -812,13 +838,16 @@ func (b *rustshineBackend) Stop() error {
 		log.Printf("[rustshine] stopping pid=%d", b.proc.Pid())
 		err = b.proc.Kill()
 		if err != nil && isAccessDenied(err) {
-			// Our own handle lacks PROCESS_TERMINATE -- most likely
-			// gamestream-server.exe is running with higher privilege than
-			// the agent has right now. Ask Windows to prompt for
-			// elevation (UAC) and retry through that, instead of silently
-			// leaving a process the user can see is broken running
-			// forever with no explanation. See elevate_windows.go.
-			if elevErr := elevatedKillByPID(b.proc.Pid()); elevErr != nil {
+			// A UAC prompt runs on the secure desktop and cannot be
+			// dismissed from a remote session. The streamer-update path
+			// sets updatePaused before Stop() and stages beside a locked
+			// .exe instead (see entitlement.writeAtomic); do not elevate
+			// here. For a user-initiated Stop (backend switch, ...) keep
+			// the old prompt so a leftover elevated process is not left
+			// running with no explanation.
+			if b.updatePaused {
+				log.Printf("[rustshine] kill of pid=%d denied during update — not requesting UAC", b.proc.Pid())
+			} else if elevErr := elevatedKillByPID(b.proc.Pid()); elevErr != nil {
 				log.Printf("[rustshine] elevated kill also failed: %v", elevErr)
 			} else {
 				err = nil
@@ -828,15 +857,21 @@ func (b *rustshineBackend) Stop() error {
 	} else {
 		log.Printf("[rustshine] stopping orphaned process by name")
 		if runtime.GOOS == "windows" {
-			if killErr := exec.Command("taskkill", "/F", "/IM", "gamestream-server.exe").Run(); killErr != nil {
+			_ = hiddenTaskkill("/F", "/IM", "usbridge-streamer.exe")
+			killErr := hiddenTaskkill("/F", "/IM", "gamestream-server.exe")
+			if killErr != nil && !b.updatePaused {
 				if elevErr := elevatedKillByName("gamestream-server.exe"); elevErr != nil {
 					log.Printf("[rustshine] elevated kill of orphaned gamestream-server.exe also failed: %v", elevErr)
 				}
 			}
 		} else {
 			_ = exec.Command("killall", "gamestream-server").Run()
+			_ = exec.Command("killall", "usbridge-streamer").Run()
 		}
 	}
+	// Drop the cached path so the next Start() re-resolves BinaryPath
+	// (it may now point at a Windows sidecar written while dest was locked).
+	b.launchPath = ""
 	if b.watchdog != nil && b.watchdog.Process != nil {
 		_ = b.watchdog.Process.Kill()
 		b.watchdog = nil

@@ -193,6 +193,20 @@ func (c *Client) SetLockGPUClocksEnabled(enabled bool) error {
 	return c.do(http.MethodPost, "/token/gpu-clock-lock-enabled", boolBody{Value: enabled}, nil)
 }
 
+func (c *Client) StreamerAutoUpdateEnabled() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/token/streamer-auto-update", nil, &body)
+	return body.Value
+}
+
+func (c *Client) SetStreamerAutoUpdate(enabled bool) error {
+	return c.do(http.MethodPost, "/token/streamer-auto-update", boolBody{Value: enabled}, nil)
+}
+
+func (c *Client) SnoozeStreamerUpdate(version string) error {
+	return c.do(http.MethodPost, "/token/snooze-streamer-update", stringBody{Value: version}, nil)
+}
+
 func (c *Client) RestartSunshine() error {
 	return c.do(http.MethodPost, "/token/restart-sunshine", nil, nil)
 }

@@ -7,13 +7,16 @@ type LocalizedStrings struct {
 	AppTitle string
 
 	// Settings / Info / Theme
-	Language     string
-	Info         string
-	Software     string
-	Hardware     string
-	Website      string
-	Theme        string
-	ThemeDefault string
+	Language                string
+	Info                    string
+	Software                string
+	Hardware                string
+	Website                 string
+	Theme                   string
+	ThemeDefault            string
+	GeneralSettings         string
+	GeneralSettingsSubtitle string
+	AgentAutoUpdate         string
 
 	// Cards
 	Permissions string
@@ -63,10 +66,13 @@ type LocalizedStrings struct {
 	SupportUs     string
 
 	// Footer busy
-	ChangingProtocol string
-	CheckingUpdates  string
-	AlreadyUpToDate  string
-	UpdateFailed     string
+	ChangingProtocol    string
+	CheckingUpdates     string
+	AlreadyUpToDate     string
+	UpdateFailed        string
+	StreamerUpdated     string
+	UpdateAvailableHint string
+	StreamerUpdateAsk   string
 
 	// Common
 	Yes      string
@@ -226,13 +232,16 @@ func EN() *LocalizedStrings {
 	return &LocalizedStrings{
 		AppTitle: "USBridge Agent",
 
-		Language:     "Language",
-		Info:         "Info",
-		Software:     "Software",
-		Hardware:     "Hardware",
-		Website:      "Website",
-		Theme:        "Theme",
-		ThemeDefault: "Default",
+		Language:                "Language",
+		Info:                    "Info",
+		Software:                "Software",
+		Hardware:                "Hardware",
+		Website:                 "Website",
+		Theme:                   "Theme",
+		ThemeDefault:            "Default",
+		GeneralSettings:         "General Settings",
+		GeneralSettingsSubtitle: "Preferences that apply to the whole agent.",
+		AgentAutoUpdate:         "USBridge protocol auto-update",
 
 		Permissions: "Permissions",
 		Status:      "Status",
@@ -276,10 +285,13 @@ func EN() *LocalizedStrings {
 		BuyEnterprise: "Buy Enterprise",
 		SupportUs:     "Support us",
 
-		ChangingProtocol: "Changing protocol...",
-		CheckingUpdates:  "Checking for updates...",
-		AlreadyUpToDate:  "Already up to date",
-		UpdateFailed:     "Update check failed",
+		ChangingProtocol:    "Changing protocol...",
+		CheckingUpdates:     "Checking for updates...",
+		AlreadyUpToDate:     "Already up to date",
+		UpdateFailed:        "Update check failed",
+		StreamerUpdated:     "USBridge-streamer updated",
+		UpdateAvailableHint: "Update available",
+		StreamerUpdateAsk:   "A USBridge-streamer update is available. Install now?",
 
 		Yes:      "Yes",
 		No:       "No",
@@ -417,6 +429,9 @@ func ES() *LocalizedStrings {
 	locale.Website = "Sitio web"
 	locale.Theme = "Tema"
 	locale.ThemeDefault = "Por defecto"
+	locale.GeneralSettings = "Ajustes generales"
+	locale.GeneralSettingsSubtitle = "Preferencias para todo el agente."
+	locale.AgentAutoUpdate = "Actualizacion automatica del protocolo USBridge"
 
 	locale.Permissions = "Permisos"
 	locale.Status = "Estado"
@@ -458,6 +473,9 @@ func ES() *LocalizedStrings {
 	locale.CheckingUpdates = "Buscando actualizaciones..."
 	locale.AlreadyUpToDate = "Ya esta actualizado"
 	locale.UpdateFailed = "Fallo la busqueda de actualizaciones"
+	locale.StreamerUpdated = "USBridge-streamer actualizado"
+	locale.UpdateAvailableHint = "Actualizacion disponible"
+	locale.StreamerUpdateAsk = "Hay una actualizacion de USBridge-streamer. Instalar ahora?"
 
 	locale.Yes = "Si"
 	locale.No = "No"
@@ -591,6 +609,9 @@ func UK() *LocalizedStrings {
 	locale.Website = "Сайт"
 	locale.Theme = "Тема"
 	locale.ThemeDefault = "За замовчуванням"
+	locale.GeneralSettings = "Загальні налаштування"
+	locale.GeneralSettingsSubtitle = "Параметри для всього агента."
+	locale.AgentAutoUpdate = "Автооновлення протоколу USBridge"
 
 	locale.Permissions = "Дозволи"
 	locale.Status = "Статус"
@@ -632,6 +653,9 @@ func UK() *LocalizedStrings {
 	locale.CheckingUpdates = "Перевірка оновлень..."
 	locale.AlreadyUpToDate = "Вже остання версія"
 	locale.UpdateFailed = "Не вдалося перевірити оновлення"
+	locale.StreamerUpdated = "USBridge-streamer оновлено"
+	locale.UpdateAvailableHint = "Доступне оновлення"
+	locale.StreamerUpdateAsk = "Доступне оновлення USBridge-streamer. Встановити зараз?"
 
 	locale.Yes = "Так"
 	locale.No = "Ні"
