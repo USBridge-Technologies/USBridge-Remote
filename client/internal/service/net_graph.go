@@ -307,7 +307,9 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	}
 	rttText := "RTT -- "
 	if latest.RTTValid {
-		rttText = netGraphFmtMs("RTT", latest.RTTMs) + " ±" + netGraphFmtMs("", latest.RTTVarianceMs)
+		// basicfont.Face7x13 is ASCII-only -- "±" isn't in it and rendered
+		// as a garbled/unreadable glyph. "+/-" is the ASCII-safe stand-in.
+		rttText = netGraphFmtMs("RTT", latest.RTTMs) + " +/-" + netGraphFmtMs("", latest.RTTVarianceMs)
 	}
 	netGraphDrawText(img, marginX, row, rttText, rttColor)
 
@@ -371,52 +373,58 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	}
 	graphX, graphW := marginX, netGraphCanvasW-2*marginX
 
-	netGraphDrawTrace(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
+	netGraphDrawPointGraph(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
 		if !s.RTTValid {
 			return 0, false
 		}
 		return s.RTTMs, true
-	}, 50)
+	}, 100)
 	graphTop += graphH + 4
 
 	netGraphDrawEventGraph(img, graphX, graphTop, graphW, graphH, samples)
 	graphTop += graphH + 4
 
-	netGraphDrawTrace(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
+	netGraphDrawPointGraph(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
 		return s.DecodeMs, s.DecodeMs > 0
-	}, 33)
+	}, 66)
 
 	return img
 }
 
+// netGraphLossPercent counts a packet as "lost" whether or not FEC managed
+// to recover it -- FecRecovered means a packet genuinely didn't arrive and
+// had to be reconstructed from redundancy, which is real loss by any
+// normal definition, just not VISIBLE loss (only FecFailed corrupts what
+// actually reaches the screen). Counting only FecFailed here made this
+// read as "0% loss" during network hiccups that FEC was successfully
+// absorbing, which looked like a bug (loss stuck at 0 while jitter/RTT
+// were visibly spiking) rather than FEC quietly doing its job.
 func netGraphLossPercent(s NetGraphSample) float64 {
 	total := s.PacketsVideo + s.PacketsFec
 	if total == 0 {
 		return 0
 	}
-	lost := s.FecFailed + s.PacketsInvalid
+	lost := s.FecRecovered + s.FecFailed + s.PacketsInvalid
 	return float64(lost) / float64(total) * 100
 }
 
-// netGraphDrawTrace plots one scalar per sample as a continuous connected
-// line -- the classic oscilloscope-style net_graph trace, most recent
-// sample at the graph's right edge, scrolling left. Since consecutive
-// samples always land on adjacent columns (dx is 0 or 1 here), "connect
-// the dots" is just a vertical run between the previous and current
-// column's heights, no general line-drawing algorithm needed. A gap
-// (valueOf returning ok=false, e.g. no RTT estimate yet) breaks the trace
-// instead of interpolating through missing data. Colored by the same
-// green/yellow/red thresholds the numeric readouts use, per-column, so a
-// single spike stands out even mid-trace.
-func netGraphDrawTrace(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSample, valueOf func(NetGraphSample) (float64, bool), warnAt float64) {
+// netGraphDrawPointGraph plots one scalar per sample as a discrete vertical
+// mark rising from the baseline -- the CS 1.6/GoldSrc net_graph "point
+// graph" look explicitly asked for: separate per-packet/per-frame ticks,
+// NOT a connected line between them (a connected line reads as a smooth
+// oscilloscope trace, which is a different thing and was the wrong call
+// last round). Each column is colored purely by ITS OWN vertical position
+// within the graph -- bottom third green, middle third yellow, top third
+// red -- rather than by the raw ms value against a fixed threshold, so a
+// single tall spike visibly changes color as it rises through the bands,
+// matching the reference look. valueOf returning ok=false (e.g. no RTT
+// estimate yet) leaves that column blank.
+func netGraphDrawPointGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSample, valueOf func(NetGraphSample) (float64, bool), maxVal float64) {
 	n := len(samples)
 	start := 0
 	if n > w {
 		start = n - w
 	}
-	maxVal := warnAt * 2
-	havePrev := false
-	prevY := 0
 	for i := start; i < n; i++ {
 		col := x0 + w - (n - i)
 		if col < x0 || col >= x0+w {
@@ -424,7 +432,6 @@ func netGraphDrawTrace(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSamp
 		}
 		v, ok := valueOf(samples[i])
 		if !ok {
-			havePrev = false
 			continue
 		}
 		if v > maxVal {
@@ -433,27 +440,21 @@ func netGraphDrawTrace(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSamp
 		if v < 0 {
 			v = 0
 		}
-		y := y0 + h - 1 - int(v/maxVal*float64(h-1))
-		c := netGraphGood
-		switch {
-		case v >= warnAt*2:
-			c = netGraphBad
-		case v >= warnAt:
-			c = netGraphWarn
+		barH := int(v / maxVal * float64(h))
+		if barH < 1 {
+			barH = 1
 		}
-		if havePrev {
-			lo, hi := prevY, y
-			if lo > hi {
-				lo, hi = hi, lo
+		for dy := 0; dy < barH; dy++ {
+			frac := float64(dy) / float64(h) // 0 at baseline, ->1 towards the top
+			c := netGraphGood
+			switch {
+			case frac >= 0.66:
+				c = netGraphBad
+			case frac >= 0.33:
+				c = netGraphWarn
 			}
-			for yy := lo; yy <= hi; yy++ {
-				img.SetRGBA(col, yy, c)
-			}
-		} else {
-			img.SetRGBA(col, y, c)
+			img.SetRGBA(col, y0+h-1-dy, c)
 		}
-		prevY = y
-		havePrev = true
 	}
 }
 
