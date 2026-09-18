@@ -76,8 +76,8 @@ type Config struct {
 	// the product default -- so existing config files keep silent
 	// background updates. A pointer is required so an explicit false
 	// round-trips instead of collapsing to that default. Checks still
-	// piggyback on streamerUpdateWatchdog (1 minute while testing, 1 hour
-	// in production -- see streamerUpdateCheckInterval).
+	// piggyback on streamerUpdateWatchdog (once an hour -- see
+	// streamerUpdateCheckInterval).
 	StreamerAutoUpdate *bool `yaml:"streamer_auto_update,omitempty"`
 	// StreamerUpdateSnoozed is the USBridge-streamer release tag the user
 	// declined ("No" on the update toast). The header still shows that an

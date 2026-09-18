@@ -1959,11 +1959,9 @@ const entitlementRecheckInterval = 6 * time.Hour
 // streamerUpdateCheckInterval is how often streamerUpdateWatchdog asks the
 // backend whether a newer USBridge-streamer build exists -- a cheap
 // metadata call only; the archive is downloaded only if auto-update is on
-// or the user confirms. 1 minute is the current test cadence so a staged
-// release is easy to notice live. Flip to 1 * time.Hour before a production
-// cut: frequent enough to pick up a release the same day, rare enough not
-// to add load or interrupt a stream.
-const streamerUpdateCheckInterval = 1 * time.Minute
+// or the user confirms. Once an hour is frequent enough to pick up a
+// release the same day and rare enough not to add load or interrupt a stream.
+const streamerUpdateCheckInterval = 1 * time.Hour
 
 // entitlementRetryInterval is how soon entitlementWatchdog retries after a
 // FAILED recheck (network down, backend unreachable), instead of leaving
@@ -2011,8 +2009,8 @@ func (a *App) entitlementWatchdog(ctx context.Context) {
 
 // streamerUpdateWatchdog periodically checks whether a newer
 // USBridge-streamer build is published. Separate from entitlementWatchdog
-// so license re-verify stays at 6h while this cadence can be tightened for
-// testing (see streamerUpdateCheckInterval). Fires once immediately so a
+// so license re-verify stays at 6h while this stays at one hour
+// (see streamerUpdateCheckInterval). Fires once immediately so a
 // just-started agent doesn't wait a full interval to notice an already-
 // published release.
 func (a *App) streamerUpdateWatchdog(ctx context.Context) {
