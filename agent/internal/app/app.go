@@ -1084,7 +1084,28 @@ func (a *App) syncSunshineCaptureMode() {
 // asked to raise a capability it doesn't have, which would stop Sunshine
 // from starting at all instead of gracefully running without KMS.
 func (a *App) syncSunshineCapExec() {
+	a.syncSunshineCapExecFor(a.currentStreamKind())
+}
+
+// syncSunshineCapExecFor is syncSunshineCapExec's lock-free core, taking the
+// active backend kind as a parameter instead of resolving it itself via
+// currentStreamKind() -- SetStreamBackend already holds streamMu and already
+// knows kind when it calls this, and currentStreamKind() takes that same
+// (non-reentrant) lock, so calling it from inside SetStreamBackend deadlocks
+// that goroutine forever (confirmed live: every other caller of
+// currentStreamKind()/EntitlementStatus(), including the GUI's own hover
+// handler and the background update watchdog, then piles up waiting on
+// streamMu too -- this is the "Changing protocol"/"Check update" hang).
+func (a *App) syncSunshineCapExecFor(kind string) {
 	if a.stream == nil {
+		return
+	}
+	// RustShine never launches through the capexec indirection (see
+	// kmsCaptureTarget's doc comment for why it doesn't need to) -- its
+	// capability, if any, lives directly on its own binary, picked up
+	// automatically by a plain exec with no launcher wrapper involved.
+	if kind == "rustshine" {
+		a.stream.SetCapExecPath("")
 		return
 	}
 	capexecPath := a.SunshineCapExecPath()
@@ -1240,7 +1261,7 @@ func (a *App) SetStreamBackend(kind string) error {
 		a.screen.SetDevices(next)
 	}
 	a.syncSunshineCaptureMode()
-	a.syncSunshineCapExec()
+	a.syncSunshineCapExecFor(kind)
 	if pw, ok := next.(streamhost.ProcessWatcher); ok {
 		pw.SetOnExit(a.startSunshine)
 	}
@@ -2481,25 +2502,55 @@ func (a *App) waitForMonitorCorrelation() {
 	}
 }
 
-// KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
-// has the CAP_SYS_ADMIN capability needed for KMS capture.
+// kmsCaptureTarget returns the file that needs CAP_SYS_ADMIN for KMS
+// capture on the currently active backend.
+//
+// Sunshine needs the indirection through sunshine_capexec (see this
+// function's callers' own doc comments): setting the capability directly
+// on Sunshine itself would break its RPATH-based bundled-library
+// resolution. RustShine has no such constraint -- it's a single, mostly
+// self-contained binary -- so this targets usbridge-streamer itself
+// directly instead. Routing RustShine through the capexec indirection too
+// (as rustshineBackend's own capExecPathFor staging still assumes, from
+// when this was first wired up to mirror Sunshine's path unconditionally)
+// turned out to never actually get exercised in practice: confirmed live
+// that SetCapExecPath's effect never took across 74 consecutive real
+// RustShine launches in one session, all of which fell back to a plain
+// exec with no capability at all -- which only ever worked because
+// ordinary desktop-composited KMS capture apparently doesn't need
+// CAP_SYS_ADMIN on this kernel, and silently broke the moment the
+// captured content became a fullscreen game's direct-scanout buffer
+// instead (confirmed live: `setcap cap_sys_admin=eip` directly on
+// usbridge-streamer fixed that exact capture failure immediately, no
+// capexec involved at all).
+func (a *App) kmsCaptureTarget() string {
+	if a.currentStreamKind() == "rustshine" {
+		if a.stream != nil {
+			return a.stream.BinaryPath()
+		}
+		return ""
+	}
+	return a.SunshineCapExecPath()
+}
+
+// KMSCaptureGranted reports whether the file KMS capture actually needs
+// CAP_SYS_ADMIN on for the active backend (see kmsCaptureTarget) has it.
 func (a *App) KMSCaptureGranted() bool {
 	if a.perms == nil {
 		return false
 	}
-	return a.perms.KMSCaptureGranted(a.SunshineCapExecPath())
+	return a.perms.KMSCaptureGranted(a.kmsCaptureTarget())
 }
 
-// RequestKMSCapture grants CAP_SYS_ADMIN to the bundled sunshine_capexec
-// launcher (prompts for elevation via pkexec) — never to Sunshine itself,
-// which would break its bundled-library resolution, see
-// internal/permissions.RequestKMSCapture — then restarts Sunshine so the
+// RequestKMSCapture grants CAP_SYS_ADMIN to whichever file KMS capture
+// actually needs it on for the active backend (see kmsCaptureTarget) —
+// prompts for elevation via pkexec — then restarts the stream host so the
 // newly-granted capability is actually picked up.
 func (a *App) RequestKMSCapture() bool {
 	if a.perms == nil {
 		return false
 	}
-	granted := a.perms.RequestKMSCapture(a.SunshineCapExecPath())
+	granted := a.perms.RequestKMSCapture(a.kmsCaptureTarget())
 	if granted {
 		a.syncSunshineCapExec()
 		if err := a.RestartSunshine(); err != nil {
