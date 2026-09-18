@@ -392,17 +392,25 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	netGraphDrawText(img, marginX, row, netGraphFmtFPS("FPS", latest.RenderFPS), netGraphText)
 	netGraphDrawText(img, col2, row, netGraphFmtMs("DEC", latest.DecodeMs), decColor)
 
+	// Row is always reserved (like RTT above) even when invalid -- making
+	// it conditional on HostLatencyValid made graphTop/graphH below jump
+	// every time the host stopped/resumed providing this field, visibly
+	// resizing the graphs underneath from one frame to the next.
+	row += 12
+	hostColor := netGraphDim
+	hostText := "HOST -- "
 	if latest.HostLatencyValid {
-		row += 12
-		hostColor := netGraphGood
 		switch {
 		case latest.HostLatencyMs >= 20:
 			hostColor = netGraphBad
 		case latest.HostLatencyMs >= 10:
 			hostColor = netGraphWarn
+		default:
+			hostColor = netGraphGood
 		}
-		netGraphDrawText(img, marginX, row, netGraphFmtMs("HOST", latest.HostLatencyMs), hostColor)
+		hostText = netGraphFmtMs("HOST", latest.HostLatencyMs)
 	}
+	netGraphDrawText(img, marginX, row, hostText, hostColor)
 
 	graphTop := row + 6
 	graphH := (netGraphCanvasH - graphTop - marginX - 2*4) / 3

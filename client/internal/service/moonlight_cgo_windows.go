@@ -662,9 +662,14 @@ static unsigned int g_latency_log_ctr;
 // instead of in a shared dr_submit trampoline because Windows's do_li_start/
 // dr_submit setup is a fully separate, self-contained implementation (see
 // this file's own comments), not built on moonlight_cgo_shared.h. Read by
-// do_get_last_host_latency_tenths_ms below (net_graph_windows.go's
-// GetLastHostLatencyMs).
-static volatile uint16_t g_last_host_latency_tenths_ms = 0;
+// do_get_last_host_latency_tenths_ms (net_graph_windows.go's
+// GetLastHostLatencyMs, body in net_graph_stats_windows.c -- see that file's
+// header comment for why it isn't inline here). Defined (not just declared)
+// in net_graph_stats_windows.c instead of here: a non-static variable
+// *definition* in this preamble comment gets duplicated into the generated
+// _cgo_export.c the same way a non-static function body would (this file
+// has //export directives), causing "multiple definition" at link time.
+extern volatile uint16_t g_last_host_latency_tenths_ms;
 
 static int dr_submit(PDECODE_UNIT du) {
     g_last_host_latency_tenths_ms = du->frameHostProcessingLatency;
@@ -732,36 +737,16 @@ static int dr_submit(PDECODE_UNIT du) {
 // be #include-d here -- see this file's own comments on why Windows's
 // do_li_start is fully self-contained -- so these are duplicated verbatim
 // rather than shared). Called from net_graph_windows.go's Go wrappers.
-void do_get_rtp_video_stats(uint32_t *out) {
-    const RTP_VIDEO_STATS *stats = LiGetRTPVideoStats();
-    out[0] = stats->packetCountVideo;
-    out[1] = stats->packetCountFec;
-    out[2] = stats->packetCountFecRecovered;
-    out[3] = stats->packetCountFecFailed;
-    out[4] = stats->packetCountOOS;
-    out[5] = stats->packetCountInvalid;
-    out[6] = stats->packetCountFecInvalid;
-}
-
-int do_get_estimated_rtt_info(uint32_t *out) {
-    uint32_t rtt = 0, rttVariance = 0;
-    int ok = LiGetEstimatedRttInfo(&rtt, &rttVariance) ? 1 : 0;
-    out[0] = rtt;
-    out[1] = rttVariance;
-    return ok;
-}
-
-uint16_t do_get_last_host_latency_tenths_ms(void) {
-    return g_last_host_latency_tenths_ms;
-}
-
-uint64_t do_get_playout_jitter_us(void) {
-    return LiGetPlayoutJitterUs();
-}
-
-uint64_t do_get_playout_applied_delay_us(void) {
-    return LiGetPlayoutAppliedDelayUs();
-}
+// Bodies live in net_graph_stats_windows.c, not inline here -- see
+// vk_hwdev_bridge_windows.c's header comment: this file has //export
+// directives, so a non-static function *body* in this preamble comment
+// would get duplicated into the generated _cgo_export.c and fail to link
+// with "multiple definition".
+void do_get_rtp_video_stats(uint32_t *out);
+int do_get_estimated_rtt_info(uint32_t *out);
+uint16_t do_get_last_host_latency_tenths_ms(void);
+uint64_t do_get_playout_jitter_us(void);
+uint64_t do_get_playout_applied_delay_us(void);
 
 // ── LiStartConnection entrypoint ─────────────────────────────────────────────
 
