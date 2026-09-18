@@ -15,7 +15,7 @@ import (
 )
 
 // Net Graph is an optional live HUD overlay, off by default: a small
-// TF2 net_graph-style box in the bottom-left corner showing packet
+// TF2 net_graph-style box in the bottom-right corner showing packet
 // arrival/loss, RTT, FEC recovery, render fps, decode/render latency, and
 // host (capture+encode) latency -- none of which is otherwise visible to
 // the operator today even though moonlight-common-c already computes or
@@ -161,6 +161,17 @@ func NetGraphEnabled() bool {
 	return netGraphEnabled.Load()
 }
 
+// netGraphPushEveryNTicks throttles how often a freshly-built HUD image
+// actually reaches the screen, independent of netGraphInterval's sampling
+// rate: history keeps every 100ms sample (so a single dropped packet still
+// gets its own column, see netGraphHistoryLen), but redrawing+pushing an
+// image to the native compositor on every one of those ticks means an
+// extra main-thread dispatch 10x/sec -- real cost on a system that's
+// already struggling to keep its main thread responsive (this app's own
+// "AppKit/DisplayLink stalled" warnings show that's not hypothetical).
+// 1 push per 3 samples is still a smooth-looking ~3.3Hz HUD refresh.
+const netGraphPushEveryNTicks = 3
+
 // netGraphLoop runs for the lifetime of the process once started (first
 // SetNetGraphEnabled(true) call) -- cheaper to leave ticking in the
 // background than to tear down/restart per stream, and the disabled case
@@ -169,6 +180,7 @@ func NetGraphEnabled() bool {
 func netGraphLoop() {
 	ticker := time.NewTicker(netGraphInterval)
 	defer ticker.Stop()
+	tick := 0
 	for range ticker.C {
 		if !netGraphEnabled.Load() {
 			continue
@@ -183,6 +195,10 @@ func netGraphLoop() {
 		samples := append([]NetGraphSample(nil), netGraphSamples...)
 		netGraphMu.Unlock()
 
+		tick++
+		if tick%netGraphPushEveryNTicks != 0 {
+			continue
+		}
 		if push := netGraphMetalPush; push != nil {
 			push(buildNetGraphHUD(samples))
 		}

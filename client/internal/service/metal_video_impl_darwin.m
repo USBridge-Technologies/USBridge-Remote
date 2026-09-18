@@ -38,7 +38,7 @@ static CALayer *g_layer  = nil;
 static CALayer *g_overlay_layer = nil;
 
 // Net Graph HUD layer, stacked above g_overlay_layer -- a small FIXED-size
-// canvas anchored to the bottom-left corner of the view via its own frame
+// canvas anchored to the bottom-right corner of the view via its own frame
 // (set directly in metal_video_set_hud_overlay), deliberately NOT sharing
 // g_overlay_layer's full-video-frame sizing/gravity: AI Vision's overlay is
 // sized to match the video content exactly so a box lands on the right
@@ -49,12 +49,24 @@ static CALayer *g_overlay_layer = nil;
 // comment on cost.
 static CALayer *g_hud_layer = nil;
 
-// HUD_MARGIN: device points between the HUD box and the bottom/left edges of
-// the view. (0,0) in this layer's (unflipped, AppKit-default) coordinate
-// space is already the bottom-left corner, so anchoring there is just
-// "frame.origin = (HUD_MARGIN, HUD_MARGIN)" -- no flip/height math needed,
-// unlike fyne_to_nsrect's top-left-origin conversion for the video view
-// itself.
+// Set while a metal_video_set_hud_overlay dispatch is in flight (queued or
+// running on the main queue) -- a new push arriving before the previous one
+// has actually run is dropped rather than queued, so a stalled/backed-up
+// main thread (this app already logs "AppKit/DisplayLink stalled" warnings
+// under load, independent of Net Graph) can't accumulate an ever-growing
+// backlog of HUD-image dispatch_async blocks that would themselves further
+// delay a later dispatch_sync (e.g. metal_video_destroy having to drain the
+// same queue first before it can run). net_graph.go's HUD data collection
+// still runs at its own full rate; only how often a fresh image actually
+// reaches the screen is capped by this.
+static atomic_int g_hud_push_pending = 0;
+
+// HUD_MARGIN: device points between the HUD box and the bottom/right edges
+// of the view. (0,0) in this layer's (unflipped, AppKit-default) coordinate
+// space is already the bottom-left corner, so the Y side needs no flip
+// math -- only the X side has to subtract the HUD's own width from the
+// container's width to anchor it to the right instead, done in
+// metal_video_set_hud_overlay itself (it needs the image width anyway).
 #define HUD_MARGIN 12.0
 
 static volatile atomic_int g_active           = 0;
@@ -385,18 +397,32 @@ void metal_video_clear_overlay(void) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Net Graph HUD overlay — its own small CALayer (see g_hud_layer's doc
-// comment), anchored bottom-left via a fixed frame set on every push
+// comment), anchored bottom-right via a fixed frame set on every push
 // (cheap: w/h rarely change once the HUD is built once in Go). Structured
-// identically to metal_video_set_overlay otherwise -- see net_graph.go's
-// buildNetGraphHUD for what actually gets uploaded here.
+// like metal_video_set_overlay, plus a busy-guard (g_hud_push_pending) that
+// drops a push outright instead of queuing it behind a main thread that's
+// currently stalled -- see that var's own doc comment for why unbounded
+// queuing there is a real problem, not just a theoretical one. See
+// net_graph.go's buildNetGraphHUD for what actually gets uploaded here.
 // ─────────────────────────────────────────────────────────────────────────────
 
 void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) {
     if (!atomic_load(&g_active) || !rgba || w <= 0 || h <= 0 || stride <= 0) return;
 
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_hud_push_pending, &expected, 1)) {
+        return; // a previous push is still queued/running -- drop this one rather than pile up
+    }
+
     NSData *data = [NSData dataWithBytes:rgba length:(size_t)stride * (size_t)h];
 
     dispatch_block_t blk = ^{
+        // Released as soon as we actually start running (not at the end):
+        // once the queue is draining again, the next push is allowed
+        // through immediately rather than waiting for this one's CATransaction
+        // to fully commit.
+        atomic_store(&g_hud_push_pending, 0);
+
         if (!g_hud_layer) return;
         CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
         CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)data);
@@ -407,9 +433,17 @@ void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) 
         CGColorSpaceRelease(cs);
         if (!img) return;
 
+        // Bottom-right anchor: (0,0) is already the bottom-left corner in
+        // this unflipped coordinate space (see HUD_MARGIN's doc comment),
+        // so only X needs adjusting -- push the box's right edge in from
+        // the container's own right edge by HUD_MARGIN.
+        CGFloat containerW = g_hud_layer.superlayer ? g_hud_layer.superlayer.bounds.size.width : (CGFloat)w;
+        CGFloat x = containerW - HUD_MARGIN - (CGFloat)w;
+        if (x < HUD_MARGIN) x = HUD_MARGIN; // clamp: a window narrower than the HUD pins it left instead of going negative
+
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
-        g_hud_layer.frame = CGRectMake(HUD_MARGIN, HUD_MARGIN, (CGFloat)w, (CGFloat)h);
+        g_hud_layer.frame = CGRectMake(x, HUD_MARGIN, (CGFloat)w, (CGFloat)h);
         g_hud_layer.contents = (__bridge id)img;
         [CATransaction commit];
         CGImageRelease(img);
@@ -551,6 +585,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
         g_decodeMsSum = 0.0; g_decodeSamples = 0; g_lastKnownDecodeMs = 0.0;
         g_pendingBufSubmitTime = 0.0;
+        atomic_store(&g_hud_push_pending, 0);
         g_lastW = 0;       g_lastH = 0;
         atomic_store(&g_submit_call_count, 0); // re-arm the one-shot try_submit diagnostic for this session
         pthread_mutex_lock(&g_mu);
@@ -728,6 +763,7 @@ void metal_video_destroy(void) {
             g_overlay_layer = nil;
             g_hud_layer = nil;
         }
+        atomic_store(&g_hud_push_pending, 0);
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;

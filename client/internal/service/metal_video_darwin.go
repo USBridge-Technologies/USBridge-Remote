@@ -204,7 +204,7 @@ func MetalVideoClearOverlay() {
 
 // MetalVideoSetHudOverlay uploads the Net Graph HUD canvas (a small, mostly-
 // opaque RGBA image, see net_graph.go's buildNetGraphHUD) onto the native
-// compositor's dedicated HUD layer, anchored bottom-left independent of the
+// compositor's dedicated HUD layer, anchored bottom-right independent of the
 // video content's own size/scaling -- see MetalVideoSetOverlay's doc
 // comment for why this needs its own layer rather than reusing that one.
 func MetalVideoSetHudOverlay(rgba []byte, w, h, stride int) {
