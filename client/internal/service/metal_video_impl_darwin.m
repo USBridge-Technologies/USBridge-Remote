@@ -37,6 +37,26 @@ static CALayer *g_layer  = nil;
 // the image only changes once per completed detection pass.
 static CALayer *g_overlay_layer = nil;
 
+// Net Graph HUD layer, stacked above g_overlay_layer -- a small FIXED-size
+// canvas anchored to the bottom-left corner of the view via its own frame
+// (set directly in metal_video_set_hud_overlay), deliberately NOT sharing
+// g_overlay_layer's full-video-frame sizing/gravity: AI Vision's overlay is
+// sized to match the video content exactly so a box lands on the right
+// pixel, but a net_graph HUD is a fixed small box independent of the video's
+// resolution/aspect/scaling. Kept as its own layer rather than reusing
+// g_overlay_layer so pushing it at 10-20Hz never means re-uploading a
+// full-frame-sized (megabyte-class) image -- see net_graph.go's own doc
+// comment on cost.
+static CALayer *g_hud_layer = nil;
+
+// HUD_MARGIN: device points between the HUD box and the bottom/left edges of
+// the view. (0,0) in this layer's (unflipped, AppKit-default) coordinate
+// space is already the bottom-left corner, so anchoring there is just
+// "frame.origin = (HUD_MARGIN, HUD_MARGIN)" -- no flip/height math needed,
+// unlike fyne_to_nsrect's top-left-origin conversion for the video view
+// itself.
+#define HUD_MARGIN 12.0
+
 static volatile atomic_int g_active           = 0;
 
 // Display link — drives rendering at the display refresh rate, decoupled from VT decode timing.
@@ -46,12 +66,28 @@ static CADisplayLink *g_display_link = nil;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static CVPixelBufferRef g_pendingBuf = NULL;
+// Timestamp (mono_sec) of the metal_video_try_submit call that produced
+// g_pendingBuf, captured under the same g_mu as the buffer itself. Read back
+// out when the display link drains g_pendingBuf so metal_render_main_with_buf
+// can report "how long did this frame sit between decode-submit and actual
+// display" -- a stand-in for true per-frame decode latency (see
+// metal_video_last_decode_ms's doc comment) that needs no extra plumbing
+// through the VT decode callback.
+static double g_pendingBufSubmitTime = 0.0;
 
 static int64_t g_submitCount = 0;
 static int64_t g_renderCount = 0;
 static int64_t g_fpsFrames      = 0;
 static double  g_fpsStart       = 0.0;
 static double  g_lastKnownFps   = 0.0; // last computed value, returned during reset gap
+
+// Decode/render-latency rolling window -- same shape as the fps window
+// above (accumulate, snapshot+reset every 2s, cache last value during the
+// reset gap), just averaging submit-to-display latency (ms) instead of a
+// frame count. Fed by metal_render_main_with_buf's latencyMs argument.
+static double  g_decodeMsSum    = 0.0;
+static int64_t g_decodeSamples  = 0;
+static double  g_lastKnownDecodeMs = 0.0;
 static int     g_lastW = 0, g_lastH = 0;
 static int     g_fullWindow  = 0; // 1 when overlay covers the full contentView (fullscreen mode)
 
@@ -79,7 +115,7 @@ static double mono_sec(void) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Render — called on main thread; OWNS buf and always releases it.
 // ─────────────────────────────────────────────────────────────────────────────
-static void metal_render_main_with_buf(CVPixelBufferRef buf) {
+static void metal_render_main_with_buf(CVPixelBufferRef buf, double latencyMs) {
     if (!atomic_load(&g_active) || !g_layer) {
         CVPixelBufferRelease(buf);
         return;
@@ -121,6 +157,10 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
 
     g_lastW = w; g_lastH = h;
     g_fpsFrames++;
+    if (latencyMs >= 0.0) {
+        g_decodeMsSum += latencyMs;
+        g_decodeSamples++;
+    }
     double now     = mono_sec();
     double elapsed = now - g_fpsStart;
     // Early snapshot after 30 frames to catch FPS issues quickly.
@@ -134,15 +174,20 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
     }
     if (elapsed >= 2.0 && g_fpsFrames > 0) {
         g_lastKnownFps = (double)g_fpsFrames / elapsed;
+        if (g_decodeSamples > 0) {
+            g_lastKnownDecodeMs = g_decodeMsSum / (double)g_decodeSamples;
+        }
         char msg[192];
         snprintf(msg, sizeof(msg),
-                 "fps=%.1f  rendered=%lld  submitted=%lld  size=%dx%d",
+                 "fps=%.1f  rendered=%lld  submitted=%lld  size=%dx%d  decodeMs=%.1f",
                  g_lastKnownFps,
                  (long long)g_renderCount, (long long)g_submitCount,
-                 g_lastW, g_lastH);
+                 g_lastW, g_lastH, g_lastKnownDecodeMs);
         goMetalLog(msg, 0);
-        g_fpsStart  = now;
-        g_fpsFrames = 0;
+        g_fpsStart      = now;
+        g_fpsFrames     = 0;
+        g_decodeMsSum   = 0.0;
+        g_decodeSamples = 0;
     }
 }
 
@@ -203,11 +248,13 @@ static double g_dl_diag_start = 0.0;
 
     pthread_mutex_lock(&g_mu);
     CVPixelBufferRef buf = g_pendingBuf;
+    double submitTime = g_pendingBufSubmitTime;
     g_pendingBuf = NULL;
     pthread_mutex_unlock(&g_mu);
     if (!buf) return;
     g_dl_hit_count++;
-    metal_render_main_with_buf(buf); // already on main thread
+    double latencyMs = submitTime > 0.0 ? (mono_sec() - submitTime) * 1000.0 : -1.0;
+    metal_render_main_with_buf(buf, latencyMs); // already on main thread
 }
 @end
 static MetalDisplayLinkTarget *g_dl_target = nil;
@@ -232,6 +279,19 @@ double metal_video_last_fps(void) {
         return g_lastKnownFps;
     }
     return (double)g_fpsFrames / elapsed;
+}
+
+// Returns the rolling-average submit-to-display latency (ms) from the
+// current measurement window (same window as metal_video_last_fps, see
+// g_decodeMsSum's doc comment) -- a stand-in for true per-frame decode
+// latency, cheap to compute since it needs no extra plumbing through the VT
+// decode callback. Falls back to the last known value during the brief
+// reset gap, same as metal_video_last_fps. 0 if no sample has ever landed
+// (e.g. overlay inactive, or every submit happened before any pendingBuf
+// timestamp was set).
+double metal_video_last_decode_ms(void) {
+    if (!atomic_load(&g_active)) return 0.0;
+    return g_lastKnownDecodeMs;
 }
 
 // One-shot diagnostic for the HDR black-screen investigation (2026-09-14):
@@ -271,6 +331,7 @@ int metal_video_try_submit(CVImageBufferRef img) {
     pthread_mutex_lock(&g_mu);
     CVPixelBufferRef old = g_pendingBuf;
     g_pendingBuf = (CVPixelBufferRef)img;
+    g_pendingBufSubmitTime = mono_sec();
     g_submitCount++;
     pthread_mutex_unlock(&g_mu);
 
@@ -318,6 +379,47 @@ void metal_video_set_overlay(const uint8_t *rgba, int w, int h, int stride) {
 void metal_video_clear_overlay(void) {
     dispatch_block_t blk = ^{
         if (g_overlay_layer) g_overlay_layer.contents = nil;
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Net Graph HUD overlay — its own small CALayer (see g_hud_layer's doc
+// comment), anchored bottom-left via a fixed frame set on every push
+// (cheap: w/h rarely change once the HUD is built once in Go). Structured
+// identically to metal_video_set_overlay otherwise -- see net_graph.go's
+// buildNetGraphHUD for what actually gets uploaded here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) {
+    if (!atomic_load(&g_active) || !rgba || w <= 0 || h <= 0 || stride <= 0) return;
+
+    NSData *data = [NSData dataWithBytes:rgba length:(size_t)stride * (size_t)h];
+
+    dispatch_block_t blk = ^{
+        if (!g_hud_layer) return;
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)data);
+        CGImageRef img = CGImageCreate((size_t)w, (size_t)h, 8, 32, (size_t)stride, cs,
+            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault,
+            provider, NULL, false, kCGRenderingIntentDefault);
+        CGDataProviderRelease(provider);
+        CGColorSpaceRelease(cs);
+        if (!img) return;
+
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        g_hud_layer.frame = CGRectMake(HUD_MARGIN, HUD_MARGIN, (CGFloat)w, (CGFloat)h);
+        g_hud_layer.contents = (__bridge id)img;
+        [CATransaction commit];
+        CGImageRelease(img);
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
+void metal_video_clear_hud_overlay(void) {
+    dispatch_block_t blk = ^{
+        if (g_hud_layer) g_hud_layer.contents = nil;
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
@@ -397,6 +499,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
             g_view  = nil;
             g_layer = nil;
             g_overlay_layer = nil;
+            g_hud_layer = nil;
         }
 
         g_fullWindow = (w <= 0 || h <= 0);
@@ -429,14 +532,25 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         ol.contentsScale   = NSScreen.mainScreen.backingScaleFactor;
         [ov.layer addSublayer:ol]; // above vl -> boxes render on top of video
 
+        CALayer *hl = [CALayer layer];
+        hl.contentsScale = NSScreen.mainScreen.backingScaleFactor;
+        // No frame yet -- metal_video_set_hud_overlay sets it (bottom-left
+        // anchored, HUD_MARGIN) the first time net_graph.go pushes an image;
+        // no autoresizingMask either, since this is a fixed-size box, unlike
+        // vl/ol which track the whole view.
+        [ov.layer addSublayer:hl]; // above ol -> HUD renders on top of everything
+
         [cv addSubview:ov];
 
         g_view  = ov;
         g_layer = vl;
         g_overlay_layer = ol;
+        g_hud_layer = hl;
 
         g_submitCount = 0; g_renderCount = 0;
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
+        g_decodeMsSum = 0.0; g_decodeSamples = 0; g_lastKnownDecodeMs = 0.0;
+        g_pendingBufSubmitTime = 0.0;
         g_lastW = 0;       g_lastH = 0;
         atomic_store(&g_submit_call_count, 0); // re-arm the one-shot try_submit diagnostic for this session
         pthread_mutex_lock(&g_mu);
@@ -612,10 +726,12 @@ void metal_video_destroy(void) {
             g_view  = nil;
             g_layer = nil;
             g_overlay_layer = nil;
+            g_hud_layer = nil;
         }
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;
+        g_pendingBufSubmitTime = 0.0;
         pthread_mutex_unlock(&g_mu);
         if (old) CVPixelBufferRelease(old);
 

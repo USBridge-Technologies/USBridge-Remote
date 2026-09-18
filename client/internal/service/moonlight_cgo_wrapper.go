@@ -33,6 +33,8 @@ extern void do_send_pen(unsigned char eventType, unsigned char toolType, unsigne
                         float x, float y, float pressureOrDistance,
                         unsigned short rotation, unsigned char tilt);
 extern void do_get_rtp_video_stats(uint32_t *out);
+extern int do_get_estimated_rtt_info(uint32_t *out);
+extern uint16_t do_get_last_host_latency_tenths_ms(void);
 */
 import "C"
 
@@ -81,6 +83,60 @@ func GetRTPVideoStats() RTPVideoStats {
 		PacketCountOOS:          uint32(raw[4]),
 		PacketCountInvalid:      uint32(raw[5]),
 		PacketCountFecInvalid:   uint32(raw[6]),
+	}
+}
+
+// GetEstimatedRttInfo reads moonlight-common-c's smoothed RTT estimate
+// (LiGetEstimatedRttInfo). ok is false when there's no active session or no
+// estimate yet -- both fields are then meaningless, not just zero.
+func GetEstimatedRttInfo() (rttMs, rttVarianceMs float64, ok bool) {
+	var raw [2]C.uint32_t
+	got := C.do_get_estimated_rtt_info(&raw[0])
+	if got == 0 {
+		return 0, 0, false
+	}
+	return float64(raw[0]), float64(raw[1]), true
+}
+
+// GetLastHostLatencyMs reads the most recent frame's host processing
+// latency, as reported by the server in its standard Sunshine-protocol
+// frame header (DECODE_UNIT.frameHostProcessingLatency -- see
+// moonlight_cgo_shared.h's dr_submit/do_get_last_host_latency_tenths_ms).
+// valid is false when the most recent frame reported exactly 0, which
+// Limelight.h documents as meaning "the host doesn't provide the latency
+// data" -- not a real zero-latency measurement.
+func GetLastHostLatencyMs() (ms float64, valid bool) {
+	tenths := uint16(C.do_get_last_host_latency_tenths_ms())
+	if tenths == 0 {
+		return 0, false
+	}
+	return float64(tenths) / 10.0, true
+}
+
+// init wires net_graph.go's platform-agnostic network-stats hook to the
+// getters above -- same "core stays tag-free, platform files wire the
+// hooks" split as metal_video_darwin.go's own init() for the render/decode/
+// push hooks. This file's build tag (darwin/ios/linux, not windows/android)
+// means net_graph.go simply reads zero-value stats on the platforms that
+// don't have this wired yet (see net_graph.go's package doc comment).
+func init() {
+	netGraphNetworkStatsFn = func() netGraphRawNetworkStats {
+		rtp := GetRTPVideoStats()
+		rttMs, rttVarianceMs, rttOk := GetEstimatedRttInfo()
+		hostLatencyMs, hostLatencyOk := GetLastHostLatencyMs()
+		return netGraphRawNetworkStats{
+			PacketCountVideo:        rtp.PacketCountVideo,
+			PacketCountFec:          rtp.PacketCountFec,
+			PacketCountFecRecovered: rtp.PacketCountFecRecovered,
+			PacketCountFecFailed:    rtp.PacketCountFecFailed,
+			PacketCountOOS:          rtp.PacketCountOOS,
+			PacketCountInvalid:      rtp.PacketCountInvalid,
+			RTTMs:                   rttMs,
+			RTTVarianceMs:           rttVarianceMs,
+			RTTValid:                rttOk,
+			HostLatencyMs:           hostLatencyMs,
+			HostLatencyValid:        hostLatencyOk,
+		}
 	}
 }
 

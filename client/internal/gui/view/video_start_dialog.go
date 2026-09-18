@@ -74,6 +74,13 @@ type VideoStartDialog struct {
 	hdrHint      *videoDialogWrapText
 	hdrTitleText *canvas.Text
 	hdrAvailable bool
+	// netGraphCheck/netGraphHint: the TF2 net_graph-style live HUD
+	// (client/internal/service/net_graph.go) -- same "immediate effect, no
+	// restart" contract as aiVisionCheck (pure local rendering, touches
+	// nothing on the device), only ever built/shown when
+	// service.NetGraphSupported() is true (macOS today).
+	netGraphCheck *videoDialogCheckbox
+	netGraphHint  *videoDialogWrapText
 
 	startBtn  *videoDialogPillButton
 	cancelBtn *videoDialogPillButton
@@ -1560,14 +1567,37 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.hdrHint,
 	)
 
-	// vsyncRow/color444Row/hdrRow are plain rows with no left padding of
-	// their own, unlike aiVisionRow's own card (see
+	// Net Graph: off by default, takes effect immediately (like AI Vision)
+	// since it's a pure local-rendering HUD -- see
+	// service.SetNetGraphEnabled's doc comment. Only built/shown on
+	// platforms with a working push path (macOS today); on the rest the
+	// row simply doesn't exist, rather than a checkbox that silently does
+	// nothing.
+	var netGraphRow fyne.CanvasObject
+	if service.NetGraphSupported() {
+		vsd.netGraphCheck = newVideoDialogCheckbox(service.NetGraphEnabled(), func(checked bool) {
+			service.SetNetGraphEnabled(checked)
+		})
+		vsd.netGraphHint = newVideoDialogDescription(i18n.Current.NetGraphHint, videoDialogToggleDescWidthFor(hintPanelW, false))
+		netGraphRow = newVideoDialogToggleRow(
+			vsd.netGraphCheck,
+			newVideoDialogRowTitle(i18n.Current.NetGraph),
+			newVideoDialogBadge(i18n.Current.NetGraphBadge, design.ColorConnectionBadgeText),
+			vsd.netGraphHint,
+		)
+	}
+
+	// vsyncRow/color444Row/hdrRow/netGraphRow are plain rows with no left
+	// padding of their own, unlike aiVisionRow's own card (see
 	// newVideoDialogBoxedToggleRow) -- without this, its own left inset
-	// would push just its checkbox further right than these three,
-	// breaking the visual column of checkboxes down the whole section.
+	// would push just its checkbox further right than these, breaking the
+	// visual column of checkboxes down the whole section.
 	vsyncRow = NewInsetExact(vsyncRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	color444Row = NewInsetExact(color444Row, videoDialogToggleAlignLeft, 0, 0, 0)
 	hdrRow = NewInsetExact(hdrRow, videoDialogToggleAlignLeft, 0, 0, 0)
+	if netGraphRow != nil {
+		netGraphRow = NewInsetExact(netGraphRow, videoDialogToggleAlignLeft, 0, 0, 0)
+	}
 
 	vsd.startBtn = newVideoDialogApplyButton(i18n.Current.StartVideo, vsd.handleStart)
 	vsd.cancelBtn = newVideoDialogCancelButton(i18n.Current.Cancel, vsd.handleCancel)
@@ -1675,7 +1705,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	codecCardBorder.StrokeWidth = 1
 	codecCard := container.NewStack(codecCardBG, codecCardBorder, NewInsetExact(vsd.modeButtonsRow, 4, 4, 4, 4))
 
-	bodyContent := container.NewVBox(
+	bodyChildren := []fyne.CanvasObject{
 		newVideoDialogFieldLabel(i18n.Current.VideoCodec),
 		codecCard,
 		container.NewCenter(vsd.modeDescription),
@@ -1686,8 +1716,12 @@ func (vsd *VideoStartDialog) createInterface() {
 		aiVisionRow,
 		color444Row,
 		hdrRow,
-		videoDialogVSpace(8), // breathing room after 4:4:4 Color
-	)
+	}
+	if netGraphRow != nil {
+		bodyChildren = append(bodyChildren, netGraphRow)
+	}
+	bodyChildren = append(bodyChildren, videoDialogVSpace(8)) // breathing room after 4:4:4 Color / Net Graph
+	bodyContent := container.NewVBox(bodyChildren...)
 
 	// Cancel sits opposite Apply/extra, same as the Add Connection footer --
 	// DeviceRowControlsLayout skips extraBtn entirely while it's hidden, so
@@ -1918,6 +1952,9 @@ func (vsd *VideoStartDialog) syncHintWrapWidths() {
 	if vsd.color444Hint != nil {
 		vsd.color444Hint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
 	}
+	if vsd.netGraphHint != nil {
+		vsd.netGraphHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+	}
 }
 
 func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest)) {
@@ -1925,6 +1962,9 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
 	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
+	if vsd.netGraphCheck != nil {
+		vsd.netGraphCheck.SetChecked(service.NetGraphEnabled())
+	}
 	vsd.syncHintWrapWidths()
 	if vsd.dialog != nil && vsd.parent != nil {
 		vsd.dialog.Move(fyne.NewPos(0, 0))

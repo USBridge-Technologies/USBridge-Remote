@@ -23,6 +23,10 @@ extern void metal_video_set_hdr(int enabled);
 extern void metal_video_set_overlay(const uint8_t *rgba, int w, int h, int stride);
 extern void metal_video_clear_overlay(void);
 
+extern void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride);
+extern void metal_video_clear_hud_overlay(void);
+extern double metal_video_last_decode_ms(void);
+
 // Forward declaration matching the CGO-generated export signature (char*, not const char*).
 extern void goMetalLog(char *msg, int level);
 */
@@ -47,6 +51,30 @@ import (
 func init() {
 	aiVisionMetalPush = pushAIVisionOverlayToMetal
 	aiVisionMetalClear = MetalVideoClearOverlay
+
+	// Net Graph HUD (net_graph.go): same "platform-agnostic core, thin
+	// platform push hook" split as AI Vision above -- net_graph.go builds
+	// the HUD image itself with no cgo dependency, and only these four
+	// hooks touch the Metal-specific side (a dedicated small HUD layer, see
+	// metal_video_impl_darwin.m's g_hud_layer, not the full-frame-sized
+	// g_overlay_layer AI Vision uses).
+	netGraphMetalPush = pushNetGraphOverlayToMetal
+	netGraphMetalClear = MetalVideoClearHudOverlay
+	netGraphRenderFPS = MetalVideoLastFPS
+	netGraphDecodeMs = MetalVideoLastDecodeMs
+}
+
+// pushNetGraphOverlayToMetal hands a just-built HUD canvas (see
+// net_graph.go's buildNetGraphHUD) to the native compositor's dedicated HUD
+// layer. Unlike pushAIVisionOverlayToMetal's full-frame-sized image, img
+// here is always the small fixed HUD canvas -- cheap to upload even at
+// net_graph.go's 10Hz cadence (see metal_video_impl_darwin.m's
+// metal_video_set_hud_overlay doc comment).
+func pushNetGraphOverlayToMetal(img *image.RGBA) {
+	if !MetalVideoIsActive() {
+		return
+	}
+	MetalVideoSetHudOverlay(img.Pix, img.Rect.Dx(), img.Rect.Dy(), img.Stride)
 }
 
 // pushAIVisionOverlayToMetal renders a just-completed AI Vision detection
@@ -172,6 +200,32 @@ func MetalVideoSetOverlay(rgba []byte, w, h, stride int) {
 // video layer underneath.
 func MetalVideoClearOverlay() {
 	C.metal_video_clear_overlay()
+}
+
+// MetalVideoSetHudOverlay uploads the Net Graph HUD canvas (a small, mostly-
+// opaque RGBA image, see net_graph.go's buildNetGraphHUD) onto the native
+// compositor's dedicated HUD layer, anchored bottom-left independent of the
+// video content's own size/scaling -- see MetalVideoSetOverlay's doc
+// comment for why this needs its own layer rather than reusing that one.
+func MetalVideoSetHudOverlay(rgba []byte, w, h, stride int) {
+	if len(rgba) == 0 || w <= 0 || h <= 0 || stride <= 0 {
+		return
+	}
+	C.metal_video_set_hud_overlay((*C.uint8_t)(unsafe.Pointer(&rgba[0])), C.int(w), C.int(h), C.int(stride))
+}
+
+// MetalVideoClearHudOverlay removes the Net Graph HUD image (checkbox
+// turned off) without touching the video or AI Vision layers.
+func MetalVideoClearHudOverlay() {
+	C.metal_video_clear_hud_overlay()
+}
+
+// MetalVideoLastDecodeMs returns the rolling-average submit-to-display
+// latency (ms) from the current ~2s measurement window -- see
+// metal_video_impl_darwin.m's metal_video_last_decode_ms doc comment. 0 if
+// the overlay is inactive or no sample has landed yet.
+func MetalVideoLastDecodeMs() float64 {
+	return float64(C.metal_video_last_decode_ms())
 }
 
 // MetalVideoSetHidden hides or shows the Metal overlay NSView without destroying it.

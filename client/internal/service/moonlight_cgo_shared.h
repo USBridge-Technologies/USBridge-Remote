@@ -39,6 +39,17 @@ static volatile uint64_t g_ar_plc_count   = 0; // Opus PLC frames (network packe
 static volatile uint64_t g_ar_err_count   = 0; // opus_multistream_decode errors
 static volatile uint64_t g_ar_muted_count = 0; // frames silenced because muted
 
+// Most recently received DECODE_UNIT.frameHostProcessingLatency (1/10 ms
+// units, 0 = host doesn't provide it -- see Limelight.h's own doc comment
+// on that field). Captured once here in the shared dr_submit trampoline
+// rather than duplicated in every platform's own platform_dr_submit, so
+// net_graph.go's "how fast is the host capturing+encoding" number works
+// identically on every platform once the host (rust-shine) actually fills
+// this in -- it's a standard Sunshine-protocol field, not something we
+// invented, and stock Sunshine/Apollo builds that populate it get the same
+// treatment for free.
+static volatile uint16_t g_last_host_latency_tenths_ms = 0;
+
 // These functions are called from moonlight_cgo_wrapper.go's TU via extern declarations.
 // They must have external (non-static) linkage so the linker can resolve them
 // from the platform CGO file's object. Build tags ensure only one platform file
@@ -149,7 +160,10 @@ static void dr_start(void)   {}
 static void dr_stop(void)    {}
 static void dr_cleanup(void) {}
 
-static int dr_submit(PDECODE_UNIT du) { return platform_dr_submit(du); }
+static int dr_submit(PDECODE_UNIT du) {
+    g_last_host_latency_tenths_ms = du->frameHostProcessingLatency;
+    return platform_dr_submit(du);
+}
 
 // ── LiStartConnection entrypoint ──────────────────────────────────────────────
 //
@@ -301,6 +315,28 @@ void do_get_rtp_video_stats(uint32_t *out) {
     out[4] = stats->packetCountOOS;
     out[5] = stats->packetCountInvalid;
     out[6] = stats->packetCountFecInvalid;
+}
+
+// do_get_estimated_rtt_info copies LiGetEstimatedRttInfo()'s two uint32
+// outputs into `out` (estimatedRtt, estimatedRttVariance, both ms) and
+// returns 1 if moonlight-common-c had a real RTT estimate to report, 0
+// otherwise (e.g. no active session yet) -- mirrors do_get_rtp_video_stats's
+// no-cgo-binding-per-field approach.
+int do_get_estimated_rtt_info(uint32_t *out) {
+    uint32_t rtt = 0, rttVariance = 0;
+    int ok = LiGetEstimatedRttInfo(&rtt, &rttVariance) ? 1 : 0;
+    out[0] = rtt;
+    out[1] = rttVariance;
+    return ok;
+}
+
+// do_get_last_host_latency_tenths_ms returns the most recent frame's
+// DECODE_UNIT.frameHostProcessingLatency (see g_last_host_latency_tenths_ms's
+// doc comment) -- 0 means the host hasn't provided this for the current/most
+// recent frame (either an older/non-Sunshine-protocol host, or the host
+// simply not filling it in).
+uint16_t do_get_last_host_latency_tenths_ms(void) {
+    return g_last_host_latency_tenths_ms;
 }
 
 void do_li_stop(void) {

@@ -501,6 +501,9 @@ type LocalizedStrings struct {
 	HdrUnavailableHint                   string // hint under the (disabled, unchecked) checkbox when H.265 is selected but the agent doesn't currently offer HDR
 	HdrRequiresH265Hint                  string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
 	HdrBadge                             string // badge next to the HDR title, mirrors Color444Badge
+	NetGraph                             string // "Net Graph" checkbox title, video parameters dialog -- live network/render HUD, pure local overlay like AI Vision
+	NetGraphHint                         string // hint shown under the Net Graph checkbox
+	NetGraphBadge                        string // small badge next to the Net Graph title, e.g. "MAC"
 	MuteAudio                            string // "Mute Audio"
 	UnmuteAudio                          string // "Unmute Audio"
 	DeviceAudio                          string // "Audio"
@@ -1056,6 +1059,9 @@ func EN() *LocalizedStrings {
 		HdrUnavailableHint:                   "Requires RustShine Pro and a Mac with HEVC Main10 hardware encode (Apple Silicon).",
 		HdrRequiresH265Hint:                  "Only available with the H.265 codec -- select it above to use HDR.",
 		HdrBadge:                             "Pro",
+		NetGraph:                             "Net Graph",
+		NetGraphHint:                         "Shows a live TF2-style HUD in the corner of the video: latency, packet loss, FEC recovery, and render/decode timing.",
+		NetGraphBadge:                        "Mac",
 		MuteAudio:                            "Mute Audio",
 		UnmuteAudio:                          "Unmute Audio",
 		DeviceAudio:                          "Audio",
