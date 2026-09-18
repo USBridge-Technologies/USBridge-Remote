@@ -424,6 +424,10 @@ static VkSemaphore              g_rnd_sem      = VK_NULL_HANDLE;
 static volatile atomic_int g_active;
 // Set to 1 by vk_video_set_hidden to hide overlay (e.g. while a Fyne menu is open).
 static volatile atomic_int g_hidden;
+// Set from vk_video_create/vk_video_create_standalone's vsync argument, read by
+// vk_create_swapchain (including on vk_recreate_swapchain resize/out-of-date
+// recreation, hence atomic rather than a plain int passed as a parameter).
+static volatile atomic_int g_vsync = 1;
 
 // Pending frame — single-slot queue, protected by g_cs.
 static uint8_t          *g_buf      = NULL;
@@ -566,24 +570,45 @@ static int vk_create_swapchain(int w, int h) {
     }
     free(fmts);
 
-    // Present mode preference: IMMEDIATE → MAILBOX → FIFO_RELAXED → FIFO.
-    // With a WS_POPUP overlay (independent DWM window), IMMEDIATE is safe and preferred:
+    // Present mode preference depends on g_vsync (see vk_video_create's vsync arg):
+    //   vsync off  -> IMMEDIATE → MAILBOX → FIFO_RELAXED → FIFO
+    //   vsync on   -> MAILBOX → FIFO_RELAXED → FIFO → IMMEDIATE
+    // With a WS_POPUP overlay (independent DWM window), IMMEDIATE is non-blocking:
     // vkQueuePresentKHR returns without waiting for DWM vsync, so it cannot block
-    // or deadlock against Fyne's wglSwapBuffers on the parent window.
-    // FIFO / FIFO_RELAXED both involve DWM vsync messaging which can stall the parent
-    // window's message pump even when the overlay window is a separate WS_POPUP.
+    // or deadlock against Fyne's wglSwapBuffers on the parent window -- but it tears
+    // in fast motion, since each decoded frame flips mid-scanout instead of at vblank.
+    // MAILBOX gives the same non-blocking guarantee (the presentation engine just
+    // swaps the queued image instead of stalling the submitter) while only ever
+    // flipping at vblank, so it's preferred over IMMEDIATE when the caller wants
+    // tear-free output. FIFO / FIFO_RELAXED, unlike MAILBOX, both involve DWM vsync
+    // messaging that can stall the parent window's message pump even behind a
+    // separate WS_POPUP, so they stay behind MAILBOX in both orders, only used if
+    // the driver doesn't expose MAILBOX at all.
+    int want_vsync = atomic_load(&g_vsync);
     uint32_t npm = 0;
     vkGetPhysicalDeviceSurfacePresentModesKHR(g_pdev, g_surf, &npm, NULL);
     VkPresentModeKHR *pms = (VkPresentModeKHR*)malloc(npm * sizeof(*pms));
     vkGetPhysicalDeviceSurfacePresentModesKHR(g_pdev, g_surf, &npm, pms);
     VkPresentModeKHR pm = VK_PRESENT_MODE_FIFO_KHR; // safe fallback
-    for (uint32_t i = 0; i < npm; i++) {
-        if (pms[i] == VK_PRESENT_MODE_IMMEDIATE_KHR)    { pm = pms[i]; break; }
-    }
-    if (pm != VK_PRESENT_MODE_IMMEDIATE_KHR) {
+    int have_pm = 0;
+    if (!want_vsync) {
         for (uint32_t i = 0; i < npm; i++) {
-            if (pms[i] == VK_PRESENT_MODE_MAILBOX_KHR)      { pm = pms[i]; break; }
-            if (pms[i] == VK_PRESENT_MODE_FIFO_RELAXED_KHR) { pm = pms[i]; }
+            if (pms[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) { pm = pms[i]; have_pm = 1; break; }
+        }
+    }
+    if (!have_pm) {
+        for (uint32_t i = 0; i < npm; i++) {
+            if (pms[i] == VK_PRESENT_MODE_MAILBOX_KHR) { pm = pms[i]; have_pm = 1; break; }
+        }
+    }
+    if (!have_pm) {
+        for (uint32_t i = 0; i < npm; i++) {
+            if (pms[i] == VK_PRESENT_MODE_FIFO_RELAXED_KHR) { pm = pms[i]; have_pm = 1; }
+        }
+    }
+    if (!have_pm && !want_vsync) {
+        for (uint32_t i = 0; i < npm; i++) {
+            if (pms[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) { pm = pms[i]; have_pm = 1; break; }
         }
     }
     free(pms);
@@ -1823,12 +1848,14 @@ fail:
 }
 
 // vk_video_create — initialise Vulkan renderer as a child overlay over a Fyne window.
+// vsync: see the present-mode preference comment in vk_create_swapchain.
 // Returns 1 on success, 0 if Vulkan is unavailable (caller falls back to GDI).
-int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
+int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync) {
     if (atomic_load(&g_active)) vk_full_cleanup();
 
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!parent) { goVKLog("vk_video_create: parent HWND is null", 2); return 0; }
+    atomic_store(&g_vsync, vsync ? 1 : 0);
     g_parent_hwnd = parent;
     g_standalone = 0;
     g_hwnd_args.parent = parent; g_hwnd_args.x = x; g_hwnd_args.y = y;
@@ -1872,10 +1899,12 @@ static void vk_monitor_rect_near_hwnd(HWND hint, int *x, int *y, int *w, int *h)
 // hint_hwnd, when non-null, picks the monitor that currently hosts the client
 // window; otherwise the primary monitor is used. The window has keyboard focus
 // so WM_KEYDOWN/UP are delivered for input forwarding.
+// vsync: see the present-mode preference comment in vk_create_swapchain.
 // Returns 1 on success, 0 on failure.
-int vk_video_create_standalone(uintptr_t hint_hwnd) {
+int vk_video_create_standalone(uintptr_t hint_hwnd, int vsync) {
     if (atomic_load(&g_active)) vk_full_cleanup();
 
+    atomic_store(&g_vsync, vsync ? 1 : 0);
     int x = 0, y = 0, sw = 0, sh = 0;
     vk_monitor_rect_near_hwnd((HWND)hint_hwnd, &x, &y, &sw, &sh);
     g_parent_hwnd = NULL;

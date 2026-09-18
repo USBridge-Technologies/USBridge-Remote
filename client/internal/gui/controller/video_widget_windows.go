@@ -463,7 +463,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		service.VKVideoResetLastFrame()
 		logrus.Infof("[Vulkan/Win] RunNative: hwnd=%x rect=(%d,%d,%dx%d) fullscreen=%v onNativeReadySet=%v",
 			hwnd, x, y, w, h, fullscreen, vw.onNativeReady != nil)
-		if service.VKVideoCreate(hwnd, x, y, w, h) {
+		if service.VKVideoCreate(hwnd, x, y, w, h, vw.enableVSync) {
 			logrus.Infof("[Vulkan/Win] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)", fullscreen, x, y, w, h)
 			// If a Fyne overlay (popup/menu) is already open when we start, hide immediately.
 			if view.OverlayActive() || view.NavVideoHidden() {

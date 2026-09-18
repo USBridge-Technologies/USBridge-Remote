@@ -3202,12 +3202,28 @@ func (a *App) SetSunshineOutputName(name string) error {
 	if a.stream == nil {
 		return nil
 	}
-	unchanged := a.stream.OutputName() == name && a.stream.Running()
+	// Compares against OutputName() *after* SetOutputName runs, not the raw
+	// `name` argument against the pre-write value -- RustShine's own
+	// SetOutputName resolves a bare numeric index (what videoSetDevice
+	// sends for a "drm:N" device path) into its real stored
+	// "cardPath|connector" form internally (see rustshineBackend's own
+	// doc comment), so a before/raw-`name` comparison could never match
+	// that already-canonical stored string, even when the client is just
+	// re-confirming the exact same monitor it already has selected.
+	// Confirmed live: this made every /api/video/set_device call for an
+	// unchanged device force a full Sunshine/RustShine restart -- and the
+	// client calls it on every reconnect, so every reconnect was hard-
+	// killing and relaunching the stream host from scratch, tearing down
+	// whatever encode/packetize work (including a multi-threaded FEC
+	// block build) happened to be mid-flight at that exact moment.
+	before := a.stream.OutputName()
 	if err := a.stream.SetOutputName(name); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
 	}
+	after := a.stream.OutputName()
+	unchanged := before == after && a.stream.Running()
 	next := a.cfg
-	next.SunshineOutputName = name
+	next.SunshineOutputName = after
 	if err := a.SaveConfig(next); err != nil {
 		return err
 	}

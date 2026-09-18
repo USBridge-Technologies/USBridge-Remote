@@ -434,6 +434,7 @@ func videoDeviceConfigFromRequest(devicePath, deviceName string, request *models
 		VideoBitrate:       request.VideoBitrate,
 		VideoMode:          request.VideoMode,
 		CapturePixelFormat: request.CapturePixelFormat,
+		EnableVSync:        request.EnableVSync,
 		Color444:           request.Color444,
 		Hdr:                request.Hdr,
 	}
