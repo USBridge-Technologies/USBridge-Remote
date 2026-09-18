@@ -177,13 +177,14 @@ func NetGraphEnabled() bool {
 // ai_vision.go's ApplyAIVisionOverlay.
 //
 // Pushes a freshly-built HUD image every tick (10Hz) -- a real "smoothly
-// crawling" scope trace (the whole point of matching Half-Life/TF2's
-// net_graph feel) needs a new column landing that often, not just fresh
-// data collected that often. The native push side (metal_video_impl_darwin.m's
-// metal_video_set_hud_overlay) is what protects an already-stalled main
-// thread from piling up: it always applies the LATEST built image and
-// coalesces bursts into at most one in-flight dispatch, so pushing here
-// unconditionally is safe even under load.
+// crawling" scope trace needs a new column landing that often, not just
+// fresh data collected that often. metal_video_set_hud_overlay
+// (metal_video_impl_darwin.m) only stores the pixels and marks them
+// dirty; the actual on-screen apply happens from displayLinkFired, not a
+// dispatch_async, since measurement showed dispatch_async'd blocks onto
+// the main queue were landing roughly once every 1.6s in this app
+// (see that file's g_hud_dirty doc comment) while displayLinkFired itself
+// kept firing at the true display refresh rate the whole time.
 func netGraphLoop() {
 	ticker := time.NewTicker(netGraphInterval)
 	defer ticker.Stop()

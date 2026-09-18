@@ -50,36 +50,40 @@ static CALayer *g_overlay_layer = nil;
 static CALayer *g_hud_layer = nil;
 
 // g_hud_pending_* hold the most recently pushed-but-not-yet-applied HUD
-// image; g_hud_dispatch_scheduled is set while exactly one dispatch_async
-// (or inline call) is committed to eventually applying whatever is
-// currently in g_hud_pending_* -- NOT the specific bytes that were current
-// when that dispatch was scheduled. This is deliberate coalescing, not a
-// plain "drop if busy" latch: net_graph.go pushes at 10Hz, and on a
-// stalled/backed-up main thread (this app already logs "AppKit/DisplayLink
-// stalled" warnings under load, independent of Net Graph) a plain latch
-// that only clears when ITS OWN block finally runs can wedge the whole HUD
-// indefinitely if that one block is delayed a long time for any reason
-// (e.g. GCD deprioritizing a backgrounded app's main queue) -- every push
-// arriving in the meantime would see "still pending" and be dropped
-// forever, not just until that one block runs. Coalescing avoids both
-// failure modes at once: at most one apply is ever in flight (no unbounded
-// backlog), and whenever it does run -- however late -- it always shows
-// the latest data, and immediately allows the next push through.
+// image; g_hud_dirty marks that g_hud_pending_* has something newer than
+// what's currently on g_hud_layer.
+//
+// IMPORTANT: this is deliberately NOT applied via dispatch_async(main
+// queue, ...) -- that was the original design and measurement showed it
+// was the actual bug behind the "HUD sometimes freezes, sometimes crawls
+// smoothly" report. Logged evidence (see the "HUD apply gap" diagnostic
+// below): with net_graph.go pushing at a steady 10Hz, dispatch_async'd
+// blocks onto dispatch_get_main_queue() were only actually being run by
+// this app roughly once every ~1.6s -- consistently, for over a minute
+// straight -- while displayLinkFired below kept firing and rendering
+// video at 42-60Hz on the very same main thread the whole time. That's
+// not "the main thread is busy" (rendering proves it wasn't); it's this
+// app's run loop not draining GCD's main-queue source at anywhere near
+// the rate it services the CADisplayLink's own run-loop-mode source.
+// Whatever the exact reason, the fix is to stop asking GCD to reach the
+// main thread at all for this and instead piggyback directly on
+// displayLinkFired -- the one callback already proven to land on the main
+// thread at a real, consistent cadence -- which also directly satisfies
+// "update the HUD at the same rate as the stream renders."
 static pthread_mutex_t g_hud_pending_mu = PTHREAD_MUTEX_INITIALIZER;
 static NSData *g_hud_pending_data = nil;
 static int g_hud_pending_w = 0, g_hud_pending_h = 0, g_hud_pending_stride = 0;
-static atomic_int g_hud_dispatch_scheduled = 0;
+static atomic_int g_hud_dirty = 0;
 
 // Diagnostics for the "HUD sometimes freezes, sometimes crawls smoothly"
-// report -- net_graph.go pushes every 100ms; if applies land much less
-// often than that, something between the push call and the actual
-// CATransaction commit is stalling. Logged via goMetalLog so it lands in
-// app.log next to the existing "AppKit/DisplayLink stalled"/"Decoder/
-// Network stalled" warnings this app already emits under load, to see
-// whether they correlate (shared main-thread contention) or not
-// (something Net-Graph-specific). Remove once the report is resolved.
+// report. Now that applies happen inline from displayLinkFired (already on
+// the main thread, no dispatch involved), a large gap here would mean
+// displayLinkFired itself stopped firing for a while -- a genuine stall,
+// not the GCD-scheduling-latency issue this replaced. Logged via
+// goMetalLog so it lands in app.log next to the existing "AppKit/
+// DisplayLink stalled" warnings. Remove once the report is fully closed
+// out.
 static double g_hud_last_apply_time = 0.0;
-static atomic_int g_hud_coalesced_count = 0;
 
 // HUD_MARGIN: device points between the HUD box and the bottom/right edges
 // of the view. (0,0) in this layer's (unflipped, AppKit-default) coordinate
@@ -137,6 +141,10 @@ static atomic_int g_hdr_enabled = 0;
 // Forward declaration -- defined further down (near metal_video_set_hdr),
 // used by metal_video_create above that definition.
 static void apply_dynamic_range(CALayer *layer, BOOL hdr);
+
+// Forward declaration -- defined further down (Net Graph HUD section),
+// used by MetalDisplayLinkTarget's displayLinkFired above that definition.
+static void metal_video_apply_pending_hud_overlay(void);
 
 static double mono_sec(void) {
     struct timespec ts;
@@ -247,6 +255,15 @@ static double g_dl_diag_start = 0.0;
 @implementation MetalDisplayLinkTarget
 - (void)displayLinkFired:(CADisplayLink __unused *)link {
     if (!atomic_load(&g_active)) return;
+
+    // Net Graph HUD: applied here, not via dispatch_async -- see
+    // g_hud_dirty's doc comment for why. Checked first and unconditionally
+    // (independent of whether this firing also has a new video frame
+    // below), so the HUD updates at the display's own refresh cadence even
+    // if, say, the video source itself is momentarily idle.
+    if (atomic_exchange(&g_hud_dirty, 0)) {
+        metal_video_apply_pending_hud_overlay();
+    }
 
     g_dl_fire_count++;
     double diagNow = mono_sec();
@@ -418,39 +435,28 @@ void metal_video_clear_overlay(void) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Net Graph HUD overlay — its own small CALayer (see g_hud_layer's doc
 // comment), anchored bottom-right via a fixed frame set on every apply
-// (cheap: w/h rarely change once the HUD is built once in Go). Coalesced
-// dispatch -- see g_hud_pending_*'s own doc comment for why a plain
-// "drop if busy" latch isn't good enough. See net_graph.go's
-// buildNetGraphHUD for what actually gets uploaded here.
+// (cheap: w/h rarely change once the HUD is built once in Go). Applied
+// from displayLinkFired, NOT dispatch_async -- see g_hud_dirty's own doc
+// comment for why. See net_graph.go's buildNetGraphHUD for what actually
+// gets uploaded here.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// metal_video_apply_pending_hud_overlay runs on the main thread (called
-// either inline or via the single coalesced dispatch below) and always
-// applies whatever is CURRENTLY in g_hud_pending_*, not necessarily what
-// was there when it was scheduled.
+// metal_video_apply_pending_hud_overlay must be called already on the main
+// thread (displayLinkFired, or inline from metal_video_set_hud_overlay
+// when that happens to already be on the main thread) -- it does no
+// thread-hopping of its own. Applies whatever is CURRENTLY in
+// g_hud_pending_*, not necessarily what was there when g_hud_dirty was set.
 static void metal_video_apply_pending_hud_overlay(void) {
-    // Cleared before reading the pending data (not after applying it): a
-    // push arriving right now safely schedules its own fresh dispatch
-    // instead of being coalesced into this already-in-progress apply,
-    // which would otherwise mean its data has to wait for the NEXT tick.
-    atomic_store(&g_hud_dispatch_scheduled, 0);
-
     double now = mono_sec();
     if (g_hud_last_apply_time > 0.0) {
         double gapMs = (now - g_hud_last_apply_time) * 1000.0;
-        // net_graph.go ticks every 100ms; a >250ms gap between two applies
-        // (however many pushes got coalesced together in between, see
-        // g_hud_coalesced_count) means this specific dispatch_async sat
-        // queued on the main thread that long before actually running.
+        // net_graph.go ticks every 100ms; this now runs straight out of
+        // displayLinkFired, so a large gap here means THAT stopped firing
+        // for a while (a genuine stall), not a GCD scheduling artifact.
         if (gapMs > 250.0) {
-            int coalesced = atomic_exchange(&g_hud_coalesced_count, 0);
             char msg[160];
-            snprintf(msg, sizeof(msg),
-                     "⚠️ [Net Graph] HUD apply gap %.0fms (expected ~100ms, %d push(es) coalesced away in between)",
-                     gapMs, coalesced);
+            snprintf(msg, sizeof(msg), "⚠️ [Net Graph] HUD apply gap %.0fms (expected ~100ms)", gapMs);
             goMetalLog(msg, 1);
-        } else {
-            atomic_store(&g_hud_coalesced_count, 0);
         }
     }
     g_hud_last_apply_time = now;
@@ -487,6 +493,11 @@ static void metal_video_apply_pending_hud_overlay(void) {
     CGImageRelease(img);
 }
 
+// metal_video_set_hud_overlay is called from net_graph.go's Go goroutine
+// (a background thread) at 10Hz. It ONLY stores the pixels and flags them
+// dirty -- see g_hud_dirty's doc comment for why this deliberately does
+// NOT dispatch/queue anything to reach the main thread itself.
+// displayLinkFired picks this up on its own next firing.
 void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) {
     if (!atomic_load(&g_active) || !rgba || w <= 0 || h <= 0 || stride <= 0) return;
 
@@ -499,18 +510,14 @@ void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) 
     g_hud_pending_stride = stride;
     pthread_mutex_unlock(&g_hud_pending_mu);
 
-    int expected = 0;
-    if (!atomic_compare_exchange_strong(&g_hud_dispatch_scheduled, &expected, 1)) {
-        atomic_fetch_add(&g_hud_coalesced_count, 1); // see g_hud_coalesced_count's own doc comment
-        return; // an apply is already scheduled -- it'll pick up the data just stored above when it runs
-    }
+    atomic_store(&g_hud_dirty, 1);
 
-    if ([NSThread isMainThread]) {
+    // displayLinkFired (main thread) is the normal path and will pick this
+    // up on its own next firing -- but if we happen to already BE the main
+    // thread (e.g. a future caller), apply immediately instead of waiting
+    // an extra tick for no reason.
+    if ([NSThread isMainThread] && atomic_exchange(&g_hud_dirty, 0)) {
         metal_video_apply_pending_hud_overlay();
-    } else {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            metal_video_apply_pending_hud_overlay();
-        });
     }
 }
 
@@ -648,8 +655,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
         g_decodeMsSum = 0.0; g_decodeSamples = 0; g_lastKnownDecodeMs = 0.0;
         g_pendingBufSubmitTime = 0.0;
-        atomic_store(&g_hud_dispatch_scheduled, 0);
-        atomic_store(&g_hud_coalesced_count, 0);
+        atomic_store(&g_hud_dirty, 0);
         g_hud_last_apply_time = 0.0;
         pthread_mutex_lock(&g_hud_pending_mu);
         g_hud_pending_data = nil;
@@ -831,7 +837,7 @@ void metal_video_destroy(void) {
             g_overlay_layer = nil;
             g_hud_layer = nil;
         }
-        atomic_store(&g_hud_dispatch_scheduled, 0);
+        atomic_store(&g_hud_dirty, 0);
         pthread_mutex_lock(&g_hud_pending_mu);
         g_hud_pending_data = nil;
         pthread_mutex_unlock(&g_hud_pending_mu);
