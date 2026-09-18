@@ -41,9 +41,9 @@ import (
 // few more hooks, not rewriting buildNetGraphHUD.
 const (
 	netGraphInterval   = 100 * time.Millisecond // 10Hz -- fast enough that a single dropped packet or a one-frame stall shows up as its own visible tick
-	netGraphHistoryLen = 220                    // ring buffer length; also the graph plot width in px
-	netGraphCanvasW    = 256
-	netGraphCanvasH    = 150
+	netGraphHistoryLen = 280                    // ring buffer length; also the graph plot width in px
+	netGraphCanvasW    = 280
+	netGraphCanvasH    = 180
 )
 
 // netGraphRawNetworkStats is a tag-free mirror of RTPVideoStats
@@ -70,6 +70,13 @@ type netGraphRawNetworkStats struct {
 	// the host doesn't provide it (see GetLastHostLatencyMs's doc comment).
 	HostLatencyMs    float64
 	HostLatencyValid bool
+	// JitterMs/PlayoutDelayMs: the client-side adaptive playout buffer's
+	// own live jitter estimate and currently-applied extra delay
+	// (LiGetPlayoutJitterUs/LiGetPlayoutAppliedDelayUs) -- arrival-time
+	// variance measured locally, distinct from RTTVarianceMs (which is
+	// ENet's network-level RTT variance estimate).
+	JitterMs       float64
+	PlayoutDelayMs float64
 }
 
 // NetGraphSample is one 100ms tick's worth of HUD data, kept in a rolling
@@ -100,6 +107,8 @@ type NetGraphSample struct {
 	// from the video stream's standard per-frame header field.
 	HostLatencyMs    float64
 	HostLatencyValid bool
+	JitterMs         float64
+	PlayoutDelayMs   float64
 }
 
 var (
@@ -161,26 +170,23 @@ func NetGraphEnabled() bool {
 	return netGraphEnabled.Load()
 }
 
-// netGraphPushEveryNTicks throttles how often a freshly-built HUD image
-// actually reaches the screen, independent of netGraphInterval's sampling
-// rate: history keeps every 100ms sample (so a single dropped packet still
-// gets its own column, see netGraphHistoryLen), but redrawing+pushing an
-// image to the native compositor on every one of those ticks means an
-// extra main-thread dispatch 10x/sec -- real cost on a system that's
-// already struggling to keep its main thread responsive (this app's own
-// "AppKit/DisplayLink stalled" warnings show that's not hypothetical).
-// 1 push per 3 samples is still a smooth-looking ~3.3Hz HUD refresh.
-const netGraphPushEveryNTicks = 3
-
 // netGraphLoop runs for the lifetime of the process once started (first
 // SetNetGraphEnabled(true) call) -- cheaper to leave ticking in the
 // background than to tear down/restart per stream, and the disabled case
 // costs one atomic load per tick, same philosophy as
 // ai_vision.go's ApplyAIVisionOverlay.
+//
+// Pushes a freshly-built HUD image every tick (10Hz) -- a real "smoothly
+// crawling" scope trace (the whole point of matching Half-Life/TF2's
+// net_graph feel) needs a new column landing that often, not just fresh
+// data collected that often. The native push side (metal_video_impl_darwin.m's
+// metal_video_set_hud_overlay) is what protects an already-stalled main
+// thread from piling up: it always applies the LATEST built image and
+// coalesces bursts into at most one in-flight dispatch, so pushing here
+// unconditionally is safe even under load.
 func netGraphLoop() {
 	ticker := time.NewTicker(netGraphInterval)
 	defer ticker.Stop()
-	tick := 0
 	for range ticker.C {
 		if !netGraphEnabled.Load() {
 			continue
@@ -195,10 +201,6 @@ func netGraphLoop() {
 		samples := append([]NetGraphSample(nil), netGraphSamples...)
 		netGraphMu.Unlock()
 
-		tick++
-		if tick%netGraphPushEveryNTicks != 0 {
-			continue
-		}
 		if push := netGraphMetalPush; push != nil {
 			push(buildNetGraphHUD(samples))
 		}
@@ -226,6 +228,8 @@ func collectNetGraphSample() NetGraphSample {
 		RTTValid:         raw.RTTValid,
 		HostLatencyMs:    raw.HostLatencyMs,
 		HostLatencyValid: raw.HostLatencyValid,
+		JitterMs:         raw.JitterMs,
+		PlayoutDelayMs:   raw.PlayoutDelayMs,
 	}
 	if hadPrev {
 		s.PacketsVideo = netGraphDeltaU32(raw.PacketCountVideo, prev.PacketCountVideo)
@@ -260,25 +264,29 @@ func netGraphDeltaU32(cur, prev uint32) uint32 {
 // doc comment); only the "hand this image to the screen" call differs.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Colors deliberately mimic the old GoldSrc/Source net_graph HUD: a
+// barely-there dark wash (just enough to keep green-on-video text
+// legible) instead of a solid panel, no border box, bright saturated
+// green/yellow/red -- the "readable straight over gameplay" look, not a
+// dashboard widget.
 var (
-	netGraphBg     = color.RGBA{R: 0x0a, G: 0x0c, B: 0x0e, A: 0xc8} // translucent near-black, like TF2's net_graph background
-	netGraphBorder = color.RGBA{R: 0x33, G: 0x37, B: 0x2f, A: 0xff}
-	netGraphText   = color.RGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
-	netGraphDim    = color.RGBA{R: 0x8a, G: 0x94, B: 0x84, A: 0xff}
-	netGraphGood   = color.RGBA{R: 0x4a, G: 0xd9, B: 0x6a, A: 0xff}
-	netGraphWarn   = color.RGBA{R: 0xe0, G: 0xc4, B: 0x3a, A: 0xff}
-	netGraphBad    = color.RGBA{R: 0xe0, G: 0x4a, B: 0x3a, A: 0xff}
+	netGraphBg   = color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x38} // faint wash for legibility, not a panel
+	netGraphText = color.RGBA{R: 0x9a, G: 0xff, B: 0x6e, A: 0xff} // classic HUD green
+	netGraphDim  = color.RGBA{R: 0x6a, G: 0x8a, B: 0x62, A: 0xc0}
+	netGraphGood = color.RGBA{R: 0x4a, G: 0xff, B: 0x5a, A: 0xff}
+	netGraphWarn = color.RGBA{R: 0xff, G: 0xd8, B: 0x2a, A: 0xff}
+	netGraphBad  = color.RGBA{R: 0xff, G: 0x3a, B: 0x2a, A: 0xff}
 )
 
 // buildNetGraphHUD draws the current numeric readouts plus scrolling
-// history graphs (latency, loss/FEC, decode latency) onto a fixed-size
-// canvas, most-recent sample at the right edge, scrolling left -- same
-// convention as TF2's net_graph. samples is ordered oldest-first; an empty
-// slice still produces a valid (mostly blank) canvas.
+// history graphs (latency, loss/FEC, decode latency, host latency) onto a
+// fixed-size canvas, most-recent sample at the right edge, scrolling left
+// -- same convention as the classic net_graph. samples is ordered
+// oldest-first; an empty slice still produces a valid (mostly blank)
+// canvas.
 func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, netGraphCanvasW, netGraphCanvasH))
 	draw.Draw(img, img.Bounds(), &image.Uniform{C: netGraphBg}, image.Point{}, draw.Src)
-	netGraphDrawBorder(img)
 
 	var latest NetGraphSample
 	if len(samples) > 0 {
@@ -286,6 +294,7 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	}
 
 	const marginX = 6
+	const col2 = 150
 	row := 12
 	rttColor := netGraphGood
 	switch {
@@ -310,7 +319,18 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	case lossPct > 0:
 		lossColor = netGraphWarn
 	}
-	netGraphDrawText(img, 140, row, netGraphFmtPct("LOSS", lossPct), lossColor)
+	netGraphDrawText(img, col2, row, netGraphFmtPct("LOSS", lossPct), lossColor)
+
+	row += 12
+	jitColor := netGraphGood
+	switch {
+	case latest.JitterMs >= 20:
+		jitColor = netGraphBad
+	case latest.JitterMs >= 8:
+		jitColor = netGraphWarn
+	}
+	netGraphDrawText(img, marginX, row, netGraphFmtMs("JIT", latest.JitterMs), jitColor)
+	netGraphDrawText(img, col2, row, netGraphFmtMs("BUF", latest.PlayoutDelayMs), netGraphText)
 
 	row += 12
 	fecColor := netGraphGood
@@ -330,10 +350,10 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 		decColor = netGraphWarn
 	}
 	netGraphDrawText(img, marginX, row, netGraphFmtFPS("FPS", latest.RenderFPS), netGraphText)
-	netGraphDrawText(img, 140, row, netGraphFmtMs("DEC", latest.DecodeMs), decColor)
+	netGraphDrawText(img, col2, row, netGraphFmtMs("DEC", latest.DecodeMs), decColor)
 
-	row += 12
 	if latest.HostLatencyValid {
+		row += 12
 		hostColor := netGraphGood
 		switch {
 		case latest.HostLatencyMs >= 20:
@@ -342,17 +362,16 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 			hostColor = netGraphWarn
 		}
 		netGraphDrawText(img, marginX, row, netGraphFmtMs("HOST", latest.HostLatencyMs), hostColor)
-		row += 12
 	}
 
-	graphTop := row + 4
+	graphTop := row + 6
 	graphH := (netGraphCanvasH - graphTop - marginX - 2*4) / 3
 	if graphH < 10 {
 		graphH = 10
 	}
 	graphX, graphW := marginX, netGraphCanvasW-2*marginX
 
-	netGraphDrawLineGraph(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
+	netGraphDrawTrace(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
 		if !s.RTTValid {
 			return 0, false
 		}
@@ -363,23 +382,11 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	netGraphDrawEventGraph(img, graphX, graphTop, graphW, graphH, samples)
 	graphTop += graphH + 4
 
-	netGraphDrawLineGraph(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
+	netGraphDrawTrace(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
 		return s.DecodeMs, s.DecodeMs > 0
 	}, 33)
 
 	return img
-}
-
-func netGraphDrawBorder(img *image.RGBA) {
-	b := img.Bounds()
-	for x := b.Min.X; x < b.Max.X; x++ {
-		img.SetRGBA(x, b.Min.Y, netGraphBorder)
-		img.SetRGBA(x, b.Max.Y-1, netGraphBorder)
-	}
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		img.SetRGBA(b.Min.X, y, netGraphBorder)
-		img.SetRGBA(b.Max.X-1, y, netGraphBorder)
-	}
 }
 
 func netGraphLossPercent(s NetGraphSample) float64 {
@@ -391,34 +398,42 @@ func netGraphLossPercent(s NetGraphSample) float64 {
 	return float64(lost) / float64(total) * 100
 }
 
-// netGraphDrawLineGraph plots one scalar per sample as a 1px-wide bar
-// scrolling right-to-left (most recent sample at the graph's right edge),
-// colored by the same green/yellow/red thresholds the numeric readouts use.
-// valueOf returning ok=false (e.g. no RTT estimate yet) leaves that column
-// blank rather than drawing a misleading zero.
-func netGraphDrawLineGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSample, valueOf func(NetGraphSample) (float64, bool), warnAt float64) {
+// netGraphDrawTrace plots one scalar per sample as a continuous connected
+// line -- the classic oscilloscope-style net_graph trace, most recent
+// sample at the graph's right edge, scrolling left. Since consecutive
+// samples always land on adjacent columns (dx is 0 or 1 here), "connect
+// the dots" is just a vertical run between the previous and current
+// column's heights, no general line-drawing algorithm needed. A gap
+// (valueOf returning ok=false, e.g. no RTT estimate yet) breaks the trace
+// instead of interpolating through missing data. Colored by the same
+// green/yellow/red thresholds the numeric readouts use, per-column, so a
+// single spike stands out even mid-trace.
+func netGraphDrawTrace(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSample, valueOf func(NetGraphSample) (float64, bool), warnAt float64) {
 	n := len(samples)
 	start := 0
 	if n > w {
 		start = n - w
 	}
+	maxVal := warnAt * 2
+	havePrev := false
+	prevY := 0
 	for i := start; i < n; i++ {
-		v, ok := valueOf(samples[i])
-		if !ok {
-			continue
-		}
 		col := x0 + w - (n - i)
 		if col < x0 || col >= x0+w {
 			continue
 		}
-		maxVal := warnAt * 2
-		barH := int(v / maxVal * float64(h))
-		if barH > h {
-			barH = h
+		v, ok := valueOf(samples[i])
+		if !ok {
+			havePrev = false
+			continue
 		}
-		if barH < 1 {
-			barH = 1
+		if v > maxVal {
+			v = maxVal
 		}
+		if v < 0 {
+			v = 0
+		}
+		y := y0 + h - 1 - int(v/maxVal*float64(h-1))
 		c := netGraphGood
 		switch {
 		case v >= warnAt*2:
@@ -426,9 +441,19 @@ func netGraphDrawLineGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGraph
 		case v >= warnAt:
 			c = netGraphWarn
 		}
-		for dy := 0; dy < barH; dy++ {
-			img.SetRGBA(col, y0+h-1-dy, c)
+		if havePrev {
+			lo, hi := prevY, y
+			if lo > hi {
+				lo, hi = hi, lo
+			}
+			for yy := lo; yy <= hi; yy++ {
+				img.SetRGBA(col, yy, c)
+			}
+		} else {
+			img.SetRGBA(col, y, c)
 		}
+		prevY = y
+		havePrev = true
 	}
 }
 

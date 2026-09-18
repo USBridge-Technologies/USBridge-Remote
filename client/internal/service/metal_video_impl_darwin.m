@@ -49,17 +49,26 @@ static CALayer *g_overlay_layer = nil;
 // comment on cost.
 static CALayer *g_hud_layer = nil;
 
-// Set while a metal_video_set_hud_overlay dispatch is in flight (queued or
-// running on the main queue) -- a new push arriving before the previous one
-// has actually run is dropped rather than queued, so a stalled/backed-up
-// main thread (this app already logs "AppKit/DisplayLink stalled" warnings
-// under load, independent of Net Graph) can't accumulate an ever-growing
-// backlog of HUD-image dispatch_async blocks that would themselves further
-// delay a later dispatch_sync (e.g. metal_video_destroy having to drain the
-// same queue first before it can run). net_graph.go's HUD data collection
-// still runs at its own full rate; only how often a fresh image actually
-// reaches the screen is capped by this.
-static atomic_int g_hud_push_pending = 0;
+// g_hud_pending_* hold the most recently pushed-but-not-yet-applied HUD
+// image; g_hud_dispatch_scheduled is set while exactly one dispatch_async
+// (or inline call) is committed to eventually applying whatever is
+// currently in g_hud_pending_* -- NOT the specific bytes that were current
+// when that dispatch was scheduled. This is deliberate coalescing, not a
+// plain "drop if busy" latch: net_graph.go pushes at 10Hz, and on a
+// stalled/backed-up main thread (this app already logs "AppKit/DisplayLink
+// stalled" warnings under load, independent of Net Graph) a plain latch
+// that only clears when ITS OWN block finally runs can wedge the whole HUD
+// indefinitely if that one block is delayed a long time for any reason
+// (e.g. GCD deprioritizing a backgrounded app's main queue) -- every push
+// arriving in the meantime would see "still pending" and be dropped
+// forever, not just until that one block runs. Coalescing avoids both
+// failure modes at once: at most one apply is ever in flight (no unbounded
+// backlog), and whenever it does run -- however late -- it always shows
+// the latest data, and immediately allows the next push through.
+static pthread_mutex_t g_hud_pending_mu = PTHREAD_MUTEX_INITIALIZER;
+static NSData *g_hud_pending_data = nil;
+static int g_hud_pending_w = 0, g_hud_pending_h = 0, g_hud_pending_stride = 0;
+static atomic_int g_hud_dispatch_scheduled = 0;
 
 // HUD_MARGIN: device points between the HUD box and the bottom/right edges
 // of the view. (0,0) in this layer's (unflipped, AppKit-default) coordinate
@@ -397,58 +406,80 @@ void metal_video_clear_overlay(void) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Net Graph HUD overlay — its own small CALayer (see g_hud_layer's doc
-// comment), anchored bottom-right via a fixed frame set on every push
-// (cheap: w/h rarely change once the HUD is built once in Go). Structured
-// like metal_video_set_overlay, plus a busy-guard (g_hud_push_pending) that
-// drops a push outright instead of queuing it behind a main thread that's
-// currently stalled -- see that var's own doc comment for why unbounded
-// queuing there is a real problem, not just a theoretical one. See
-// net_graph.go's buildNetGraphHUD for what actually gets uploaded here.
+// comment), anchored bottom-right via a fixed frame set on every apply
+// (cheap: w/h rarely change once the HUD is built once in Go). Coalesced
+// dispatch -- see g_hud_pending_*'s own doc comment for why a plain
+// "drop if busy" latch isn't good enough. See net_graph.go's
+// buildNetGraphHUD for what actually gets uploaded here.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// metal_video_apply_pending_hud_overlay runs on the main thread (called
+// either inline or via the single coalesced dispatch below) and always
+// applies whatever is CURRENTLY in g_hud_pending_*, not necessarily what
+// was there when it was scheduled.
+static void metal_video_apply_pending_hud_overlay(void) {
+    // Cleared before reading the pending data (not after applying it): a
+    // push arriving right now safely schedules its own fresh dispatch
+    // instead of being coalesced into this already-in-progress apply,
+    // which would otherwise mean its data has to wait for the NEXT tick.
+    atomic_store(&g_hud_dispatch_scheduled, 0);
+
+    pthread_mutex_lock(&g_hud_pending_mu);
+    NSData *data = g_hud_pending_data;
+    int w = g_hud_pending_w, h = g_hud_pending_h, stride = g_hud_pending_stride;
+    pthread_mutex_unlock(&g_hud_pending_mu);
+
+    if (!g_hud_layer || !data) return;
+
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)data);
+    CGImageRef img = CGImageCreate((size_t)w, (size_t)h, 8, 32, (size_t)stride, cs,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault,
+        provider, NULL, false, kCGRenderingIntentDefault);
+    CGDataProviderRelease(provider);
+    CGColorSpaceRelease(cs);
+    if (!img) return;
+
+    // Bottom-right anchor: (0,0) is already the bottom-left corner in this
+    // unflipped coordinate space (see HUD_MARGIN's doc comment), so only X
+    // needs adjusting -- push the box's right edge in from the container's
+    // own right edge by HUD_MARGIN.
+    CGFloat containerW = g_hud_layer.superlayer ? g_hud_layer.superlayer.bounds.size.width : (CGFloat)w;
+    CGFloat x = containerW - HUD_MARGIN - (CGFloat)w;
+    if (x < HUD_MARGIN) x = HUD_MARGIN; // clamp: a window narrower than the HUD pins it left instead of going negative
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    g_hud_layer.frame = CGRectMake(x, HUD_MARGIN, (CGFloat)w, (CGFloat)h);
+    g_hud_layer.contents = (__bridge id)img;
+    [CATransaction commit];
+    CGImageRelease(img);
+}
 
 void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) {
     if (!atomic_load(&g_active) || !rgba || w <= 0 || h <= 0 || stride <= 0) return;
 
-    int expected = 0;
-    if (!atomic_compare_exchange_strong(&g_hud_push_pending, &expected, 1)) {
-        return; // a previous push is still queued/running -- drop this one rather than pile up
-    }
-
     NSData *data = [NSData dataWithBytes:rgba length:(size_t)stride * (size_t)h];
 
-    dispatch_block_t blk = ^{
-        // Released as soon as we actually start running (not at the end):
-        // once the queue is draining again, the next push is allowed
-        // through immediately rather than waiting for this one's CATransaction
-        // to fully commit.
-        atomic_store(&g_hud_push_pending, 0);
+    pthread_mutex_lock(&g_hud_pending_mu);
+    g_hud_pending_data = data;
+    g_hud_pending_w = w;
+    g_hud_pending_h = h;
+    g_hud_pending_stride = stride;
+    pthread_mutex_unlock(&g_hud_pending_mu);
 
-        if (!g_hud_layer) return;
-        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-        CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)data);
-        CGImageRef img = CGImageCreate((size_t)w, (size_t)h, 8, 32, (size_t)stride, cs,
-            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault,
-            provider, NULL, false, kCGRenderingIntentDefault);
-        CGDataProviderRelease(provider);
-        CGColorSpaceRelease(cs);
-        if (!img) return;
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_hud_dispatch_scheduled, &expected, 1)) {
+        return; // an apply is already scheduled -- it'll pick up the data just stored above when it runs
+    }
 
-        // Bottom-right anchor: (0,0) is already the bottom-left corner in
-        // this unflipped coordinate space (see HUD_MARGIN's doc comment),
-        // so only X needs adjusting -- push the box's right edge in from
-        // the container's own right edge by HUD_MARGIN.
-        CGFloat containerW = g_hud_layer.superlayer ? g_hud_layer.superlayer.bounds.size.width : (CGFloat)w;
-        CGFloat x = containerW - HUD_MARGIN - (CGFloat)w;
-        if (x < HUD_MARGIN) x = HUD_MARGIN; // clamp: a window narrower than the HUD pins it left instead of going negative
-
-        [CATransaction begin];
-        [CATransaction setDisableActions:YES];
-        g_hud_layer.frame = CGRectMake(x, HUD_MARGIN, (CGFloat)w, (CGFloat)h);
-        g_hud_layer.contents = (__bridge id)img;
-        [CATransaction commit];
-        CGImageRelease(img);
-    };
-    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+    if ([NSThread isMainThread]) {
+        metal_video_apply_pending_hud_overlay();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            metal_video_apply_pending_hud_overlay();
+        });
+    }
 }
 
 void metal_video_clear_hud_overlay(void) {
@@ -585,7 +616,10 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
         g_decodeMsSum = 0.0; g_decodeSamples = 0; g_lastKnownDecodeMs = 0.0;
         g_pendingBufSubmitTime = 0.0;
-        atomic_store(&g_hud_push_pending, 0);
+        atomic_store(&g_hud_dispatch_scheduled, 0);
+        pthread_mutex_lock(&g_hud_pending_mu);
+        g_hud_pending_data = nil;
+        pthread_mutex_unlock(&g_hud_pending_mu);
         g_lastW = 0;       g_lastH = 0;
         atomic_store(&g_submit_call_count, 0); // re-arm the one-shot try_submit diagnostic for this session
         pthread_mutex_lock(&g_mu);
@@ -763,7 +797,10 @@ void metal_video_destroy(void) {
             g_overlay_layer = nil;
             g_hud_layer = nil;
         }
-        atomic_store(&g_hud_push_pending, 0);
+        atomic_store(&g_hud_dispatch_scheduled, 0);
+        pthread_mutex_lock(&g_hud_pending_mu);
+        g_hud_pending_data = nil;
+        pthread_mutex_unlock(&g_hud_pending_mu);
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;

@@ -35,6 +35,8 @@ extern void do_send_pen(unsigned char eventType, unsigned char toolType, unsigne
 extern void do_get_rtp_video_stats(uint32_t *out);
 extern int do_get_estimated_rtt_info(uint32_t *out);
 extern uint16_t do_get_last_host_latency_tenths_ms(void);
+extern uint64_t do_get_playout_jitter_us(void);
+extern uint64_t do_get_playout_applied_delay_us(void);
 */
 import "C"
 
@@ -113,6 +115,23 @@ func GetLastHostLatencyMs() (ms float64, valid bool) {
 	return float64(tenths) / 10.0, true
 }
 
+// GetPlayoutJitterMs reads the client-side adaptive playout buffer's live
+// jitter estimate (LiGetPlayoutJitterUs) -- arrival-time variance measured
+// locally from received frames' RTP timestamps, distinct from
+// GetEstimatedRttInfo's network-level RTT variance. 0 before the first
+// jitter sample exists.
+func GetPlayoutJitterMs() float64 {
+	return float64(uint64(C.do_get_playout_jitter_us())) / 1000.0
+}
+
+// GetPlayoutAppliedDelayMs reads the playout buffer's currently-applied
+// extra delay (LiGetPlayoutAppliedDelayUs) -- how much it's actually
+// stretching frame release right now to absorb GetPlayoutJitterMs's
+// measured jitter.
+func GetPlayoutAppliedDelayMs() float64 {
+	return float64(uint64(C.do_get_playout_applied_delay_us())) / 1000.0
+}
+
 // init wires net_graph.go's platform-agnostic network-stats hook to the
 // getters above -- same "core stays tag-free, platform files wire the
 // hooks" split as metal_video_darwin.go's own init() for the render/decode/
@@ -136,6 +155,8 @@ func init() {
 			RTTValid:                rttOk,
 			HostLatencyMs:           hostLatencyMs,
 			HostLatencyValid:        hostLatencyOk,
+			JitterMs:                GetPlayoutJitterMs(),
+			PlayoutDelayMs:          GetPlayoutAppliedDelayMs(),
 		}
 	}
 }

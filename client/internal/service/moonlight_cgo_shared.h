@@ -339,6 +339,18 @@ uint16_t do_get_last_host_latency_tenths_ms(void) {
     return g_last_host_latency_tenths_ms;
 }
 
+// do_get_playout_jitter_us/do_get_playout_applied_delay_us expose
+// LiGetPlayoutJitterUs/LiGetPlayoutAppliedDelayUs (VideoDepacketizer.c) --
+// client-side arrival-jitter numbers, distinct from the network RTT
+// variance do_get_estimated_rtt_info reports.
+uint64_t do_get_playout_jitter_us(void) {
+    return LiGetPlayoutJitterUs();
+}
+
+uint64_t do_get_playout_applied_delay_us(void) {
+    return LiGetPlayoutAppliedDelayUs();
+}
+
 void do_li_stop(void) {
     if (!g_li_active) return;
     g_li_active = 0;
