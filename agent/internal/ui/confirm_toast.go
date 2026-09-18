@@ -164,11 +164,11 @@ func showConfirmToast(message string, callback func(bool), parent fyne.Window) {
 		})
 	}
 
-	noBtn := newConfirmToastButton("No",
+	noBtn := newConfirmToastButton(loc().No,
 		color.Transparent, design.ColorTailscaleChipBorder, design.ColorMutedOlive,
 		design.ColorSurfaceLight, design.ColorTextLight,
 		func() { closePopup(false) })
-	yesBtn := newConfirmToastButton("Yes",
+	yesBtn := newConfirmToastButton(loc().Yes,
 		design.ColorCTA, color.Transparent, design.ColorCTALabel,
 		design.ColorCTAHover, design.ColorCTALabel,
 		func() { closePopup(true) })

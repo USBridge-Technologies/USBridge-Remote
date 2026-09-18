@@ -18,13 +18,6 @@ const footerBusySpinnerSize float32 = 14
 const footerBusySpinnerInterval = 140 * time.Millisecond
 const footerIdleMessageDuration = 8 * time.Second
 
-const (
-	footerHintProtocol        = "Changing protocol..."
-	footerHintCheckingUpdates = "Checking for updates..."
-	footerHintUpToDate        = "Already up to date"
-	footerHintUpdateFailed    = "Update check failed"
-)
-
 // footerBusyHint is the agent footer's muted-olive dot spinner + status copy.
 type footerBusyHint struct {
 	widget.BaseWidget
@@ -207,7 +200,7 @@ func (w *Window) showFooterIdle(hint string, d time.Duration) {
 }
 
 func (w *Window) startProtocolBusy() {
-	w.startFooterBusy(footerHintProtocol)
+	w.startFooterBusy(loc().ChangingProtocol)
 }
 
 func (w *Window) stopProtocolBusy() {
@@ -312,6 +305,14 @@ func (b *footerTextButton) MinSize() fyne.Size {
 	t := canvas.NewText(b.label, design.ColorMutedOlive)
 	t.TextSize = 9
 	return t.MinSize()
+}
+
+func (b *footerTextButton) SetText(label string) {
+	if b == nil {
+		return
+	}
+	b.label = label
+	b.Refresh()
 }
 
 func (b *footerTextButton) CreateRenderer() fyne.WidgetRenderer {

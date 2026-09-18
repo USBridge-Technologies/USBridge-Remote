@@ -22,7 +22,7 @@ func (w *Window) showMoonlightPINDialog(parent fyne.Window) {
 	}
 
 	entry := widget.NewEntry()
-	entry.SetPlaceHolder("4-digit PIN from Moonlight")
+	entry.SetPlaceHolder(loc().PINPlaceholder)
 
 	status := canvas.NewText("", design.ColorAlert)
 	status.TextSize = 11
@@ -42,7 +42,7 @@ func (w *Window) showMoonlightPINDialog(parent fyne.Window) {
 		}
 		pin := strings.TrimSpace(entry.Text)
 		if pin == "" {
-			status.Text = "Enter the PIN shown in Moonlight"
+			status.Text = loc().EnterPINShown
 			status.Show()
 			status.Refresh()
 			return
@@ -63,12 +63,12 @@ func (w *Window) showMoonlightPINDialog(parent fyne.Window) {
 			})
 		}()
 	}
-	submit = newIconActionButton("Submit", nil, runSubmit)
+	submit = newIconActionButton(loc().Submit, nil, runSubmit)
 	submit.CTA = true
 	submit.Compact = true
 	entry.OnSubmitted = func(string) { runSubmit() }
 
-	hint := widget.NewLabel("Open Moonlight → Add PC → enter the PIN shown there.")
+	hint := widget.NewLabel(loc().MoonlightPINHint)
 	hint.Wrapping = fyne.TextWrapWord
 	hint.Alignment = fyne.TextAlignLeading
 
@@ -79,7 +79,7 @@ func (w *Window) showMoonlightPINDialog(parent fyne.Window) {
 		status,
 	)
 	footer := container.NewCenter(submit)
-	panel := newBrandedDialogPanelInsets("Pair Moonlight", moonlightPINDialogWidth, 24, 6, body, footer, closeDialog)
+	panel := newBrandedDialogPanelInsets(loc().PairMoonlight, moonlightPINDialogWidth, 24, 6, body, footer, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 }
 
@@ -110,7 +110,7 @@ func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
 					return
 				}
 				if len(clients) == 0 {
-					empty := canvas.NewText("No paired clients", design.ColorEmptyHint)
+					empty := canvas.NewText(loc().NoPairedClients, design.ColorEmptyHint)
 					empty.TextSize = 12
 					empty.Alignment = fyne.TextAlignCenter
 					listBox.Add(container.NewCenter(empty))
@@ -143,7 +143,7 @@ func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
 		}()
 	}
 
-	panel := newBrandedDialogPanelInsets("Moonlight Clients", moonlightPINDialogWidth, 24, 8, listBox, nil, closeDialog)
+	panel := newBrandedDialogPanelInsets(loc().MoonlightClients, moonlightPINDialogWidth, 24, 8, listBox, nil, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 	refreshList()
 }

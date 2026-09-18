@@ -32,6 +32,7 @@ import (
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
+	"usbridge_agent/internal/ui/i18n"
 	"usbridge_agent/internal/update"
 	"usbridge_agent/internal/usbpass"
 )
@@ -240,6 +241,15 @@ type Window struct {
 	loginAvatar *loginAvatarButton
 	themeBtn    *footerTextButton
 
+	permPanel     *themedPanel
+	statusPanel   *themedPanel
+	protocolPanel *themedPanel
+	autostartLang *permToggleRow
+	gpuClockLang  *permToggleRow
+	mlClientsLang *canvas.Text
+	usbDriverLang *canvas.Text
+	clipboardLang *widget.Label
+
 	// guiWin is the Fyne window ShowAndRun created -- confirm dialogs from
 	// the protocol card's Change button need a parent.
 	guiWin fyne.Window
@@ -375,6 +385,11 @@ func newAccountSnapshot(acc account.Status) accountSnapshot {
 }
 
 func NewWindow(app fyne.App, cfg config.Config, perms PermsProvider, ts TailscaleProvider, tokenManager TokenProvider) *Window {
+	lang := "en"
+	if app != nil {
+		lang = app.Preferences().StringWithFallback(i18n.LanguagePrefKey, "en")
+	}
+	i18n.Init(lang)
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
 
@@ -523,7 +538,7 @@ func (w *Window) beginStreamerUpdateCheck() {
 		w.rustshineUpdateBtn.Disable()
 	}
 	before := w.token.EntitlementStatus()
-	w.startFooterBusy(footerHintCheckingUpdates)
+	w.startFooterBusy(loc().CheckingUpdates)
 	go func() {
 		err := w.token.CheckRustShineUpdateNow()
 		if err != nil {
@@ -570,14 +585,14 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 
 	failed := checkErr != nil || (st.LastError != "" && st.LastError != before.LastError)
 	if failed {
-		w.showFooterIdle(footerHintUpdateFailed, footerIdleMessageDuration)
+		w.showFooterIdle(loc().UpdateFailed, footerIdleMessageDuration)
 		return
 	}
 	if st.RustShineVersion != "" && st.RustShineVersion != before.RustShineVersion {
 		w.stopFooterBusy()
 		return
 	}
-	w.showFooterIdle(footerHintUpToDate, footerIdleMessageDuration)
+	w.showFooterIdle(loc().AlreadyUpToDate, footerIdleMessageDuration)
 }
 
 // refreshUSBPassthroughUI keeps usbDriverRow in sync -- shown only while
@@ -614,9 +629,9 @@ func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Stat
 		// tells "not staged at all" apart from "staged but not answering".
 		label := "Running"
 		if !usb.BrokerAlive {
-			label = "Not running"
+			label = loc().NotRunning
 			if strings.Contains(usb.BrokerError, "not staged") {
-				label = "Not staged"
+				label = loc().NotStaged
 			}
 		}
 		w.usbBrokerStatusLabel.Text = label
@@ -625,7 +640,7 @@ func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Stat
 }
 
 func (w *Window) ShowAndRun(onClose func()) {
-	win := w.app.NewWindow("USBridge Agent")
+	win := w.app.NewWindow(loc().AppTitle)
 	w.guiWin = win
 	win.SetPadded(false)
 	win.Resize(fyne.NewSize(640, 460))
@@ -658,9 +673,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 
 	// Column 1: Permissions
-	accessLabelBase := "Accessibility"
+	accessLabelBase := loc().Accessibility
 	if runtime.GOOS == "linux" {
-		accessLabelBase = "Input Control"
+		accessLabelBase = loc().InputControl
 	}
 
 	// Mirrors the pre-redesign dedicated "Request" buttons' own platform/
@@ -733,7 +748,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 
 	w.accessCheck = newPermStatusChip(accessLabelBase, onRequestAccess)
-	w.screenCaptureCheck = newPermStatusChip("Screen Capture", onRequestCapture)
+	w.screenCaptureCheck = newPermStatusChip(loc().ScreenCapture, onRequestCapture)
 	permStatusRow := container.New(&flushEndsLayout{}, w.accessCheck, w.screenCaptureCheck)
 
 	// Autostart at Boot: installs the OS-native autostart mechanism (a
@@ -769,7 +784,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 
 	// Autostart at Boot is always shown, regardless of platform.
-	autostartRow := newPermToggleRow("Autostart at Boot", w.autostartCheck)
+	autostartRow := newPermToggleRow(loc().AutostartAtBoot, w.autostartCheck)
+	w.autostartLang = autostartRow
 
 	// Lock GPU Clocks: holds an NVML max-clock lock for the life of this
 	// agent process (once enabled) so the GPU doesn't idle into a low-power
@@ -804,7 +820,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 			})
 		}()
 	})
-	gpuClockRow := newPermToggleRow("Lock GPU Clocks", w.gpuClockCheck)
+	gpuClockRow := newPermToggleRow(loc().LockGPUClocks, w.gpuClockCheck)
+	w.gpuClockLang = gpuClockRow
 
 	// Clipboard sync (Linux only): internal/clipboard's Linux backend shells
 	// out to xclip/wl-clipboard/xsel, none of which every distro ships by
@@ -813,7 +830,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// present). Offer a one-click pkexec install instead of a silent,
 	// permanent "no clipboard tool available" failure the user has no way
 	// to self-diagnose from this UI.
-	w.clipboardToolBtn = widget.NewButton("Install", func() {
+	w.clipboardToolBtn = widget.NewButton(loc().Install, func() {
 		if w.perms == nil {
 			return
 		}
@@ -847,12 +864,13 @@ func (w *Window) ShowAndRun(onClose func()) {
 			preview = w.perms.ClipboardInstallPreview()
 		}
 		if preview == "" {
-			preview = "No supported package manager (or pkexec) was found on this system -- " +
-				"clicking Install will show why, instead of a command preview."
+			preview = loc().ClipboardNoPkgMgr
 		}
-		dialog.ShowInformation("Clipboard Tool Install", preview, win)
+		dialog.ShowInformation(loc().ClipboardInstall, preview, win)
 	})
-	w.clipboardToolRow = container.NewHBox(widget.NewLabel("Clipboard Tool"), layout.NewSpacer(), clipboardInfoBtn, w.clipboardToolBtn)
+	clipLabel := widget.NewLabel(loc().ClipboardTool)
+	w.clipboardLang = clipLabel
+	w.clipboardToolRow = container.NewHBox(clipLabel, layout.NewSpacer(), clipboardInfoBtn, w.clipboardToolBtn)
 
 	// RustShine web client (WebRTC) toggle -- shown only while RustShine is
 	// the active backend (see refreshRustShineUI). Built unconditionally
@@ -873,7 +891,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}
 		}()
 	})
-	w.rustshineWebRTCRow = newPermToggleRow("USBridge-streamer Web (WebRTC)", w.rustshineWebRTCCheck)
+	w.rustshineWebRTCRow = newPermToggleRow(loc().WebRTCToggle, w.rustshineWebRTCCheck)
 	w.rustshineWebRTCRow.Hide()
 
 	// USB passthrough driver install -- shown only while RustShine is
@@ -882,9 +900,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// trip: usbip-win2 ships its own signed installer/UAC flow); Linux
 	// goes through InstallUSBDriver, a real pkexec-elevated apt+modprobe
 	// install (see usbpass/driver_linux.go).
-	usbDriverLabel := "Install USB Driver"
+	usbDriverLabel := loc().InstallUSBDriver
 	if runtime.GOOS == "windows" {
-		usbDriverLabel = "Get USB/IP Driver"
+		usbDriverLabel = loc().GetUSBIPDriver
 	}
 	w.usbDriverBtn = newIconActionButton(usbDriverLabel, assets.GitHubIcon, func() {
 		if runtime.GOOS == "windows" {
@@ -910,7 +928,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}()
 	})
 	w.usbDriverBtn.Tiny = true
-	usbDriverTitle := canvas.NewText("USB Passthrough Driver", design.ColorSectionTitle)
+	usbDriverTitle := canvas.NewText(loc().USBPassthrough, design.ColorSectionTitle)
+	w.usbDriverLang = usbDriverTitle
 	usbDriverTitle.TextSize = 11
 	w.usbDriverRow = newStatusRow(usbDriverTitle, w.usbDriverBtn)
 	w.usbDriverRow.Hide()
@@ -942,7 +961,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 	w.moonlightBtn.Tiny = true
 	moonlightDeleteAllBtn := newDangerGlyphButton(func() {
-		showConfirmToast("Remove all paired Moonlight devices?", func(yes bool) {
+		showConfirmToast(loc().RemoveAllMoonlight, func(yes bool) {
 			if !yes || w.token == nil {
 				return
 			}
@@ -967,14 +986,18 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}()
 		}, win)
 	})
-	mlLabel := canvas.NewText("Moonlight Clients", design.ColorSectionTitle)
+	mlLabel := canvas.NewText(loc().MoonlightClients, design.ColorSectionTitle)
+	w.mlClientsLang = mlLabel
 	mlLabel.TextSize = 11
 	moonlightRow := newStatusRow(
 		mlLabel, container.New(&tightHBoxLayout{gap: 4},
 			moonlightAddBtn, w.moonlightBtn, moonlightDeleteAllBtn))
 	permTop = append(permTop, moonlightRow)
 	permContent := newTightVBox(permTop...)
-	permBlock := newPanel(panelIconPermissions, "Permissions", nil, permContent)
+	permBlock := newPanel(panelIconPermissions, loc().Permissions, nil, permContent)
+	if p, ok := permBlock.(*themedPanel); ok {
+		w.permPanel = p
+	}
 
 	// Column 2: Stats & Tailscale
 	sunshinePort := w.cfg.SunshinePort
@@ -983,7 +1006,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 
 	// supportBtn lives in the Protocol card header next to Change.
-	w.supportBtn = newSupportButton("Buy Pro", func() {
+	w.supportBtn = newSupportButton(loc().BuyPro, func() {
 		w.onProtocolBuyClicked(win)
 	})
 
@@ -1003,7 +1026,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 	streamerLabel := newStatusRow(
 		container.New(&tightHBoxLayout{gap: 6},
-			makeStatusLabel("Streamer"), statusDotBox(w.streamerStatusDot),
+			makeStatusLabel(loc().Streamer), statusDotBox(w.streamerStatusDot),
 			w.streamerNameLabel, w.streamerKindLabel),
 		w.rustshineUpdateBtn,
 	)
@@ -1015,7 +1038,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.usbBrokerStatusLabel = makeStatusValue("")
 	w.usbBrokerRow = newStatusRow(
 		container.New(&tightHBoxLayout{gap: 6},
-			makeStatusLabel("USB Broker"), statusDotBox(w.usbBrokerStatusDot),
+			makeStatusLabel(loc().USBBroker), statusDotBox(w.usbBrokerStatusDot),
 			w.usbBrokerStatusLabel),
 		nil,
 	)
@@ -1030,7 +1053,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.showEditHTTPAddrDialog(win, httpVal, httpWarn)
 	})
 	httpRow := newStatusRow(
-		container.New(&tightHBoxLayout{gap: 6}, makeStatusLabel("HTTP"), httpVal, httpWarn),
+		container.New(&tightHBoxLayout{gap: 6}, makeStatusLabel(loc().HTTP), httpVal, httpWarn),
 		httpEditBtn,
 	)
 
@@ -1050,7 +1073,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.showEditSunStreamDialog(win, sunStreamVal, sunStreamWarn, sunWebVal)
 	})
 	sunStreamRow := newStatusRow(
-		container.New(&tightHBoxLayout{gap: 6}, makeStatusLabel("Sunshine"), sunStreamVal, sunStreamWarn),
+		container.New(&tightHBoxLayout{gap: 6}, makeStatusLabel(loc().Sunshine), sunStreamVal, sunStreamWarn),
 		sunStreamEditBtn,
 	)
 
@@ -1065,7 +1088,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.showEditSunPortDialog(win, sunWebVal, sunStreamVal)
 	})
 	w.sunWebSunshineRow = newStatusRow(
-		container.New(&tightHBoxLayout{gap: 6}, makeStatusLabel("Sun web"), sunWebVal),
+		container.New(&tightHBoxLayout{gap: 6}, makeStatusLabel(loc().SunWeb), sunWebVal),
 		container.New(&tightHBoxLayout{gap: 4}, sunWebEyeBtn, sunWebEditBtn),
 	)
 
@@ -1086,18 +1109,21 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 	w.sunWebRustshineRow = newStatusRow(
 		container.New(&tightHBoxLayout{gap: 6},
-			makeStatusLabel("Web"), sunWebLinkVal),
+			makeStatusLabel(loc().Web), sunWebLinkVal),
 		container.New(&tightHBoxLayout{gap: 4}, sunWebLinkInfoBtn, sunWebLinkCopyBtn),
 	)
 	w.sunWebRustshineRow.Hide()
 
-	statsBlock := newPanel(osHeaderIcon(), "Status", w.streamerVersionLabel, container.New(&tightVBoxLayout{gap: 4},
+	statsBlock := newPanel(osHeaderIcon(), loc().Status, w.streamerVersionLabel, container.New(&tightVBoxLayout{gap: 4},
 		streamerLabel, w.usbBrokerRow, httpRow, sunStreamRow, w.sunWebSunshineRow, w.sunWebRustshineRow))
+	if p, ok := statsBlock.(*themedPanel); ok {
+		w.statusPanel = p
+	}
 
 	w.tsMeta = newTSMetaBlock()
 	w.tsPeers = container.New(&tightVBoxLayout{gap: 8})
 	w.tsPeers.Hide()
-	w.tsEmpty = canvas.NewText("No active remote controllers", design.ColorEmptyHint)
+	w.tsEmpty = canvas.NewText(loc().NoRemoteControllers, design.ColorEmptyHint)
 	w.tsEmpty.TextSize = 9
 	w.tsEmpty.Alignment = fyne.TextAlignCenter
 	wellFloor := canvas.NewRectangle(color.Transparent)
@@ -1113,7 +1139,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// produces a fresh AuthURL, no matter what triggered it. This button only
 	// sets awaitingLocalLogin so the handler knows THIS particular AuthURL was
 	// asked for locally, and nudges the login so one actually gets generated.
-	w.tsAuthBtn = newCardHeaderButton("Sign In", headerLoginIcon, func() {
+	w.tsAuthBtn = newCardHeaderButton(loc().SignIn, headerLoginIcon, func() {
 		w.toggleTailscaleAuth()
 	})
 
@@ -1129,7 +1155,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			parsed, parseErr := url.Parse(strings.TrimSpace(authURL))
 			if parseErr != nil {
 				logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
-				fyne.Do(func() { w.setTailscaleInfo("invalid login URL received", "", "") })
+				fyne.Do(func() { w.setTailscaleInfo(loc().InvalidLoginURL, "", "") })
 				return
 			}
 			logrus.Infof("tailscale ui: captured auth URL: %s", parsed.String())
@@ -1137,7 +1163,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 				if w.app != nil {
 					_ = w.app.OpenURL(parsed)
 				}
-				w.setTailscaleInfo("login link opened in browser", "", "")
+				w.setTailscaleInfo(loc().LoginLinkOpened, "", "")
 			})
 		})
 	}
@@ -1172,8 +1198,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}()
 
 	bg := canvas.NewRectangle(design.ColorPanel)
-	w.protocolBusy = newFooterBusyHint("Changing protocol...")
-	w.themeBtn = newFooterTextButton("Theme", func() { w.showThemeMenu(w.themeBtn) })
+	w.protocolBusy = newFooterBusyHint(loc().ChangingProtocol)
+	w.themeBtn = newFooterTextButton(loc().Theme, func() { w.showThemeMenu(w.themeBtn) })
 	footer := newAppFooter(appVersion, w.protocolBusy, w.themeBtn)
 	body := container.NewBorder(header, footer, nil, nil, newExactInset(content, 16, 16, 8, 8))
 	win.SetContent(container.NewStack(bg, body))
@@ -1234,8 +1260,8 @@ func (w *Window) promptForUpdate(parent fyne.Window) {
 
 	fyne.Do(func() {
 		d := dialog.NewConfirm(
-			"Update Available",
-			fmt.Sprintf("USBridge Agent %s is available (you have %s). Update now?", manifest.Version, appVersion),
+			loc().UpdateAvailable,
+			fmt.Sprintf(loc().UpdateAvailableBody, manifest.Version, appVersion),
 			func(confirmed bool) {
 				if !confirmed {
 					logrus.WithField("component", "update").Info("update declined by user")
@@ -1259,8 +1285,8 @@ func (w *Window) promptForUpdate(parent fyne.Window) {
 			},
 			parent,
 		)
-		d.SetConfirmText("Update")
-		d.SetDismissText("Not Now")
+		d.SetConfirmText(loc().Update)
+		d.SetDismissText(loc().NotNow)
 		d.Show()
 	})
 }
@@ -1277,10 +1303,10 @@ func showUpdateProgressDialog(parent fyne.Window, version string) *updateProgres
 	up := &updateProgress{bar: widget.NewProgressBar()}
 	fyne.Do(func() {
 		content := container.NewVBox(
-			widget.NewLabel(fmt.Sprintf("Downloading version %s…", version)),
+			widget.NewLabel(fmt.Sprintf(loc().DownloadingVersion, version)),
 			up.bar,
 		)
-		up.dialog = dialog.NewCustomWithoutButtons("Updating…", content, parent)
+		up.dialog = dialog.NewCustomWithoutButtons(loc().Updating, content, parent)
 		up.dialog.Resize(fyne.NewSize(360, 120))
 		up.dialog.Show()
 	})
@@ -1357,12 +1383,12 @@ func (w *Window) refreshSupportButton(st entitlement.Status) {
 	needsBuy := protocolNeedsPurchase(w.protocolPick, st, acc)
 	switch {
 	case needsBuy && w.protocolPick == protocolEnterprise:
-		w.supportBtn.SetText("Buy Enterprise")
+		w.supportBtn.SetText(loc().BuyEnterprise)
 		w.supportBtn.Show()
 	case paid != "":
 		w.supportBtn.Hide()
 	default:
-		w.supportBtn.SetText("Buy Pro")
+		w.supportBtn.SetText(loc().BuyPro)
 		w.supportBtn.Show()
 	}
 	pending := needsBuy && !st.LinkInProgress && !st.DownloadInProgress &&
@@ -1391,7 +1417,6 @@ func (w *Window) refreshTierBadge(st entitlement.Status) {
 	w.headerLine.Refresh()
 }
 
-const languagePrefKey = "language"
 const chromeThemePrefKey = "chrome_theme"
 
 func chromePinFromPref(s string) string {
@@ -1475,7 +1500,7 @@ func (w *Window) showThemeMenu(anchor fyne.CanvasObject) {
 	pin := chromePinned()
 	proOK := w.chromeProAllowed()
 	showStyledTealMenuAbove(anchor, []styledMenuItem{
-		{Label: "Default", Selected: pin == "", OnTap: func() { w.saveChromePin("") }},
+		{Label: loc().ThemeDefault, Selected: pin == "", OnTap: func() { w.saveChromePin("") }},
 		{Label: "White", Selected: pin == protocolOpensource, OnTap: func() { w.saveChromePin(protocolOpensource) }},
 		{Label: "Blue", Selected: pin == protocolFree, OnTap: func() { w.saveChromePin(protocolFree) }},
 		{Label: "Pro", Selected: pin == protocolPro, Disabled: !proOK, OnTap: func() { w.saveChromePin(protocolPro) }},
@@ -1487,8 +1512,8 @@ func (w *Window) showSettingsMenu(win fyne.Window, anchor fyne.CanvasObject) {
 		return
 	}
 	showStyledTealMenu(anchor, []styledMenuItem{
-		{Label: "Language", Icon: assets.LanguageIconTeal, OnTap: func() { w.showLanguageMenu(anchor) }},
-		{Label: "Info", Icon: assets.InfoIconTeal, OnTap: func() { w.showInfoMenu(anchor) }},
+		{Label: loc().Language, Icon: assets.LanguageIconTeal, OnTap: func() { w.showLanguageMenu(anchor) }},
+		{Label: loc().Info, Icon: assets.InfoIconTeal, OnTap: func() { w.showInfoMenu(anchor) }},
 	})
 }
 
@@ -1497,13 +1522,13 @@ func (w *Window) showInfoMenu(anchor fyne.CanvasObject) {
 		return
 	}
 	showStyledTealMenu(anchor, []styledMenuItem{
-		{Label: "Software", Icon: assets.GitHubIconTeal, OnTap: func() {
+		{Label: loc().Software, Icon: assets.GitHubIconTeal, OnTap: func() {
 			w.openExternalLink("https://github.com/USBridge-Technologies/USBridge-Remote")
 		}},
-		{Label: "Hardware", Icon: assets.GitHubIconTeal, OnTap: func() {
+		{Label: loc().Hardware, Icon: assets.GitHubIconTeal, OnTap: func() {
 			w.openExternalLink("https://github.com/USBridge-Technologies/USBridge-KVM-2.0/tree/main/docs")
 		}},
-		{Label: "Website", Icon: assets.OpenExternalIconTeal, OnTap: func() {
+		{Label: loc().Website, Icon: assets.OpenExternalIconTeal, OnTap: func() {
 			w.openExternalLink("https://www.usbridge.io/")
 		}},
 	})
@@ -1526,18 +1551,95 @@ func (w *Window) showLanguageMenu(anchor fyne.CanvasObject) {
 	}
 	current := "en"
 	if w.app != nil {
-		current = w.app.Preferences().StringWithFallback(languagePrefKey, "en")
+		current = w.app.Preferences().StringWithFallback(i18n.LanguagePrefKey, "en")
 	}
 	setLang := func(code string) {
 		if w.app != nil {
-			w.app.Preferences().SetString(languagePrefKey, code)
+			w.app.Preferences().SetString(i18n.LanguagePrefKey, code)
 		}
+		i18n.SetLanguage(code)
+		w.applyLanguage()
 	}
 	showStyledTealMenu(anchor, []styledMenuItem{
 		{Label: "English", Selected: current == "en", OnTap: func() { setLang("en") }},
 		{Label: "Español", Selected: current == "es", OnTap: func() { setLang("es") }},
 		{Label: "Українська", Selected: current == "uk" || current == "ua", OnTap: func() { setLang("uk") }},
 	})
+}
+
+func (w *Window) applyLanguage() {
+	c := loc()
+	if w.guiWin != nil {
+		w.guiWin.SetTitle(c.AppTitle)
+	}
+	access := c.Accessibility
+	if runtime.GOOS == "linux" {
+		access = c.InputControl
+	}
+	w.accessCheck.SetBaseLabel(access)
+	w.screenCaptureCheck.SetBaseLabel(c.ScreenCapture)
+	if w.autostartLang != nil {
+		w.autostartLang.SetLabel(c.AutostartAtBoot)
+	}
+	if w.gpuClockLang != nil {
+		w.gpuClockLang.SetLabel(c.LockGPUClocks)
+	}
+	if w.rustshineWebRTCRow != nil {
+		w.rustshineWebRTCRow.SetLabel(c.WebRTCToggle)
+	}
+	if w.mlClientsLang != nil {
+		w.mlClientsLang.Text = c.MoonlightClients
+		w.mlClientsLang.Refresh()
+	}
+	if w.usbDriverLang != nil {
+		w.usbDriverLang.Text = c.USBPassthrough
+		w.usbDriverLang.Refresh()
+	}
+	if w.usbDriverBtn != nil {
+		label := c.InstallUSBDriver
+		if runtime.GOOS == "windows" {
+			label = c.GetUSBIPDriver
+		}
+		w.usbDriverBtn.SetText(label)
+	}
+	if w.clipboardToolBtn != nil {
+		w.clipboardToolBtn.SetText(c.Install)
+	}
+	if w.clipboardLang != nil {
+		w.clipboardLang.SetText(c.ClipboardTool)
+	}
+	if w.tsEmpty != nil {
+		w.tsEmpty.Text = c.NoRemoteControllers
+		w.tsEmpty.Refresh()
+	}
+	if w.themeBtn != nil {
+		w.themeBtn.SetText(c.Theme)
+	}
+	if w.protocolChange != nil {
+		w.protocolChange.SetContent(c.Change, headerChangeIcon)
+	}
+	if w.permPanel != nil {
+		w.permPanel.SetTitle(c.Permissions)
+	}
+	if w.statusPanel != nil {
+		w.statusPanel.SetTitle(c.Status)
+	}
+	if w.protocolPanel != nil {
+		w.protocolPanel.SetTitle(c.Protocol)
+	}
+	if w.token != nil {
+		w.refreshSupportButton(w.token.EntitlementStatus())
+	}
+	if w.tsAuthBtn != nil {
+		if w.tsAuthBtn.logout {
+			w.tsAuthBtn.SetContent(c.SignOut, headerLogoutIcon)
+		} else {
+			w.tsAuthBtn.SetContent(c.SignIn, headerLoginIcon)
+		}
+	}
+	if w.tray != nil {
+		w.tray.applyLanguage()
+	}
 }
 
 // The four global licenses (see usbridge-entitlement-backend's
@@ -1602,7 +1704,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 		}
 	}
 
-	titleLabel := newDialogTitle("USBRIDGE STREAMER — FASTER STREAMING")
+	titleLabel := newDialogTitle(loc().LicenseDialogTitle)
 	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() { closeDialog() })
 	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
 
@@ -1638,7 +1740,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 
 		switch {
 		case st.LinkInProgress:
-			body.Add(widget.NewLabel("Waiting for checkout to complete in your browser…"))
+			body.Add(widget.NewLabel(loc().WaitingCheckout))
 			body.Add(widget.NewProgressBarInfinite())
 			// Previously there was no way out of this screen short of an
 			// actual completed purchase or pollForLicenseTimeout (15
@@ -1648,7 +1750,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			// A closed checkout tab with nothing bought had no way back to
 			// the trial/buy buttons at all. CancelPurchase abandons the
 			// background poll and clears LinkInProgress.
-			cancelBtn := widget.NewButton("Cancel", func() {
+			cancelBtn := widget.NewButton(loc().Cancel, func() {
 				go func() {
 					w.token.CancelPurchase()
 					fyne.Do(func() { render(w.token.EntitlementStatus()) })
@@ -1658,7 +1760,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			body.Add(container.NewCenter(cancelBtn))
 
 		case st.DownloadInProgress:
-			body.Add(widget.NewLabel("Downloading USBridge Streamer…"))
+			body.Add(widget.NewLabel(loc().DownloadingStreamer))
 			pb := widget.NewProgressBar()
 			if st.Progress >= 0 {
 				pb.SetValue(st.Progress)
@@ -1671,7 +1773,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			// recheckEntitlement), or if this machine's hardware id can't
 			// be determined at all -- there is no more manual "start
 			// trial"/"buy" step to wait on before showing something real.
-			body.Add(widget.NewLabel("Setting up…"))
+			body.Add(widget.NewLabel(loc().SettingUp))
 			body.Add(widget.NewProgressBarInfinite())
 			if st.LastError != "" {
 				errText := canvas.NewText(st.LastError, design.ColorTextMuted)
@@ -1686,18 +1788,18 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			// landed; the check at the top of render switches to it
 			// automatically the instant RustShineStaged flips true, no
 			// button needed.
-			body.Add(widget.NewRichTextFromMarkdown(fmt.Sprintf("**%s active** 🎉\n\nDownloading RustShine…", tierDisplayName(pendingTierSwitch))))
+			body.Add(widget.NewRichTextFromMarkdown(fmt.Sprintf(loc().TierActiveDownloading, tierDisplayName(pendingTierSwitch))))
 			body.Add(widget.NewProgressBarInfinite())
 
 		default:
 			var headline string
 			switch st.Tier {
 			case "pro":
-				headline = "**RustShine Pro active** — 4:4:4 color unlocked 🎉"
+				headline = loc().RustShineProActive
 			case "enterprise":
-				headline = "**RustShine Enterprise active** 🎉"
+				headline = loc().RustShineEnterpriseActive
 			default:
-				headline = "Pick a license below."
+				headline = loc().PickLicenseBelow
 			}
 			body.Add(widget.NewRichTextFromMarkdown(headline))
 
@@ -1716,13 +1818,13 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			// be completed manually.
 			if checkoutURLFallback != "" {
 				linkURI, _ := url.Parse(checkoutURLFallback)
-				fallback := widget.NewLabel("Couldn't open your browser automatically. Checkout link:")
+				fallback := widget.NewLabel(loc().CouldntOpenBrowserCheckout)
 				fallback.Wrapping = fyne.TextWrapWord
 				body.Add(fallback)
 				if linkURI != nil {
 					link := widget.NewHyperlink(checkoutURLFallback, linkURI)
 					link.Wrapping = fyne.TextWrapBreak
-					copyBtn := newIconActionButton("Copy", theme.ContentCopyIcon(), func() {
+					copyBtn := newIconActionButton(loc().Copy, theme.ContentCopyIcon(), func() {
 						parent.Clipboard().SetContent(checkoutURLFallback)
 					})
 					body.Add(container.NewBorder(nil, nil, nil, copyBtn, link))
@@ -1788,13 +1890,9 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 					switchToRustShine()
 					return
 				}
-				dialog.NewConfirm(
-					fmt.Sprintf("Subscribe to %s?", tierDisplayName(tier)),
-					fmt.Sprintf(
-						"Opens Stripe checkout in your browser for the %s subscription. "+
-							"Once payment completes, RustShine downloads and switches on automatically.",
-						tierDisplayName(tier),
-					),
+				d := dialog.NewConfirm(
+					fmt.Sprintf(loc().SubscribeTitle, tierDisplayName(tier)),
+					fmt.Sprintf(loc().SubscribeBody, tierDisplayName(tier)),
 					func(confirmed bool) {
 						if !confirmed {
 							render(w.token.EntitlementStatus()) // reset the radio's visual selection back to what's actually active
@@ -1824,7 +1922,10 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 						}()
 					},
 					parent,
-				).Show()
+				)
+				d.SetConfirmText(loc().Yes)
+				d.SetDismissText(loc().No)
+				d.Show()
 			}
 
 			radio := widget.NewRadioGroup(options, nil)
@@ -1854,16 +1955,16 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			// not here -- it's useful to reach without opening this dialog.
 
 			if st.Tier == "pro" || st.Tier == "enterprise" {
-				note := widget.NewLabel("Picking a lower tier above only switches the active encoder locally -- it doesn't cancel your subscription. Contact support to cancel or change plans.")
+				note := widget.NewLabel(loc().LowerTierNote)
 				note.Wrapping = fyne.TextWrapWord
 				note.TextStyle.Italic = true
 				body.Add(note)
 			}
 
-			clearBtn := widget.NewButton("Forget this machine's license locally", func() {
-				dialog.NewConfirm(
-					"Forget license?",
-					"Switches back to Sunshine and forgets the cached license token on this machine only -- it does NOT cancel a paid subscription. Re-opening this dialog immediately re-links to your account's real tier (free, or paid if still active).",
+			clearBtn := widget.NewButton(loc().ForgetLicenseLocally, func() {
+				d := dialog.NewConfirm(
+					loc().ForgetLicenseTitle,
+					loc().ForgetLicenseBody,
 					func(confirmed bool) {
 						if !confirmed {
 							return
@@ -1874,7 +1975,10 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 						}()
 					},
 					parent,
-				).Show()
+				)
+				d.SetConfirmText(loc().Yes)
+				d.SetDismissText(loc().No)
+				d.Show()
 			})
 			clearBtn.Importance = widget.LowImportance
 			body.Add(container.NewCenter(clearBtn))
@@ -1901,9 +2005,9 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 
 		switch {
 		case acc.LoginInProgress:
-			accountBody.Add(widget.NewLabel("Waiting for Google login to complete in your browser…"))
+			accountBody.Add(widget.NewLabel(loc().WaitingGoogleLogin))
 			accountBody.Add(widget.NewProgressBarInfinite())
-			cancelBtn := widget.NewButton("Cancel", func() {
+			cancelBtn := widget.NewButton(loc().Cancel, func() {
 				w.token.CancelAccountLogin()
 				fyne.Do(func() { renderAccount(w.token.AccountStatus()) })
 			})
@@ -1911,7 +2015,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			accountBody.Add(container.NewCenter(cancelBtn))
 			if accountLoginURLFallback != "" {
 				linkURI, _ := url.Parse(accountLoginURLFallback)
-				fallback := widget.NewLabel("Couldn't open your browser automatically. Login link:")
+				fallback := widget.NewLabel(loc().CouldntOpenBrowserLogin)
 				fallback.Wrapping = fyne.TextWrapWord
 				accountBody.Add(fallback)
 				if linkURI != nil {
@@ -1922,19 +2026,19 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			}
 
 		case acc.LoggedIn:
-			accountBody.Add(widget.NewLabel(fmt.Sprintf("Signed in as %s", acc.Email)))
+			accountBody.Add(widget.NewLabel(fmt.Sprintf("%s %s", loc().SignedInAs, acc.Email)))
 			if acc.LastError != "" {
 				errText := canvas.NewText(acc.LastError, design.ColorTextMuted)
 				errText.TextStyle.Italic = true
 				accountBody.Add(errText)
 			}
 			if len(acc.Licenses) == 0 {
-				accountBody.Add(widget.NewLabel("No desktop licenses on this account yet."))
+				accountBody.Add(widget.NewLabel(loc().NoDesktopLicenses))
 			}
 			for _, lic := range acc.Licenses {
 				lic := lic
 				row := widget.NewLabel(fmt.Sprintf("%s — %s", lic.Identifier, lic.Status))
-				useBtn := widget.NewButton("Use this license on this device", func() {
+				useBtn := widget.NewButton(loc().UseLicenseOnDevice, func() {
 					go func() {
 						_ = w.token.RebindLicenseToThisDevice(lic.Identifier)
 						fyne.Do(func() {
@@ -1949,7 +2053,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 				}
 				accountBody.Add(container.NewBorder(nil, nil, nil, useBtn, row))
 			}
-			logoutBtn := widget.NewButton("Log out", func() {
+			logoutBtn := widget.NewButton(loc().LogOut, func() {
 				go func() {
 					_ = w.token.LogoutAccount()
 					fyne.Do(func() { renderAccount(w.token.AccountStatus()) })
@@ -1959,7 +2063,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			accountBody.Add(container.NewCenter(logoutBtn))
 
 		default:
-			intro := widget.NewLabel("Already bought a license on another machine? Log in to move it here.")
+			intro := widget.NewLabel(loc().AlreadyBoughtIntro)
 			intro.Wrapping = fyne.TextWrapWord
 			accountBody.Add(intro)
 			if acc.LastError != "" {
@@ -1967,7 +2071,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 				errText.TextStyle.Italic = true
 				accountBody.Add(errText)
 			}
-			loginBtn := widget.NewButton("Log in with Google account", func() {
+			loginBtn := widget.NewButton(loc().LogInWithGoogle, func() {
 				accountLoginURLFallback = ""
 				go func() {
 					loginURL, err := w.token.StartAccountLogin()
@@ -2099,14 +2203,14 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 		return
 	}
 	if w.ts == nil || status == nil {
-		w.setTailscaleInfo("unavailable", "unavailable", "unavailable")
+		w.setTailscaleInfo(loc().TokenUnavail, loc().TokenUnavail, loc().TokenUnavail)
 		w.setTailscaleSessions(nil)
 		w.setTailscaleLoggedIn(false)
 		return
 	}
 
 	if !status.LoggedIn {
-		w.setTailscaleInfo("signed out", "sign in required", "sign in to publish this agent")
+		w.setTailscaleInfo(loc().SignedOut, loc().SignInRequired, loc().SignInToPublish)
 		w.setTailscaleSessions(nil)
 		w.setTailscaleLoggedIn(false)
 		return
@@ -2122,7 +2226,7 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 
 	w.setTailscaleInfo(
 		strings.ToLower(status.Backend),
-		fallbackValue(status.Self.UserLogin, "connected"),
+		fallbackValue(status.Self.UserLogin, loc().Connected),
 		fmt.Sprintf("%s (embedded)", endpoint),
 	)
 	w.setTailscaleLoggedIn(true)
@@ -2136,13 +2240,13 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 		peer := tsActivePeer{
 			name: fallbackValue(p.UserLogin, p.HostName),
 			ip4:  p.IP4,
-			kind: "Relay (DERP)",
+			kind: loc().RelayDERP,
 		}
 		if p.CurAddr != "" {
 			peer.kind = "P2P DIRECT"
 			peer.via = p.CurAddr
 		} else if p.Relay != "" {
-			peer.kind = fmt.Sprintf("Relay (DERP %s)", p.Relay)
+			peer.kind = fmt.Sprintf(loc().RelayDERPFmt, p.Relay)
 		}
 		activePeers = append(activePeers, peer)
 	}
@@ -2218,9 +2322,9 @@ func (w *Window) setTailscaleLoggedIn(on bool) {
 	if w.tsAuthBtn != nil {
 		w.tsAuthBtn.logout = on
 		if on {
-			w.tsAuthBtn.SetContent("Sign Out", headerLogoutIcon)
+			w.tsAuthBtn.SetContent(loc().SignOut, headerLogoutIcon)
 		} else {
-			w.tsAuthBtn.SetContent("Sign In", headerLoginIcon)
+			w.tsAuthBtn.SetContent(loc().SignIn, headerLoginIcon)
 		}
 	}
 	if w.tsToggle != nil {
@@ -2246,7 +2350,7 @@ func (w *Window) setTailscaleBusy(busy bool) {
 // it starts the Google login flow (same as the original tsAuthBtn handler).
 func (w *Window) toggleTailscaleAuth() {
 	if w.ts == nil {
-		w.setTailscaleInfo("service unavailable", "", "")
+		w.setTailscaleInfo(loc().ServiceUnavailable, "", "")
 		return
 	}
 
@@ -2261,7 +2365,7 @@ func (w *Window) toggleTailscaleAuth() {
 		if statusErr == nil && status != nil && status.LoggedIn {
 			if err := w.ts.Logout(ctx); err != nil {
 				fyne.Do(func() {
-					w.setTailscaleInfo(fmt.Sprintf("logout error: %v", err), "", "")
+					w.setTailscaleInfo(fmt.Sprintf(loc().LogoutError, err), "", "")
 				})
 			}
 			w.performRefresh()
@@ -2270,11 +2374,11 @@ func (w *Window) toggleTailscaleAuth() {
 		if !w.awaitingLocalLogin.CompareAndSwap(false, true) {
 			return
 		}
-		fyne.Do(func() { w.setTailscaleInfo("starting login flow...", "", "") })
+		fyne.Do(func() { w.setTailscaleInfo(loc().StartingLogin, "", "") })
 		authURL, err := w.ts.StartLogin(ctx)
 		if err != nil {
 			w.awaitingLocalLogin.Store(false)
-			fyne.Do(func() { w.setTailscaleInfo(fmt.Sprintf("error: %v", err), "", "") })
+			fyne.Do(func() { w.setTailscaleInfo(fmt.Sprintf(loc().ErrorFmt, err), "", "") })
 			return
 		}
 		// Open directly from StartLogin's own return value instead of waiting
@@ -2293,14 +2397,14 @@ func (w *Window) toggleTailscaleAuth() {
 			parsed, parseErr := url.Parse(strings.TrimSpace(authURL))
 			if parseErr != nil {
 				logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
-				fyne.Do(func() { w.setTailscaleInfo("invalid login URL received", "", "") })
+				fyne.Do(func() { w.setTailscaleInfo(loc().InvalidLoginURL, "", "") })
 				return
 			}
 			fyne.Do(func() {
 				if w.app != nil {
 					_ = w.app.OpenURL(parsed)
 				}
-				w.setTailscaleInfo("login link opened in browser", "", "")
+				w.setTailscaleInfo(loc().LoginLinkOpened, "", "")
 			})
 		}
 	}()
@@ -2361,7 +2465,7 @@ func newTSMetaBlock() *tsMetaBlock {
 		addressValue:  addressValue,
 		addressSuffix: addressSuffix,
 	}
-	b.Set("", "not connected", "unavailable")
+	b.Set("", loc().NotConnected, loc().TokenUnavail)
 	return b
 }
 
@@ -2893,6 +2997,7 @@ func newPanelHeader(icon fyne.Resource, title string, afterTitle, headerRight fy
 		body:     body,
 		icon:     iconImg,
 		iconBase: icon,
+		title:    titleText,
 	}
 	p.stack = container.NewStack(bg, body)
 	p.ExtendBaseWidget(p)

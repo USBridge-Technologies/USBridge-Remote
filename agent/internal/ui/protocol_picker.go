@@ -196,7 +196,7 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 		rows = append(rows, container.New(&flushEndsLayout{}, row, info))
 	}
 
-	w.protocolChange = newCardHeaderButton("Change", headerChangeIcon, func() {
+	w.protocolChange = newCardHeaderButton(loc().Change, headerChangeIcon, func() {
 		w.applySelectedProtocol(parent)
 	})
 	w.refreshProtocolPickerVisuals(st.LinkInProgress || st.DownloadInProgress)
@@ -207,7 +207,11 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 	}
 	headerBits = append(headerBits, w.protocolChange)
 	headerBtns := container.New(&tightHBoxLayout{gap: 4}, headerBits...)
-	return newPanel(panelIconProtocol, "Protocol", headerBtns, container.New(&tightVBoxLayout{gap: 4}, rows...))
+	panel := newPanel(panelIconProtocol, loc().Protocol, headerBtns, container.New(&tightVBoxLayout{gap: 4}, rows...))
+	if p, ok := panel.(*themedPanel); ok {
+		w.protocolPanel = p
+	}
+	return panel
 }
 
 func (w *Window) protocolStatus() (entitlement.Status, account.Status) {
@@ -380,13 +384,9 @@ func (w *Window) requestPaidTier(parent fyne.Window, st entitlement.Status, tier
 		fyne.Do(done)
 		return
 	}
-	dialog.NewConfirm(
-		fmt.Sprintf("Subscribe to %s?", tierDisplayName(tier)),
-		fmt.Sprintf(
-			"Opens Stripe checkout in your browser for the %s subscription. "+
-				"Once payment completes, RustShine downloads and switches on automatically.",
-			tierDisplayName(tier),
-		),
+	d := dialog.NewConfirm(
+		fmt.Sprintf(loc().SubscribeTitle, tierDisplayName(tier)),
+		fmt.Sprintf(loc().SubscribeBody, tierDisplayName(tier)),
 		func(confirmed bool) {
 			if !confirmed {
 				w.protocolPick = w.protocolApplied
@@ -407,15 +407,18 @@ func (w *Window) requestPaidTier(parent fyne.Window, st entitlement.Status, tier
 				}
 				fyne.Do(func() {
 					if openErr != nil {
-						dialog.ShowInformation("Checkout",
-							"Couldn't open your browser automatically.\n"+checkoutURL, parent)
+						dialog.ShowInformation(loc().CheckoutTitle,
+							loc().CouldntOpenBrowserBuy+"\n"+checkoutURL, parent)
 					}
 					done()
 				})
 			}()
 		},
 		parent,
-	).Show()
+	)
+	d.SetConfirmText(loc().Yes)
+	d.SetDismissText(loc().No)
+	d.Show()
 }
 
 func (w *Window) applyAccountLicense(identifier, tier string, done func()) {

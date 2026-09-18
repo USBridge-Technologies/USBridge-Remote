@@ -1048,6 +1048,20 @@ var DeviceDashboardAccentLime = color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
 // for a header button's own hover fill.
 var deviceDashboardAccentLimeHover = color.NRGBA{R: 0xd9, G: 0xf2, B: 0xa3, A: 0xff}
 
+// DeviceDashboardAccentTeal is the turquoise HID/Video/Audio cards share
+// (#41e0c3, design.ColorConnectionBadgeText) -- Video's "+ Add" header
+// button uses this instead of lime so it matches the card's own icon.
+var DeviceDashboardAccentTeal = color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0xff}
+
+var deviceDashboardAccentTealHover = color.NRGBA{R: 0x6e, G: 0xeb, B: 0xd4, A: 0xff}
+
+var deviceDashboardHeaderButtonTealBusyFill = color.NRGBA{R: 0x2a, G: 0x8a, B: 0x7a, A: 0xff}
+
+// DeviceDashboardHeaderButtonTealTextColor is the dark teal label/plus
+// color on DeviceDashboardAccentTeal -- same role as
+// DeviceDashboardHeaderButtonTextColor on lime.
+var DeviceDashboardHeaderButtonTealTextColor = color.NRGBA{R: 0x0a, G: 0x3a, B: 0x34, A: 0xff}
+
 // DeviceDashboardFolderIconActive/DiscIconActive/SDCardIconActive recolor
 // the shared assets.FolderIconActive/DiscIconActive/SDCardIconActive
 // (#93C572, design.ColorAccent's green) to this card's own lime accent
@@ -1220,18 +1234,32 @@ func (b *DeviceDashboardHeaderButton) MouseOut() {
 	}
 }
 
+func deviceDashboardHeaderButtonPalette(accent color.Color) (hover, busy, text color.Color) {
+	if nrgbaEq(accent, DeviceDashboardAccentTeal) {
+		return deviceDashboardAccentTealHover, deviceDashboardHeaderButtonTealBusyFill, DeviceDashboardHeaderButtonTealTextColor
+	}
+	return deviceDashboardAccentLimeHover, deviceDashboardHeaderButtonBusyFill, DeviceDashboardHeaderButtonTextColor
+}
+
+func nrgbaEq(a, b color.Color) bool {
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
+}
+
 func (b *DeviceDashboardHeaderButton) refreshVisuals() {
 	if b.bg == nil {
 		return
 	}
+	hover, busy, _ := deviceDashboardHeaderButtonPalette(b.accent)
 	fill := b.accent
 	switch {
 	case b.disabled:
-		fill = deviceDashboardHeaderButtonBusyFill
+		fill = busy
 	case b.busy:
-		fill = deviceDashboardHeaderButtonBusyFill
+		fill = busy
 	case b.hovered:
-		fill = deviceDashboardAccentLimeHover
+		fill = hover
 	}
 	b.bg.FillColor = fill
 	b.bg.Refresh()
@@ -1241,7 +1269,8 @@ func (b *DeviceDashboardHeaderButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg = canvas.NewRectangle(b.accent)
 	b.bg.CornerRadius = 6
 
-	label := canvas.NewText(b.text, DeviceDashboardHeaderButtonTextColor)
+	_, _, textCol := deviceDashboardHeaderButtonPalette(b.accent)
+	label := canvas.NewText(b.text, textCol)
 	label.TextSize = 10
 
 	var row fyne.CanvasObject = label

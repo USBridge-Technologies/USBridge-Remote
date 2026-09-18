@@ -71,7 +71,7 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		}()
 	}
 
-	openBtn := newDialogCTA("Open in Browser", func() {
+	openBtn := newDialogCTA(loc().OpenInBrowser, func() {
 		if parsed, err := url.Parse(sunshineURL); err == nil && w.app != nil {
 			_ = w.app.OpenURL(parsed)
 		}
@@ -83,7 +83,7 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		passRow,
 	)
 	footer := container.NewCenter(openBtn)
-	panel := newBrandedDialogPanelInsets("Sunshine Web UI", statusDialogWidth, 20, 10, body, footer, closeDialog)
+	panel := newBrandedDialogPanelInsets(loc().SunshineWebUI, statusDialogWidth, 20, 10, body, footer, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 }
 
@@ -101,12 +101,12 @@ func (w *Window) showWebClientInfoDialog(parent fyne.Window) {
 		}
 	}
 
-	hint := widget.NewLabel("Open this link in a browser on any device to stream via USBridge-streamer's built-in WebRTC client — no Moonlight app needed. Uses the same pairing/master key as everything else in this agent.")
+	hint := widget.NewLabel(loc().WebClientHint)
 	hint.Wrapping = fyne.TextWrapWord
 	hint.Alignment = fyne.TextAlignLeading
 
 	urlRow := newDialogCopyRow("URL", rustshineWebURL, dialogFormLabelWidth("URL"), func() string { return rustshineWebURL }, parent)
-	openBtn := newDialogCTA("Open in Browser", func() {
+	openBtn := newDialogCTA(loc().OpenInBrowser, func() {
 		if parsed, err := url.Parse(rustshineWebURL); err == nil && w.app != nil {
 			_ = w.app.OpenURL(parsed)
 		}
@@ -117,7 +117,7 @@ func (w *Window) showWebClientInfoDialog(parent fyne.Window) {
 		urlRow,
 	)
 	footer := container.NewCenter(openBtn)
-	panel := newBrandedDialogPanelInsets("Web Client", statusDialogWidth, 20, 10, body, footer, closeDialog)
+	panel := newBrandedDialogPanelInsets(loc().WebClient, statusDialogWidth, 20, 10, body, footer, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 }
 
@@ -168,7 +168,7 @@ func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *canvas
 		}
 		streamPort, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
 		if err != nil || streamPort < 1 || streamPort > 65534 {
-			setDialogError(errLabel, "Invalid port (1–65534)")
+			setDialogError(errLabel, loc().InvalidPortWide)
 			return
 		}
 		setDialogError(errLabel, "")
@@ -201,10 +201,10 @@ func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *canvas
 			})
 		}()
 	}
-	saveBtn = newDialogCTA("Save", runSave)
+	saveBtn = newDialogCTA(loc().Save, runSave)
 	portEntry.OnSubmitted = func(string) { runSave() }
 
-	note := dialogNoteText("Sets external_ip + port in sunshine.conf · restarts Sunshine")
+	note := dialogNoteText(loc().SetsExternalIP)
 	labelW := dialogFormLabelWidth("IP", "Port")
 	body := container.New(&tightVBoxLayout{gap: 8},
 		newDialogFormRow("IP", labelW, hostDrop),
@@ -213,7 +213,7 @@ func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *canvas
 		errLabel,
 	)
 	footer := container.NewCenter(saveBtn)
-	panel := newBrandedDialogPanelInsets("Sunshine Streaming", statusDialogWidth, 20, 10, body, footer, closeDialog)
+	panel := newBrandedDialogPanelInsets(loc().SunshineStreaming, statusDialogWidth, 20, 10, body, footer, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 }
 
@@ -252,7 +252,7 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Tex
 		}
 		port, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
 		if err != nil || port < 1 || port > 65535 {
-			setDialogError(errLabel, "Invalid port (1–65535)")
+			setDialogError(errLabel, loc().InvalidPort)
 			return
 		}
 		setDialogError(errLabel, "")
@@ -283,7 +283,7 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Tex
 			})
 		}()
 	}
-	saveBtn = newDialogCTA("Save", runSave)
+	saveBtn = newDialogCTA(loc().Save, runSave)
 	portEntry.OnSubmitted = func(string) { runSave() }
 
 	labelW := dialogFormLabelWidth("Host", "Port")
@@ -327,7 +327,7 @@ func (w *Window) showEditSunPortDialog(parent fyne.Window, valLabel *canvas.Text
 		}
 		port, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
 		if err != nil || port < 1 || port > 65535 {
-			setDialogError(errLabel, "Invalid port (1–65535)")
+			setDialogError(errLabel, loc().InvalidPort)
 			return
 		}
 		setDialogError(errLabel, "")
@@ -355,10 +355,10 @@ func (w *Window) showEditSunPortDialog(parent fyne.Window, valLabel *canvas.Text
 			})
 		}()
 	}
-	saveBtn = newDialogCTA("Save", runSave)
+	saveBtn = newDialogCTA(loc().Save, runSave)
 	portEntry.OnSubmitted = func(string) { runSave() }
 
-	note := dialogNoteText("Restarts Sunshine to apply")
+	note := dialogNoteText(loc().RestartsSunshine)
 	labelW := dialogFormLabelWidth("Port")
 	body := container.New(&tightVBoxLayout{gap: 8},
 		newDialogFormRow("Port", labelW, wrapDialogFieldCompact(portEntry)),
@@ -366,7 +366,7 @@ func (w *Window) showEditSunPortDialog(parent fyne.Window, valLabel *canvas.Text
 		errLabel,
 	)
 	footer := container.NewCenter(saveBtn)
-	panel := newBrandedDialogPanelInsets("Sunshine Admin Port", statusDialogWidth, 20, 10, body, footer, closeDialog)
+	panel := newBrandedDialogPanelInsets(loc().SunshineAdminPort, statusDialogWidth, 20, 10, body, footer, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 }
 

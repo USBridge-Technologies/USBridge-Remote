@@ -34,7 +34,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	linkEntry := newReadOnlyEntry()
 	linkField := wrapTokenTextField(linkEntry)
 
-	copyLinkBtn := newIconActionButton("Copy Link", theme.ContentCopyIcon(), func() {
+	copyLinkBtn := newIconActionButton(loc().CopyLink, theme.ContentCopyIcon(), func() {
 		masterKey := strings.TrimSpace(w.cfg.MasterKey)
 		internalHost, tailscaleHost, protocol := w.quickConnectTargets()
 		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol)
@@ -44,7 +44,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	})
 	copyLinkBtn.Compact = true
 
-	regenerateBtn := newIconActionButton("Regenerate Key", theme.ViewRefreshIcon(), nil)
+	regenerateBtn := newIconActionButton(loc().RegenerateKey, theme.ViewRefreshIcon(), nil)
 	regenerateBtn.Compact = true
 	regenerateBtn.Danger = true
 
@@ -68,7 +68,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 			copyLinkBtn.Disable()
 			qrImage.Resource = nil
 			qrImage.Hide()
-			qrMessage.Text = "QR link unavailable until the agent has a reachable address."
+			qrMessage.Text = loc().QRUnavailable
 			qrMessage.Show()
 			qrMessage.Refresh()
 			qrImage.Refresh()
@@ -80,7 +80,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		if err != nil {
 			qrImage.Resource = nil
 			qrImage.Hide()
-			qrMessage.Text = fmt.Sprintf("QR unavailable: %v", err)
+			qrMessage.Text = fmt.Sprintf(loc().QRUnavailableErr, err)
 			qrMessage.Show()
 			qrMessage.Refresh()
 			qrImage.Refresh()
@@ -108,7 +108,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		refreshDialogContent()
 	}
 
-	title := canvas.NewText("Token", design.ColorTextLight)
+	title := canvas.NewText(loc().TokenTitle, design.ColorTextLight)
 	title.TextSize = 13
 	title.TextStyle.Bold = true
 	sep := canvas.NewRectangle(design.ColorDialogSep)

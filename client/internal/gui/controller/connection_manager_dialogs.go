@@ -83,6 +83,9 @@ type connectionDialogSecondaryButton struct {
 	// Scan QR/Paste Link only; every other caller (Cancel, the danger
 	// Delete button) keeps the original, larger sizing.
 	compact bool
+	// short is a still-smaller compact height -- Add Virtual Display's
+	// footer Add, so it doesn't dominate a one-button strip.
+	short bool
 	// iconOnly hides the label and sizes the button as a square -- the
 	// phone Add Connection Connect control, so the plug matches cards
 	// without squeezing translated "Connect" into the footer.
@@ -137,6 +140,9 @@ func (b *connectionDialogSecondaryButton) textSize() float32 {
 }
 
 func (b *connectionDialogSecondaryButton) height() float32 {
+	if b.short {
+		return 24
+	}
 	if b.compact {
 		return connectionDialogSecondaryCompactH
 	}
@@ -285,12 +291,19 @@ func (b *connectionDialogSecondaryButton) iconLabelGap() float32 {
 	return 6
 }
 
+func (b *connectionDialogSecondaryButton) cornerRadius() float32 {
+	if b.short {
+		return 4
+	}
+	return design.RadiusMD
+}
+
 func (b *connectionDialogSecondaryButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg = canvas.NewRectangle(color.Transparent)
-	b.bg.CornerRadius = design.RadiusMD
+	b.bg.CornerRadius = b.cornerRadius()
 
 	b.border = canvas.NewRectangle(color.Transparent)
-	b.border.CornerRadius = design.RadiusMD
+	b.border.CornerRadius = b.cornerRadius()
 	b.border.StrokeColor = b.borderColor
 	b.border.StrokeWidth = 1
 

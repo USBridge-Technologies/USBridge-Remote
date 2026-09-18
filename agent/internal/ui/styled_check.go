@@ -207,6 +207,14 @@ func (c *permStatusChip) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(c.root)
 }
 
+func (c *permStatusChip) SetBaseLabel(label string) {
+	if c == nil {
+		return
+	}
+	c.baseLabel = label
+	c.refreshVisuals()
+}
+
 func (c *permStatusChip) SetChecked(on bool) {
 	if c == nil {
 		return
@@ -226,7 +234,7 @@ func (c *permStatusChip) refreshVisuals() {
 		return
 	}
 	if c.onRequest != nil && !c.granted {
-		c.labelT.Text = c.baseLabel + " · Grant"
+		c.labelT.Text = c.baseLabel + loc().GrantSuffix
 		c.labelT.Color = design.ColorTeal
 	} else {
 		c.labelT.Text = c.baseLabel
@@ -326,6 +334,14 @@ func newPermToggleRowWidget(label string, check *styledCheck) *permToggleRow {
 	}
 	r.ExtendBaseWidget(r)
 	return r
+}
+
+func (r *permToggleRow) SetLabel(label string) {
+	if r == nil || r.label == nil {
+		return
+	}
+	r.label.Text = label
+	r.label.Refresh()
 }
 
 func (r *permToggleRow) CreateRenderer() fyne.WidgetRenderer {

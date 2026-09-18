@@ -258,7 +258,16 @@ type themedPanel struct {
 	stack    *fyne.Container
 	icon     *canvas.Image
 	iconBase fyne.Resource
+	title    *canvas.Text
 	hovered  bool
+}
+
+func (p *themedPanel) SetTitle(s string) {
+	if p == nil || p.title == nil {
+		return
+	}
+	p.title.Text = s
+	p.title.Refresh()
 }
 
 func (p *themedPanel) CreateRenderer() fyne.WidgetRenderer {
