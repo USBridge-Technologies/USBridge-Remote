@@ -135,7 +135,7 @@ func (cm *ConnectionManager) saveListEditPanel(idx int, name, internalHost, tail
 	}
 
 	conn := cm.connections[idx]
-	cm.connections[idx] = SavedConnection{
+	cm.commitConnectionEdit(idx, SavedConnection{
 		Name:              name,
 		InternalHost:      internalHost,
 		TailscaleHost:     tailscaleHost,
@@ -145,11 +145,9 @@ func (cm *ConnectionManager) saveListEditPanel(idx int, name, internalHost, tail
 		TailscaleRegister: conn.TailscaleRegister,
 		RemoteOS:          conn.RemoteOS,
 		RemoteProtocol:    conn.RemoteProtocol,
-		Origin:            connectionOrigin(conn),
-	}
+	})
 	cm.selectedIndex = idx
 	cm.editingListIndex = -1
-	cm.saveConnections()
 	fyne.Do(func() {
 		cm.SelectConnection(idx)
 		cm.refreshConnectionsList()

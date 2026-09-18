@@ -932,6 +932,10 @@ func (l *typeBadgeLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 // passed in rather than recomputed so this stays in sync with the platform
 // chip/Connect button's own coloring.
 func newConnectionTypeBadge(isAgent, isKVM bool, accent color.Color) fyne.CanvasObject {
+	return container.NewCenter(newConnectionTypeBadgeChip(isAgent, isKVM, accent))
+}
+
+func newConnectionTypeBadgeChip(isAgent, isKVM bool, accent color.Color) fyne.CanvasObject {
 	text := i18n.Current.ConnectionBadgeUnknown
 	badgeColor := color.Color(design.ColorBorder) // gray -- no RemoteOS yet
 	switch {
@@ -954,8 +958,7 @@ func newConnectionTypeBadge(isAgent, isKVM bool, accent color.Color) fyne.Canvas
 	bg.StrokeColor = design.ColorTailscaleChipBorder
 	bg.StrokeWidth = 1
 
-	chip := container.New(&typeBadgeLayout{}, bg, dot, label)
-	return container.NewCenter(chip)
+	return container.New(&typeBadgeLayout{}, bg, dot, label)
 }
 
 type tightStatsVBoxLayout struct {

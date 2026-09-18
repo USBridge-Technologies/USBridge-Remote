@@ -742,3 +742,81 @@ func TestTrySyncPullAndMerge_EmailChangeDoesNotAdoptByPreviousAccountVersion(t *
 		t.Fatalf("B office should be cloud, got %+v", bOffice)
 	}
 }
+
+func TestSaveListEditPanel_CloudEditPushesToBlobImmediately(t *testing.T) {
+	am := newTestAccountManager(t)
+	am.email = "a@example.com"
+	am.accountToken = "tokA"
+	am.SetSyncPassphrase("test-pass-112233")
+	_, key, ok := am.SyncCredentials()
+	if !ok {
+		t.Fatal("expected sync credentials")
+	}
+
+	var pushed []SavedConnection
+	serveEmptySyncAccount(t, key, func(conns []SavedConnection) {
+		pushed = append([]SavedConnection(nil), conns...)
+	})
+
+	conn := SavedConnection{
+		Name:         "Office",
+		Host:         "1.1.1.1",
+		InternalHost: "1.1.1.1",
+		MasterKey:    "k",
+		Origin:       connectionOriginLocal,
+	}
+	cm := newTestConnectionManager(t, am, []SavedConnection{conn})
+	cm.addBlobKey(connectionSyncKey(conn))
+
+	if !cm.saveListEditPanel(0, "Office renamed", "1.1.1.1", "100.64.1.2", "k") {
+		t.Fatal("save should succeed")
+	}
+	if cm.connections[0].Name != "Office renamed" {
+		t.Fatalf("device copy should have the new name, got %+v", cm.connections[0])
+	}
+	if cm.connections[0].TailscaleHost != "100.64.1.2" {
+		t.Fatalf("device copy should have the new TS host, got %+v", cm.connections[0])
+	}
+	if connectionOrigin(cm.connections[0]) != connectionOriginLocal {
+		t.Fatalf("edit must stay a device copy, got %+v", cm.connections[0])
+	}
+	if cm.connectionDisplayOrigin(cm.connections[0]) != connectionOriginCloud {
+		t.Fatal("still-synced row must keep showing Cloud")
+	}
+	if len(pushed) != 1 || pushed[0].Name != "Office renamed" || pushed[0].TailscaleHost != "100.64.1.2" {
+		t.Fatalf("account blob must get the edit immediately, got %+v", pushed)
+	}
+}
+
+func TestSaveListEditPanel_CloudOverlayEditPersistsAndPushes(t *testing.T) {
+	am := newTestAccountManager(t)
+	am.email = "a@example.com"
+	am.accountToken = "tokA"
+	am.SetSyncPassphrase("test-pass-112233")
+	_, key, ok := am.SyncCredentials()
+	if !ok {
+		t.Fatal("expected sync credentials")
+	}
+
+	var pushed []SavedConnection
+	serveEmptySyncAccount(t, key, func(conns []SavedConnection) {
+		pushed = append([]SavedConnection(nil), conns...)
+	})
+
+	cm := newTestConnectionManager(t, am, []SavedConnection{
+		{Name: "From other device", Host: "2.2.2.2", InternalHost: "2.2.2.2", MasterKey: "overlay-k", Origin: connectionOriginCloud},
+	})
+
+	if !cm.saveListEditPanel(0, "Renamed overlay", "2.2.2.2", "", "overlay-k") {
+		t.Fatal("save should succeed")
+	}
+	if connectionOrigin(cm.connections[0]) != connectionOriginLocal {
+		t.Fatalf("saving an overlay must write a device copy, got %+v", cm.connections[0])
+	}
+	if locals := localConnections(cm.connections); len(locals) != 1 || locals[0].Name != "Renamed overlay" {
+		t.Fatalf("edited overlay must survive logout on disk, got %+v", locals)
+	}
+	if len(pushed) != 1 || pushed[0].Name != "Renamed overlay" {
+		t.Fatalf("account blob must get the overlay edit, got %+v", pushed)
+	}
+}

@@ -53,21 +53,16 @@ type ConnectionListItem struct {
 }
 
 // connectionListColumnLabels/connectionListColumnWidths are the full
-// (non-editing) table's six columns, in the order
+// (non-editing) table's columns, in the order
 // newConnectionListHeaderRow/newConnectionListRow build cells in. 0 means
-// "flexible, absorb whatever room the fixed columns and gaps leave" -- NAME
-// does, so SYNC sits right after STATE, then NETWORK.
-// connectionListCompactColumn{Labels,Widths} is the same
-// table with NETWORK, ROUTE BRIDGE and ACTIONS dropped -- used while a row
-// is being edited (see NewConnectionsListSplit): none of the three are
-// relevant while editing (the connection method and Connect/Delete belong
-// to the un-edited state), and there's no room for them once the table is
-// squeezed into half the width besides. Header and data rows always share
-// whichever pair is active (via connectionsTableRowLayout) so columns line
-// up.
+// "flexible, absorb leftover width". NAME/STATE/SYNC/NETWORK pack left
+// (NAME is the longest name in the table, see
+// connectionListDesktopColumnWidths); leftover width sits in the empty
+// flex column so ROUTE BRIDGE and ACTIONS stay on the right. Compact mode
+// still flexes NAME (NETWORK/ROUTE/ACTIONS are dropped while editing).
 var (
-	connectionListColumnKeys   = []string{"os", "name", "state", "sync", "network", "route", "actions"}
-	connectionListColumnWidths = []float32{32, 0, 70, 82, 168, 90, 140}
+	connectionListColumnKeys   = []string{"os", "name", "state", "sync", "network", "", "route", "actions"}
+	connectionListColumnWidths = []float32{32, 160, 70, 82, 168, 0, 90, 140}
 
 	connectionListCompactColumnKeys   = []string{"os", "name", "state"}
 	connectionListCompactColumnWidths = []float32{32, 0, 70}
@@ -122,6 +117,49 @@ func NewConnectionsListSplit(items []ConnectionListItem, editIndex int, editPane
 	}, table, editPanel)
 }
 
+func connectionListHeaderTextWidth(key string) float32 {
+	t := canvas.NewText(connectionListHeaderLabel(key), design.ColorConnectionsSectionSubtitle)
+	t.TextSize = 9
+	t.TextStyle.Monospace = true
+	return t.MinSize().Width
+}
+
+func connectionListMaxFloat32(a, b float32) float32 {
+	if b > a {
+		return b
+	}
+	return a
+}
+
+// connectionListDesktopColumnWidths sizes NAME from the longest name cell
+// in items and STATE/SYNC/NETWORK/ROUTE from their content. NAME through
+// NETWORK pack left; ROUTE stays with ACTIONS on the right.
+func connectionListDesktopColumnWidths(items []ConnectionListItem) []float32 {
+	widths := append([]float32(nil), connectionListColumnWidths...)
+	nameW := connectionListHeaderTextWidth("name")
+	stateW := connectionListHeaderTextWidth("state")
+	syncW := connectionListHeaderTextWidth("sync")
+	networkW := connectionListHeaderTextWidth("network")
+	routeW := connectionListHeaderTextWidth("route")
+
+	for _, item := range items {
+		data := item.Data
+		isAgent, isKVM := ClassifyConnectionRemoteOS(data.RemoteOS)
+		nameW = connectionListMaxFloat32(nameW, newConnectionListNameCell(data, item.Actions.OnEdit, isAgent, isKVM, false).MinSize().Width)
+		stateW = connectionListMaxFloat32(stateW, newConnectionListStateCell(isAgent, isKVM).MinSize().Width)
+		syncW = connectionListMaxFloat32(syncW, newConnectionListSyncCell(data, item.Actions.OnSyncChange, item.Actions.OnSyncLocked, item.State).MinSize().Width)
+		networkW = connectionListMaxFloat32(networkW, newConnectionListNetworkCell(data.LANAddress, data.TailscaleAddress).MinSize().Width)
+		routeW = connectionListMaxFloat32(routeW, newConnectionListRouteCell(data, item.Actions.OnProtocolChange, item.State).MinSize().Width)
+	}
+
+	widths[1] = nameW
+	widths[2] = stateW
+	widths[3] = syncW
+	widths[4] = networkW
+	widths[6] = routeW
+	return widths
+}
+
 // buildConnectionsListTable builds the table itself. highlightIndex, when
 // >= 0, both gets that item's row a teal outline (newConnectionListRow's
 // highlighted flag) and makes this return that row's Y offset/height
@@ -130,7 +168,7 @@ func NewConnectionsListSplit(items []ConnectionListItem, editIndex int, editPane
 // actually stack these rows, so it lands exactly where the row ends up
 // once rendered, not just an estimate.
 func buildConnectionsListTable(items []ConnectionListItem, compact bool, highlightIndex int) (table fyne.CanvasObject, highlightY, highlightHeight float32) {
-	labels, widths := connectionListColumnKeys, connectionListColumnWidths
+	labels, widths := connectionListColumnKeys, connectionListDesktopColumnWidths(items)
 	if compact {
 		labels, widths = connectionListCompactColumnKeys, connectionListCompactColumnWidths
 	}
@@ -298,9 +336,9 @@ func newConnectionListHeaderRow(keys []string, widths []float32) fyne.CanvasObje
 		t.TextStyle.Monospace = true
 
 		switch key {
-		case "os", "state", "sync", "route":
+		case "os", "state", "sync":
 			cells[i] = container.NewCenter(t)
-		case "actions":
+		case "route", "actions":
 			t.Alignment = fyne.TextAlignTrailing
 			cells[i] = t
 		default:
@@ -327,9 +365,10 @@ func newConnectionListRow(item ConnectionListItem, widths []float32, compact boo
 	if !compact {
 		networkCell := newConnectionListNetworkCell(data.LANAddress, data.TailscaleAddress)
 		syncCell := container.NewCenter(newConnectionListSyncCell(data, item.Actions.OnSyncChange, item.Actions.OnSyncLocked, item.State))
-		routeCell := container.NewCenter(newConnectionListRouteCell(data, item.Actions.OnProtocolChange, item.State))
+		flexGap := canvas.NewRectangle(color.Transparent)
+		routeCell := container.NewBorder(nil, nil, nil, newConnectionListRouteCell(data, item.Actions.OnProtocolChange, item.State))
 		actionsCell := container.NewBorder(nil, nil, nil, newConnectionListActionsCell(item))
-		cells = append(cells, syncCell, networkCell, routeCell, actionsCell)
+		cells = append(cells, syncCell, networkCell, flexGap, routeCell, actionsCell)
 	}
 
 	row := container.New(&connectionsTableRowLayout{Widths: widths, Gap: connectionListColumnGap}, cells...)
@@ -390,7 +429,7 @@ func newConnectionListStateCell(isAgent, isKVM bool) fyne.CanvasObject {
 	if isAgent {
 		accent = design.ColorConnectionBadgeText
 	}
-	return newConnectionTypeBadge(isAgent, isKVM, accent)
+	return newConnectionTypeBadgeChip(isAgent, isKVM, accent)
 }
 
 func newConnectionListNetworkCell(lanAddress, tailscaleAddress string) fyne.CanvasObject {

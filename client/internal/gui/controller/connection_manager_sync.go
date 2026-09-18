@@ -417,6 +417,33 @@ func (cm *ConnectionManager) pushPayload() []SavedConnection {
 	return connectionsForPush(cm.connections, cm.blobKeySet(), cm.localOnlyKeySet())
 }
 
+// commitConnectionEdit writes an edited row to the device copy. If the
+// row is Cloud in the UI, the new fields are pushed to the account blob
+// immediately -- a debounced saveConnections alone left the blob stale,
+// so logout/login restored the old copy unless the user toggled
+// Local then Cloud to force a rewrite.
+func (cm *ConnectionManager) commitConnectionEdit(idx int, updated SavedConnection) {
+	if idx < 0 || idx >= len(cm.connections) {
+		return
+	}
+	old := cm.connections[idx]
+	oldKey := connectionSyncKey(old)
+	wasCloud := cm.connectionDisplayOrigin(old) == connectionOriginCloud
+	updated.Origin = connectionOriginLocal
+	cm.connections[idx] = updated
+	if wasCloud {
+		newKey := connectionSyncKey(updated)
+		if oldKey != newKey {
+			cm.removeBlobKey(oldKey)
+		}
+		cm.addBlobKey(newKey)
+	}
+	cm.saveConnections()
+	if wasCloud {
+		cm.flushSyncPush()
+	}
+}
+
 func (cm *ConnectionManager) addBlobKey(key string) {
 	if key == "" || !cm.canSyncConnections() {
 		return
