@@ -69,6 +69,7 @@ func (b *rustshineBackend) fetchStatus() *statusResponse {
 	req.SetBasicAuth(b.AdminUser(), b.AdminPass())
 	resp, err := rustshineAdminHTTPClient.Do(req)
 	if err != nil {
+		log.Printf("🎯 [CODEC-TRACE] [rustshine] GET %s failed: %v", url, err)
 		return nil
 	}
 	defer resp.Body.Close()
@@ -77,6 +78,7 @@ func (b *rustshineBackend) fetchStatus() *statusResponse {
 		log.Printf("[rustshine] /api/status decode failed: %v", err)
 		return nil
 	}
+	log.Printf("🎯 [CODEC-TRACE] [rustshine] GET %s -> active_video_codec=%q chroma444=%v hdr=%v", url, status.ActiveVideoCodec, status.ActiveChroma444, status.ActiveHdr)
 	return &status
 }
 

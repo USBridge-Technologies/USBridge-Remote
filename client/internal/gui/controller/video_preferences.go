@@ -132,8 +132,36 @@ func saveVideoDeviceConfig(cfg models.VideoDeviceConfig) {
 	prefs.SelectedDevice = cfg.DevicePath
 	prefs.Devices[cfg.DevicePath] = cfg
 	saveVideoPreferences(prefs)
+	logrus.Infof("🎯 [CODEC-TRACE] saveVideoDeviceConfig: wrote prefs.SelectedDevice=%q VideoMode=%q", prefs.SelectedDevice, cfg.VideoMode)
 }
 
 func selectedVideoDevicePath() string {
 	return loadVideoPreferences().SelectedDevice
+}
+
+// correctSelectedVideoDevicePath updates prefs.SelectedDevice to newPath
+// without touching any per-device saved config -- call this when
+// resolvePreferredVideoConfig's device-list lookup falls back to a
+// different device than the one saved as "selected".
+//
+// Without this, a stale SelectedDevice (e.g. a virtual display whose agent
+// process has since restarted and forgotten it -- the agent only keeps
+// virtual displays in memory, see server.go's virtualDisplayCreate) never
+// self-heals: selectedVideoDevicePath() keeps returning the phantom path
+// forever, so every future ShowCurrentVideoSettings (header/status-bar gear)
+// opens the settings popup for a device that doesn't exist, any change the
+// user makes there gets saved under that same phantom path, and the device
+// that's actually streaming never sees it -- exactly the "picked H265, still
+// streams H264" bug, confirmed live via [CODEC-TRACE] logging (2026-09-18).
+func correctSelectedVideoDevicePath(newPath string) {
+	if strings.TrimSpace(newPath) == "" {
+		return
+	}
+	prefs := loadVideoPreferences()
+	if prefs.SelectedDevice == newPath {
+		return
+	}
+	logrus.Infof("🎯 [CODEC-TRACE] correctSelectedVideoDevicePath: prefs.SelectedDevice %q -> %q (previous device not in current device list)", prefs.SelectedDevice, newPath)
+	prefs.SelectedDevice = newPath
+	saveVideoPreferences(prefs)
 }

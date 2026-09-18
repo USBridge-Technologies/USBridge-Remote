@@ -227,6 +227,7 @@ func (vw *VideoWidget) reconcileVideoState(reason string) bool {
 		vw.onResolutionChanged(cfg.VideoWidth, cfg.VideoHeight)
 	}
 
+	logrus.Infof("🎯 [CODEC-TRACE] reconcileVideoState(%s): restarting with VideoMode=%q (was streaming=%v restartPending=%v)", reason, cfg.VideoMode, streaming, restartPending)
 	vw.startVideoWithParamsInternal(cfg.ToVideoStartRequest())
 	return false
 }

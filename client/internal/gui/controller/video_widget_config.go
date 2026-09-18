@@ -93,6 +93,10 @@ func getVideoInfoDataForDevice(usbClient *api.USBClient, devicePath string) (*mo
 	}
 
 	info, err := models.ParseVideoInfoData(resp.Data)
+	if err == nil && info != nil {
+		logrus.Infof("🎯 [CODEC-TRACE] GET /api/video/info (device=%q) -> encoding=%q mode=%q streaming=%v -- \"encoding\" is the agent's best-effort report of what the server is ACTUALLY running right now",
+			devicePath, info.Encoding, info.Mode, info.Streaming)
+	}
 	if strings.TrimSpace(devicePath) == "" {
 		videoInfoCacheMu.Lock()
 		videoInfoCachedAt = time.Now()
@@ -332,12 +336,15 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 	}
 
 	deviceByPath := make(map[string]models.SystemDevice, len(devices))
+	devicePaths := make([]string, 0, len(devices))
 	for _, device := range devices {
 		deviceByPath[device.Path] = device
+		devicePaths = append(devicePaths, device.Path)
 	}
 
 	var info *models.VideoInfoData
-	selectedPath := selectedVideoDevicePath()
+	rawSelectedPath := selectedVideoDevicePath()
+	selectedPath := rawSelectedPath
 	// Only inherit server's current device when the client already has a saved
 	// preference — on a fresh install, default to devices[0] (USB first after sort).
 	if selectedPath != "" && vw.usbClient != nil {
@@ -351,11 +358,22 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 
 	device, ok := deviceByPath[selectedPath]
 	if !ok {
+		logrus.Warnf("🎯 [CODEC-TRACE] resolvePreferredVideoConfig: saved SelectedDevice=%q NOT FOUND in current device list %v -- falling back to devices[0]=%q, its saved config (if any) will be used instead, NOT the one just configured",
+			rawSelectedPath, devicePaths, devices[0].Path)
 		device = devices[0]
 		selectedPath = device.Path
+		// Self-heal: without this, prefs.SelectedDevice stays permanently
+		// pointed at the phantom device forever (see
+		// correctSelectedVideoDevicePath's doc comment) -- every future
+		// ShowCurrentVideoSettings (header/status-bar gear) would keep
+		// opening the settings popup for a device that doesn't exist, and
+		// changes made there would never reach the device actually
+		// streaming.
+		correctSelectedVideoDevicePath(selectedPath)
 	}
 
 	cfg := loadSavedVideoDeviceConfig(selectedPath, device.Name)
+	logrus.Infof("🎯 [CODEC-TRACE] resolvePreferredVideoConfig: loaded from saved prefs VideoMode=%q device=%s (rawSelectedPath=%q, in list=%v)", cfg.VideoMode, selectedPath, rawSelectedPath, ok)
 	cfg.DeviceName = device.Name
 	cfg.DevicePath = selectedPath
 	if vw.usbClient != nil {
@@ -365,7 +383,9 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 	}
 	if !hasSavedVideoDeviceConfig(selectedPath) && info != nil && info.Device == selectedPath {
 		cfg = mergeVideoConfigWithInfo(cfg, info)
+		logrus.Infof("🎯 [CODEC-TRACE] resolvePreferredVideoConfig: no saved prefs yet, merged server info.Encoding=%q -> VideoMode=%q", info.Encoding, cfg.VideoMode)
 	}
+	logrus.Infof("🎯 [CODEC-TRACE] resolvePreferredVideoConfig: final VideoMode=%q device=%s", cfg.VideoMode, selectedPath)
 	return cfg, nil
 }
 
@@ -407,8 +427,23 @@ func mergeVideoConfigWithInfo(cfg models.VideoDeviceConfig, info *models.VideoIn
 	if strings.TrimSpace(info.Bitrate) != "" {
 		cfg.VideoBitrate = info.Bitrate
 	}
-	if strings.TrimSpace(info.Mode) != "" {
-		cfg.VideoMode = info.Mode
+	// info.Mode is the TRANSPORT label ("moonlight", VideoStatus.Mode) --
+	// always the literal string "moonlight" per the agent's /api/video/info
+	// handler (server.go), never a codec. cfg.VideoMode is the CODEC
+	// selector (models.VideoModeH264/H265/AV1) that flows into
+	// MoonlightService.SetVideoMode -> moonlightVideoFormat. Assigning
+	// info.Mode here used to stuff the literal string "moonlight" into
+	// cfg.VideoMode whenever this device had no saved config yet (e.g. the
+	// reconcile-time device-list fallback landing on a device that was never
+	// explicitly configured) -- moonlightVideoFormat doesn't recognize
+	// "moonlight" as a mode, so it silently defaulted to VIDEO_FORMAT_H264,
+	// making a codec switch look like it was completely ignored even though
+	// every step up to this merge had the right value. info.Encoding is the
+	// field that actually carries the codec the server is running right now
+	// (VideoStatus.Encoding, "h264"/"h265"/"av1") -- see CurrentVideoCodec on
+	// the agent.
+	if strings.TrimSpace(info.Encoding) != "" {
+		cfg.VideoMode = info.Encoding
 	}
 	return cfg
 }
@@ -424,6 +459,7 @@ func mergeVideoConfigWithInfo(cfg models.VideoDeviceConfig, info *models.VideoIn
 // whatever was on disk with false, and the very next reconcile/restart reads
 // that same false back via VideoDeviceConfig.ToVideoStartRequest().
 func videoDeviceConfigFromRequest(devicePath, deviceName string, request *models.VideoStartRequest) models.VideoDeviceConfig {
+	logrus.Infof("🎯 [CODEC-TRACE] videoDeviceConfigFromRequest: request.VideoMode=%q device=%s", request.VideoMode, devicePath)
 	return models.VideoDeviceConfig{
 		DevicePath:         devicePath,
 		DeviceName:         deviceName,
@@ -454,6 +490,7 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 	if cfg.VideoMode == "" {
 		cfg.VideoMode = models.VideoModeH264
 	}
+	logrus.Infof("🎯 [CODEC-TRACE] applyVideoDeviceConfig: VideoMode=%q restart=%v device=%s", cfg.VideoMode, restart, cfg.DevicePath)
 
 	if vw.usbClient != nil {
 		if err := vw.usbClient.SetVideoDevice(cfg.DevicePath, cfg.CapturePixelFormat); err != nil {
@@ -584,6 +621,7 @@ func (vw *VideoWidget) ShowCurrentVideoSettings(showFullscreen bool) {
 	// Fyne UI goroutine. That froze the whole desktop window for a couple of
 	// seconds whenever video/info or /devices was slow.
 	_ = showFullscreen
+	logrus.Infof("🎯 [CODEC-TRACE] video settings opened from header/status bar: restartOnApply=true (always)")
 	vw.ShowVideoDeviceSettings(selectedVideoDevicePath(), true, false)
 }
 
@@ -773,6 +811,7 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 			vw.startDialog.Show(func(request *models.VideoStartRequest) {
 				applied := videoDeviceConfigFromRequest(device.Path, device.Name, request)
 				logrus.Infof("💾 applying video settings for %s: %dx%d @ %d fps", device.Path, applied.VideoWidth, applied.VideoHeight, applied.VideoFPS)
+				logrus.Infof("🎯 [CODEC-TRACE] ShowVideoDeviceSettings onApply: VideoMode=%q restartOnApply=%v -- if false, the stream is NOT restarted and the old codec keeps running on the server regardless of what was just saved", applied.VideoMode, restartOnApply)
 				go func() {
 					if err := vw.applyVideoDeviceConfig(applied, restartOnApply); err != nil {
 						logrus.Warnf("⚠️ failed to apply video config: %v", err)

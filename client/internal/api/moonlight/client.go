@@ -197,7 +197,17 @@ type launchRoot struct {
 }
 
 // Launch starts an app (or resumes an already-running one) and returns the RTSP session URL and stream key.
+//
+// codecFormat is NOT sent to the server anywhere in this function -- there is
+// no "codec" query param in the GameStream /launch or /resume protocol.
+// Codec selection happens entirely via the RTSP handshake's
+// supportedVideoFormats bitmask (see moonlight_service.go's
+// moonlightVideoFormat/StartStream), which this HTTP call has no part in.
+// codecFormat is accepted here purely so callers/logs can show what codec
+// was intended alongside this HTTP request.
 func (c *Client) Launch(appId int, codecFormat string, width, height, fps, bitrate int) (string, []byte, error) {
+	logrus.Infof("🎯 [CODEC-TRACE] Client.Launch: appId=%d codecFormat=%q(unused by this HTTP call, see doc comment) mode=%dx%dx%d",
+		appId, codecFormat, width, height, fps)
 	rikeyBytes := make([]byte, 16)
 	if _, err := rand.Read(rikeyBytes); err != nil {
 		return "", nil, err
@@ -226,6 +236,8 @@ func (c *Client) Launch(appId int, codecFormat string, width, height, fps, bitra
 	if err != nil {
 		// "An app is already running" → try /resume instead.
 		logrus.Warnf("🌕 /launch rejected (%v), trying /resume...", err)
+		logrus.Warnf("🎯 [CODEC-TRACE] Client.Launch: FALLING BACK TO /resume -- /resume reattaches to whatever session is already running server-side and does NOT apply mode=%dx%dx%d or the intended codec=%q; if this fires right after a codec switch, that's the bug",
+			width, height, fps, codecFormat)
 		resumeParams := make(map[string]string, len(sessionParams))
 		for k, v := range sessionParams {
 			resumeParams[k] = v
@@ -234,8 +246,11 @@ func (c *Client) Launch(appId int, codecFormat string, width, height, fps, bitra
 		if err != nil {
 			return "", nil, fmt.Errorf("launch and resume both failed: %v", err)
 		}
+		logrus.Infof("🎯 [CODEC-TRACE] Client.Launch: RESULT = /resume (codec=%q was NOT applied)", codecFormat)
+		return sessionUrl, rikeyBytes, nil
 	}
 
+	logrus.Infof("🎯 [CODEC-TRACE] Client.Launch: RESULT = /launch (fresh session, codec=%q negotiation will proceed via RTSP next)", codecFormat)
 	return sessionUrl, rikeyBytes, nil
 }
 
@@ -274,15 +289,18 @@ func (c *Client) doLaunchOrResume(path string, params map[string]string) (string
 // unconditionally terminates the running session), so appId is passed only for
 // logging/back-compat, not because Sunshine reads it.
 func (c *Client) Quit(appId int) error {
+	logrus.Infof("🎯 [CODEC-TRACE] Client.Quit: sending /cancel appId=%d", appId)
 	url := c.getURL(true, "/cancel", map[string]string{
 		"appid": fmt.Sprintf("%d", appId),
 	})
 	resp, err := c.httpsClient.Get(url)
 	if err != nil {
+		logrus.Warnf("🎯 [CODEC-TRACE] Client.Quit: /cancel request failed: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	logrus.Infof("📩 [Moonlight] /cancel HTTP %d raw: %s", resp.StatusCode, string(body))
+	logrus.Infof("🎯 [CODEC-TRACE] Client.Quit: /cancel done, HTTP %d", resp.StatusCode)
 	return nil
 }

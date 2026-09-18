@@ -2147,6 +2147,9 @@ func (vsd *VideoStartDialog) setSelectedModeID(modeID string) {
 			logrus.Warnf("🎬 [VideoStartDialog] codec %q not offered by this device — falling back to %q", requested, modeID)
 		}
 	}
+	if vsd.currentModeID != modeID {
+		logrus.Infof("🎯 [CODEC-TRACE] popup selection changed: %q -> %q", vsd.currentModeID, modeID)
+	}
 	vsd.currentModeID = modeID
 	for id, button := range vsd.modeButtons {
 		button.SetActive(id == modeID)
@@ -2310,6 +2313,8 @@ func (vsd *VideoStartDialog) handleStart() {
 
 	logrus.Infof("🎥 Starting video: mode=%s %dx%d @ %d fps, bitrate %s",
 		request.VideoMode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoBitrate)
+	logrus.Infof("🎯 [CODEC-TRACE] dialog Apply/OK pressed: currentModeID=%q -> VideoStartRequest.VideoMode=%q",
+		vsd.currentModeID, request.VideoMode)
 
 	vsd.Hide()
 	if vsd.onApply != nil {

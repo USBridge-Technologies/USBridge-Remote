@@ -302,6 +302,8 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 	}
 
 	t2 := time.Now()
+	logrus.Infof("🎯 [CODEC-TRACE] ConnectToMoonlight: about to call client.Launch(appId=%d, videoMode=%q, %dx%d@%d, bitrate=%d) -- videoMode here is what m.SetVideoMode last set",
+		appId, m.videoMode, m.width, m.height, fps, bitrate)
 	sessionUrl, rikey, err := m.client.Launch(appId, m.videoMode, m.width, m.height, fps, bitrate)
 	logrus.Infof("⏱️ [Moonlight] launch/resume HTTP: %.0fms (total %.0fms)", float64(time.Since(t2).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
 	if err != nil {
@@ -473,6 +475,8 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 	requestedVideoFormat := moonlightVideoFormat(m.videoMode, m.color444, m.hdr)
 	logrus.Infof("🌕 [Moonlight/HDR-debug] mode=%s color444=%v hdr=%v -> requestedVideoFormat=0x%04X, serverCodecModeSupport=0x%08X",
 		m.videoMode, m.color444, m.hdr, requestedVideoFormat, serverInfo.ServerCodecModeSupport)
+	logrus.Infof("🎯 [CODEC-TRACE] ConnectToMoonlight: about to call wrapper.StartStream with requestedVideoFormat=0x%04X (from videoMode=%q) -- this bitmask is what actually drives RTSP codec negotiation with the server, independent of /launch's \"mode\" param",
+		requestedVideoFormat, m.videoMode)
 
 	if err := wrapper.StartStream(
 		sessionUrl, rikey,
@@ -645,18 +649,43 @@ func (m *MoonlightService) Disconnect() error {
 	// /resume path instead of /launch. Measured cost of that: ~5s HTTP round
 	// trip before the Moonlight handshake even starts (tests/test_android_video_launch.sh),
 	// vs the handshake itself completing in ~450ms once /resume returns.
-	// Fired async and best-effort — the local session is already torn down
-	// above, so a slow or failed /quit here must never block or fail Disconnect().
+	//
+	// Bounded-waited here, not fully fire-and-forget: this used to be a bare
+	// `go func()` that Disconnect() didn't wait on at all, racing the very next
+	// ConnectToMoonlight's /launch call against this /cancel. When /launch lost
+	// that race, Sunshine still reported the old app as running, so Launch()
+	// silently fell back to /resume — which resumes the *existing* encoder
+	// session verbatim and ignores every parameter in the new request,
+	// including m.videoMode. That made a codec switch in the video settings
+	// dialog (stop, then immediately restart with the new VideoMode — see
+	// reconcileVideoState) look like it was never sent: the server kept
+	// encoding with whatever codec the previous session had negotiated.
+	// stopVideoInternal already bounds its own wait on Disconnect() at 3s, so
+	// capping this well under that keeps the same "never block forever"
+	// guarantee while making the common quick-restart case reliably land on
+	// /launch instead of /resume.
 	if m.lastAppId != 0 {
 		appID := m.lastAppId
 		client := m.client
+		done := make(chan struct{})
+		cancelStart := time.Now()
+		logrus.Infof("🎯 [CODEC-TRACE] Disconnect: sending /cancel for appId=%d, waiting up to 1.5s before returning", appID)
 		go func() {
+			defer close(done)
 			if err := client.Quit(appID); err != nil {
 				logrus.Warnf("🌕 [Moonlight] /cancel on disconnect failed (non-fatal): %v", err)
 			} else {
 				logrus.Info("🌕 [Moonlight] /cancel sent on disconnect — Sunshine session reset for next connect")
 			}
 		}()
+		select {
+		case <-done:
+			logrus.Infof("🎯 [CODEC-TRACE] Disconnect: /cancel completed after %v -- next Launch() should land on /launch, not /resume", time.Since(cancelStart))
+		case <-time.After(1500 * time.Millisecond):
+			logrus.Warnf("🎯 [CODEC-TRACE] Disconnect: /cancel did NOT complete within 1.5s (proceeding anyway) -- the next Launch() may still race into /resume and silently ignore the new codec/mode")
+		}
+	} else {
+		logrus.Infof("🎯 [CODEC-TRACE] Disconnect: m.lastAppId == 0, no /cancel sent (no prior session to end)")
 	}
 
 	return nil
@@ -935,6 +964,7 @@ func (m *MoonlightService) UpdateVideoUDPPort(port int) {
 }
 
 func (m *MoonlightService) SetVideoMode(mode string) {
+	logrus.Infof("🎯 [CODEC-TRACE] MoonlightService.SetVideoMode: %q -> %q", m.videoMode, mode)
 	m.videoMode = mode
 }
 
