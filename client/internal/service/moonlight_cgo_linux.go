@@ -28,6 +28,7 @@ extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
 extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
+extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride);
 
 // GL overlay fast path (defined in gl_video_impl_linux.c).
 extern int gl_video_is_active(void);
@@ -315,6 +316,13 @@ static void deliver_frame(AVFrame *frame) {
             // in the common case) -- burns detection boxes+ids into rgba
             // in place, before it reaches either native fast path.
             goAIVisionOverlay(rgba, w, h, w * 4);
+            // Net Graph HUD: no-op unless the checkbox in the video
+            // settings popup is on -- burns the cached HUD canvas into
+            // rgba in place, bottom-right corner, same "before either
+            // native fast path" ordering as AI Vision above so the HUD
+            // reaches the actual displayed pixels regardless of which
+            // path (VK/GL) ends up rendering them.
+            goNetGraphOverlay(rgba, w, h, w * 4);
             // Native overlay fast path: VK preferred, GL fallback.
             // goVTFrame is still called so Go-side stats/callbacks run.
             if (vk_video_is_active())

@@ -132,7 +132,21 @@ var (
 
 	netGraphMu      sync.Mutex
 	netGraphSamples []NetGraphSample
+
+	// netGraphCachedImg holds the most recently built HUD canvas for
+	// ApplyNetGraphOverlay below -- the CPU-buffer blit path Linux/Windows
+	// use instead of a native compositor layer (see that function's doc
+	// comment). Updated every tick alongside the netGraphMetalPush call,
+	// nil when disabled.
+	netGraphCachedImg atomic.Pointer[image.RGBA]
 )
+
+// netGraphHudMargin is the gap, in pixels, between the HUD box and the
+// bottom/right edges of the frame -- shared by every platform's anchor math
+// (metal_video_impl_darwin.m's HUD_MARGIN, metal_video_impl_ios.m's mirror
+// of it, and netGraphBlitOverlay below) so the HUD sits the same visual
+// distance from the corner everywhere.
+const netGraphHudMargin = 12
 
 // SetNetGraphEnabled turns the HUD on or off. Wired to the "Net Graph"
 // checkbox in the video settings popup (see gui/view/video_start_dialog.go)
@@ -156,6 +170,7 @@ func SetNetGraphEnabled(enabled bool) {
 		netGraphMu.Lock()
 		netGraphSamples = nil
 		netGraphMu.Unlock()
+		netGraphCachedImg.Store(nil)
 		if clear := netGraphMetalClear; clear != nil {
 			clear()
 		}
@@ -219,8 +234,13 @@ func netGraphLoop() {
 		samples := append([]NetGraphSample(nil), netGraphSamples...)
 		netGraphMu.Unlock()
 
+		img := buildNetGraphHUD(samples)
+		// Always cached, regardless of which (if any) push hook is wired --
+		// ApplyNetGraphOverlay (Linux/Windows CPU-buffer path) reads this
+		// directly and has no push hook of its own to be called from.
+		netGraphCachedImg.Store(img)
 		if push := netGraphMetalPush; push != nil {
-			push(buildNetGraphHUD(samples))
+			push(img)
 		}
 	}
 }
@@ -407,6 +427,83 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	}, 66)
 
 	return img
+}
+
+// ApplyNetGraphOverlay burns the most recently built HUD canvas
+// (netGraphCachedImg) directly into a live decoded RGBA frame, bottom-right
+// corner, alpha-composited over the video pixels -- the CPU-buffer
+// counterpart to netGraphMetalPush's native compositor layer (macOS/iOS,
+// see metal_video_darwin.go/metal_video_ios.go): Linux and Windows already
+// run every decoded frame through a CPU-readable RGBA buffer on its way to
+// vk_video_try_submit/gl_video_try_submit (see moonlight_cgo_linux.go's
+// deliver_frame and moonlight_cgo_windows.go's win_deliver_frame), exactly
+// like ai_vision.go's drawCachedOverlay already does for AI Vision on those
+// platforms -- so there's no need for a separate compositor layer there.
+// Called once per decoded frame; the disabled case (the default) costs one
+// atomic load, same philosophy as ApplyAIVisionOverlay.
+func ApplyNetGraphOverlay(rgba []byte, w, h, stride int) {
+	if !netGraphEnabled.Load() {
+		return
+	}
+	img := netGraphCachedImg.Load()
+	if img == nil {
+		return
+	}
+	netGraphBlitOverlay(rgba, w, h, stride, img)
+}
+
+// netGraphBlitOverlay alpha-composites img onto dst (a live video frame's
+// RGBA buffer), anchored to the bottom-right corner with netGraphHudMargin
+// px of breathing room -- the CPU equivalent of the native HUD layer's
+// frame-anchoring math on macOS/iOS. img's background wash is deliberately
+// semi-transparent (see netGraphBg's doc comment), so this does a real
+// per-pixel alpha blend rather than a straight overwrite.
+func netGraphBlitOverlay(dst []byte, w, h, stride int, img *image.RGBA) {
+	iw, ih := img.Rect.Dx(), img.Rect.Dy()
+	x0 := w - netGraphHudMargin - iw
+	if x0 < netGraphHudMargin {
+		x0 = netGraphHudMargin
+	}
+	y0 := h - netGraphHudMargin - ih
+	if y0 < netGraphHudMargin {
+		y0 = netGraphHudMargin
+	}
+	for y := 0; y < ih; y++ {
+		dy := y0 + y
+		if dy < 0 || dy >= h {
+			continue
+		}
+		srcRow := img.Pix[y*img.Stride:]
+		dstRowOff := dy * stride
+		for x := 0; x < iw; x++ {
+			dx := x0 + x
+			if dx < 0 || dx >= w {
+				continue
+			}
+			so := x * 4
+			sa := srcRow[so+3]
+			if sa == 0 {
+				continue
+			}
+			do := dstRowOff + dx*4
+			if do+3 >= len(dst) {
+				continue
+			}
+			if sa == 255 {
+				dst[do+0] = srcRow[so+0]
+				dst[do+1] = srcRow[so+1]
+				dst[do+2] = srcRow[so+2]
+				dst[do+3] = 255
+				continue
+			}
+			a := int(sa)
+			inv := 255 - a
+			dst[do+0] = byte((int(srcRow[so+0])*a + int(dst[do+0])*inv) / 255)
+			dst[do+1] = byte((int(srcRow[so+1])*a + int(dst[do+1])*inv) / 255)
+			dst[do+2] = byte((int(srcRow[so+2])*a + int(dst[do+2])*inv) / 255)
+			dst[do+3] = 255
+		}
+	}
 }
 
 // netGraphLossPercent counts a packet as "lost" whether or not FEC managed

@@ -26,16 +26,74 @@ extern void   metal_video_set_hidden(int hidden);
 extern void   usbridge_syslog(const char* msg);
 extern void   set_streaming_active(int active);
 
+extern void   metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride);
+extern void   metal_video_clear_hud_overlay(void);
+extern double metal_video_last_decode_ms(void);
+
 // Forward declaration matching the CGO-generated export signature.
 extern void goMetalLog(char *msg, int level);
 */
 import "C"
 
 import (
+	"image"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
 )
+
+// init wires the Net Graph HUD (net_graph.go) to iOS's own Metal compositor
+// -- same "platform-agnostic core, thin platform push hook" split as
+// metal_video_darwin.go's init() for macOS, just without the AI Vision half
+// (iOS has no metal_video_set_overlay/g_overlay_layer counterpart yet -- see
+// that file's doc comment; net_graph.go's own HUD layer is independent of
+// AI Vision's and doesn't need one).
+func init() {
+	netGraphMetalPush = pushNetGraphOverlayToMetal
+	netGraphMetalClear = MetalVideoClearHudOverlay
+	netGraphRenderFPS = MetalVideoLastFPS
+	netGraphDecodeMs = MetalVideoLastDecodeMs
+}
+
+// netGraphMetalWasActive tracks MetalVideoIsActive()'s last-seen value --
+// see metal_video_darwin.go's identical variable for why (logs transitions,
+// not every push).
+var netGraphMetalWasActive atomic.Bool
+
+func pushNetGraphOverlayToMetal(img *image.RGBA) {
+	active := MetalVideoIsActive()
+	if active != netGraphMetalWasActive.Swap(active) {
+		logrus.Infof("📊 [Net Graph] Metal overlay active=%v (HUD pushes %s while this is false)", active, map[bool]string{true: "resume", false: "stop"}[active])
+	}
+	if !active {
+		return
+	}
+	MetalVideoSetHudOverlay(img.Pix, img.Rect.Dx(), img.Rect.Dy(), img.Stride)
+}
+
+// MetalVideoSetHudOverlay uploads the Net Graph HUD canvas onto the native
+// compositor's dedicated HUD layer -- see metal_video_darwin.go's identically
+// named function.
+func MetalVideoSetHudOverlay(rgba []byte, w, h, stride int) {
+	if len(rgba) == 0 || w <= 0 || h <= 0 || stride <= 0 {
+		return
+	}
+	C.metal_video_set_hud_overlay((*C.uint8_t)(unsafe.Pointer(&rgba[0])), C.int(w), C.int(h), C.int(stride))
+}
+
+// MetalVideoClearHudOverlay removes the Net Graph HUD image (checkbox turned
+// off) without touching the video layer.
+func MetalVideoClearHudOverlay() {
+	C.metal_video_clear_hud_overlay()
+}
+
+// MetalVideoLastDecodeMs returns the rolling-average submit-to-display
+// latency (ms) from the current ~2s measurement window. 0 if the overlay is
+// inactive or no sample has landed yet.
+func MetalVideoLastDecodeMs() float64 {
+	return float64(C.metal_video_last_decode_ms())
+}
 
 // goMetalLog is called from C (metal_video_impl_ios.m) to log via logrus.
 //

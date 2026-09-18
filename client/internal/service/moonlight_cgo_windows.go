@@ -46,6 +46,8 @@ extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
 extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
+extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride);
+extern int  goNetGraphActive(void);
 
 // Native overlay fast paths.
 // Vulkan (vk_video_impl_windows.c) — preferred, RGBA format.
@@ -505,7 +507,7 @@ static void win_deliver_frame_vulkan(AVFrame *frame) {
     // otherwise fall back to a real (if wasted) CPU readback so goVTFrame
     // never gets called with a null pointer and a real width/height.
     int native_overlay_active = vk_video_is_active() || gl_video_is_active();
-    if (goAIVisionActive() || !native_overlay_active) {
+    if (goAIVisionActive() || goNetGraphActive() || !native_overlay_active) {
         AVFrame *sw = av_frame_alloc();
         if (sw && av_hwframe_transfer_data(sw, frame, 0) == 0) {
             sw->width = frame->width; sw->height = frame->height;
@@ -522,6 +524,7 @@ static void win_deliver_frame_vulkan(AVFrame *frame) {
                     int dst_stride[4] = { w * 4, 0, 0, 0 };
                     sws_scale(g_sws, (const uint8_t *const *)sw->data, sw->linesize, 0, h, dst, dst_stride);
                     goAIVisionOverlay(pixels, w, h, w * 4);
+                    goNetGraphOverlay(pixels, w, h, w * 4);
                     goVTFrame(pixels, w, h, w * 4);
                     free(pixels);
                 }
@@ -601,8 +604,10 @@ static void win_deliver_frame(AVFrame *frame) {
             // fallback path, where ApplyAIVisionOverlay's box colors and
             // downstream PNG-encode-as-RGBA would both come out wrong
             // (R/B channels swapped).
-            if (dst_fmt == AV_PIX_FMT_RGBA)
+            if (dst_fmt == AV_PIX_FMT_RGBA) {
                 goAIVisionOverlay(pixels, w, h, w * 4);
+                goNetGraphOverlay(pixels, w, h, w * 4);
+            }
             double t_aivision = win_mono_ms();
             // Submit to native overlay (Vulkan preferred, GDI fallback); no-op if inactive.
             if (!vk_video_try_submit(pixels, w, h, w * 4))
@@ -652,7 +657,17 @@ static void dr_cleanup(void) {}
 static unsigned int g_latency_log_ctr;
 #define LATENCY_LOG_FRAMES 120 // ~2s at 60fps, matches PlayoutBuffer's own status cadence
 
+// g_last_host_latency_tenths_ms: Windows counterpart to
+// moonlight_cgo_shared.h's identically-named static -- captured here
+// instead of in a shared dr_submit trampoline because Windows's do_li_start/
+// dr_submit setup is a fully separate, self-contained implementation (see
+// this file's own comments), not built on moonlight_cgo_shared.h. Read by
+// do_get_last_host_latency_tenths_ms below (net_graph_windows.go's
+// GetLastHostLatencyMs).
+static volatile uint16_t g_last_host_latency_tenths_ms = 0;
+
 static int dr_submit(PDECODE_UNIT du) {
+    g_last_host_latency_tenths_ms = du->frameHostProcessingLatency;
     if (++g_latency_log_ctr >= LATENCY_LOG_FRAMES) {
         g_latency_log_ctr = 0;
         uint64_t nowUs = PltGetMicroseconds();
@@ -708,6 +723,44 @@ static int dr_submit(PDECODE_UNIT du) {
     }
     av_frame_free(&frame);
     return DR_OK;
+}
+
+// do_get_rtp_video_stats / do_get_estimated_rtt_info /
+// do_get_last_host_latency_tenths_ms / do_get_playout_jitter_us /
+// do_get_playout_applied_delay_us: Windows counterparts to
+// moonlight_cgo_shared.h's identically-named functions (that header can't
+// be #include-d here -- see this file's own comments on why Windows's
+// do_li_start is fully self-contained -- so these are duplicated verbatim
+// rather than shared). Called from net_graph_windows.go's Go wrappers.
+void do_get_rtp_video_stats(uint32_t *out) {
+    const RTP_VIDEO_STATS *stats = LiGetRTPVideoStats();
+    out[0] = stats->packetCountVideo;
+    out[1] = stats->packetCountFec;
+    out[2] = stats->packetCountFecRecovered;
+    out[3] = stats->packetCountFecFailed;
+    out[4] = stats->packetCountOOS;
+    out[5] = stats->packetCountInvalid;
+    out[6] = stats->packetCountFecInvalid;
+}
+
+int do_get_estimated_rtt_info(uint32_t *out) {
+    uint32_t rtt = 0, rttVariance = 0;
+    int ok = LiGetEstimatedRttInfo(&rtt, &rttVariance) ? 1 : 0;
+    out[0] = rtt;
+    out[1] = rttVariance;
+    return ok;
+}
+
+uint16_t do_get_last_host_latency_tenths_ms(void) {
+    return g_last_host_latency_tenths_ms;
+}
+
+uint64_t do_get_playout_jitter_us(void) {
+    return LiGetPlayoutJitterUs();
+}
+
+uint64_t do_get_playout_applied_delay_us(void) {
+    return LiGetPlayoutAppliedDelayUs();
 }
 
 // ── LiStartConnection entrypoint ─────────────────────────────────────────────

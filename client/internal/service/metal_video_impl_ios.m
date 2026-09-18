@@ -28,11 +28,32 @@ static UIView    *g_clip_view = nil;   // clips video to the touchpad widget bou
 static CALayer   *g_layer     = nil;
 static float      g_keyboard_height_pt = 0.0f;  // current on-screen keyboard height in points
 
+// Net Graph HUD layer -- added as a sublayer of g_clip_view.layer (the
+// widget's own stable bounds, unaffected by zoom/pan -- see
+// metal_video_update_layout's clip/content split) rather than of g_view
+// (which moves/scales for zoom), so the HUD stays pinned to the same corner
+// of the visible widget regardless of video zoom state. Same small-fixed-
+// size, own-layer approach as metal_video_impl_darwin.m's g_hud_layer --
+// see that file's doc comment for the full rationale (this mirrors it,
+// adapted for UIKit's top-left-origin coordinate space instead of AppKit's
+// bottom-left).
+static CALayer *g_hud_layer = nil;
+static pthread_mutex_t g_hud_pending_mu = PTHREAD_MUTEX_INITIALIZER;
+static NSData *g_hud_pending_data = nil;
+static int g_hud_pending_w = 0, g_hud_pending_h = 0, g_hud_pending_stride = 0;
+static atomic_int g_hud_dirty = 0;
+#define HUD_MARGIN 12.0
+
 static volatile atomic_int g_active = 0;
 static CADisplayLink *g_display_link = nil;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static CVPixelBufferRef g_pendingBuf = NULL;
+// Timestamp (mono_sec) of the metal_video_try_submit call that produced
+// g_pendingBuf -- see metal_video_impl_darwin.m's identical field for why:
+// diffed against display time to approximate per-frame decode/submit
+// latency without extra plumbing through the VT decode callback.
+static double g_pendingBufSubmitTime = 0.0;
 
 static int64_t g_submitCount   = 0;
 static int64_t g_renderCount   = 0;
@@ -40,6 +61,15 @@ static int64_t g_fpsFrames     = 0;
 static double  g_fpsStart      = 0.0;
 static double  g_lastKnownFps  = 0.0;
 static int     g_lastW = 0, g_lastH = 0;
+
+// Decode/render-latency rolling window -- same shape as metal_video_impl_darwin.m's.
+static double  g_decodeMsSum       = 0.0;
+static int64_t g_decodeSamples     = 0;
+static double  g_lastKnownDecodeMs = 0.0;
+
+// Forward declaration -- defined further down (Net Graph HUD section), used
+// by IOSMetalDisplayLinkTarget's displayLinkFired above that definition.
+static void metal_video_apply_pending_hud_overlay(void);
 
 static double mono_sec(void) {
     struct timespec ts;
@@ -50,7 +80,7 @@ static double mono_sec(void) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Render — called on main thread; OWNS buf and always releases it.
 // ─────────────────────────────────────────────────────────────────────────────
-static void metal_render_main_with_buf(CVPixelBufferRef buf) {
+static void metal_render_main_with_buf(CVPixelBufferRef buf, double latencyMs) {
     if (!atomic_load(&g_active) || !g_layer) {
         CVPixelBufferRelease(buf);
         return;
@@ -85,6 +115,10 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
 
     g_lastW = w; g_lastH = h;
     g_fpsFrames++;
+    if (latencyMs >= 0.0) {
+        g_decodeMsSum += latencyMs;
+        g_decodeSamples++;
+    }
     double now     = mono_sec();
     double elapsed = now - g_fpsStart;
     if (n == 30 && g_fpsStart > 0.0) {
@@ -97,15 +131,20 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
     }
     if (elapsed >= 2.0 && g_fpsFrames > 0) {
         g_lastKnownFps = (double)g_fpsFrames / elapsed;
+        if (g_decodeSamples > 0) {
+            g_lastKnownDecodeMs = g_decodeMsSum / (double)g_decodeSamples;
+        }
         char msg[192];
         snprintf(msg, sizeof(msg),
-                 "iOS Metal: fps=%.1f rendered=%lld submitted=%lld %dx%d",
+                 "iOS Metal: fps=%.1f rendered=%lld submitted=%lld %dx%d decodeMs=%.1f",
                  g_lastKnownFps,
                  (long long)g_renderCount, (long long)g_submitCount,
-                 g_lastW, g_lastH);
+                 g_lastW, g_lastH, g_lastKnownDecodeMs);
         goMetalLog(msg, 0);
-        g_fpsStart  = now;
-        g_fpsFrames = 0;
+        g_fpsStart      = now;
+        g_fpsFrames     = 0;
+        g_decodeMsSum   = 0.0;
+        g_decodeSamples = 0;
     }
 }
 
@@ -122,12 +161,22 @@ static UIWindow *_find_key_window(void);
 @implementation IOSMetalDisplayLinkTarget
 - (void)displayLinkFired:(CADisplayLink __unused *)link {
     if (!atomic_load(&g_active)) return;
+
+    // Net Graph HUD: applied here, not via dispatch_async -- see
+    // metal_video_impl_darwin.m's g_hud_dirty doc comment for why (same
+    // root cause applies to any UIKit/AppKit run loop, not just macOS's).
+    if (atomic_exchange(&g_hud_dirty, 0)) {
+        metal_video_apply_pending_hud_overlay();
+    }
+
     pthread_mutex_lock(&g_mu);
     CVPixelBufferRef buf = g_pendingBuf;
+    double submitTime = g_pendingBufSubmitTime;
     g_pendingBuf = NULL;
     pthread_mutex_unlock(&g_mu);
     if (!buf) return;
-    metal_render_main_with_buf(buf);
+    double latencyMs = submitTime > 0.0 ? (mono_sec() - submitTime) * 1000.0 : -1.0;
+    metal_render_main_with_buf(buf, latencyMs);
 }
 // Track keyboard frame so Go can query height each render frame.
 - (void)keyboardWillChangeFrame:(NSNotification *)notification {
@@ -162,6 +211,13 @@ double metal_video_last_fps(void) {
     return (double)g_fpsFrames / elapsed;
 }
 
+// Rolling-average submit-to-display latency (ms) -- see
+// metal_video_impl_darwin.m's identical function for the full rationale.
+double metal_video_last_decode_ms(void) {
+    if (!atomic_load(&g_active)) return 0.0;
+    return g_lastKnownDecodeMs;
+}
+
 static _Atomic int g_submit_call_count = 0;
 static int g_submit_logged = 0;
 int metal_video_try_submit(CVImageBufferRef img) {
@@ -188,6 +244,7 @@ int metal_video_try_submit(CVImageBufferRef img) {
     pthread_mutex_lock(&g_mu);
     CVPixelBufferRef old = g_pendingBuf;
     g_pendingBuf = (CVPixelBufferRef)img;
+    g_pendingBufSubmitTime = mono_sec();
     g_submitCount++;
     pthread_mutex_unlock(&g_mu);
 
@@ -232,6 +289,7 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
             g_clip_view = nil;
             g_view  = nil;
             g_layer = nil;
+            g_hud_layer = nil;
         }
 
         // w=0,h=0 signals full-window mode.
@@ -259,6 +317,16 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
         g_view  = ov;
         g_layer = ov.layer;
 
+        // Net Graph HUD layer -- sublayer of clip.layer (see g_hud_layer's
+        // own doc comment for why clip, not ov), stacked above the video
+        // view so it renders on top. No frame yet -- metal_video_set_hud_overlay
+        // sets it (bottom-right anchored) the first time net_graph.go pushes
+        // an image.
+        CALayer *hl = [CALayer layer];
+        hl.contentsScale = [UIScreen mainScreen].scale;
+        [clip.layer addSublayer:hl];
+        g_hud_layer = hl;
+
         // Subscribe to keyboard frame changes (once per process lifetime).
         if (!g_keyboard_observed) {
             g_keyboard_observed = YES;
@@ -271,11 +339,18 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
 
         g_submitCount = 0; g_renderCount = 0;
         g_fpsFrames   = 0; g_fpsStart = 0.0; g_lastKnownFps = 0.0;
+        g_decodeMsSum = 0.0; g_decodeSamples = 0; g_lastKnownDecodeMs = 0.0;
         g_lastW = 0;       g_lastH = 0;
+
+        atomic_store(&g_hud_dirty, 0);
+        pthread_mutex_lock(&g_hud_pending_mu);
+        g_hud_pending_data = nil;
+        pthread_mutex_unlock(&g_hud_pending_mu);
 
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;
+        g_pendingBufSubmitTime = 0.0;
         pthread_mutex_unlock(&g_mu);
         if (old) CVPixelBufferRelease(old);
 
@@ -312,6 +387,76 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
     };
     if ([NSThread isMainThread]) blk(); else dispatch_sync(dispatch_get_main_queue(), blk);
     return ok;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Net Graph HUD overlay -- see g_hud_layer's doc comment. Applied from
+// displayLinkFired, not dispatch_async -- see metal_video_impl_darwin.m's
+// g_hud_dirty doc comment for why. See net_graph.go's buildNetGraphHUD for
+// what actually gets uploaded here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void metal_video_apply_pending_hud_overlay(void) {
+    pthread_mutex_lock(&g_hud_pending_mu);
+    NSData *data = g_hud_pending_data;
+    int w = g_hud_pending_w, h = g_hud_pending_h, stride = g_hud_pending_stride;
+    pthread_mutex_unlock(&g_hud_pending_mu);
+
+    if (!g_hud_layer || !data) return;
+
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
+    CGImageRef img = CGImageCreate((size_t)w, (size_t)h, 8, 32, (size_t)stride, cs,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault,
+        provider, NULL, false, kCGRenderingIntentDefault);
+    CGDataProviderRelease(provider);
+    CGColorSpaceRelease(cs);
+    if (!img) return;
+
+    // Bottom-right anchor: UIKit's origin is top-left (unlike AppKit's
+    // bottom-left, see metal_video_impl_darwin.m's HUD_MARGIN comment), so
+    // BOTH axes need the "push in from the far edge" treatment here.
+    CGRect containerBounds = g_hud_layer.superlayer ? g_hud_layer.superlayer.bounds : CGRectMake(0, 0, (CGFloat)w, (CGFloat)h);
+    CGFloat x = containerBounds.size.width - HUD_MARGIN - (CGFloat)w;
+    if (x < HUD_MARGIN) x = HUD_MARGIN;
+    CGFloat y = containerBounds.size.height - HUD_MARGIN - (CGFloat)h;
+    if (y < HUD_MARGIN) y = HUD_MARGIN;
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    g_hud_layer.frame = CGRectMake(x, y, (CGFloat)w, (CGFloat)h);
+    g_hud_layer.contents = (__bridge id)img;
+    [CATransaction commit];
+    CGImageRelease(img);
+}
+
+// metal_video_set_hud_overlay is called from net_graph.go's Go goroutine at
+// 10Hz -- ONLY stores the pixels and flags them dirty, same contract as
+// metal_video_impl_darwin.m's identically-named function.
+void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) {
+    if (!atomic_load(&g_active) || !rgba || w <= 0 || h <= 0 || stride <= 0) return;
+
+    NSData *data = [NSData dataWithBytes:rgba length:(size_t)stride * (size_t)h];
+
+    pthread_mutex_lock(&g_hud_pending_mu);
+    g_hud_pending_data = data;
+    g_hud_pending_w = w;
+    g_hud_pending_h = h;
+    g_hud_pending_stride = stride;
+    pthread_mutex_unlock(&g_hud_pending_mu);
+
+    atomic_store(&g_hud_dirty, 1);
+
+    if ([NSThread isMainThread] && atomic_exchange(&g_hud_dirty, 0)) {
+        metal_video_apply_pending_hud_overlay();
+    }
+}
+
+void metal_video_clear_hud_overlay(void) {
+    dispatch_block_t blk = ^{
+        if (g_hud_layer) g_hud_layer.contents = nil;
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -487,15 +632,22 @@ void metal_video_destroy(void) {
         // Keep g_cursor_image — it's reused on next overlay creation so the
         // arrow appears immediately without waiting for Go to re-upload it.
         if (g_clip_view) {
-            // Removing the clip container also removes the video subview.
+            // Removing the clip container also removes the video subview
+            // and the HUD sublayer.
             [g_clip_view removeFromSuperview];
             g_clip_view = nil;
         }
         g_view  = nil;
         g_layer = nil;
+        g_hud_layer = nil;
+        atomic_store(&g_hud_dirty, 0);
+        pthread_mutex_lock(&g_hud_pending_mu);
+        g_hud_pending_data = nil;
+        pthread_mutex_unlock(&g_hud_pending_mu);
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;
+        g_pendingBufSubmitTime = 0.0;
         pthread_mutex_unlock(&g_mu);
         if (old) CVPixelBufferRelease(old);
 

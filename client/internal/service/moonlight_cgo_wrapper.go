@@ -697,6 +697,26 @@ func goAIVisionOverlay(rgba *C.uint8_t, width, height, stride C.int) {
 	ApplyAIVisionOverlay(buf, w, h, s)
 }
 
+// goNetGraphOverlay is the cgo entry point for the Net Graph HUD's
+// CPU-buffer blit path (net_graph.go's ApplyNetGraphOverlay) -- called from
+// moonlight_cgo_linux.go's deliver_frame, right next to goAIVisionOverlay's
+// call site above. Not called from moonlight_cgo_apple.go: macOS/iOS use a
+// native compositor HUD layer instead (metal_video_impl_darwin.m's
+// g_hud_layer / metal_video_impl_ios.m's mirror of it) since their zero-copy
+// decode path never produces a CPU-writable buffer -- see net_graph.go's
+// ApplyNetGraphOverlay doc comment. Harmless no-op if ever reached on those
+// platforms (ApplyNetGraphOverlay's own atomic check).
+//
+//export goNetGraphOverlay
+func goNetGraphOverlay(rgba *C.uint8_t, width, height, stride C.int) {
+	if rgba == nil || width <= 0 || height <= 0 || stride <= 0 {
+		return
+	}
+	w, h, s := int(width), int(height), int(stride)
+	buf := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), s*h)
+	ApplyNetGraphOverlay(buf, w, h, s)
+}
+
 // goAIVisionShouldSample is a cheap (atomics + time comparisons, no pixel
 // access) pre-check called every frame from vt_callback's Metal fast-path
 // branch in moonlight_cgo_apple.go: it lets the C side skip the BGRA→RGBA
