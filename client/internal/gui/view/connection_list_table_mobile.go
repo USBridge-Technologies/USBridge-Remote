@@ -94,6 +94,7 @@ func newMobileConnectionListRow(item ConnectionListItem, highlighted bool) fyne.
 	}
 
 	route := newConnectionListRouteCell(data, item.Actions.OnProtocolChange, item.State)
+	syncBtn := newMobileSyncIconDropdown(data.SyncBadge, data.SyncOptions, data.SyncEnabled, item.State.Disabled, item.Actions.OnSyncChange, item.Actions.OnSyncLocked)
 
 	connectColor := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
 	connectHover := color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
@@ -114,7 +115,7 @@ func newMobileConnectionListRow(item ConnectionListItem, highlighted bool) fyne.
 	connectBtn.SetDisabled(item.State.Disabled)
 	connectBtn.SetLoading(item.State.Loading)
 
-	actions := container.New(&DeviceRowControlsLayout{Gap: 6}, editBtn, route, connectBtn)
+	actions := container.New(&DeviceRowControlsLayout{Gap: 6}, editBtn, syncBtn, route, connectBtn)
 	row := container.New(&mobileListRowLayout{gap: 8}, left, actions)
 	if !highlighted {
 		return row

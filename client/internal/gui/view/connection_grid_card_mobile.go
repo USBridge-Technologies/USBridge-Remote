@@ -73,6 +73,8 @@ func newMobileConnectionGridCard(data ConnectionCardData, state ConnectionRowSta
 	protocolDropdown.SetSelected(data.ProtocolBadge)
 	protocolDropdown.SetDisabled(state.Disabled)
 
+	syncDropdown := newConnectionSyncDropdown(data.SyncBadge, data.SyncOptions, data.SyncEnabled, state.Disabled, actions.OnSyncChange, actions.OnSyncLocked)
+
 	connectColor := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
 	connectHover := color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
 	connectBtn := newIconChromeButton(iconChromeButtonSpec{
@@ -96,7 +98,7 @@ func newMobileConnectionGridCard(data ConnectionCardData, state ConnectionRowSta
 	connectBtn.SetDisabled(state.Disabled)
 	connectBtn.SetLoading(state.Loading)
 
-	bottomRow := container.New(&mobileCardBottomRowLayout{}, editBtn, protocolDropdown, connectBtn)
+	bottomRow := container.New(&mobileCardBottomRowLayout{}, syncDropdown, editBtn, protocolDropdown, connectBtn)
 
 	content := NewInsetExact(
 		container.New(&tightStatsVBoxLayout{Gap: 6}, topRow, statsBox, divider, bottomRow),
@@ -119,6 +121,7 @@ func newMobileConnectionGridCard(data ConnectionCardData, state ConnectionRowSta
 		cardBg.Refresh()
 	}
 	editBtn.spec.OnHover = setCardHovered
+	syncDropdown.OnHover = setCardHovered
 	protocolDropdown.OnHover = setCardHovered
 	connectBtn.spec.OnHover = setCardHovered
 
@@ -153,32 +156,36 @@ func newMobileConnectionCardStatsBox(lanAddress, tailscaleAddress string) fyne.C
 	return container.NewStack(bg, NewInsetExact(container.New(&tightStatsVBoxLayout{Gap: 4}, lanRow, sep, tsRow), 12, 12, 6, 6))
 }
 
-// mobileCardBottomRowLayout pins Edit on the left and packs the protocol
-// picker + a compact Connect on the right, so Connect stays near its
-// natural width instead of stretching across the card.
+// mobileCardBottomRowLayout pins Sync+Edit on the left and packs the
+// protocol picker + a compact Connect on the right, so Connect stays near
+// its natural width instead of stretching across the card.
 type mobileCardBottomRowLayout struct{}
 
 func (l *mobileCardBottomRowLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 3 {
+	if len(objects) < 4 {
 		return fyne.NewSize(0, 30)
 	}
-	const gap float32 = 12
-	w := objects[0].MinSize().Width + gap + objects[1].MinSize().Width + gap + objects[2].MinSize().Width
+	const gap float32 = 8
+	w := objects[0].MinSize().Width + gap + objects[1].MinSize().Width + gap + objects[2].MinSize().Width + gap + objects[3].MinSize().Width
 	return fyne.NewSize(w, 30)
 }
 
 func (l *mobileCardBottomRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 3 {
+	if len(objects) < 4 {
 		return
 	}
-	const gap float32 = 12
-	edit, proto, connect := objects[0], objects[1], objects[2]
+	const gap float32 = 8
+	sync, edit, proto, connect := objects[0], objects[1], objects[2], objects[3]
+	syncW := sync.MinSize().Width
 	editW := edit.MinSize().Width
 	protoW := proto.MinSize().Width
 	connectW := connect.MinSize().Width
 
+	sync.Resize(fyne.NewSize(syncW, size.Height))
+	sync.Move(fyne.NewPos(0, 0))
+
 	edit.Resize(fyne.NewSize(editW, size.Height))
-	edit.Move(fyne.NewPos(0, 0))
+	edit.Move(fyne.NewPos(syncW+gap, 0))
 
 	connect.Resize(fyne.NewSize(connectW, size.Height))
 	connect.Move(fyne.NewPos(size.Width-connectW, 0))

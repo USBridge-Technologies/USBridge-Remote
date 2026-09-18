@@ -46,11 +46,18 @@ func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, m
 		MasterKey:         strings.TrimSpace(masterKey),
 		Protocol:          normalizeConnectionProtocol(protocol),
 		TailscaleRegister: tailscaleRegister,
+		Origin:            connectionOriginLocal,
 	}
 	conn.Host = fallbackText(conn.InternalHost, conn.TailscaleHost)
 	cm.connections = append(cm.connections, conn)
 	cm.selectedIndex = len(cm.connections) - 1
+	if cm.canSyncConnections() && cm.AutoSyncNewConnections() {
+		cm.addBlobKey(connectionSyncKey(conn))
+	}
 	cm.saveConnections()
+	if cm.canSyncConnections() && cm.AutoSyncNewConnections() {
+		cm.flushSyncPush()
+	}
 	fyne.Do(func() {
 		cm.refreshConnectionsList()
 	})
@@ -184,7 +191,7 @@ func (cm *ConnectionManager) saveConnections() {
 // nothing new to merge: the local file is already correct, so there's
 // nothing worth pushing back up over it.
 func (cm *ConnectionManager) saveConnectionsLocalOnly() {
-	data, err := json.MarshalIndent(cm.connections, "", "  ")
+	data, err := json.MarshalIndent(localConnections(cm.connections), "", "  ")
 	if err != nil {
 		logrus.Errorf("Serialization error: %v", err)
 		return
@@ -228,6 +235,11 @@ func (cm *ConnectionManager) loadConnections() {
 	}
 
 	needsSave := false
+	if filtered := localConnections(cm.connections); len(filtered) != len(cm.connections) {
+		cm.connections = filtered
+		needsSave = true
+	}
+
 	for i := range cm.connections {
 		internalHost, tailscaleHost := classifyConnectionHosts(cm.connections[i])
 		// Migrate old-format connections that stored only the legacy `host` field without
@@ -248,6 +260,7 @@ func (cm *ConnectionManager) loadConnections() {
 		cm.connections[i].Host = fallbackText(internalHost, tailscaleHost)
 		cm.connections[i].MasterKey = strings.TrimSpace(cm.connections[i].MasterKey)
 		cm.connections[i].Protocol = normalizeConnectionProtocol(cm.connections[i].Protocol)
+		cm.connections[i].Origin = connectionOriginLocal
 		// Clear stale tailscale_register flag: once a tailscale_host is known,
 		// registration bootstrap is no longer needed.
 		if tailscaleHost != "" && cm.connections[i].TailscaleRegister {

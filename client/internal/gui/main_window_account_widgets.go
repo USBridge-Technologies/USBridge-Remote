@@ -509,3 +509,156 @@ func (t *accountFieldTheme) Size(name fyne.ThemeSizeName) float32 {
 func wrapAccountField(obj fyne.CanvasObject, textSize float32, textColor color.Color) fyne.CanvasObject {
 	return container.NewThemeOverride(obj, &accountFieldTheme{Theme: design.NewBrandTheme(), textSize: textSize, textColor: textColor})
 }
+
+const (
+	accountCheckSize = float32(14)
+	accountCheckGap  = float32(8)
+)
+
+var accountCheckMarkRes = fyne.NewStaticResource("account-check.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12L10 18L20 6"/></svg>`))
+
+// accountCheckRow is the tappable "[x] Sync new connections..." line under
+// Connections sync -- whole row toggles, not just the square.
+type accountCheckRow struct {
+	widget.BaseWidget
+	checked  bool
+	label    string
+	onChange func(bool)
+
+	checkBg    *canvas.Rectangle
+	checkMark  *canvas.Image
+	text       *widget.Label
+	labelTheme *accountFieldTheme
+}
+
+func newAccountAutoSyncRow(checked bool, onChange func(bool)) fyne.CanvasObject {
+	label := "Sync new connections to the cloud automatically"
+	if i18n.Current != nil && i18n.Current.AccountAutoSyncNew != "" {
+		label = i18n.Current.AccountAutoSyncNew
+	}
+	row := &accountCheckRow{
+		checked:  checked,
+		label:    label,
+		onChange: onChange,
+	}
+	row.ExtendBaseWidget(row)
+	return view.NewInset(row, 0, 0, 8, 2)
+}
+
+func (r *accountCheckRow) Tapped(*fyne.PointEvent) {
+	r.checked = !r.checked
+	r.refreshCheck()
+	if r.onChange != nil {
+		r.onChange(r.checked)
+	}
+}
+
+func (r *accountCheckRow) TappedSecondary(*fyne.PointEvent) {}
+
+func (r *accountCheckRow) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (r *accountCheckRow) refreshCheck() {
+	if r.checkBg == nil {
+		return
+	}
+	if r.checked {
+		r.checkBg.FillColor = design.ColorConnectionAddFill
+		r.checkBg.StrokeColor = color.Transparent
+		r.checkMark.Show()
+	} else {
+		r.checkBg.FillColor = color.Transparent
+		r.checkBg.StrokeColor = design.ColorBorder
+		r.checkMark.Hide()
+	}
+	r.checkBg.Refresh()
+	r.checkMark.Refresh()
+	if r.labelTheme != nil {
+		if r.checked {
+			r.labelTheme.textColor = design.ColorTextLight
+		} else {
+			r.labelTheme.textColor = color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
+		}
+	}
+	if r.text != nil {
+		r.text.Refresh()
+	}
+}
+
+func (r *accountCheckRow) CreateRenderer() fyne.WidgetRenderer {
+	r.checkBg = canvas.NewRectangle(color.Transparent)
+	r.checkBg.CornerRadius = 4
+	r.checkBg.StrokeWidth = 1
+
+	r.checkMark = canvas.NewImageFromResource(accountCheckMarkRes)
+	r.checkMark.FillMode = canvas.ImageFillContain
+
+	r.text = widget.NewLabel(r.label)
+	r.text.Wrapping = fyne.TextWrapWord
+	r.labelTheme = &accountFieldTheme{Theme: design.NewBrandTheme(), textSize: 11}
+	label := container.NewThemeOverride(r.text, r.labelTheme)
+
+	r.refreshCheck()
+	return &accountCheckRowRenderer{
+		r:     r,
+		label: label,
+	}
+}
+
+type accountCheckRowRenderer struct {
+	r     *accountCheckRow
+	label fyne.CanvasObject
+}
+
+func (rr *accountCheckRowRenderer) Layout(size fyne.Size) {
+	checkY := (size.Height - accountCheckSize) / 2
+	if checkY < 0 {
+		checkY = 0
+	}
+	rr.r.checkBg.Move(fyne.NewPos(0, checkY))
+	rr.r.checkBg.Resize(fyne.NewSize(accountCheckSize, accountCheckSize))
+	rr.r.checkMark.Move(fyne.NewPos(2, checkY+2))
+	rr.r.checkMark.Resize(fyne.NewSize(accountCheckSize-4, accountCheckSize-4))
+
+	labelX := accountCheckSize + accountCheckGap
+	labelW := size.Width - labelX
+	if labelW < 0 {
+		labelW = 0
+	}
+	rr.label.Move(fyne.NewPos(labelX, 0))
+	rr.label.Resize(fyne.NewSize(labelW, size.Height))
+}
+
+func (rr *accountCheckRowRenderer) MinSize() fyne.Size {
+	textMin := rr.label.MinSize()
+	h := textMin.Height
+	if h < accountCheckSize {
+		h = accountCheckSize
+	}
+	if accountDialogMobile() {
+		lineH := fyne.MeasureText("Ag", 11, fyne.TextStyle{}).Height
+		if minH := lineH*2 + 4; h < minH {
+			h = minH
+		}
+	}
+	return fyne.NewSize(accountCheckSize+accountCheckGap+textMin.Width, h)
+}
+
+func (rr *accountCheckRowRenderer) Refresh() {
+	if rr.r.text != nil {
+		rr.r.text.SetText(rr.r.label)
+	}
+	rr.r.refreshCheck()
+	rr.label.Refresh()
+}
+
+func (rr *accountCheckRowRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{rr.r.checkBg, rr.r.checkMark, rr.label}
+}
+
+func (rr *accountCheckRowRenderer) Destroy() {}
+
+func (rr *accountCheckRowRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}

@@ -7,14 +7,14 @@ package view
 // superseded here, see that function's own doc comment).
 //
 // Columns: OS (status dot) | NAME (name + edit pencil, a device-platform
-// label under it) | STATE (KVM/Agent/Unknown, colored text) | NETWORK
-// (LAN/TS) | ROUTE BRIDGE (protocol picker) | ACTIONS (Connect). Modeled on
-// a reference screenshot -- widths/spacing are a first pass pending review,
-// same as every other screen here.
+// label under it) | STATE (KVM/Agent/Unknown, colored text) | SYNC
+// (Local/Cloud) | NETWORK (LAN/TS) | ROUTE BRIDGE (protocol picker) | ACTIONS
+// (Connect). Modeled on a reference screenshot -- widths/spacing are a
+// first pass pending review, same as every other screen here.
 //
 // The edit pencil no longer opens the modal editor as an overlay -- it
 // switches the whole List view into a split layout (NewConnectionsListSplit):
-// the table -- NETWORK, ROUTE BRIDGE and ACTIONS columns dropped, see
+// the table -- NETWORK, SYNC, ROUTE BRIDGE and ACTIONS columns dropped, see
 // buildConnectionsListTable's compact mode -- docked left, the edit panel
 // (view.NewConnectionEditPanel, built by the controller) pinned flush right
 // at its own fixed width. Unlike a plain HSplit (which was tried and
@@ -55,8 +55,9 @@ type ConnectionListItem struct {
 // connectionListColumnLabels/connectionListColumnWidths are the full
 // (non-editing) table's six columns, in the order
 // newConnectionListHeaderRow/newConnectionListRow build cells in. 0 means
-// "flexible, absorb whatever room the fixed columns and gaps leave" -- only
-// NETWORK does. connectionListCompactColumn{Labels,Widths} is the same
+// "flexible, absorb whatever room the fixed columns and gaps leave" -- NAME
+// does, so SYNC sits right after STATE, then NETWORK.
+// connectionListCompactColumn{Labels,Widths} is the same
 // table with NETWORK, ROUTE BRIDGE and ACTIONS dropped -- used while a row
 // is being edited (see NewConnectionsListSplit): none of the three are
 // relevant while editing (the connection method and Connect/Delete belong
@@ -65,8 +66,8 @@ type ConnectionListItem struct {
 // whichever pair is active (via connectionsTableRowLayout) so columns line
 // up.
 var (
-	connectionListColumnKeys   = []string{"os", "name", "state", "network", "route", "actions"}
-	connectionListColumnWidths = []float32{32, 130, 70, 0, 100, 150}
+	connectionListColumnKeys   = []string{"os", "name", "state", "sync", "network", "route", "actions"}
+	connectionListColumnWidths = []float32{32, 0, 70, 82, 168, 90, 140}
 
 	connectionListCompactColumnKeys   = []string{"os", "name", "state"}
 	connectionListCompactColumnWidths = []float32{32, 0, 70}
@@ -278,6 +279,8 @@ func connectionListHeaderLabel(key string) string {
 		return i18n.Current.ConnectionColState
 	case "network":
 		return i18n.Current.ConnectionColNetwork
+	case "sync":
+		return i18n.Current.ConnectionColSync
 	case "route":
 		return i18n.Current.ConnectionColRouteBridge
 	case "actions":
@@ -295,7 +298,7 @@ func newConnectionListHeaderRow(keys []string, widths []float32) fyne.CanvasObje
 		t.TextStyle.Monospace = true
 
 		switch key {
-		case "os", "state", "route":
+		case "os", "state", "sync", "route":
 			cells[i] = container.NewCenter(t)
 		case "actions":
 			t.Alignment = fyne.TextAlignTrailing
@@ -323,9 +326,10 @@ func newConnectionListRow(item ConnectionListItem, widths []float32, compact boo
 	cells := []fyne.CanvasObject{osCell, nameCell, stateCell}
 	if !compact {
 		networkCell := newConnectionListNetworkCell(data.LANAddress, data.TailscaleAddress)
+		syncCell := container.NewCenter(newConnectionListSyncCell(data, item.Actions.OnSyncChange, item.Actions.OnSyncLocked, item.State))
 		routeCell := container.NewCenter(newConnectionListRouteCell(data, item.Actions.OnProtocolChange, item.State))
 		actionsCell := container.NewBorder(nil, nil, nil, newConnectionListActionsCell(item))
-		cells = append(cells, networkCell, routeCell, actionsCell)
+		cells = append(cells, syncCell, networkCell, routeCell, actionsCell)
 	}
 
 	row := container.New(&connectionsTableRowLayout{Widths: widths, Gap: connectionListColumnGap}, cells...)
@@ -407,6 +411,74 @@ func newConnectionListNetworkLine(label, value string, valueColor color.Color) f
 	valueText.TextStyle.Monospace = true
 
 	return container.New(&DeviceRowControlsLayout{Gap: 6}, labelText, valueText)
+}
+
+func newConnectionListSyncCell(data ConnectionRowData, onChange func(string), onLocked func(), state ConnectionRowState) fyne.CanvasObject {
+	return newConnectionSyncDropdown(data.SyncBadge, data.SyncOptions, data.SyncEnabled, state.Disabled, onChange, onLocked)
+}
+
+func newConnectionSyncDropdown(badge string, options []string, syncEnabled, disabled bool, onChange func(string), onLocked func()) *HeaderDropdown {
+	localLabel, cloudLabel := "Local", "Cloud"
+	if i18n.Current != nil {
+		if i18n.Current.ConnectionSyncLocal != "" {
+			localLabel = i18n.Current.ConnectionSyncLocal
+		}
+		if i18n.Current.ConnectionSyncCloud != "" {
+			cloudLabel = i18n.Current.ConnectionSyncCloud
+		}
+	}
+	if len(options) == 0 {
+		options = []string{localLabel, cloudLabel}
+	}
+	dropdown := NewHeaderDropdown(options, badge, onChange)
+	dropdown.UltraCompact = true
+	dropdown.CornerRadius = 6
+	dropdown.BorderColor = design.ColorTailscaleChipBorder
+	dropdown.TextColor = design.ColorConnectionBadgeText
+	dropdown.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	dropdown.TextSize = 10
+	dropdown.HoverBorderColor = design.ColorConnectionBadgeText
+	dropdown.HoverFillColor = design.ColorGray900
+	dropdown.SetSelected(badge)
+	dropdown.SetDisabled(disabled)
+	if !syncEnabled {
+		dropdown.MutedOptions = []string{cloudLabel, "cloud"}
+		dropdown.OnMutedSelected = func(string) {
+			if onLocked != nil {
+				onLocked()
+			}
+		}
+	}
+	return dropdown
+}
+
+func connectionSyncIsCloud(badge string) bool {
+	badge = strings.TrimSpace(badge)
+	if strings.EqualFold(badge, "cloud") {
+		return true
+	}
+	if i18n.Current != nil && i18n.Current.ConnectionSyncCloud != "" && strings.EqualFold(badge, i18n.Current.ConnectionSyncCloud) {
+		return true
+	}
+	return false
+}
+
+var (
+	connectionSyncCloudIcon    = fyne.NewStaticResource("connection-sync-cloud.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>`))
+	connectionSyncCloudOffIcon = fyne.NewStaticResource("connection-sync-cloud-off.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#6a6d64" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/><path fill="none" stroke="#c5c8b5" stroke-width="2.4" stroke-linecap="round" d="M4.2 19.8 L19.8 4.2"/></svg>`))
+)
+
+func newMobileSyncIconDropdown(badge string, options []string, syncEnabled, disabled bool, onChange func(string), onLocked func()) *HeaderDropdown {
+	dropdown := newConnectionSyncDropdown(badge, options, syncEnabled, disabled, onChange, onLocked)
+	dropdown.IconOnly = true
+	dropdown.CornerRadius = 5
+	if connectionSyncIsCloud(badge) {
+		dropdown.TriggerIcon = connectionSyncCloudIcon
+	} else {
+		dropdown.TriggerIcon = connectionSyncCloudOffIcon
+	}
+	dropdown.updateMinWidth()
+	return dropdown
 }
 
 func newConnectionListRouteCell(data ConnectionRowData, onChange func(string), state ConnectionRowState) fyne.CanvasObject {

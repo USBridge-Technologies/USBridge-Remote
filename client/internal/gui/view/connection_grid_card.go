@@ -52,6 +52,9 @@ type ConnectionCardData struct {
 
 	ProtocolBadge   string
 	ProtocolOptions []string
+	SyncBadge       string
+	SyncOptions     []string
+	SyncEnabled     bool
 }
 
 // ConnectionCardActions are the events a grid card can report.
@@ -60,6 +63,8 @@ type ConnectionCardActions struct {
 	OnEdit           func()
 	OnUse            func()
 	OnProtocolChange func(string)
+	OnSyncChange     func(string)
+	OnSyncLocked     func()
 	// OnSave commits the inline-edited Name/LAN/TS/Token fields (only wired
 	// up while ConnectionRowState.Editing is set -- see the Save icon
 	// button in the card's edit layout). Same shape as the modal editor's
@@ -84,7 +89,7 @@ type ConnectionCardActions struct {
 // get that many per row.
 const (
 	connectionCardWidth  float32 = 280
-	connectionCardHeight float32 = 205
+	connectionCardHeight float32 = 218
 	// connectionCardGridGap is the empty space ConnectionManagerUI.
 	// applyConnectionsContent leaves between adjacent cards (and between a
 	// card and the grid's own edge) -- GridWrap itself has no configurable
@@ -158,7 +163,9 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 				platformLabel = i18n.Current.AwaitingConnection
 			}
 		}
-		chipsRow = NewInset(newConnectionCardChipsRow(platformLabel, strings.TrimSpace(data.CapabilityText), accent), 0, 0, 4, 8)
+		plaque := newConnectionCardChipsRow(platformLabel, strings.TrimSpace(data.CapabilityText), accent)
+		syncDrop := newConnectionSyncDropdown(data.SyncBadge, data.SyncOptions, data.SyncEnabled, state.Disabled, actions.OnSyncChange, actions.OnSyncLocked)
+		chipsRow = NewInset(container.NewBorder(nil, nil, plaque, syncDrop), 0, 0, 4, 8)
 	}
 
 	var statsBox fyne.CanvasObject

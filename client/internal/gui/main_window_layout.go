@@ -527,6 +527,9 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 		mw.connectionManager.SetTailscaleStatusSink(handle.SetTailscaleState)
 		mw.connectionManager.SetAccountStateSink(handle.SetAccountState)
 		mw.connectionManager.SetConnectingStateSink(mw.handleConnectingStateChange)
+		mw.connectionManager.SetOpenAccount(func() {
+			mw.showAccountDialog()
+		})
 	}
 
 	return band

@@ -68,6 +68,9 @@ type AccountManager struct {
 	// account dialog) that something worth re-rendering changed --
 	// deliberately fire-and-forget, called with the lock released.
 	onChange func()
+	// beforeLogout runs while credentials are still valid so a pending
+	// connections-sync push can flush before Logout clears the sync key.
+	beforeLogout func()
 }
 
 type accountFileState struct {
@@ -86,6 +89,15 @@ func (am *AccountManager) notify() {
 	if am.onChange != nil {
 		am.onChange()
 	}
+}
+
+func (am *AccountManager) SetBeforeLogout(fn func()) {
+	if am == nil {
+		return
+	}
+	am.mu.Lock()
+	am.beforeLogout = fn
+	am.mu.Unlock()
 }
 
 func (am *AccountManager) getStorageURI() fyne.URI {
@@ -372,6 +384,13 @@ func (am *AccountManager) CachedLicenses() (licenses []account.License, err erro
 // usbridge-entitlement-backend's deviceAuth.ts ACCOUNT_TOKEN_TTL_SECONDS;
 // there is no server-side session to invalidate).
 func (am *AccountManager) Logout() {
+	am.mu.Lock()
+	before := am.beforeLogout
+	am.mu.Unlock()
+	if before != nil {
+		before()
+	}
+
 	am.mu.Lock()
 	am.email = ""
 	am.accountToken = ""

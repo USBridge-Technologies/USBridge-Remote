@@ -659,9 +659,11 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 
 	if on {
 		desc := newAccountSyncOnDescription()
-		textBlock := container.New(&tightVBoxLayout{}, titleText, desc)
-		shiftedPill := view.NewInset(pill, 0, 0, 2, 0)
-		return view.NewInset(container.NewBorder(nil, nil, nil, container.NewCenter(shiftedPill), textBlock), 0, 0, 4, 0), nil
+		autoSync := newAccountAutoSyncRow(cm.AutoSyncNewConnections(), func(checked bool) {
+			cm.SetAutoSyncNewConnections(checked)
+		})
+		titleRow := container.NewBorder(nil, nil, titleText, view.NewInset(pill, 0, 0, 2, 0))
+		return view.NewInset(container.New(&tightVBoxLayout{}, titleRow, desc, autoSync), 0, 0, 4, 0), nil
 	}
 
 	titleRow := container.NewBorder(nil, nil, titleText, view.NewInset(pill, 0, 0, 2, 0))

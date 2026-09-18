@@ -44,16 +44,16 @@ func (t *dropdownMenuTheme) Size(name fyne.ThemeSizeName) float32 {
 type HeaderDropdown struct {
 	widget.BaseWidget
 
-	Options          []string
-	Selected         string
-	OnSelected       func(string)
-	MinWidth         float32
-	Compact          bool
-	UltraCompact     bool
-	BorderColor      color.Color
-	CornerRadius     float32
-	TextColor        color.Color
-	TextSize         float32
+	Options      []string
+	Selected     string
+	OnSelected   func(string)
+	MinWidth     float32
+	Compact      bool
+	UltraCompact bool
+	BorderColor  color.Color
+	CornerRadius float32
+	TextColor    color.Color
+	TextSize     float32
 	// DetailTextSize sizes the optional Details hint in the popup. 0 keeps
 	// it the same as TextSize (resolution hints, etc.).
 	DetailTextSize   float32
@@ -74,6 +74,15 @@ type HeaderDropdown struct {
 	// falls back to showing/measuring the value itself, same as before this
 	// field existed.
 	ShortLabels map[string]string
+	// MutedOptions lists values shown gray in the popup and not applied as
+	// Selected -- tapping one fires OnMutedSelected instead (Cloud when
+	// the user is logged out, which opens the account dialog).
+	MutedOptions    []string
+	OnMutedSelected func(string)
+	// IconOnly draws a square icon trigger (mobile list cloud / cloud-off)
+	// instead of the text+chevron control. TriggerIcon is the glyph.
+	IconOnly    bool
+	TriggerIcon fyne.Resource
 
 	disabled bool
 	hovered  bool
@@ -122,6 +131,9 @@ func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 	}
 
 	var res fyne.Resource = coloredArrowDown(d.IconColor)
+	if d.IconOnly && d.TriggerIcon != nil {
+		res = d.TriggerIcon
+	}
 	d.icon = canvas.NewImageFromResource(res)
 	d.icon.FillMode = canvas.ImageFillContain
 	d.icon.SetMinSize(fyne.NewSize(16, 16))
@@ -137,6 +149,9 @@ func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 
 func (d *HeaderDropdown) MinSize() fyne.Size {
 	height := d.controlHeight()
+	if d.IconOnly {
+		return fyne.NewSize(height, height)
+	}
 	if d.MinWidth > 0 {
 		return fyne.NewSize(d.MinWidth, height)
 	}
@@ -220,6 +235,10 @@ func (d *HeaderDropdown) SetShortLabels(labels map[string]string) {
 }
 
 func (d *HeaderDropdown) updateMinWidth() {
+	if d.IconOnly {
+		d.MinWidth = d.controlHeight()
+		return
+	}
 	longest := strings.TrimSpace(d.displayText(d.Selected))
 	for _, option := range d.Options {
 		option = strings.TrimSpace(d.displayText(option))
@@ -252,6 +271,15 @@ func (d *HeaderDropdown) Disabled() bool {
 	return d.disabled
 }
 
+func (d *HeaderDropdown) optionMuted(value string) bool {
+	for _, option := range d.MutedOptions {
+		if strings.EqualFold(option, value) {
+			return true
+		}
+	}
+	return false
+}
+
 func (d *HeaderDropdown) Hide() {
 	d.hidden = true
 	d.closePopup()
@@ -271,14 +299,26 @@ func (d *HeaderDropdown) openPopup() {
 	rows := make([]fyne.CanvasObject, 0, len(d.Options))
 	for _, option := range d.Options {
 		value := option
-		item := newDropdownItem(value, d.Details[value], value == d.Selected, func() {
-			d.SetSelected(value)
+		muted := d.optionMuted(value)
+		item := newDropdownItem(value, d.Details[value], value == d.Selected && !muted, func() {
 			d.closePopup()
+			if muted {
+				if d.OnMutedSelected != nil {
+					d.OnMutedSelected(value)
+				}
+				return
+			}
+			d.SetSelected(value)
 			if d.OnSelected != nil {
 				d.OnSelected(value)
 			}
 		})
-		item.textColor = d.TextColor
+		item.muted = muted
+		if muted {
+			item.textColor = design.ColorBorder
+		} else {
+			item.textColor = d.TextColor
+		}
 		item.textSize = d.TextSize
 		item.detailTextSize = d.DetailTextSize
 		item.monospace = d.UltraCompact
@@ -387,7 +427,9 @@ func (d *HeaderDropdown) openPopup() {
 
 	d.popup.ShowAtPosition(fyne.NewPos(popupX, popupY))
 	d.opened = true
-	d.animateArrow(downIcon, upIcon)
+	if !d.IconOnly {
+		d.animateArrow(downIcon, upIcon)
+	}
 	d.Refresh()
 }
 
@@ -403,7 +445,9 @@ func (d *HeaderDropdown) closePopup() {
 
 	d.opened = false
 	d.hovered = false
-	d.animateArrow(upIcon, downIcon)
+	if !d.IconOnly {
+		d.animateArrow(upIcon, downIcon)
+	}
 	d.Refresh()
 }
 
@@ -411,7 +455,9 @@ func (d *HeaderDropdown) popupDismissed() {
 	d.popup = nil
 	d.opened = false
 	d.hovered = false
-	d.animateArrow(theme.Icon(theme.IconNameArrowDropUp), theme.Icon(theme.IconNameArrowDropDown))
+	if !d.IconOnly {
+		d.animateArrow(theme.Icon(theme.IconNameArrowDropUp), theme.Icon(theme.IconNameArrowDropDown))
+	}
 	d.Refresh()
 }
 
@@ -432,6 +478,19 @@ func (d *HeaderDropdown) refreshVisuals() {
 	iconTranslucency := float64(0)
 
 	switch {
+	case d.IconOnly:
+		fill = color.Transparent
+		if d.opened || d.hovered {
+			fill = d.HoverFillColor
+			borderColor = d.HoverBorderColor
+		}
+		if d.disabled {
+			iconTranslucency = 0.35
+		}
+		iconResource = d.TriggerIcon
+		if iconResource == nil {
+			iconResource = coloredArrowDown(d.IconColor)
+		}
 	case d.disabled:
 		fill = design.ColorGray900
 		textColor = design.ColorBorder
@@ -448,6 +507,11 @@ func (d *HeaderDropdown) refreshVisuals() {
 	d.border.StrokeColor = borderColor
 	d.label.Text = d.displayText(d.Selected)
 	d.label.Color = textColor
+	if d.IconOnly {
+		d.label.Hide()
+	} else {
+		d.label.Show()
+	}
 	d.icon.Resource = iconResource
 	d.icon.Translucency = iconTranslucency
 	d.bg.Refresh()
@@ -550,6 +614,7 @@ type dropdownItem struct {
 	secondary string
 	selected  bool
 	hovered   bool
+	muted     bool
 	onTap     func()
 
 	bg             *canvas.Rectangle
@@ -694,11 +759,19 @@ func (i *dropdownItem) refreshVisuals() {
 	}
 
 	var fill color.Color = color.Transparent
-	if i.selected {
-		fill = design.ColorGray900
-	}
-	if i.hovered {
-		fill = design.ColorSurfaceLight
+	if i.muted {
+		i.label.Color = design.ColorBorder
+		if i.hovered {
+			fill = design.ColorGray900
+		}
+	} else {
+		if i.selected {
+			fill = design.ColorGray900
+		}
+		if i.hovered {
+			fill = design.ColorSurfaceLight
+		}
+		i.label.Color = i.textColor
 	}
 
 	i.bg.FillColor = fill
@@ -716,6 +789,18 @@ func (r *headerDropdownRenderer) Layout(size fyne.Size) {
 	d := r.dropdown
 	d.bg.Resize(size)
 	d.border.Resize(size)
+
+	if d.IconOnly {
+		side := float32(12)
+		if d.UltraCompact {
+			side = 12
+		}
+		iconSize := fyne.NewSize(side, side)
+		d.icon.Resize(iconSize)
+		d.icon.Move(fyne.NewPos((size.Width-side)/2, (size.Height-side)/2))
+		d.label.Hide()
+		return
+	}
 
 	labelMin := d.label.MinSize()
 	labelWidth := size.Width - d.horizontalPadding()

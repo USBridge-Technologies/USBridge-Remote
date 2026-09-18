@@ -42,7 +42,7 @@ func accountDialogScrollMetrics(loggedIn, hasSyncKey, loginProgress bool) (left,
 	switch {
 	case loggedIn:
 		left, right, top, bottom = 21, 21, 14, 18
-		minH = 200
+		minH = 248
 		if !hasSyncKey {
 			minH = 250
 		}

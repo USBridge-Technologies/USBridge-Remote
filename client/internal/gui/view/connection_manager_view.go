@@ -123,10 +123,15 @@ type ConnectionRowData struct {
 	// control shows -- leaving it visible but non-functional would just be a
 	// dropdown users could fiddle with for no effect.
 	HideProtocolSelector bool
-	RegisterChecked      bool
-	RegisterVisible      bool
-	RemoteOS             string
-	PlatformLabel        string
+	SyncBadge            string
+	SyncOptions          []string
+	// SyncEnabled is false when the account has no sync credentials: the
+	// dropdown still shows Local/Cloud but Cloud cannot be chosen.
+	SyncEnabled     bool
+	RegisterChecked bool
+	RegisterVisible bool
+	RemoteOS        string
+	PlatformLabel   string
 }
 
 type ConnectionRowState struct {
@@ -146,6 +151,10 @@ type ConnectionRowActions struct {
 	OnUse            func()
 	OnEdit           func()
 	OnProtocolChange func(string)
+	OnSyncChange     func(string)
+	// OnSyncLocked fires when Cloud is chosen while sync is not configured
+	// (logged out / no passphrase) -- opens the account login dialog.
+	OnSyncLocked     func()
 	OnRegisterChange func(bool)
 	// OnDelete removes this connection -- List's ACTIONS column Delete
 	// icon button (next to Connect), same confirm-then-delete flow the

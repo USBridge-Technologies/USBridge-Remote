@@ -42,6 +42,11 @@ type SavedConnection struct {
 	// RemoteProtocol is the agent tariff reported after a successful
 	// connect: opensource, free, pro, or enterprise.
 	RemoteProtocol string `json:"remote_protocol,omitempty"`
+	// Origin is "local" (this device only: connections.json, survives
+	// logout, not written to the account blob) or "cloud" (account blob,
+	// memory overlay, gone on logout). Empty is treated as local so
+	// existing connections.json files keep working.
+	Origin string `json:"origin,omitempty"`
 }
 
 type ConnectionManager struct {
@@ -113,7 +118,18 @@ type ConnectionManager struct {
 	// single choke point every connectionPending transition (both the Grid/
 	// List Connect button and MainWindow's own clearConnectionPending) goes
 	// through. name is only meaningful while connecting=true.
+	// connectingStateSink pushes connectionPending's own start/stop into a
+	// bottom "Connecting to X..." toast with a progress bar (see
+	// gui.MainWindow's wiring) -- fired from setConnectionPendingState, the
+	// single choke point every connectionPending transition (both the Grid/
+	// List Connect button and MainWindow's own clearConnectionPending) goes
+	// through. name is only meaningful while connecting=true.
 	connectingStateSink func(connecting bool, name string)
+
+	// openAccount opens the account login/sync dialog (MainWindow.
+	// showAccountDialog), wired once from the connections header. Used when
+	// the user picks Cloud on a connection while logged out.
+	openAccount func()
 
 	// addCardDismissed hides Grid mode's "Add New Connect" tile and shows
 	// a footer "+" (before Size) that restores it -- persisted so a closed
@@ -275,17 +291,13 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 	cm.startTailscaleStatusPolling()
 
 	cm.Account = NewAccountManager(app, func() {
-		// Fires on every login/passphrase/logout change -- cheap to call
-		// unconditionally (trySyncPullAndMerge no-ops the instant sync
-		// credentials aren't both set yet) and is exactly the moment a
-		// fresh set of credentials becomes available worth reconciling
-		// against, e.g. right after SetSyncPassphrase on a second device.
+		// Fires on every login/passphrase/logout change. Pulls when sync
+		// credentials are present; drops the cloud overlay on logout so
+		// only this device's local connections remain.
 		go cm.trySyncPullAndMerge()
-		// Also keep the header avatar's teal/letter state in sync with
-		// every login/logout -- not just passphrase changes, which don't
-		// affect it, but cheap enough not to bother filtering.
 		cm.notifyAccountState()
 	})
+	cm.Account.SetBeforeLogout(cm.flushSyncPush)
 	go cm.trySyncPullAndMerge()
 	return cm
 }
@@ -692,6 +704,19 @@ func (cm *ConnectionManager) SetConnectingStateSink(sink func(connecting bool, n
 	cm.connectingStateSink = sink
 }
 
+// SetOpenAccount registers the account-dialog opener (the same callback the
+// header avatar uses) so a Cloud pick while logged out can open login.
+func (cm *ConnectionManager) SetOpenAccount(open func()) {
+	cm.openAccount = open
+}
+
+func (cm *ConnectionManager) OpenAccount() {
+	if cm == nil || cm.openAccount == nil {
+		return
+	}
+	cm.openAccount()
+}
+
 // SetAccountStateSink registers where live account login state goes --
 // normally the connection header's avatar button, wired up once by
 // MainWindow right after it builds that header (see connection_header.go's
@@ -711,13 +736,19 @@ func (cm *ConnectionManager) SetAccountStateSink(sink func(loggedIn bool, email 
 // notifyAccountState pushes the account manager's current login state into
 // accountStateSink, if one is registered.
 func (cm *ConnectionManager) notifyAccountState() {
-	if cm.accountStateSink == nil || cm.Account == nil {
-		return
+	loggedIn := false
+	email := ""
+	if cm.Account != nil {
+		loggedIn = cm.Account.LoggedIn()
+		email = cm.Account.Email()
 	}
-	loggedIn := cm.Account.LoggedIn()
-	email := cm.Account.Email()
 	fyne.Do(func() {
-		cm.accountStateSink(loggedIn, email)
+		// Badges depend on login (Cloud while synced, Local after logout).
+		// Refresh here so logout does not wait for the async pull/drop goroutine.
+		cm.refreshConnectionsList()
+		if cm.accountStateSink != nil {
+			cm.accountStateSink(loggedIn, email)
+		}
 	})
 }
 
@@ -867,6 +898,31 @@ func connectionProtocolFromBadge(badge string) string {
 	default:
 		return models.ConnectionProtocolAuto
 	}
+}
+
+func connectionSyncBadge(origin string) string {
+	if connectionOrigin(SavedConnection{Origin: origin}) == connectionOriginCloud {
+		if i18n.Current != nil && i18n.Current.ConnectionSyncCloud != "" {
+			return i18n.Current.ConnectionSyncCloud
+		}
+		return "Cloud"
+	}
+	if i18n.Current != nil && i18n.Current.ConnectionSyncLocal != "" {
+		return i18n.Current.ConnectionSyncLocal
+	}
+	return "Local"
+}
+
+func connectionOriginFromBadge(label string) string {
+	label = strings.TrimSpace(label)
+	cloud := "Cloud"
+	if i18n.Current != nil && i18n.Current.ConnectionSyncCloud != "" {
+		cloud = i18n.Current.ConnectionSyncCloud
+	}
+	if strings.EqualFold(label, connectionOriginCloud) || strings.EqualFold(label, cloud) {
+		return connectionOriginCloud
+	}
+	return connectionOriginLocal
 }
 
 func isLikelyTailnetHost(host string) bool {

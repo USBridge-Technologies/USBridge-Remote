@@ -87,6 +87,7 @@ type LocalizedStrings struct {
 	AccountSyncOn                     string
 	AccountSyncOff                    string
 	AccountSyncOnDesc                 string
+	AccountAutoSyncNew                string
 	AccountResetWarn                  string
 	AccountNewPassphrase              string
 	AccountResetOverwrite             string
@@ -165,8 +166,11 @@ type LocalizedStrings struct {
 	ConnectionColInfo                 string
 	ConnectionColState                string
 	ConnectionColNetwork              string
+	ConnectionColSync                 string
 	ConnectionColRouteBridge          string
 	ConnectionColActions              string
+	ConnectionSyncLocal               string
+	ConnectionSyncCloud               string
 	MobileColAction                   string
 	ConnectionNameField               string
 	ConnectionLANPlaceholder          string
@@ -641,6 +645,7 @@ func EN() *LocalizedStrings {
 		AccountSyncOn:                     "on",
 		AccountSyncOff:                    "off",
 		AccountSyncOnDesc:                 "End-to-end encrypted sync of your saved connections across devices.",
+		AccountAutoSyncNew:                "Sync new connections to the cloud automatically",
 		AccountResetWarn:                  "Resetting starts fresh: this device's own saved connections will overwrite whatever is currently synced on this account under the old passphrase -- that old synced data becomes permanently unreadable the moment you do this. Enter a new passphrase:",
 		AccountNewPassphrase:              "New sync passphrase",
 		AccountResetOverwrite:             "Reset & overwrite",
@@ -719,8 +724,11 @@ func EN() *LocalizedStrings {
 		ConnectionColInfo:                 "INFO",
 		ConnectionColState:                "STATE",
 		ConnectionColNetwork:              "NETWORK",
+		ConnectionColSync:                 "SYNC",
 		ConnectionColRouteBridge:          "ROUTE BRIDGE",
 		ConnectionColActions:              "ACTIONS",
+		ConnectionSyncLocal:               "Local",
+		ConnectionSyncCloud:               "Cloud",
 		MobileColAction:                   "ACTION",
 		ConnectionNameField:               "Name",
 		ConnectionLANPlaceholder:          "LAN address",
@@ -1166,8 +1174,11 @@ func ES() *LocalizedStrings {
 	locale.ConnectionColInfo = "INFO"
 	locale.ConnectionColState = "ESTADO"
 	locale.ConnectionColNetwork = "RED"
+	locale.ConnectionColSync = "SYNC"
 	locale.ConnectionColRouteBridge = "RUTA"
 	locale.ConnectionColActions = "ACCIONES"
+	locale.ConnectionSyncLocal = "Local"
+	locale.ConnectionSyncCloud = "Nube"
 	locale.MobileColAction = "ACCION"
 	locale.ConnectionNameField = "Nombre"
 	locale.ConnectionLANPlaceholder = "Direccion LAN"
@@ -1283,6 +1294,7 @@ func ES() *LocalizedStrings {
 	locale.AccountSyncOn = "on"
 	locale.AccountSyncOff = "off"
 	locale.AccountSyncOnDesc = "Sync cifrado de extremo a extremo de tus conexiones entre devices."
+	locale.AccountAutoSyncNew = "Sincronizar conexiones nuevas a la nube automaticamente"
 	locale.AccountResetWarn = "El reset empieza de cero: las conexiones de este device pisan lo sincronizado con el passphrase viejo -- esos datos quedan ilegibles. Introduce uno nuevo:"
 	locale.AccountNewPassphrase = "Nuevo sync passphrase"
 	locale.AccountResetOverwrite = "Reset y reemplazar"
@@ -1470,8 +1482,11 @@ func UKProper() *LocalizedStrings {
 	locale.ConnectionColInfo = "ІНФО"
 	locale.ConnectionColState = "СТАН"
 	locale.ConnectionColNetwork = "МЕРЕЖА"
+	locale.ConnectionColSync = "СИНК"
 	locale.ConnectionColRouteBridge = "МАРШРУТ"
 	locale.ConnectionColActions = "ДІЇ"
+	locale.ConnectionSyncLocal = "Локально"
+	locale.ConnectionSyncCloud = "Хмара"
 	locale.MobileColAction = "ДІЯ"
 	locale.ConnectionNameField = "Назва"
 	locale.ConnectionLANPlaceholder = "Адреса LAN"
@@ -1587,6 +1602,7 @@ func UKProper() *LocalizedStrings {
 	locale.AccountSyncOn = "вкл"
 	locale.AccountSyncOff = "вимк"
 	locale.AccountSyncOnDesc = "Наскрізне шифрування з'єднань між вашими девайсами."
+	locale.AccountAutoSyncNew = "Синкати нові з'єднання в хмару автоматично"
 	locale.AccountResetWarn = "Скидання з нуля: з'єднання цього девайса замінять синк зі старим passphrase — старі дані стануть нечитабельні. Введіть новий:"
 	locale.AccountNewPassphrase = "Новий sync passphrase"
 	locale.AccountResetOverwrite = "Скинути й замінити"

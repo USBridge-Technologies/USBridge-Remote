@@ -1849,6 +1849,7 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 				TailscaleRegister: tailscaleRegister,
 				RemoteOS:          conn.RemoteOS,
 				RemoteProtocol:    conn.RemoteProtocol,
+				Origin:            connectionOrigin(conn),
 			}
 			cm.selectedIndex = idx
 			cm.saveConnections()

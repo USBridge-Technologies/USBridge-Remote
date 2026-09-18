@@ -32,6 +32,12 @@ const addCardDismissedPrefKey = "connections.add_card.dismissed"
 // -- the footer "software" chip restores it.
 const firmwarePromoDismissedPrefKey = "connections.firmware_promo.dismissed"
 
+// autoSyncNewConnectionsPrefKey is the account-dialog checkbox under
+// Connections sync: when true (the default), a newly saved connection is
+// uploaded to the account blob; when false it stays Local until the user
+// picks Cloud on that row.
+const autoSyncNewConnectionsPrefKey = "connections.auto_sync_new"
+
 func (cm *ConnectionManager) createInterface() {
 	cm.addCardDismissed = cm.app.Preferences().BoolWithFallback(addCardDismissedPrefKey, false)
 	cm.promoChip = view.NewFooterTintChip("+", design.ColorTextMuted, cm.restoreAddConnectionCard)
@@ -514,10 +520,16 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			// this selector has nothing to actually select on this
 			// platform. Native builds (desktop/Android/iOS) keep it.
 			HideProtocolSelector: runtime.GOOS == "js",
-			RegisterChecked:      conn.TailscaleRegister && tailscaleRegisterUISupported(),
-			RegisterVisible:      tailscaleRegisterUISupported() && internalHost != "" && tailscaleHost == "",
-			RemoteOS:             conn.RemoteOS,
-			PlatformLabel:        view.ConnectionPlatformLabel(conn.RemoteOS, conn.RemoteProtocol),
+			SyncBadge:            connectionSyncBadge(cm.connectionDisplayOrigin(conn)),
+			SyncOptions: []string{
+				connectionSyncBadge(connectionOriginLocal),
+				connectionSyncBadge(connectionOriginCloud),
+			},
+			SyncEnabled:     cm.canSyncConnections(),
+			RegisterChecked: conn.TailscaleRegister && tailscaleRegisterUISupported(),
+			RegisterVisible: tailscaleRegisterUISupported() && internalHost != "" && tailscaleHost == "",
+			RemoteOS:        conn.RemoteOS,
+			PlatformLabel:   view.ConnectionPlatformLabel(conn.RemoteOS, conn.RemoteProtocol),
 		},
 		State: rowState,
 		Actions: view.ConnectionRowActions{
@@ -563,6 +575,15 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 					return
 				}
 				cm.updateConnectionProtocol(idx, connectionProtocolFromBadge(label))
+			},
+			OnSyncChange: func(label string) {
+				if cm.connectionPending {
+					return
+				}
+				cm.updateConnectionOrigin(idx, connectionOriginFromBadge(label))
+			},
+			OnSyncLocked: func() {
+				cm.OpenAccount()
 			},
 			OnRegisterChange: func(checked bool) {
 				if cm.connectionPending {
@@ -615,6 +636,12 @@ func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx 
 				connectionProtocolBadge(models.ConnectionProtocolTailscale),
 				connectionProtocolBadge(models.ConnectionProtocolDirect),
 			},
+			SyncBadge: connectionSyncBadge(cm.connectionDisplayOrigin(conn)),
+			SyncOptions: []string{
+				connectionSyncBadge(connectionOriginLocal),
+				connectionSyncBadge(connectionOriginCloud),
+			},
+			SyncEnabled: cm.canSyncConnections(),
 		},
 		rowState,
 		view.ConnectionCardActions{
@@ -672,6 +699,15 @@ func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx 
 				}
 				cm.updateConnectionProtocol(idx, connectionProtocolFromBadge(label))
 			},
+			OnSyncChange: func(label string) {
+				if cm.connectionPending {
+					return
+				}
+				cm.updateConnectionOrigin(idx, connectionOriginFromBadge(label))
+			},
+			OnSyncLocked: func() {
+				cm.OpenAccount()
+			},
 		},
 	)
 }
@@ -715,6 +751,7 @@ func (cm *ConnectionManager) saveGridCardEdit(idx int, name, internalHost, tails
 		TailscaleRegister: conn.TailscaleRegister,
 		RemoteOS:          conn.RemoteOS,
 		RemoteProtocol:    conn.RemoteProtocol,
+		Origin:            connectionOrigin(conn),
 	}
 	cm.selectedIndex = idx
 	cm.editingGridIndex = -1
@@ -728,6 +765,59 @@ func (cm *ConnectionManager) saveGridCardEdit(idx int, name, internalHost, tails
 
 func (cm *ConnectionManager) updateConnectionProtocol(idx int, protocol string) {
 	cm.connections[idx].Protocol = protocol
+	cm.saveConnections()
+	cm.refreshConnectionsList()
+}
+
+func (cm *ConnectionManager) canSyncConnections() bool {
+	if cm == nil || cm.Account == nil {
+		return false
+	}
+	_, _, ok := cm.Account.SyncCredentials()
+	return ok
+}
+
+func (cm *ConnectionManager) AutoSyncNewConnections() bool {
+	if cm == nil || cm.app == nil {
+		return true
+	}
+	return cm.app.Preferences().BoolWithFallback(autoSyncNewConnectionsPrefKey, true)
+}
+
+func (cm *ConnectionManager) SetAutoSyncNewConnections(on bool) {
+	if cm == nil || cm.app == nil {
+		return
+	}
+	cm.app.Preferences().SetBool(autoSyncNewConnectionsPrefKey, on)
+}
+
+func (cm *ConnectionManager) defaultNewConnectionOrigin() string {
+	if cm.canSyncConnections() && cm.AutoSyncNewConnections() {
+		return connectionOriginCloud
+	}
+	return connectionOriginLocal
+}
+
+func (cm *ConnectionManager) updateConnectionOrigin(idx int, origin string) {
+	if idx < 0 || idx >= len(cm.connections) {
+		return
+	}
+	origin = connectionOrigin(SavedConnection{Origin: origin})
+	if origin == connectionOriginCloud && !cm.canSyncConnections() {
+		return
+	}
+	if cm.connectionDisplayOrigin(cm.connections[idx]) == origin {
+		return
+	}
+	key := connectionSyncKey(cm.connections[idx])
+	if origin == connectionOriginCloud {
+		cm.addBlobKey(key)
+	} else {
+		cm.removeBlobKey(key)
+	}
+	// Device copies stay on disk so logout does not lose them. Cloud vs
+	// Local in the UI is whether the key is in the account blob.
+	cm.connections[idx].Origin = connectionOriginLocal
 	cm.saveConnections()
 	cm.refreshConnectionsList()
 }
