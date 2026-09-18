@@ -167,6 +167,11 @@ func Disable() error {
 	return removeLaunchAgent(path)
 }
 
+// NeedsReboot is a Windows-only Autostart-at-Boot hint (service registered
+// but not yet running this boot). LaunchAgents take effect at the next
+// login without a separate reboot-rights check.
+func NeedsReboot() bool { return false }
+
 // RefreshX11SessionEnv is a Linux/SDDM-only concept (see its doc comment on
 // the linux build) -- no-op everywhere else.
 func RefreshX11SessionEnv() {}

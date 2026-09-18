@@ -320,6 +320,7 @@ func (l *checkNudgeLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 type permToggleRow struct {
 	widget.BaseWidget
 	label *canvas.Text
+	hint  *canvas.Text
 	check *styledCheck
 	inner *fyne.Container
 }
@@ -327,10 +328,16 @@ type permToggleRow struct {
 func newPermToggleRowWidget(label string, check *styledCheck) *permToggleRow {
 	t := canvas.NewText(label, design.ColorSectionTitle)
 	t.TextSize = 11
+	hint := canvas.NewText("", design.ColorEmptyHint)
+	hint.TextSize = 8
+	hint.Hide()
 	r := &permToggleRow{
 		label: t,
+		hint:  hint,
 		check: check,
-		inner: container.New(&flushEndsLayout{}, t, check),
+		inner: container.New(&flushEndsLayout{},
+			container.New(&tightHBoxLayout{gap: 4}, t, hint),
+			check),
 	}
 	r.ExtendBaseWidget(r)
 	return r
@@ -342,6 +349,20 @@ func (r *permToggleRow) SetLabel(label string) {
 	}
 	r.label.Text = label
 	r.label.Refresh()
+}
+
+func (r *permToggleRow) SetHint(hint string) {
+	if r == nil || r.hint == nil {
+		return
+	}
+	r.hint.Text = hint
+	if strings.TrimSpace(hint) == "" {
+		r.hint.Hide()
+	} else {
+		r.hint.Show()
+	}
+	r.hint.Refresh()
+	r.Refresh()
 }
 
 func (r *permToggleRow) CreateRenderer() fyne.WidgetRenderer {

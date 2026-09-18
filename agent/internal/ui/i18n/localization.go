@@ -22,22 +22,23 @@ type LocalizedStrings struct {
 	Change      string
 
 	// Permissions
-	Accessibility      string
-	InputControl       string
-	ScreenCapture      string
-	GrantSuffix        string
-	AutostartAtBoot    string
-	LockGPUClocks      string
-	ClipboardTool      string
-	Install            string
-	ClipboardInstall   string
-	ClipboardNoPkgMgr  string
-	USBPassthrough     string
-	InstallUSBDriver   string
-	GetUSBIPDriver     string
-	MoonlightClients   string
-	RemoveAllMoonlight string
-	WebRTCToggle       string
+	Accessibility       string
+	InputControl        string
+	ScreenCapture       string
+	GrantSuffix         string
+	AutostartAtBoot     string
+	AutostartRebootHint string
+	LockGPUClocks       string
+	ClipboardTool       string
+	Install             string
+	ClipboardInstall    string
+	ClipboardNoPkgMgr   string
+	USBPassthrough      string
+	InstallUSBDriver    string
+	GetUSBIPDriver      string
+	MoonlightClients    string
+	RemoveAllMoonlight  string
+	WebRTCToggle        string
 
 	// Status rows (technical labels stay English)
 	Streamer   string
@@ -238,22 +239,23 @@ func EN() *LocalizedStrings {
 		Protocol:    "Protocol",
 		Change:      "Change",
 
-		Accessibility:      "Accessibility",
-		InputControl:       "Input Control",
-		ScreenCapture:      "Screen Capture",
-		GrantSuffix:        " · Grant",
-		AutostartAtBoot:    "Autostart at Boot",
-		LockGPUClocks:      "Lock GPU Clocks",
-		ClipboardTool:      "Clipboard Tool",
-		Install:            "Install",
-		ClipboardInstall:   "Clipboard Tool Install",
-		ClipboardNoPkgMgr:  "No supported package manager (or pkexec) was found on this system -- clicking Install will show why, instead of a command preview.",
-		USBPassthrough:     "USB Passthrough Driver",
-		InstallUSBDriver:   "Install USB Driver",
-		GetUSBIPDriver:     "Get USB/IP Driver",
-		MoonlightClients:   "Moonlight Clients",
-		RemoveAllMoonlight: "Remove all paired Moonlight devices?",
-		WebRTCToggle:       "USBridge-streamer Web (WebRTC)",
+		Accessibility:       "Accessibility",
+		InputControl:        "Input Control",
+		ScreenCapture:       "Screen Capture",
+		GrantSuffix:         " · Grant",
+		AutostartAtBoot:     "Autostart at Boot",
+		AutostartRebootHint: "(Windows restart required)",
+		LockGPUClocks:       "Lock GPU Clocks",
+		ClipboardTool:       "Clipboard Tool",
+		Install:             "Install",
+		ClipboardInstall:    "Clipboard Tool Install",
+		ClipboardNoPkgMgr:   "No supported package manager (or pkexec) was found on this system -- clicking Install will show why, instead of a command preview.",
+		USBPassthrough:      "USB Passthrough Driver",
+		InstallUSBDriver:    "Install USB Driver",
+		GetUSBIPDriver:      "Get USB/IP Driver",
+		MoonlightClients:    "Moonlight Clients",
+		RemoveAllMoonlight:  "Remove all paired Moonlight devices?",
+		WebRTCToggle:        "USBridge-streamer Web (WebRTC)",
 
 		Streamer:   "Streamer",
 		USBBroker:  "USB Broker",
@@ -426,6 +428,7 @@ func ES() *LocalizedStrings {
 	locale.ScreenCapture = "Captura de pantalla"
 	locale.GrantSuffix = " · Conceder"
 	locale.AutostartAtBoot = "Inicio automatico"
+	locale.AutostartRebootHint = "(se requiere reinicio de Windows)"
 	locale.LockGPUClocks = "Bloquear relojes GPU"
 	locale.ClipboardTool = "Portapapeles"
 	locale.Install = "Instalar"
@@ -599,6 +602,7 @@ func UK() *LocalizedStrings {
 	locale.ScreenCapture = "Захоплення екрана"
 	locale.GrantSuffix = " · Надати"
 	locale.AutostartAtBoot = "Автозапуск"
+	locale.AutostartRebootHint = "(потрібен перезапуск Windows)"
 	locale.LockGPUClocks = "Фіксувати частоти GPU"
 	locale.ClipboardTool = "Буфер обміну"
 	locale.Install = "Встановити"

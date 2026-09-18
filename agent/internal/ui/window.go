@@ -754,12 +754,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// Autostart at Boot: installs the OS-native autostart mechanism (a
 	// system-wide systemd unit on Linux — so it starts at boot before any
 	// graphical session, which is what KMS capture needs; a LaunchAgent
-	// plist on macOS; a Run registry value on Windows — see
+	// plist on macOS; a LocalSystem AUTO_START service on Windows — see
 	// internal/autostart). The registered command always launches with
 	// --headless, so a later normal launch of this same binary/AppImage
 	// attaches a GUI to that instance instead of starting a second engine —
 	// see app.Start. On Linux this shells out via pkexec, same as the KMS
-	// capability grant, so expect a polkit prompt on toggle.
+	// capability grant, so expect a polkit prompt on toggle. On Windows the
+	// service is not started from this live GUI (that would spawn a second
+	// tray icon in the same session); it takes effect on the next reboot,
+	// and the row shows a small reboot hint until then.
 	w.autostartCheck = newStyledCheck("", autostart.IsEnabled(), func(checked bool) {
 		w.autostartCheck.Disable()
 		go func() {
@@ -779,6 +782,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 					w.autostartCheck.SetChecked(!checked)
 					dialog.ShowError(err, win)
 				}
+				w.refreshAutostartChrome()
 			})
 		}()
 	})
@@ -786,6 +790,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// Autostart at Boot is always shown, regardless of platform.
 	autostartRow := newPermToggleRow(loc().AutostartAtBoot, w.autostartCheck)
 	w.autostartLang = autostartRow
+	w.refreshAutostartChrome()
 
 	// Lock GPU Clocks: holds an NVML max-clock lock for the life of this
 	// agent process (once enabled) so the GPU doesn't idle into a low-power
@@ -1210,6 +1215,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// override with the richer version below (adds the one-time "still
 	// running in the tray" hint) -- see attachTray's doc comment.
 	w.tray = w.attachTray(win, onClose)
+	w.refreshAutostartChrome()
 
 	win.SetCloseIntercept(func() {
 		if w.tray != nil {
@@ -1578,9 +1584,8 @@ func (w *Window) applyLanguage() {
 	}
 	w.accessCheck.SetBaseLabel(access)
 	w.screenCaptureCheck.SetBaseLabel(c.ScreenCapture)
-	if w.autostartLang != nil {
-		w.autostartLang.SetLabel(c.AutostartAtBoot)
-	}
+	w.refreshAutostartChrome()
+
 	if w.gpuClockLang != nil {
 		w.gpuClockLang.SetLabel(c.LockGPUClocks)
 	}
@@ -1639,6 +1644,52 @@ func (w *Window) applyLanguage() {
 	}
 	if w.tray != nil {
 		w.tray.applyLanguage()
+	}
+}
+
+func autostartRebootHint() string {
+	if !autostart.NeedsReboot() {
+		return ""
+	}
+	return loc().AutostartRebootHint
+}
+
+func autostartMenuLabel() string {
+	label := loc().AutostartAtBoot
+	if hint := autostartRebootHint(); hint != "" {
+		return label + " " + hint
+	}
+	return label
+}
+
+// refreshAutostartChrome keeps the Permissions row hint and the tray
+// Autostart label in sync. On Windows the hint is shown while the
+// AUTO_START service is registered but not yet running this boot
+// (autostart.NeedsReboot); after reboot SCM starts the service and the
+// parenthetical disappears.
+func (w *Window) refreshAutostartChrome() {
+	if w == nil {
+		return
+	}
+	hint := autostartRebootHint()
+	if w.autostartLang != nil {
+		w.autostartLang.SetLabel(loc().AutostartAtBoot)
+		w.autostartLang.SetHint(hint)
+	}
+	if w.autostartCheck != nil && !w.autostartCheck.Disabled() {
+		w.autostartCheck.SetChecked(autostart.IsEnabled())
+	}
+	if w.tray != nil && w.tray.autostartItem != nil {
+		label := autostartMenuLabel()
+		checked := autostart.IsEnabled()
+		if w.autostartCheck != nil && w.autostartCheck.Disabled() {
+			checked = w.autostartCheck.Checked
+		}
+		if w.tray.autostartItem.Label != label || w.tray.autostartItem.Checked != checked {
+			w.tray.autostartItem.Label = label
+			w.tray.autostartItem.Checked = checked
+			w.tray.refreshMenu()
+		}
 	}
 }
 
@@ -2192,6 +2243,7 @@ func (w *Window) performRefresh() {
 			}
 			w.refreshScreenCaptureUI()
 			w.refreshClipboardToolUI()
+			w.refreshAutostartChrome()
 			w.refreshTailscaleWithStatus(status.tsStatus)
 			w.updateTrayStatus(entStatus, status)
 		})

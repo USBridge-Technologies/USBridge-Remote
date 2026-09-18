@@ -242,6 +242,10 @@ func IsEnabled() bool {
 	return strings.TrimSpace(string(out)) == "enabled"
 }
 
+// NeedsReboot is a Windows-only Autostart-at-Boot hint (service registered
+// but not yet running this boot). systemd units take effect immediately.
+func NeedsReboot() bool { return false }
+
 func Enable() error {
 	exe, args, err := LaunchTarget()
 	if err != nil {

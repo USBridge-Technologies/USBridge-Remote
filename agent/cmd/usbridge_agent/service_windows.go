@@ -132,7 +132,22 @@ func manageService(action string) error {
 
 		s, err := m.OpenService(serviceName)
 		if err == nil {
-			// already exists, maybe update it?
+			// Already registered. Keep it AUTO_START so the next boot
+			// launches the engine, but do not Start() it from this
+			// elevated helper: Enable() is only reachable from a live
+			// GUI/tray that already owns a tray icon. Starting the
+			// service now would LaunchTrayHelperInActiveSession into
+			// this same session and spawn a second (then third, …)
+			// tray process beside the one already running.
+			cfg, cfgErr := s.Config()
+			if cfgErr == nil && (cfg.StartType != mgr.StartAutomatic || cfg.DelayedAutoStart) {
+				cfg.StartType = mgr.StartAutomatic
+				cfg.DelayedAutoStart = false
+				if err := s.UpdateConfig(cfg); err != nil {
+					s.Close()
+					return fmt.Errorf("update service: %v", err)
+				}
+			}
 			s.Close()
 			return nil
 		}
@@ -148,8 +163,11 @@ func manageService(action string) error {
 		}
 		defer s.Close()
 
-		// also start it right away
-		_ = s.Start()
+		// Do not s.Start() here — see the OpenService branch above.
+		// Autostart at Boot is supposed to take effect on the next
+		// Windows reboot, when SCM launches this AUTO_START service
+		// into session 0 and the tray helper can appear in the then-
+		// interactive logon session.
 		return nil
 	} else if action == "uninstall" {
 		s, err := m.OpenService(serviceName)

@@ -97,7 +97,7 @@ func (w *Window) attachTray(win fyne.Window, quit func()) *trayController {
 
 	t.restartItem = restartItem
 
-	t.autostartItem = fyne.NewMenuItem(loc().AutostartAtBoot, nil)
+	t.autostartItem = fyne.NewMenuItem(autostartMenuLabel(), nil)
 	t.autostartItem.Checked = autostart.IsEnabled()
 	t.autostartItem.Action = func() { t.toggleAutostart() }
 
@@ -157,11 +157,16 @@ func (t *trayController) toggleAutostart() {
 			return
 		}
 		fyne.Do(func() {
-			t.autostartItem.Checked = next
-			t.refreshMenu()
 			if t.owner != nil && t.owner.autostartCheck != nil {
 				t.owner.autostartCheck.Checked = next
 				t.owner.autostartCheck.Refresh()
+			}
+			if t.owner != nil {
+				t.owner.refreshAutostartChrome()
+			} else {
+				t.autostartItem.Checked = next
+				t.autostartItem.Label = autostartMenuLabel()
+				t.refreshMenu()
 			}
 		})
 	}()
@@ -186,7 +191,7 @@ func (t *trayController) applyLanguage() {
 		t.restartItem.Label = c.TrayRestart
 	}
 	if t.autostartItem != nil {
-		t.autostartItem.Label = c.AutostartAtBoot
+		t.autostartItem.Label = autostartMenuLabel()
 	}
 	if t.quitItem != nil {
 		t.quitItem.Label = c.TrayQuit
