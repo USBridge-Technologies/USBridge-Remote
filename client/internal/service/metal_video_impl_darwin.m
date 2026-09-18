@@ -70,6 +70,17 @@ static NSData *g_hud_pending_data = nil;
 static int g_hud_pending_w = 0, g_hud_pending_h = 0, g_hud_pending_stride = 0;
 static atomic_int g_hud_dispatch_scheduled = 0;
 
+// Diagnostics for the "HUD sometimes freezes, sometimes crawls smoothly"
+// report -- net_graph.go pushes every 100ms; if applies land much less
+// often than that, something between the push call and the actual
+// CATransaction commit is stalling. Logged via goMetalLog so it lands in
+// app.log next to the existing "AppKit/DisplayLink stalled"/"Decoder/
+// Network stalled" warnings this app already emits under load, to see
+// whether they correlate (shared main-thread contention) or not
+// (something Net-Graph-specific). Remove once the report is resolved.
+static double g_hud_last_apply_time = 0.0;
+static atomic_int g_hud_coalesced_count = 0;
+
 // HUD_MARGIN: device points between the HUD box and the bottom/right edges
 // of the view. (0,0) in this layer's (unflipped, AppKit-default) coordinate
 // space is already the bottom-left corner, so the Y side needs no flip
@@ -424,6 +435,26 @@ static void metal_video_apply_pending_hud_overlay(void) {
     // which would otherwise mean its data has to wait for the NEXT tick.
     atomic_store(&g_hud_dispatch_scheduled, 0);
 
+    double now = mono_sec();
+    if (g_hud_last_apply_time > 0.0) {
+        double gapMs = (now - g_hud_last_apply_time) * 1000.0;
+        // net_graph.go ticks every 100ms; a >250ms gap between two applies
+        // (however many pushes got coalesced together in between, see
+        // g_hud_coalesced_count) means this specific dispatch_async sat
+        // queued on the main thread that long before actually running.
+        if (gapMs > 250.0) {
+            int coalesced = atomic_exchange(&g_hud_coalesced_count, 0);
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                     "⚠️ [Net Graph] HUD apply gap %.0fms (expected ~100ms, %d push(es) coalesced away in between)",
+                     gapMs, coalesced);
+            goMetalLog(msg, 1);
+        } else {
+            atomic_store(&g_hud_coalesced_count, 0);
+        }
+    }
+    g_hud_last_apply_time = now;
+
     pthread_mutex_lock(&g_hud_pending_mu);
     NSData *data = g_hud_pending_data;
     int w = g_hud_pending_w, h = g_hud_pending_h, stride = g_hud_pending_stride;
@@ -470,6 +501,7 @@ void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) 
 
     int expected = 0;
     if (!atomic_compare_exchange_strong(&g_hud_dispatch_scheduled, &expected, 1)) {
+        atomic_fetch_add(&g_hud_coalesced_count, 1); // see g_hud_coalesced_count's own doc comment
         return; // an apply is already scheduled -- it'll pick up the data just stored above when it runs
     }
 
@@ -617,6 +649,8 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         g_decodeMsSum = 0.0; g_decodeSamples = 0; g_lastKnownDecodeMs = 0.0;
         g_pendingBufSubmitTime = 0.0;
         atomic_store(&g_hud_dispatch_scheduled, 0);
+        atomic_store(&g_hud_coalesced_count, 0);
+        g_hud_last_apply_time = 0.0;
         pthread_mutex_lock(&g_hud_pending_mu);
         g_hud_pending_data = nil;
         pthread_mutex_unlock(&g_hud_pending_mu);

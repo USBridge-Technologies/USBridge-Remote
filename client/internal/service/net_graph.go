@@ -187,7 +187,24 @@ func NetGraphEnabled() bool {
 func netGraphLoop() {
 	ticker := time.NewTicker(netGraphInterval)
 	defer ticker.Stop()
+	// lastTick diagnoses the "HUD sometimes freezes, sometimes crawls
+	// smoothly" report: if THIS gap is also large, the stall is upstream
+	// of the native push entirely (Go scheduler/GC pause, or this
+	// goroutine blocked on something) -- compare against
+	// metal_video_impl_darwin.m's own "HUD apply gap" log, which instead
+	// catches a stall between the push call and the actual on-screen
+	// apply (e.g. main thread backed up). Remove once the report is
+	// resolved.
+	var lastTick time.Time
 	for range ticker.C {
+		now := time.Now()
+		if !lastTick.IsZero() {
+			if gap := now.Sub(lastTick); gap > 2*netGraphInterval {
+				logrus.Warnf("📊 [Net Graph] ticker gap %v (expected ~%v) -- Go-side scheduling delay, not the native compositor", gap, netGraphInterval)
+			}
+		}
+		lastTick = now
+
 		if !netGraphEnabled.Load() {
 			continue
 		}
@@ -408,18 +425,20 @@ func netGraphLossPercent(s NetGraphSample) float64 {
 	return float64(lost) / float64(total) * 100
 }
 
-// netGraphDrawPointGraph plots one scalar per sample as a discrete vertical
-// mark rising from the baseline -- the CS 1.6/GoldSrc net_graph "point
-// graph" look explicitly asked for: separate per-packet/per-frame ticks,
-// NOT a connected line between them (a connected line reads as a smooth
-// oscilloscope trace, which is a different thing and was the wrong call
-// last round). Each column is colored purely by ITS OWN vertical position
-// within the graph -- bottom third green, middle third yellow, top third
-// red -- rather than by the raw ms value against a fixed threshold, so a
-// single tall spike visibly changes color as it rises through the bands,
-// matching the reference look. valueOf returning ok=false (e.g. no RTT
-// estimate yet) leaves that column blank.
+// netGraphDrawPointGraph plots one scalar per sample as an ISOLATED dot at
+// its own height -- not a bar filled from the baseline, not a line
+// connecting neighbors. This is the actual CS 1.6/GoldSrc net_graph "ping
+// dots" look: packets arrive chaotically at different latencies, and a
+// scatter of independent dots reads as exactly that chaos ("видно эфир" --
+// you can see the air/radio channel's own jitter), where a filled bar or a
+// connected trace visually smooths it into something more orderly than it
+// really is. Each dot is colored purely by ITS OWN vertical position within
+// the graph -- bottom third green, middle third yellow, top third red --
+// rather than by the raw ms value against a fixed threshold, so where a
+// dot lands is what determines its color. valueOf returning ok=false (e.g.
+// no RTT estimate yet) leaves that column blank.
 func netGraphDrawPointGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSample, valueOf func(NetGraphSample) (float64, bool), maxVal float64) {
+	const dotSize = 2 // px tall/wide -- a single pixel reads as nearly invisible at this scale
 	n := len(samples)
 	start := 0
 	if n > w {
@@ -440,20 +459,18 @@ func netGraphDrawPointGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGrap
 		if v < 0 {
 			v = 0
 		}
-		barH := int(v / maxVal * float64(h))
-		if barH < 1 {
-			barH = 1
+		dy := int(v / maxVal * float64(h-1))
+		frac := v / maxVal
+		c := netGraphGood
+		switch {
+		case frac >= 0.66:
+			c = netGraphBad
+		case frac >= 0.33:
+			c = netGraphWarn
 		}
-		for dy := 0; dy < barH; dy++ {
-			frac := float64(dy) / float64(h) // 0 at baseline, ->1 towards the top
-			c := netGraphGood
-			switch {
-			case frac >= 0.66:
-				c = netGraphBad
-			case frac >= 0.33:
-				c = netGraphWarn
-			}
-			img.SetRGBA(col, y0+h-1-dy, c)
+		y := y0 + h - 1 - dy
+		for py := y; py > y-dotSize && py >= y0; py-- {
+			img.SetRGBA(col, py, c)
 		}
 	}
 }

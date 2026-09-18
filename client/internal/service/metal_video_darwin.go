@@ -34,6 +34,7 @@ import "C"
 
 import (
 	"image"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
@@ -70,8 +71,21 @@ func init() {
 // here is always the small fixed HUD canvas -- cheap to upload even at
 // net_graph.go's 10Hz cadence (see metal_video_impl_darwin.m's
 // metal_video_set_hud_overlay doc comment).
+// netGraphMetalWasActive tracks MetalVideoIsActive()'s last-seen value so
+// transitions (not every push) get logged -- diagnoses the "HUD sometimes
+// freezes" report: if the overlay goes inactive for a stretch (e.g. during
+// a codec-switch restart's destroy/create cycle) the HUD legitimately
+// stops updating for that whole stretch, which is a different cause than
+// either of the two "gap" logs in net_graph.go / metal_video_impl_darwin.m.
+// Remove once the report is resolved.
+var netGraphMetalWasActive atomic.Bool
+
 func pushNetGraphOverlayToMetal(img *image.RGBA) {
-	if !MetalVideoIsActive() {
+	active := MetalVideoIsActive()
+	if active != netGraphMetalWasActive.Swap(active) {
+		logrus.Infof("📊 [Net Graph] Metal overlay active=%v (HUD pushes %s while this is false)", active, map[bool]string{true: "resume", false: "stop"}[active])
+	}
+	if !active {
 		return
 	}
 	MetalVideoSetHudOverlay(img.Pix, img.Rect.Dx(), img.Rect.Dy(), img.Stride)
