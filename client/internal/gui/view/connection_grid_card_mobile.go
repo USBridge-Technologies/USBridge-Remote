@@ -73,7 +73,7 @@ func newMobileConnectionGridCard(data ConnectionCardData, state ConnectionRowSta
 	protocolDropdown.SetSelected(data.ProtocolBadge)
 	protocolDropdown.SetDisabled(state.Disabled)
 
-	syncDropdown := newConnectionSyncDropdown(data.SyncBadge, data.SyncOptions, data.SyncEnabled, state.Disabled, actions.OnSyncChange, actions.OnSyncLocked)
+	syncDropdown := newMobileSyncIconDropdown(data.SyncBadge, data.SyncOptions, data.SyncEnabled, state.Disabled, actions.OnSyncChange, actions.OnSyncLocked)
 
 	connectColor := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
 	connectHover := color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
@@ -156,7 +156,7 @@ func newMobileConnectionCardStatsBox(lanAddress, tailscaleAddress string) fyne.C
 	return container.NewStack(bg, NewInsetExact(container.New(&tightStatsVBoxLayout{Gap: 4}, lanRow, sep, tsRow), 12, 12, 6, 6))
 }
 
-// mobileCardBottomRowLayout pins Sync+Edit on the left and packs the
+// mobileCardBottomRowLayout pins the cloud/local icon + Edit on the left and packs the
 // protocol picker + a compact Connect on the right, so Connect stays near
 // its natural width instead of stretching across the card.
 type mobileCardBottomRowLayout struct{}
