@@ -46,8 +46,15 @@ extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
 extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
-extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride);
-extern int  goNetGraphActive(void);
+extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride, int bgr);
+
+// g_last_decode_ms: written from win_deliver_frame/win_deliver_frame_vulkan
+// below on every frame (their existing t_start/t_end timing, previously only
+// used for the "SLOW win_deliver_frame" diagnostic log). Defined (not
+// declared) in net_graph_stats_windows.c, same reasoning as
+// g_last_host_latency_tenths_ms further down; read there by
+// win_get_last_decode_ms for net_graph_windows.go's GetDecodeMs.
+extern volatile double g_last_decode_ms;
 
 // Native overlay fast paths.
 // Vulkan (vk_video_impl_windows.c) — preferred, RGBA format.
@@ -282,7 +289,8 @@ static void ar_decode(char *data, int len) {
 // which fails to link with "multiple definition" for anything not `static`.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-extern int goAIVisionActive(void);
+extern int  goAIVisionShouldSample(void);
+extern void goAIVisionSample(uint8_t *rgba, int width, int height, int stride);
 extern AVBufferRef *win_vk_hwdev_ctx_ref(void);
 extern void vk_frame_release_avframe(void *ctx);
 
@@ -493,21 +501,43 @@ static void win_deliver_frame_vulkan(AVFrame *frame) {
     AVHWFramesContext *fctx = (AVHWFramesContext*)frame->hw_frames_ctx->data;
     AVVulkanFramesContext *vkfctx = (AVVulkanFramesContext*)fctx->hwctx;
 
-    // AI Vision overlay needs real CPU-readable RGBA pixels to burn detection
-    // boxes into; it's an opt-in debug/analysis feature, so only pay the
-    // GPU->CPU readback + sws_scale cost when it's actually enabled. This
-    // also keeps goVTFrame's FPS/first-frame stats tracking working in the
-    // common case (AI Vision off) via its nil-pixels stats-only branch --
-    // EXCEPT that branch relies on the Go side's NativeVideoOverlayIsActive()
-    // already being true (it dereferences the pixel pointer otherwise), which
-    // is NOT guaranteed on the very first frames: this zero-copy decode path
-    // can now activate fast enough that frames start arriving before the GUI
-    // thread has finished creating the Vulkan/GDI overlay window. Only take
-    // the nil-pixels fast path once a native overlay is confirmed active;
+    // AI Vision's detector needs real CPU-readable RGBA pixels every so
+    // often (icon_detect ~2Hz, OCR ~0.5Hz -- see ai_vision.go's package doc
+    // comment), NOT every frame -- goAIVisionShouldSample() is a cheap
+    // (atomics + time comparisons only) pre-check that says whether this
+    // particular frame is actually due, mirroring
+    // moonlight_cgo_wrapper.go's identically-named macOS Metal fast-path
+    // mechanism exactly (see its own doc comment) so the overwhelming
+    // majority of frames skip the GPU->CPU readback + sws_scale entirely and
+    // this zero-copy decode path stays zero-copy. goAIVisionSample (unlike
+    // goAIVisionOverlay) only feeds the detector -- it must NOT draw into
+    // pixels, since this buffer is a throwaway conversion scratch space,
+    // never the one actually displayed (see below). This also keeps
+    // goVTFrame's FPS/first-frame stats tracking working in the common case
+    // via its nil-pixels stats-only branch -- EXCEPT that branch relies on
+    // the Go side's NativeVideoOverlayIsActive() already being true (it
+    // dereferences the pixel pointer otherwise), which is NOT guaranteed on
+    // the very first frames: this zero-copy decode path can now activate
+    // fast enough that frames start arriving before the GUI thread has
+    // finished creating the Vulkan/GDI overlay window. Only take the
+    // nil-pixels fast path once a native overlay is confirmed active;
     // otherwise fall back to a real (if wasted) CPU readback so goVTFrame
     // never gets called with a null pointer and a real width/height.
+    //
+    // Neither AI Vision's detection boxes nor the Net Graph HUD are drawn
+    // into a CPU buffer here: this whole zero-copy path exists specifically
+    // so hardware Vulkan Video Decode frames go straight to the renderer's
+    // VkImage with no GPU->CPU readback of the actual displayed picture at
+    // all -- forcing one just to burn in an overlay would defeat that. Both
+    // are composited natively instead, straight in vk_video_impl_windows.c's
+    // own present path (vk_hud_record_draw / vk_aivision_record_draw,
+    // alpha-blended draw calls in the same render pass as the video -- same
+    // idea as metal_video_impl_darwin.m's g_hud_layer/g_overlay_layer on
+    // macOS), fed by pushNetGraphOverlayToVulkan/pushAIVisionOverlayToVulkan
+    // via vk_hud_set_pixels/vk_aivision_set_pixels, independent of this
+    // function entirely.
     int native_overlay_active = vk_video_is_active() || gl_video_is_active();
-    if (goAIVisionActive() || goNetGraphActive() || !native_overlay_active) {
+    if (goAIVisionShouldSample() || !native_overlay_active) {
         AVFrame *sw = av_frame_alloc();
         if (sw && av_hwframe_transfer_data(sw, frame, 0) == 0) {
             sw->width = frame->width; sw->height = frame->height;
@@ -523,8 +553,7 @@ static void win_deliver_frame_vulkan(AVFrame *frame) {
                     uint8_t *dst[4]   = { pixels, NULL, NULL, NULL };
                     int dst_stride[4] = { w * 4, 0, 0, 0 };
                     sws_scale(g_sws, (const uint8_t *const *)sw->data, sw->linesize, 0, h, dst, dst_stride);
-                    goAIVisionOverlay(pixels, w, h, w * 4);
-                    goNetGraphOverlay(pixels, w, h, w * 4);
+                    goAIVisionSample(pixels, w, h, w * 4);
                     goVTFrame(pixels, w, h, w * 4);
                     free(pixels);
                 }
@@ -554,6 +583,7 @@ static void win_deliver_frame_vulkan(AVFrame *frame) {
         goVTLog(msg);
     }
     double t_end = win_mono_ms();
+    g_last_decode_ms = t_end - t_start;
     if (t_end - t_start > WIN_DELIVER_SLOW_MS) {
         char msg[96];
         snprintf(msg, sizeof(msg), "SLOW win_deliver_frame(vulkan) %.0fms", t_end - t_start);
@@ -606,8 +636,13 @@ static void win_deliver_frame(AVFrame *frame) {
             // (R/B channels swapped).
             if (dst_fmt == AV_PIX_FMT_RGBA) {
                 goAIVisionOverlay(pixels, w, h, w * 4);
-                goNetGraphOverlay(pixels, w, h, w * 4);
             }
+            // Net Graph HUD: unlike AI Vision above, this one handles BGRA
+            // too (goNetGraphOverlay's bgr param swaps R/B on the way in --
+            // see net_graph_windows.go/net_graph.go) instead of skipping the
+            // GDI/BGRA fallback path outright -- skipping it here meant the
+            // HUD simply never appeared whenever Vulkan wasn't active.
+            goNetGraphOverlay(pixels, w, h, w * 4, dst_fmt == AV_PIX_FMT_BGRA ? 1 : 0);
             double t_aivision = win_mono_ms();
             // Submit to native overlay (Vulkan preferred, GDI fallback); no-op if inactive.
             if (!vk_video_try_submit(pixels, w, h, w * 4))
@@ -616,6 +651,7 @@ static void win_deliver_frame(AVFrame *frame) {
             goVTFrame(pixels, w, h, w * 4);
             free(pixels);
             double t_end = win_mono_ms();
+            g_last_decode_ms = t_end - t_start;
             if (t_end - t_start > WIN_DELIVER_SLOW_MS) {
                 char msg[192];
                 snprintf(msg, sizeof(msg),
@@ -875,10 +911,12 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
 
+	usbapi "usbridge-client/internal/api"
 	"usbridge-client/internal/models"
 )
 
@@ -1273,26 +1311,20 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 
 // goAIVisionOverlay is the Windows counterpart to moonlight_cgo_wrapper.go's
 // export of the same name (that file is built only for darwin/ios/linux --
-// see its own doc comment for why Windows needs a separate definition, and
-// win_deliver_frame's call site in this file for why Windows actually has a
-// genuine CPU-readable RGBA buffer to overlay into on every frame, unlike
-// the true zero-copy GPU-texture paths that comment also describes).
-// Identical body: no-op unless the checkbox is on, draws detection boxes
-// into rgba in place.
+// see its own doc comment for why Windows needs a separate definition), used
+// by win_deliver_frame's non-zero-copy branches: those already run every
+// decoded frame through a CPU-readable RGBA buffer, so drawing straight into
+// it in place is fine there. Identical body: no-op unless the checkbox is
+// on, draws detection boxes into rgba in place.
 //
-// goAIVisionActive lets win_deliver_frame_vulkan's zero-copy path (which has
-// no CPU-readable pixels by default) decide whether it's worth paying for a
-// GPU->CPU readback + sws_scale at all: only needed when AI Vision is
-// actually on.
+// NOT called from win_deliver_frame_vulkan (hardware Vulkan Video Decode's
+// zero-copy path) -- that path uses goAIVisionShouldSample/goAIVisionSample
+// below instead, same split moonlight_cgo_wrapper.go's macOS Metal fast path
+// uses (see that file's doc comments), so the rare CPU readback it still
+// needs for detection never draws into (and never displays) that throwaway
+// buffer -- the boxes reach the screen via pushAIVisionOverlayToVulkan's
+// native compositor-layer draw call instead (vk_aivision_record_draw).
 //
-//export goAIVisionActive
-func goAIVisionActive() C.int {
-	if aiVisionEnabled.Load() {
-		return 1
-	}
-	return 0
-}
-
 //export goAIVisionOverlay
 func goAIVisionOverlay(rgba *C.uint8_t, width, height, stride C.int) {
 	if rgba == nil || width <= 0 || height <= 0 || stride <= 0 {
@@ -1304,4 +1336,52 @@ func goAIVisionOverlay(rgba *C.uint8_t, width, height, stride C.int) {
 	w, h, s := int(width), int(height), int(stride)
 	buf := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), s*h)
 	ApplyAIVisionOverlay(buf, w, h, s)
+}
+
+// goAIVisionShouldSample is the Windows counterpart to
+// moonlight_cgo_wrapper.go's identically-named macOS export -- see its doc
+// comment for the full reasoning. Cheap (atomics + time comparisons only,
+// no pixel access) pre-check called every frame from
+// win_deliver_frame_vulkan: lets that zero-copy path skip the GPU->CPU
+// readback + sws_scale entirely on the overwhelming majority of frames,
+// where neither the icon nor the OCR loop is actually due yet.
+//
+//export goAIVisionShouldSample
+func goAIVisionShouldSample() C.int {
+	if usbapi.LiveFrameWanted() {
+		return 1
+	}
+	if !aiVisionEnabled.Load() {
+		return 0
+	}
+	now := time.Now().UnixNano()
+	iconDue := !aiVisionIconBusy.Load() && now-aiVisionIconLastRun.Load() >= int64(aiVisionIconInterval)
+	ocrDue := !aiVisionOCRBusy.Load() && now-aiVisionOCRLastRun.Load() >= int64(aiVisionOCRInterval)
+	if iconDue || ocrDue {
+		return 1
+	}
+	return 0
+}
+
+// goAIVisionSample is win_deliver_frame_vulkan's counterpart to
+// goAIVisionOverlay: called only on the rare frame goAIVisionShouldSample
+// green-lit, with a CPU readback of that one frame. It only feeds the
+// detector (maybeKickIconDetection/maybeKickOCR/maybeServeLiveFrame) -- it
+// must NOT draw into buf, unlike goAIVisionOverlay's ApplyAIVisionOverlay,
+// because this buffer is a throwaway conversion scratch space, never the one
+// actually displayed (the zero-copy VkImage is, straight in the renderer).
+//
+//export goAIVisionSample
+func goAIVisionSample(rgba *C.uint8_t, width, height, stride C.int) {
+	if rgba == nil || width <= 0 || height <= 0 || stride <= 0 {
+		return
+	}
+	w, h, s := int(width), int(height), int(stride)
+	buf := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), s*h)
+	maybeServeLiveFrame(buf, w, h, s)
+	if !aiVisionEnabled.Load() {
+		return
+	}
+	maybeKickIconDetection(buf, w, h, s)
+	maybeKickOCR(buf, w, h, s)
 }

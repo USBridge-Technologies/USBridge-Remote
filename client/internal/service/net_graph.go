@@ -10,12 +10,13 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/font/gofont/gomedium"
+	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
 
 // Net Graph is an optional live HUD overlay, off by default: a small
-// TF2 net_graph-style box in the bottom-right corner showing packet
+// diagnostics box in the bottom-right corner showing packet
 // arrival/loss, RTT, FEC recovery, render fps, decode/render latency, and
 // host (capture+encode) latency -- none of which is otherwise visible to
 // the operator today even though moonlight-common-c already computes or
@@ -42,8 +43,13 @@ import (
 const (
 	netGraphInterval   = 100 * time.Millisecond // 10Hz -- fast enough that a single dropped packet or a one-frame stall shows up as its own visible tick
 	netGraphHistoryLen = 280                    // ring buffer length; also the graph plot width in px
-	netGraphCanvasW    = 280
-	netGraphCanvasH    = 180
+	// netGraphCanvasW/H: sized for netGraphFace's Go Medium @ 13px (bumped
+	// from 280x180, which was tuned for basicfont.Face7x13's much smaller
+	// fixed grid) -- must stay in sync with vk_video_impl_windows.c's
+	// VK_HUD_W/VK_HUD_H (see that file's own comment on why there's no
+	// shared constant across the Go/C boundary).
+	netGraphCanvasW = 320
+	netGraphCanvasH = 200
 )
 
 // netGraphRawNetworkStats is a tag-free mirror of RTPVideoStats
@@ -66,8 +72,11 @@ type netGraphRawNetworkStats struct {
 	// Sunshine-protocol frame header (DECODE_UNIT.frameHostProcessingLatency)
 	// -- works with ANY server that fills this field in, not just
 	// rust-shine, and needs no side channel at all: it rides the video
-	// stream every server already sends. HostLatencyValid is false when
-	// the host doesn't provide it (see GetLastHostLatencyMs's doc comment).
+	// stream every server already sends. HostLatencyValid is always true
+	// (see GetLastHostLatencyMs's doc comment for why 0 is kept as a real
+	// value instead of being reported as invalid) -- kept as a field for
+	// parity with the other Valid flags here, in case a future host-side
+	// signal for "field genuinely unsupported" becomes available.
 	HostLatencyMs    float64
 	HostLatencyValid bool
 	// JitterMs/PlayoutDelayMs: the client-side adaptive playout buffer's
@@ -302,10 +311,9 @@ func netGraphDeltaU32(cur, prev uint32) uint32 {
 // doc comment); only the "hand this image to the screen" call differs.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Colors deliberately mimic the old GoldSrc/Source net_graph HUD: a
-// barely-there dark wash (just enough to keep green-on-video text
+// A barely-there dark wash (just enough to keep green-on-video text
 // legible) instead of a solid panel, no border box, bright saturated
-// green/yellow/red -- the "readable straight over gameplay" look, not a
+// green/yellow/red -- readable straight over the live picture, not a
 // dashboard widget.
 var (
 	netGraphBg   = color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x38} // faint wash for legibility, not a panel
@@ -332,8 +340,8 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	}
 
 	const marginX = 6
-	const col2 = 150
-	row := 12
+	const col2 = 175
+	row := netGraphLineH
 	rttColor := netGraphGood
 	switch {
 	case !latest.RTTValid:
@@ -345,8 +353,6 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	}
 	rttText := "RTT -- "
 	if latest.RTTValid {
-		// basicfont.Face7x13 is ASCII-only -- "±" isn't in it and rendered
-		// as a garbled/unreadable glyph. "+/-" is the ASCII-safe stand-in.
 		rttText = netGraphFmtMs("RTT", latest.RTTMs) + " +/-" + netGraphFmtMs("", latest.RTTVarianceMs)
 	}
 	netGraphDrawText(img, marginX, row, rttText, rttColor)
@@ -361,7 +367,7 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	}
 	netGraphDrawText(img, col2, row, netGraphFmtPct("LOSS", lossPct), lossColor)
 
-	row += 12
+	row += netGraphLineH
 	jitColor := netGraphGood
 	switch {
 	case latest.JitterMs >= 20:
@@ -372,16 +378,22 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	netGraphDrawText(img, marginX, row, netGraphFmtMs("JIT", latest.JitterMs), jitColor)
 	netGraphDrawText(img, col2, row, netGraphFmtMs("BUF", latest.PlayoutDelayMs), netGraphText)
 
-	row += 12
+	row += netGraphLineH
 	fecColor := netGraphGood
 	if latest.FecFailed > 0 {
 		fecColor = netGraphBad
 	} else if latest.FecRecovered > 0 {
 		fecColor = netGraphWarn
 	}
-	netGraphDrawText(img, marginX, row, netGraphFmtCounts("FEC rec/fail", latest.FecRecovered, latest.FecFailed), fecColor)
+	// recv/rec/fail: total FEC packets received this tick, how many lost
+	// video packets they recovered, and how many couldn't be recovered.
+	// Recovered/failed sitting at 0/0 on a clean connection is correct (FEC
+	// only does anything when a packet actually goes missing) -- recv being
+	// nonzero is what shows the FEC stream itself is flowing rather than
+	// this line simply being wired to nothing.
+	netGraphDrawText(img, marginX, row, netGraphFmtCounts3("FEC recv/rec/fail", latest.PacketsFec, latest.FecRecovered, latest.FecFailed), fecColor)
 
-	row += 12
+	row += netGraphLineH
 	decColor := netGraphGood
 	switch {
 	case latest.DecodeMs >= 33:
@@ -392,25 +404,21 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	netGraphDrawText(img, marginX, row, netGraphFmtFPS("FPS", latest.RenderFPS), netGraphText)
 	netGraphDrawText(img, col2, row, netGraphFmtMs("DEC", latest.DecodeMs), decColor)
 
-	// Row is always reserved (like RTT above) even when invalid -- making
-	// it conditional on HostLatencyValid made graphTop/graphH below jump
-	// every time the host stopped/resumed providing this field, visibly
-	// resizing the graphs underneath from one frame to the next.
-	row += 12
-	hostColor := netGraphDim
-	hostText := "HOST -- "
-	if latest.HostLatencyValid {
-		switch {
-		case latest.HostLatencyMs >= 20:
-			hostColor = netGraphBad
-		case latest.HostLatencyMs >= 10:
-			hostColor = netGraphWarn
-		default:
-			hostColor = netGraphGood
-		}
-		hostText = netGraphFmtMs("HOST", latest.HostLatencyMs)
+	// Row is always reserved (like RTT above) -- making it conditional made
+	// graphTop/graphH below jump every time the host's reported latency hit
+	// exactly 0 (a normal occurrence: an unchanged picture, nothing encoded),
+	// visibly resizing the graphs underneath from one frame to the next. 0
+	// is a genuine measurement (see GetLastHostLatencyMs's doc comment), so
+	// it's shown as "HOST 0ms", not hidden behind a placeholder.
+	row += netGraphLineH
+	hostColor := netGraphGood
+	switch {
+	case latest.HostLatencyMs >= 20:
+		hostColor = netGraphBad
+	case latest.HostLatencyMs >= 10:
+		hostColor = netGraphWarn
 	}
-	netGraphDrawText(img, marginX, row, hostText, hostColor)
+	netGraphDrawText(img, marginX, row, netGraphFmtMs("HOST", latest.HostLatencyMs), hostColor)
 
 	graphTop := row + 6
 	graphH := (netGraphCanvasH - graphTop - marginX - 2*4) / 3
@@ -449,7 +457,15 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 // platforms -- so there's no need for a separate compositor layer there.
 // Called once per decoded frame; the disabled case (the default) costs one
 // atomic load, same philosophy as ApplyAIVisionOverlay.
-func ApplyNetGraphOverlay(rgba []byte, w, h, stride int) {
+// bgr: true when dst's byte order is BGRA rather than RGBA -- Windows's GDI
+// fallback path (moonlight_cgo_windows.go's win_deliver_frame, when neither
+// Vulkan nor the D3D11VA->RGBA path is in play) hands sws_scale output in
+// BGRA to match BI_RGB's 32-bit DIB layout (see gl_video_impl_windows.c).
+// img (the cached HUD canvas) is always a standard Go image.RGBA, so R/B
+// need swapping on the way into a BGRA dst or the HUD's greens/reds would
+// come out wrong -- this used to be sidestepped by skipping the overlay
+// entirely on that path, which meant the HUD just never appeared there.
+func ApplyNetGraphOverlay(rgba []byte, w, h, stride int, bgr bool) {
 	if !netGraphEnabled.Load() {
 		return
 	}
@@ -457,16 +473,16 @@ func ApplyNetGraphOverlay(rgba []byte, w, h, stride int) {
 	if img == nil {
 		return
 	}
-	netGraphBlitOverlay(rgba, w, h, stride, img)
+	netGraphBlitOverlay(rgba, w, h, stride, img, bgr)
 }
 
 // netGraphBlitOverlay alpha-composites img onto dst (a live video frame's
-// RGBA buffer), anchored to the bottom-right corner with netGraphHudMargin
-// px of breathing room -- the CPU equivalent of the native HUD layer's
-// frame-anchoring math on macOS/iOS. img's background wash is deliberately
-// semi-transparent (see netGraphBg's doc comment), so this does a real
-// per-pixel alpha blend rather than a straight overwrite.
-func netGraphBlitOverlay(dst []byte, w, h, stride int, img *image.RGBA) {
+// RGBA or BGRA buffer -- see bgr), anchored to the bottom-right corner with
+// netGraphHudMargin px of breathing room -- the CPU equivalent of the native
+// HUD layer's frame-anchoring math on macOS/iOS. img's background wash is
+// deliberately semi-transparent (see netGraphBg's doc comment), so this does
+// a real per-pixel alpha blend rather than a straight overwrite.
+func netGraphBlitOverlay(dst []byte, w, h, stride int, img *image.RGBA, bgr bool) {
 	iw, ih := img.Rect.Dx(), img.Rect.Dy()
 	x0 := w - netGraphHudMargin - iw
 	if x0 < netGraphHudMargin {
@@ -475,6 +491,10 @@ func netGraphBlitOverlay(dst []byte, w, h, stride int, img *image.RGBA) {
 	y0 := h - netGraphHudMargin - ih
 	if y0 < netGraphHudMargin {
 		y0 = netGraphHudMargin
+	}
+	rIdx, bIdx := 0, 2
+	if bgr {
+		rIdx, bIdx = 2, 0
 	}
 	for y := 0; y < ih; y++ {
 		dy := y0 + y
@@ -498,17 +518,17 @@ func netGraphBlitOverlay(dst []byte, w, h, stride int, img *image.RGBA) {
 				continue
 			}
 			if sa == 255 {
-				dst[do+0] = srcRow[so+0]
+				dst[do+rIdx] = srcRow[so+0]
 				dst[do+1] = srcRow[so+1]
-				dst[do+2] = srcRow[so+2]
+				dst[do+bIdx] = srcRow[so+2]
 				dst[do+3] = 255
 				continue
 			}
 			a := int(sa)
 			inv := 255 - a
-			dst[do+0] = byte((int(srcRow[so+0])*a + int(dst[do+0])*inv) / 255)
+			dst[do+rIdx] = byte((int(srcRow[so+0])*a + int(dst[do+rIdx])*inv) / 255)
 			dst[do+1] = byte((int(srcRow[so+1])*a + int(dst[do+1])*inv) / 255)
-			dst[do+2] = byte((int(srcRow[so+2])*a + int(dst[do+2])*inv) / 255)
+			dst[do+bIdx] = byte((int(srcRow[so+2])*a + int(dst[do+bIdx])*inv) / 255)
 			dst[do+3] = 255
 		}
 	}
@@ -533,12 +553,11 @@ func netGraphLossPercent(s NetGraphSample) float64 {
 
 // netGraphDrawPointGraph plots one scalar per sample as an ISOLATED dot at
 // its own height -- not a bar filled from the baseline, not a line
-// connecting neighbors. This is the actual CS 1.6/GoldSrc net_graph "ping
-// dots" look: packets arrive chaotically at different latencies, and a
-// scatter of independent dots reads as exactly that chaos ("видно эфир" --
-// you can see the air/radio channel's own jitter), where a filled bar or a
-// connected trace visually smooths it into something more orderly than it
-// really is. Each dot is colored purely by ITS OWN vertical position within
+// connecting neighbors. Packets arrive chaotically at different latencies,
+// and a scatter of independent dots reads as exactly that chaos (you can
+// see the connection's own jitter), where a filled bar or a connected trace
+// visually smooths it into something more orderly than it really is. Each
+// dot is colored purely by ITS OWN vertical position within
 // the graph -- bottom third green, middle third yellow, top third red --
 // rather than by the raw ms value against a fixed threshold, so where a
 // dot lands is what determines its color. valueOf returning ok=false (e.g.
@@ -626,14 +645,127 @@ func netGraphDrawEventGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGrap
 	}
 }
 
+// netGraphFace is the HUD's font: Go Medium, a real proportional, hinted,
+// anti-aliased TrueType face built into golang.org/x/image (no extra asset
+// to ship or embed) -- swapped in for basicfont.Face7x13, whose fixed 7x13
+// bitmap grid read as cramped, blocky and thin. Go Bold was tried
+// first, but at this pixel size its strokes plus netGraphDrawText's 1px
+// outline (which -- since font.Face's advance width has no idea an outline
+// is coming -- always eats a couple pixels of the gap between glyphs that
+// the face itself budgeted) left adjacent bold letters visibly touching;
+// Medium weight plus a size bump (11 -> 13) gives the outline that room
+// back without going back to a washed-out Regular weight. Loaded once here;
+// opentype.Face is documented as not safe for concurrent use, but every
+// caller runs on net_graph.go's single netGraphLoop goroutine (10Hz), so
+// that's fine.
+var (
+	netGraphFace   font.Face
+	netGraphGlyphH float64 = 16 // overwritten in init() from the real face metrics; this fallback only matters if font loading somehow fails
+	// netGraphLineH is the row-to-row pixel spacing buildNetGraphHUD uses
+	// between stat lines -- the face's own recommended baseline-to-baseline
+	// distance, not a value hand-tuned for basicfont.Face7x13's fixed grid.
+	netGraphLineH int = 15
+)
+
+func init() {
+	f, err := opentype.Parse(gomedium.TTF)
+	if err != nil {
+		logrus.Errorf("📊 [Net Graph] failed to parse embedded HUD font, falling back to a blank face: %v", err)
+		return
+	}
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size:    13,
+		DPI:     72,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		logrus.Errorf("📊 [Net Graph] failed to rasterize embedded HUD font, falling back to a blank face: %v", err)
+		return
+	}
+	netGraphFace = face
+	m := face.Metrics()
+	netGraphGlyphH = float64((m.Ascent + m.Descent).Round())
+	if h := m.Height.Round(); h > 0 {
+		netGraphLineH = h
+	}
+}
+
+// netGraphDrawText renders dark-outlined, top-lit-gradient HUD text: an
+// 8-direction 1px black halo (keeps it legible over ANY background, light
+// or dark, the way a real HUD needs to be -- netGraphFace's own bold weight
+// alone isn't enough over bright video) plus a vertical gradient from a
+// lightened tint of c to c itself for a bit of depth/shine, the same idea
+// classic HUD/subtitle text goes for.
 func netGraphDrawText(img *image.RGBA, x, baselineY int, text string, c color.Color) {
+	outline := color.RGBA{0, 0, 0, 235}
+	for _, off := range netGraphTextOutlineOffsets {
+		netGraphDrawGlyphs(img, x+off[0], baselineY+off[1], text, &image.Uniform{C: outline})
+	}
+
+	rc := color.RGBAModel.Convert(c).(color.RGBA)
+	grad := netGraphVGradient{top: netGraphLighten(rc, 0.55), bottom: rc}
+	netGraphDrawGlyphs(img, x, baselineY, text, grad)
+}
+
+// netGraphTextOutlineOffsets: the 8 neighbors of a pixel, used to stamp a 1px
+// halo around each glyph.
+var netGraphTextOutlineOffsets = [8][2]int{
+	{-1, -1}, {0, -1}, {1, -1},
+	{-1, 0} /*      */, {1, 0},
+	{-1, 1}, {0, 1}, {1, 1},
+}
+
+func netGraphDrawGlyphs(img *image.RGBA, x, baselineY int, text string, src image.Image) {
+	if netGraphFace == nil {
+		return
+	}
 	d := &font.Drawer{
 		Dst:  img,
-		Src:  &image.Uniform{C: c},
-		Face: basicfont.Face7x13,
+		Src:  src,
+		Face: netGraphFace,
 		Dot:  fixed.P(x, baselineY),
 	}
 	d.DrawString(text)
+}
+
+// netGraphLighten blends c towards white by amt (0 = c unchanged, 1 = white)
+// -- used for the gradient fill's top color.
+func netGraphLighten(c color.RGBA, amt float64) color.RGBA {
+	lerp := func(v uint8) uint8 {
+		f := float64(v) + (255.0-float64(v))*amt
+		if f > 255 {
+			f = 255
+		}
+		return uint8(f)
+	}
+	return color.RGBA{R: lerp(c.R), G: lerp(c.G), B: lerp(c.B), A: c.A}
+}
+
+// netGraphVGradient is a virtual, effectively-infinite image whose color
+// depends only on y (not x), interpolating linearly from top to bottom
+// across one glyph cell's height. font.Drawer's Face.Glyph/draw.DrawMask
+// always samples a text source starting at its own (0,0), with the *glyph's*
+// bounding box top-left mapped there -- so At(x, y) here receives y already
+// relative to each individual glyph's own top edge, meaning this produces
+// the same top-to-bottom gradient inside every glyph on the line, regardless
+// of that glyph's actual x position or which line of the HUD it's part of.
+type netGraphVGradient struct {
+	top, bottom color.RGBA
+}
+
+func (g netGraphVGradient) ColorModel() color.Model { return color.RGBAModel }
+func (g netGraphVGradient) Bounds() image.Rectangle {
+	return image.Rect(-1<<20, -1<<20, 1<<20, 1<<20)
+}
+func (g netGraphVGradient) At(_, y int) color.Color {
+	t := float64(y) / netGraphGlyphH
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	lerp := func(a, b uint8) uint8 { return uint8(float64(a) + (float64(b)-float64(a))*t) }
+	return color.RGBA{R: lerp(g.top.R, g.bottom.R), G: lerp(g.top.G, g.bottom.G), B: lerp(g.top.B, g.bottom.B), A: 255}
 }
 
 func netGraphFmtMs(label string, ms float64) string {
@@ -649,6 +781,10 @@ func netGraphFmtPct(label string, pct float64) string {
 
 func netGraphFmtCounts(label string, a, b uint32) string {
 	return label + " " + netGraphFmtUint(a) + "/" + netGraphFmtUint(b)
+}
+
+func netGraphFmtCounts3(label string, a, b, c uint32) string {
+	return label + " " + netGraphFmtUint(a) + "/" + netGraphFmtUint(b) + "/" + netGraphFmtUint(c)
 }
 
 func netGraphFmtFPS(label string, fps float64) string {

@@ -108,31 +108,6 @@ func pushAIVisionOverlayToMetal(result *localui.Result, w, h int) {
 	MetalVideoSetOverlay(img.Pix, w, h, img.Stride)
 }
 
-// buildAIVisionOverlayImage draws result's boxes+tags onto a fully
-// transparent w×h RGBA canvas using the exact same drawing code as the
-// static ui.parse annotated screenshot and the CPU-buffer live overlay
-// (localui.DrawDetectionBox/Tag) -- every color those use is fully opaque
-// (alpha 255, see draw.go), so untouched pixels stay alpha 0 and this is
-// trivially already in the premultiplied form CGImage needs, no separate
-// conversion required.
-func buildAIVisionOverlayImage(result *localui.Result, w, h int) *image.RGBA {
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for _, icon := range result.Icons {
-		localui.DrawDetectionBox(img, icon.Bbox, false)
-		localui.DrawDetectionTag(img, icon.ID, icon.Bbox)
-	}
-	for _, t := range result.Text {
-		localui.DrawDetectionBox(img, t.Bbox, true)
-		if t.ID != "" {
-			// Empty ID means this box was published via maybeKickOCR's
-			// onTextBoxes before svtr recognized it (see
-			// ParseFastNearIconsStaged) -- outline only, no tag yet.
-			localui.DrawDetectionTag(img, t.ID, t.Bbox)
-		}
-	}
-	return img
-}
-
 // goMetalLog is called from C (metal_video_impl_darwin.m) to log via logrus.
 //
 //export goMetalLog

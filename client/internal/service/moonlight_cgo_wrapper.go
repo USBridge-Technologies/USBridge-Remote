@@ -104,14 +104,14 @@ func GetEstimatedRttInfo() (rttMs, rttVarianceMs float64, ok bool) {
 // latency, as reported by the server in its standard Sunshine-protocol
 // frame header (DECODE_UNIT.frameHostProcessingLatency -- see
 // moonlight_cgo_shared.h's dr_submit/do_get_last_host_latency_tenths_ms).
-// valid is false when the most recent frame reported exactly 0, which
-// Limelight.h documents as meaning "the host doesn't provide the latency
-// data" -- not a real zero-latency measurement.
+// Limelight.h documents exactly 0 as "the host doesn't provide the latency
+// data", but in practice a real 0 is indistinguishable from that: the host
+// also reports (or simply stops updating) 0 whenever a frame's picture
+// didn't change and nothing was actually encoded, which is a normal,
+// frequent condition, not a rare "unsupported" edge case -- so 0 is treated
+// as a genuine measurement here (valid is always true) rather than hidden.
 func GetLastHostLatencyMs() (ms float64, valid bool) {
 	tenths := uint16(C.do_get_last_host_latency_tenths_ms())
-	if tenths == 0 {
-		return 0, false
-	}
 	return float64(tenths) / 10.0, true
 }
 
@@ -714,7 +714,7 @@ func goNetGraphOverlay(rgba *C.uint8_t, width, height, stride C.int) {
 	}
 	w, h, s := int(width), int(height), int(stride)
 	buf := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), s*h)
-	ApplyNetGraphOverlay(buf, w, h, s)
+	ApplyNetGraphOverlay(buf, w, h, s, false) // Linux's deliver_frame always converts to RGBA
 }
 
 // goAIVisionShouldSample is a cheap (atomics + time comparisons, no pixel

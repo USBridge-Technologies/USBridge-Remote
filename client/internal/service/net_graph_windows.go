@@ -10,10 +10,17 @@ extern int      do_get_estimated_rtt_info(uint32_t *out);
 extern uint16_t do_get_last_host_latency_tenths_ms(void);
 extern uint64_t do_get_playout_jitter_us(void);
 extern uint64_t do_get_playout_applied_delay_us(void);
+extern double   win_get_last_decode_ms(void);
+
+extern int  vk_hud_set_pixels(const uint8_t *rgba, int w, int h);
+extern void vk_hud_clear(void);
 */
 import "C"
 
-import "unsafe"
+import (
+	"image"
+	"unsafe"
+)
 
 // RTPVideoStats / GetRTPVideoStats / GetEstimatedRttInfo /
 // GetLastHostLatencyMs / GetPlayoutJitterMs / GetPlayoutAppliedDelayMs:
@@ -56,11 +63,10 @@ func GetEstimatedRttInfo() (rttMs, rttVarianceMs float64, ok bool) {
 	return float64(raw[0]), float64(raw[1]), true
 }
 
+// See moonlight_cgo_wrapper.go's identically-named function for why 0 is
+// treated as a genuine measurement (valid always true) rather than hidden.
 func GetLastHostLatencyMs() (ms float64, valid bool) {
 	tenths := uint16(C.do_get_last_host_latency_tenths_ms())
-	if tenths == 0 {
-		return 0, false
-	}
 	return float64(tenths) / 10.0, true
 }
 
@@ -72,13 +78,20 @@ func GetPlayoutAppliedDelayMs() float64 {
 	return float64(uint64(C.do_get_playout_applied_delay_us())) / 1000.0
 }
 
+// GetDecodeMs returns the most recent win_deliver_frame/
+// win_deliver_frame_vulkan call's wall time (moonlight_cgo_windows.go) --
+// decode plus, on the zero-copy path, the HUD/AI-Vision overlay draw calls
+// and submit. The closest Windows equivalent to
+// metal_video_impl_darwin.m's "submit-to-display" decode latency stat on
+// macOS. 0 before the first frame.
+func GetDecodeMs() float64 {
+	return float64(C.win_get_last_decode_ms())
+}
+
 // init wires net_graph.go's platform-agnostic hooks to the getters above
-// (network stats) and to VKVideoGetStats/GLVideoGetStats (render fps) --
-// same "core stays tag-free, platform files wire the hooks" split as
-// metal_video_darwin.go's init() for macOS.
-//
-// netGraphDecodeMs is left nil: see net_graph_linux.go's identical note --
-// no per-frame submit-to-display timer exists on the VK/GL CPU-buffer path.
+// (network stats, decode latency) and to VKVideoGetStats/GLVideoGetStats
+// (render fps) -- same "core stays tag-free, platform files wire the hooks"
+// split as metal_video_darwin.go's init() for macOS.
 func init() {
 	netGraphNetworkStatsFn = func() netGraphRawNetworkStats {
 		rtp := GetRTPVideoStats()
@@ -101,6 +114,40 @@ func init() {
 		}
 	}
 	netGraphRenderFPS = netGraphWindowsNativeFPS
+	netGraphDecodeMs = GetDecodeMs
+	// Native Vulkan HUD compositor layer (vk_hud_record_draw in
+	// vk_video_impl_windows.c) -- see pushNetGraphOverlayToVulkan's doc
+	// comment for why this exists instead of the CPU-buffer
+	// ApplyNetGraphOverlay path used by win_deliver_frame's non-zero-copy
+	// branches.
+	netGraphMetalPush = pushNetGraphOverlayToVulkan
+	netGraphMetalClear = vulkanClearHudOverlay
+}
+
+// pushNetGraphOverlayToVulkan hands the freshly built HUD canvas straight to
+// vk_video_impl_windows.c's native Vulkan overlay layer (vk_hud_set_pixels),
+// instead of relying on win_deliver_frame_vulkan's zero-copy decode path to
+// route it through a CPU-readable RGBA buffer -- that path deliberately
+// never produces one (see its own doc comment in moonlight_cgo_windows.go),
+// so without this, the HUD would only ever show up when Vulkan hardware
+// decode ISN'T in use. Called from net_graph.go's netGraphLoop at ~10Hz, not
+// once per rendered video frame -- vk_hud_set_pixels just copies into a
+// pending buffer and returns, the actual GPU upload happens lazily on the
+// render thread's next frame (vk_video_impl_windows.c's
+// vk_hud_maybe_upload_cmds), so this is cheap to call from this goroutine.
+func pushNetGraphOverlayToVulkan(img *image.RGBA) {
+	if img == nil || len(img.Pix) == 0 {
+		return
+	}
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	C.vk_hud_set_pixels((*C.uint8_t)(unsafe.Pointer(&img.Pix[0])), C.int(w), C.int(h))
+}
+
+// vulkanClearHudOverlay is netGraphMetalClear's Windows/Vulkan counterpart --
+// called when Net Graph is disabled so the render thread stops drawing the
+// (now stale) HUD texture. See vk_hud_clear's doc comment.
+func vulkanClearHudOverlay() {
+	C.vk_hud_clear()
 }
 
 func netGraphWindowsNativeFPS() float64 {
@@ -117,31 +164,28 @@ func netGraphWindowsNativeFPS() float64 {
 	return 0
 }
 
-// goNetGraphActive lets win_deliver_frame_vulkan's zero-copy path decide
-// whether it's worth paying for a GPU->CPU readback + sws_scale at all when
-// AI Vision is off -- mirrors goAIVisionActive exactly (see that function's
-// doc comment in moonlight_cgo_windows.go).
-//
-//export goNetGraphActive
-func goNetGraphActive() C.int {
-	if NetGraphEnabled() {
-		return 1
-	}
-	return 0
-}
-
 // goNetGraphOverlay is the Windows counterpart to moonlight_cgo_wrapper.go's
 // identically-named export (that file's build tag excludes windows) --
-// called from win_deliver_frame/win_deliver_frame_vulkan in
-// moonlight_cgo_windows.go, right next to goAIVisionOverlay's call sites,
-// on the same genuine CPU-readable RGBA buffer.
+// called from win_deliver_frame in moonlight_cgo_windows.go, right next to
+// goAIVisionOverlay's call site, on both the RGBA buffer (D3D11VA->RGBA
+// path) and the BGRA one (GDI-fallback path, see gl_video_impl_windows.c) --
+// bgr tells ApplyNetGraphOverlay which byte order it's compositing into so
+// the HUD's colors come out right on both. Previously the GDI-fallback call
+// site skipped this entirely to dodge the color-swap, which meant the HUD
+// never rendered on that path.
+//
+// NOT called from win_deliver_frame_vulkan (hardware Vulkan Video Decode's
+// zero-copy path) -- that path's HUD is composited natively instead, via
+// pushNetGraphOverlayToVulkan/vulkanClearHudOverlay below, straight into
+// vk_video_impl_windows.c's render pass with no CPU readback of the video
+// frame. See that path's own doc comment in moonlight_cgo_windows.go.
 //
 //export goNetGraphOverlay
-func goNetGraphOverlay(rgba *C.uint8_t, width, height, stride C.int) {
+func goNetGraphOverlay(rgba *C.uint8_t, width, height, stride, bgr C.int) {
 	if rgba == nil || width <= 0 || height <= 0 || stride <= 0 {
 		return
 	}
 	w, h, s := int(width), int(height), int(stride)
 	buf := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), s*h)
-	ApplyNetGraphOverlay(buf, w, h, s)
+	ApplyNetGraphOverlay(buf, w, h, s, bgr != 0)
 }

@@ -20,6 +20,20 @@
 // next to its extern declaration of this symbol for why.
 volatile uint16_t g_last_host_latency_tenths_ms = 0;
 
+// g_last_decode_ms: most recent win_deliver_frame/win_deliver_frame_vulkan
+// call's wall time (moonlight_cgo_windows.go), i.e. decode + (on the
+// zero-copy path) HUD/AI-Vision GPU work + submit -- the closest Windows
+// equivalent to metal_video_impl_darwin.m's "submit-to-display" decode
+// latency stat. Written from moonlight_cgo_windows.go's own translation
+// unit (extern declaration there, same reasoning as
+// g_last_host_latency_tenths_ms above); read here by
+// win_get_last_decode_ms for net_graph_windows.go's GetDecodeMs.
+volatile double g_last_decode_ms = 0.0;
+
+double win_get_last_decode_ms(void) {
+    return g_last_decode_ms;
+}
+
 void do_get_rtp_video_stats(uint32_t *out) {
     const RTP_VIDEO_STATS *stats = LiGetRTPVideoStats();
     out[0] = stats->packetCountVideo;

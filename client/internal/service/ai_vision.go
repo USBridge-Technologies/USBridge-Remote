@@ -336,6 +336,32 @@ func snapshotRGBA(rgba []byte, w, h, stride int) *image.RGBA {
 	return img
 }
 
+// buildAIVisionOverlayImage draws result's boxes+tags onto a fully
+// transparent w×h RGBA canvas using the exact same drawing code as the
+// static ui.parse annotated screenshot and the CPU-buffer live overlay
+// (localui.DrawDetectionBox/Tag) -- every color those use is fully opaque
+// (alpha 255, see draw.go), so untouched pixels stay alpha 0. Shared by
+// every platform with a native compositor-layer overlay path instead of
+// drawCachedOverlay's in-place pixel writes (macOS/iOS's Metal HUD layer,
+// Windows's Vulkan HUD layer) -- each just uploads this to its own texture.
+func buildAIVisionOverlayImage(result *localui.Result, w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for _, icon := range result.Icons {
+		localui.DrawDetectionBox(img, icon.Bbox, false)
+		localui.DrawDetectionTag(img, icon.ID, icon.Bbox)
+	}
+	for _, t := range result.Text {
+		localui.DrawDetectionBox(img, t.Bbox, true)
+		if t.ID != "" {
+			// Empty ID means this box was published via maybeKickOCR's
+			// onTextBoxes before svtr recognized it (see
+			// ParseFastNearIconsStaged) -- outline only, no tag yet.
+			localui.DrawDetectionTag(img, t.ID, t.Bbox)
+		}
+	}
+	return img
+}
+
 // drawCachedOverlay burns the most recently completed detection's boxes
 // and Set-of-Mark hex tags directly into the live RGBA buffer, in place,
 // by wrapping it as an *image.RGBA with zero copy (image.RGBA is just a

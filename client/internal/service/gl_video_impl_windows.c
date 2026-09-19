@@ -294,6 +294,7 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
 
     g_submitted=0; g_rendered=0; g_fps_n=0; g_fps_t0=0;
     g_ready=0; g_has_frame=0; g_stat_first=0; g_stat_fw=0; g_stat_fh=0;
+    g_stat_fps=0.0f; g_stat_fps_ready=0; // fresh session: don't show a stale FPS from a previous one
     g_stat_max_gap_ms=0.0f; g_last_blit_ts=0.0;
     atomic_store(&g_active, 1);
 
@@ -360,8 +361,11 @@ void gl_video_get_stats(long long *rendered, long long *submitted,
     *max_gap_ms  = g_stat_max_gap_ms;
 }
 
+// Does NOT clear g_stat_fps_ready/g_stat_fps -- see
+// vk_video_impl_windows.c's identically-named function for why (FPS is a
+// continuously-valid gauge with more than one independent poller now, not a
+// one-shot event).
 void gl_video_clear_pending_stats(void) {
-    g_stat_fps_ready  = 0;
     g_stat_first      = 0;
     g_stat_max_gap_ms = 0.0f; // reset per reporting window
 }
