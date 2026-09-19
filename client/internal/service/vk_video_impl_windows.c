@@ -424,9 +424,9 @@ static int                      g_tex_w        = 0, g_tex_h = 0;
 // per rendered video frame. VK_HUD_W/H/MARGIN must match net_graph.go's
 // netGraphCanvasW/netGraphCanvasH/netGraphHudMargin exactly -- there is no
 // shared constant across the Go/C boundary, so keep them in sync by hand.
-#define VK_HUD_W      320
-#define VK_HUD_H      200
-#define VK_HUD_MARGIN 12
+#define VK_HUD_W      640
+#define VK_HUD_H      400
+#define VK_HUD_MARGIN 24
 
 static VkPipeline            g_hud_pipeline  = VK_NULL_HANDLE;
 static VkPipelineLayout      g_hud_playout   = VK_NULL_HANDLE;
@@ -533,6 +533,77 @@ static volatile double    g_last_blit_ts = 0.0;
 // Stage values: 0=idle 1=got-frame 2=staging 3=acquire 4=fence-wait 5=queue-submit 6=present 7=recreate
 static volatile long long g_render_hb    = 0;
 static volatile int       g_render_stage = 0;
+
+// ─── frame smoothing (motion-extrapolated stall concealment) ────────────────
+// Opt-in fallback, RGBA CPU-submit path only (g_frame_mode == VK_FRAME_MODE_RGBA):
+// when the network stalls and the next real decoded frame is late, instead of
+// leaving the display frozen on the last real frame, motion-extrapolate a
+// synthetic one from the last two real frames and present that instead until
+// the real frame arrives. See frame_smoothing.go's doc comment for the full
+// design and internal/service's approved plan doc for the architecture. Not
+// wired into the zero-copy VkImage decode path (vk_render_frame_vkimage) --
+// those frames are YCbCr, not RGBA; sampling them from a compute shader needs
+// its own YCbCr-aware plumbing, a deliberate follow-up, not attempted here.
+//
+// All *decision* math (is this gap long enough to conceal, how far forward to
+// extrapolate) lives in Go (frame_smoothing.go) and is unit tested there; this
+// file only executes the decision via the goFrameSmoothingDecide/
+// goFrameSmoothingUpdateInterval cgo exports (frame_smoothing_windows.go),
+// mirroring the existing goVKLog pattern.
+extern int    goFrameSmoothingDecide(double elapsedMs, double expectedMs, int consecutive, float *extrapolateTOut);
+extern double goFrameSmoothingUpdateInterval(double prevEma, double newIntervalMs);
+
+static atomic_int g_conceal_enabled = 0; // set via vk_video_set_concealment_enabled
+static int vk_conceal_ensure_tex2(int w, int h); // defined below; used by vk_render_frame(_vkimage) above it
+static void vk_conceal_note_real_frame(int conceal_slot); // defined below; used by vk_render_frame(_vkimage) above it
+
+#define VK_CONCEAL_BLOCK    16 // block-match block size, px
+#define VK_CONCEAL_SEARCH_R 8  // block-match search radius, px
+
+// Dual real-frame textures (sampled — separate from g_tex, which is
+// blit-only/no SAMPLED usage, so the happy path with concealment disabled
+// never allocates or touches any of this). [g_conceal_cur] holds the most
+// recently rendered real frame; the other slot holds the one before it.
+static VkImage        g_conceal_tex[2];
+static VkDeviceMemory g_conceal_tex_mem[2];
+static VkImageView    g_conceal_tex_view[2];
+static VkImageLayout  g_conceal_tex_layout[2] = { VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_UNDEFINED };
+static int            g_conceal_tex_w = 0, g_conceal_tex_h = 0;
+static int            g_conceal_cur = 0;
+static int            g_conceal_have_prev = 0;    // 1 once 2 real frames have been captured
+static int            g_conceal_capture_count = 0; // capped at 2; see its use in vk_render_frame
+
+// Flow field (block-grid resolution, R16G16_SFLOAT) and synthesized frame
+// (full resolution, R8G8B8A8_UNORM) — both kept in VK_IMAGE_LAYOUT_GENERAL
+// except g_synth_tex's brief excursion to TRANSFER_SRC_OPTIMAL for the
+// present blit (see vk_render_frame_conceal).
+static VkImage        g_flow_tex;
+static VkDeviceMemory g_flow_mem;
+static VkImageView    g_flow_view;
+static int            g_flow_w = 0, g_flow_h = 0;
+
+static VkImage        g_synth_tex;
+static VkDeviceMemory g_synth_mem;
+static VkImageView    g_synth_view;
+static VkImageLayout  g_synth_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+static VkSampler             g_conceal_sampler = VK_NULL_HANDLE; // linear, clamp-to-edge
+static VkDescriptorSetLayout g_flow_dsl = VK_NULL_HANDLE, g_warp_dsl = VK_NULL_HANDLE;
+static VkPipelineLayout      g_flow_playout = VK_NULL_HANDLE, g_warp_playout = VK_NULL_HANDLE;
+static VkPipeline            g_flow_pipeline = VK_NULL_HANDLE, g_warp_pipeline = VK_NULL_HANDLE;
+static VkDescriptorPool      g_conceal_dpool = VK_NULL_HANDLE;
+static VkDescriptorSet       g_flow_dset = VK_NULL_HANDLE, g_warp_dset = VK_NULL_HANDLE;
+static int                   g_conceal_pipelines_ok = 0; // 0=not tried 1=ok -1=failed permanently
+
+// Stall bookkeeping — render thread only, no lock needed (matches
+// g_render_stage/g_render_hb's own single-writer discipline).
+static double g_conceal_last_real_ts = 0.0; // mono_sec() of the last real frame render
+static double g_conceal_expected_ms  = 0.0; // rolling EMA, updated via goFrameSmoothingUpdateInterval
+static int    g_conceal_consecutive  = 0;   // consecutive synthesized frames this stall
+static int    g_conceal_flow_fresh   = 0;   // flow already computed for the current stall?
+
+static volatile long long g_stat_concealed_frames = 0;
+static volatile int       g_stat_concealing = 0;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1580,6 +1651,14 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     if (g_vkf_prev_release_fn) { g_vkf_prev_release_fn(g_vkf_prev_release_ctx); }
     g_vkf_prev_release_ctx = NULL; g_vkf_prev_release_fn = NULL;
 
+    // Frame smoothing: lazily (re)size the dual real-frame textures to match
+    // this frame's resolution (see vk_conceal_ensure_tex2's doc comment for
+    // why they carry COLOR_ATTACHMENT_BIT on this path). Skipped entirely
+    // while the feature is off, so the happy path never allocates this GPU
+    // memory or adds the extra render pass below.
+    int conceal_capture = atomic_load(&g_conceal_enabled) && vk_conceal_ensure_tex2(fw, fh);
+    int conceal_slot = conceal_capture ? (1 - g_conceal_cur) : -1;
+
     vkResetCommandBuffer(g_cmdbuf, 0);
     VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1671,6 +1750,50 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
+    // Frame smoothing capture: a second, unletterboxed render of the SAME
+    // ycbcr-converted frame (same pipeline/descriptor set/fullscreen
+    // triangle as the swapchain draw above, just a different render
+    // target and full fw x fh viewport instead of the letterboxed one) into
+    // g_conceal_tex[conceal_slot] -- reuses the already-proven YCbCr->RGB
+    // conversion instead of writing a second one, and stays entirely on the
+    // GPU (no readback), so this costs one extra cheap draw call, not a
+    // CPU round-trip.
+    if (conceal_slot >= 0) {
+        VkPipelineStageFlags src_stage = (g_conceal_tex_layout[conceal_slot] == VK_IMAGE_LAYOUT_UNDEFINED)
+            ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        vk_image_barrier(g_cmdbuf, g_conceal_tex[conceal_slot],
+            g_conceal_tex_layout[conceal_slot], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            src_stage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+        VkRenderingAttachmentInfo concealAtt = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+        concealAtt.imageView = g_conceal_tex_view[conceal_slot];
+        concealAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        concealAtt.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // full fw x fh draw below overwrites every pixel
+        concealAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        VkRenderingInfo concealInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+        concealInfo.renderArea.extent.width = (uint32_t)fw; concealInfo.renderArea.extent.height = (uint32_t)fh;
+        concealInfo.layerCount = 1;
+        concealInfo.colorAttachmentCount = 1; concealInfo.pColorAttachments = &concealAtt;
+
+        pfnBeginRendering(g_cmdbuf, &concealInfo);
+        VkViewport cvp = { 0.0f, 0.0f, (float)fw, (float)fh, 0.0f, 1.0f };
+        VkRect2D csc = { { 0, 0 }, { (uint32_t)fw, (uint32_t)fh } };
+        vkCmdSetViewport(g_cmdbuf, 0, 1, &cvp);
+        vkCmdSetScissor(g_cmdbuf, 0, 1, &csc);
+        vkCmdBindPipeline(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pl->pipeline);
+        vkCmdBindDescriptorSets(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pl->playout, 0, 1, &dset, 0, NULL);
+        vkCmdDraw(g_cmdbuf, 3, 1, 0, 0);
+        pfnEndRendering(g_cmdbuf);
+
+        vk_image_barrier(g_cmdbuf, g_conceal_tex[conceal_slot],
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+        g_conceal_tex_layout[conceal_slot] = VK_IMAGE_LAYOUT_GENERAL;
+    }
+
     vkEndCommandBuffer(g_cmdbuf);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1678,6 +1801,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
     si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
     si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    vk_conceal_note_real_frame(conceal_slot);
     g_render_stage = 5; // queue-submit
     vkQueueSubmit(g_queue, 1, &si, g_fence);
 
@@ -1708,6 +1832,38 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
 // Called from the render thread. Returns 1 on success, 0 on recoverable error
 // (e.g. swapchain out of date), -1 on fatal error.
 
+// vk_conceal_note_real_frame runs the frame-smoothing bookkeeping shared by
+// both real-frame render paths (RGBA vk_render_frame and zero-copy
+// vk_render_frame_vkimage) once conceal_slot's texture has been populated as
+// part of the command buffer about to be submitted -- committed the instant
+// that submit happens, independent of whether the present that follows
+// succeeds. A real frame just rendered: any in-progress stall is over
+// (reset consecutive/flow-fresh), and its measured arrival interval feeds
+// the rolling EMA that decideConcealment (Go) compares future gaps against.
+// g_conceal_have_prev only flips true after the SECOND capture
+// (g_conceal_capture_count reaching 2) -- after the first, the "other" slot
+// has never been written (still VK_IMAGE_LAYOUT_UNDEFINED/no real pixel
+// data) and must not be treated as a valid "previous" frame. conceal_slot
+// < 0 means concealment wasn't capturing this frame (disabled, or
+// vk_conceal_ensure_tex2 failed) -- a no-op.
+static void vk_conceal_note_real_frame(int conceal_slot) {
+    if (conceal_slot < 0) return;
+    double now = mono_sec();
+    if (g_conceal_last_real_ts > 0.0) {
+        double interval_ms = (now - g_conceal_last_real_ts) * 1000.0;
+        g_conceal_expected_ms = goFrameSmoothingUpdateInterval(g_conceal_expected_ms, interval_ms);
+    }
+    g_conceal_last_real_ts = now;
+    g_conceal_consecutive  = 0;
+    g_conceal_flow_fresh   = 0;
+    g_stat_concealing      = 0;
+    g_conceal_cur = conceal_slot;
+    if (g_conceal_capture_count < 2) {
+        g_conceal_capture_count++;
+        g_conceal_have_prev = (g_conceal_capture_count >= 2);
+    }
+}
+
 static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     if (!g_dev || !g_swap) return 0;
     char _dbg[96];
@@ -1717,6 +1873,12 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     g_render_stage = 2; // staging
     if (!vk_ensure_staging(frame_sz)) { g_render_stage = 1; return 0; }
     if (!vk_ensure_tex(fw, fh))       { g_render_stage = 1; return 0; }
+
+    // Frame smoothing: lazily (re)size the dual real-frame textures to match
+    // this frame's resolution. Skipped entirely while the feature is off, so
+    // the happy path never allocates this GPU memory. Failure here just means
+    // no concealment material this frame -- never fails vk_render_frame itself.
+    int conceal_capture = atomic_load(&g_conceal_enabled) && vk_conceal_ensure_tex2(fw, fh);
 
     // Upload frame to staging buffer.
     size_t row = (size_t)fw * 4;
@@ -1798,6 +1960,30 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+    // Frame smoothing: also copy the same already-uploaded staging buffer
+    // into the "next" dual-frame slot (reading the same source buffer twice,
+    // into two different destination images, is a well-defined read-read —
+    // no hazard between this and the g_tex copy above). Ping-pongs
+    // g_conceal_cur so the render thread always has the last two real frames
+    // available to block-match/warp from during a stall.
+    int conceal_slot = -1;
+    if (conceal_capture) {
+        conceal_slot = 1 - g_conceal_cur;
+        VkPipelineStageFlags src_stage = (g_conceal_tex_layout[conceal_slot] == VK_IMAGE_LAYOUT_UNDEFINED)
+            ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        vk_image_barrier(g_cmdbuf, g_conceal_tex[conceal_slot],
+            g_conceal_tex_layout[conceal_slot], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT,
+            src_stage, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        vkCmdCopyBufferToImage(g_cmdbuf, g_stage_buf, g_conceal_tex[conceal_slot],
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bic);
+        vk_image_barrier(g_cmdbuf, g_conceal_tex[conceal_slot],
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+        g_conceal_tex_layout[conceal_slot] = VK_IMAGE_LAYOUT_GENERAL;
+    }
+
     // Swapchain image → TRANSFER_DST
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -1853,6 +2039,9 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     si.pCommandBuffers      = &g_cmdbuf;
     si.signalSemaphoreCount = 1;
     si.pSignalSemaphores    = &g_rnd_sem;
+
+    vk_conceal_note_real_frame(conceal_slot);
+
     g_render_stage = 5; // queue-submit
     vkQueueSubmit(g_queue, 1, &si, g_fence);
 
@@ -1880,6 +2069,473 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     if (res != VK_SUCCESS) {
         snprintf(_dbg, sizeof(_dbg), "QueuePresent failed res=%d", (int)res);
         goVKLog(_dbg, 2);
+    }
+    return (res == VK_SUCCESS) ? 1 : 0;
+}
+
+// ─── frame smoothing: block-match optical flow + warp/extrapolate ───────────
+// Phase 1 "shader" optical-flow backend (see frame_smoothing.go's doc
+// comment). A future NVIDIA Optical Flow SDK backend would implement the
+// same "produce a flow field from two frames" contract and slot in here
+// without touching vk_render_frame_conceal's stall/present logic below --
+// this section is the whole of that contract for now, kept deliberately
+// self-contained (own pipelines/descriptor sets/textures) rather than
+// threaded through the ycbcr/HUD pipeline machinery above.
+
+// Layout mirrors flow_blockmatch.comp's/warp_extrapolate.comp's push_constant
+// blocks field-for-field (see shader_arrays.h's doc comment) -- every field
+// is a 4-byte int/float so there's no struct-packing mismatch to worry about.
+typedef struct { int32_t srcSize[2]; int32_t blockSize[2]; int32_t searchRadius; } VkFlowPushConstants;
+typedef struct { int32_t dstSize[2]; int32_t blockSize[2]; float extrapolateT; } VkWarpPushConstants;
+
+// vk_conceal_ensure_tex2 (re)allocates the two dual real-frame SAMPLED
+// textures to match (w,h). Mirrors vk_ensure_tex's grow-on-change pattern;
+// unlike g_tex these carry VK_IMAGE_USAGE_SAMPLED_BIT since the block-match/
+// warp compute shaders read them, and losing their content on resize is
+// fine -- it just means concealment needs two fresh real frames again after
+// a resolution change, same as any other frame-history-based feature would.
+// Also carries COLOR_ATTACHMENT_BIT: on the zero-copy VkImage decode path
+// (vk_render_frame_vkimage), populating a slot means rendering the existing
+// ycbcr pipeline's fullscreen triangle into it as a real render target
+// (reusing the exact same proven YCbCr->RGB conversion that already draws
+// to the swapchain) rather than a buffer copy, since these frames are
+// NV12/P010 YCbCr, not RGBA -- there's no staging buffer to copy from.
+static int vk_conceal_ensure_tex2(int w, int h) {
+    if (g_conceal_tex[0] != VK_NULL_HANDLE && g_conceal_tex_w == w && g_conceal_tex_h == h) return 1;
+
+    if (g_conceal_tex[0] != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(g_dev);
+        for (int i = 0; i < 2; i++) {
+            if (g_conceal_tex_view[i]) { vkDestroyImageView(g_dev, g_conceal_tex_view[i], NULL); g_conceal_tex_view[i] = VK_NULL_HANDLE; }
+            if (g_conceal_tex_mem[i])  { vkFreeMemory(g_dev, g_conceal_tex_mem[i], NULL); g_conceal_tex_mem[i] = VK_NULL_HANDLE; }
+            if (g_conceal_tex[i])      { vkDestroyImage(g_dev, g_conceal_tex[i], NULL); g_conceal_tex[i] = VK_NULL_HANDLE; }
+            g_conceal_tex_layout[i] = VK_IMAGE_LAYOUT_UNDEFINED;
+        }
+        g_conceal_cur = 0; g_conceal_have_prev = 0; g_conceal_capture_count = 0;
+    }
+
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+
+    for (int i = 0; i < 2; i++) {
+        VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        ici.imageType   = VK_IMAGE_TYPE_2D;
+        ici.format      = VK_FORMAT_R8G8B8A8_UNORM;
+        ici.extent      = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
+        ici.mipLevels   = 1;
+        ici.arrayLayers = 1;
+        ici.samples     = VK_SAMPLE_COUNT_1_BIT;
+        ici.tiling      = VK_IMAGE_TILING_OPTIMAL;
+        ici.usage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (vkCreateImage(g_dev, &ici, NULL, &g_conceal_tex[i]) != VK_SUCCESS) return 0;
+
+        VkMemoryRequirements mr;
+        vkGetImageMemoryRequirements(g_dev, g_conceal_tex[i], &mr);
+        uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (mi == UINT32_MAX) return 0;
+
+        VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+        mai.allocationSize  = mr.size;
+        mai.memoryTypeIndex = mi;
+        if (vkAllocateMemory(g_dev, &mai, NULL, &g_conceal_tex_mem[i]) != VK_SUCCESS) return 0;
+        vkBindImageMemory(g_dev, g_conceal_tex[i], g_conceal_tex_mem[i], 0);
+
+        VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vci.image = g_conceal_tex[i];
+        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format = VK_FORMAT_R8G8B8A8_UNORM;
+        vci.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        if (vkCreateImageView(g_dev, &vci, NULL, &g_conceal_tex_view[i]) != VK_SUCCESS) return 0;
+    }
+    g_conceal_tex_w = w; g_conceal_tex_h = h;
+    return 1;
+}
+
+// vk_conceal_ensure_flow_synth (re)allocates the block-grid flow texture
+// (sized to (w,h) at VK_CONCEAL_BLOCK granularity) and the full-resolution
+// synthesized-frame texture. Both are STORAGE images (compute-written via
+// imageStore); g_synth_tex additionally carries TRANSFER_SRC_BIT since
+// vk_render_frame_conceal blits it straight into the swapchain, reusing
+// vk_render_frame's own letterbox-blit approach rather than a second
+// presentation code path.
+static int vk_conceal_ensure_flow_synth(int w, int h) {
+    int grid_w = (w + VK_CONCEAL_BLOCK - 1) / VK_CONCEAL_BLOCK;
+    int grid_h = (h + VK_CONCEAL_BLOCK - 1) / VK_CONCEAL_BLOCK;
+    int need_resize = (g_flow_tex == VK_NULL_HANDLE || g_flow_w != grid_w || g_flow_h != grid_h ||
+                        g_synth_tex == VK_NULL_HANDLE || g_conceal_tex_w != w || g_conceal_tex_h != h);
+    if (!need_resize) return 1;
+
+    vkDeviceWaitIdle(g_dev);
+    if (g_flow_view)  { vkDestroyImageView(g_dev, g_flow_view, NULL); g_flow_view = VK_NULL_HANDLE; }
+    if (g_flow_mem)   { vkFreeMemory(g_dev, g_flow_mem, NULL); g_flow_mem = VK_NULL_HANDLE; }
+    if (g_flow_tex)   { vkDestroyImage(g_dev, g_flow_tex, NULL); g_flow_tex = VK_NULL_HANDLE; }
+    if (g_synth_view) { vkDestroyImageView(g_dev, g_synth_view, NULL); g_synth_view = VK_NULL_HANDLE; }
+    if (g_synth_mem)  { vkFreeMemory(g_dev, g_synth_mem, NULL); g_synth_mem = VK_NULL_HANDLE; }
+    if (g_synth_tex)  { vkDestroyImage(g_dev, g_synth_tex, NULL); g_synth_tex = VK_NULL_HANDLE; }
+    g_synth_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+
+    // Flow texture: R16G16_SFLOAT, block-grid resolution, STORAGE (written
+    // by flow_blockmatch.comp) + SAMPLED (read, bilinearly upsampled, by
+    // warp_extrapolate.comp).
+    {
+        VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        ici.imageType = VK_IMAGE_TYPE_2D;
+        ici.format    = VK_FORMAT_R16G16_SFLOAT;
+        ici.extent    = (VkExtent3D){(uint32_t)grid_w, (uint32_t)grid_h, 1};
+        ici.mipLevels = 1; ici.arrayLayers = 1;
+        ici.samples   = VK_SAMPLE_COUNT_1_BIT;
+        ici.tiling    = VK_IMAGE_TILING_OPTIMAL;
+        ici.usage     = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (vkCreateImage(g_dev, &ici, NULL, &g_flow_tex) != VK_SUCCESS) return 0;
+
+        VkMemoryRequirements mr;
+        vkGetImageMemoryRequirements(g_dev, g_flow_tex, &mr);
+        uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (mi == UINT32_MAX) return 0;
+        VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+        mai.allocationSize = mr.size; mai.memoryTypeIndex = mi;
+        if (vkAllocateMemory(g_dev, &mai, NULL, &g_flow_mem) != VK_SUCCESS) return 0;
+        vkBindImageMemory(g_dev, g_flow_tex, g_flow_mem, 0);
+
+        VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vci.image = g_flow_tex; vci.viewType = VK_IMAGE_VIEW_TYPE_2D; vci.format = VK_FORMAT_R16G16_SFLOAT;
+        vci.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        if (vkCreateImageView(g_dev, &vci, NULL, &g_flow_view) != VK_SUCCESS) return 0;
+    }
+
+    // Synthesized-frame texture: full res, RGBA8, STORAGE (warp writes it)
+    // + TRANSFER_SRC (present blit reads it, exactly like g_tex).
+    {
+        VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        ici.imageType = VK_IMAGE_TYPE_2D;
+        ici.format    = VK_FORMAT_R8G8B8A8_UNORM;
+        ici.extent    = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
+        ici.mipLevels = 1; ici.arrayLayers = 1;
+        ici.samples   = VK_SAMPLE_COUNT_1_BIT;
+        ici.tiling    = VK_IMAGE_TILING_OPTIMAL;
+        ici.usage     = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (vkCreateImage(g_dev, &ici, NULL, &g_synth_tex) != VK_SUCCESS) return 0;
+
+        VkMemoryRequirements mr;
+        vkGetImageMemoryRequirements(g_dev, g_synth_tex, &mr);
+        uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (mi == UINT32_MAX) return 0;
+        VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+        mai.allocationSize = mr.size; mai.memoryTypeIndex = mi;
+        if (vkAllocateMemory(g_dev, &mai, NULL, &g_synth_mem) != VK_SUCCESS) return 0;
+        vkBindImageMemory(g_dev, g_synth_tex, g_synth_mem, 0);
+
+        VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        vci.image = g_synth_tex; vci.viewType = VK_IMAGE_VIEW_TYPE_2D; vci.format = VK_FORMAT_R8G8B8A8_UNORM;
+        vci.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        if (vkCreateImageView(g_dev, &vci, NULL, &g_synth_view) != VK_SUCCESS) return 0;
+    }
+
+    g_flow_w = grid_w; g_flow_h = grid_h;
+    return 1;
+}
+
+// vk_conceal_ensure_pipelines lazily creates the compute pipelines shared by
+// every stall (not per-stall) -- sampler, both descriptor set
+// layouts/pipeline layouts/pipelines, and a descriptor pool sized for both
+// sets. Returns 1 once ready, 0 if creation failed (permanent -- doesn't
+// retry, mirrors vk_hud_ensure_resources).
+static int vk_conceal_ensure_pipelines(void) {
+    if (g_conceal_pipelines_ok) return g_conceal_pipelines_ok > 0;
+
+    VkSamplerCreateInfo sampCI = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    sampCI.magFilter = VK_FILTER_LINEAR;
+    sampCI.minFilter = VK_FILTER_LINEAR;
+    sampCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(g_dev, &sampCI, NULL, &g_conceal_sampler) != VK_SUCCESS) goto fail;
+
+    // flow_blockmatch.comp: binding0=curTex binding1=prevTex (combined
+    // sampler) binding2=flowOut (storage image), all compute stage.
+    {
+        VkDescriptorSetLayoutBinding b[3] = {0};
+        b[0].binding = 0; b[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; b[0].descriptorCount = 1; b[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; b[0].pImmutableSamplers = &g_conceal_sampler;
+        b[1].binding = 1; b[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; b[1].descriptorCount = 1; b[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; b[1].pImmutableSamplers = &g_conceal_sampler;
+        b[2].binding = 2; b[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; b[2].descriptorCount = 1; b[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        VkDescriptorSetLayoutCreateInfo dslCI = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        dslCI.bindingCount = 3; dslCI.pBindings = b;
+        if (vkCreateDescriptorSetLayout(g_dev, &dslCI, NULL, &g_flow_dsl) != VK_SUCCESS) goto fail;
+    }
+    // warp_extrapolate.comp: binding0=curTex binding1=flowTex (combined
+    // sampler) binding2=outImg (storage image), same shape.
+    {
+        VkDescriptorSetLayoutBinding b[3] = {0};
+        b[0].binding = 0; b[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; b[0].descriptorCount = 1; b[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; b[0].pImmutableSamplers = &g_conceal_sampler;
+        b[1].binding = 1; b[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; b[1].descriptorCount = 1; b[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; b[1].pImmutableSamplers = &g_conceal_sampler;
+        b[2].binding = 2; b[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; b[2].descriptorCount = 1; b[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        VkDescriptorSetLayoutCreateInfo dslCI = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        dslCI.bindingCount = 3; dslCI.pBindings = b;
+        if (vkCreateDescriptorSetLayout(g_dev, &dslCI, NULL, &g_warp_dsl) != VK_SUCCESS) goto fail;
+    }
+
+    {
+        VkPushConstantRange pcr = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkFlowPushConstants) };
+        VkPipelineLayoutCreateInfo plCI = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+        plCI.setLayoutCount = 1; plCI.pSetLayouts = &g_flow_dsl;
+        plCI.pushConstantRangeCount = 1; plCI.pPushConstantRanges = &pcr;
+        if (vkCreatePipelineLayout(g_dev, &plCI, NULL, &g_flow_playout) != VK_SUCCESS) goto fail;
+    }
+    {
+        VkPushConstantRange pcr = { VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkWarpPushConstants) };
+        VkPipelineLayoutCreateInfo plCI = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+        plCI.setLayoutCount = 1; plCI.pSetLayouts = &g_warp_dsl;
+        plCI.pushConstantRangeCount = 1; plCI.pPushConstantRanges = &pcr;
+        if (vkCreatePipelineLayout(g_dev, &plCI, NULL, &g_warp_playout) != VK_SUCCESS) goto fail;
+    }
+
+    {
+        VkDescriptorPoolSize sizes[2] = {
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 }, // 2 bindings * 2 sets
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 },          // 1 binding * 2 sets
+        };
+        VkDescriptorPoolCreateInfo poolCI = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        poolCI.maxSets = 2; poolCI.poolSizeCount = 2; poolCI.pPoolSizes = sizes;
+        if (vkCreateDescriptorPool(g_dev, &poolCI, NULL, &g_conceal_dpool) != VK_SUCCESS) goto fail;
+
+        VkDescriptorSetAllocateInfo dsai = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        dsai.descriptorPool = g_conceal_dpool; dsai.descriptorSetCount = 1;
+        dsai.pSetLayouts = &g_flow_dsl;
+        if (vkAllocateDescriptorSets(g_dev, &dsai, &g_flow_dset) != VK_SUCCESS) goto fail;
+        dsai.pSetLayouts = &g_warp_dsl;
+        if (vkAllocateDescriptorSets(g_dev, &dsai, &g_warp_dset) != VK_SUCCESS) goto fail;
+    }
+
+    {
+        VkShaderModule flow_cs = vk_shader_from_spv(g_flow_blockmatch_comp_spv, sizeof(g_flow_blockmatch_comp_spv));
+        VkShaderModule warp_cs = vk_shader_from_spv(g_warp_extrapolate_comp_spv, sizeof(g_warp_extrapolate_comp_spv));
+        if (!flow_cs || !warp_cs) {
+            if (flow_cs) vkDestroyShaderModule(g_dev, flow_cs, NULL);
+            if (warp_cs) vkDestroyShaderModule(g_dev, warp_cs, NULL);
+            goto fail;
+        }
+        VkComputePipelineCreateInfo cpci[2] = {0};
+        cpci[0].sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        cpci[0].stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        cpci[0].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        cpci[0].stage.module = flow_cs; cpci[0].stage.pName = "main";
+        cpci[0].layout = g_flow_playout;
+        cpci[1].sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        cpci[1].stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        cpci[1].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        cpci[1].stage.module = warp_cs; cpci[1].stage.pName = "main";
+        cpci[1].layout = g_warp_playout;
+        VkPipeline pipelines[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+        VkResult pr = vkCreateComputePipelines(g_dev, VK_NULL_HANDLE, 2, cpci, NULL, pipelines);
+        vkDestroyShaderModule(g_dev, flow_cs, NULL);
+        vkDestroyShaderModule(g_dev, warp_cs, NULL);
+        if (pr != VK_SUCCESS) goto fail;
+        g_flow_pipeline = pipelines[0];
+        g_warp_pipeline = pipelines[1];
+    }
+
+    g_conceal_pipelines_ok = 1;
+    return 1;
+
+fail:
+    goVKLog("vk_conceal_ensure_pipelines: failed -- frame smoothing will not run", 2);
+    g_conceal_pipelines_ok = -1;
+    return 0;
+}
+
+// vk_conceal_record_flow dispatches flow_blockmatch.comp against the two
+// real-frame slots, writing block-grid motion vectors into g_flow_tex.
+// Called at most once per stall (g_conceal_flow_fresh gates repeats) --
+// while a stall continues, vk_conceal_record_warp is re-dispatched each
+// render tick against the SAME cached flow field, just with a larger
+// extrapolateT, rather than re-estimating flow every tick.
+static void vk_conceal_record_flow(VkCommandBuffer cb, int curSlot, int prevSlot, int fw, int fh) {
+    VkDescriptorImageInfo cur  = { VK_NULL_HANDLE, g_conceal_tex_view[curSlot],  VK_IMAGE_LAYOUT_GENERAL };
+    VkDescriptorImageInfo prev = { VK_NULL_HANDLE, g_conceal_tex_view[prevSlot], VK_IMAGE_LAYOUT_GENERAL };
+    VkDescriptorImageInfo flow = { VK_NULL_HANDLE, g_flow_view, VK_IMAGE_LAYOUT_GENERAL };
+    VkWriteDescriptorSet w[3] = {0};
+    w[0] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, 0, g_flow_dset, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &cur };
+    w[1] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, 0, g_flow_dset, 1, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &prev };
+    w[2] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, 0, g_flow_dset, 2, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &flow };
+    vkUpdateDescriptorSets(g_dev, 3, w, 0, NULL);
+
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, g_flow_pipeline);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, g_flow_playout, 0, 1, &g_flow_dset, 0, NULL);
+    VkFlowPushConstants pc = { {fw, fh}, {VK_CONCEAL_BLOCK, VK_CONCEAL_BLOCK}, VK_CONCEAL_SEARCH_R };
+    vkCmdPushConstants(cb, g_flow_playout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdDispatch(cb, (g_flow_w + 7) / 8, (g_flow_h + 7) / 8, 1);
+
+    // flow_blockmatch writes g_flow_tex via imageStore; warp reads it via a
+    // combined-image-sampler bilinear fetch right after in the same command
+    // buffer -- needs a barrier between the two, not just between dispatches
+    // and the eventual blit.
+    vk_image_barrier(cb, g_flow_tex, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
+        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+}
+
+// vk_conceal_record_warp dispatches warp_extrapolate.comp, sampling
+// g_conceal_tex[curSlot] + g_flow_tex and writing g_synth_tex. Transitions
+// g_synth_tex to GENERAL first (from wherever it was left -- UNDEFINED on
+// first use, or TRANSFER_SRC_OPTIMAL after a previous stall's present blit,
+// see vk_render_frame_conceal); leaves it in GENERAL on return; the caller
+// transitions it to TRANSFER_SRC_OPTIMAL for the blit.
+static void vk_conceal_record_warp(VkCommandBuffer cb, int curSlot, int fw, int fh, float extrapolateT) {
+    VkPipelineStageFlags src_stage = (g_synth_layout == VK_IMAGE_LAYOUT_UNDEFINED)
+        ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    vk_image_barrier(cb, g_synth_tex, g_synth_layout, VK_IMAGE_LAYOUT_GENERAL,
+        0, VK_ACCESS_SHADER_WRITE_BIT, src_stage, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    g_synth_layout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkDescriptorImageInfo cur  = { VK_NULL_HANDLE, g_conceal_tex_view[curSlot], VK_IMAGE_LAYOUT_GENERAL };
+    VkDescriptorImageInfo flow = { VK_NULL_HANDLE, g_flow_view, VK_IMAGE_LAYOUT_GENERAL };
+    VkDescriptorImageInfo out  = { VK_NULL_HANDLE, g_synth_view, VK_IMAGE_LAYOUT_GENERAL };
+    VkWriteDescriptorSet w[3] = {0};
+    w[0] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, 0, g_warp_dset, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &cur };
+    w[1] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, 0, g_warp_dset, 1, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &flow };
+    w[2] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, 0, g_warp_dset, 2, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &out };
+    vkUpdateDescriptorSets(g_dev, 3, w, 0, NULL);
+
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, g_warp_pipeline);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, g_warp_playout, 0, 1, &g_warp_dset, 0, NULL);
+    VkWarpPushConstants pc = { {fw, fh}, {VK_CONCEAL_BLOCK, VK_CONCEAL_BLOCK}, extrapolateT };
+    vkCmdPushConstants(cb, g_warp_playout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    vkCmdDispatch(cb, (fw + 7) / 8, (fh + 7) / 8, 1);
+}
+
+// vk_render_frame_conceal is vk_render_frame's counterpart for a
+// synthesized, motion-extrapolated frame: same acquire/fence-wait/submit/
+// present skeleton, but instead of uploading new pixels it dispatches the
+// flow/warp compute passes (against the last two real frames already
+// captured by vk_render_frame) and blits g_synth_tex into the swapchain.
+// Returns 0 (render nothing this tick) whenever concealment isn't
+// applicable -- not enough real-frame history yet, pipelines unavailable,
+// or decideConcealment (Go) says the current gap doesn't warrant it -- so
+// the caller's existing "no new frame this tick" behavior (skip, try again
+// next 8ms poll) is unchanged in all of those cases.
+static int vk_render_frame_conceal(void) {
+    if (!g_dev || !g_swap) return 0;
+    if (!g_conceal_have_prev) return 0;
+    if (g_conceal_tex_w <= 0 || g_conceal_tex_h <= 0) return 0;
+    if (!vk_conceal_ensure_pipelines()) return 0;
+    if (!vk_conceal_ensure_flow_synth(g_conceal_tex_w, g_conceal_tex_h)) {
+        goVKLog("vk_conceal_ensure_flow_synth failed -- frame smoothing will not run this tick", 1);
+        return 0;
+    }
+
+    double elapsedMs = (mono_sec() - g_conceal_last_real_ts) * 1000.0;
+    float extrapolateT = 0.0f;
+    int conceal = goFrameSmoothingDecide(elapsedMs, g_conceal_expected_ms, g_conceal_consecutive, &extrapolateT);
+    if (!conceal) return 0;
+
+    if (g_conceal_consecutive == 0) {
+        // First synthesized frame of a NEW stall -- log once per stall
+        // (not per render tick) so app.log shows exactly when/how often
+        // this actually kicks in, without a line-per-8ms flood while one
+        // stall is being bridged.
+        char m[128];
+        snprintf(m, sizeof(m), "frame smoothing: concealing a stall (gap=%.0fms expected=%.0fms t=%.2f)",
+                  elapsedMs, g_conceal_expected_ms, (double)extrapolateT);
+        goVKLog(m, 0);
+    }
+
+    int curSlot  = g_conceal_cur;
+    int prevSlot = 1 - g_conceal_cur;
+    int fw = g_conceal_tex_w, fh = g_conceal_tex_h;
+
+    uint32_t img_idx = 0;
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    if (res == VK_TIMEOUT) return 0;
+    if (res == VK_ERROR_OUT_OF_DATE_KHR) { vk_recreate_swapchain(); return 0; }
+    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) return 0;
+
+    if (vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL) == VK_TIMEOUT) {
+        vkResetFences(g_dev, 1, &g_fence);
+        return 0;
+    }
+    vkResetFences(g_dev, 1, &g_fence);
+
+    vkResetCommandBuffer(g_cmdbuf, 0);
+    VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(g_cmdbuf, &bi);
+
+    if (!g_conceal_flow_fresh) {
+        vk_conceal_record_flow(g_cmdbuf, curSlot, prevSlot, fw, fh);
+        g_conceal_flow_fresh = 1;
+    }
+    vk_conceal_record_warp(g_cmdbuf, curSlot, fw, fh, extrapolateT);
+
+    vk_image_barrier(g_cmdbuf, g_synth_tex, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    g_synth_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        0, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    int sw = g_swap_ext.width, sh = g_swap_ext.height;
+    float fa = (float)fw / (float)(fh ? fh : 1);
+    float wa = (float)sw / (float)(sh ? sh : 1);
+    int dx = 0, dy = 0, dw = sw, dh = sh;
+    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
+    else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+
+    VkClearColorValue black = {0};
+    VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    VkImageBlit blt = {0};
+    blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blt.srcSubresource.layerCount = 1;
+    blt.srcOffsets[1] = (VkOffset3D){fw, fh, 1};
+    blt.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blt.dstSubresource.layerCount = 1;
+    blt.dstOffsets[0] = (VkOffset3D){dx, dy, 0};
+    blt.dstOffsets[1] = (VkOffset3D){dx + dw, dy + dh, 1};
+    vkCmdBlitImage(g_cmdbuf,
+        g_synth_tex,          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &blt, VK_FILTER_LINEAR);
+
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_ACCESS_TRANSFER_WRITE_BIT, 0,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
+    vkEndCommandBuffer(g_cmdbuf);
+
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
+    si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
+    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    vkQueueSubmit(g_queue, 1, &si, g_fence);
+
+    g_conceal_consecutive++;
+    g_stat_concealed_frames++;
+    g_stat_concealing = 1;
+
+    VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
+    pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
+    res = vkQueuePresentKHR(g_queue, &pi);
+    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+        vk_recreate_swapchain();
+        return 1;
     }
     return (res == VK_SUCCESS) ? 1 : 0;
 }
@@ -1967,20 +2623,30 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             }
             LeaveCriticalSection(&g_cs);
 
-            if (img == VK_NULL_HANDLE) continue;
-            g_has_frame = 1;
-
-            g_render_stage = 1; // got frame — entering vk_render_frame_vkimage
-            rf = vk_render_frame_vkimage(img, fmt, layout, fw, fh);
-            if (rf) {
-                // Fence-wait at the top of the NEXT call confirms this
-                // frame's GPU read has retired before its ref is dropped.
-                g_vkf_prev_release_ctx = rel_ctx;
-                g_vkf_prev_release_fn  = rel_fn;
-            } else if (rel_fn) {
-                // No GPU work was submitted for this frame (acquire/pipeline
-                // failure) — nothing reads the image, safe to release now.
-                rel_fn(rel_ctx);
+            if (img != VK_NULL_HANDLE) {
+                g_has_frame = 1;
+                g_render_stage = 1; // got frame — entering vk_render_frame_vkimage
+                rf = vk_render_frame_vkimage(img, fmt, layout, fw, fh);
+                if (rf) {
+                    // Fence-wait at the top of the NEXT call confirms this
+                    // frame's GPU read has retired before its ref is dropped.
+                    g_vkf_prev_release_ctx = rel_ctx;
+                    g_vkf_prev_release_fn  = rel_fn;
+                } else if (rel_fn) {
+                    // No GPU work was submitted for this frame (acquire/pipeline
+                    // failure) — nothing reads the image, safe to release now.
+                    rel_fn(rel_ctx);
+                }
+            } else {
+                // No new real frame this tick -- see the identical comment
+                // on the RGBA branch below for what this does and why. Must
+                // NOT fall into the rf/rel_fn handling above: rel_ctx/rel_fn
+                // are unset (NULL) here, and g_vkf_prev_release_ctx/fn must
+                // keep whatever the last REAL frame left them as.
+                int concealed = atomic_load(&g_conceal_enabled) && vk_render_frame_conceal();
+                if (!concealed) continue;
+                fw = g_conceal_tex_w; fh = g_conceal_tex_h;
+                rf = 1;
             }
         } else {
             uint8_t *tmp = NULL;
@@ -1995,12 +2661,26 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             }
             LeaveCriticalSection(&g_cs);
 
-            if (!tmp) continue;
-            g_has_frame = 1;
-
-            g_render_stage = 1; // got frame — entering vk_render_frame
-            rf = vk_render_frame(tmp, fw, fh, fs);
-            free(tmp);
+            if (!tmp) {
+                // No new real frame this tick. Frame smoothing: if enabled
+                // and the gap since the last real frame warrants it (Go's
+                // decideConcealment, called from inside
+                // vk_render_frame_conceal), present a motion-extrapolated
+                // frame instead of leaving the display on whatever was last
+                // drawn. Falls through to the shared stats block below on
+                // success so MaxGapMs/FPS reflect what's actually on
+                // screen -- the whole point of this feature is to shrink
+                // that gap, not hide it from the HUD.
+                int concealed = atomic_load(&g_conceal_enabled) && vk_render_frame_conceal();
+                if (!concealed) continue;
+                fw = g_conceal_tex_w; fh = g_conceal_tex_h;
+                rf = 1;
+            } else {
+                g_has_frame = 1;
+                g_render_stage = 1; // got frame — entering vk_render_frame
+                rf = vk_render_frame(tmp, fw, fh, fs);
+                free(tmp);
+            }
         }
         if (!rf) {
             consec_fail++;
@@ -2219,6 +2899,37 @@ static void vk_full_cleanup(void) {
         if (g_tex)     { vkDestroyImage(g_dev, g_tex, NULL);      g_tex = VK_NULL_HANDLE; }
         if (g_tex_mem) { vkFreeMemory(g_dev, g_tex_mem, NULL);    g_tex_mem = VK_NULL_HANDLE; }
         g_tex_w = 0; g_tex_h = 0;
+
+        // Frame smoothing resources.
+        for (int i = 0; i < 2; i++) {
+            if (g_conceal_tex_view[i]) { vkDestroyImageView(g_dev, g_conceal_tex_view[i], NULL); g_conceal_tex_view[i] = VK_NULL_HANDLE; }
+            if (g_conceal_tex_mem[i])  { vkFreeMemory(g_dev, g_conceal_tex_mem[i], NULL); g_conceal_tex_mem[i] = VK_NULL_HANDLE; }
+            if (g_conceal_tex[i])      { vkDestroyImage(g_dev, g_conceal_tex[i], NULL); g_conceal_tex[i] = VK_NULL_HANDLE; }
+            g_conceal_tex_layout[i] = VK_IMAGE_LAYOUT_UNDEFINED;
+        }
+        g_conceal_tex_w = 0; g_conceal_tex_h = 0;
+        g_conceal_cur = 0; g_conceal_have_prev = 0; g_conceal_capture_count = 0;
+        g_conceal_last_real_ts = 0.0; g_conceal_expected_ms = 0.0;
+        g_conceal_consecutive = 0; g_conceal_flow_fresh = 0;
+        if (g_flow_view)  { vkDestroyImageView(g_dev, g_flow_view, NULL); g_flow_view = VK_NULL_HANDLE; }
+        if (g_flow_mem)   { vkFreeMemory(g_dev, g_flow_mem, NULL); g_flow_mem = VK_NULL_HANDLE; }
+        if (g_flow_tex)   { vkDestroyImage(g_dev, g_flow_tex, NULL); g_flow_tex = VK_NULL_HANDLE; }
+        g_flow_w = 0; g_flow_h = 0;
+        if (g_synth_view) { vkDestroyImageView(g_dev, g_synth_view, NULL); g_synth_view = VK_NULL_HANDLE; }
+        if (g_synth_mem)  { vkFreeMemory(g_dev, g_synth_mem, NULL); g_synth_mem = VK_NULL_HANDLE; }
+        if (g_synth_tex)  { vkDestroyImage(g_dev, g_synth_tex, NULL); g_synth_tex = VK_NULL_HANDLE; }
+        g_synth_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (g_flow_pipeline) { vkDestroyPipeline(g_dev, g_flow_pipeline, NULL); g_flow_pipeline = VK_NULL_HANDLE; }
+        if (g_warp_pipeline) { vkDestroyPipeline(g_dev, g_warp_pipeline, NULL); g_warp_pipeline = VK_NULL_HANDLE; }
+        if (g_flow_playout)  { vkDestroyPipelineLayout(g_dev, g_flow_playout, NULL); g_flow_playout = VK_NULL_HANDLE; }
+        if (g_warp_playout)  { vkDestroyPipelineLayout(g_dev, g_warp_playout, NULL); g_warp_playout = VK_NULL_HANDLE; }
+        if (g_conceal_dpool) { vkDestroyDescriptorPool(g_dev, g_conceal_dpool, NULL); g_conceal_dpool = VK_NULL_HANDLE; }
+        if (g_flow_dsl)      { vkDestroyDescriptorSetLayout(g_dev, g_flow_dsl, NULL); g_flow_dsl = VK_NULL_HANDLE; }
+        if (g_warp_dsl)      { vkDestroyDescriptorSetLayout(g_dev, g_warp_dsl, NULL); g_warp_dsl = VK_NULL_HANDLE; }
+        if (g_conceal_sampler) { vkDestroySampler(g_dev, g_conceal_sampler, NULL); g_conceal_sampler = VK_NULL_HANDLE; }
+        g_flow_dset = VK_NULL_HANDLE; g_warp_dset = VK_NULL_HANDLE;
+        g_conceal_pipelines_ok = 0;
+        g_stat_concealed_frames = 0; g_stat_concealing = 0;
 
         // Zero-copy path: drop any pending/in-flight decoded frame refs, and
         // tear down the cached image views + per-format ycbcr pipelines.
@@ -2595,6 +3306,25 @@ void vk_video_clear_pending_stats(void) {
 void vk_video_get_diag(long long *hb, int *stage) {
     *hb    = g_render_hb;
     *stage = g_render_stage;
+}
+
+// vk_video_set_concealment_enabled toggles frame smoothing (see the "frame
+// smoothing" section above vk_render_thread). Called from
+// frame_smoothing_windows.go's init() hook, wired to
+// SetFrameSmoothingEnabled (frame_smoothing.go). Safe from any thread: the
+// render thread only ever reads g_conceal_enabled.
+void vk_video_set_concealment_enabled(int enabled) {
+    atomic_store(&g_conceal_enabled, enabled ? 1 : 0);
+}
+
+// vk_video_get_conceal_stats returns the running count of synthesized
+// (motion-extrapolated) frames presented so far and whether the render
+// thread is in the middle of concealing a stall right now -- surfaced on
+// the Net Graph HUD (see net_graph.go/net_graph_windows.go) as the
+// before/after signal for how often this feature is actually kicking in.
+void vk_video_get_conceal_stats(long long *concealed_frames, int *concealing) {
+    *concealed_frames = g_stat_concealed_frames;
+    *concealing       = g_stat_concealing;
 }
 
 // Hide (hidden=1) or show (hidden=0) the overlay without destroying it.

@@ -504,6 +504,9 @@ type LocalizedStrings struct {
 	NetGraph                             string // "Net Graph" checkbox title, video parameters dialog -- live network/render HUD, pure local overlay like AI Vision
 	NetGraphHint                         string // hint shown under the Net Graph checkbox
 	NetGraphBadge                        string // small badge next to the Net Graph title, e.g. "MAC"
+	FrameSmoothing                       string // "Smooth Motion" checkbox title, video parameters dialog -- motion-extrapolated stall concealment, pure local rendering fallback like AI Vision
+	FrameSmoothingHint                   string // hint shown under the Smooth Motion checkbox
+	FrameSmoothingBadge                  string // small badge next to the Smooth Motion title, e.g. "BETA"
 	MuteAudio                            string // "Mute Audio"
 	UnmuteAudio                          string // "Unmute Audio"
 	DeviceAudio                          string // "Audio"
@@ -1062,6 +1065,9 @@ func EN() *LocalizedStrings {
 		NetGraph:                             "Net Graph",
 		NetGraphHint:                         "Shows a live TF2-style HUD in the corner of the video: latency, packet loss, FEC recovery, and render/decode timing.",
 		NetGraphBadge:                        "Mac",
+		FrameSmoothing:                       "Smooth Motion",
+		FrameSmoothingHint:                   "When the network stalls, fills the gap with a motion-extrapolated frame instead of freezing -- never delays real frames, only bridges a late/lost one.",
+		FrameSmoothingBadge:                  "Beta",
 		MuteAudio:                            "Mute Audio",
 		UnmuteAudio:                          "Unmute Audio",
 		DeviceAudio:                          "Audio",

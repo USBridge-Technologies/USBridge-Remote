@@ -81,6 +81,13 @@ type VideoStartDialog struct {
 	// service.NetGraphSupported() is true (macOS today).
 	netGraphCheck *videoDialogCheckbox
 	netGraphHint  *videoDialogWrapText
+	// frameSmoothingCheck/frameSmoothingHint: motion-extrapolated stall
+	// concealment (client/internal/service/frame_smoothing.go) -- same
+	// "immediate effect, no restart, pure local rendering fallback"
+	// contract as aiVisionCheck/netGraphCheck, only ever built/shown when
+	// service.FrameSmoothingSupported() is true (Windows today).
+	frameSmoothingCheck *videoDialogCheckbox
+	frameSmoothingHint  *videoDialogWrapText
 
 	startBtn  *videoDialogPillButton
 	cancelBtn *videoDialogPillButton
@@ -1587,7 +1594,25 @@ func (vsd *VideoStartDialog) createInterface() {
 		)
 	}
 
-	// vsyncRow/color444Row/hdrRow/netGraphRow are plain rows with no left
+	// Frame Smoothing: off by default, takes effect immediately (like AI
+	// Vision/Net Graph) since it's a pure local-rendering fallback -- see
+	// service.SetFrameSmoothingEnabled's doc comment. Only built/shown on
+	// platforms with a working render path (Windows today).
+	var frameSmoothingRow fyne.CanvasObject
+	if service.FrameSmoothingSupported() {
+		vsd.frameSmoothingCheck = newVideoDialogCheckbox(service.FrameSmoothingEnabled(), func(checked bool) {
+			service.SetFrameSmoothingEnabled(checked)
+		})
+		vsd.frameSmoothingHint = newVideoDialogDescription(i18n.Current.FrameSmoothingHint, videoDialogToggleDescWidthFor(hintPanelW, false))
+		frameSmoothingRow = newVideoDialogToggleRow(
+			vsd.frameSmoothingCheck,
+			newVideoDialogRowTitle(i18n.Current.FrameSmoothing),
+			newVideoDialogBadge(i18n.Current.FrameSmoothingBadge, design.ColorConnectionBadgeText),
+			vsd.frameSmoothingHint,
+		)
+	}
+
+	// vsyncRow/color444Row/hdrRow/netGraphRow/frameSmoothingRow are plain rows with no left
 	// padding of their own, unlike aiVisionRow's own card (see
 	// newVideoDialogBoxedToggleRow) -- without this, its own left inset
 	// would push just its checkbox further right than these, breaking the
@@ -1597,6 +1622,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	hdrRow = NewInsetExact(hdrRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	if netGraphRow != nil {
 		netGraphRow = NewInsetExact(netGraphRow, videoDialogToggleAlignLeft, 0, 0, 0)
+	}
+	if frameSmoothingRow != nil {
+		frameSmoothingRow = NewInsetExact(frameSmoothingRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	}
 
 	vsd.startBtn = newVideoDialogApplyButton(i18n.Current.StartVideo, vsd.handleStart)
@@ -1720,7 +1748,10 @@ func (vsd *VideoStartDialog) createInterface() {
 	if netGraphRow != nil {
 		bodyChildren = append(bodyChildren, netGraphRow)
 	}
-	bodyChildren = append(bodyChildren, videoDialogVSpace(8)) // breathing room after 4:4:4 Color / Net Graph
+	if frameSmoothingRow != nil {
+		bodyChildren = append(bodyChildren, frameSmoothingRow)
+	}
+	bodyChildren = append(bodyChildren, videoDialogVSpace(8)) // breathing room after 4:4:4 Color / Net Graph / Smooth Motion
 	bodyContent := container.NewVBox(bodyChildren...)
 
 	// Cancel sits opposite Apply/extra, same as the Add Connection footer --
@@ -1955,6 +1986,9 @@ func (vsd *VideoStartDialog) syncHintWrapWidths() {
 	if vsd.netGraphHint != nil {
 		vsd.netGraphHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
 	}
+	if vsd.frameSmoothingHint != nil {
+		vsd.frameSmoothingHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+	}
 }
 
 func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest)) {
@@ -1964,6 +1998,9 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
 	if vsd.netGraphCheck != nil {
 		vsd.netGraphCheck.SetChecked(service.NetGraphEnabled())
+	}
+	if vsd.frameSmoothingCheck != nil {
+		vsd.frameSmoothingCheck.SetChecked(service.FrameSmoothingEnabled())
 	}
 	vsd.syncHintWrapWidths()
 	if vsd.dialog != nil && vsd.parent != nil {

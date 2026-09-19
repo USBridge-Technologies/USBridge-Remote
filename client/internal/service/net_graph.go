@@ -42,14 +42,16 @@ import (
 // few more hooks, not rewriting buildNetGraphHUD.
 const (
 	netGraphInterval   = 100 * time.Millisecond // 10Hz -- fast enough that a single dropped packet or a one-frame stall shows up as its own visible tick
-	netGraphHistoryLen = 280                    // ring buffer length; also the graph plot width in px
-	// netGraphCanvasW/H: sized for netGraphFace's Go Medium @ 13px (bumped
-	// from 280x180, which was tuned for basicfont.Face7x13's much smaller
-	// fixed grid) -- must stay in sync with vk_video_impl_windows.c's
-	// VK_HUD_W/VK_HUD_H (see that file's own comment on why there's no
-	// shared constant across the Go/C boundary).
-	netGraphCanvasW = 320
-	netGraphCanvasH = 200
+	netGraphHistoryLen = 600                    // ring buffer length; also (approx) the graph plot width in px -- see netGraphCanvasW below
+	// netGraphCanvasW/H: 2x the original 320x200 (sized for netGraphFace's
+	// Go Medium @ 13px) -- the HUD read as too small/cramped to make out at
+	// normal viewing distance, so this doubles the canvas, the font size
+	// (netGraphFace's init() below), and the margin/dot/bar sizes together.
+	// Must stay in sync with vk_video_impl_windows.c's VK_HUD_W/VK_HUD_H
+	// (see that file's own comment on why there's no shared constant across
+	// the Go/C boundary).
+	netGraphCanvasW = 640
+	netGraphCanvasH = 400
 )
 
 // netGraphRawNetworkStats is a tag-free mirror of RTPVideoStats
@@ -111,6 +113,14 @@ type NetGraphSample struct {
 	RenderFPS float64
 	DecodeMs  float64
 
+	// ConcealedFrames: how many motion-extrapolated frames frame smoothing
+	// (frame_smoothing.go) presented during this tick -- a per-tick delta
+	// off GetFrameSmoothingStats().ConcealedFrames's running total, same
+	// diffing convention as PacketsVideo etc. above. 0 on every platform
+	// without netGraphConcealedFramesFn wired (nil hook, see below) or
+	// while frame smoothing is off/not currently concealing a stall.
+	ConcealedFrames uint32
+
 	// HostLatencyMs/HostLatencyValid: see netGraphRawNetworkStats' own doc
 	// comment -- this is "how fast is the host capturing+encoding", straight
 	// from the video stream's standard per-frame header field.
@@ -129,15 +139,21 @@ var (
 	netGraphNetworkStatsFn func() netGraphRawNetworkStats
 	netGraphRenderFPS      func() float64
 	netGraphDecodeMs       func() float64
-	netGraphMetalPush      func(img *image.RGBA)
-	netGraphMetalClear     func()
+	// netGraphConcealedFramesFn returns frame smoothing's running total of
+	// synthesized frames (GetFrameSmoothingStats().ConcealedFrames on
+	// Windows, see frame_smoothing_windows.go) -- nil on platforms without
+	// that feature, same "nil hook = no data yet" contract as the others.
+	netGraphConcealedFramesFn func() int64
+	netGraphMetalPush         func(img *image.RGBA)
+	netGraphMetalClear        func()
 
 	netGraphEnabled  atomic.Bool
 	netGraphLoopOnce sync.Once
 
-	netGraphPrevMu    sync.Mutex
-	netGraphPrevRaw   netGraphRawNetworkStats
-	netGraphPrevValid bool
+	netGraphPrevMu              sync.Mutex
+	netGraphPrevRaw             netGraphRawNetworkStats
+	netGraphPrevValid           bool
+	netGraphPrevConcealedFrames int64
 
 	netGraphMu      sync.Mutex
 	netGraphSamples []NetGraphSample
@@ -151,11 +167,18 @@ var (
 )
 
 // netGraphHudMargin is the gap, in pixels, between the HUD box and the
-// bottom/right edges of the frame -- shared by every platform's anchor math
-// (metal_video_impl_darwin.m's HUD_MARGIN, metal_video_impl_ios.m's mirror
-// of it, and netGraphBlitOverlay below) so the HUD sits the same visual
-// distance from the corner everywhere.
-const netGraphHudMargin = 12
+// bottom/right edges of the frame -- used by the CPU-buffer compositing
+// path (netGraphBlitOverlay below, Linux/Windows) and by
+// vk_video_impl_windows.c's VK_HUD_MARGIN (native Vulkan overlay layer,
+// kept in sync with this by hand -- see that file's own comment). Bumped to
+// 24 alongside the 2x HUD canvas (netGraphCanvasW/H's doc comment) so the
+// larger box keeps proportionally the same breathing room from the corner.
+// macOS/iOS's own native HUD_MARGIN (metal_video_impl_darwin.m/
+// metal_video_impl_ios.m) is a separate, independently-anchored constant,
+// not wired to this one -- left at its original 12 for now, a purely
+// cosmetic (not size-critical) difference until that path gets the same
+// treatment.
+const netGraphHudMargin = 24
 
 // SetNetGraphEnabled turns the HUD on or off. Wired to the "Net Graph"
 // checkbox in the video settings popup (see gui/view/video_start_dialog.go)
@@ -174,6 +197,7 @@ func SetNetGraphEnabled(enabled bool) {
 		// happened in that one tick. Force a fresh baseline instead.
 		netGraphPrevMu.Lock()
 		netGraphPrevValid = false
+		netGraphPrevConcealedFrames = 0
 		netGraphPrevMu.Unlock()
 	} else {
 		netGraphMu.Lock()
@@ -262,11 +286,18 @@ func collectNetGraphSample() NetGraphSample {
 		raw = fn()
 	}
 
+	var concealedTotal int64
+	if fn := netGraphConcealedFramesFn; fn != nil {
+		concealedTotal = fn()
+	}
+
 	netGraphPrevMu.Lock()
 	prev := netGraphPrevRaw
 	hadPrev := netGraphPrevValid
+	prevConcealed := netGraphPrevConcealedFrames
 	netGraphPrevRaw = raw
 	netGraphPrevValid = true
+	netGraphPrevConcealedFrames = concealedTotal
 	netGraphPrevMu.Unlock()
 
 	s := NetGraphSample{
@@ -285,6 +316,9 @@ func collectNetGraphSample() NetGraphSample {
 		s.FecFailed = netGraphDeltaU32(raw.PacketCountFecFailed, prev.PacketCountFecFailed)
 		s.PacketsOOS = netGraphDeltaU32(raw.PacketCountOOS, prev.PacketCountOOS)
 		s.PacketsInvalid = netGraphDeltaU32(raw.PacketCountInvalid, prev.PacketCountInvalid)
+		if concealedTotal > prevConcealed {
+			s.ConcealedFrames = uint32(concealedTotal - prevConcealed)
+		}
 	}
 	if fn := netGraphRenderFPS; fn != nil {
 		s.RenderFPS = fn()
@@ -322,6 +356,11 @@ var (
 	netGraphGood = color.RGBA{R: 0x4a, G: 0xff, B: 0x5a, A: 0xff}
 	netGraphWarn = color.RGBA{R: 0xff, G: 0xd8, B: 0x2a, A: 0xff}
 	netGraphBad  = color.RGBA{R: 0xff, G: 0x3a, B: 0x2a, A: 0xff}
+	// netGraphPurple marks a concealed (motion-extrapolated) frame -- see
+	// netGraphDrawConcealedMarkers -- distinct from the good/warn/bad
+	// traffic-light palette above since it's not a severity, just "this
+	// tick, frame smoothing painted over a network stall".
+	netGraphPurple = color.RGBA{R: 0xc8, G: 0x5a, B: 0xff, A: 0xff}
 )
 
 // buildNetGraphHUD draws the current numeric readouts plus scrolling
@@ -339,8 +378,8 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 		latest = samples[len(samples)-1]
 	}
 
-	const marginX = 6
-	const col2 = 175
+	const marginX = 12
+	const col2 = 350
 	row := netGraphLineH
 	rttColor := netGraphGood
 	switch {
@@ -420,10 +459,10 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 	}
 	netGraphDrawText(img, marginX, row, netGraphFmtMs("HOST", latest.HostLatencyMs), hostColor)
 
-	graphTop := row + 6
-	graphH := (netGraphCanvasH - graphTop - marginX - 2*4) / 3
-	if graphH < 10 {
-		graphH = 10
+	graphTop := row + 12
+	graphH := (netGraphCanvasH - graphTop - marginX - 2*8) / 3
+	if graphH < 20 {
+		graphH = 20
 	}
 	graphX, graphW := marginX, netGraphCanvasW-2*marginX
 
@@ -433,10 +472,11 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 		}
 		return s.RTTMs, true
 	}, 100)
-	graphTop += graphH + 4
+	netGraphDrawConcealedMarkers(img, graphX, graphTop, graphW, samples)
+	graphTop += graphH + 8
 
 	netGraphDrawEventGraph(img, graphX, graphTop, graphW, graphH, samples)
-	graphTop += graphH + 4
+	graphTop += graphH + 8
 
 	netGraphDrawPointGraph(img, graphX, graphTop, graphW, graphH, samples, func(s NetGraphSample) (float64, bool) {
 		return s.DecodeMs, s.DecodeMs > 0
@@ -563,7 +603,7 @@ func netGraphLossPercent(s NetGraphSample) float64 {
 // dot lands is what determines its color. valueOf returning ok=false (e.g.
 // no RTT estimate yet) leaves that column blank.
 func netGraphDrawPointGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSample, valueOf func(NetGraphSample) (float64, bool), maxVal float64) {
-	const dotSize = 2 // px tall/wide -- a single pixel reads as nearly invisible at this scale
+	const dotSize = 4 // px tall/wide -- a single pixel reads as nearly invisible at this scale
 	n := len(samples)
 	start := 0
 	if n > w {
@@ -600,13 +640,43 @@ func netGraphDrawPointGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGrap
 	}
 }
 
+// netGraphDrawConcealedMarkers overlays a small purple dot at the TOP edge
+// of the RTT point graph for every column whose tick had frame smoothing
+// (frame_smoothing.go) present at least one motion-extrapolated frame --
+// its own marker lane, deliberately separate from the RTT dot itself
+// (netGraphDrawPointGraph draws that at the column's OWN height, which
+// would otherwise collide with or hide this) so "a stall got concealed
+// here" stays visible regardless of what RTT was doing at the same moment.
+// Same column math as netGraphDrawPointGraph/netGraphDrawEventGraph
+// (rightmost column = most recent sample) so all three stay aligned.
+func netGraphDrawConcealedMarkers(img *image.RGBA, x0, y0, w int, samples []NetGraphSample) {
+	const dotSize = 6 // taller than the RTT dots' own 4px so the marker lane stands out on its own
+	n := len(samples)
+	start := 0
+	if n > w {
+		start = n - w
+	}
+	for i := start; i < n; i++ {
+		if samples[i].ConcealedFrames == 0 {
+			continue
+		}
+		col := x0 + w - (n - i)
+		if col < x0 || col >= x0+w {
+			continue
+		}
+		for dy := 0; dy < dotSize; dy++ {
+			img.SetRGBA(col, y0+dy, netGraphPurple)
+		}
+	}
+}
+
 // netGraphDrawEventGraph plots FEC-recovered (yellow) and FEC-failed/loss
 // (red) counts per tick, stacked from the baseline up. Any non-zero count
 // gets at least a few visible pixels regardless of magnitude -- the whole
 // point is that a single lost or recovered packet must never be invisible
 // just because it's a "small" number next to a 10Hz sample rate.
 func netGraphDrawEventGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGraphSample) {
-	const minBar = 3
+	const minBar = 6
 	n := len(samples)
 	start := 0
 	if n > w {
@@ -653,7 +723,8 @@ func netGraphDrawEventGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGrap
 // outline (which -- since font.Face's advance width has no idea an outline
 // is coming -- always eats a couple pixels of the gap between glyphs that
 // the face itself budgeted) left adjacent bold letters visibly touching;
-// Medium weight plus a size bump (11 -> 13) gives the outline that room
+// Medium weight plus a size bump (11 -> 13 -> 26, alongside the 2x canvas
+// bump -- see netGraphCanvasW/H's doc comment) gives the outline that room
 // back without going back to a washed-out Regular weight. Loaded once here;
 // opentype.Face is documented as not safe for concurrent use, but every
 // caller runs on net_graph.go's single netGraphLoop goroutine (10Hz), so
@@ -674,7 +745,7 @@ func init() {
 		return
 	}
 	face, err := opentype.NewFace(f, &opentype.FaceOptions{
-		Size:    13,
+		Size:    26,
 		DPI:     72,
 		Hinting: font.HintingFull,
 	})

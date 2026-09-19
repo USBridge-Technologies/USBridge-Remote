@@ -19,6 +19,7 @@ import "C"
 
 import (
 	"image"
+	"os"
 	"unsafe"
 )
 
@@ -115,6 +116,12 @@ func init() {
 	}
 	netGraphRenderFPS = netGraphWindowsNativeFPS
 	netGraphDecodeMs = GetDecodeMs
+	// Frame smoothing's running synthesized-frame count (see
+	// frame_smoothing_windows.go) -- netGraphDrawConcealedMarkers turns this
+	// into the purple dots on the RTT graph. Reads 0 (a no-op diff) whenever
+	// the feature is off, since ConcealedFrames only ever increments while
+	// SetFrameSmoothingEnabled(true) is active.
+	netGraphConcealedFramesFn = func() int64 { return GetFrameSmoothingStats().ConcealedFrames }
 	// Native Vulkan HUD compositor layer (vk_hud_record_draw in
 	// vk_video_impl_windows.c) -- see pushNetGraphOverlayToVulkan's doc
 	// comment for why this exists instead of the CPU-buffer
@@ -122,6 +129,14 @@ func init() {
 	// branches.
 	netGraphMetalPush = pushNetGraphOverlayToVulkan
 	netGraphMetalClear = vulkanClearHudOverlay
+
+	// USBRIDGE_NET_GRAPH=1: force the HUD on at startup, same debug/QA aid
+	// as frame_smoothing_windows.go's USBRIDGE_FRAME_SMOOTHING -- lets a
+	// deep-link-launched build show the concealed-frame purple dots without
+	// clicking the checkbox.
+	if os.Getenv("USBRIDGE_NET_GRAPH") == "1" {
+		SetNetGraphEnabled(true)
+	}
 }
 
 // pushNetGraphOverlayToVulkan hands the freshly built HUD canvas straight to
