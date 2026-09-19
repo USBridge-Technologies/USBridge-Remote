@@ -240,14 +240,14 @@ func newBrandedDialogPanelChrome(title, subtitle string, width, padX, bodyPadT f
 	titleText.TextStyle.Bold = true
 
 	var headerInner fyne.CanvasObject = titleText
-	headerBandH := float32(40)
-	headerPadT, headerPadB := float32(12), float32(12)
+	headerBandH := float32(45)
+	headerPadT, headerPadB := float32(12), float32(17)
 	if strings.TrimSpace(subtitle) != "" {
 		sub := canvas.NewText(subtitle, design.ColorMutedOlive)
 		sub.TextSize = 8
 		headerInner = container.New(&tightVBoxLayout{gap: 4}, titleText, sub)
-		headerBandH = 56
-		headerPadT, headerPadB = 10, 12
+		headerBandH = 61
+		headerPadT, headerPadB = 10, 17
 	}
 
 	headerSep := canvas.NewRectangle(design.ColorDialogSep)

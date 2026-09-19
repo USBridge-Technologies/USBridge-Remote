@@ -137,10 +137,10 @@ func (w *Window) showAccountLoginDialog(parent fyne.Window) {
 	sep := canvas.NewRectangle(design.ColorDialogSep)
 	sep.SetMinSize(fyne.NewSize(0, 1))
 	headerBand := canvas.NewRectangle(color.Transparent)
-	headerBand.SetMinSize(fyne.NewSize(0, 40))
+	headerBand.SetMinSize(fyne.NewSize(0, 45))
 	header := container.New(&tightVBoxLayout{gap: 0},
 		newDialogTopAccentBar(),
-		container.NewStack(headerBand, newExactInset(title, 21, 44, 12, 12)),
+		container.NewStack(headerBand, newExactInset(title, 21, 44, 12, 17)),
 		sep,
 	)
 

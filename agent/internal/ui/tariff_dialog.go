@@ -218,10 +218,10 @@ func newTariffDialogPanel(version string, body, footer fyne.CanvasObject, onClos
 	headerSep := canvas.NewRectangle(design.ColorDialogSep)
 	headerSep.SetMinSize(fyne.NewSize(0, 1))
 	headerBand := canvas.NewRectangle(color.Transparent)
-	headerBand.SetMinSize(fyne.NewSize(0, 52))
+	headerBand.SetMinSize(fyne.NewSize(0, 57))
 	header := container.New(&tightVBoxLayout{gap: 0},
 		newDialogTopAccentBar(),
-		container.NewStack(headerBand, newExactInset(headerInner, 21, 44, 10, 4)),
+		container.NewStack(headerBand, newExactInset(headerInner, 21, 44, 10, 9)),
 		headerSep,
 	)
 
