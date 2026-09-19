@@ -140,16 +140,18 @@ type VideoWidget struct {
 	onNativeReady              func()       // one-shot: called on main thread when native overlay (Metal/GL) is first created
 	lastVideoImgW              float32      // pixel width of the last decoded video frame (for resize recalc when frame=nil)
 	lastVideoImgH              float32      // pixel height of the last decoded video frame
+	hostDesktopW               float32      // native host monitor width (capture modes[0] / max)
+	hostDesktopH               float32      // native host monitor height
 	frameContentX              float32      // normalized active frame area on X without black bars
 	frameContentY              float32      // normalized active frame area on Y without black bars
 	frameContentW              float32      // normalized width of the active frame area
 	frameContentH              float32      // normalized height of the active frame area
 
 	// Dialogs
-	fullscreenDialog       *FullscreenDialog
-	startDialog            *view.VideoStartDialog
-	pairingPINDialog       dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
-	parentWindow           fyne.Window
+	fullscreenDialog         *FullscreenDialog
+	startDialog              *view.VideoStartDialog
+	pairingPINDialog         dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
+	parentWindow             fyne.Window
 	virtualKeyboard          *graphics.VirtualKeyboard
 	onKeyboardStackChanged   func()
 	onKeyboardChromeSync     func()
@@ -168,8 +170,8 @@ type VideoWidget struct {
 	// imeConfirmedOpen is set once Android reports a real IME height (>100dp).
 	// Auto-collapse on height=navBar must not run until this is true, or a
 	// delayed/aborted GBoard show looks like "opened and immediately skipped".
-	imeConfirmedOpen atomic.Bool
-	imeShowRetryUsed atomic.Bool
+	imeConfirmedOpen      atomic.Bool
+	imeShowRetryUsed      atomic.Bool
 	keyboardModifierState atomic.Int32
 	suppressRuneUntilNS   atomic.Int64
 	softIMEMu             sync.Mutex
@@ -436,10 +438,11 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	vw.videoTraceFirstFrame.Store(0)
 	vw.videoTraceFirstPaint.Store(0)
 	vw.videoSilenceReconnectFired.Store(false)
-	// Reset saved video dimensions so a new stream with different resolution
-	// doesn't inherit stale values from the previous session.
-	vw.lastVideoImgW = 0
-	vw.lastVideoImgH = 0
+	// Do not zero lastVideoImgW/H here. Native GPU paths deliver frame=nil, so
+	// updateFrameContentRect never runs; wiping the size made contentRect fill
+	// the whole widget (including letterbox/pillarbox bars) and absolute mouse
+	// lagged toward the edges. Stream size is set from the start request and
+	// refreshed from NativeFrameSize / decoded frames.
 	label := fmt.Sprintf("vt-%d", traceID)
 	vw.videoTraceLabel.Store(label)
 	timeout := vw.videoTraceFirstAttemptTimeout()

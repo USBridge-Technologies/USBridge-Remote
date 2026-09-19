@@ -779,6 +779,7 @@ var vtFrameCount int64
 
 //export goVTFrame
 func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
+	noteNativeFrameSize(int(width), int(height))
 	vtFrameCallbackMu.Lock()
 	cb := vtFrameCallback
 	vtFrameCallbackMu.Unlock()
@@ -807,24 +808,12 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 		return
 	}
 
-	// When the native GPU overlay (Metal/GL) is active it already received this
-	// frame at the C level via metal_video_try_submit / gl_video_try_submit.
-	// Skip the 3.5 MB Go image allocation most of the time — only the Go-level
-	// frame count is needed for stats. However, pass a real frame on the first
-	// 10 frames and every 120th frame so that handleVideoFrame can run
-	// updateFrameContentRect → detectDarkInset to detect letterbox/pillarbox
-	// bars embedded in the video stream (e.g. Sunshine pillarboxing 4:3 content
-	// into a 16:9 stream). Without this, frameContentX/Y stays 0 and
-	// PositionToAbsolute never adjusts for in-stream black bars. Only reachable
-	// with a real (non-nil) buffer, e.g. Android's non-hwbuffer GL readback
-	// path, which passes real pixels even while its own Vulkan overlay is active.
+	// Overlay already presented this frame at C level. In-stream letterbox is
+	// cropped from host vs stream aspect, not from a dark-pixel scan of a CPU
+	// copy, so there is no reason to allocate a Go image here.
 	if NativeVideoOverlayIsActive() {
-		if cnt > 10 && cnt%120 != 0 {
-			// Deliver a nil frame to let handleVideoFrame update its own counter.
-			cb(nil)
-			return
-		}
-		// Fall through to create a real image for black-bar detection.
+		cb(nil)
+		return
 	}
 
 	w, h, s := int(width), int(height), int(stride)

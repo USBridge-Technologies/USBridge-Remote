@@ -161,6 +161,17 @@ static VkSemaphore              g_rnd_sem    = VK_NULL_HANDLE;
 
 // Overlay rect atomics (set from Go, read by render thread for swapchain recreation).
 static atomic_int g_dst_w, g_dst_h;
+static atomic_int g_video_dx, g_video_dy, g_video_dw, g_video_dh;
+static atomic_int g_video_sw, g_video_sh;
+
+static void vk_store_video_dest(int dx, int dy, int dw, int dh, int sw, int sh) {
+    atomic_store(&g_video_dx, dx);
+    atomic_store(&g_video_dy, dy);
+    atomic_store(&g_video_dw, dw);
+    atomic_store(&g_video_dh, dh);
+    atomic_store(&g_video_sw, sw);
+    atomic_store(&g_video_sh, sh);
+}
 
 // Set to 1 by android_vk_force_recreate_swapchain() to request an explicit
 // swapchain recreation on the next render-thread iteration (e.g. after fullscreen).
@@ -952,6 +963,7 @@ static int vk_render_frame(int fw, int fh, int fs) {
     int dx = 0, dy = 0, dw = sw, dh = sh;
     vk_layout_zoomed_dest(fw, fh, sw, sh, snap_zoom, snap_pan_x, snap_pan_y,
                           &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
     VkClearColorValue black = {0};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -1267,6 +1279,7 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
     int dx = 0, dy = 0, dw = sw, dh = sh;
     vk_layout_zoomed_dest(fw, fh, sw, sh, snap_zoom, snap_pan_x, snap_pan_y,
                           &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
     VkClearColorValue black = {0};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -1987,6 +2000,15 @@ void android_vk_get_stats(float *fps, int *fps_ready,
     if (fps_ready) *fps_ready = g_stat_ready;
     if (rendered)  *rendered  = g_rendered;
     if (submitted) *submitted = g_submitted;
+}
+
+void android_vk_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *sh) {
+    if (dx) *dx = atomic_load(&g_video_dx);
+    if (dy) *dy = atomic_load(&g_video_dy);
+    if (dw) *dw = atomic_load(&g_video_dw);
+    if (dh) *dh = atomic_load(&g_video_dh);
+    if (sw) *sw = atomic_load(&g_video_sw);
+    if (sh) *sh = atomic_load(&g_video_sh);
 }
 
 #endif // __ANDROID__

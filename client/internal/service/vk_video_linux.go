@@ -21,6 +21,7 @@ extern void vk_video_clear_pending_stats(void);
 extern void vk_video_get_diag(long long *hb, int *stage);
 extern void vk_video_set_hidden(int hidden);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
+extern void vk_video_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *sh);
 
 extern void goVKLog(char *msg, int level);
 */
@@ -135,4 +136,13 @@ func VKVideoNextEvent() (typ, x, y, button int, ok bool) {
 	var t, ex, ey, btn C.int
 	r := C.vk_video_next_event(&t, &ex, &ey, &btn)
 	return int(t), int(ex), int(ey), int(btn), r != 0
+}
+
+func nativeVideoDestRect() (NativeVideoDest, bool) {
+	var dx, dy, dw, dh, sw, sh C.int
+	C.vk_video_get_video_dest(&dx, &dy, &dw, &dh, &sw, &sh)
+	if int(dw) <= 0 || int(dh) <= 0 {
+		return NativeVideoDest{}, false
+	}
+	return NativeVideoDest{DX: int(dx), DY: int(dy), DW: int(dw), DH: int(dh), SW: int(sw), SH: int(sh)}, true
 }

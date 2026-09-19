@@ -1332,6 +1332,7 @@ var vtFrameCount int64
 
 //export goVTFrame
 func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
+	noteNativeFrameSize(int(width), int(height))
 	vtFrameCallbackMu.Lock()
 	cb := vtFrameCallback
 	vtFrameCallbackMu.Unlock()

@@ -50,6 +50,18 @@ extern void vk_frame_release_avframe(void *ctx);
 
 // Video rect atomics — declared early so vk_wnd_proc can read them.
 static atomic_int g_dst_x, g_dst_y, g_dst_w, g_dst_h;
+// On-screen letterboxed picture inside the overlay/swapchain (physical pixels).
+static atomic_int g_video_dx, g_video_dy, g_video_dw, g_video_dh;
+static atomic_int g_video_sw, g_video_sh;
+
+static void vk_store_video_dest(int dx, int dy, int dw, int dh, int sw, int sh) {
+    atomic_store(&g_video_dx, dx);
+    atomic_store(&g_video_dy, dy);
+    atomic_store(&g_video_dw, dw);
+    atomic_store(&g_video_dh, dh);
+    atomic_store(&g_video_sw, sw);
+    atomic_store(&g_video_sh, sh);
+}
 
 // ─── mouse event queue (ring buffer, capacity 512) ───────────────────────────
 // The overlay window captures all pointer events and queues them here.
@@ -1988,6 +2000,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
     else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
     PFN_vkCmdBeginRendering pfnBeginRendering = (PFN_vkCmdBeginRendering)vkGetDeviceProcAddr(g_dev, "vkCmdBeginRendering");
     PFN_vkCmdEndRendering   pfnEndRendering   = (PFN_vkCmdEndRendering)vkGetDeviceProcAddr(g_dev, "vkCmdEndRendering");
@@ -2296,6 +2309,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
     else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
     VkClearColorValue black = {0};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -3155,6 +3169,7 @@ static int vk_render_frame_conceal(void) {
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
     else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
     VkClearColorValue black = {0};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -4180,6 +4195,15 @@ int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
 void vk_video_get_dst_size(int *w, int *h) {
     *w = atomic_load(&g_dst_w);
     *h = atomic_load(&g_dst_h);
+}
+
+void vk_video_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *sh) {
+    if (dx) *dx = atomic_load(&g_video_dx);
+    if (dy) *dy = atomic_load(&g_video_dy);
+    if (dw) *dw = atomic_load(&g_video_dw);
+    if (dh) *dh = atomic_load(&g_video_dh);
+    if (sw) *sw = atomic_load(&g_video_sw);
+    if (sh) *sh = atomic_load(&g_video_sh);
 }
 
 // vk_video_next_key_event — drain one pending keyboard event (standalone mode only).

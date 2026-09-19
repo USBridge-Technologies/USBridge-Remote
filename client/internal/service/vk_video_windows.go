@@ -26,6 +26,7 @@ extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_
 extern int  vk_video_create_standalone(uintptr_t hint_hwnd, int vsync);
 extern int  vk_video_next_key_event(int *type_out, int *vk_out);
 extern void vk_video_get_dst_size(int *w, int *h);
+extern void vk_video_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *sh);
 
 extern void goVKLog(char *msg, int level);
 */
@@ -184,6 +185,15 @@ func VKVideoGetDstSize() (w, h int) {
 	var cw, ch C.int
 	C.vk_video_get_dst_size(&cw, &ch)
 	return int(cw), int(ch)
+}
+
+func nativeVideoDestRect() (NativeVideoDest, bool) {
+	var dx, dy, dw, dh, sw, sh C.int
+	C.vk_video_get_video_dest(&dx, &dy, &dw, &dh, &sw, &sh)
+	if int(dw) <= 0 || int(dh) <= 0 {
+		return NativeVideoDest{}, false
+	}
+	return NativeVideoDest{DX: int(dx), DY: int(dy), DW: int(dw), DH: int(dh), SW: int(sw), SH: int(sh)}, true
 }
 
 // VKVideoNextEvent drains one pending pointer event from the Vulkan overlay window.

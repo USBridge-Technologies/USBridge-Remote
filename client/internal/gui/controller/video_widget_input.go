@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ const desktopPrintableRuneSuppressWindow = 75 * time.Millisecond
 
 // absLogAt throttles PositionToAbsolute diagnostic output to once per 2 seconds.
 var absLogAt time.Time
+var inStreamLogAt time.Time
 
 func modifierMaskForKeyName(keyName fyne.KeyName) int32 {
 	switch keyName {
@@ -652,19 +654,10 @@ func (vw *VideoWidget) IsAbsoluteLikeInputMode() bool {
 // within the actual video content area, accounting for letterbox/pillarbox black bars.
 // Returns true when the content rect is not yet established (allows clicks through).
 func (vw *VideoWidget) isPositionInContentRect(px, py float32) bool {
-	x, y, w, h := vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH
+	x, y, w, h := vw.absolutePictureRect()
 	if w <= 0 || h <= 0 {
 		return true
 	}
-
-	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
-	if frameW > 0 && frameH > 0 {
-		x += w * frameX
-		y += h * frameY
-		w *= frameW
-		h *= frameH
-	}
-
 	return px >= x && px <= x+w && py >= y && py <= y+h
 }
 
@@ -1060,42 +1053,23 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 	vw.contentRectW = w
 	vw.contentRectH = h
 
-	// Determine the pixel dimensions of the video stream.
-	// When frame != nil (Fyne canvas path), read directly from the image.
-	// When frame == nil (Metal active — canvas cleared), reuse the last known dimensions
-	// so that aspect-ratio correction and black-bar detection remain accurate after resize.
-	imgW, imgH := vw.lastVideoImgW, vw.lastVideoImgH
-	if frame != nil {
-		b := frame.Bounds()
-		fw, fh := float32(b.Dx()), float32(b.Dy())
-		if fw > 0 && fh > 0 {
-			imgW, imgH = fw, fh
-			vw.lastVideoImgW = fw
-			vw.lastVideoImgH = fh
-		}
-	}
-	// Fall back to configured dimensions if we have never seen a frame.
-	if imgW <= 0 || imgH <= 0 {
-		if vw.videoClient != nil {
-			if cfg := vw.videoClient.GetConfig(); cfg != nil && cfg.VideoWidth > 0 {
-				imgW = float32(cfg.VideoWidth)
-				imgH = float32(cfg.VideoHeight)
-			}
-		}
+	availableH := h - vw.bottomInset
+	if availableH < 0 {
+		availableH = 0
 	}
 
+	imgW, imgH := vw.resolveStreamPixelSize(frame)
 	if imgW > 0 && imgH > 0 {
-		scale := w / imgW
-		if h/imgH < scale {
-			scale = h / imgH
-		}
-		vw.baseContentRectW = imgW * scale
-		vw.baseContentRectH = imgH * scale
+		baseW, baseH := aspectFitSize(w, availableH, imgW, imgH)
+		vw.baseContentRectW = baseW
+		vw.baseContentRectH = baseH
 	} else {
 		vw.baseContentRectW = w
-		vw.baseContentRectH = h
+		vw.baseContentRectH = availableH
 	}
 	vw.recalculateViewport()
+	vw.applyNativeDestToContentRect()
+	vw.updateInStreamContentRect()
 	// This runs on the UI goroutine on every widget Refresh/Layout — i.e. once
 	// per rendered video frame (see touchpadRenderer.Refresh in
 	// video_mouse_handler.go) — so an unconditional Info-level log here was a
@@ -1116,20 +1090,7 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 		return 16383, 16383
 	}
 
-	rectX := vw.contentRectX
-	rectY := vw.contentRectY
-	rectW := vw.contentRectW
-	rectH := vw.contentRectH
-
-	// Apply the offset from the detected letterbox/pillarbox bars inside the frame.
-	// Only symmetric bars (±2px) are applied, which guards against false detections.
-	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
-	if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
-		rectX += rectW * frameX
-		rectY += rectH * frameY
-		rectW *= frameW
-		rectH *= frameH
-	}
+	rectX, rectY, rectW, rectH := vw.absolutePictureRect()
 
 	var u, v float32
 	if rectW > 0 && rectH > 0 {
@@ -1162,14 +1123,264 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	// Log at most once per 2 seconds to diagnose coordinate mapping without spamming.
 	if now := time.Now(); now.Sub(absLogAt) >= 2*time.Second {
 		absLogAt = now
-		logrus.Infof("[ABS] PositionToAbsolute: in=(%.1f,%.1f) touchpad=(%.0f,%.0f) contentRect=(%.1f,%.1f,%.1f,%.1f) frameRect=(%.3f,%.3f,%.3f,%.3f) u=%.3f v=%.3f → out=(%d,%d)",
+		frameX, frameY, frameW, frameH := vw.getFrameContentRect()
+		hostW, hostH := vw.hostDesktopSize()
+		logrus.Infof("[ABS] PositionToAbsolute: in=(%.1f,%.1f) touchpad=(%.0f,%.0f) picture=(%.1f,%.1f,%.1f,%.1f) contentRect=(%.1f,%.1f,%.1f,%.1f) host=%.0fx%.0f stream=%.0fx%.0f frameRect=(%.3f,%.3f,%.3f,%.3f) u=%.3f v=%.3f → out=(%d,%d)",
 			px, py,
 			vw.touchpadSizeW, vw.touchpadSizeH,
+			rectX, rectY, rectW, rectH,
 			vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH,
+			hostW, hostH, vw.lastVideoImgW, vw.lastVideoImgH,
 			frameX, frameY, frameW, frameH,
 			u, v, x, y)
 	}
 	return x, y
+}
+
+// absolutePictureRect is the on-screen desktop picture in the same dp space as
+// pointer events. Starts from the native overlay dest (client letterbox of the
+// encoded frame), then applies frameContent (in-stream contain-fit of the host
+// monitor into the encode). Both layers of bars must be excluded or the remote
+// cursor lags toward the edges.
+func (vw *VideoWidget) absolutePictureRect() (rectX, rectY, rectW, rectH float32) {
+	if dx, dy, dw, dh, ok := vw.nativeDestRectDp(); ok {
+		rectX, rectY, rectW, rectH = dx, dy, dw, dh
+	} else {
+		rectX = vw.contentRectX
+		rectY = vw.contentRectY
+		rectW = vw.contentRectW
+		rectH = vw.contentRectH
+	}
+
+	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
+	if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
+		rectX += rectW * frameX
+		rectY += rectH * frameY
+		rectW *= frameW
+		rectH *= frameH
+	}
+	return rectX, rectY, rectW, rectH
+}
+
+func (vw *VideoWidget) nativeDestRectDp() (x, y, w, h float32, ok bool) {
+	dest, ok := service.NativeVideoDestRect()
+	if !ok || dest.DW <= 0 || dest.DH <= 0 {
+		return 0, 0, 0, 0, false
+	}
+	scale := vw.nativeOverlayScale()
+	if scale <= 0 {
+		scale = 1
+	}
+	ox, oy := vw.nativePointerOriginDp()
+	return ox + float32(dest.DX)/scale, oy + float32(dest.DY)/scale, float32(dest.DW) / scale, float32(dest.DH) / scale, true
+}
+
+func (vw *VideoWidget) nativeOverlayScale() float32 {
+	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+		if s := vw.parentWindow.Canvas().Scale(); s > 0 {
+			return s
+		}
+	}
+	return 1
+}
+
+// aspectFitSize is ImageFillContain: the largest srcW×srcH rect that fits in
+// viewW×viewH without cropping. Matches Vulkan vk_layout_zoomed_dest at zoom=1
+// (letterbox when the stream is wider than the widget, pillarbox when taller).
+func aspectFitSize(viewW, viewH, srcW, srcH float32) (baseW, baseH float32) {
+	if srcW <= 0 || srcH <= 0 || viewW <= 0 || viewH <= 0 {
+		return viewW, viewH
+	}
+	scale := viewW / srcW
+	if viewH/srcH < scale {
+		scale = viewH / srcH
+	}
+	return srcW * scale, srcH * scale
+}
+
+// containFitNorm is the normalized inner rect of innerW×innerH contain-fitted
+// into containerW×containerH. Used for in-stream letterbox: the host desktop
+// is fitted into the encode, so mouse 0..32767 must map to that inner rect,
+// not the black bars that are pixels in the frame.
+func containFitNorm(containerW, containerH, innerW, innerH float32) (x, y, w, h float32) {
+	if containerW <= 0 || containerH <= 0 || innerW <= 0 || innerH <= 0 {
+		return 0, 0, 1, 1
+	}
+	cAspect := containerW / containerH
+	iAspect := innerW / innerH
+	const eps = 0.004
+	if math.Abs(float64(iAspect-cAspect)) <= float64(cAspect)*eps {
+		return 0, 0, 1, 1
+	}
+	if iAspect > cAspect {
+		w = 1
+		h = cAspect / iAspect
+		y = (1 - h) / 2
+		return 0, y, w, h
+	}
+	h = 1
+	w = iAspect / cAspect
+	x = (1 - w) / 2
+	return x, 0, w, h
+}
+
+func parseWxH(s string) (w, h float32, ok bool) {
+	inner := strings.TrimSpace(s)
+	if open, close := strings.LastIndex(inner, "("), strings.LastIndex(inner, ")"); open >= 0 && close > open {
+		inner = strings.TrimSpace(inner[open+1 : close])
+	}
+	x := strings.IndexByte(inner, 'x')
+	if x <= 0 {
+		x = strings.IndexByte(inner, 'X')
+	}
+	if x <= 0 || x >= len(inner)-1 {
+		return 0, 0, false
+	}
+	wi, err1 := strconv.Atoi(strings.TrimSpace(inner[:x]))
+	hi, err2 := strconv.Atoi(strings.TrimSpace(inner[x+1:]))
+	if err1 != nil || err2 != nil || wi <= 0 || hi <= 0 {
+		return 0, 0, false
+	}
+	return float32(wi), float32(hi), true
+}
+
+func hostDesktopSizeFromModes(modes []models.VideoCaptureMode) (w, h float32) {
+	best := int64(0)
+	for _, m := range modes {
+		area := int64(m.Width) * int64(m.Height)
+		if area > best {
+			best = area
+			w, h = float32(m.Width), float32(m.Height)
+		}
+	}
+	return w, h
+}
+
+func (vw *VideoWidget) setHostDesktopSize(w, h float32) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	vw.frameMutex.Lock()
+	vw.hostDesktopW, vw.hostDesktopH = w, h
+	vw.frameMutex.Unlock()
+}
+
+func (vw *VideoWidget) hostDesktopSize() (float32, float32) {
+	vw.frameMutex.RLock()
+	defer vw.frameMutex.RUnlock()
+	return vw.hostDesktopW, vw.hostDesktopH
+}
+
+func (vw *VideoWidget) rememberHostDesktopFromInfo(info *models.VideoInfoData) {
+	if info == nil {
+		return
+	}
+	w, h := hostDesktopSizeFromModes(info.CaptureModes)
+	if nw, nh, ok := parseWxH(info.Device); ok && nw*nh > w*h {
+		w, h = nw, nh
+	}
+	vw.setHostDesktopSize(w, h)
+}
+
+func (vw *VideoWidget) rememberHostDesktopFromConfig(cfg models.VideoDeviceConfig) {
+	if w, h, ok := parseWxH(cfg.DeviceName); ok {
+		vw.setHostDesktopSize(w, h)
+	}
+	if info, ok := cachedCaptureInfo(cfg.DevicePath); ok {
+		vw.rememberHostDesktopFromInfo(info)
+	}
+}
+
+func (vw *VideoWidget) ensureHostDesktopSize() {
+	if w, h := vw.hostDesktopSize(); w > 0 && h > 0 {
+		return
+	}
+	captureModesCacheMu.Lock()
+	cw, ch := captureHostDesktopW, captureHostDesktopH
+	captureModesCacheMu.Unlock()
+	if cw > 0 && ch > 0 {
+		vw.setHostDesktopSize(cw, ch)
+	}
+}
+
+func (vw *VideoWidget) applyNativeDestToContentRect() {
+	x, y, w, h, ok := vw.nativeDestRectDp()
+	if !ok {
+		return
+	}
+	vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH = x, y, w, h
+}
+
+func (vw *VideoWidget) updateInStreamContentRect() {
+	vw.updateInStreamContentRectWith(vw.lastVideoImgW, vw.lastVideoImgH)
+}
+
+func (vw *VideoWidget) updateInStreamContentRectWith(streamW, streamH float32) {
+	vw.ensureHostDesktopSize()
+	hostW, hostH := vw.hostDesktopSize()
+	x, y, w, h := containFitNorm(streamW, streamH, hostW, hostH)
+	vw.frameMutex.Lock()
+	vw.frameContentX, vw.frameContentY, vw.frameContentW, vw.frameContentH = x, y, w, h
+	vw.frameMutex.Unlock()
+	if w < 0.999 || h < 0.999 {
+		if now := time.Now(); now.Sub(inStreamLogAt) >= 2*time.Second {
+			inStreamLogAt = now
+			logrus.Infof("[ABS] in-stream crop: host=%.0fx%.0f stream=%.0fx%.0f frameRect=(%.3f,%.3f,%.3f,%.3f)",
+				hostW, hostH, streamW, streamH, x, y, w, h)
+		}
+	}
+}
+
+func (vw *VideoWidget) resolveStreamPixelSize(frame image.Image) (imgW, imgH float32) {
+	if frame != nil {
+		b := frame.Bounds()
+		fw, fh := float32(b.Dx()), float32(b.Dy())
+		if fw > 0 && fh > 0 {
+			vw.lastVideoImgW = fw
+			vw.lastVideoImgH = fh
+			return fw, fh
+		}
+	}
+	if vw.lastVideoImgW > 0 && vw.lastVideoImgH > 0 {
+		return vw.lastVideoImgW, vw.lastVideoImgH
+	}
+	if nw, nh := service.NativeFrameSize(); nw > 0 && nh > 0 {
+		vw.lastVideoImgW = float32(nw)
+		vw.lastVideoImgH = float32(nh)
+		return vw.lastVideoImgW, vw.lastVideoImgH
+	}
+	if ms, ok := vw.videoClient.(*service.MoonlightService); ok {
+		if sw, sh := ms.StreamPixelSize(); sw > 0 && sh > 0 {
+			vw.lastVideoImgW = float32(sw)
+			vw.lastVideoImgH = float32(sh)
+			return vw.lastVideoImgW, vw.lastVideoImgH
+		}
+	}
+	return 0, 0
+}
+
+func (vw *VideoWidget) refreshContentRectFromTouchpad() {
+	w, h := vw.touchpadSizeW, vw.touchpadSizeH
+	if tw := vw.activeViewportWrapper(); tw != nil {
+		if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
+			w, h = sz.Width, sz.Height
+		}
+	}
+	if w > 0 && h > 0 {
+		vw.UpdateTouchpadAndContentRect(w, h, nil)
+	}
+}
+
+func (vw *VideoWidget) noteStreamPixelSize(w, h float32) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	if vw.lastVideoImgW == w && vw.lastVideoImgH == h {
+		return
+	}
+	vw.lastVideoImgW = w
+	vw.lastVideoImgH = h
+	vw.refreshContentRectFromTouchpad()
 }
 
 func (vw *VideoWidget) getFrameContentRect() (float32, float32, float32, float32) {
@@ -1226,22 +1437,12 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	})
 
 	if vw.moonlightInput() != nil {
-		// A Moonlight stream is pure desktop capture (DXGI Desktop
-		// Duplication / DRM / X11 / ScreenCaptureKit on the host) -- unlike the
-		// legacy hardware-KVM HID path below (a physical HDMI capture card can
-		// genuinely receive a signal at a different aspect ratio than its
-		// capture mode, producing real letterbox/pillarbox bars), a desktop
-		// capture can never contain one: the frame IS the monitor, 1:1.
-		// Running the dark-bar heuristic anyway is actively harmful here --
-		// confirmed live: an ordinary dark application window (just a black
-		// terminal covering most of one edge, no letterboxing involved at all)
-		// was read as a letterbox bar, shrinking the absolute-mouse content
-		// rect down to whatever brighter region was left and turning mouse
-		// movement into what looked like a joystick centered on a tiny patch
-		// of the screen. Skip straight to "no crop" instead.
-		vw.frameMutex.Lock()
-		vw.frameContentX, vw.frameContentY, vw.frameContentW, vw.frameContentH = 0, 0, 1, 1
-		vw.frameMutex.Unlock()
+		// Do not run the dark-pixel heuristic on desktop capture: a black
+		// terminal at the edge looks like a letterbox bar and collapses the
+		// mouse rect. Sunshine/RustShine still contain-fits the monitor into
+		// the encode when the chosen stream aspect differs, so those bars are
+		// real pixels in the frame. Crop from host vs stream aspect instead.
+		vw.updateInStreamContentRectWith(float32(frameW), float32(frameH))
 		return
 	}
 

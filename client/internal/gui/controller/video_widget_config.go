@@ -31,6 +31,8 @@ var (
 	captureModesCacheInfo      *models.VideoInfoData
 	captureModesCacheAt        time.Time
 	captureModesRefreshRunning atomic.Bool
+	captureHostDesktopW        float32
+	captureHostDesktopH        float32
 )
 
 // captureModesCacheStaleAfter: menu/dialog still use the cache immediately
@@ -133,6 +135,18 @@ func rememberCaptureModes(devicePath string, info *models.VideoInfoData) {
 	captureModesCacheDevice = key
 	captureModesCacheInfo = cloneVideoInfoData(info)
 	captureModesCacheAt = time.Now()
+	captureHostDesktopW, captureHostDesktopH = hostDesktopSizeFromModes(info.CaptureModes)
+	if nw, nh, ok := parseWxH(info.Device); ok && nw*nh > captureHostDesktopW*captureHostDesktopH {
+		captureHostDesktopW, captureHostDesktopH = nw, nh
+	}
+	for _, d := range info.AvailableDevices {
+		if key != "" && d.Path != "" && d.Path != key && d.Path != info.Device {
+			continue
+		}
+		if nw, nh, ok := parseWxH(d.Name); ok && nw*nh >= captureHostDesktopW*captureHostDesktopH {
+			captureHostDesktopW, captureHostDesktopH = nw, nh
+		}
+	}
 	captureModesCacheMu.Unlock()
 }
 
@@ -160,6 +174,7 @@ func clearCaptureModesCache() {
 	captureModesCacheDevice = ""
 	captureModesCacheInfo = nil
 	captureModesCacheAt = time.Time{}
+	captureHostDesktopW, captureHostDesktopH = 0, 0
 	captureModesCacheMu.Unlock()
 }
 
@@ -500,6 +515,7 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 
 	saveVideoDeviceConfig(cfg)
 	resetVideoInfoCache()
+	vw.rememberHostDesktopFromConfig(cfg)
 
 	if vw.onResolutionChanged != nil {
 		vw.onResolutionChanged(cfg.VideoWidth, cfg.VideoHeight)

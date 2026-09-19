@@ -1047,6 +1047,23 @@ func (m *MoonlightService) SetExpectedVideoSize(width, height int) {
 	m.height = height
 }
 
+// StreamPixelSize is the encode size last passed to SetExpectedVideoSize.
+// GetConfig() still returns AppConfig's default 1280×720, which is the wrong
+// aspect for a 5:4 / 16:10 / etc. stream and would letterbox the mouse on the
+// opposite axis from the picture.
+func (m *MoonlightService) StreamPixelSize() (int, int) {
+	if m == nil {
+		return 0, 0
+	}
+	if m.width > 0 && m.height > 0 {
+		return m.width, m.height
+	}
+	if m.config != nil && m.config.VideoWidth > 0 && m.config.VideoHeight > 0 {
+		return m.config.VideoWidth, m.config.VideoHeight
+	}
+	return 0, 0
+}
+
 // maxSupportedFPS caps what this client will ever request from the encode
 // pipeline. Requesting more than the hardware encoder can sustain at the
 // negotiated resolution/bitrate causes multi-hundred-ms keyframe stalls and

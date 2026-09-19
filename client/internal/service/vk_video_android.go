@@ -28,6 +28,7 @@ extern void android_vk_set_cursor_scale(int scale);
 extern void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h);
 extern void android_vk_get_stats(float *fps, int *fps_ready,
                                   long long *rendered, long long *submitted);
+extern void android_vk_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *sh);
 */
 import "C"
 
@@ -183,4 +184,13 @@ func VKVideoAndroidSetCursorPixels(pixels []byte, w, h int) {
 		(*C.uint8_t)(unsafe.Pointer(&pixels[0])),
 		C.int(w), C.int(h),
 	)
+}
+
+func nativeVideoDestRect() (NativeVideoDest, bool) {
+	var dx, dy, dw, dh, sw, sh C.int
+	C.android_vk_get_video_dest(&dx, &dy, &dw, &dh, &sw, &sh)
+	if int(dw) <= 0 || int(dh) <= 0 {
+		return NativeVideoDest{}, false
+	}
+	return NativeVideoDest{DX: int(dx), DY: int(dy), DW: int(dw), DH: int(dh), SW: int(sw), SH: int(sh)}, true
 }
