@@ -96,6 +96,12 @@ func setHookEnabled(on bool) {
 	stopLinuxLocked()
 }
 
+func hookInstalled() bool {
+	linuxMu.Lock()
+	defer linuxMu.Unlock()
+	return linuxActive
+}
+
 func startLinuxLocked() {
 	if linuxActive {
 		return

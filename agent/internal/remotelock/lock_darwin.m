@@ -3,6 +3,7 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <Cocoa/Cocoa.h>
 #include <stdint.h>
+#include <unistd.h>
 
 static volatile int gArmed;
 static CFMachPortRef gTap;
@@ -13,15 +14,17 @@ void usbridgeRemoteLockSetArmed(int on) {
 }
 
 static int eventIsInjected(CGEventRef event) {
-	// Hardware HID events leave Unix PID at 0. CGEventPost from Sunshine /
-	// this agent's MCP input stamps the posting process. Private sources are
-	// always software-synthesized.
+	// Hardware at a session tap is CombinedSessionState with PID 0.
+	// Sunshine / libvirtualhid mouse is HIDSystemState posted at the HID
+	// tap, which also reports PID 0 — so PID alone is not enough. Keyboard
+	// uses a private source.
 	int64_t pid = CGEventGetIntegerValueField(event, kCGEventSourceUnixProcessID);
 	if (pid != 0) {
 		return 1;
 	}
 	int64_t state = CGEventGetIntegerValueField(event, kCGEventSourceStateID);
-	return state == (int64_t)kCGEventSourceStatePrivate;
+	return state == (int64_t)kCGEventSourceStatePrivate
+		|| state == (int64_t)kCGEventSourceStateHIDSystemState;
 }
 
 static int isMouseButtonOrWheel(CGEventType type) {
@@ -48,13 +51,52 @@ static NSPoint cocoaPoint(CGEventRef event) {
 	return NSMakePoint(p.x, p.y);
 }
 
+static int cgWindowOwnedByUs(CGWindowID wid) {
+	if (wid == kCGNullWindowID) {
+		return 0;
+	}
+	CFArrayRef arr = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, wid);
+	if (arr == NULL) {
+		return 0;
+	}
+	int ours = 0;
+	if (CFArrayGetCount(arr) > 0) {
+		CFDictionaryRef d = (CFDictionaryRef)CFArrayGetValueAtIndex(arr, 0);
+		CFNumberRef n = (CFNumberRef)CFDictionaryGetValue(d, kCGWindowOwnerPID);
+		int owner = 0;
+		if (n != NULL) {
+			CFNumberGetValue(n, kCFNumberIntType, &owner);
+		}
+		ours = (owner == (int)getpid()) ? 1 : 0;
+	}
+	CFRelease(arr);
+	return ours;
+}
+
+static int pointInOurWindowFrames(NSPoint pt) {
+	for (NSWindow *w in [NSApp windows]) {
+		if (![w isVisible]) {
+			continue;
+		}
+		if (NSPointInRect(pt, [w frame])) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static int windowAtPointIsOurs(NSPoint pt) {
 	@autoreleasepool {
 		NSInteger num = [NSWindow windowNumberAtPoint:pt belowWindowWithWindowNumber:0];
-		if (num == 0) {
-			return 0;
+		if (num != 0) {
+			if ([NSApp windowWithWindowNumber:num] != nil) {
+				return 1;
+			}
+			if (cgWindowOwnedByUs((CGWindowID)num)) {
+				return 1;
+			}
 		}
-		return [NSApp windowWithWindowNumber:num] != nil;
+		return pointInOurWindowFrames(pt);
 	}
 }
 
@@ -134,13 +176,34 @@ static CFMachPortRef createTap(CGEventTapLocation loc, CGEventMask mask) {
 		NULL);
 }
 
+static void promptAccessibility(void) {
+	const void *keys[] = {kAXTrustedCheckOptionPrompt};
+	const void *values[] = {kCFBooleanTrue};
+	CFDictionaryRef options = CFDictionaryCreate(
+		kCFAllocatorDefault,
+		keys,
+		values,
+		1,
+		&kCFCopyStringDictionaryKeyCallBacks,
+		&kCFTypeDictionaryValueCallBacks);
+	if (options == NULL) {
+		return;
+	}
+	(void)AXIsProcessTrustedWithOptions(options);
+	CFRelease(options);
+}
+
 int usbridgeRemoteLockInstall(void) {
 	if (gTap != NULL) {
 		return 1;
 	}
 	CGEventMask mask = usbridgeRemoteLockMask();
-	gTap = createTap(kCGHIDEventTap, mask);
-	if (gTap == NULL) {
+	// Session, not HID: Sunshine posts mouse at kCGHIDEventTap with
+	// HIDSystemState. Those events can skip a HID-level tap, and
+	// kCGEventSourceUnixProcessID is not annotated there.
+	gTap = createTap(kCGSessionEventTap, mask);
+	if (gTap == NULL && !AXIsProcessTrusted()) {
+		promptAccessibility();
 		gTap = createTap(kCGSessionEventTap, mask);
 	}
 	if (gTap == NULL) {
