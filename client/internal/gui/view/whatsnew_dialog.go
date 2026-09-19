@@ -1,17 +1,17 @@
-package ui
+package view
 
 import (
 	"image/color"
 	"strings"
-	"unicode"
+
+	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
-
-	"usbridge_agent/internal/ui/design"
 )
 
 const (
@@ -22,10 +22,35 @@ const (
 	whatsNewChipRadius   float32 = 3
 )
 
-// showWhatsNewDialog is the post-update appeal: one branded card at a
+var whatsNewHost fyne.Window
+
+// SetWhatsNewHost records the main window so the footer version can open
+// the What's new overlay.
+func SetWhatsNewHost(win fyne.Window) {
+	whatsNewHost = win
+}
+
+func whatsNewParentWindow() fyne.Window {
+	if whatsNewHost != nil {
+		return whatsNewHost
+	}
+	if fyne.CurrentApp() == nil || fyne.CurrentApp().Driver() == nil {
+		return nil
+	}
+	wins := fyne.CurrentApp().Driver().AllWindows()
+	if len(wins) == 0 {
+		return nil
+	}
+	return wins[0]
+}
+
+// ShowWhatsNewDialog is the post-update appeal: one branded card at a
 // time, paged through whatsNewCatalog. Opened from the footer version.
-func showWhatsNewDialog(parent fyne.Window) {
+func ShowWhatsNewDialog(parent fyne.Window) {
 	if parent == nil {
+		parent = whatsNewParentWindow()
+	}
+	if parent == nil || i18n.Current == nil {
 		return
 	}
 	cards := whatsNewCatalog()
@@ -82,12 +107,61 @@ func showWhatsNewDialog(parent fyne.Window) {
 	}
 	paint()
 
-	gotIt := newDialogCTA(loc().WhatsNewGotIt, closeDialog)
-	footer := container.New(&whatsNewFooterLayout{}, older, gotIt, newer)
-	panel := newBrandedDialogPanelChromeExtra(loc().WhatsNewTitle, "", version, whatsNewDialogWidth, 20, 10, 4, 7, body, footer, closeDialog)
-	popup = showOverlayPopup(parent, overlayPopupSpec{
+	title := NewBrandText(i18n.Current.WhatsNewTitle, 13, design.ColorTextLight, true)
+	titleRow := container.New(&DeviceRowControlsLayout{Gap: 8}, title, version)
+	closeBtn := newIconChromeButton(iconChromeButtonSpec{
+		NormalFill: color.Transparent,
+		HoverFill:  design.ColorSurfaceLight,
+		NormalIcon: videoDialogCancelIconSVG,
+		HoverIcon:  videoDialogCancelIconSVG,
+		IconSize:   fyne.NewSize(18, 18),
+		ButtonSize: fyne.NewSize(28, 28),
+		OnTapped:   closeDialog,
+	})
+	headerSepLine := color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff}
+	headerSep := canvas.NewRectangle(headerSepLine)
+	headerSep.SetMinSize(fyne.NewSize(0, 1))
+	footerSep := canvas.NewRectangle(headerSepLine)
+	footerSep.SetMinSize(fyne.NewSize(0, 1))
+	headerBlock := container.NewVBox(
+		newVideoDialogTopAccentBar(),
+		NewInsetExact(titleRow, 21, 44, 12, 17),
+		headerSep,
+	)
+
+	gotIt := newVideoDialogApplyButton(i18n.Current.WhatsNewGotIt, closeDialog)
+	footerInner := container.New(&whatsNewFooterLayout{}, older, gotIt, newer)
+	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerInner, 20, 20, 4, 4))
+
+	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInsetExact(body, 20, 20, 10, 8))
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+	cornerBtn := container.New(&videoDialogCornerButtonLayout{Top: 12, Right: 12}, closeBtn)
+	panel := container.NewStack(bg, NewInsetExact(form, 0, 0, 0, 3), cornerBtn, border)
+
+	popup = ShowOverlayPopup(parent, OverlayPopupSpec{
 		Panel:        panel,
+		DimColor:     color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
 		OnOutsideTap: closeDialog,
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			if maxWidth <= 0 {
+				maxWidth = canvasSize.Width
+			}
+			if maxHeight <= 0 {
+				maxHeight = canvasSize.Height
+			}
+			panelMin := panel.MinSize()
+			w := minFloat32(maxFloat32(panelMin.Width, whatsNewDialogWidth), maxWidth)
+			h := minFloat32(panelMin.Height, maxHeight)
+			return fyne.NewSize(w, h)
+		},
 	})
 }
 
@@ -126,7 +200,7 @@ func (c *whatsNewVersionChip) SetVersion(v string) {
 }
 
 func (c *whatsNewVersionChip) MinSize() fyne.Size {
-	t := canvas.NewText(c.version, design.ColorTeal)
+	t := canvas.NewText(c.version, design.ColorConnectionBadgeText)
 	t.TextSize = 8
 	t.TextStyle.Bold = true
 	s := t.MinSize()
@@ -136,9 +210,9 @@ func (c *whatsNewVersionChip) MinSize() fyne.Size {
 func (c *whatsNewVersionChip) CreateRenderer() fyne.WidgetRenderer {
 	c.bg = canvas.NewRectangle(design.ColorGray950)
 	c.bg.CornerRadius = whatsNewChipRadius
-	c.bg.StrokeColor = design.ColorTeal
+	c.bg.StrokeColor = design.ColorConnectionBadgeText
 	c.bg.StrokeWidth = 1
-	c.label = canvas.NewText(c.version, design.ColorTeal)
+	c.label = canvas.NewText(c.version, design.ColorConnectionBadgeText)
 	c.label.TextSize = 8
 	c.label.TextStyle.Bold = true
 	c.label.Alignment = fyne.TextAlignCenter
@@ -168,12 +242,12 @@ func (r *whatsNewVersionChipRenderer) MinSize() fyne.Size { return r.chip.MinSiz
 func (r *whatsNewVersionChipRenderer) Refresh() {
 	if r.chip.label != nil {
 		r.chip.label.Text = r.chip.version
-		r.chip.label.Color = design.ColorTeal
+		r.chip.label.Color = design.ColorConnectionBadgeText
 		r.chip.label.Refresh()
 	}
 	if r.chip.bg != nil {
 		r.chip.bg.FillColor = design.ColorGray950
-		r.chip.bg.StrokeColor = design.ColorTeal
+		r.chip.bg.StrokeColor = design.ColorConnectionBadgeText
 		r.chip.bg.CornerRadius = whatsNewChipRadius
 		r.chip.bg.Refresh()
 	}
@@ -188,8 +262,8 @@ func newWhatsNewCardView(card whatsNewCard) fyne.CanvasObject {
 	for _, item := range sortWhatsNewItems(card.Items) {
 		rows = append(rows, newWhatsNewItemView(item))
 	}
-	inner := container.New(&tightVBoxLayout{gap: 10}, rows...)
-	padded := newExactInset(inner, 0, whatsNewScrollGutter, 0, 0)
+	inner := container.New(&tightStatsVBoxLayout{Gap: 10}, rows...)
+	padded := NewInsetExact(inner, 0, whatsNewScrollGutter, 0, 0)
 	scroll := container.NewVScroll(padded)
 	lock := canvas.NewRectangle(color.Transparent)
 	lock.SetMinSize(fyne.NewSize(whatsNewBodyWidth, whatsNewScrollH))
@@ -206,31 +280,22 @@ func newWhatsNewItemView(item whatsNewItem) fyne.CanvasObject {
 	badge := canvas.NewText(badgeLbl, stroke)
 	badge.TextSize = 8
 	badge.TextStyle.Bold = true
-	badgeW := fyne.MeasureText(badgeLbl, 8, fyne.TextStyle{Bold: true}).Width
 
 	innerW := whatsNewBodyWidth - 24 - whatsNewScrollGutter
-	titleW := innerW - badgeW - 10
-	if titleW < 80 {
-		titleW = 80
-	}
 
 	var blocks []fyne.CanvasObject
 	for i, pt := range item.Points {
 		title := strings.TrimSpace(pt.Title.String())
 		body := strings.TrimSpace(pt.Body.String())
-		tw := innerW
-		if i == 0 {
-			tw = titleW
-		}
-		titleLbl := whatsNewText(title, 12, design.ColorTextLight, fyne.TextStyle{Bold: true}, tw)
-		bodyLbl := whatsNewText(body, 9, design.ColorMutedOlive, fyne.TextStyle{}, innerW)
+		titleLbl := NewBrandText(title, 12, design.ColorTextLight, true)
+		bodyLbl := newVideoDialogWrapText(innerW, 9, false, videoDialogWrapSpan{Text: body, Color: design.ColorConnectionsSectionSubtitle})
 		var header fyne.CanvasObject = titleLbl
 		if i == 0 {
-			header = container.NewBorder(nil, nil, nil, newExactInset(badge, 8, 0, 3, 0), titleLbl)
+			header = container.NewBorder(nil, nil, nil, NewInsetExact(badge, 8, 0, 3, 0), titleLbl)
 		}
-		blocks = append(blocks, container.New(&tightVBoxLayout{gap: 2}, header, bodyLbl))
+		blocks = append(blocks, container.New(&tightStatsVBoxLayout{Gap: 2}, header, bodyLbl))
 	}
-	copyCol := container.New(&tightVBoxLayout{gap: 10}, blocks...)
+	copyCol := container.New(&tightStatsVBoxLayout{Gap: 10}, blocks...)
 	return wrapWhatsNewPlaque(copyCol, kind)
 }
 
@@ -239,7 +304,7 @@ func wrapWhatsNewPlaque(inner fyne.CanvasObject, kind whatsNewKind) fyne.CanvasO
 	bg.CornerRadius = 8
 	bg.StrokeColor = whatsNewKindColor(kind)
 	bg.StrokeWidth = 1
-	return container.NewStack(bg, newExactInset(inner, 12, 12, 10, 10))
+	return container.NewStack(bg, NewInsetExact(inner, 12, 12, 10, 10))
 }
 
 func whatsNewKindLabel(kind whatsNewKind) string {
@@ -252,6 +317,8 @@ func whatsNewKindLabel(kind whatsNewKind) string {
 		return "Pro"
 	case whatsNewKindEnterprise:
 		return "Enterprise"
+	case whatsNewKindHardwareAgent:
+		return "Hardware Agent"
 	case whatsNewKindBeta:
 		return "Beta"
 	default:
@@ -264,72 +331,16 @@ func whatsNewKindColor(kind whatsNewKind) color.Color {
 	case whatsNewKindOpensource:
 		return design.ColorWhite
 	case whatsNewKindFree:
-		return design.ColorTeal
+		return design.ColorConnectionBadgeText
 	case whatsNewKindPro, whatsNewKindEnterprise:
-		return design.ColorProSoft
+		return design.ColorPro
+	case whatsNewKindHardwareAgent:
+		return design.ColorAccent
 	case whatsNewKindBeta:
 		return design.ColorAlert
 	default:
-		return design.ColorMutedOlive
+		return design.ColorConnectionsSectionSubtitle
 	}
-}
-
-func whatsNewText(msg string, size float32, col color.Color, style fyne.TextStyle, wrapW float32) fyne.CanvasObject {
-	lbl := widget.NewLabel(msg)
-	lbl.Wrapping = fyne.TextWrapWord
-	lbl.Alignment = fyne.TextAlignLeading
-	lbl.TextStyle = style
-	h := whatsNewWrapHeight(msg, size, style, wrapW)
-	return container.New(&accountLicenseHintLayout{height: h}, wrapDialogLabel(lbl, size, col))
-}
-
-func whatsNewWrapHeight(text string, size float32, style fyne.TextStyle, maxWidth float32) float32 {
-	lineH := fyne.MeasureText("Ag", size, style).Height
-	if lineH < 1 {
-		lineH = size + 4
-	}
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return lineH
-	}
-	spaceW := fyne.MeasureText(" ", size, style).Width
-	lines := 0
-	for _, para := range strings.Split(text, "\n") {
-		para = strings.TrimSpace(para)
-		if para == "" {
-			lines++
-			continue
-		}
-		var lineW float32
-		paraLines := 1
-		start := 0
-		for i, r := range para + " " {
-			if !unicode.IsSpace(r) {
-				continue
-			}
-			word := strings.TrimSpace(para[start:i])
-			start = i + 1
-			if word == "" {
-				continue
-			}
-			ww := fyne.MeasureText(word, size, style).Width
-			if lineW == 0 {
-				lineW = ww
-				continue
-			}
-			if maxWidth > 0 && lineW+spaceW+ww > maxWidth {
-				paraLines++
-				lineW = ww
-				continue
-			}
-			lineW += spaceW + ww
-		}
-		lines += paraLines
-	}
-	if lines < 1 {
-		lines = 1
-	}
-	return lineH*float32(lines) + 2
 }
 
 type whatsNewFooterLayout struct{}
@@ -422,14 +433,14 @@ func (b *whatsNewNav) MouseMoved(*desktop.MouseEvent) {}
 func (b *whatsNewNav) Cursor() desktop.Cursor { return desktop.PointerCursor }
 
 func (b *whatsNewNav) MinSize() fyne.Size {
-	t := canvas.NewText(b.label, design.ColorMutedOlive)
+	t := canvas.NewText(b.label, design.ColorConnectionsSectionSubtitle)
 	t.TextSize = 16
 	s := t.MinSize()
 	return fyne.NewSize(s.Width+8, s.Height)
 }
 
 func (b *whatsNewNav) CreateRenderer() fyne.WidgetRenderer {
-	b.text = canvas.NewText(b.label, design.ColorMutedOlive)
+	b.text = canvas.NewText(b.label, design.ColorConnectionsSectionSubtitle)
 	b.text.TextSize = 16
 	return &whatsNewNavRenderer{btn: b, objects: []fyne.CanvasObject{b.text}}
 }
@@ -458,7 +469,7 @@ func (r *whatsNewNavRenderer) Refresh() {
 	if r.btn.hovered {
 		r.btn.text.Color = design.ColorTextLight
 	} else {
-		r.btn.text.Color = design.ColorMutedOlive
+		r.btn.text.Color = design.ColorConnectionsSectionSubtitle
 	}
 	r.btn.text.Refresh()
 	r.Layout(r.btn.Size())

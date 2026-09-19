@@ -95,9 +95,12 @@ func newAppFooter(version string, withLine bool, top, bottom float32, rightBtn, 
 		rightParts = append(rightParts, rightBtn)
 	}
 	if v := strings.TrimSpace(version); v != "" {
-		label := canvas.NewText("v"+v, design.ColorTextMuted)
-		label.TextSize = 9
-		rightParts = append(rightParts, label)
+		if !strings.HasPrefix(strings.ToLower(v), "v") {
+			v = "v" + v
+		}
+		rightParts = append(rightParts, NewDeviceDashboardFooterTextButton(v, func() {
+			ShowWhatsNewDialog(whatsNewParentWindow())
+		}))
 	}
 	var right fyne.CanvasObject
 	if len(rightParts) > 0 {

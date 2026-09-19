@@ -35,6 +35,7 @@ const (
 	whatsNewKindFree       whatsNewKind = "free"
 	whatsNewKindPro        whatsNewKind = "pro"
 	whatsNewKindEnterprise whatsNewKind = "enterprise"
+	whatsNewKindBeta       whatsNewKind = "beta"
 	whatsNewKindOther      whatsNewKind = "other"
 )
 
@@ -58,16 +59,18 @@ type whatsNewCard struct {
 
 func whatsNewKindRank(kind whatsNewKind) int {
 	switch kind {
-	case whatsNewKindPro:
+	case whatsNewKindBeta:
 		return 0
-	case whatsNewKindEnterprise:
+	case whatsNewKindPro:
 		return 1
-	case whatsNewKindFree:
+	case whatsNewKindEnterprise:
 		return 2
-	case whatsNewKindOpensource:
+	case whatsNewKindFree:
 		return 3
-	default:
+	case whatsNewKindOpensource:
 		return 4
+	default:
+		return 5
 	}
 }
 

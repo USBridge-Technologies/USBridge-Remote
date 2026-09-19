@@ -1,9 +1,9 @@
-package ui
+package view
 
 import (
 	"testing"
 
-	"usbridge_agent/internal/ui/i18n"
+	"usbridge-client/internal/gui/i18n"
 )
 
 func TestWhatsNewCopyPicksLanguage(t *testing.T) {
@@ -24,27 +24,15 @@ func TestWhatsNewCopyPicksLanguage(t *testing.T) {
 }
 
 func TestFormatWhatsNewVersion(t *testing.T) {
-	if got := formatWhatsNewVersion("2.4.45"); got != "v2.4.45" {
+	if got := formatWhatsNewVersion("2.4.48"); got != "v2.4.48" {
 		t.Fatalf("got %q", got)
 	}
-	if got := formatWhatsNewVersion("v2.4.45"); got != "v2.4.45" {
+	if got := formatWhatsNewVersion("v2.4.48"); got != "v2.4.48" {
 		t.Fatalf("got %q", got)
 	}
 }
 
-func TestWhatsNewKindColors(t *testing.T) {
-	if whatsNewKindLabel(whatsNewKindOpensource) != "Open Source" {
-		t.Fatal("opensource label")
-	}
-	if whatsNewKindLabel(whatsNewKindPro) != "Pro" {
-		t.Fatal("pro label")
-	}
-	if whatsNewKindLabel("") != "Other" {
-		t.Fatal("empty kind should be Other")
-	}
-	if whatsNewKindLabel(whatsNewKindEnterprise) != "Enterprise" {
-		t.Fatal("enterprise label")
-	}
+func TestWhatsNewKindBeta(t *testing.T) {
 	if whatsNewKindLabel(whatsNewKindBeta) != "Beta" {
 		t.Fatal("beta label")
 	}
@@ -53,11 +41,24 @@ func TestWhatsNewKindColors(t *testing.T) {
 	}
 }
 
+func TestWhatsNewKindHardwareAgent(t *testing.T) {
+	if whatsNewKindLabel(whatsNewKindHardwareAgent) != "Hardware Agent" {
+		t.Fatal("hardware agent label")
+	}
+	if whatsNewKindRank(whatsNewKindHardwareAgent) <= whatsNewKindRank(whatsNewKindOpensource) {
+		t.Fatal("hardware agent should sit after Open Source")
+	}
+}
+
 func TestWhatsNewCatalogHasCards(t *testing.T) {
 	cards := whatsNewCatalog()
 	if len(cards) != 1 {
 		t.Fatalf("shipping one appeal for now, got %d", len(cards))
 	}
+	if whatsNewKindRank(whatsNewKindBeta) >= whatsNewKindRank(whatsNewKindPro) {
+		t.Fatal("beta should be first")
+	}
+	var sawBeta, sawProUSB, sawPro444, sawFree, sawOther bool
 	for i, card := range cards {
 		if card.Version == "" {
 			t.Fatalf("card %d missing version", i)
@@ -68,7 +69,7 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 		sorted := sortWhatsNewItems(card.Items)
 		for j := 1; j < len(sorted); j++ {
 			if whatsNewKindRank(sorted[j-1].Kind) > whatsNewKindRank(sorted[j].Kind) {
-				t.Fatalf("items not ordered Pro → Free → Open Source → Other")
+				t.Fatalf("items not ordered")
 			}
 		}
 		for _, item := range card.Items {
@@ -80,9 +81,22 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 					t.Fatalf("card %s is missing EN copy", card.Version)
 				}
 			}
-			if whatsNewKindLabel(item.Kind) == "" {
-				t.Fatalf("card %s has empty kind label", card.Version)
+			switch item.Kind {
+			case whatsNewKindBeta:
+				sawBeta = true
+			case whatsNewKindPro:
+				if len(item.Points) < 2 {
+					t.Fatal("pro plaque should have USB and 4:4:4")
+				}
+				sawProUSB, sawPro444 = true, true
+			case whatsNewKindFree:
+				sawFree = true
+			case whatsNewKindOther:
+				sawOther = true
 			}
 		}
+	}
+	if !sawBeta || !sawProUSB || !sawPro444 || !sawFree || !sawOther {
+		t.Fatalf("missing plaques: beta=%v pro=%v/%v free=%v other=%v", sawBeta, sawProUSB, sawPro444, sawFree, sawOther)
 	}
 }

@@ -378,6 +378,8 @@ type LocalizedStrings struct {
 	UpdateLaterButton        string
 	UpdateDownloadingTitle   string
 	UpdateDownloadingMessage string // %s = new version
+	WhatsNewTitle            string
+	WhatsNewGotIt            string
 
 	// Video Settings/Dialogs
 	VideoQualitySettings string
@@ -938,6 +940,8 @@ func EN() *LocalizedStrings {
 		UpdateLaterButton:        "Not Now",
 		UpdateDownloadingTitle:   "Updating…",
 		UpdateDownloadingMessage: "Downloading version %s…",
+		WhatsNewTitle:            "What's new",
+		WhatsNewGotIt:            "Got it",
 
 		// Video Settings/Dialogs
 		VideoQualitySettings: "Video Quality Settings",
@@ -1239,6 +1243,8 @@ func ES() *LocalizedStrings {
 	locale.UpdateLaterButton = "Ahora no"
 	locale.UpdateDownloadingTitle = "Actualizando…"
 	locale.UpdateDownloadingMessage = "Descargando la version %s…"
+	locale.WhatsNewTitle = "Novedades"
+	locale.WhatsNewGotIt = "Entendido"
 	locale.VideoQualitySettings = "Configuracion de calidad de video"
 	locale.Resolution = "Resolucion"
 	locale.FrameRate = "Frecuencia"
@@ -1551,6 +1557,8 @@ func UKProper() *LocalizedStrings {
 	locale.UpdateLaterButton = "Не зараз"
 	locale.UpdateDownloadingTitle = "Оновлення…"
 	locale.UpdateDownloadingMessage = "Завантаження версії %s…"
+	locale.WhatsNewTitle = "Що нового"
+	locale.WhatsNewGotIt = "Зрозуміло"
 	locale.VideoQualitySettings = "Налаштування якості відео"
 	locale.Resolution = "Роздільна здатність"
 	locale.FrameRate = "Частота кадрів"
@@ -1717,14 +1725,27 @@ var Current *LocalizedStrings
 // LanguagePrefKey is the Fyne Preferences key for the last chosen UI language.
 const LanguagePrefKey = "language"
 
+var currentCode = "en"
+
+// Code is the active UI language: "en", "es", or "uk".
+func Code() string {
+	if currentCode == "" {
+		return "en"
+	}
+	return currentCode
+}
+
 // Init initializes the localization system
 func Init(language string) {
 	switch language {
 	case "es", "ES":
+		currentCode = "es"
 		Current = ES()
 	case "uk", "UK", "ua", "UA":
+		currentCode = "uk"
 		Current = UKProper()
 	default:
+		currentCode = "en"
 		Current = EN()
 	}
 }

@@ -43,21 +43,21 @@ type MainWindow struct {
 	// tabHeaderButtons is the Control/Devices/Snapshots/Scripts selector --
 	// desktop: left zone of createMainAddressBar; mobile: the bigger
 	// connected footer (see createMobileConnectedFooter).
-	tabHeaderButtons        [4]*headerTabButton
-	tabContentStack         *fyne.Container
-	mobileTabFooter         fyne.CanvasObject
-	mobileKeyboardBtn       fyne.CanvasObject
-	mobileKeyboardToggle    *headerStatusBadgeButton
-	mobileViewportPanBtn    fyne.CanvasObject
-	mobileViewportPanToggle *headerStatusBadgeButton
+	tabHeaderButtons          [4]*headerTabButton
+	tabContentStack           *fyne.Container
+	mobileTabFooter           fyne.CanvasObject
+	mobileKeyboardBtn         fyne.CanvasObject
+	mobileKeyboardToggle      *headerStatusBadgeButton
+	mobileViewportPanBtn      fyne.CanvasObject
+	mobileViewportPanToggle   *headerStatusBadgeButton
 	mobileFullscreenBtn       fyne.CanvasObject
 	mobileFullscreenToggle    *headerStatusBadgeButton
 	mobileVideoSettingsBtn    fyne.CanvasObject
 	mobileVideoSettingsToggle *headerStatusBadgeButton
 	mobileControlBurgerBtn    *headerStatusBadgeButton
-	mobileControlBurgerWrap fyne.CanvasObject
-	mobileMouseBtn          fyne.CanvasObject
-	mobileMouseToggle       *headerStatusBadgeButton
+	mobileControlBurgerWrap   fyne.CanvasObject
+	mobileMouseBtn            fyne.CanvasObject
+	mobileMouseToggle         *headerStatusBadgeButton
 	// connectedChromeHost holds portrait (tab bar + version) or landscape
 	// (single row) chrome under the connected tabs; swapped by
 	// applyConnectedChromeLayout without a full reloadUI.
@@ -248,6 +248,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	w := a.NewWindow("USBridge Client")
 	w.SetIcon(assets.AppIcon)
 	w.SetPadded(false)
+	view.SetWhatsNewHost(w)
 
 	mw := &MainWindow{
 		app:    a,
