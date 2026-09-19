@@ -59,6 +59,8 @@ extern volatile double g_last_decode_ms;
 // Native overlay fast paths.
 // Vulkan (vk_video_impl_windows.c) — preferred, RGBA format.
 extern int vk_video_is_active(void);
+extern int vk_video_is_device_lost(void);
+extern void vk_video_mark_device_lost(void);
 extern int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride);
 // Zero-copy path: hand a decoded AVVkFrame's VkImage straight to the renderer
 // for GPU-side YCbCr sampling (see win_deliver_frame's AV_PIX_FMT_VULKAN
@@ -328,7 +330,38 @@ static enum AVPixelFormat win_get_hw_format(AVCodecContext *ctx,
     return AV_PIX_FMT_NONE;
 }
 
+// win_av_log_callback: installed once (win_av_init, below) to catch
+// "Unable to submit command buffer: VK_ERROR_DEVICE_LOST" from ffmpeg's
+// H264/HEVC Vulkan-hwaccel decoder (libavcodec's own vulkan_decode.c --
+// vendored as a prebuilt DLL here, not vendored source we can patch
+// directly) the instant it's logged, rather than only finding out about it
+// indirectly whenever vk_render_thread's own next Vulkan call happens to
+// fail too. That decoder shares vk_video_impl_windows.c's VkDevice/VkQueue
+// for the zero-copy path: once it's lost, ffmpeg's own decode retries every
+// subsequent frame on the same dead device regardless of anything the
+// render thread does, and live debugging (gdb, 2026-09-19) showed that
+// retry storm alone -- even after the render thread stopped touching the
+// device via g_device_lost -- was still enough to trip the NVIDIA driver's
+// internal fail-fast (0xc0000409) a few calls later. Marking the device
+// lost right here, synchronously inside the same av_log() call that first
+// reports it, closes that race: dr_submit's vk_video_is_device_lost() check
+// (before the next avcodec_send_packet) sees it in time.
+static void win_av_log_callback(void *avcl, int level, const char *fmt, va_list vl) {
+    if (level <= AV_LOG_ERROR) {
+        va_list vl2;
+        va_copy(vl2, vl);
+        char buf[512];
+        vsnprintf(buf, sizeof(buf), fmt, vl2);
+        va_end(vl2);
+        if (strstr(buf, "DEVICE_LOST")) {
+            vk_video_mark_device_lost();
+        }
+    }
+    av_log_default_callback(avcl, level, fmt, vl);
+}
+
 static void win_av_init(void) {
+    av_log_set_callback(win_av_log_callback);
     if (!g_av_cs_init) { InitializeCriticalSection(&g_av_cs); g_av_cs_init = 1; }
     if (g_avctx) return;
 
@@ -375,7 +408,18 @@ static void win_av_init(void) {
     // confirmed correct on this GPU/driver) before wiring in here. AV1 has no
     // Vulkan decode extension on this driver, so only try for H264/HEVC --
     // AV1 falls straight through to the D3D11VA tier below as before.
-    if (sw_id == AV_CODEC_ID_H264 || sw_id == AV_CODEC_ID_HEVC) {
+    //
+    // USBRIDGE_DISABLE_VK_DECODE (debug/diagnostic only, 2026-09-19): forces
+    // straight to the D3D11VA tier below, skipping this one entirely. Added
+    // to A/B-test a live VK_ERROR_DEVICE_LOST -> NVIDIA driver fail-fast
+    // (0xc0000409 in nvoglv64!DrvPresentBuffers, caught under gdb) against
+    // this specific decode tier -- see the crash writeup for why app-level
+    // guards (vk_video_is_device_lost/vk_video_mark_device_lost) alone
+    // couldn't stop it: the driver's own TDR recovery appears to fail-fast
+    // internally, before/regardless of anything this process does afterward.
+    if (sw_id != AV_CODEC_ID_AV1 && getenv("USBRIDGE_DISABLE_VK_DECODE")) {
+        goVTLog((char*)"libavcodec/win: USBRIDGE_DISABLE_VK_DECODE set -- skipping Vulkan Video Decode tier");
+    } else if (sw_id == AV_CODEC_ID_H264 || sw_id == AV_CODEC_ID_HEVC) {
         AVBufferRef *vk_ref = win_vk_hwdev_ctx_ref();
         if (vk_ref) {
             AVCodecContext *test = avcodec_alloc_context3(codec);
@@ -723,6 +767,18 @@ static int dr_submit(PDECODE_UNIT du) {
                  du->frameNumber);
         goVTLog(msg);
     }
+
+    // The zero-copy H.264 Vulkan-hwaccel decoder shares vk_video_impl_windows.c's
+    // VkDevice/VkQueue. Once that device has reported VK_ERROR_DEVICE_LOST
+    // (unrecoverable without a full teardown/recreate, not implemented), stop
+    // feeding it any more data -- ffmpeg's own internal decode submission
+    // keeps retrying (and re-hitting VK_ERROR_DEVICE_LOST) on every packet
+    // otherwise, and that retry storm is what was crashing the NVIDIA driver
+    // (0xc0000409 fail-fast) even after vk_render_thread itself stopped
+    // touching the device (2026-09-19 live debugging). DR_OK (not
+    // DR_NEED_IDR): the problem is local/GPU-side, not a network loss the
+    // host can fix by resending an IDR frame.
+    if (vk_video_is_device_lost()) return DR_OK;
 
     if (!g_av_cs_init) { InitializeCriticalSection(&g_av_cs); g_av_cs_init = 1; }
     EnterCriticalSection(&g_av_cs);
@@ -1288,9 +1344,18 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 		logrus.Infof("🎬 [Moonlight/HW/Win] ✅ first video frame — %dx%d", int(width), int(height))
 	}
 
-	// When GL overlay is active, the frame was already submitted at C level.
-	// Skip the 3.5 MB Go image allocation; deliver nil for stats-only tracking.
-	if NativeVideoOverlayIsActive() {
+	// When the native overlay was active at the C call site, the frame was
+	// already submitted at C level and this call carries rgba=NULL purely
+	// for stats tracking (see win_deliver_frame_vulkan's native_overlay_active
+	// branch in moonlight_cgo_windows.go's C preamble). Trust that pointer
+	// directly instead of re-checking NativeVideoOverlayIsActive() here: that
+	// re-check reads the same live atomic the C side already sampled, and if
+	// it flips between the two reads (e.g. the Vulkan render thread tearing
+	// down mid-frame), this would take the "real pixels" branch below with a
+	// NULL rgba and segfault -- which is exactly what happened (SIGSEGV in
+	// goVTFrame, rgba=0x0, stride=0, caught live under gdb on the VideoRecv
+	// thread).
+	if rgba == nil {
 		cb(nil)
 		return
 	}
