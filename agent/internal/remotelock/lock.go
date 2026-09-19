@@ -5,9 +5,10 @@
 // person at the PC still needs Account, protocol, and Quit during a
 // session. On Windows the streamer injects via SendInput, which is marked
 // LLMHF_INJECTED / LLKHF_INJECTED; a low-level hook drops those when they
-// target this process. On macOS the streamer posts CGEvents; those carry a
-// non-zero kCGEventSourceUnixProcessID (hardware is 0), and a HID event tap
-// swallows them when they target this process's windows. On Linux there is
+// target this process. On macOS the streamer posts CGEvents at the HID tap
+// with HIDSystemState (PID stays 0, like hardware). A session event tap
+// swallows HIDSystemState / private-source events on this process's windows
+// and leaves CombinedSession hardware alone. On Linux there is
 // no such flag — uinput looks like hardware to X11/Wayland — so we EVIOCGRAB
 // the streamer's virtual evdev nodes (Sunshine "Mouse passthrough" /
 // "Keyboard passthrough", plus this agent's own usbridge-* devices) while
@@ -32,3 +33,8 @@ func SetX11Window(xid uintptr) {
 }
 
 func isArmed() bool { return enabled.Load() }
+
+// HookInstalled is true when the OS filter is actually running. On macOS
+// this stays false if CGEventTapCreate failed (the agent is not in
+// Accessibility).
+func HookInstalled() bool { return hookInstalled() }

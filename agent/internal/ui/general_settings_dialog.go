@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"runtime"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -60,6 +62,13 @@ func (w *Window) showGeneralSettingsDialog(parent fyne.Window) {
 			return
 		}
 		remotelock.SetEnabled(on)
+		if on && runtime.GOOS == "darwin" && !remotelock.HookInstalled() {
+			logrus.Warn("remote window lock needs Accessibility for this agent")
+			lockCheck.SetChecked(false)
+			if err := w.token.SetRemoteWindowLock(false); err != nil {
+				logrus.WithError(err).Warn("could not revert remote window lock")
+			}
+		}
 	})
 	hint := widget.NewLabel(loc().RemoteWindowLockHint)
 	hint.Wrapping = fyne.TextWrapWord

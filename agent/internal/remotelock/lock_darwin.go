@@ -32,6 +32,12 @@ func setHookEnabled(on bool) {
 	stopHook()
 }
 
+func hookInstalled() bool {
+	hookMu.Lock()
+	defer hookMu.Unlock()
+	return installed
+}
+
 func setX11Window(uintptr) {}
 
 func startHook() {
@@ -41,11 +47,11 @@ func startHook() {
 		return
 	}
 	if C.usbridgeRemoteLockInstall() == 0 {
-		log.Printf("[remotelock] CGEventTapCreate failed (Accessibility permission required)")
+		log.Printf("[remotelock] CGEventTapCreate failed (grant Accessibility to this agent, then toggle the lock again)")
 		return
 	}
 	installed = true
-	log.Printf("[remotelock] blocking injected CGEvent input on this process's windows")
+	log.Printf("[remotelock] blocking injected CGEvent input on this process's windows (session tap)")
 }
 
 func stopHook() {
