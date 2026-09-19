@@ -151,29 +151,14 @@ const (
 	// IMPORTANT: t does not hard-stop here once elapsed time pushes past
 	// it -- see frameSmoothingSoftExtraT below. A hard stop was tried
 	// first (raising frameSmoothingMaxConsecutive from 4 to 25 alone,
-	// same day): telemetry then showed avgT sitting at ~1.9 on almost
-	// every concealed tick (this connection's raw stalls, ~120-190ms,
-	// blow past frameSmoothingMaxT within the first ~45ms of expected~15-20ms
-	// cadence), meaning for the rest of a long stall the SAME cached flow
-	// field warped by the SAME frozen t produces a bit-for-bit IDENTICAL
-	// frame every tick -- a static hold, then a hard snap to the real
-	// frame once it finally arrives. Extending the tick budget alone just
-	// moved the freeze later without removing it (reported live: "не
-	// плавно нихуя" -- not smooth at all). frameSmoothingMaxT is now only
-	// where the CONFIDENT, near-linear part of the curve ends.
-	frameSmoothingMaxT = 2.0
+	// For dynamic/gaming content, extrapolating beyond 1.5x amplifies block-matching
+	// errors (occlusions, perspective changes) into massive visual smears.
+	// We cap confident extrapolation tightly to prevent "warp artifacts" in fast motion.
+	frameSmoothingMaxT = 1.25
 
-	// frameSmoothingSoftExtraT is how much further t is allowed to creep,
-	// beyond frameSmoothingMaxT, once elapsed time pushes past it -- via
-	// exponential decay (see decideConcealment), not a second hard cap.
-	// This keeps every tick's output at least infinitesimally different
-	// from the last (no bit-for-bit frozen frame, however long the stall
-	// runs) while the RATE of change keeps shrinking, so a long stall
-	// doesn't diverge into an increasingly-wrong guess either -- it eases
-	// toward frameSmoothingMaxT+frameSmoothingSoftExtraT asymptotically
-	// and, for practical purposes, is imperceptibly close to fully settled
-	// well before that.
-	frameSmoothingSoftExtraT = 1.5
+	// SoftExtraT allows a tiny bit of easing so the frame doesn't freeze completely,
+	// but we keep it small to avoid stretching artifacts.
+	frameSmoothingSoftExtraT = 0.25
 
 	// frameSmoothingSoftDecayIntervals sets how quickly the soft-extra
 	// creep above decays -- in units of expected-intervals of "excess"
