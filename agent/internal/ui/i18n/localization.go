@@ -17,6 +17,7 @@ type LocalizedStrings struct {
 	GeneralSettings         string
 	GeneralSettingsSubtitle string
 	AgentAutoUpdate         string
+	RemoteWindowLock        string
 
 	// Cards
 	Permissions string
@@ -242,6 +243,7 @@ func EN() *LocalizedStrings {
 		GeneralSettings:         "General Settings",
 		GeneralSettingsSubtitle: "Preferences that apply to the whole agent.",
 		AgentAutoUpdate:         "USBridge protocol auto-update",
+		RemoteWindowLock:        "Block remote control of this window",
 
 		Permissions: "Permissions",
 		Status:      "Status",
@@ -432,6 +434,7 @@ func ES() *LocalizedStrings {
 	locale.GeneralSettings = "Ajustes generales"
 	locale.GeneralSettingsSubtitle = "Preferencias para todo el agente."
 	locale.AgentAutoUpdate = "Actualizacion automatica del protocolo USBridge"
+	locale.RemoteWindowLock = "Bloquear el control remoto de esta ventana"
 
 	locale.Permissions = "Permisos"
 	locale.Status = "Estado"
@@ -612,6 +615,7 @@ func UK() *LocalizedStrings {
 	locale.GeneralSettings = "Загальні налаштування"
 	locale.GeneralSettingsSubtitle = "Параметри для всього агента."
 	locale.AgentAutoUpdate = "Автооновлення протоколу USBridge"
+	locale.RemoteWindowLock = "Блокувати віддалене керування цим вікном"
 
 	locale.Permissions = "Дозволи"
 	locale.Status = "Статус"

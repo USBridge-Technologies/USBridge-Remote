@@ -37,6 +37,8 @@ type TokenBackend interface {
 	StreamerAutoUpdateEnabled() bool
 	SetStreamerAutoUpdate(enabled bool) error
 	SnoozeStreamerUpdate(version string) error
+	RemoteWindowLockEnabled() bool
+	SetRemoteWindowLock(enabled bool) error
 	RestartSunshine() error
 	SendSAS() error
 	ListSunshineClients() ([]streamhost.Client, error)
@@ -196,6 +198,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/streamer-auto-update", s.handleStreamerAutoUpdate)
 	mux.HandleFunc("POST /token/streamer-auto-update", s.handleSetStreamerAutoUpdate)
 	mux.HandleFunc("POST /token/snooze-streamer-update", s.handleSnoozeStreamerUpdate)
+	mux.HandleFunc("GET /token/remote-window-lock", s.handleRemoteWindowLock)
+	mux.HandleFunc("POST /token/remote-window-lock", s.handleSetRemoteWindowLock)
 	mux.HandleFunc("POST /token/restart-sunshine", s.handleRestartSunshine)
 	mux.HandleFunc("POST /token/send-sas", s.handleSendSAS)
 	mux.HandleFunc("GET /token/clients", s.handleListClients)
@@ -351,6 +355,23 @@ func (s *Server) handleSetStreamerAutoUpdate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := s.token.SetStreamerAutoUpdate(body.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleRemoteWindowLock(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, boolBody{Value: s.token.RemoteWindowLockEnabled()})
+}
+
+func (s *Server) handleSetRemoteWindowLock(w http.ResponseWriter, r *http.Request) {
+	var body boolBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetRemoteWindowLock(body.Value); err != nil {
 		writeError(w, err)
 		return
 	}

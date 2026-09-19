@@ -207,6 +207,16 @@ func (c *Client) SnoozeStreamerUpdate(version string) error {
 	return c.do(http.MethodPost, "/token/snooze-streamer-update", stringBody{Value: version}, nil)
 }
 
+func (c *Client) RemoteWindowLockEnabled() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/token/remote-window-lock", nil, &body)
+	return body.Value
+}
+
+func (c *Client) SetRemoteWindowLock(enabled bool) error {
+	return c.do(http.MethodPost, "/token/remote-window-lock", boolBody{Value: enabled}, nil)
+}
+
 func (c *Client) RestartSunshine() error {
 	return c.do(http.MethodPost, "/token/restart-sunshine", nil, nil)
 }

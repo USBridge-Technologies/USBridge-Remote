@@ -84,6 +84,14 @@ type Config struct {
 	// update is available; the toast is not shown again for this tag.
 	StreamerUpdateSnoozed string `yaml:"streamer_update_snoozed,omitempty"`
 
+	// RemoteWindowLock is the General Settings "Block remote control of this
+	// window" checkbox. Nil (omitted) and false both mean off -- opt-in, so
+	// existing installs keep the old "remote session can click the agent"
+	// behavior. When on, the GUI process drops SendInput-injected mouse
+	// and keyboard aimed at its own windows (see internal/remotelock);
+	// real local hardware input is not touched.
+	RemoteWindowLock *bool `yaml:"remote_window_lock,omitempty"`
+
 	// Account login (see agent/internal/account) -- a SEPARATE identity
 	// from EntitlementToken above: this is "which USBridge account (Google
 	// login) is the human running this agent signed into", used only to
@@ -126,6 +134,12 @@ func (c Config) EffectiveListenHost() string {
 // default.
 func (c Config) StreamerAutoUpdateEnabled() bool {
 	return c.StreamerAutoUpdate == nil || *c.StreamerAutoUpdate
+}
+
+// RemoteWindowLockEnabled is true only when the user turned the General
+// Settings checkbox on. Omitted YAML (nil) is off.
+func (c Config) RemoteWindowLockEnabled() bool {
+	return c.RemoteWindowLock != nil && *c.RemoteWindowLock
 }
 
 func Load(path string) (Config, error) {

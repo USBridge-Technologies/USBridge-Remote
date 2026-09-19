@@ -2612,6 +2612,17 @@ func (a *App) SnoozeStreamerUpdate(version string) error {
 	return a.SaveConfig(next)
 }
 
+func (a *App) RemoteWindowLockEnabled() bool {
+	return a.cfg.RemoteWindowLockEnabled()
+}
+
+func (a *App) SetRemoteWindowLock(enabled bool) error {
+	next := a.cfg
+	v := enabled
+	next.RemoteWindowLock = &v
+	return a.SaveConfig(next)
+}
+
 // SetLockGPUClocksEnabled persists the "Lock GPU clocks" setting and, if
 // turning it on, immediately arms the lock (see applyGPUClockLock) instead of
 // waiting for the next stream-host start. Turning it off does NOT tear down

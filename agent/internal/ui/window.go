@@ -29,6 +29,7 @@ import (
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/netutil"
+	"usbridge_agent/internal/remotelock"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
@@ -53,6 +54,8 @@ type TokenProvider interface {
 	StreamerAutoUpdateEnabled() bool
 	SetStreamerAutoUpdate(enabled bool) error
 	SnoozeStreamerUpdate(version string) error
+	RemoteWindowLockEnabled() bool
+	SetRemoteWindowLock(enabled bool) error
 	RestartSunshine() error
 	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
@@ -1313,6 +1316,10 @@ func (w *Window) ShowAndRun(onClose func()) {
 		win.Hide()
 	} else {
 		win.Show()
+	}
+	if runtime.GOOS == "windows" && w.token != nil {
+		remotelock.SetEnabled(w.token.RemoteWindowLockEnabled())
+		defer remotelock.SetEnabled(false)
 	}
 	w.app.Run()
 }
