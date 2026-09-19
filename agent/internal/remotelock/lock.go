@@ -7,8 +7,9 @@
 // LLMHF_INJECTED / LLKHF_INJECTED; a low-level hook drops those when they
 // target this process. On macOS the streamer posts CGEvents at the HID tap
 // with HIDSystemState (PID stays 0, like hardware). A session event tap
-// swallows HIDSystemState / private-source events on this process's windows
-// and leaves CombinedSession hardware alone. On Linux there is
+// swallows those that have no IOHIDEvent (software posts) or a private
+// source / non-zero PID. Real trackpad clicks still carry an IOHIDEvent
+// and are left alone. On Linux there is
 // no such flag — uinput looks like hardware to X11/Wayland — so we EVIOCGRAB
 // the streamer's virtual evdev nodes (Sunshine "Mouse passthrough" /
 // "Keyboard passthrough", plus this agent's own usbridge-* devices) while

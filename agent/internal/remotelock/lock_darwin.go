@@ -51,7 +51,7 @@ func startHook() {
 		return
 	}
 	installed = true
-	log.Printf("[remotelock] blocking injected CGEvent input on this process's windows (session tap)")
+	log.Printf("[remotelock] blocking injected CGEvent input on this process's windows (session+hid taps)")
 }
 
 func stopHook() {
