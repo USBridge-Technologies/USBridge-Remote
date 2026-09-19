@@ -2,7 +2,10 @@
 
 package streamhost
 
-import "fmt"
+import (
+	"fmt"
+	"os/exec"
+)
 
 // isAccessDenied, elevatedKillByPID and elevatedKillByName are Windows-only
 // concepts (UAC elevation) — see elevate_windows.go. On macOS/Linux the
@@ -18,4 +21,8 @@ func elevatedKillByPID(pid int) error {
 
 func elevatedKillByName(imageName string) error {
 	return fmt.Errorf("elevated kill not supported on this platform")
+}
+
+func hiddenTaskkill(args ...string) error {
+	return exec.Command("taskkill", args...).Run()
 }

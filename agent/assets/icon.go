@@ -73,17 +73,21 @@ const (
 	onProIconFill  = "#0b0f12"
 )
 
-// GitHubIcon is the octocat mark for the USB driver chip (muted chrome).
-// GitHubIconTeal is the Info menu's Software/Hardware row.
-var GitHubIcon = tintedSVG("github.svg", githubSVG, chipIconFill)
-var GitHubIconTeal = tintedSVG("github-teal.svg", githubSVG, headerIconFill)
+// settingsGearSVG is a filled gear so tintedSVG can recolor it the same
+// way as language/info.
+var settingsGearSVG = []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#000000" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81A.49.49 0 0 0 13.92 2.4h-3.84a.49.49 0 0 0-.48.41L9.25 5.35c-.59.24-1.13.57-1.62.94L5.24 5.33a.49.49 0 0 0-.59.22L2.74 8.87a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.3.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>`)
 
-// LanguageIconTeal / InfoIconTeal / OpenExternalIconTeal are the settings
-// and Info menus (teal, same as the client's header dropdowns).
+// GitHubIcon is the octocat mark for the USB driver chip and the light
+// settings Info menu (muted chrome).
+var GitHubIcon = tintedSVG("github.svg", githubSVG, chipIconFill)
+
+// LanguageIconLight / InfoIconLight / OpenExternalIconLight / SettingsIconLight
+// are the settings dropdown (light chrome, not teal).
 var (
-	LanguageIconTeal     = tintedSVG("language-teal.svg", languageSVG, headerIconFill)
-	InfoIconTeal         = tintedSVG("info-teal.svg", infoSVG, headerIconFill)
-	OpenExternalIconTeal = tintedSVG("open-external-teal.svg", openExternalSVG, headerIconFill)
+	LanguageIconLight     = tintedSVG("language-light.svg", languageSVG, chipIconFill)
+	InfoIconLight         = tintedSVG("info-light.svg", infoSVG, chipIconFill)
+	OpenExternalIconLight = tintedSVG("open-external-light.svg", openExternalSVG, chipIconFill)
+	SettingsIconLight     = tintedSVG("settings-light.svg", settingsGearSVG, chipIconFill)
 )
 
 // GoogleLogo is the colorful G for the Account "Log in with Google" chip.

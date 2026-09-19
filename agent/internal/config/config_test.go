@@ -32,3 +32,23 @@ func TestDirIsUsable_BlockedByFile(t *testing.T) {
 		t.Fatal("a regular file must not count as a usable state dir")
 	}
 }
+
+func TestRemoteWindowLockEnabled_DefaultOff(t *testing.T) {
+	if Default().RemoteWindowLockEnabled() {
+		t.Fatal("fresh install must leave the remote-window lock off")
+	}
+	var c Config
+	if c.RemoteWindowLockEnabled() {
+		t.Fatal("omitted YAML must keep the agent clickable from remote")
+	}
+	off := false
+	c.RemoteWindowLock = &off
+	if c.RemoteWindowLockEnabled() {
+		t.Fatal("explicit false must stay off")
+	}
+	on := true
+	c.RemoteWindowLock = &on
+	if !c.RemoteWindowLockEnabled() {
+		t.Fatal("explicit true must enable the lock")
+	}
+}

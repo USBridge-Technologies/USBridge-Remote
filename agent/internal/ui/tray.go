@@ -42,7 +42,10 @@ type trayController struct {
 
 	statusItem    *fyne.MenuItem
 	infoItem      *fyne.MenuItem
+	openItem      *fyne.MenuItem
+	restartItem   *fyne.MenuItem
 	autostartItem *fyne.MenuItem
+	quitItem      *fyne.MenuItem
 
 	icons       map[trayIconState]fyne.Resource
 	currentIcon trayIconState
@@ -78,9 +81,10 @@ func (w *Window) attachTray(win fyne.Window, quit func()) *trayController {
 	t.infoItem = fyne.NewMenuItem("", nil)
 	t.infoItem.Disabled = true
 
-	openItem := fyne.NewMenuItem("Open USBridge Agent", func() { t.showWindow() })
+	openItem := fyne.NewMenuItem(loc().TrayOpen, func() { t.showWindow() })
+	t.openItem = openItem
 
-	restartItem := fyne.NewMenuItem("Restart Streaming", func() {
+	restartItem := fyne.NewMenuItem(loc().TrayRestart, func() {
 		if w.token == nil {
 			return
 		}
@@ -91,17 +95,20 @@ func (w *Window) attachTray(win fyne.Window, quit func()) *trayController {
 		}()
 	})
 
-	t.autostartItem = fyne.NewMenuItem("Autostart at Boot", nil)
+	t.restartItem = restartItem
+
+	t.autostartItem = fyne.NewMenuItem(autostartMenuLabel(), nil)
 	t.autostartItem.Checked = autostart.IsEnabled()
 	t.autostartItem.Action = func() { t.toggleAutostart() }
 
-	quitItem := fyne.NewMenuItem("Quit", func() {
+	quitItem := fyne.NewMenuItem(loc().TrayQuit, func() {
 		if quit != nil {
 			quit()
 		}
 		win.Close()
 		w.app.Quit()
 	})
+	t.quitItem = quitItem
 	quitItem.IsQuit = true
 
 	t.menu = fyne.NewMenu("USBridge Agent",
@@ -150,11 +157,16 @@ func (t *trayController) toggleAutostart() {
 			return
 		}
 		fyne.Do(func() {
-			t.autostartItem.Checked = next
-			t.refreshMenu()
 			if t.owner != nil && t.owner.autostartCheck != nil {
 				t.owner.autostartCheck.Checked = next
 				t.owner.autostartCheck.Refresh()
+			}
+			if t.owner != nil {
+				t.owner.refreshAutostartChrome()
+			} else {
+				t.autostartItem.Checked = next
+				t.autostartItem.Label = autostartMenuLabel()
+				t.refreshMenu()
 			}
 		})
 	}()
@@ -167,6 +179,26 @@ func (t *trayController) toggleAutostart() {
 // no live Check()/Uncheck() wiring for a value changed after the fact. A
 // full Menu.Refresh() (which rebuilds every item) is what actually reflects
 // a state flip.
+func (t *trayController) applyLanguage() {
+	if t == nil {
+		return
+	}
+	c := loc()
+	if t.openItem != nil {
+		t.openItem.Label = c.TrayOpen
+	}
+	if t.restartItem != nil {
+		t.restartItem.Label = c.TrayRestart
+	}
+	if t.autostartItem != nil {
+		t.autostartItem.Label = autostartMenuLabel()
+	}
+	if t.quitItem != nil {
+		t.quitItem.Label = c.TrayQuit
+	}
+	t.refreshMenu()
+}
+
 func (t *trayController) refreshMenu() {
 	if t == nil || t.menu == nil {
 		return
@@ -212,8 +244,8 @@ func (t *trayController) notifyHiddenOnce() {
 	}
 	t.hintShown = true
 	t.owner.app.SendNotification(fyne.NewNotification(
-		"USBridge Agent",
-		"Still running in the tray — click the tray icon to reopen.",
+		loc().AppTitle,
+		loc().TrayStillRunning,
 	))
 }
 

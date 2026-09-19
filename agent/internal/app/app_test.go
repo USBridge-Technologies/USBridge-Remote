@@ -2,6 +2,7 @@ package app
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -12,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"usbridge_agent/internal/config"
@@ -154,14 +156,28 @@ func TestRecheckEntitlement_NoCachedToken_IsANoOp(t *testing.T) {
 	}
 }
 
-// fakeRustShineArchive builds a valid .tar.gz containing a single entry
+// fakeRustShineArchive builds a valid archive containing a single entry
 // named base with contents, plus its SHA-256 -- everything
-// StageRustShine's real download+verify+extract path needs, without a real
-// GitHub release or backend involved. Matches Linux's asset shape
-// (extractFromTarGz); this suite only ever runs on Linux/darwin CI, never
-// windows, so the .zip path (extractFromZip) isn't exercised here.
+// StageRustShine's real download+verify+extract path needs. Linux/darwin
+// get a .tar.gz (extractFromTarGz); Windows gets a .zip (extractFromZip).
 func fakeRustShineArchive(t *testing.T, base string, contents []byte) (archive []byte, sha256Hex string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		var zipBuf bytes.Buffer
+		zw := zip.NewWriter(&zipBuf)
+		w, err := zw.Create(base)
+		if err != nil {
+			t.Fatalf("zip create: %v", err)
+		}
+		if _, err := w.Write(contents); err != nil {
+			t.Fatalf("zip write: %v", err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatalf("zip close: %v", err)
+		}
+		sum := sha256.Sum256(zipBuf.Bytes())
+		return zipBuf.Bytes(), hex.EncodeToString(sum[:])
+	}
 	var tarBuf bytes.Buffer
 	gz := gzip.NewWriter(&tarBuf)
 	tw := tar.NewWriter(gz)
@@ -340,6 +356,37 @@ func TestCheckRustShineUpdateNow_AlreadyUpToDate_NeverRedownloads(t *testing.T) 
 	}
 	if *archiveHits != 1 {
 		t.Errorf("archive endpoint hit %d times after an up-to-date check, want still 1 (no redundant re-download)", *archiveHits)
+	}
+}
+
+func TestCheckRustShineUpdate_AutoOff_DoesNotDownload(t *testing.T) {
+	a := newTestApp(t, "usbent1.doesnt.matter")
+	base := filepath.Base(entitlement.StagePath(a.cfg.StateDir))
+
+	oldSrv, _ := rustShineTestServer(t, base, "gamestream-server-v1.0.0-test", []byte("old binary"))
+	withBackendURL(t, oldSrv.URL)
+	a.ensureRustShineFresh(context.Background(), a.cfg.EntitlementToken)
+	if v := entitlement.StagedVersion(a.cfg.StateDir); v != "gamestream-server-v1.0.0-test" {
+		t.Fatalf("test setup bug: staged version = %q", v)
+	}
+
+	newSrv, archiveHits := rustShineTestServer(t, base, "gamestream-server-v2.0.0-test", []byte("new binary"))
+	withBackendURL(t, newSrv.URL)
+	off := false
+	a.cfg.StreamerAutoUpdate = &off
+	a.checkRustShineUpdate(context.Background(), a.cfg.EntitlementToken)
+	if *archiveHits != 0 {
+		t.Errorf("archive endpoint hit %d times with auto-update off, want 0", *archiveHits)
+	}
+	if v := entitlement.StagedVersion(a.cfg.StateDir); v != "gamestream-server-v1.0.0-test" {
+		t.Errorf("staged version = %q, want the old fake (nothing should have been replaced)", v)
+	}
+	st := a.EntitlementStatus()
+	if st.RustShineAvailableVersion != "gamestream-server-v2.0.0-test" {
+		t.Errorf("RustShineAvailableVersion = %q, want the v2 tag", st.RustShineAvailableVersion)
+	}
+	if !st.RustShineUpdateOffer {
+		t.Error("expected RustShineUpdateOffer so the GUI can show the Yes/No toast")
 	}
 }
 

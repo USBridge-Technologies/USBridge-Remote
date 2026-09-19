@@ -84,29 +84,60 @@ func protocolCoveredByEntitlement(pick string, st entitlement.Status) bool {
 }
 
 // accountLicenseIdentifier returns a licensed desktop license this account
-// already owns that covers pick, or "" if they still need to buy. Mirrors
-// the account menu's Plan/Active labels (accountPlanLabel) so a logged-in
-// Pro subscriber can Change to Pro even when this machine's hardware-bound
-// entitlement is still free.
+// already owns that covers pick, or "" if they still need to buy. Prefers
+// a license already bound to this machine, then one sitting on another PC.
 func accountLicenseIdentifier(acc account.Status, pick string) string {
+	return accountLicenseIdentifierPref(acc, pick, false)
+}
+
+func accountLicenseOnThisDevice(acc account.Status, pick string) string {
+	return accountLicenseIdentifierPref(acc, pick, true)
+}
+
+func accountLicenseIdentifierPref(acc account.Status, pick string, onlyHere bool) string {
 	if pick != protocolPro && pick != protocolEnterprise {
 		return ""
 	}
-	var proID string
+	var here, other string
 	for _, lic := range acc.Licenses {
 		if !strings.EqualFold(lic.Status, "licensed") {
 			continue
 		}
+		if onlyHere && !lic.OnThisDevice {
+			continue
+		}
 		switch strings.ToLower(strings.TrimSpace(lic.Tier)) {
 		case "enterprise":
-			return lic.Identifier
+			if lic.OnThisDevice {
+				return lic.Identifier
+			}
+			if other == "" {
+				other = lic.Identifier
+			}
 		case "pro":
-			if pick == protocolPro {
-				proID = lic.Identifier
+			if pick != protocolPro {
+				continue
+			}
+			if lic.OnThisDevice {
+				here = lic.Identifier
+			} else if other == "" {
+				other = lic.Identifier
 			}
 		}
 	}
-	return proID
+	if here != "" {
+		return here
+	}
+	return other
+}
+
+func accountLicenseBoundHere(acc account.Status, identifier string) bool {
+	for _, lic := range acc.Licenses {
+		if lic.Identifier == identifier {
+			return lic.OnThisDevice
+		}
+	}
+	return false
 }
 
 func protocolPurchaseTier(pick string) string {
@@ -116,13 +147,15 @@ func protocolPurchaseTier(pick string) string {
 	return "pro"
 }
 
-// protocolPaidTier is the highest paid plan this machine or logged-in
-// account already has: "enterprise", "pro", or "".
+// protocolPaidTier is the highest paid plan actually bound to THIS
+// machine (hardware entitlement or an account license flagged OnThisDevice).
+// A Pro license parked on another PC does not count: this agent can stay
+// on Free until the user rebinds it.
 func protocolPaidTier(st entitlement.Status, acc account.Status) string {
-	if protocolCoveredByEntitlement(protocolEnterprise, st) || accountLicenseIdentifier(acc, protocolEnterprise) != "" {
+	if protocolCoveredByEntitlement(protocolEnterprise, st) || accountLicenseOnThisDevice(acc, protocolEnterprise) != "" {
 		return protocolEnterprise
 	}
-	if protocolCoveredByEntitlement(protocolPro, st) || accountLicenseIdentifier(acc, protocolPro) != "" {
+	if protocolCoveredByEntitlement(protocolPro, st) || accountLicenseOnThisDevice(acc, protocolPro) != "" {
 		return protocolPro
 	}
 	return ""
@@ -196,7 +229,7 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 		rows = append(rows, container.New(&flushEndsLayout{}, row, info))
 	}
 
-	w.protocolChange = newCardHeaderButton("Change", headerChangeIcon, func() {
+	w.protocolChange = newCardHeaderButton(loc().Change, headerChangeIcon, func() {
 		w.applySelectedProtocol(parent)
 	})
 	w.refreshProtocolPickerVisuals(st.LinkInProgress || st.DownloadInProgress)
@@ -207,7 +240,11 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 	}
 	headerBits = append(headerBits, w.protocolChange)
 	headerBtns := container.New(&tightHBoxLayout{gap: 4}, headerBits...)
-	return newPanel(panelIconProtocol, "Protocol", headerBtns, container.New(&tightVBoxLayout{gap: 4}, rows...))
+	panel := newPanel(panelIconProtocol, loc().Protocol, headerBtns, container.New(&tightVBoxLayout{gap: 4}, rows...))
+	if p, ok := panel.(*themedPanel); ok {
+		w.protocolPanel = p
+	}
+	return panel
 }
 
 func (w *Window) protocolStatus() (entitlement.Status, account.Status) {
@@ -371,8 +408,23 @@ func (w *Window) requestPaidTier(parent fyne.Window, st entitlement.Status, tier
 		if tier == "enterprise" {
 			pick = protocolEnterprise
 		}
-		if id := accountLicenseIdentifier(w.token.AccountStatus(), pick); id != "" {
-			w.applyAccountLicense(id, tier, done)
+		acc := w.token.AccountStatus()
+		if id := accountLicenseIdentifier(acc, pick); id != "" {
+			if accountLicenseBoundHere(acc, id) {
+				w.applyAccountLicense(id, tier, done)
+				return
+			}
+			if parent == nil {
+				fyne.Do(done)
+				return
+			}
+			showConfirmToast(fmt.Sprintf(loc().RebindLicenseConfirm, tierDisplayName(tier)), func(yes bool) {
+				if !yes {
+					done()
+					return
+				}
+				w.applyAccountLicense(id, tier, done)
+			}, parent)
 			return
 		}
 	}
@@ -380,13 +432,9 @@ func (w *Window) requestPaidTier(parent fyne.Window, st entitlement.Status, tier
 		fyne.Do(done)
 		return
 	}
-	dialog.NewConfirm(
-		fmt.Sprintf("Subscribe to %s?", tierDisplayName(tier)),
-		fmt.Sprintf(
-			"Opens Stripe checkout in your browser for the %s subscription. "+
-				"Once payment completes, RustShine downloads and switches on automatically.",
-			tierDisplayName(tier),
-		),
+	d := dialog.NewConfirm(
+		fmt.Sprintf(loc().SubscribeTitle, tierDisplayName(tier)),
+		fmt.Sprintf(loc().SubscribeBody, tierDisplayName(tier)),
 		func(confirmed bool) {
 			if !confirmed {
 				w.protocolPick = w.protocolApplied
@@ -407,15 +455,18 @@ func (w *Window) requestPaidTier(parent fyne.Window, st entitlement.Status, tier
 				}
 				fyne.Do(func() {
 					if openErr != nil {
-						dialog.ShowInformation("Checkout",
-							"Couldn't open your browser automatically.\n"+checkoutURL, parent)
+						dialog.ShowInformation(loc().CheckoutTitle,
+							loc().CouldntOpenBrowserBuy+"\n"+checkoutURL, parent)
 					}
 					done()
 				})
 			}()
 		},
 		parent,
-	).Show()
+	)
+	d.SetConfirmText(loc().Yes)
+	d.SetDismissText(loc().No)
+	d.Show()
 }
 
 func (w *Window) applyAccountLicense(identifier, tier string, done func()) {

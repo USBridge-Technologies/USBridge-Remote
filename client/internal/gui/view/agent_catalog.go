@@ -54,11 +54,11 @@ func agentEditionFeatures(ed agentEdition) []string {
 	}
 	switch ed.Tag {
 	case "Open Source":
-		return []string{c.AgentFeatLowLatency, c.AgentFeatClipboard, c.AgentFeatMultiMonitor}
+		return []string{c.AgentFeatLowLatency, c.AgentFeatClipboard, c.AgentFeatMultiMonitor, c.AgentFeatVirtualDisplay}
 	case "Free":
 		return []string{c.AgentFeatWebClient, c.AgentFeatPreLogin, c.AgentFeatFastConnect}
 	case "Pro":
-		return []string{c.AgentFeat444, c.AgentFeatUSB}
+		return []string{c.AgentFeat444, c.AgentFeatUSB, c.AgentFeatWacom}
 	case "Enterprise":
 		return []string{c.AgentFeatRecording, c.AgentFeatCompanyRollout}
 	default:
@@ -72,6 +72,8 @@ func agentEditionIncludeChips(ed agentEdition) []string {
 		return nil
 	}
 	switch ed.Tag {
+	case "Free":
+		return []string{c.AgentChipBasic}
 	case "Pro":
 		return []string{c.AgentChipBasic}
 	case "Enterprise":

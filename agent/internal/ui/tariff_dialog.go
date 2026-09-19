@@ -22,7 +22,6 @@ const (
 	tariffGitHubURL               = "https://github.com/USBridge-Technologies/USBridge-Remote/"
 	tariffPricePro                = "$8"
 	tariffPriceEnterprise         = "$25"
-	tariffSubtitle                = "Upgrade your USBridge agent for low-latency streaming, passthrough & mesh networks"
 )
 
 // Slightly above ColorGray900 so feature cards lift off the dialog fill.
@@ -42,53 +41,56 @@ type tariffFeature struct {
 	subtitle string
 }
 
-var tariffPlans = []tariffPlan{
-	{
-		key: protocolOpensource,
-		tab: "Sunshine",
-		features: []tariffFeature{
-			{"Ultra-low latency streaming", "Near-zero delay for mouse and video"},
-			{"Shared clipboard", "Copy text, images, and files both ways"},
-			{"Multi-monitor support", "Switch which host display you view"},
+func tariffPlansNow() []tariffPlan {
+	c := loc()
+	return []tariffPlan{
+		{
+			key: protocolOpensource,
+			tab: "Sunshine",
+			features: []tariffFeature{
+				{c.FeatLowLatency, c.FeatLowLatencySub},
+				{c.FeatClipboard, c.FeatClipboardSub},
+				{c.FeatMultiMonitor, c.FeatMultiMonitorSub},
+			},
 		},
-	},
-	{
-		key: protocolFree,
-		tab: "Free",
-		features: []tariffFeature{
-			{"Browser web client", "Connect from any modern browser"},
-			{"Windows pre-login access", "Reach the host before anyone logs in"},
-			{"Fast connect", "A session starts in seconds"},
-			{"Virtual displays", "Extra screens without extra hardware"},
+		{
+			key: protocolFree,
+			tab: "Free",
+			features: []tariffFeature{
+				{c.FeatWebClient, c.FeatWebClientSub},
+				{c.FeatPreLogin, c.FeatPreLoginSub},
+				{c.FeatFastConnect, c.FeatFastConnectSub},
+				{c.FeatVirtualDisplay, c.FeatVirtualDisplaySub},
+			},
 		},
-	},
-	{
-		key:      protocolPro,
-		tab:      "Pro",
-		buyLabel: "Buy Pro",
-		price:    tariffPricePro,
-		paid:     true,
-		features: []tariffFeature{
-			{"4:4:4 color fidelity", "Full chroma for text and color-critical work"},
-			{"USB device emulation", "Pass local USB devices through to the host"},
-			{"Wacom tablet support", "Pen pressure and tilt pass through to the host"},
+		{
+			key:      protocolPro,
+			tab:      "Pro",
+			buyLabel: c.BuyPro,
+			price:    tariffPricePro,
+			paid:     true,
+			features: []tariffFeature{
+				{c.Feat444, c.Feat444Sub},
+				{c.FeatUSB, c.FeatUSBSub},
+				{c.FeatWacom, c.FeatWacomSub},
+			},
 		},
-	},
-	{
-		key:      protocolEnterprise,
-		tab:      "Enterprise",
-		buyLabel: "Buy Enterprise",
-		price:    tariffPriceEnterprise,
-		paid:     true,
-		features: []tariffFeature{
-			{"Session recording and audit logs", "Keep a record of every remote session"},
-			{"Built for company-wide rollout", "Access and policy at company scale"},
+		{
+			key:      protocolEnterprise,
+			tab:      "Enterprise",
+			buyLabel: c.BuyEnterprise,
+			price:    tariffPriceEnterprise,
+			paid:     true,
+			features: []tariffFeature{
+				{c.FeatRecording, c.FeatRecordingSub},
+				{c.FeatCompanyRollout, c.FeatCompanyRolloutSub},
+			},
 		},
-	},
+	}
 }
 
 func tariffIndexForKey(key string) int {
-	for i, p := range tariffPlans {
+	for i, p := range tariffPlansNow() {
 		if p.key == key {
 			return i
 		}
@@ -123,8 +125,9 @@ func (w *Window) showTariffPickerDialog(parent fyne.Window, initialKey string) {
 	if initialKey == "" && w.token != nil {
 		selected = tariffIndexForKey(protocolKeyFromStatus(w.token.EntitlementStatus()))
 	}
-	tabs := make([]*tariffTabButton, len(tariffPlans))
-	tabItems := make([]fyne.CanvasObject, len(tariffPlans))
+	plans := tariffPlansNow()
+	tabs := make([]*tariffTabButton, len(plans))
+	tabItems := make([]fyne.CanvasObject, len(plans))
 	featureScroll := container.NewVScroll(container.NewVBox())
 	footerInner := container.NewMax()
 	footerLock := canvas.NewRectangle(color.Transparent)
@@ -133,7 +136,7 @@ func (w *Window) showTariffPickerDialog(parent fyne.Window, initialKey string) {
 
 	var refresh func()
 	refresh = func() {
-		if selected < 0 || selected >= len(tariffPlans) {
+		if selected < 0 || selected >= len(plans) {
 			selected = 0
 		}
 		for i, tab := range tabs {
@@ -141,7 +144,7 @@ func (w *Window) showTariffPickerDialog(parent fyne.Window, initialKey string) {
 				tab.SetSelected(i == selected)
 			}
 		}
-		plan := tariffPlans[selected]
+		plan := plans[selected]
 		featureScroll.Content = newTariffFeaturePane(plan)
 		featureScroll.Offset = fyne.NewPos(0, 0)
 		featureScroll.Refresh()
@@ -149,7 +152,7 @@ func (w *Window) showTariffPickerDialog(parent fyne.Window, initialKey string) {
 		footerInner.Refresh()
 	}
 
-	for i, plan := range tariffPlans {
+	for i, plan := range plans {
 		idx := i
 		tab := newTariffTabButton(plan.tab, plan.key, func() {
 			if selected == idx {
@@ -169,7 +172,7 @@ func (w *Window) showTariffPickerDialog(parent fyne.Window, initialKey string) {
 	tabLead := container.New(&tariffLeadShareLayout{share: 2.0 / 3.0}, tabRow)
 	refresh()
 
-	cap := canvas.NewText("CAPABILITIES INCLUDED IN THIS TIER", design.ColorEmptyHint)
+	cap := canvas.NewText(loc().CapabilitiesIncluded, design.ColorEmptyHint)
 	cap.TextSize = 8
 	cap.TextStyle.Bold = true
 	capRule := canvas.NewRectangle(design.ColorDialogSep)
@@ -199,7 +202,7 @@ func (w *Window) showTariffPickerDialog(parent fyne.Window, initialKey string) {
 }
 
 func newTariffDialogPanel(version string, body, footer fyne.CanvasObject, onClose func()) fyne.CanvasObject {
-	title := canvas.NewText("Tariffs & Licenses", design.ColorTextLight)
+	title := canvas.NewText(loc().TariffsTitle, design.ColorTextLight)
 	title.TextSize = 13
 	title.TextStyle.Bold = true
 	titleBits := []fyne.CanvasObject{title}
@@ -208,17 +211,17 @@ func newTariffDialogPanel(version string, body, footer fyne.CanvasObject, onClos
 	}
 	titleRow := container.New(&tightHBoxLayout{gap: 8}, titleBits...)
 
-	sub := canvas.NewText(tariffSubtitle, design.ColorMutedOlive)
+	sub := canvas.NewText(loc().TariffSubtitle, design.ColorMutedOlive)
 	sub.TextSize = 8
 
 	headerInner := container.New(&tightVBoxLayout{gap: 4}, titleRow, sub)
 	headerSep := canvas.NewRectangle(design.ColorDialogSep)
 	headerSep.SetMinSize(fyne.NewSize(0, 1))
 	headerBand := canvas.NewRectangle(color.Transparent)
-	headerBand.SetMinSize(fyne.NewSize(0, 52))
+	headerBand.SetMinSize(fyne.NewSize(0, 57))
 	header := container.New(&tightVBoxLayout{gap: 0},
 		newDialogTopAccentBar(),
-		container.NewStack(headerBand, newExactInset(headerInner, 21, 44, 10, 4)),
+		container.NewStack(headerBand, newExactInset(headerInner, 21, 44, 10, 9)),
 		headerSep,
 	)
 
@@ -325,8 +328,8 @@ func (w *Window) openTariffCheckout(parent fyne.Window, tier string) {
 		}
 		if openErr != nil && parent != nil {
 			fyne.Do(func() {
-				dialog.ShowInformation("Checkout",
-					"Couldn't open your browser automatically.\n"+checkoutURL, parent)
+				dialog.ShowInformation(loc().CheckoutTitle,
+					loc().CouldntOpenBrowserBuy+"\n"+checkoutURL, parent)
 			})
 		}
 	}()

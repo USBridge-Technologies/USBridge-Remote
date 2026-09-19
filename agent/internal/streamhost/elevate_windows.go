@@ -7,9 +7,19 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 )
+
+func hiddenTaskkill(args ...string) error {
+	cmd := exec.Command("taskkill", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+	return cmd.Run()
+}
 
 // isAccessDenied reports whether err (from Process.Kill()/exec.Cmd.Run())
 // looks like Windows denied the terminate call for lack of privilege — as

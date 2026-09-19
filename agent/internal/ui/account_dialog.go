@@ -66,19 +66,19 @@ func (w *Window) showAccountLoginDialog(parent fyne.Window) {
 
 		switch {
 		case acc.LoginInProgress:
-			wait := widget.NewLabel("Waiting for Google login to complete in your browser…")
+			wait := widget.NewLabel(loc().WaitingGoogleLogin)
 			wait.Wrapping = fyne.TextWrapWord
 			wait.Alignment = fyne.TextAlignCenter
 			body.Add(wrapAccountField(wait, 12, design.ColorMutedOlive))
 			prog := widget.NewProgressBarInfinite()
 			styledProg := container.NewThemeOverride(prog, &accountProgressTheme{Theme: design.NewBrandTheme()})
 			body.Add(newExactInset(container.New(&fixedHeightLayout{height: 5}, styledProg), 0, 0, 8, 4))
-			body.Add(container.NewCenter(newAccountDialogTextButton("Cancel", func() {
+			body.Add(container.NewCenter(newAccountDialogTextButton(loc().Cancel, func() {
 				w.token.CancelAccountLogin()
 				render()
 			})))
 			if loginURLFallback != "" {
-				hint := widget.NewLabel("Couldn't open your browser automatically. Login link:")
+				hint := widget.NewLabel(loc().CouldntOpenBrowserLogin)
 				hint.Wrapping = fyne.TextWrapWord
 				body.Add(wrapAccountField(hint, 11, design.ColorMutedOlive))
 				if parsed, err := url.Parse(loginURLFallback); err == nil && parsed != nil {
@@ -89,7 +89,7 @@ func (w *Window) showAccountLoginDialog(parent fyne.Window) {
 			}
 
 		default:
-			intro := widget.NewLabel("Log in to see your USBridge licenses and sync your saved connections across devices.")
+			intro := widget.NewLabel(loc().LoginIntro)
 			intro.Wrapping = fyne.TextWrapWord
 			intro.Alignment = fyne.TextAlignCenter
 			body.Add(wrapAccountField(intro, 12, design.ColorMutedOlive))
@@ -131,16 +131,16 @@ func (w *Window) showAccountLoginDialog(parent fyne.Window) {
 	}
 	render()
 
-	title := canvas.NewText("Account", design.ColorTextLight)
+	title := canvas.NewText(loc().AccountTitle, design.ColorTextLight)
 	title.TextSize = 13
 	title.TextStyle.Bold = true
 	sep := canvas.NewRectangle(design.ColorDialogSep)
 	sep.SetMinSize(fyne.NewSize(0, 1))
 	headerBand := canvas.NewRectangle(color.Transparent)
-	headerBand.SetMinSize(fyne.NewSize(0, 40))
+	headerBand.SetMinSize(fyne.NewSize(0, 45))
 	header := container.New(&tightVBoxLayout{gap: 0},
 		newDialogTopAccentBar(),
-		container.NewStack(headerBand, newExactInset(title, 21, 44, 12, 12)),
+		container.NewStack(headerBand, newExactInset(title, 21, 44, 12, 17)),
 		sep,
 	)
 
@@ -209,17 +209,17 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 		acc = w.token.AccountStatus()
 	}
 
-	signed := canvas.NewText("Signed in as", design.ColorEmptyHint)
+	signed := canvas.NewText(loc().SignedInAs, design.ColorEmptyHint)
 	signed.TextSize = 10
 	email := canvas.NewText(strings.TrimSpace(acc.Email), design.ColorTextLight)
 	email.TextSize = 12
 	email.TextStyle.Bold = true
 	if email.Text == "" {
-		email.Text = "USBridge account"
+		email.Text = loc().USBridgeAccount
 	}
 
-	subLabel, subValue := canvas.NewText("Subscription", design.ColorMutedOlive), canvas.NewText(accountSubscriptionLabel(acc), design.ColorTextLight)
-	planLabel, planValue := canvas.NewText("Plan", design.ColorMutedOlive), canvas.NewText(accountPlanLabel(acc), design.ColorTextLight)
+	subLabel, subValue := canvas.NewText(loc().Subscription, design.ColorMutedOlive), canvas.NewText(accountSubscriptionLabel(acc), design.ColorTextLight)
+	planLabel, planValue := canvas.NewText(loc().Plan, design.ColorMutedOlive), canvas.NewText(accountPlanLabel(acc), design.ColorTextLight)
 	subLabel.TextSize, subValue.TextSize = 10, 10
 	planLabel.TextSize, planValue.TextSize = 10, 10
 	paintAccountPlan := func(acc account.Status) {
@@ -248,47 +248,38 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 	var renderLicenses func(acc account.Status)
 	renderLicenses = func(acc account.Status) {
 		licensesBody.RemoveAll()
+		if acc.LastError != "" {
+			errLbl := widget.NewLabel(acc.LastError)
+			errLbl.Wrapping = fyne.TextWrapWord
+			licensesBody.Add(wrapAccountField(errLbl, 9, design.ColorAlert))
+		}
 		for _, lic := range acc.Licenses {
 			if !strings.EqualFold(lic.Status, "licensed") {
 				continue
 			}
 			lic := lic
-			tail := lic.Identifier
-			if len(tail) > 8 {
-				tail = tail[len(tail)-8:]
+			var onUse func()
+			if !acc.RebindInProgress && !lic.OnThisDevice {
+				onUse = func() {
+					go func() {
+						_ = w.token.RebindLicenseToThisDevice(lic.Identifier)
+						fyne.Do(func() {
+							next := w.token.AccountStatus()
+							paintAccountPlan(next)
+							renderLicenses(next)
+							w.syncProtocolPicker(w.token.EntitlementStatus())
+						})
+					}()
+				}
 			}
-			name := canvas.NewText(fmt.Sprintf("%s ·%s", accountTierLabel(lic.Tier), tail), design.ColorTextLight)
-			name.TextSize = 10
-			if acc.RebindInProgress {
-				state := canvas.NewText("Moving…", design.ColorMutedOlive)
-				state.TextSize = 10
-				licensesBody.Add(container.New(&flushEndsLayout{}, name, state))
-				continue
-			}
-			useBtn := newAccountDialogTextButton("Use here", func() {
-				go func() {
-					_ = w.token.RebindLicenseToThisDevice(lic.Identifier)
-					fyne.Do(func() {
-						next := w.token.AccountStatus()
-						paintAccountPlan(next)
-						renderLicenses(next)
-						w.syncProtocolPicker(w.token.EntitlementStatus())
-					})
-				}()
-			})
-			licensesBody.Add(container.New(&flushEndsLayout{}, name, useBtn))
-		}
-		if len(licensesBody.Objects) > 0 {
-			hint := canvas.NewText("Your licenses", design.ColorEmptyHint)
-			hint.TextSize = 9
-			licensesBody.Objects = append([]fyne.CanvasObject{hint}, licensesBody.Objects...)
+			licensesBody.Add(newAccountLicenseCard(lic, acc.RebindInProgress, onUse))
 		}
 		licensesBody.Refresh()
 	}
 	renderLicenses(acc)
 
 	var popup *tealMenuPopup
-	logout := newCardHeaderButton("Log out", headerLogoutIcon, func() {
+	logout := newCardHeaderButton(loc().LogOut, headerLogoutIcon, func() {
 		if popup != nil {
 			popup.Hide()
 		}
@@ -319,7 +310,7 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 	border.StrokeWidth = 1
 	content := container.NewStack(bg, newExactInset(inner, 10, 10, 10, 10), border)
 
-	width := float32(220)
+	width := float32(280)
 	if min := content.MinSize(); min.Width > width {
 		width = min.Width
 	}
@@ -416,11 +407,11 @@ func accountSubscriptionLabel(acc account.Status) string {
 	}
 	switch {
 	case hasLicensed:
-		return "Active"
+		return loc().SubActive
 	case hasTrial:
-		return "Trial"
+		return loc().SubTrial
 	default:
-		return "None"
+		return loc().SubNone
 	}
 }
 
@@ -438,6 +429,77 @@ func accountPlanLabel(acc account.Status) string {
 		}
 	}
 	return plan
+}
+
+func newAccountLicenseCard(lic account.License, moving bool, onUse func()) fyne.CanvasObject {
+	tier := accountTierLabel(lic.Tier)
+	msg := fmt.Sprintf(loc().LicenseUsedHere, tier)
+	if !lic.OnThisDevice {
+		msg = fmt.Sprintf(loc().LicenseUsedElsewhere, tier)
+	}
+
+	tail := lic.Identifier
+	if len(tail) > 8 {
+		tail = tail[len(tail)-8:]
+	}
+	id := canvas.NewText("ID  ·"+tail, design.ColorEmptyHint)
+	id.TextSize = 8
+
+	var right fyne.CanvasObject
+	switch {
+	case moving:
+		st := canvas.NewText(loc().Moving, design.ColorMutedOlive)
+		st.TextSize = 9
+		right = st
+	case lic.OnThisDevice:
+		here := canvas.NewText(loc().LicenseOnThisDevice, design.ColorCTA)
+		here.TextSize = 9
+		here.TextStyle.Bold = true
+		right = here
+	case onUse != nil:
+		right = newAccountDialogCTAButton(loc().UseLicenseOnDevice, onUse)
+	}
+	footer := fyne.CanvasObject(id)
+	if right != nil {
+		footer = container.New(&flushEndsLayout{}, id, right)
+	}
+	inner := container.New(&tightVBoxLayout{gap: 2},
+		accountLicenseHint(msg),
+		footer,
+	)
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = 6
+	bg.StrokeColor = design.ColorTailscaleChipBorder
+	bg.StrokeWidth = 1
+	return container.NewStack(bg, newExactInset(inner, 12, 12, 8, 8))
+}
+
+func accountLicenseHint(msg string) fyne.CanvasObject {
+	hint := widget.NewLabel(msg)
+	hint.Wrapping = fyne.TextWrapWord
+	hint.Alignment = fyne.TextAlignLeading
+	line := fyne.MeasureText("Ag", 8, fyne.TextStyle{}).Height
+	return container.New(&accountLicenseHintLayout{height: line * 2}, wrapDialogLabel(hint, 8, design.ColorMutedOlive))
+}
+
+type accountLicenseHintLayout struct{ height float32 }
+
+func (l *accountLicenseHintLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	for _, o := range objects {
+		if o == nil {
+			continue
+		}
+		o.Resize(size)
+		o.Move(fyne.NewPos(0, 0))
+	}
+}
+
+func (l *accountLicenseHintLayout) MinSize([]fyne.CanvasObject) fyne.Size {
+	h := l.height
+	if h < 1 {
+		h = 20
+	}
+	return fyne.NewSize(0, h)
 }
 
 func (w *Window) refreshAccountAvatar() {
@@ -587,7 +649,7 @@ func (b *googleLoginButton) CreateRenderer() fyne.WidgetRenderer {
 	icon := canvas.NewImageFromResource(assets.GoogleLogo)
 	icon.FillMode = canvas.ImageFillContain
 	icon.SetMinSize(fyne.NewSize(16, 16))
-	text := canvas.NewText("Log in with Google", design.ColorCTALabel)
+	text := canvas.NewText(loc().LogInWithGoogle, design.ColorCTALabel)
 	text.TextSize = 11
 	text.TextStyle.Bold = true
 	return &googleLoginButtonRenderer{
@@ -666,7 +728,7 @@ type accountDialogTextButton struct {
 	text     string
 	onTapped func()
 	hovered  bool
-	lbl      *canvas.Text
+	accent   bool
 }
 
 func newAccountDialogTextButton(text string, onTapped func()) *accountDialogTextButton {
@@ -675,11 +737,26 @@ func newAccountDialogTextButton(text string, onTapped func()) *accountDialogText
 	return b
 }
 
+func newAccountDialogCTAButton(text string, onTapped func()) *accountDialogTextButton {
+	b := &accountDialogTextButton{text: text, onTapped: onTapped, accent: true}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
 func (b *accountDialogTextButton) CreateRenderer() fyne.WidgetRenderer {
-	b.lbl = canvas.NewText(b.text, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
-	b.lbl.TextSize = 10
-	b.lbl.TextStyle.Bold = true
-	return widget.NewSimpleRenderer(newExactInset(b.lbl, 8, 8, 3, 3))
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = 4
+	bg.StrokeWidth = 1
+	bg.StrokeColor = design.ColorChromeOlive
+	lbl := canvas.NewText(b.text, design.ColorMutedOlive)
+	lbl.TextSize = 9
+	lbl.TextStyle.Bold = true
+	return &accountDialogTextButtonRenderer{
+		btn:     b,
+		bg:      bg,
+		lbl:     lbl,
+		objects: []fyne.CanvasObject{bg, lbl},
+	}
 }
 
 func (b *accountDialogTextButton) Tapped(*fyne.PointEvent) {
@@ -691,24 +768,60 @@ func (b *accountDialogTextButton) TappedSecondary(*fyne.PointEvent) {}
 func (b *accountDialogTextButton) Cursor() desktop.Cursor           { return desktop.PointerCursor }
 func (b *accountDialogTextButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
-	b.refreshVisuals()
+	b.Refresh()
 }
 func (b *accountDialogTextButton) MouseOut() {
 	b.hovered = false
-	b.refreshVisuals()
+	b.Refresh()
 }
 func (b *accountDialogTextButton) MouseMoved(*desktop.MouseEvent) {}
 
-func (b *accountDialogTextButton) refreshVisuals() {
-	if b.lbl == nil {
-		return
-	}
-	if b.hovered {
-		b.lbl.Color = design.ColorTextLight
+type accountDialogTextButtonRenderer struct {
+	btn     *accountDialogTextButton
+	bg      *canvas.Rectangle
+	lbl     *canvas.Text
+	objects []fyne.CanvasObject
+}
+
+func (r *accountDialogTextButtonRenderer) Destroy() {}
+func (r *accountDialogTextButtonRenderer) Objects() []fyne.CanvasObject {
+	return r.objects
+}
+
+func (r *accountDialogTextButtonRenderer) MinSize() fyne.Size {
+	ts := r.lbl.MinSize()
+	return fyne.NewSize(ts.Width+16, fyne.Max(ts.Height+8, 18))
+}
+
+func (r *accountDialogTextButtonRenderer) Layout(size fyne.Size) {
+	r.bg.Resize(size)
+	ts := r.lbl.MinSize()
+	r.lbl.Resize(ts)
+	r.lbl.Move(fyne.NewPos((size.Width-ts.Width)/2, (size.Height-ts.Height)/2-0.5))
+}
+
+func (r *accountDialogTextButtonRenderer) Refresh() {
+	r.lbl.Text = r.btn.text
+	if r.btn.accent {
+		if r.btn.hovered {
+			r.bg.FillColor = design.ColorCTAHover
+		} else {
+			r.bg.FillColor = design.ColorCTA
+		}
+		r.bg.StrokeColor = color.Transparent
+		r.lbl.Color = design.ColorCTALabel
+	} else if r.btn.hovered {
+		r.bg.FillColor = design.ColorCTA
+		r.bg.StrokeColor = design.ColorCTA
+		r.lbl.Color = design.ColorCTALabel
 	} else {
-		b.lbl.Color = color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
+		r.bg.FillColor = design.ColorGray900
+		r.bg.StrokeColor = design.ColorChromeOlive
+		r.lbl.Color = design.ColorMutedOlive
 	}
-	b.lbl.Refresh()
+	r.bg.Refresh()
+	r.lbl.Refresh()
+	r.Layout(r.btn.Size())
 }
 
 type accountProgressTheme struct{ fyne.Theme }

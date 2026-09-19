@@ -59,6 +59,8 @@ type LocalizedStrings struct {
 	ManualEntry                       string
 	OrEnterManually                   string
 	AddConnectionSubtitle             string
+	AddVirtualDisplayTitle            string
+	AddVirtualDisplaySubtitle         string
 	TailscaleRedirectHint             string
 	AutoRegistrationBadge             string
 	ConnectionBadgeUnknown            string
@@ -105,11 +107,13 @@ type LocalizedStrings struct {
 	AgentFeatLowLatency               string
 	AgentFeatClipboard                string
 	AgentFeatMultiMonitor             string
+	AgentFeatVirtualDisplay           string
 	AgentFeatWebClient                string
 	AgentFeatPreLogin                 string
 	AgentFeatFastConnect              string
 	AgentFeat444                      string
 	AgentFeatUSB                      string
+	AgentFeatWacom                    string
 	AgentFeatRecording                string
 	AgentFeatCompanyRollout           string
 	AgentChipBasic                    string
@@ -374,6 +378,8 @@ type LocalizedStrings struct {
 	UpdateLaterButton        string
 	UpdateDownloadingTitle   string
 	UpdateDownloadingMessage string // %s = new version
+	WhatsNewTitle            string
+	WhatsNewGotIt            string
 
 	// Video Settings/Dialogs
 	VideoQualitySettings string
@@ -623,6 +629,8 @@ func EN() *LocalizedStrings {
 		ManualEntry:                       "Manual",
 		OrEnterManually:                   "OR ENTER MANUALLY",
 		AddConnectionSubtitle:             "Pair a hardware or software agent using its IP address and master key.",
+		AddVirtualDisplayTitle:            "Add virtual display",
+		AddVirtualDisplaySubtitle:         "Pick a preset or enter a custom resolution for the video pipe.",
 		TailscaleRedirectHint:             "After connection, the redirect will open on the web.",
 		AutoRegistrationBadge:             "AUTO-REGISTRATION",
 		ConnectionBadgeUnknown:            "Unknown",
@@ -669,11 +677,13 @@ func EN() *LocalizedStrings {
 		AgentFeatLowLatency:               "Ultra-low latency streaming",
 		AgentFeatClipboard:                "Shared clipboard",
 		AgentFeatMultiMonitor:             "Multi-monitor support",
+		AgentFeatVirtualDisplay:           "Virtual display",
 		AgentFeatWebClient:                "Browser web client",
 		AgentFeatPreLogin:                 "Windows pre-login access",
 		AgentFeatFastConnect:              "Fast connect",
 		AgentFeat444:                      "4:4:4 color fidelity",
 		AgentFeatUSB:                      "USB device emulation",
+		AgentFeatWacom:                    "Wacom tablet support",
 		AgentFeatRecording:                "Session recording and audit logs",
 		AgentFeatCompanyRollout:           "Built for company-wide rollout",
 		AgentChipBasic:                    "+ Basic",
@@ -936,6 +946,8 @@ func EN() *LocalizedStrings {
 		UpdateLaterButton:        "Not Now",
 		UpdateDownloadingTitle:   "Updating…",
 		UpdateDownloadingMessage: "Downloading version %s…",
+		WhatsNewTitle:            "What's new",
+		WhatsNewGotIt:            "Got it",
 
 		// Video Settings/Dialogs
 		VideoQualitySettings: "Video Quality Settings",
@@ -1178,6 +1190,8 @@ func ES() *LocalizedStrings {
 	locale.ManualEntry = "Manual"
 	locale.OrEnterManually = "O INTRODUCIR MANUALMENTE"
 	locale.AddConnectionSubtitle = "Empareja un agent de hardware o software con su IP y master key."
+	locale.AddVirtualDisplayTitle = "Agregar display virtual"
+	locale.AddVirtualDisplaySubtitle = "Elige un preset o una resolucion personalizada para el video pipe."
 	locale.TailscaleRedirectHint = "Tras conectar, la redireccion se abrira en el navegador."
 	locale.AutoRegistrationBadge = "AUTO-REGISTRO"
 	locale.QRScanSuccess = "Codigo QR escaneado"
@@ -1241,6 +1255,8 @@ func ES() *LocalizedStrings {
 	locale.UpdateLaterButton = "Ahora no"
 	locale.UpdateDownloadingTitle = "Actualizando…"
 	locale.UpdateDownloadingMessage = "Descargando la version %s…"
+	locale.WhatsNewTitle = "Novedades"
+	locale.WhatsNewGotIt = "Entendido"
 	locale.VideoQualitySettings = "Configuracion de calidad de video"
 	locale.Resolution = "Resolucion"
 	locale.FrameRate = "Frecuencia"
@@ -1324,11 +1340,13 @@ func ES() *LocalizedStrings {
 	locale.AgentFeatLowLatency = "Streaming de ultra baja latencia"
 	locale.AgentFeatClipboard = "Portapapeles compartido"
 	locale.AgentFeatMultiMonitor = "Soporte multi-monitor"
+	locale.AgentFeatVirtualDisplay = "Display virtual"
 	locale.AgentFeatWebClient = "Cliente web en el browser"
 	locale.AgentFeatPreLogin = "Acceso Windows pre-login"
 	locale.AgentFeatFastConnect = "Fast connect"
 	locale.AgentFeat444 = "Fidelidad de color 4:4:4"
 	locale.AgentFeatUSB = "Emulacion USB"
+	locale.AgentFeatWacom = "Soporte de tablet Wacom"
 	locale.AgentFeatRecording = "Grabacion de sesion y audit logs"
 	locale.AgentFeatCompanyRollout = "Pensado para rollout en la empresa"
 	locale.AgentChipBasic = "+ Basic"
@@ -1486,6 +1504,8 @@ func UKProper() *LocalizedStrings {
 	locale.ManualEntry = "Вручну"
 	locale.OrEnterManually = "АБО ВВЕСТИ ВРУЧНУ"
 	locale.AddConnectionSubtitle = "Прив'яжіть hardware або software agent за IP та master key."
+	locale.AddVirtualDisplayTitle = "Додати віртуальний дисплей"
+	locale.AddVirtualDisplaySubtitle = "Оберіть пресет або свою роздільність для video pipe."
 	locale.TailscaleRedirectHint = "Після конекту редірект відкриється в браузері."
 	locale.AutoRegistrationBadge = "АВТОРЕЄСТРАЦІЯ"
 	locale.QRScanSuccess = "QR-код відскановано"
@@ -1549,6 +1569,8 @@ func UKProper() *LocalizedStrings {
 	locale.UpdateLaterButton = "Не зараз"
 	locale.UpdateDownloadingTitle = "Оновлення…"
 	locale.UpdateDownloadingMessage = "Завантаження версії %s…"
+	locale.WhatsNewTitle = "Що нового"
+	locale.WhatsNewGotIt = "Зрозуміло"
 	locale.VideoQualitySettings = "Налаштування якості відео"
 	locale.Resolution = "Роздільна здатність"
 	locale.FrameRate = "Частота кадрів"
@@ -1632,11 +1654,13 @@ func UKProper() *LocalizedStrings {
 	locale.AgentFeatLowLatency = "Стрім з ультранизькою затримкою"
 	locale.AgentFeatClipboard = "Спільний буфер обміну"
 	locale.AgentFeatMultiMonitor = "Підтримка кількох моніторів"
+	locale.AgentFeatVirtualDisplay = "Віртуальний дисплей"
 	locale.AgentFeatWebClient = "Веб-клієнт у браузері"
 	locale.AgentFeatPreLogin = "Доступ Windows до логіну"
 	locale.AgentFeatFastConnect = "Швидкий конект"
 	locale.AgentFeat444 = "Колір 4:4:4"
 	locale.AgentFeatUSB = "Емуляція USB"
+	locale.AgentFeatWacom = "Підтримка планшета Wacom"
 	locale.AgentFeatRecording = "Запис сесій і аудит"
 	locale.AgentFeatCompanyRollout = "Для розгортання в компанії"
 	locale.AgentChipBasic = "+ Basic"
@@ -1713,14 +1737,27 @@ var Current *LocalizedStrings
 // LanguagePrefKey is the Fyne Preferences key for the last chosen UI language.
 const LanguagePrefKey = "language"
 
+var currentCode = "en"
+
+// Code is the active UI language: "en", "es", or "uk".
+func Code() string {
+	if currentCode == "" {
+		return "en"
+	}
+	return currentCode
+}
+
 // Init initializes the localization system
 func Init(language string) {
 	switch language {
 	case "es", "ES":
+		currentCode = "es"
 		Current = ES()
 	case "uk", "UK", "ua", "UA":
+		currentCode = "uk"
 		Current = UKProper()
 	default:
+		currentCode = "en"
 		Current = EN()
 	}
 }

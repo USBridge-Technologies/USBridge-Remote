@@ -71,6 +71,27 @@ type Config struct {
 	// the web client working without needing to opt in.
 	RustShineWebRTCDisabled bool `yaml:"rustshine_webrtc_disabled,omitempty"`
 
+	// StreamerAutoUpdate is the General Settings "USBridge protocol auto-update"
+	// checkbox for USBridge-streamer. Nil (omitted in YAML) means on --
+	// the product default -- so existing config files keep silent
+	// background updates. A pointer is required so an explicit false
+	// round-trips instead of collapsing to that default. Checks still
+	// piggyback on streamerUpdateWatchdog (once an hour -- see
+	// streamerUpdateCheckInterval).
+	StreamerAutoUpdate *bool `yaml:"streamer_auto_update,omitempty"`
+	// StreamerUpdateSnoozed is the USBridge-streamer release tag the user
+	// declined ("No" on the update toast). The header still shows that an
+	// update is available; the toast is not shown again for this tag.
+	StreamerUpdateSnoozed string `yaml:"streamer_update_snoozed,omitempty"`
+
+	// RemoteWindowLock is the General Settings "Block remote control of this
+	// window" checkbox. Nil (omitted) and false both mean off -- opt-in, so
+	// existing installs keep the old "remote session can click the agent"
+	// behavior. When on, the GUI process drops SendInput-injected mouse
+	// and keyboard aimed at its own windows (see internal/remotelock);
+	// real local hardware input is not touched.
+	RemoteWindowLock *bool `yaml:"remote_window_lock,omitempty"`
+
 	// Account login (see agent/internal/account) -- a SEPARATE identity
 	// from EntitlementToken above: this is "which USBridge account (Google
 	// login) is the human running this agent signed into", used only to
@@ -85,6 +106,7 @@ type Config struct {
 }
 
 func Default() Config {
+	remoteLockOff := false
 	return Config{
 		AppName:            "USBridge Agent",
 		ListenHost:         "0.0.0.0",
@@ -97,6 +119,7 @@ func Default() Config {
 
 		ClipboardSyncEnabled: true,
 		ClipboardMaxBytes:    200 * 1024 * 1024,
+		RemoteWindowLock:     &remoteLockOff,
 	}
 }
 
@@ -106,6 +129,19 @@ func (c Config) EffectiveListenHost() string {
 		return "127.0.0.1"
 	}
 	return host
+}
+
+// StreamerAutoUpdateEnabled is true unless the user turned the General
+// Settings checkbox off. Omitted YAML (nil) is on, matching the product
+// default.
+func (c Config) StreamerAutoUpdateEnabled() bool {
+	return c.StreamerAutoUpdate == nil || *c.StreamerAutoUpdate
+}
+
+// RemoteWindowLockEnabled is true only when the user turned the General
+// Settings checkbox on. Omitted YAML (nil) is off.
+func (c Config) RemoteWindowLockEnabled() bool {
+	return c.RemoteWindowLock != nil && *c.RemoteWindowLock
 }
 
 func Load(path string) (Config, error) {

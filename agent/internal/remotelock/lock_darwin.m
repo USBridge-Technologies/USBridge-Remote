@@ -1,0 +1,173 @@
+//go:build darwin
+
+#import <ApplicationServices/ApplicationServices.h>
+#import <Cocoa/Cocoa.h>
+#include <stdint.h>
+
+static volatile int gArmed;
+static CFMachPortRef gTap;
+static CFRunLoopSourceRef gSrc;
+
+void usbridgeRemoteLockSetArmed(int on) {
+	gArmed = on ? 1 : 0;
+}
+
+static int eventIsInjected(CGEventRef event) {
+	// Hardware HID events leave Unix PID at 0. CGEventPost from Sunshine /
+	// this agent's MCP input stamps the posting process. Private sources are
+	// always software-synthesized.
+	int64_t pid = CGEventGetIntegerValueField(event, kCGEventSourceUnixProcessID);
+	if (pid != 0) {
+		return 1;
+	}
+	int64_t state = CGEventGetIntegerValueField(event, kCGEventSourceStateID);
+	return state == (int64_t)kCGEventSourceStatePrivate;
+}
+
+static int isMouseButtonOrWheel(CGEventType type) {
+	switch (type) {
+	case kCGEventLeftMouseDown:
+	case kCGEventLeftMouseUp:
+	case kCGEventRightMouseDown:
+	case kCGEventRightMouseUp:
+	case kCGEventOtherMouseDown:
+	case kCGEventOtherMouseUp:
+	case kCGEventScrollWheel:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static int isKeyEvent(CGEventType type) {
+	return type == kCGEventKeyDown || type == kCGEventKeyUp || type == kCGEventFlagsChanged;
+}
+
+static NSPoint cocoaPoint(CGEventRef event) {
+	CGPoint p = CGEventGetUnflippedLocation(event);
+	return NSMakePoint(p.x, p.y);
+}
+
+static int windowAtPointIsOurs(NSPoint pt) {
+	@autoreleasepool {
+		NSInteger num = [NSWindow windowNumberAtPoint:pt belowWindowWithWindowNumber:0];
+		if (num == 0) {
+			return 0;
+		}
+		return [NSApp windowWithWindowNumber:num] != nil;
+	}
+}
+
+static int overMinButton(NSPoint pt) {
+	@autoreleasepool {
+		NSInteger num = [NSWindow windowNumberAtPoint:pt belowWindowWithWindowNumber:0];
+		NSWindow *w = [NSApp windowWithWindowNumber:num];
+		if (w == nil) {
+			return 0;
+		}
+		NSButton *btn = [w standardWindowButton:NSWindowMiniaturizeButton];
+		if (btn == nil || [btn isHidden]) {
+			return 0;
+		}
+		NSRect b = [btn convertRect:[btn bounds] toView:nil];
+		NSRect scr = [w convertRectToScreen:b];
+		return NSPointInRect(pt, scr) ? 1 : 0;
+	}
+}
+
+static int appIsFrontmost(void) {
+	@autoreleasepool {
+		return [NSApp isActive] ? 1 : 0;
+	}
+}
+
+static CGEventRef usbridgeRemoteLockCallback(
+	CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon)
+{
+	(void)proxy;
+	(void)refcon;
+	if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+		if (gTap != NULL) {
+			CGEventTapEnable(gTap, true);
+		}
+		return event;
+	}
+	if (!gArmed) {
+		return event;
+	}
+	if (!eventIsInjected(event)) {
+		return event;
+	}
+	if (isMouseButtonOrWheel(type)) {
+		NSPoint pt = cocoaPoint(event);
+		if (windowAtPointIsOurs(pt) && !overMinButton(pt)) {
+			return NULL;
+		}
+		return event;
+	}
+	if (isKeyEvent(type) && appIsFrontmost()) {
+		return NULL;
+	}
+	return event;
+}
+
+static CGEventMask usbridgeRemoteLockMask(void) {
+	return CGEventMaskBit(kCGEventLeftMouseDown)
+		| CGEventMaskBit(kCGEventRightMouseDown)
+		| CGEventMaskBit(kCGEventOtherMouseDown)
+		| CGEventMaskBit(kCGEventLeftMouseUp)
+		| CGEventMaskBit(kCGEventRightMouseUp)
+		| CGEventMaskBit(kCGEventOtherMouseUp)
+		| CGEventMaskBit(kCGEventScrollWheel)
+		| CGEventMaskBit(kCGEventKeyDown)
+		| CGEventMaskBit(kCGEventKeyUp)
+		| CGEventMaskBit(kCGEventFlagsChanged);
+}
+
+static CFMachPortRef createTap(CGEventTapLocation loc, CGEventMask mask) {
+	return CGEventTapCreate(
+		loc,
+		kCGHeadInsertEventTap,
+		kCGEventTapOptionDefault,
+		mask,
+		usbridgeRemoteLockCallback,
+		NULL);
+}
+
+int usbridgeRemoteLockInstall(void) {
+	if (gTap != NULL) {
+		return 1;
+	}
+	CGEventMask mask = usbridgeRemoteLockMask();
+	gTap = createTap(kCGHIDEventTap, mask);
+	if (gTap == NULL) {
+		gTap = createTap(kCGSessionEventTap, mask);
+	}
+	if (gTap == NULL) {
+		return 0;
+	}
+	gSrc = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, gTap, 0);
+	if (gSrc == NULL) {
+		CFRelease(gTap);
+		gTap = NULL;
+		return 0;
+	}
+	CFRunLoopAddSource(CFRunLoopGetMain(), gSrc, kCFRunLoopCommonModes);
+	CGEventTapEnable(gTap, true);
+	return 1;
+}
+
+void usbridgeRemoteLockRemove(void) {
+	if (gTap != NULL) {
+		CGEventTapEnable(gTap, false);
+	}
+	if (gSrc != NULL) {
+		CFRunLoopRemoveSource(CFRunLoopGetMain(), gSrc, kCFRunLoopCommonModes);
+		CFRelease(gSrc);
+		gSrc = NULL;
+	}
+	if (gTap != NULL) {
+		CFRelease(gTap);
+		gTap = NULL;
+	}
+}

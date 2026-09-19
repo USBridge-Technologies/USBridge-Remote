@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -16,9 +17,37 @@ import (
 const serviceName = "USBridgeAgent"
 
 var (
-	shell32           = syscall.NewLazyDLL("shell32.dll")
-	procShellExecuteW = shell32.NewProc("ShellExecuteW")
+	shell32             = syscall.NewLazyDLL("shell32.dll")
+	procShellExecuteExW = shell32.NewProc("ShellExecuteExW")
 )
+
+const (
+	seeMaskNoCloseProcess = 0x00000040
+	seeMaskNoAsync        = 0x00000100
+	swHide                = 0
+	elevatedWait          = 60 * time.Second
+)
+
+// shellExecuteInfoW mirrors Win32 SHELLEXECUTEINFOW so Enable/Disable can
+// wait until the elevated --install-service / --uninstall-service helper
+// actually exits (plain ShellExecuteW only reports that it launched).
+type shellExecuteInfoW struct {
+	cbSize         uint32
+	fMask          uint32
+	hwnd           uintptr
+	lpVerb         *uint16
+	lpFile         *uint16
+	lpParameters   *uint16
+	lpDirectory    *uint16
+	nShow          int32
+	hInstApp       uintptr
+	lpIDList       uintptr
+	lpClass        *uint16
+	hkeyClass      uintptr
+	dwHotKey       uint32
+	hIconOrMonitor uintptr
+	hProcess       uintptr
+}
 
 // IsEnabled reports whether the USBridgeAgent service is registered with
 // AUTO_START. Deliberately opens the SCM/service with read-only access
@@ -59,6 +88,40 @@ func IsEnabled() bool {
 	return cfg.StartType == mgr.StartAutomatic
 }
 
+// NeedsReboot is true after Autostart at Boot has been granted (the
+// USBridgeAgent service is registered AUTO_START) but that grant is not
+// yet in effect for this boot: the service is not running. Install no
+// longer Start()s the service from a live GUI (that would spawn a second
+// tray icon in the same session); SCM starts it on the next reboot, at
+// which point this returns false and the UI hint disappears.
+func NeedsReboot() bool {
+	return IsEnabled() && !isServiceRunning()
+}
+
+func isServiceRunning() bool {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseServiceHandle(scm)
+
+	namePtr, err := windows.UTF16PtrFromString(serviceName)
+	if err != nil {
+		return false
+	}
+	h, err := windows.OpenService(scm, namePtr, windows.SERVICE_QUERY_STATUS)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseServiceHandle(h)
+
+	var st windows.SERVICE_STATUS
+	if err := windows.QueryServiceStatus(h, &st); err != nil {
+		return false
+	}
+	return st.CurrentState == windows.SERVICE_RUNNING
+}
+
 func Enable() error {
 	// Request UAC elevation to run `--install-service`
 	exe, _, err := LaunchTarget()
@@ -69,7 +132,13 @@ func Enable() error {
 		_ = os.Remove(exe + ":Zone.Identifier")
 	}
 
-	return runElevated(exe, "--install-service")
+	if err := runElevated(exe, "--install-service"); err != nil {
+		return err
+	}
+	if !IsEnabled() {
+		return fmt.Errorf("Windows service was not registered as AUTO_START")
+	}
+	return nil
 }
 
 func Disable() error {
@@ -77,7 +146,13 @@ func Disable() error {
 	if err != nil {
 		return err
 	}
-	return runElevated(exe, "--uninstall-service")
+	if err := runElevated(exe, "--uninstall-service"); err != nil {
+		return err
+	}
+	if IsEnabled() {
+		return fmt.Errorf("Windows service is still registered as AUTO_START")
+	}
+	return nil
 }
 
 func runElevated(exe string, args string) error {
@@ -98,16 +173,40 @@ func runElevated(exe string, args string) error {
 		return err
 	}
 
-	ret, _, _ := procShellExecuteW.Call(
-		0,
-		uintptr(unsafe.Pointer(verbPtr)),
-		uintptr(unsafe.Pointer(filePtr)),
-		uintptr(unsafe.Pointer(paramsPtr)),
-		uintptr(unsafe.Pointer(dirPtr)),
-		0, // SW_HIDE
-	)
-	if ret <= 32 {
-		return fmt.Errorf("ShellExecuteW(runas) failed with code %d (the UAC prompt may have been declined)", ret)
+	info := shellExecuteInfoW{
+		fMask:        seeMaskNoCloseProcess | seeMaskNoAsync,
+		lpVerb:       verbPtr,
+		lpFile:       filePtr,
+		lpParameters: paramsPtr,
+		lpDirectory:  dirPtr,
+		nShow:        swHide,
+	}
+	info.cbSize = uint32(unsafe.Sizeof(info))
+
+	ret, _, callErr := procShellExecuteExW.Call(uintptr(unsafe.Pointer(&info)))
+	if ret == 0 {
+		return fmt.Errorf("ShellExecuteExW(runas) failed: %v (the UAC prompt may have been declined)", callErr)
+	}
+	if info.hProcess == 0 {
+		return nil
+	}
+	h := windows.Handle(info.hProcess)
+	defer windows.CloseHandle(h)
+
+	event, waitErr := windows.WaitForSingleObject(h, uint32(elevatedWait/time.Millisecond))
+	if waitErr != nil {
+		return fmt.Errorf("WaitForSingleObject: %w", waitErr)
+	}
+	if event == uint32(windows.WAIT_TIMEOUT) {
+		return fmt.Errorf("elevated helper did not finish within %s", elevatedWait)
+	}
+	if event != uint32(windows.WAIT_OBJECT_0) {
+		return fmt.Errorf("WaitForSingleObject: unexpected status %d", event)
+	}
+
+	var code uint32
+	if err := windows.GetExitCodeProcess(h, &code); err == nil && code != 0 {
+		return fmt.Errorf("elevated helper exited with code %d", code)
 	}
 	return nil
 }

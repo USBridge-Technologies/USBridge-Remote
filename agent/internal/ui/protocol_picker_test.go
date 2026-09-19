@@ -74,10 +74,24 @@ func TestProtocolNormalizePick(t *testing.T) {
 		t.Fatalf("Pro applied + Free click = %q, want pro", got)
 	}
 	if got := protocolNormalizePick(protocolFree, protocolOpensource, protocolPro); got != protocolPro {
-		t.Fatalf("Opensource + Pro plan + Free click = %q, want pro", got)
+		t.Fatalf("Opensource + Pro on this machine + Free click = %q, want pro", got)
 	}
 	if got := protocolNormalizePick(protocolFree, protocolOpensource, ""); got != protocolFree {
-		t.Fatalf("no plan + Free click = %q, want free", got)
+		t.Fatalf("Pro parked elsewhere + Free click = %q, want free", got)
+	}
+}
+
+func TestProtocolPaidTier_LicenseElsewhereIsNotThisMachine(t *testing.T) {
+	st := entitlement.Status{Tier: "free"}
+	acc := account.Status{Licenses: []account.License{
+		{Identifier: "other", Status: "licensed", Tier: "pro"},
+	}}
+	if got := protocolPaidTier(st, acc); got != "" {
+		t.Fatalf("Pro on another PC should not lock this machine, got %q", got)
+	}
+	acc.Licenses[0].OnThisDevice = true
+	if got := protocolPaidTier(st, acc); got != protocolPro {
+		t.Fatalf("Pro on this PC = %q, want pro", got)
 	}
 }
 

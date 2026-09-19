@@ -61,9 +61,14 @@ func (c *styledCheck) CreateRenderer() fyne.WidgetRenderer {
 	box.CornerRadius = 3
 	box.StrokeWidth = 1
 	mark := newCheckImage(checkGlyphOnTeal)
+	if !c.Checked {
+		mark.Hide()
+	}
 	text := canvas.NewText(c.Label, design.ColorSectionTitle)
 	text.TextSize = 11
-	return &styledCheckRenderer{check: c, box: box, mark: mark, text: text, objects: []fyne.CanvasObject{box, mark, text}}
+	r := &styledCheckRenderer{check: c, box: box, mark: mark, text: text, objects: []fyne.CanvasObject{box, mark, text}}
+	r.Refresh()
+	return r
 }
 
 func (c *styledCheck) MinSize() fyne.Size {
@@ -207,6 +212,14 @@ func (c *permStatusChip) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(c.root)
 }
 
+func (c *permStatusChip) SetBaseLabel(label string) {
+	if c == nil {
+		return
+	}
+	c.baseLabel = label
+	c.refreshVisuals()
+}
+
 func (c *permStatusChip) SetChecked(on bool) {
 	if c == nil {
 		return
@@ -226,7 +239,7 @@ func (c *permStatusChip) refreshVisuals() {
 		return
 	}
 	if c.onRequest != nil && !c.granted {
-		c.labelT.Text = c.baseLabel + " · Grant"
+		c.labelT.Text = c.baseLabel + loc().GrantSuffix
 		c.labelT.Color = design.ColorTeal
 	} else {
 		c.labelT.Text = c.baseLabel
@@ -312,6 +325,7 @@ func (l *checkNudgeLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 type permToggleRow struct {
 	widget.BaseWidget
 	label *canvas.Text
+	hint  *canvas.Text
 	check *styledCheck
 	inner *fyne.Container
 }
@@ -319,13 +333,41 @@ type permToggleRow struct {
 func newPermToggleRowWidget(label string, check *styledCheck) *permToggleRow {
 	t := canvas.NewText(label, design.ColorSectionTitle)
 	t.TextSize = 11
+	hint := canvas.NewText("", design.ColorEmptyHint)
+	hint.TextSize = 8
+	hint.Hide()
 	r := &permToggleRow{
 		label: t,
+		hint:  hint,
 		check: check,
-		inner: container.New(&flushEndsLayout{}, t, check),
+		inner: container.New(&flushEndsLayout{},
+			container.New(&tightHBoxLayout{gap: 4}, t, hint),
+			check),
 	}
 	r.ExtendBaseWidget(r)
 	return r
+}
+
+func (r *permToggleRow) SetLabel(label string) {
+	if r == nil || r.label == nil {
+		return
+	}
+	r.label.Text = label
+	r.label.Refresh()
+}
+
+func (r *permToggleRow) SetHint(hint string) {
+	if r == nil || r.hint == nil {
+		return
+	}
+	r.hint.Text = hint
+	if strings.TrimSpace(hint) == "" {
+		r.hint.Hide()
+	} else {
+		r.hint.Show()
+	}
+	r.hint.Refresh()
+	r.Refresh()
 }
 
 func (r *permToggleRow) CreateRenderer() fyne.WidgetRenderer {

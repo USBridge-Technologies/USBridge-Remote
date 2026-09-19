@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image/color"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -230,17 +231,41 @@ func newBrandedDialogPanel(title string, width float32, body, footer fyne.Canvas
 }
 
 func newBrandedDialogPanelInsets(title string, width, padX, bodyPadT float32, body, footer fyne.CanvasObject, onClose func()) fyne.CanvasObject {
+	return newBrandedDialogPanelChrome(title, "", width, padX, bodyPadT, body, footer, onClose)
+}
+
+func newBrandedDialogPanelChrome(title, subtitle string, width, padX, bodyPadT float32, body, footer fyne.CanvasObject, onClose func()) fyne.CanvasObject {
+	return newBrandedDialogPanelChromeExtra(title, subtitle, nil, width, padX, bodyPadT, 10, 16, body, footer, onClose)
+}
+
+func newBrandedDialogPanelChromeExtra(title, subtitle string, titleExtra fyne.CanvasObject, width, padX, bodyPadT, footerPadT, footerPadB float32, body, footer fyne.CanvasObject, onClose func()) fyne.CanvasObject {
 	titleText := canvas.NewText(title, design.ColorTextLight)
 	titleText.TextSize = 13
 	titleText.TextStyle.Bold = true
 
+	var titleRow fyne.CanvasObject = titleText
+	if titleExtra != nil {
+		titleRow = container.New(&tightHBoxLayout{gap: 8}, titleText, titleExtra)
+	}
+
+	var headerInner fyne.CanvasObject = titleRow
+	headerBandH := float32(45)
+	headerPadT, headerPadB := float32(12), float32(17)
+	if strings.TrimSpace(subtitle) != "" {
+		sub := canvas.NewText(subtitle, design.ColorMutedOlive)
+		sub.TextSize = 8
+		headerInner = container.New(&tightVBoxLayout{gap: 4}, titleRow, sub)
+		headerBandH = 61
+		headerPadT, headerPadB = 10, 17
+	}
+
 	headerSep := canvas.NewRectangle(design.ColorDialogSep)
 	headerSep.SetMinSize(fyne.NewSize(0, 1))
 	headerBand := canvas.NewRectangle(color.Transparent)
-	headerBand.SetMinSize(fyne.NewSize(0, 40))
+	headerBand.SetMinSize(fyne.NewSize(0, headerBandH))
 	header := container.New(&tightVBoxLayout{gap: 0},
 		newDialogTopAccentBar(),
-		container.NewStack(headerBand, newExactInset(titleText, 21, 44, 12, 12)),
+		container.NewStack(headerBand, newExactInset(headerInner, 21, 44, headerPadT, headerPadB)),
 		headerSep,
 	)
 
@@ -262,7 +287,7 @@ func newBrandedDialogPanelInsets(title string, width, padX, bodyPadT float32, bo
 		footerSep.SetMinSize(fyne.NewSize(0, 1))
 		footerBlock = container.NewVBox(
 			footerSep,
-			newExactInset(footer, padX, padX, 10, 16),
+			newExactInset(footer, padX, padX, footerPadT, footerPadB),
 		)
 	}
 

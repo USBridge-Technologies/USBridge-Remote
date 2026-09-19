@@ -12,9 +12,9 @@ import (
 	"usbridge_agent/internal/ui/design"
 )
 
-// styledMenuItem is one row in showStyledTealMenu — the agent's copy of the
-// client's teal header dropdown (ShowStyledMenuTeal): 10px teal labels on a
-// Gray950 rounded panel.
+// styledMenuItem is one row in the agent's header dropdown (Gray950
+// rounded panel, 10px labels). showStyledTealMenu keeps the older teal
+// rows (footer Theme); showStyledLightMenu is the settings gear.
 type styledMenuItem struct {
 	Label    string
 	Icon     fyne.Resource
@@ -24,14 +24,18 @@ type styledMenuItem struct {
 }
 
 func showStyledTealMenu(anchor fyne.CanvasObject, items []styledMenuItem) {
-	placeStyledTealMenu(anchor, items, false)
+	placeStyledMenu(anchor, items, false, design.ColorTeal)
 }
 
 func showStyledTealMenuAbove(anchor fyne.CanvasObject, items []styledMenuItem) {
-	placeStyledTealMenu(anchor, items, true)
+	placeStyledMenu(anchor, items, true, design.ColorTeal)
 }
 
-func placeStyledTealMenu(anchor fyne.CanvasObject, items []styledMenuItem, above bool) {
+func showStyledLightMenu(anchor fyne.CanvasObject, items []styledMenuItem) {
+	placeStyledMenu(anchor, items, false, design.ColorTextLight)
+}
+
+func placeStyledMenu(anchor fyne.CanvasObject, items []styledMenuItem, above bool, textColor color.Color) {
 	if anchor == nil || len(items) == 0 {
 		return
 	}
@@ -63,8 +67,8 @@ func placeStyledTealMenu(anchor fyne.CanvasObject, items []styledMenuItem, above
 				menuItem.OnTap()
 			}
 		}
-		rows = append(rows, newTealMenuRow(menuItem.Label, menuItem.Icon, menuItem.Selected, menuItem.Disabled, textSize, rowHeight, onTap))
-		label := canvas.NewText(menuItem.Label, design.ColorTeal)
+		rows = append(rows, newTealMenuRow(menuItem.Label, menuItem.Icon, menuItem.Selected, menuItem.Disabled, textSize, rowHeight, textColor, onTap))
+		label := canvas.NewText(menuItem.Label, textColor)
 		label.TextSize = textSize
 		extra := float32(40)
 		if menuItem.Icon != nil {
@@ -205,11 +209,15 @@ type tealMenuRow struct {
 	hovered   bool
 	textSize  float32
 	minHeight float32
+	textColor color.Color
 	onTap     func()
 }
 
-func newTealMenuRow(label string, icon fyne.Resource, selected, disabled bool, textSize, minHeight float32, onTap func()) *tealMenuRow {
-	r := &tealMenuRow{label: label, icon: icon, selected: selected, disabled: disabled, textSize: textSize, minHeight: minHeight, onTap: onTap}
+func newTealMenuRow(label string, icon fyne.Resource, selected, disabled bool, textSize, minHeight float32, textColor color.Color, onTap func()) *tealMenuRow {
+	if textColor == nil {
+		textColor = design.ColorTeal
+	}
+	r := &tealMenuRow{label: label, icon: icon, selected: selected, disabled: disabled, textSize: textSize, minHeight: minHeight, textColor: textColor, onTap: onTap}
 	r.ExtendBaseWidget(r)
 	return r
 }
@@ -217,7 +225,7 @@ func newTealMenuRow(label string, icon fyne.Resource, selected, disabled bool, t
 func (r *tealMenuRow) CreateRenderer() fyne.WidgetRenderer {
 	bg := canvas.NewRectangle(color.Transparent)
 	bg.CornerRadius = 4
-	text := canvas.NewText(r.label, design.ColorTeal)
+	text := canvas.NewText(r.label, r.textColor)
 	text.TextSize = r.textSize
 	objects := []fyne.CanvasObject{bg, text}
 	var img *canvas.Image
@@ -231,7 +239,7 @@ func (r *tealMenuRow) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (r *tealMenuRow) MinSize() fyne.Size {
-	t := canvas.NewText(r.label, design.ColorTeal)
+	t := canvas.NewText(r.label, r.textColor)
 	t.TextSize = r.textSize
 	w := t.MinSize().Width + 28
 	if r.icon != nil {
@@ -303,7 +311,7 @@ func (r *tealMenuRowRenderer) Refresh() {
 	}
 	r.bg.FillColor = fill
 	r.text.Text = r.row.label
-	r.text.Color = design.ColorTeal
+	r.text.Color = r.row.textColor
 	if r.row.disabled {
 		r.text.Color = design.ColorEmptyHint
 	}

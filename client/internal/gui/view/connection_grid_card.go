@@ -599,10 +599,17 @@ func (t *gridCardFieldTheme) Size(name fyne.ThemeSizeName) float32 {
 	return t.Theme.Size(name)
 }
 
-// wrapGridCardEntry applies gridCardFieldTheme to entry via a ThemeOverride,
-// same trick controller.noInputBgTheme uses for the modal editor's fields,
-// just local to this package (view can't import controller).
 func wrapGridCardEntry(entry *StyledEntry, textSize float32, textColor color.Color) fyne.CanvasObject {
+	return WrapBrandEntry(entry, textSize, textColor)
+}
+
+// WrapBrandEntry is the teal-chrome widget.Entry used across dialogs
+// (Add Connection, List edit, Add Virtual Display custom fields): faint
+// turquoise border, brighter on focus, no extra outer card around it.
+func WrapBrandEntry(entry *StyledEntry, textSize float32, textColor color.Color) fyne.CanvasObject {
+	if textSize <= 0 {
+		textSize = 11
+	}
 	return container.NewThemeOverride(entry, &gridCardFieldTheme{Theme: design.NewBrandTheme(), textSize: textSize, textColor: textColor})
 }
 

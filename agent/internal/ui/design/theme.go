@@ -189,10 +189,6 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	return t.fallback.Color(name, fynetheme.VariantDark)
 }
 
-func (t *BrandTheme) Font(style fyne.TextStyle) fyne.Resource {
-	return t.fallback.Font(style)
-}
-
 func (t *BrandTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 	return t.fallback.Icon(name)
 }

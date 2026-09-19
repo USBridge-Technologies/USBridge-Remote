@@ -44,6 +44,15 @@ type brandedOverlayDialogSpec struct {
 	// tightFooter is a shorter button strip than compactFooter -- the Agent
 	// catalog uses it so Download/GitHub don't dominate the panel.
 	tightFooter bool
+	// hideCancel drops the footer Cancel entirely -- the header X is the
+	// only dismiss control (Add Virtual Display).
+	hideCancel bool
+	// headerPadBottom overrides the title's default 4px gap above the
+	// header hairline. footerPadTop/footerPadBottom override compactFooter
+	// padding when > 0.
+	headerPadBottom float32
+	footerPadTop    float32
+	footerPadBottom float32
 	// footerHint, when set, replaces the Cancel label on the left of the
 	// button row with a muted one-line note (the Agent catalog uses this).
 	footerHint string
@@ -87,9 +96,12 @@ func showBrandedOverlayDialog(spec brandedOverlayDialogSpec) (*widget.PopUp, fun
 	sep.SetMinSize(fyne.NewSize(0, 1))
 	sepFooter := canvas.NewRectangle(color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff})
 	sepFooter.SetMinSize(fyne.NewSize(0, 1))
-	headerBlock := container.New(&tightHeaderVBoxLayout{Gap: 0}, topAccent, view.NewInset(titleCol, 21, 44, 9, 4), sep)
+	headerBottom := float32(4)
+	if spec.headerPadBottom > 0 {
+		headerBottom = spec.headerPadBottom
+	}
+	headerBlock := container.New(&tightHeaderVBoxLayout{Gap: 0}, topAccent, view.NewInset(titleCol, 21, 44, 9, headerBottom), sep)
 
-	cancelBtn := newScriptDialogGhostButton(i18n.Current.Cancel, requestClose)
 	rightItems := make([]fyne.CanvasObject, 0, len(spec.rightButtons))
 	for _, btn := range spec.rightButtons {
 		if btn != nil {
@@ -97,11 +109,15 @@ func showBrandedOverlayDialog(spec brandedOverlayDialogSpec) (*widget.PopUp, fun
 		}
 	}
 	rightGroup := container.New(&view.DeviceRowControlsLayout{Gap: connectionDialogButtonsGap}, rightItems...)
-	var leftFooter fyne.CanvasObject = container.NewCenter(cancelBtn)
-	if spec.footerHint != "" {
-		hint := canvas.NewText(spec.footerHint, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
-		hint.TextSize = 9
-		leftFooter = container.NewCenter(hint)
+	var leftFooter fyne.CanvasObject
+	if !spec.hideCancel {
+		if spec.footerHint != "" {
+			hint := canvas.NewText(spec.footerHint, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
+			hint.TextSize = 9
+			leftFooter = container.NewCenter(hint)
+		} else {
+			leftFooter = container.NewCenter(newScriptDialogGhostButton(i18n.Current.Cancel, requestClose))
+		}
 	}
 	buttons := container.NewBorder(nil, nil, leftFooter, rightGroup)
 	footerTop, panelBottom := float32(14), float32(16)
@@ -110,6 +126,12 @@ func showBrandedOverlayDialog(spec brandedOverlayDialogSpec) (*widget.PopUp, fun
 		footerTop, panelBottom, footerSide = 3, 6, 12
 	} else if spec.compactFooter {
 		footerTop, panelBottom = 8, 12
+	}
+	if spec.footerPadTop > 0 {
+		footerTop = spec.footerPadTop
+	}
+	if spec.footerPadBottom > 0 {
+		panelBottom = spec.footerPadBottom
 	}
 	footerBlock := container.NewVBox(
 		sepFooter,

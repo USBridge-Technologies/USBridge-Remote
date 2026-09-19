@@ -71,12 +71,12 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	addImageBtn.OnHover = dw.dashboardStorageHover
 	dw.dashboardAddImageBtn = addImageBtn
 
-	vdPlusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
+	vdPlusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTealTextColor)
 	vdLabel := "Add"
 	if view.IsMobile() {
 		vdLabel = ""
 	}
-	addVirtualDisplayBtn := view.NewDeviceDashboardHeaderButton(vdLabel, vdPlusGlyph, view.DeviceDashboardAccentLime, dw.handleAddVirtualDisplay)
+	addVirtualDisplayBtn := view.NewDeviceDashboardHeaderButton(vdLabel, vdPlusGlyph, view.DeviceDashboardAccentTeal, dw.handleAddVirtualDisplay)
 	addVirtualDisplayBtn.OnHover = dw.dashboardVideoHover
 	dw.dashboardAddVirtualDisplayBtn = addVirtualDisplayBtn
 
@@ -324,7 +324,7 @@ func (dw *DiskWidget) refreshDashboard() {
 			}
 			extras = append(extras, dw.newDashboardVideoSettingsButton(drive))
 			extras = append(extras, dw.newDashboardVideoRadio(drive))
-			
+
 			videoRows = append(videoRows, view.NewDeviceDashboardVideoRow(
 				icon,
 				dw.captureDeviceBaseTitle(drive),
