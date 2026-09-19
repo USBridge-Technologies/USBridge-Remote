@@ -510,9 +510,12 @@ type LocalizedStrings struct {
 	NetGraph                             string // "Net Graph" checkbox title, video parameters dialog -- live network/render HUD, pure local overlay like AI Vision
 	NetGraphHint                         string // hint shown under the Net Graph checkbox
 	NetGraphBadge                        string // small badge next to the Net Graph title, e.g. "MAC"
+	NetGraphSize                         string // Connections footer metrics-settings panel: HUD size slider label
+	NetGraphBackground                   string // Connections footer metrics-settings panel: HUD wash opacity slider label
 	FrameSmoothing                       string // "Smooth Motion" checkbox title, video parameters dialog -- motion-extrapolated stall concealment, pure local rendering fallback like AI Vision
 	FrameSmoothingHint                   string // hint shown under the Smooth Motion checkbox
 	FrameSmoothingBadge                  string // small badge next to the Smooth Motion title, e.g. "BETA"
+	OtherSettings                        string // labeled divider above the video-parameters toggle list, same style as OrEnterManually
 	MuteAudio                            string // "Mute Audio"
 	UnmuteAudio                          string // "Unmute Audio"
 	DeviceAudio                          string // "Audio"
@@ -1077,9 +1080,12 @@ func EN() *LocalizedStrings {
 		NetGraph:                             "Net Graph",
 		NetGraphHint:                         "Shows a live TF2-style HUD in the corner of the video: latency, packet loss, FEC recovery, and render/decode timing.",
 		NetGraphBadge:                        "Mac",
+		NetGraphSize:                         "Size",
+		NetGraphBackground:                   "Background",
 		FrameSmoothing:                       "Smooth Motion",
 		FrameSmoothingHint:                   "When the network stalls, fills the gap with a motion-extrapolated frame instead of freezing -- never delays real frames, only bridges a late/lost one.",
 		FrameSmoothingBadge:                  "Beta",
+		OtherSettings:                        "OTHER SETTINGS",
 		MuteAudio:                            "Mute Audio",
 		UnmuteAudio:                          "Unmute Audio",
 		DeviceAudio:                          "Audio",
@@ -1355,6 +1361,9 @@ func ES() *LocalizedStrings {
 	locale.VideoLowLatencyFmt = "Baja latencia (%.1f %s)"
 	locale.VideoHighFidelityFmt = "Alta fidelidad (%.1f %s)"
 	locale.VideoParameters = "Parametros de video"
+	locale.OtherSettings = "OTROS AJUSTES"
+	locale.NetGraphSize = "Tamano"
+	locale.NetGraphBackground = "Fondo"
 	locale.EnableVSync = "VSync"
 	locale.EnableVSyncHint = "Sincroniza los fotogramas con la pantalla para evitar tearing en movimiento rapido."
 	locale.EnableVSyncBadge = "Recomendado"
@@ -1669,6 +1678,9 @@ func UKProper() *LocalizedStrings {
 	locale.VideoLowLatencyFmt = "Низька затримка (%.1f %s)"
 	locale.VideoHighFidelityFmt = "Висока якість (%.1f %s)"
 	locale.VideoParameters = "Параметри відео"
+	locale.OtherSettings = "ІНШІ НАЛАШТУВАННЯ"
+	locale.NetGraphSize = "Розмір"
+	locale.NetGraphBackground = "Фон"
 	locale.EnableVSync = "VSync"
 	locale.EnableVSyncHint = "Синхронізує кадри з екраном, без розривів при швидкому русі."
 	locale.EnableVSyncBadge = "Радимо"

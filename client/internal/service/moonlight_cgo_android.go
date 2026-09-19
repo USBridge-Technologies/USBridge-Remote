@@ -30,6 +30,8 @@ extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
+extern int  goNetGraphWanted(void);
+extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride);
 
 // Declared in gl_video_impl_android.c
 extern void         android_gl_set_jvm(JavaVM *jvm, jobject ctx);
@@ -44,6 +46,17 @@ extern int  android_vk_is_active(void);
 extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stride);
 extern int  android_vk_try_submit_hwbuffer(void *ahb, int width, int height);
 extern int  android_vk_hwbuffer_supported(void);
+
+// Bodies in net_graph_stats_android.c (not inline here: this file has
+// //export, so a non-static function body in this preamble would be
+// duplicated into _cgo_export.c). g_last_host_latency_tenths_ms is
+// defined there for the same reason.
+extern volatile uint16_t g_last_host_latency_tenths_ms;
+void do_get_rtp_video_stats(uint32_t *out);
+int do_get_estimated_rtt_info(uint32_t *out);
+uint16_t do_get_last_host_latency_tenths_ms(void);
+uint64_t do_get_playout_jitter_us(void);
+uint64_t do_get_playout_applied_delay_us(void);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -346,6 +359,7 @@ static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
 }
 
 static int dr_submit(PDECODE_UNIT du) {
+    g_last_host_latency_tenths_ms = du->frameHostProcessingLatency;
     if (!g_amc) return DR_NEED_IDR;
 
     // Never silently drop a decode unit: if the codec has no free input buffer
@@ -380,7 +394,13 @@ static int dr_submit(PDECODE_UNIT du) {
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {
         AMediaCodec_releaseOutputBuffer(g_amc, out_idx, 1);
-        if (android_vk_is_active() && android_vk_hwbuffer_supported()) {
+        // Net Graph HUD needs a CPU-readable RGBA buffer (ApplyNetGraphOverlay
+        // in net_graph.go). The AHardwareBuffer zero-copy path never produces
+        // one, so while the HUD is on we take the glReadPixels staging path
+        // instead -- same cost as a device without AHB import, only for as
+        // long as the checkbox is ticked. Off (the default): keep zero-copy.
+        int hud = goNetGraphWanted();
+        if (android_vk_is_active() && android_vk_hwbuffer_supported() && !hud) {
             // Zero-copy path: GL renders straight into an AHardwareBuffer
             // that Vulkan imports and blits from directly -- no glReadPixels,
             // no staging-buffer upload, no CPU touches the pixels at all.
@@ -395,10 +415,12 @@ static int dr_submit(PDECODE_UNIT du) {
         } else {
             uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
             if (rgba) {
+                goNetGraphOverlay(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
                 if (android_vk_is_active()) {
                     // Vulkan overlay active but this device/driver lacks
                     // AHardwareBuffer import support -- fall back to the CPU
-                    // staging-buffer path, which works everywhere.
+                    // staging-buffer path, which works everywhere. Also used
+                    // while the Net Graph HUD is on (see hud check above).
                     android_vk_try_submit(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
                 }
                 // Always notify Go for frame counting and FPS stats. goVTFrame detects

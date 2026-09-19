@@ -26,7 +26,10 @@ func mobileControlTabGaps() (gap, minGap float32) {
 	if useMobileControl() {
 		return 10, 6
 	}
-	return 16, 8
+	// Desktop: inter-tab spacing lives inside headerTabButtonPadX so the
+	// clickable boxes meet; icon+text stay 16px apart the way they did
+	// when this was a 16px layout gap around tight text-sized widgets.
+	return 0, 0
 }
 
 func scriptsTabLabel() string {
@@ -72,6 +75,15 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileFullscreenToggle = fs
 	mw.mobileFullscreenBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), fs)
 	mw.mobileFullscreenBtn.Hide()
+
+	if graph, settings := view.NewNetGraphMobileFooterButtons(); graph != nil {
+		mw.mobileNetGraphBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), graph)
+		mw.mobileNetGraphBtn.Hide()
+		if settings != nil {
+			mw.mobileNetGraphSettingsBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), settings)
+			mw.mobileNetGraphSettingsBtn.Hide()
+		}
+	}
 
 	pan := newHeaderStatusBadgeButton(assets.ViewportPanIcon, func() {
 		mw.toggleMobileViewportPanMode()
@@ -327,7 +339,8 @@ func (mw *MainWindow) buildLandscapeConnectedChrome() fyne.CanvasObject {
 	return mw.buildTabsFooterStrip(true)
 }
 
-// buildControlFooterStrip is Control-only: burger left, video / fullscreen / pan / mouse / keyboard right.
+// buildControlFooterStrip is Control-only: burger left, video / fullscreen /
+// net graph / pan / mouse / keyboard right.
 func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject {
 	var left fyne.CanvasObject
 	if mw.mobileControlBurgerWrap != nil {
@@ -381,6 +394,12 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	}
 	if mw.mobileFullscreenBtn != nil {
 		parts = append(parts, mw.mobileFullscreenBtn)
+	}
+	if mw.mobileNetGraphBtn != nil {
+		parts = append(parts, mw.mobileNetGraphBtn)
+	}
+	if mw.mobileNetGraphSettingsBtn != nil {
+		parts = append(parts, mw.mobileNetGraphSettingsBtn)
 	}
 	if mw.mobileViewportPanBtn != nil {
 		parts = append(parts, mw.mobileViewportPanBtn)
@@ -442,7 +461,7 @@ func newConnectedChromeStrip(inner fyne.CanvasObject) fyne.CanvasObject {
 }
 
 // mobileControlFooterAlignLayout keeps the burger and the video/fullscreen/
-// pan/mouse/keyboard cluster on one baseline: left stays left, the rest pack
+// net-graph/pan/mouse/keyboard cluster on one baseline: left stays left, the rest pack
 // to the right, all vertically centered. Border+GridWrap used to top-align the burger.
 type mobileControlFooterAlignLayout struct {
 	gap float32

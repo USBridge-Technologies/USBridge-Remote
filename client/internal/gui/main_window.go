@@ -58,6 +58,8 @@ type MainWindow struct {
 	mobileControlBurgerWrap   fyne.CanvasObject
 	mobileMouseBtn            fyne.CanvasObject
 	mobileMouseToggle         *headerStatusBadgeButton
+	mobileNetGraphBtn         fyne.CanvasObject
+	mobileNetGraphSettingsBtn fyne.CanvasObject
 	// connectedChromeHost holds portrait (tab bar + version) or landscape
 	// (single row) chrome under the connected tabs; swapped by
 	// applyConnectedChromeLayout without a full reloadUI.
@@ -135,6 +137,16 @@ type MainWindow struct {
 	// Fyne-goroutine-only invariant as connectingToast.
 	suppressConnectingToastClose bool
 
+	// connectGen is the in-flight connect attempt's generation. beginConnectAttempt
+	// stores the new id in connectLiveGen; abortConnectAttempt increments
+	// connectGen so queued success UI (fyne.Do after doConnectWithProtocol)
+	// is a no-op and does not attach a session the user already cancelled.
+	connectGen      atomic.Uint64
+	connectLiveGen  atomic.Uint64
+	connectCancelMu sync.Mutex
+	connectCancel   context.CancelFunc
+	connectCtx      context.Context
+
 	// Connection/Disconnection button
 	connectionBtn    *view.HeaderActionButton
 	protocolSelect   *widget.Select
@@ -170,11 +182,12 @@ type MainWindow struct {
 	videoStatusGroup    *fyne.Container
 	// fullscreenIcon is that same group's own fullscreen button, right
 	// after videoResolutionText -- shown/hidden together with the rest of
-	// the group (only makes sense while actually streaming). Tapping
-	// mw.videoIcon itself used to open a menu with a "Fullscreen" item
-	// alongside "Settings" -- now that fullscreen is its own button, that
-	// menu would only ever have one item, so mw.videoIcon's own tap goes
-	// straight to ShowCurrentVideoSettings instead (see showVideoMenu's
+	// the group (only makes sense while actually streaming). Net Graph
+	// toggle + metrics settings sit after it, behind a vertical divider.
+	// Tapping mw.videoIcon itself used to open a menu with a "Fullscreen"
+	// item alongside "Settings" -- now that fullscreen is its own button,
+	// that menu would only ever have one item, so mw.videoIcon's own tap
+	// goes straight to ShowCurrentVideoSettings instead (see showVideoMenu's
 	// removal in main_window_layout.go).
 	fullscreenIcon *headerStatusBadgeButton
 	audioIcon      *headerStatusBadgeButton

@@ -1643,6 +1643,22 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.mobileFullscreenBtn.Refresh()
 		}
+		if mw.mobileNetGraphBtn != nil {
+			if videoStreaming {
+				mw.mobileNetGraphBtn.Show()
+			} else {
+				mw.mobileNetGraphBtn.Hide()
+			}
+			mw.mobileNetGraphBtn.Refresh()
+		}
+		if mw.mobileNetGraphSettingsBtn != nil {
+			if videoStreaming {
+				mw.mobileNetGraphSettingsBtn.Show()
+			} else {
+				mw.mobileNetGraphSettingsBtn.Hide()
+			}
+			mw.mobileNetGraphSettingsBtn.Refresh()
+		}
 		if mw.audioIcon != nil {
 			if audioStreaming {
 				mw.audioIcon.SetIcon(assets.AudioIconStatusBar)

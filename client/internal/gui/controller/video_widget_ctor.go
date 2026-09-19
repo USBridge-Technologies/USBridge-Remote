@@ -37,6 +37,9 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 				// clearVideo() destroys the overlay and shows a darkened last frame via
 				// the Fyne canvas instead, an unambiguous "stopped" visual.
 				go vw.clearVideo()
+				if vw.userStoppedVideo.Load() {
+					return
+				}
 				vw.scheduleVideoReconcile("state-" + state)
 			case "connected", "streaming":
 				// Ignore stale "connected" callbacks that arrive after the user

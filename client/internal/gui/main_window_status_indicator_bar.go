@@ -317,6 +317,14 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	if !useMobileControl() {
 		videoItems = append(videoItems, container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon))
 		swapTargets = append(swapTargets, mw.fullscreenIcon)
+		if graph, settings := view.NewNetGraphHeaderButtons(); graph != nil {
+			videoItems = append(videoItems,
+				newStatusBarDivider(),
+				container.NewGridWrap(statusBarIconBoxSize, graph),
+				container.NewGridWrap(statusBarIconBoxSize, settings),
+			)
+			swapTargets = append(swapTargets, graph, settings)
+		}
 	}
 	view.SetMenuSwapTargets(swapTargets...)
 	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2}, videoItems...)

@@ -178,11 +178,19 @@ static volatile int    g_ready  = 0;
 
 // AHardwareBuffer zero-copy submission (android_vk_try_submit_hwbuffer):
 // nothing to copy, just the pointer GL rendered into and its dimensions.
-// Mutually exclusive with g_buf/g_ready above in practice (dr_submit picks
-// one path or the other for a whole session), guarded by the same g_mu.
+// Mutually exclusive with g_buf/g_ready above for a given frame; the
+// Net Graph HUD switches to the CPU path mid-session (see
+// moonlight_cgo_android.go's dr_submit), so each submit must clear the
+// other path's pending flag or the render thread keeps presenting the
+// leftover AHB frame (HUD appears to flicker).
 static void            *g_pend_ahb = NULL;
 static int              g_pend_ahb_w = 0, g_pend_ahb_h = 0;
 static volatile int     g_ahb_ready  = 0;
+// Render-thread "forget last frame of the other path" -- cursor-only
+// redraws otherwise re-blit the stale AHB (no HUD) or CPU (HUD burned in)
+// after a path switch.
+static atomic_int       g_drop_last_ahb;
+static atomic_int       g_drop_last_cpu;
 
 static pthread_mutex_t g_mu     = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t       g_thread = 0;
@@ -1445,6 +1453,13 @@ static void *vk_render_thread(void *unused) {
         pthread_mutex_unlock(&g_mu);
 
         int cursor_dirty = atomic_exchange(&g_cursor_dirty, 0);
+        if (atomic_exchange(&g_drop_last_ahb, 0)) {
+            has_last_ahb = 0;
+            last_ahb = NULL;
+        }
+        if (atomic_exchange(&g_drop_last_cpu, 0)) {
+            has_last_frame = 0;
+        }
 
         int is_video_frame = 0;
         if (got_ahb) {
@@ -1731,6 +1746,11 @@ int android_vk_try_submit(uint8_t *rgba, int width, int height, int stride) {
         memcpy(g_buf, rgba, sz);
         g_fw = width; g_fh = height; g_fs = stride;
         g_ready = 1; g_submitted++;
+        // Drop any leftover zero-copy frame so the render thread cannot
+        // keep presenting AHB (no HUD) interleaved with this CPU frame.
+        g_ahb_ready = 0;
+        g_pend_ahb = NULL;
+        atomic_store(&g_drop_last_ahb, 1);
     }
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
@@ -1753,6 +1773,8 @@ int android_vk_try_submit_hwbuffer(void *ahb, int width, int height) {
     }
     g_pend_ahb = ahb; g_pend_ahb_w = width; g_pend_ahb_h = height;
     g_ahb_ready = 1; g_submitted++;
+    g_ready = 0;
+    atomic_store(&g_drop_last_cpu, 1);
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
     return 1;
@@ -1760,10 +1782,9 @@ int android_vk_try_submit_hwbuffer(void *ahb, int width, int height) {
 
 // android_vk_hwbuffer_supported reports whether this device/driver has every
 // extension AHardwareBuffer zero-copy import needs (see vk_create_device).
-// Callers should check this once after android_vk_create succeeds and pick
-// android_vk_try_submit_hwbuffer vs android_vk_try_submit for the whole
-// session accordingly -- switching mid-session isn't supported (the render
-// thread doesn't clear the other path's pending frame).
+// Callers pick android_vk_try_submit_hwbuffer vs android_vk_try_submit per
+// frame (HUD-on forces the CPU path). Each submit clears the other path's
+// pending frame so a mid-session switch does not flicker.
 int android_vk_hwbuffer_supported(void) {
     return g_hw_import_supported;
 }
