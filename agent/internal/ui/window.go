@@ -16,6 +16,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -1317,11 +1318,24 @@ func (w *Window) ShowAndRun(onClose func()) {
 	} else {
 		win.Show()
 	}
-	if runtime.GOOS == "windows" && w.token != nil {
+	if w.token != nil {
+		bindRemoteLockWindow(win)
 		remotelock.SetEnabled(w.token.RemoteWindowLockEnabled())
 		defer remotelock.SetEnabled(false)
 	}
 	w.app.Run()
+}
+
+func bindRemoteLockWindow(win fyne.Window) {
+	nw, ok := win.(driver.NativeWindow)
+	if !ok {
+		return
+	}
+	nw.RunNative(func(ctx any) {
+		if x, ok := ctx.(driver.X11WindowContext); ok && x.WindowHandle != 0 {
+			remotelock.SetX11Window(x.WindowHandle)
+		}
+	})
 }
 
 // promptForUpdate runs the mandatory startup update check and, if a newer

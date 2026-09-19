@@ -105,6 +105,8 @@ func setHookEnabled(on bool) {
 	stopHook()
 }
 
+func setX11Window(uintptr) {}
+
 func startHook() {
 	hookMu.Lock()
 	already := mouseHook != 0

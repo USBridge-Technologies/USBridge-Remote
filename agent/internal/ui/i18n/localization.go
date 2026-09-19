@@ -18,6 +18,7 @@ type LocalizedStrings struct {
 	GeneralSettingsSubtitle string
 	AgentAutoUpdate         string
 	RemoteWindowLock        string
+	RemoteWindowLockHint    string
 
 	// Cards
 	Permissions string
@@ -244,6 +245,7 @@ func EN() *LocalizedStrings {
 		GeneralSettingsSubtitle: "Preferences that apply to the whole agent.",
 		AgentAutoUpdate:         "USBridge protocol auto-update",
 		RemoteWindowLock:        "Block remote control of this window",
+		RemoteWindowLockHint:    "When this is on, a remote session cannot click the agent window. Be careful.",
 
 		Permissions: "Permissions",
 		Status:      "Status",
@@ -435,6 +437,7 @@ func ES() *LocalizedStrings {
 	locale.GeneralSettingsSubtitle = "Preferencias para todo el agente."
 	locale.AgentAutoUpdate = "Actualizacion automatica del protocolo USBridge"
 	locale.RemoteWindowLock = "Bloquear el control remoto de esta ventana"
+	locale.RemoteWindowLockHint = "Al activarlo, una sesion remota no podra pulsar la ventana del agente. Tenga cuidado."
 
 	locale.Permissions = "Permisos"
 	locale.Status = "Estado"
@@ -616,6 +619,7 @@ func UK() *LocalizedStrings {
 	locale.GeneralSettingsSubtitle = "Параметри для всього агента."
 	locale.AgentAutoUpdate = "Автооновлення протоколу USBridge"
 	locale.RemoteWindowLock = "Блокувати віддалене керування цим вікном"
+	locale.RemoteWindowLockHint = "Коли ввімкнено, з віддаленої сесії не можна натискати вікно агента. Будьте обережні."
 
 	locale.Permissions = "Дозволи"
 	locale.Status = "Статус"
