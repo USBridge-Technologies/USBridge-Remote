@@ -151,14 +151,13 @@ const (
 	// IMPORTANT: t does not hard-stop here once elapsed time pushes past
 	// it -- see frameSmoothingSoftExtraT below. A hard stop was tried
 	// first (raising frameSmoothingMaxConsecutive from 4 to 25 alone,
-	// For dynamic/gaming content, extrapolating beyond 1.5x amplifies block-matching
-	// errors (occlusions, perspective changes) into massive visual smears.
-	// We cap confident extrapolation tightly to prevent "warp artifacts" in fast motion.
-	frameSmoothingMaxT = 1.25
+	// For dynamic/gaming content, we rely on the shader's Hard Clamp (24px)
+	// to prevent smearing, rather than freezing the CPU timeline.
+	// This restores smooth pacing for standard delays.
+	frameSmoothingMaxT = 2.0
 
-	// SoftExtraT allows a tiny bit of easing so the frame doesn't freeze completely,
-	// but we keep it small to avoid stretching artifacts.
-	frameSmoothingSoftExtraT = 0.25
+	// SoftExtraT allows the frame to ease forward for long network stalls.
+	frameSmoothingSoftExtraT = 1.5
 
 	// frameSmoothingSoftDecayIntervals sets how quickly the soft-extra
 	// creep above decays -- in units of expected-intervals of "excess"

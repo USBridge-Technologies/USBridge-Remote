@@ -51,6 +51,8 @@ type VideoStartDialog struct {
 	deviceLabel      *widget.Label
 	vsyncCheck       *videoDialogCheckbox
 	vsyncHint        *videoDialogWrapText
+	fsrCheck         *videoDialogCheckbox
+	fsrHint          *videoDialogWrapText
 	aiVisionCheck    *videoDialogCheckbox
 	aiVisionHint     *videoDialogWrapText
 	// color444Check/color444Hint: the RustShine Pro 4:4:4 color upgrade.
@@ -1507,6 +1509,15 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.vsyncHint,
 	)
 
+	vsd.fsrCheck = newVideoDialogCheckbox(false, nil)
+	vsd.fsrHint = newVideoDialogDescription("Повышает четкость картинки при низком разрешении трансляции.", videoDialogToggleDescWidthFor(hintPanelW, false))
+	fsrRow := newVideoDialogToggleRow(
+		vsd.fsrCheck,
+		newVideoDialogRowTitle("AMD FSR 1.0 Upscaler"),
+		newVideoDialogBadge("New", design.ColorConnectionBadgeText),
+		vsd.fsrHint,
+	)
+
 	// AI Vision: off by default, takes effect immediately (not gated behind
 	// Start/Apply) since it's a pure local-rendering overlay -- see
 	// service.SetAIVisionEnabled's doc comment.
@@ -1618,6 +1629,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	// would push just its checkbox further right than these, breaking the
 	// visual column of checkboxes down the whole section.
 	vsyncRow = NewInsetExact(vsyncRow, videoDialogToggleAlignLeft, 0, 0, 0)
+	fsrRow = NewInsetExact(fsrRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	color444Row = NewInsetExact(color444Row, videoDialogToggleAlignLeft, 0, 0, 0)
 	hdrRow = NewInsetExact(hdrRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	if netGraphRow != nil {
@@ -1741,6 +1753,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		NewInsetExact(vsd.modeDetailsSlot, 0, 0, 2, 0), // was flush against resolutionFPSRow above
 		videoDialogVSpace(8),                           // breathing room before VSync
 		vsyncRow,
+		fsrRow,
 		aiVisionRow,
 		color444Row,
 		hdrRow,

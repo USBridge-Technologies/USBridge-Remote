@@ -521,6 +521,25 @@ static VkSemaphore              g_rnd_sem      = VK_NULL_HANDLE;
 // ─── render-thread state ──────────────────────────────────────────────────────
 
 static volatile atomic_int g_active;
+// Set to 1 the first time any Vulkan call reports VK_ERROR_DEVICE_LOST (GPU
+// driver reset/TDR, e.g. mid H.264 hardware decode -- ffmpeg logs "[vk @ ...]
+// Unable to submit command buffer: VK_ERROR_DEVICE_LOST" first). Per the
+// Vulkan spec, a lost logical device must be destroyed and recreated before
+// any further calls are made on it; nothing here does that recreation, so
+// vk_render_thread instead just stops calling into the dead device at all
+// once this flips. Before this flag existed, vk_render_frame(_vkimage)
+// treated VK_ERROR_DEVICE_LOST as an ordinary "recoverable" failure (logged
+// and retried every ~8ms forever via consec_fail) -- repeatedly hammering an
+// already-lost VkDevice/VkQueue with vkQueueSubmit/vkQueuePresentKHR is
+// undefined behavior, and live debugging (gdb, 2026-09-19) caught the NVIDIA
+// driver itself hitting an internal FAST_FAIL stack-guard (exception
+// 0xc0000409) a few seconds into that retry storm -- crashing the whole
+// process instead of just losing video. Three independent WER crash dumps
+// from earlier sessions share the exact same nvoglv64.dll!DrvPresentBuffers
+// fail-fast signature, so this was the app's actual "hangs then crashes ~10-30s
+// into streaming" bug, not the separate goVTFrame nil-pointer race fixed
+// alongside this.
+static volatile atomic_int g_device_lost = 0;
 // Set to 1 by vk_video_set_hidden to hide overlay (e.g. while a Fyne menu is open).
 static volatile atomic_int g_hidden;
 // Set from vk_video_create/vk_video_create_standalone's vsync argument, read by
@@ -1161,6 +1180,19 @@ static int vk_ensure_staging(size_t sz) {
     vkMapMemory(g_dev, g_stage_mem, 0, VK_WHOLE_SIZE, 0, &g_stage_ptr);
     g_stage_sz = sz;
     return 1;
+}
+
+// ─── device-lost guard ────────────────────────────────────────────────────────
+// Call with the VkResult of any per-frame Vulkan call that can report
+// VK_ERROR_DEVICE_LOST (vkAcquireNextImageKHR, vkWaitForFences, vkQueueSubmit,
+// vkQueuePresentKHR). Latches g_device_lost so vk_render_thread stops calling
+// into this (unrecoverable without a full device recreation, which nothing
+// here implements) VkDevice at all -- see g_device_lost's own doc comment for
+// why hammering it further crashes the process instead of just losing video.
+static void vk_check_device_lost(VkResult res) {
+    if (res == VK_ERROR_DEVICE_LOST && !atomic_exchange(&g_device_lost, 1)) {
+        goVKLog("Vulkan device lost (GPU driver reset) -- halting render thread", 2);
+    }
 }
 
 // ─── image layout transition helper ──────────────────────────────────────────
@@ -1857,6 +1889,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
         g_render_stage = 7; vk_recreate_swapchain(); g_render_stage = 1; return 0;
     }
     if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
+        vk_check_device_lost(res);
         snprintf(_dbg, sizeof(_dbg), "AcquireNextImage failed res=%d", (int)res);
         goVKLog(_dbg, 2);
         g_render_stage = 1; return 0;
@@ -1866,6 +1899,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     t0 = mono_sec();
     VkResult fence_res = vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
     dt = mono_sec() - t0;
+    vk_check_device_lost(fence_res);
     if (fence_res == VK_TIMEOUT) {
         goVKLog("WaitForFences TIMEOUT 2s — GPU hang?", 2);
         vkResetFences(g_dev, 1, &g_fence);
@@ -2038,7 +2072,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
     vk_conceal_note_real_frame(conceal_slot);
     g_render_stage = 5; // queue-submit
-    vkQueueSubmit(g_queue, 1, &si, g_fence);
+    vk_check_device_lost(vkQueueSubmit(g_queue, 1, &si, g_fence));
 
     VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
@@ -2057,6 +2091,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
         return 1;
     }
     if (res != VK_SUCCESS) {
+        vk_check_device_lost(res);
         snprintf(_dbg, sizeof(_dbg), "QueuePresent failed res=%d", (int)res);
         goVKLog(_dbg, 2);
     }
@@ -2159,6 +2194,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         g_render_stage = 1; return 0;
     }
     if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
+        vk_check_device_lost(res);
         snprintf(_dbg, sizeof(_dbg), "AcquireNextImage failed res=%d", (int)res);
         goVKLog(_dbg, 2);
         g_render_stage = 1; return 0;
@@ -2169,6 +2205,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     t0 = mono_sec();
     VkResult fence_res = vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
     dt = mono_sec() - t0;
+    vk_check_device_lost(fence_res);
     if (fence_res == VK_TIMEOUT) {
         goVKLog("WaitForFences TIMEOUT 2s — GPU hang?", 2);
         vkResetFences(g_dev, 1, &g_fence);
@@ -2292,7 +2329,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     vk_conceal_note_real_frame(conceal_slot);
 
     g_render_stage = 5; // queue-submit
-    vkQueueSubmit(g_queue, 1, &si, g_fence);
+    vk_check_device_lost(vkQueueSubmit(g_queue, 1, &si, g_fence));
 
     VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     pi.waitSemaphoreCount = 1;
@@ -2316,6 +2353,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         return 1; // frame counts as rendered
     }
     if (res != VK_SUCCESS) {
+        vk_check_device_lost(res);
         snprintf(_dbg, sizeof(_dbg), "QueuePresent failed res=%d", (int)res);
         goVKLog(_dbg, 2);
     }
@@ -3047,9 +3085,11 @@ static int vk_render_frame_conceal(void) {
     VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
     if (res == VK_TIMEOUT) return 0;
     if (res == VK_ERROR_OUT_OF_DATE_KHR) { vk_recreate_swapchain(); return 0; }
-    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) return 0;
+    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) { vk_check_device_lost(res); return 0; }
 
-    if (vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL) == VK_TIMEOUT) {
+    VkResult conceal_fence_res = vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
+    vk_check_device_lost(conceal_fence_res);
+    if (conceal_fence_res == VK_TIMEOUT) {
         vkResetFences(g_dev, 1, &g_fence);
         return 0;
     }
@@ -3184,7 +3224,7 @@ static int vk_render_frame_conceal(void) {
     si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
     si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
     si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
-    vkQueueSubmit(g_queue, 1, &si, g_fence);
+    vk_check_device_lost(vkQueueSubmit(g_queue, 1, &si, g_fence));
 
     g_conceal_consecutive++;
     g_stat_concealed_frames++;
@@ -3198,6 +3238,7 @@ static int vk_render_frame_conceal(void) {
         vk_recreate_swapchain();
         return 1;
     }
+    if (res != VK_SUCCESS) vk_check_device_lost(res);
     return (res == VK_SUCCESS) ? 1 : 0;
 }
 
@@ -3220,6 +3261,16 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
         last_rendered = 0;
         g_render_hb++;      // advance heartbeat each iteration (visible to Go watchdog)
         if (!atomic_load(&g_active)) break;
+        if (atomic_load(&g_device_lost)) {
+            // Unrecoverable without destroying and recreating the whole
+            // VkDevice, which nothing here does -- idle instead of calling
+            // any more Vulkan functions on it (see g_device_lost's doc
+            // comment for what happens if we don't: a driver-level crash,
+            // not just a stuck app). VideoWidget's own rendered/submitted
+            // stall watchdog (video_widget_windows.go) surfaces this via
+            // app.log instead of a silent freeze.
+            continue;
+        }
 
         if (g_parent_hwnd && g_child_hwnd) {
             // Unified visibility: hide when:
@@ -3428,6 +3479,26 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
 // ─── Public C API ─────────────────────────────────────────────────────────────
 
 int vk_video_is_active(void) { return atomic_load(&g_active); }
+
+// vk_video_is_device_lost: true once any Vulkan call has reported
+// VK_ERROR_DEVICE_LOST (see g_device_lost's doc comment). Checked from
+// moonlight_cgo_windows.go's dr_submit BEFORE feeding any more data to
+// ffmpeg's Vulkan-hwaccel H.264 decoder: that decoder shares this same
+// VkDevice/VkQueue for the zero-copy path, and its own internal decode
+// submission keeps retrying (and re-hitting VK_ERROR_DEVICE_LOST) on every
+// subsequent frame regardless of anything vk_render_thread does -- live
+// debugging (gdb, 2026-09-19) showed the driver's fail-fast crash still
+// happening from that retry storm even after vk_render_thread stopped
+// touching the device, so the decode feed has to stop too.
+int vk_video_is_device_lost(void) { return atomic_load(&g_device_lost); }
+
+// vk_video_mark_device_lost: thin public wrapper around vk_check_device_lost
+// for callers outside this file that detect VK_ERROR_DEVICE_LOST some other
+// way than a direct VkResult here -- specifically moonlight_cgo_windows.go's
+// win_av_log_callback, which catches it out of ffmpeg's own decode log line
+// (see that function's doc comment for why the render thread's own checks
+// alone aren't early enough).
+void vk_video_mark_device_lost(void) { vk_check_device_lost(VK_ERROR_DEVICE_LOST); }
 
 int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     if (!atomic_load(&g_active)) return 0;
