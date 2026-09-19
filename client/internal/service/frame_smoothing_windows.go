@@ -74,6 +74,22 @@ func goFrameSmoothingDecide(elapsedMs, expectedMs C.double, consecutive C.int, e
 	return 1
 }
 
+// goFrameSmoothingMaxConsecutive exposes frameSmoothingMaxConsecutive to C
+// so vk_video_impl_windows.c's telemetry (the "exhausted" counter in
+// vk_conceal_note_real_frame) can compare against the REAL budget instead of
+// a hand-maintained mirror #define -- the previous approach (VK_CONCEAL_MAX_CONSECUTIVE,
+// a duplicated constant) silently drifted out of sync the first time the Go
+// constant was tuned (4 -> 25, 2026-09-19), making "exhausted" measure a
+// stale threshold for a while before being caught. This is the single
+// source of truth; the C side calls it once at startup and caches the
+// result (see g_conceal_max_consecutive in vk_video_impl_windows.c) rather
+// than crossing the cgo boundary on every real frame.
+//
+//export goFrameSmoothingMaxConsecutive
+func goFrameSmoothingMaxConsecutive() C.int {
+	return C.int(frameSmoothingMaxConsecutive)
+}
+
 // goFrameSmoothingUpdateInterval is vk_render_frame's entry point into
 // updateExpectedIntervalMs (frame_smoothing.go), called once per real frame
 // render to fold its measured arrival interval into the rolling EMA

@@ -1,0 +1,33 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_samplerless_texture_functions : enable
+
+#define A_GPU 1
+#define A_GLSL 1
+#include "ffx_a.h"
+
+#define FSR_EASU_F 1
+layout(set = 0, binding = 0) uniform sampler2D InputTexture;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D OutputTexture;
+
+AF4 FsrEasuRF(AF2 p) { return textureGather(InputTexture, p, 0); }
+AF4 FsrEasuGF(AF2 p) { return textureGather(InputTexture, p, 1); }
+AF4 FsrEasuBF(AF2 p) { return textureGather(InputTexture, p, 2); }
+
+#include "ffx_fsr1.h"
+
+layout(push_constant) uniform Constants {
+    uvec4 Const0;
+    uvec4 Const1;
+    uvec4 Const2;
+    uvec4 Const3;
+} push;
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    AU2 gxy = ARmp8x8(gl_LocalInvocationID.x) + AU2(gl_WorkGroupID.x << 4u, gl_WorkGroupID.y << 4u);
+    AF3 c;
+    FsrEasuF(c, gxy, push.Const0, push.Const1, push.Const2, push.Const3);
+    imageStore(OutputTexture, ASU2(gxy), vec4(c, 1.0));
+}

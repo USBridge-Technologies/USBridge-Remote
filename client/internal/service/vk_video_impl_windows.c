@@ -24,12 +24,14 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <windows.h>
 #include <vulkan/vulkan.h>
+#include "fsr_arrays.h"
 #include <vulkan/vulkan_win32.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdatomic.h>
+#include <math.h>
 
 extern void goVKLog(char *msg, int level);
 
@@ -336,6 +338,26 @@ static uint32_t                 g_qfam         = 0;
 static VkSurfaceKHR             g_surf         = VK_NULL_HANDLE;
 static VkSwapchainKHR           g_swap         = VK_NULL_HANDLE;
 static uint32_t                 g_swap_count   = 0;
+
+static VkDescriptorSetLayout g_fsr_dsl = VK_NULL_HANDLE;
+static VkPipelineLayout g_fsr_playout = VK_NULL_HANDLE;
+static VkPipeline g_fsr_easu_pipeline = VK_NULL_HANDLE;
+static VkPipeline g_fsr_rcas_pipeline = VK_NULL_HANDLE;
+static VkDescriptorSet g_fsr_easu_dset = VK_NULL_HANDLE;
+static VkDescriptorSet g_fsr_rcas_dset = VK_NULL_HANDLE;
+static VkImage g_fsr_easu_tex = VK_NULL_HANDLE;
+static VkImageView g_fsr_easu_view = VK_NULL_HANDLE;
+static VkDeviceMemory g_fsr_easu_mem = VK_NULL_HANDLE;
+static VkImage g_fsr_rcas_tex = VK_NULL_HANDLE;
+static VkImageView g_fsr_rcas_view = VK_NULL_HANDLE;
+static VkDeviceMemory g_fsr_rcas_mem = VK_NULL_HANDLE;
+static int g_fsr_w = 0, g_fsr_h = 0;
+int g_enable_fsr = 0;
+
+void vk_set_fsr(int enable) {
+    g_enable_fsr = enable;
+}
+
 static VkImage                 *g_swap_imgs    = NULL;
 static VkImageView             *g_swap_views   = NULL;
 static VkFormat                 g_swap_fmt     = VK_FORMAT_UNDEFINED;
@@ -552,13 +574,62 @@ static volatile int       g_render_stage = 0;
 // mirroring the existing goVKLog pattern.
 extern int    goFrameSmoothingDecide(double elapsedMs, double expectedMs, int consecutive, float *extrapolateTOut);
 extern double goFrameSmoothingUpdateInterval(double prevEma, double newIntervalMs);
+extern int    goFrameSmoothingMaxConsecutive(void);
+extern void   goFrameSmoothingTraceWrite(int concealed, double t, double centerVx, double centerVy,
+    double wholeVx, double wholeVy, double nonzeroPct, double gapMs);
 
 static atomic_int g_conceal_enabled = 0; // set via vk_video_set_concealment_enabled
 static int vk_conceal_ensure_tex2(int w, int h); // defined below; used by vk_render_frame(_vkimage) above it
 static void vk_conceal_note_real_frame(int conceal_slot); // defined below; used by vk_render_frame(_vkimage) above it
+static void vk_conceal_debug_log_flow_stats(void); // DEBUG, defined below; used by vk_render_frame(_vkimage) above it too so a stall's flow stats log promptly once it ends, not just on the next stall
+static void vk_conceal_maybe_log_summary(void); // defined below; used by vk_render_frame(_vkimage) above it too, same reason
+static void vk_conceal_consume_prior(void); // defined below; used by vk_render_frame(_vkimage) above it too, same reason
 
-#define VK_CONCEAL_BLOCK    16 // block-match block size, px
-#define VK_CONCEAL_SEARCH_R 8  // block-match search radius, px
+// block-match block size, px. Was 16 -- live per-sample trace (frame
+// smoothing trace log, 2026-09-19) on a small-particle VFX (sparks: each
+// one a few px, moving at varying speed/direction, some fading out) showed
+// nonzero% pinned near 0% throughout continuous, visible particle motion:
+// at 16x16 (256px), a handful of moving spark pixels are diluted into a
+// block that's otherwise unchanged background, so the block's overall SAD
+// barely improves for ANY candidate offset regardless of confidence
+// threshold -- a resolution problem, not a confidence problem (raising the
+// confidence floor, as done for smoke, doesn't help here: the signal
+// itself is too weak at this granularity). 8x8 (64px) quadruples the block
+// count -- flow is still computed once per STALL not per tick, so the
+// extra one-time cost per stall is affordable -- and lets a small bright
+// particle actually dominate its own block's SAD instead of being diluted
+// by 250+ pixels of unrelated static background around it. Does not help
+// particles that are FADING (an opacity change, not a position change --
+// no block-translation model can represent that) or genuinely too small to
+// influence even an 8x8 block's SAD; those remain a hard limit of this
+// technique, not something further tuning can fix.
+#define VK_CONCEAL_BLOCK    8
+// block-match search radius, px. Was 8 -- live DEBUG readback (flow field
+// stats, 2026-09-19 bad-wifi session, see vk_conceal_debug_log_flow_stats)
+// showed avgMag repeatedly within ~1px of maxMag, and maxMag repeatedly
+// exactly at the search window's corner (12.73px = sqrt(9^2+9^2), R=8
+// refined +-1) across independent stalls -- real on-screen motion (cursor,
+// scroll, animation) routinely exceeds an 8px search window between two
+// real frames on this connection, so the matcher was clipping at the
+// window edge and returning a truncated-magnitude (but often
+// direction-correct) vector, which extrapolateT then stretched into a
+// visible smear in that direction ("смазывает вверх" -- consistent with a
+// real, direction-correct but magnitude-clipped motion estimate). 24 gives
+// real headroom; only costs more compute once per stall (flow is cached
+// and reused across a stall's ticks), not per render tick.
+#define VK_CONCEAL_SEARCH_R 24
+
+// g_conceal_max_consecutive: fetched once (see vk_conceal_note_real_frame's
+// first call) from goFrameSmoothingMaxConsecutive() rather than duplicated
+// as a #define -- used only for the telemetry summary's "exhausted" counter
+// (a stall that ran out of synthesized-frame budget before a real frame
+// arrived, i.e. fell back to a visible freeze), never for decision logic
+// (that stays exclusively in Go, decided via goFrameSmoothingDecide). A
+// hand-maintained mirror constant here silently drifted out of sync the
+// first time the Go budget was tuned (4 -> 25, 2026-09-19), making
+// "exhausted" measure a stale threshold -- fetching the real value at
+// runtime makes that class of bug impossible.
+static int g_conceal_max_consecutive = 0; // 0 = not yet fetched
 
 // Dual real-frame textures (sampled — separate from g_tex, which is
 // blit-only/no SAMPLED usage, so the happy path with concealment disabled
@@ -582,6 +653,65 @@ static VkDeviceMemory g_flow_mem;
 static VkImageView    g_flow_view;
 static int            g_flow_w = 0, g_flow_h = 0;
 
+// DEBUG (temporary -- added to diagnose the "smeared/jumping noise on
+// concealed frames" report on a lossy connection, 2026-09-19): host-visible
+// readback of g_flow_tex so vk_conceal_debug_log_flow_stats can log actual
+// per-block motion-vector statistics once per stall, instead of guessing
+// blind from the "concealing a stall" gap/expected/t line alone. See its
+// call sites in vk_render_frame_conceal.
+static VkBuffer       g_flow_dbg_buf = VK_NULL_HANDLE;
+static VkDeviceMemory g_flow_dbg_mem = VK_NULL_HANDLE;
+static VkDeviceSize   g_flow_dbg_sz  = 0;
+static int            g_flow_dbg_pending = 0; // flow readback queued, not yet logged
+static int            g_flow_dbg_grid_w = 0, g_flow_dbg_grid_h = 0;
+static float          g_flow_dbg_t = 0.0f; // extrapolateT at the time flow was (re)computed
+static double         g_flow_dbg_next_allowed_ts = 0.0; // throttle: don't queue a new readback before this
+
+// Latest flow-field sample, folded into the periodic summary instead of its
+// own log line -- see vk_conceal_debug_log_flow_stats/vk_conceal_maybe_log_summary.
+static int    g_flow_dbg_have_sample = 0;
+static double g_flow_dbg_sample_nonzero_pct = 0.0;
+static int    g_flow_dbg_sample_nonzero_count = 0, g_flow_dbg_sample_total_blocks = 0;
+static double g_flow_dbg_sample_avg_mag = 0.0;
+static double g_flow_dbg_sample_max_mag = 0.0;
+// Signed average vector (not just magnitude) among nonzero blocks, plus the
+// PREVIOUS sample's signed average and a running same-direction/flip
+// tally across consecutive throttled samples -- added to directly check a
+// reported "micro-jitter in 2 directions" complaint: magnitude-only stats
+// can't distinguish a flow field that's consistently pointing one way
+// (real, coherent motion) from one that's flip-flopping direction between
+// samples (noise/instability, which would look exactly like the reported
+// back-and-forth jitter once stretched by extrapolateT). See
+// vk_conceal_maybe_log_summary's "dirFlips" output.
+static double g_flow_dbg_sample_avg_vx = 0.0, g_flow_dbg_sample_avg_vy = 0.0;
+static int    g_flow_dbg_have_prev_dir = 0;
+static double g_flow_dbg_prev_avg_vx = 0.0, g_flow_dbg_prev_avg_vy = 0.0;
+static long long g_conceal_summary_dir_samples = 0; // throttled samples compared since last summary
+static long long g_conceal_summary_dir_flips   = 0; // of those, how many reversed direction (dot product < 0) from the previous one
+
+// Temporal-direction prior: fed INTO flow_blockmatch.comp as a push
+// constant (g_conceal_prior_vx/vy) so it can break ties between two
+// candidates with near-identical SAD but OPPOSITE sign (my earlier
+// "prefer closer to zero" tie-break can't discriminate these -- they're
+// equally close). Classic case: a periodic/tiled background texture (this
+// app's actual content includes streamed games) where true motion +d and
+// its alias -d (or +d minus a full tile period) score almost identically,
+// so the search flip-flops between them stall to stall purely from
+// floating-point noise -- reported live 2026-09-19 as the game's
+// background visibly jittering back-and-forth while the character (a
+// unique, non-repeating shape with no alias to confuse it) tracked
+// correctly. Fed from a SMALL (VK_CONCEAL_PRIOR_CROP^2 texel) center-crop
+// readback of the flow field, queued every stall (not throttled like the
+// full-grid debug sample -- see g_flow_dbg_buf's doc comment for why THAT
+// one is throttled; this one is ~100x smaller so the same cost concern
+// doesn't apply) and consumed on the following render call once the fence
+// proves it's safe to read, same pattern as g_flow_dbg_pending.
+#define VK_CONCEAL_PRIOR_CROP 8
+static VkBuffer       g_flow_prior_buf = VK_NULL_HANDLE;
+static VkDeviceMemory g_flow_prior_mem = VK_NULL_HANDLE;
+static int            g_flow_prior_pending = 0;
+static double         g_conceal_prior_vx = 0.0, g_conceal_prior_vy = 0.0;
+
 static VkImage        g_synth_tex;
 static VkDeviceMemory g_synth_mem;
 static VkImageView    g_synth_view;
@@ -604,6 +734,107 @@ static int    g_conceal_flow_fresh   = 0;   // flow already computed for the cur
 
 static volatile long long g_stat_concealed_frames = 0;
 static volatile int       g_stat_concealing = 0;
+
+// Quality/telemetry summary (temporary, added 2026-09-19 to debug reported
+// smearing + a "jitter grows when frame smoothing is on" regression on a
+// second, otherwise-healthy connection): every real and every concealed
+// frame updates cheap CPU-only counters below -- no GPU work, so this part
+// costs nothing worth measuring even at full frame rate. A periodic summary
+// (vk_conceal_maybe_log_summary, gated to ~every 2s so app.log isn't
+// flooded) is the only place any of it gets logged. This replaced an
+// earlier version of this diagnostic that did a full GPU readback of the
+// flow field and logged it on EVERY stall onset -- on a bad connection
+// stalls can fire several times a second, and that readback + its CPU-side
+// scan ran synchronously on the render thread, right when the network was
+// already struggling -- a very plausible contributor to the reported
+// jitter-while-enabled regression on the second connection. The GPU
+// readback still exists for when per-block detail is actually needed, but
+// is now throttled to the same ~2s cadence as everything else (see
+// g_flow_dbg_next_allowed_ts).
+static double     g_conceal_summary_last_ts    = 0.0;
+static long long  g_conceal_summary_real       = 0; // real frames rendered since last summary
+static long long  g_conceal_summary_concealed  = 0; // concealed (synthesized) frames since last summary
+static long long  g_conceal_summary_exhausted  = 0; // stalls that hit frameSmoothingMaxConsecutive before a real frame arrived (visible freeze, not just a smoothed gap)
+static double     g_conceal_summary_t_sum      = 0.0;
+static float      g_conceal_summary_t_max      = 0.0f;
+// Presentation-timing telemetry (gap between consecutive actual presents,
+// real or concealed) -- separate from flow-content correctness above.
+// Requested live 2026-09-19 to directly measure micro-freezes as gaps in
+// presentation timing, not infer smoothness from flow-field stats (correct
+// flow content doesn't guarantee steady presentation cadence).
+static long long  g_conceal_summary_gap_count     = 0;
+static double     g_conceal_summary_gap_sum       = 0.0;
+static double     g_conceal_summary_gap_max       = 0.0;
+static long long  g_conceal_summary_stutter_count = 0; // gaps exceeding the adaptive threshold, see the g_last_blit_ts update site
+// Of the stutters above, how many happened between two CONCEALED presents
+// within the same active stall (both sides of the gap were synthesized,
+// consecutive ticks of one ongoing stall) -- distinguishes "something in
+// this render path is itself periodically slow" (high count here) from
+// "the network/real-frame arrival is just jittery" (stutters mostly NOT
+// concealed-to-concealed, e.g. around a real frame boundary instead).
+// g_last_present_was_concealed tracks which case the CURRENT gap is; set
+// at the bottom of vk_render_frame(_vkimage)/vk_render_frame_conceal,
+// read (before being overwritten) at the same g_last_blit_ts gap-check
+// site that counts stutters.
+static long long  g_conceal_summary_stutter_concealed_to_concealed = 0;
+static int        g_last_present_was_concealed = 0;
+static double     g_last_present_t = -1.0; // extrapolateT of the tick about to be stats-logged; -1 = real frame (not applicable). Set in vk_render_frame_conceal on success, reset to -1 by vk_conceal_note_real_frame (every real frame).
+#define VK_CONCEAL_SUMMARY_INTERVAL_SEC 2.0
+// How often the flow field is actually READ BACK from the GPU, separate
+// from how often the aggregate line gets LOGGED (VK_CONCEAL_SUMMARY_INTERVAL_SEC
+// above). These used to share one timer/constant, which meant testing a
+// "does direction flip between adjacent stalls" hypothesis (reported live,
+// 2026-09-19: "micro-jitter in 2 directions") against 2s-apart samples --
+// far enough apart that a flip could just as easily be real content change
+// (a character reversing course) as estimation instability. 0.5s still
+// keeps the render-thread readback cost an order of magnitude rarer than
+// "every stall" (which can fire several times a second on a bad
+// connection -- the exact cost that caused a previous "jitter grows when
+// frame smoothing is on" regression), while being dense enough to catch
+// several samples between most real stalls' natural spacing.
+#define VK_FLOW_DBG_SAMPLE_INTERVAL_SEC 0.15
+
+// Per-sample trace ring buffer: unlike g_flow_dbg_sample_* above (which
+// only ever holds the LATEST throttled sample, overwritten each time), this
+// keeps every sample taken since the last periodic log dump, printed as ONE
+// consolidated line in vk_conceal_maybe_log_summary instead of one line per
+// sample -- "add markers you can see every frame and record a few seconds
+// without flooding your own log" (requested live, 2026-09-19, to
+// investigate a hard case for block-matching: smoke -- constantly
+// deforming/non-rigid content with no rigid shape to translate, reported
+// moving in jerks even after the confidence-blend fix). 0.15s sampling
+// (VK_FLOW_DBG_SAMPLE_INTERVAL_SEC above, down from 0.5s) over a 2s dump
+// window gives ~13 samples per line -- a real per-sample trace, still
+// ~7-10x rarer than "every stall" so the render-thread readback cost stays
+// well clear of the regression that throttling was originally added to fix.
+#define VK_FLOW_TRACE_CAP 16
+typedef struct {
+    float t;            // extrapolateT at capture time
+    float nonzeroPct;
+    int   nonzeroCount, totalBlocks; // raw counts -- nonzeroPct alone rounds
+                                      // to "0%" at 1 decimal once block count
+                                      // is large (e.g. 8px blocks ~32000
+                                      // total), hiding a real but small
+                                      // nonzero count. Added 2026-09-19
+                                      // while investigating small-particle
+                                      // (sparks) tracking specifically
+                                      // because of that ambiguity.
+    float avgMag, maxMag;
+    float vx, vy;        // signed average vector among nonzero blocks (WHOLE frame)
+    float centerVx, centerVy; // signed average vector from JUST the center
+                              // VK_CONCEAL_PRIOR_CROP crop (reuses the
+                              // existing temporal-prior sampler, g_conceal_prior_vx/vy
+                              // -- see its doc comment) -- requested live
+                              // 2026-09-19: a whole-frame average can't
+                              // show a wrong/mismatched frame landing
+                              // specifically in the middle of the screen,
+                              // since it's diluted by everything else;
+                              // timing (gap/stutter) telemetry alone can't
+                              // show it either, since a wrong-content frame
+                              // can still land exactly on schedule.
+} VkFlowTraceEntry;
+static VkFlowTraceEntry g_flow_trace[VK_FLOW_TRACE_CAP];
+static int              g_flow_trace_count = 0; // clamps at VK_FLOW_TRACE_CAP -- newest samples win, see push site
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -744,7 +975,8 @@ static int vk_create_swapchain(int w, int h) {
             if (pms[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) { pm = pms[i]; have_pm = 1; break; }
         }
     }
-    if (!have_pm) {
+    int conceal = atomic_load(&g_conceal_enabled);
+    if (!have_pm && !conceal) {
         for (uint32_t i = 0; i < npm; i++) {
             if (pms[i] == VK_PRESENT_MODE_MAILBOX_KHR) { pm = pms[i]; have_pm = 1; break; }
         }
@@ -1644,6 +1876,9 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
         goVKLog(_dbg, 1);
     }
     vkResetFences(g_dev, 1, &g_fence);
+    vk_conceal_debug_log_flow_stats(); // DEBUG: drain any pending flow readback from the stall that just ended
+    vk_conceal_maybe_log_summary();
+    vk_conceal_consume_prior();
 
     // Our own render work reading the previous frame's VkImage is now known
     // to have retired (the fence we just waited on guards exactly that) —
@@ -1853,6 +2088,17 @@ static void vk_conceal_note_real_frame(int conceal_slot) {
         double interval_ms = (now - g_conceal_last_real_ts) * 1000.0;
         g_conceal_expected_ms = goFrameSmoothingUpdateInterval(g_conceal_expected_ms, interval_ms);
     }
+    g_conceal_summary_real++;
+    g_last_present_t = -1.0; // this tick is a real frame -- see g_last_present_t's doc comment
+    if (g_conceal_max_consecutive <= 0) g_conceal_max_consecutive = goFrameSmoothingMaxConsecutive();
+    // g_conceal_consecutive reaching the cap means the LAST tick before this
+    // real frame was refused further concealment (goFrameSmoothingDecide
+    // gives up past frameSmoothingMaxConsecutive) -- the display sat frozen
+    // on the last synthesized frame for however much longer the real frame
+    // took to actually arrive after that. A stall that resolves before
+    // hitting the cap is fully covered by smoothing; one that hits it is
+    // the "loss" the user asked to be able to see.
+    if (g_conceal_consecutive >= g_conceal_max_consecutive) g_conceal_summary_exhausted++;
     g_conceal_last_real_ts = now;
     g_conceal_consecutive  = 0;
     g_conceal_flow_fresh   = 0;
@@ -1933,6 +2179,9 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         goVKLog(_dbg, 1);
     }
     vkResetFences(g_dev, 1, &g_fence);
+    vk_conceal_debug_log_flow_stats(); // DEBUG: drain any pending flow readback from the stall that just ended
+    vk_conceal_maybe_log_summary();
+    vk_conceal_consume_prior();
 
     // Record commands.
     vkResetCommandBuffer(g_cmdbuf, 0);
@@ -2085,7 +2334,14 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
 // Layout mirrors flow_blockmatch.comp's/warp_extrapolate.comp's push_constant
 // blocks field-for-field (see shader_arrays.h's doc comment) -- every field
 // is a 4-byte int/float so there's no struct-packing mismatch to worry about.
-typedef struct { int32_t srcSize[2]; int32_t blockSize[2]; int32_t searchRadius; } VkFlowPushConstants;
+// _pad0 is load-bearing, not cosmetic: GLSL's default push_constant layout
+// aligns vec2 to 8 bytes, so the shader's `vec2 priorDir` after `int
+// searchRadius` sits at byte offset 24, not 20 -- a plain C struct with no
+// forced alignment between two 4-byte members packs them tight at offset
+// 20 instead, which would silently misalign every field from there on
+// (shader reads garbage for priorDir, and reads priorDir.x's bytes as part
+// of searchRadius). Verified against glslc's actual layout, not assumed.
+typedef struct { int32_t srcSize[2]; int32_t blockSize[2]; int32_t searchRadius; int32_t _pad0; float priorDir[2]; } VkFlowPushConstants;
 typedef struct { int32_t dstSize[2]; int32_t blockSize[2]; float extrapolateT; } VkWarpPushConstants;
 
 // vk_conceal_ensure_tex2 (re)allocates the two dual real-frame SAMPLED
@@ -2206,6 +2462,59 @@ static int vk_conceal_ensure_flow_synth(int w, int h) {
         vci.image = g_flow_tex; vci.viewType = VK_IMAGE_VIEW_TYPE_2D; vci.format = VK_FORMAT_R16G16_SFLOAT;
         vci.subresourceRange = (VkImageSubresourceRange){ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
         if (vkCreateImageView(g_dev, &vci, NULL, &g_flow_view) != VK_SUCCESS) return 0;
+    }
+
+    // DEBUG: host-visible readback buffer for g_flow_tex (see
+    // vk_conceal_debug_log_flow_stats). R16G16_SFLOAT = 4 bytes/texel.
+    {
+        VkDeviceSize sz = (VkDeviceSize)grid_w * (VkDeviceSize)grid_h * 4;
+        if (g_flow_dbg_buf != VK_NULL_HANDLE) {
+            vkUnmapMemory(g_dev, g_flow_dbg_mem);
+            vkFreeMemory(g_dev, g_flow_dbg_mem, NULL); g_flow_dbg_mem = VK_NULL_HANDLE;
+            vkDestroyBuffer(g_dev, g_flow_dbg_buf, NULL); g_flow_dbg_buf = VK_NULL_HANDLE;
+        }
+        VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        bci.size = sz; bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT; bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(g_dev, &bci, NULL, &g_flow_dbg_buf) != VK_SUCCESS) return 0;
+
+        VkMemoryRequirements mr;
+        vkGetBufferMemoryRequirements(g_dev, g_flow_dbg_buf, &mr);
+        uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (mi == UINT32_MAX) return 0;
+        VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+        mai.allocationSize = mr.size; mai.memoryTypeIndex = mi;
+        if (vkAllocateMemory(g_dev, &mai, NULL, &g_flow_dbg_mem) != VK_SUCCESS) return 0;
+        vkBindBufferMemory(g_dev, g_flow_dbg_buf, g_flow_dbg_mem, 0);
+        g_flow_dbg_sz = sz;
+        g_flow_dbg_pending = 0;
+    }
+
+    // Temporal-direction prior: a SMALL (fixed VK_CONCEAL_PRIOR_CROP x
+    // VK_CONCEAL_PRIOR_CROP center crop, not the whole grid) host-visible
+    // readback buffer, queued EVERY stall (unlike the throttled full-field
+    // g_flow_dbg_buf above) -- see vk_conceal_record_flow. Small enough
+    // (a few hundred bytes) that reading it back every stall costs nothing
+    // worth measuring, unlike a full-grid readback would.
+    {
+        VkDeviceSize sz = (VkDeviceSize)VK_CONCEAL_PRIOR_CROP * (VkDeviceSize)VK_CONCEAL_PRIOR_CROP * 4;
+        if (g_flow_prior_buf == VK_NULL_HANDLE) {
+            VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            bci.size = sz; bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT; bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            if (vkCreateBuffer(g_dev, &bci, NULL, &g_flow_prior_buf) != VK_SUCCESS) return 0;
+
+            VkMemoryRequirements mr;
+            vkGetBufferMemoryRequirements(g_dev, g_flow_prior_buf, &mr);
+            uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            if (mi == UINT32_MAX) return 0;
+            VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+            mai.allocationSize = mr.size; mai.memoryTypeIndex = mi;
+            if (vkAllocateMemory(g_dev, &mai, NULL, &g_flow_prior_mem) != VK_SUCCESS) return 0;
+            vkBindBufferMemory(g_dev, g_flow_prior_buf, g_flow_prior_mem, 0);
+        }
+        g_flow_prior_pending = 0;
+        g_conceal_prior_vx = 0.0; g_conceal_prior_vy = 0.0; // stale across a resize -- start fresh
     }
 
     // Synthesized-frame texture: full res, RGBA8, STORAGE (warp writes it)
@@ -2367,7 +2676,12 @@ static void vk_conceal_record_flow(VkCommandBuffer cb, int curSlot, int prevSlot
 
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, g_flow_pipeline);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, g_flow_playout, 0, 1, &g_flow_dset, 0, NULL);
-    VkFlowPushConstants pc = { {fw, fh}, {VK_CONCEAL_BLOCK, VK_CONCEAL_BLOCK}, VK_CONCEAL_SEARCH_R };
+    // Designated initializers, not positional -- VkFlowPushConstants has a
+    // _pad0 field (alignment, see its doc comment) that positional
+    // {a, b, c, {d, e}} init would silently misassign around.
+    VkFlowPushConstants pc = { .srcSize = {fw, fh}, .blockSize = {VK_CONCEAL_BLOCK, VK_CONCEAL_BLOCK},
+        .searchRadius = VK_CONCEAL_SEARCH_R,
+        .priorDir = { (float)g_conceal_prior_vx, (float)g_conceal_prior_vy } };
     vkCmdPushConstants(cb, g_flow_playout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     vkCmdDispatch(cb, (g_flow_w + 7) / 8, (g_flow_h + 7) / 8, 1);
 
@@ -2378,6 +2692,287 @@ static void vk_conceal_record_flow(VkCommandBuffer cb, int curSlot, int prevSlot
     vk_image_barrier(cb, g_flow_tex, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
         VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+    // Queue this stall's own small center-crop readback (see
+    // g_flow_prior_buf's doc comment) -- becomes NEXT stall's prior once
+    // consumed by vk_conceal_consume_prior on a later render call.
+    if (g_flow_prior_buf != VK_NULL_HANDLE) {
+        int cropW = VK_CONCEAL_PRIOR_CROP < g_flow_w ? VK_CONCEAL_PRIOR_CROP : g_flow_w;
+        int cropH = VK_CONCEAL_PRIOR_CROP < g_flow_h ? VK_CONCEAL_PRIOR_CROP : g_flow_h;
+        int offX = (g_flow_w - cropW) / 2, offY = (g_flow_h - cropH) / 2;
+        VkBufferImageCopy region = {0};
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.layerCount = 1;
+        region.imageOffset = (VkOffset3D){ offX, offY, 0 };
+        region.imageExtent = (VkExtent3D){ (uint32_t)cropW, (uint32_t)cropH, 1 };
+        vkCmdCopyImageToBuffer(cb, g_flow_tex, VK_IMAGE_LAYOUT_GENERAL, g_flow_prior_buf, 1, &region);
+        g_flow_prior_pending = 1;
+    }
+}
+
+static float half_to_float(uint16_t h); // defined below; used here first
+
+// vk_conceal_consume_prior maps g_flow_prior_buf (safe once the caller has
+// waited on the fence covering the submission that wrote it -- same
+// contract as vk_conceal_debug_log_flow_stats) and averages it into
+// g_conceal_prior_vx/vy for the NEXT stall's flow_blockmatch dispatch to
+// use as a tie-breaking prior.
+static void vk_conceal_consume_prior(void) {
+    if (!g_flow_prior_pending || g_flow_prior_buf == VK_NULL_HANDLE) return;
+    g_flow_prior_pending = 0;
+
+    int cropW = VK_CONCEAL_PRIOR_CROP < g_flow_w ? VK_CONCEAL_PRIOR_CROP : g_flow_w;
+    int cropH = VK_CONCEAL_PRIOR_CROP < g_flow_h ? VK_CONCEAL_PRIOR_CROP : g_flow_h;
+    int n = cropW * cropH;
+    if (n <= 0) return;
+
+    void *mapped = NULL;
+    VkDeviceSize sz = (VkDeviceSize)VK_CONCEAL_PRIOR_CROP * (VkDeviceSize)VK_CONCEAL_PRIOR_CROP * 4;
+    if (vkMapMemory(g_dev, g_flow_prior_mem, 0, sz, 0, &mapped) != VK_SUCCESS || !mapped) return;
+    const uint16_t *texels = (const uint16_t*)mapped;
+
+    double sumVx = 0.0, sumVy = 0.0;
+    int nonzero = 0;
+    for (int i = 0; i < n; i++) {
+        float vx = half_to_float(texels[i * 2 + 0]);
+        float vy = half_to_float(texels[i * 2 + 1]);
+        if (vx != 0.0f || vy != 0.0f) { sumVx += (double)vx; sumVy += (double)vy; nonzero++; }
+    }
+    vkUnmapMemory(g_dev, g_flow_prior_mem);
+
+    // Only update the prior when this crop actually saw motion -- a
+    // transiently-static crop (e.g. mid-stall on a mostly-still scene)
+    // shouldn't erase a meaningful prior built up from real panning motion
+    // moments earlier; it'll naturally update again once motion resumes.
+    if (nonzero > 0) {
+        g_conceal_prior_vx = sumVx / nonzero;
+        g_conceal_prior_vy = sumVy / nonzero;
+    }
+}
+
+// DEBUG helpers (temporary, see g_flow_dbg_* doc comment). half_to_float
+// decodes IEEE754 binary16 -- R16G16_SFLOAT has no native C type, and this
+// is only for a diagnostic log, not a hot path, so no need for a fast/SIMD
+// version.
+static float half_to_float(uint16_t h) {
+    uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
+    uint32_t exp  = (h >> 10) & 0x1Fu;
+    uint32_t mant = h & 0x3FFu;
+    uint32_t bits;
+    if (exp == 0) {
+        if (mant == 0) { bits = sign; }
+        else {
+            // subnormal half -> normalized float
+            int e = -1;
+            do { mant <<= 1; e++; } while (!(mant & 0x400u));
+            mant &= 0x3FFu;
+            bits = sign | ((uint32_t)(127 - 15 - e) << 23) | (mant << 13);
+        }
+    } else if (exp == 0x1F) {
+        bits = sign | 0x7F800000u | (mant << 13); // inf/nan
+    } else {
+        bits = sign | ((exp - 15 + 127) << 23) | (mant << 13);
+    }
+    float f;
+    memcpy(&f, &bits, sizeof(f));
+    return f;
+}
+
+// vk_conceal_debug_queue_flow_readback records a copy of the just-computed
+// g_flow_tex into the host-visible g_flow_dbg_buf, in the SAME command
+// buffer/submission as the flow dispatch that just wrote it (so ordering is
+// implicit -- no extra semaphore needed). The caller must not read
+// g_flow_dbg_buf until the fence guarding this submission has been waited
+// on; see g_flow_dbg_pending's consumer in vk_render_frame_conceal.
+static void vk_conceal_debug_queue_flow_readback(VkCommandBuffer cb, int grid_w, int grid_h) {
+    if (g_flow_dbg_buf == VK_NULL_HANDLE) return;
+    VkBufferImageCopy region = {0};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = (VkExtent3D){ (uint32_t)grid_w, (uint32_t)grid_h, 1 };
+    vkCmdCopyImageToBuffer(cb, g_flow_tex, VK_IMAGE_LAYOUT_GENERAL, g_flow_dbg_buf, 1, &region);
+    g_flow_dbg_pending  = 1;
+    g_flow_dbg_grid_w   = grid_w;
+    g_flow_dbg_grid_h   = grid_h;
+}
+
+// vk_conceal_debug_log_flow_stats maps g_flow_dbg_buf (already known-safe
+// to read -- caller just waited on the fence covering the submission that
+// wrote it) and logs aggregate per-block motion-vector stats: how many
+// blocks got a non-zero vector past the confidence gate, and the
+// average/max magnitude among those. Diagnoses whether "smeared/jumping"
+// concealed frames are coming from widespread noisy small vectors (avg
+// close to max, many nonzero) vs a few outlier blocks (nonzero% low, max >>
+// avg) vs genuinely large coherent motion (nonzero% high, avg close to
+// max, magnitudes tracking actual on-screen motion).
+static void vk_conceal_debug_log_flow_stats(void) {
+    if (!g_flow_dbg_pending || g_flow_dbg_buf == VK_NULL_HANDLE) return;
+    g_flow_dbg_pending = 0;
+
+    int grid_w = g_flow_dbg_grid_w, grid_h = g_flow_dbg_grid_h;
+    int n = grid_w * grid_h;
+    if (n <= 0) return;
+
+    void *mapped = NULL;
+    if (vkMapMemory(g_dev, g_flow_dbg_mem, 0, g_flow_dbg_sz, 0, &mapped) != VK_SUCCESS || !mapped) return;
+    const uint16_t *texels = (const uint16_t*)mapped;
+
+    int nonzero = 0;
+    double sumMag = 0.0, sumVx = 0.0, sumVy = 0.0;
+    float maxMag = 0.0f;
+    int maxGx = -1, maxGy = -1;
+    for (int gy = 0; gy < grid_h; gy++) {
+        for (int gx = 0; gx < grid_w; gx++) {
+            int idx = (gy * grid_w + gx) * 2;
+            float vx = half_to_float(texels[idx + 0]);
+            float vy = half_to_float(texels[idx + 1]);
+            float mag = sqrtf(vx * vx + vy * vy);
+            if (mag > 0.0f) {
+                nonzero++;
+                sumMag += mag;
+                sumVx += (double)vx;
+                sumVy += (double)vy;
+                if (mag > maxMag) { maxMag = mag; maxGx = gx; maxGy = gy; }
+            }
+        }
+    }
+    vkUnmapMemory(g_dev, g_flow_dbg_mem);
+
+    // Stored, not logged directly -- vk_conceal_maybe_log_summary folds this
+    // latest sample into the periodic aggregate line instead (see its doc
+    // comment for why per-stall logging of this was removed).
+    g_flow_dbg_have_sample        = 1;
+    g_flow_dbg_sample_nonzero_pct = n > 0 ? (100.0 * nonzero / n) : 0.0;
+    g_flow_dbg_sample_nonzero_count = nonzero;
+    g_flow_dbg_sample_total_blocks  = n;
+    g_flow_dbg_sample_avg_mag     = nonzero > 0 ? (sumMag / nonzero) : 0.0;
+    g_flow_dbg_sample_max_mag     = (double)maxMag;
+    g_flow_dbg_sample_avg_vx      = nonzero > 0 ? (sumVx / nonzero) : 0.0;
+    g_flow_dbg_sample_avg_vy      = nonzero > 0 ? (sumVy / nonzero) : 0.0;
+    (void)maxGx; (void)maxGy;
+
+    // Direction-flip check: only meaningful once two samples both actually
+    // had nonzero content to compare (a static-content sample's avg vector
+    // is (0,0) and would spuriously "flip" against anything).
+    if (nonzero > 0) {
+        if (g_flow_dbg_have_prev_dir) {
+            double dot = g_flow_dbg_sample_avg_vx * g_flow_dbg_prev_avg_vx +
+                         g_flow_dbg_sample_avg_vy * g_flow_dbg_prev_avg_vy;
+            g_conceal_summary_dir_samples++;
+            if (dot < 0.0) g_conceal_summary_dir_flips++;
+        }
+        g_flow_dbg_prev_avg_vx = g_flow_dbg_sample_avg_vx;
+        g_flow_dbg_prev_avg_vy = g_flow_dbg_sample_avg_vy;
+        g_flow_dbg_have_prev_dir = 1;
+    }
+
+    // Per-sample trace: append if there's room, otherwise shift the buffer
+    // left and drop the oldest -- keeps the MOST RECENT samples (the ones
+    // closest to whatever's about to be logged) rather than the earliest
+    // ones from a stretch that ran long between dumps.
+    if (g_flow_trace_count >= VK_FLOW_TRACE_CAP) {
+        memmove(&g_flow_trace[0], &g_flow_trace[1], sizeof(g_flow_trace[0]) * (VK_FLOW_TRACE_CAP - 1));
+        g_flow_trace_count = VK_FLOW_TRACE_CAP - 1;
+    }
+    if (g_flow_trace_count < VK_FLOW_TRACE_CAP) {
+        VkFlowTraceEntry *e = &g_flow_trace[g_flow_trace_count++];
+        e->t = g_flow_dbg_t;
+        e->nonzeroPct = (float)g_flow_dbg_sample_nonzero_pct;
+        e->nonzeroCount = g_flow_dbg_sample_nonzero_count;
+        e->totalBlocks  = g_flow_dbg_sample_total_blocks;
+        e->avgMag = (float)g_flow_dbg_sample_avg_mag;
+        e->maxMag = (float)g_flow_dbg_sample_max_mag;
+        e->vx = (float)g_flow_dbg_sample_avg_vx;
+        e->vy = (float)g_flow_dbg_sample_avg_vy;
+        e->centerVx = (float)g_conceal_prior_vx;
+        e->centerVy = (float)g_conceal_prior_vy;
+    }
+}
+
+// vk_conceal_maybe_log_summary emits one aggregate telemetry line at most
+// every VK_CONCEAL_SUMMARY_INTERVAL_SEC, covering every real and concealed
+// frame rendered since the last one (cheap CPU counters, updated on every
+// single frame -- see their doc comment) plus the latest throttled GPU flow
+// sample, if any landed in that window. Called from all three render paths
+// at the same point vk_conceal_debug_log_flow_stats used to log directly.
+static void vk_conceal_maybe_log_summary(void) {
+    double now = mono_sec();
+    if (g_conceal_summary_last_ts <= 0.0) { g_conceal_summary_last_ts = now; return; }
+    if (now - g_conceal_summary_last_ts < VK_CONCEAL_SUMMARY_INTERVAL_SEC) return;
+
+    long long real = g_conceal_summary_real, concealed = g_conceal_summary_concealed;
+    long long total = real + concealed;
+    double avgT = concealed > 0 ? (g_conceal_summary_t_sum / (double)concealed) : 0.0;
+
+    double avgGapMs = g_conceal_summary_gap_count > 0 ? (g_conceal_summary_gap_sum / (double)g_conceal_summary_gap_count) : 0.0;
+
+    char m[500];
+    int n = snprintf(m, sizeof(m),
+        "frame smoothing summary (%.0fs): real=%lld concealed=%lld (%.0f%% of %lld) avgT=%.2f maxT=%.2f exhausted=%lld"
+        " gaps[n=%lld avg=%.1fms max=%.1fms stutters=%lld c2c=%lld]",
+        now - g_conceal_summary_last_ts, real, concealed,
+        total > 0 ? (100.0 * (double)concealed / (double)total) : 0.0, total,
+        avgT, (double)g_conceal_summary_t_max, g_conceal_summary_exhausted,
+        g_conceal_summary_gap_count, avgGapMs, g_conceal_summary_gap_max, g_conceal_summary_stutter_count,
+        g_conceal_summary_stutter_concealed_to_concealed);
+    if (g_flow_dbg_have_sample && n > 0 && n < (int)sizeof(m)) {
+        n += snprintf(m + n, sizeof(m) - (size_t)n,
+            " lastFlowSample[nonzero=%d/%d(%.2f%%) avgMag=%.2fpx maxMag=%.2fpx avgVec=(%.2f,%.2f)]",
+            g_flow_dbg_sample_nonzero_count, g_flow_dbg_sample_total_blocks, g_flow_dbg_sample_nonzero_pct,
+            g_flow_dbg_sample_avg_mag, g_flow_dbg_sample_max_mag,
+            g_flow_dbg_sample_avg_vx, g_flow_dbg_sample_avg_vy);
+    }
+    // dirFlips: of the throttled samples compared against the one right
+    // before them (not necessarily all within this window -- comparisons
+    // span window boundaries), how many had the average flow vector point
+    // the opposite way (negative dot product) from the previous sample.
+    // Added to directly check a reported "micro-jitter in 2 directions"
+    // complaint -- magnitude-only stats (avgMag/maxMag above) can't
+    // distinguish coherent one-way motion from a flow field that's
+    // flip-flopping direction sample to sample (noise/instability, which
+    // extrapolateT would stretch into visible back-and-forth). A high
+    // flips/samples ratio here (rather than 0 or near it) means the
+    // direction itself is unstable, not just timing/placement.
+    if (n > 0 && n < (int)sizeof(m) && g_conceal_summary_dir_samples > 0) {
+        snprintf(m + n, sizeof(m) - (size_t)n, " dirFlips=%lld/%lld",
+            g_conceal_summary_dir_flips, g_conceal_summary_dir_samples);
+    }
+    goVKLog(m, 0);
+
+    // Per-sample trace dump: ONE consolidated log line covering every
+    // sample taken since the last dump (see g_flow_trace's doc comment) --
+    // requested live 2026-09-19 to see per-frame detail on a hard
+    // block-matching case (smoke: constantly deforming, no rigid shape to
+    // translate) without flooding app.log with one line per sample.
+    if (g_flow_trace_count > 0) {
+        char tm[2048];
+        int tn = snprintf(tm, sizeof(tm), "frame smoothing trace (%d samples):", g_flow_trace_count);
+        for (int i = 0; i < g_flow_trace_count && tn > 0 && tn < (int)sizeof(tm); i++) {
+            VkFlowTraceEntry *e = &g_flow_trace[i];
+            tn += snprintf(tm + tn, sizeof(tm) - (size_t)tn,
+                " [t=%.2f nz=%d/%d(%.2f%%) avg=%.1fpx max=%.1fpx vec=(%.1f,%.1f) center=(%.1f,%.1f)]",
+                (double)e->t, e->nonzeroCount, e->totalBlocks, (double)e->nonzeroPct,
+                (double)e->avgMag, (double)e->maxMag, (double)e->vx, (double)e->vy,
+                (double)e->centerVx, (double)e->centerVy);
+        }
+        goVKLog(tm, 0);
+        g_flow_trace_count = 0;
+    }
+
+    g_conceal_summary_last_ts    = now;
+    g_conceal_summary_real       = 0;
+    g_conceal_summary_concealed  = 0;
+    g_conceal_summary_exhausted  = 0;
+    g_conceal_summary_t_sum      = 0.0;
+    g_conceal_summary_t_max      = 0.0f;
+    g_flow_dbg_have_sample       = 0;
+    g_conceal_summary_dir_samples = 0;
+    g_conceal_summary_dir_flips   = 0;
+    g_conceal_summary_gap_count     = 0;
+    g_conceal_summary_gap_sum       = 0.0;
+    g_conceal_summary_gap_max       = 0.0;
+    g_conceal_summary_stutter_count = 0;
+    g_conceal_summary_stutter_concealed_to_concealed = 0;
 }
 
 // vk_conceal_record_warp dispatches warp_extrapolate.comp, sampling
@@ -2434,16 +3029,15 @@ static int vk_render_frame_conceal(void) {
     int conceal = goFrameSmoothingDecide(elapsedMs, g_conceal_expected_ms, g_conceal_consecutive, &extrapolateT);
     if (!conceal) return 0;
 
-    if (g_conceal_consecutive == 0) {
-        // First synthesized frame of a NEW stall -- log once per stall
-        // (not per render tick) so app.log shows exactly when/how often
-        // this actually kicks in, without a line-per-8ms flood while one
-        // stall is being bridged.
-        char m[128];
-        snprintf(m, sizeof(m), "frame smoothing: concealing a stall (gap=%.0fms expected=%.0fms t=%.2f)",
-                  elapsedMs, g_conceal_expected_ms, (double)extrapolateT);
-        goVKLog(m, 0);
-    }
+    // Per-stall onset used to log unconditionally here -- on a bad
+    // connection stalls can fire several times a second, which floods
+    // app.log without actually being easier to read than an aggregate.
+    // Counted into the periodic summary instead (vk_conceal_maybe_log_summary,
+    // ~every 2s) -- see g_conceal_summary_concealed/_t_sum/_t_max below.
+    g_conceal_summary_concealed++;
+    g_conceal_summary_t_sum += (double)extrapolateT;
+    if (extrapolateT > g_conceal_summary_t_max) g_conceal_summary_t_max = extrapolateT;
+    g_last_present_t = (double)extrapolateT; // read by the shared stats block IF this tick's remaining GPU steps succeed; harmless if they don't (stats block never runs on failure)
 
     int curSlot  = g_conceal_cur;
     int prevSlot = 1 - g_conceal_cur;
@@ -2461,6 +3055,13 @@ static int vk_render_frame_conceal(void) {
     }
     vkResetFences(g_dev, 1, &g_fence);
 
+    // DEBUG: the fence wait above just proved the PREVIOUS submission (the
+    // one that queued a flow readback, if any) fully completed and its
+    // writes are host-visible -- safe to map and log now.
+    vk_conceal_debug_log_flow_stats();
+    vk_conceal_maybe_log_summary();
+    vk_conceal_consume_prior();
+
     vkResetCommandBuffer(g_cmdbuf, 0);
     VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -2469,6 +3070,19 @@ static int vk_render_frame_conceal(void) {
     if (!g_conceal_flow_fresh) {
         vk_conceal_record_flow(g_cmdbuf, curSlot, prevSlot, fw, fh);
         g_conceal_flow_fresh = 1;
+        // Throttled: this readback + its CPU-side scan (vk_conceal_debug_log_flow_stats)
+        // runs on the render thread. Queuing it on every stall onset was a
+        // real, measured contributor to a "jitter grows when frame smoothing
+        // is on" regression, precisely because stalls (and therefore this
+        // work) cluster exactly when the network is already struggling.
+        // VK_FLOW_DBG_SAMPLE_INTERVAL_SEC-spaced sampling is plenty to spot
+        // patterns while staying far rarer than "every stall".
+        double now = mono_sec();
+        if (now >= g_flow_dbg_next_allowed_ts) {
+            g_flow_dbg_t = extrapolateT;
+            vk_conceal_debug_queue_flow_readback(g_cmdbuf, g_flow_w, g_flow_h);
+            g_flow_dbg_next_allowed_ts = now + VK_FLOW_DBG_SAMPLE_INTERVAL_SEC;
+        }
     }
     vk_conceal_record_warp(g_cmdbuf, curSlot, fw, fh, extrapolateT);
 
@@ -2511,10 +3125,57 @@ static int vk_render_frame_conceal(void) {
         g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &blt, VK_FILTER_LINEAR);
 
-    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        VK_ACCESS_TRANSFER_WRITE_BIT, 0,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    // Net Graph HUD / AI Vision overlay: this path used to blit straight to
+    // PRESENT_SRC and skip both draws entirely, so every concealed frame
+    // (now a large fraction of frames on a lossy connection -- see
+    // frame_smoothing.go) made the HUD visibly blink off, only to reappear
+    // on the next real frame via vk_render_frame_vkimage's own calls to
+    // these same two functions. Same overlay pass as that path: transition
+    // to COLOR_ATTACHMENT_OPTIMAL, LOAD (preserve the blit), draw AI Vision
+    // then HUD on top over the identical letterboxed viewport/scissor used
+    // for the blit above (vk_hud_record_draw/vk_aivision_record_draw's rect
+    // math is relative to fw x fh and doesn't care that this viewport is
+    // reused rather than freshly computed for a video draw).
+    {
+        PFN_vkCmdBeginRendering pfnBeginRendering = (PFN_vkCmdBeginRendering)vkGetDeviceProcAddr(g_dev, "vkCmdBeginRendering");
+        PFN_vkCmdEndRendering   pfnEndRendering   = (PFN_vkCmdEndRendering)vkGetDeviceProcAddr(g_dev, "vkCmdEndRendering");
+        if (pfnBeginRendering && pfnEndRendering) {
+            vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+            VkRenderingAttachmentInfo overlayAtt = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+            overlayAtt.imageView = g_swap_views[img_idx];
+            overlayAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            overlayAtt.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            overlayAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+            VkRenderingInfo overlayInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+            overlayInfo.renderArea.extent.width = (uint32_t)sw; overlayInfo.renderArea.extent.height = (uint32_t)sh;
+            overlayInfo.layerCount = 1;
+            overlayInfo.colorAttachmentCount = 1; overlayInfo.pColorAttachments = &overlayAtt;
+
+            pfnBeginRendering(g_cmdbuf, &overlayInfo);
+            VkViewport ovp = { (float)dx, (float)dy, (float)dw, (float)dh, 0.0f, 1.0f };
+            VkRect2D osc = { { dx, dy }, { (uint32_t)dw, (uint32_t)dh } };
+            vkCmdSetViewport(g_cmdbuf, 0, 1, &ovp);
+            vkCmdSetScissor(g_cmdbuf, 0, 1, &osc);
+            vk_aivision_record_draw(g_cmdbuf, fw, fh);
+            vk_hud_record_draw(g_cmdbuf, fw, fh);
+            pfnEndRendering(g_cmdbuf);
+
+            vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        } else {
+            vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_ACCESS_TRANSFER_WRITE_BIT, 0,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        }
+    }
 
     vkEndCommandBuffer(g_cmdbuf);
 
@@ -2548,9 +3209,15 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
     long long consec_fail = 0;    // consecutive vk_render_frame failures
     POINT last_parent_pt  = {-1, -1}; // last known screen origin of parent client area
     int   last_want_hidden = -1;       // -1=unknown; 0=visible; 1=hidden (iconic OR g_hidden)
+    int last_rendered = 0;
     while (atomic_load(&g_active)) {
         g_render_stage = 0; // idle — waiting for next frame event
+        // Wait up to 8ms for a real frame to arrive from the network.
+        // Because vkAcquireNextImageKHR blocks until a buffer is free (1 VSync ahead),
+        // we have roughly 16.6ms to submit the frame. Waiting 8ms gives the network
+        // time to deliver a jittery frame, while leaving ~8ms for the GPU to compute FSR.
         WaitForSingleObject(g_event, 8);
+        last_rendered = 0;
         g_render_hb++;      // advance heartbeat each iteration (visible to Go watchdog)
         if (!atomic_load(&g_active)) break;
 
@@ -2610,6 +3277,7 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
 
         int rf;
         int fw = 0, fh = 0;
+        int is_concealed_this_tick = 0; // set below in either branch's conceal path; read at the shared stats block
         if (g_frame_mode == VK_FRAME_MODE_VKIMAGE) {
             VkImage img = VK_NULL_HANDLE; VkFormat fmt = VK_FORMAT_UNDEFINED;
             VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -2647,6 +3315,7 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
                 if (!concealed) continue;
                 fw = g_conceal_tex_w; fh = g_conceal_tex_h;
                 rf = 1;
+                is_concealed_this_tick = 1;
             }
         } else {
             uint8_t *tmp = NULL;
@@ -2675,6 +3344,7 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
                 if (!concealed) continue;
                 fw = g_conceal_tex_w; fh = g_conceal_tex_h;
                 rf = 1;
+                is_concealed_this_tick = 1;
             } else {
                 g_has_frame = 1;
                 g_render_stage = 1; // got frame — entering vk_render_frame
@@ -2692,6 +3362,7 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             }
         } else {
             consec_fail = 0;
+            last_rendered = 1;
         }
 
         // Stats
@@ -2712,8 +3383,44 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
         if (g_last_blit_ts > 0.0) {
             float gap = (float)((now - g_last_blit_ts) * 1000.0);
             if (gap > g_stat_max_gap_ms) g_stat_max_gap_ms = gap;
+            // Presentation-timing telemetry, separate from flow-content
+            // correctness (nonzero%/avgMag/direction, tracked elsewhere) --
+            // requested live 2026-09-19: "your task wasn't to see motion,
+            // it was to make sure that motion is UNIFORMLY SMOOTH" --
+            // flow being computed correctly doesn't guarantee it's being
+            // DISPLAYED at a steady cadence; a micro-freeze is a gap
+            // between two consecutive presents (real or concealed, doesn't
+            // matter which) that's much bigger than the others, whatever
+            // the flow content says. Threshold adapts to the stream's own
+            // measured cadence (2x expected) with a 20ms floor so it means
+            // roughly the same thing ("missed at least one, probably two,
+            // expected updates") across different framerates.
+            double stutterThresholdMs = 20.0;
+            if (g_conceal_expected_ms > 0.0 && g_conceal_expected_ms * 2.0 > stutterThresholdMs) {
+                stutterThresholdMs = g_conceal_expected_ms * 2.0;
+            }
+            g_conceal_summary_gap_count++;
+            g_conceal_summary_gap_sum += (double)gap;
+            if ((double)gap > g_conceal_summary_gap_max) g_conceal_summary_gap_max = (double)gap;
+            if ((double)gap > stutterThresholdMs) {
+                g_conceal_summary_stutter_count++;
+                if (g_last_present_was_concealed && is_concealed_this_tick) {
+                    g_conceal_summary_stutter_concealed_to_concealed++;
+                }
+            }
+            // Per-present JSONL trace (see goFrameSmoothingTraceWrite's doc
+            // comment, frame_smoothing_trace_windows.go) -- one line for
+            // EVERY actual presentation, not throttled like the flow-field
+            // readback above, so real/concealed distribution and exact
+            // wall-clock gaps can be computed precisely offline instead of
+            // eyeballed from app.log's own throttled summary.
+            goFrameSmoothingTraceWrite(is_concealed_this_tick, g_last_present_t,
+                g_conceal_prior_vx, g_conceal_prior_vy,
+                g_flow_dbg_sample_avg_vx, g_flow_dbg_sample_avg_vy,
+                g_flow_dbg_sample_nonzero_pct, (double)gap);
         }
         g_last_blit_ts = now;
+        g_last_present_was_concealed = is_concealed_this_tick;
     }
     return 0;
 }

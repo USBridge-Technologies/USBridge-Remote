@@ -1,6 +1,6 @@
 //go:build windows && cgo
 
-// Cache-bust (rev 8): go build's cache doesn't see changes to libmoonlight-common-c.a
+// Cache-bust (rev 10): go build's cache doesn't see changes to libmoonlight-common-c.a
 // (only referenced via CGO_LDFLAGS -l, not a tracked Go source dependency), so
 // a C-only submodule edit silently relinks against a stale .a unless some .go
 // file in this package also changes. Bump this comment whenever that happens.

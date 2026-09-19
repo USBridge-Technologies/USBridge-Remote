@@ -1,0 +1,28 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#define A_GPU 1
+#define A_GLSL 1
+#include "ffx_a.h"
+
+#define FSR_RCAS_F 1
+layout(set = 0, binding = 0) uniform sampler2D InputTexture;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D OutputTexture;
+
+AF4 FsrRcasLoadF(ASU2 p) { return texelFetch(InputTexture, ASU2(p), 0); }
+void FsrRcasInputF(inout AF1 r, inout AF1 g, inout AF1 b) {}
+
+#include "ffx_fsr1.h"
+
+layout(push_constant) uniform Constants {
+    uvec4 Const0;
+} push;
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    AU2 gxy = ARmp8x8(gl_LocalInvocationID.x) + AU2(gl_WorkGroupID.x << 4u, gl_WorkGroupID.y << 4u);
+    AF3 c;
+    FsrRcasF(c.r, c.g, c.b, gxy, push.Const0);
+    imageStore(OutputTexture, ASU2(gxy), vec4(c, 1.0));
+}

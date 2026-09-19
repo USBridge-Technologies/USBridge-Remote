@@ -1,6 +1,9 @@
 package service
 
-import "sync/atomic"
+import (
+	"math"
+	"sync/atomic"
+)
 
 // Frame Smoothing is an optional, opt-in fallback for the Windows/Vulkan
 // render path (see vk_video_impl_windows.c's g_of_backend / warp_extrapolate
@@ -51,7 +54,25 @@ const (
 	// while still clearing the healthy-jitter false positives above (see
 	// the regression cases in frame_smoothing_test.go for the exact
 	// pinned numbers from both failure modes).
-	frameSmoothingTriggerRatio = 1.9
+	//
+	// Lowered further to 1.65 (2026-09-19, explicit user tradeoff after
+	// live telemetry -- see g_conceal_summary_stutter_concealed_to_concealed
+	// in vk_video_impl_windows.c): measured presentation-gap stutters were
+	// ALL landing at stall-boundary transitions (c2c=0 every window, i.e.
+	// zero stutters were ever between two already-concealing ticks), which
+	// traced directly to this threshold's own by-design wait -- every
+	// single stall pays it before concealment engages at all. The 3
+	// healthy-jitter regression cases below (12/24, 13/24, 14/25) now
+	// intentionally DO conceal at this tighter threshold, accepting a
+	// small risk of false-triggering on ordinary jitter again in exchange
+	// for less of that wait. This tradeoff is more affordable now than
+	// when 1.9x was originally tuned: concealment quality has since
+	// improved substantially (continuous confidence-blend, per-block
+	// temporal-prior tie-breaking, tie-break-toward-zero-motion), so a
+	// false trigger on genuinely static/near-static content mostly just
+	// re-displays something very close to the last real frame instead of
+	// visibly smearing, which is what made false triggers costly before.
+	frameSmoothingTriggerRatio = 1.65
 
 	// frameSmoothingMinOverageMs is a second, absolute-ms floor on top of
 	// the ratio above: the trigger threshold is
@@ -64,7 +85,11 @@ const (
 	// single dropped frame there may not trigger concealment -- an
 	// accepted tradeoff: a missed frame at 120fps+ is a ~8ms blip, both
 	// hard to distinguish from noise and barely perceptible on its own.)
-	frameSmoothingMinOverageMs = 13.0
+	//
+	// Lowered 13.0 -> 8.0 alongside frameSmoothingTriggerRatio above, same
+	// 2026-09-19 tradeoff and same reasoning -- see that constant's doc
+	// comment.
+	frameSmoothingMinOverageMs = 8.0
 
 	// frameSmoothingMinPlausibleIntervalMs: updateExpectedIntervalMs ignores
 	// any measured interval below this as a bad sample, the same way it
@@ -85,12 +110,77 @@ const (
 
 	// frameSmoothingMaxConsecutive caps how many consecutive synthesized
 	// frames get displayed after a stall before giving up and falling back
-	// to today's behavior (freeze on the last real frame). Motion
-	// extrapolation compounds error the further it's pushed forward, so on
-	// a long stall it's better to stop guessing than to keep drifting
-	// toward visible garbage. Also doubles as the extrapolation factor's
-	// hard ceiling (t never exceeds this many expected-intervals forward).
-	frameSmoothingMaxConsecutive = 4
+	// to today's behavior (freeze on the last real frame). Each tick is
+	// gated by the render thread's own ~8ms poll (WaitForSingleObject(g_event,
+	// 8) in vk_render_thread, vk_video_impl_windows.c), so this is
+	// approximately (this number * 8)ms of synthesis budget per stall.
+	//
+	// Was 4 (~32ms) -- far too short for a genuinely bad connection: live
+	// telemetry (2026-09-19, frame smoothing summary log) on a sustained
+	// bad-wifi connection showed real stalls (rawWanted in the PlayoutBuffer
+	// log, i.e. jitter*3 before the buffer's own cap) routinely 150-190ms,
+	// and a 4-tick budget only ever covers the first ~32ms of that -- the
+	// user-visible result was concealment nominally "running" (~20-25% of
+	// frames) but still freezing for the remaining ~120-160ms of nearly
+	// every stall, which read as "no smoothness at all" despite concealment
+	// technically triggering. 25 (~200ms) comfortably covers this
+	// connection's observed stall lengths. This is safe to raise on its own
+	// (independent of frameSmoothingMaxT below): each extra tick only
+	// re-dispatches the cheap warp shader against the SAME cached flow
+	// field (computed once per stall, not per tick) and t stays capped at
+	// frameSmoothingMaxT regardless of how many ticks run, so a longer
+	// budget means bridging longer gaps with the same bounded-confidence
+	// guess repeated/held, not a riskier extrapolation.
+	frameSmoothingMaxConsecutive = 25
+
+	// frameSmoothingMaxT is the extrapolation factor's CONFIDENT ceiling,
+	// independent of frameSmoothingMaxConsecutive above. These used to be
+	// the same constant (t capped at 4.0x), which was too aggressive: a
+	// single-level 16x16 block-match flow field is noisy on this app's
+	// actual content (a remote desktop/device UI -- mostly static, sharp
+	// UI edges, large flat regions, i.e. close to worst case for block
+	// matching's aperture problem), and any per-block noise in that flow
+	// gets stretched by extrapolateT before being displayed. Live testing
+	// on a bad-wifi connection (2026-09-19, see app.log) showed the "смазано
+	// вертикально ... картинка прыгает" (vertically smeared, jumping)
+	// artifact specifically on concealed frames, worse the longer a stall
+	// ran (i.e. the larger t got) -- consistent with noise amplification,
+	// not just noise. Capping the reach lower bounds how far a bad guess
+	// can be pushed.
+	//
+	// IMPORTANT: t does not hard-stop here once elapsed time pushes past
+	// it -- see frameSmoothingSoftExtraT below. A hard stop was tried
+	// first (raising frameSmoothingMaxConsecutive from 4 to 25 alone,
+	// same day): telemetry then showed avgT sitting at ~1.9 on almost
+	// every concealed tick (this connection's raw stalls, ~120-190ms,
+	// blow past frameSmoothingMaxT within the first ~45ms of expected~15-20ms
+	// cadence), meaning for the rest of a long stall the SAME cached flow
+	// field warped by the SAME frozen t produces a bit-for-bit IDENTICAL
+	// frame every tick -- a static hold, then a hard snap to the real
+	// frame once it finally arrives. Extending the tick budget alone just
+	// moved the freeze later without removing it (reported live: "не
+	// плавно нихуя" -- not smooth at all). frameSmoothingMaxT is now only
+	// where the CONFIDENT, near-linear part of the curve ends.
+	frameSmoothingMaxT = 2.0
+
+	// frameSmoothingSoftExtraT is how much further t is allowed to creep,
+	// beyond frameSmoothingMaxT, once elapsed time pushes past it -- via
+	// exponential decay (see decideConcealment), not a second hard cap.
+	// This keeps every tick's output at least infinitesimally different
+	// from the last (no bit-for-bit frozen frame, however long the stall
+	// runs) while the RATE of change keeps shrinking, so a long stall
+	// doesn't diverge into an increasingly-wrong guess either -- it eases
+	// toward frameSmoothingMaxT+frameSmoothingSoftExtraT asymptotically
+	// and, for practical purposes, is imperceptibly close to fully settled
+	// well before that.
+	frameSmoothingSoftExtraT = 1.5
+
+	// frameSmoothingSoftDecayIntervals sets how quickly the soft-extra
+	// creep above decays -- in units of expected-intervals of "excess"
+	// elapsed time past frameSmoothingMaxT. At excess ==
+	// frameSmoothingSoftDecayIntervals, ~63% (1 - 1/e) of
+	// frameSmoothingSoftExtraT has been used; at 3x that, ~95%.
+	frameSmoothingSoftDecayIntervals = 5.0
 
 	// frameSmoothingEMAAlpha weights how quickly the rolling expected
 	// inter-frame interval reacts to a new real measured interval. Low
@@ -143,6 +233,11 @@ func updateExpectedIntervalMs(prevEma, newIntervalMs float64) float64 {
 	if prevEma <= 0 {
 		return newIntervalMs
 	}
+	// Clamp the interval to avoid network stalls polluting the EMA frame rate.
+	// We expect 60fps (16.6ms) or 30fps (33.3ms). Anything over 35ms is a stall, not a slow framerate.
+	if newIntervalMs > 35.0 {
+		newIntervalMs = 35.0
+	}
 	return prevEma + frameSmoothingEMAAlpha*(newIntervalMs-prevEma)
 }
 
@@ -168,20 +263,22 @@ func decideConcealment(elapsedSinceRealMs, expectedIntervalMs float64, consecuti
 	if consecutiveSynthFrames >= frameSmoothingMaxConsecutive {
 		return false, 0
 	}
-	threshold := expectedIntervalMs * frameSmoothingTriggerRatio
-	if floor := expectedIntervalMs + frameSmoothingMinOverageMs; floor > threshold {
-		threshold = floor
+	// We project 0.5 expected intervals into the future because the GPU/display
+	// pipeline adds ~1 frame of latency, and we already waited 8ms (~0.5 frames).
+	// This makes t exactly 1.0, 2.0, 3.0 for the missing frames.
+	rawT := elapsedSinceRealMs/expectedIntervalMs + 0.5
+	t := rawT
+	if t > frameSmoothingMaxT {
+		// Past the confident ceiling: keep easing forward (exponential
+		// decay) instead of freezing at a fixed value -- see
+		// frameSmoothingSoftExtraT's doc comment for why a hard stop here
+		// produced a bit-for-bit static hold for the back half of any long
+		// stall on a bad connection.
+		excess := rawT - frameSmoothingMaxT
+		t = frameSmoothingMaxT + frameSmoothingSoftExtraT*(1-math.Exp(-excess/frameSmoothingSoftDecayIntervals))
 	}
-	if elapsedSinceRealMs < threshold {
-		return false, 0
-	}
-
-	t := elapsedSinceRealMs/expectedIntervalMs - 1.0
 	if t < frameSmoothingMinT {
 		t = frameSmoothingMinT
-	}
-	if maxT := float64(frameSmoothingMaxConsecutive); t > maxT {
-		t = maxT
 	}
 	return true, float32(t)
 }
