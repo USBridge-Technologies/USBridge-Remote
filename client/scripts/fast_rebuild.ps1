@@ -4,6 +4,11 @@
 #
 # ~15-30s on cached build; only changed packages recompile.
 # For a full dist rebuild run .\scripts\build_windows.ps1 from PowerShell.
+#
+# -tags usbpass_gousb must match build_windows.sh, or this overwrites the
+# real libusb/WinUSB claim path with backend_nogousb.go's disabled stub --
+# USB passthrough then silently exports every device as a fake MSC
+# descriptor instead of claiming it (see docs/USB_PASSTHROUGH.md).
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path $PSScriptRoot -Parent
@@ -44,7 +49,7 @@ $env:CGO_LDFLAGS = "-L$ucrt64Lib -lvulkan-1 -lgdi32 -luser32"
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
 Set-Location "$RepoRoot\cmd"
-& go build -trimpath -ldflags="-H=windowsgui -extldflags=-Wl,--stack,8388608" -o $ExeOut .
+& go build -trimpath -tags usbpass_gousb -ldflags="-H=windowsgui -extldflags=-Wl,--stack,8388608" -o $ExeOut .
 if ($LASTEXITCODE -ne 0) { Write-Error "go build failed"; exit 1 }
 
 $sw.Stop()

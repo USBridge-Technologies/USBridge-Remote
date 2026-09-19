@@ -4,6 +4,11 @@
 # Run time: ~15-30s on cached build (only changed packages recompile).
 #
 # For a full dist rebuild with all DLLs: ./scripts/build_windows.sh
+#
+# -tags usbpass_gousb must match build_windows.sh, or this overwrites the
+# real libusb/WinUSB claim path with backend_nogousb.go's disabled stub --
+# USB passthrough then silently exports every device as a fake MSC
+# descriptor instead of claiming it (see docs/USB_PASSTHROUGH.md).
 set -e
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,6 +35,7 @@ export CGO_LDFLAGS="-L${UCRT64_LIB} -lvulkan-1 -lgdi32 -luser32"
 
 time go build \
   -trimpath \
+  -tags usbpass_gousb \
   -ldflags="-H=windowsgui -extldflags=-Wl,--stack,8388608" \
   -o "$EXE_OUT" \
   .
