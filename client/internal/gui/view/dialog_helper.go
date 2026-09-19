@@ -733,6 +733,10 @@ func (r *connectingProgressBarRenderer) Destroy() {}
 // failure that happens while the user is watching this toast reads as "this
 // same wait turned into an error", not a toast vanishing followed by an
 // unrelated popup appearing on top of it.
+//
+// While still connecting, the same chromeless X is already on the panel so
+// the user can abort the in-flight attempt; that tap is wired via
+// ShowConnectingToast's onCancel, not this handle.
 type ConnectingToastHandle struct {
 	popup  *widget.PopUp
 	parent fyne.Window
@@ -916,8 +920,11 @@ func (h *ConnectingToastHandle) ShowError(message string) {
 // animation (a caller with no real budget to reflect).
 //
 // The returned handle's Close hides the toast; ShowError turns it into an
-// inline error instead (see ConnectingToastHandle).
-func ShowConnectingToast(message string, maxDuration time.Duration, parent fyne.Window) *ConnectingToastHandle {
+// inline error instead (see ConnectingToastHandle). onCancel, if non-nil, is
+// invoked when the connecting-state X is tapped -- after the toast has been
+// closed -- so the caller can abort the in-flight attempt. An outside tap
+// does not cancel a still-connecting toast (same as before); only the X does.
+func ShowConnectingToast(message string, maxDuration time.Duration, parent fyne.Window, onCancel func()) *ConnectingToastHandle {
 	if parent == nil {
 		return &ConnectingToastHandle{}
 	}
@@ -927,8 +934,27 @@ func ShowConnectingToast(message string, maxDuration time.Duration, parent fyne.
 
 	bar := newConnectingProgressBar()
 
+	// handle is assigned below, once popup exists -- PanelSize and the X
+	// button only actually run after that assignment, so the closures'
+	// reference is populated by the time they fire.
+	var handle *ConnectingToastHandle
+
+	closeConnecting := func() {
+		if handle != nil {
+			handle.Close()
+		}
+		if onCancel != nil {
+			onCancel()
+		}
+	}
+
+	headerRow := fyne.CanvasObject(text)
+	if onCancel != nil {
+		headerRow = container.NewBorder(nil, nil, nil, newToastCloseButton(closeConnecting), text)
+	}
+
 	body := container.NewVBox(
-		NewInset(text, 0, 0, 0, 4),
+		NewInset(headerRow, 0, 0, 0, 4),
 		bar,
 	)
 
@@ -945,11 +971,6 @@ func ShowConnectingToast(message string, maxDuration time.Duration, parent fyne.
 		NewInset(body, 9, 9, 4, 4),
 		border,
 	)
-
-	// handle is assigned below, once popup exists -- PanelSize only actually
-	// runs on later layout passes (well after that assignment), so by the
-	// time it reads handle.isError the closure's reference is populated.
-	var handle *ConnectingToastHandle
 
 	popup := ShowOverlayPopup(parent, OverlayPopupSpec{
 		Panel:    panel,

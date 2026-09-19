@@ -135,6 +135,16 @@ type MainWindow struct {
 	// Fyne-goroutine-only invariant as connectingToast.
 	suppressConnectingToastClose bool
 
+	// connectGen is the in-flight connect attempt's generation. beginConnectAttempt
+	// stores the new id in connectLiveGen; abortConnectAttempt increments
+	// connectGen so queued success UI (fyne.Do after doConnectWithProtocol)
+	// is a no-op and does not attach a session the user already cancelled.
+	connectGen      atomic.Uint64
+	connectLiveGen  atomic.Uint64
+	connectCancelMu sync.Mutex
+	connectCancel   context.CancelFunc
+	connectCtx      context.Context
+
 	// Connection/Disconnection button
 	connectionBtn    *view.HeaderActionButton
 	protocolSelect   *widget.Select

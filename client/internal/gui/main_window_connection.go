@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
 	"net"
@@ -133,7 +134,7 @@ func (mw *MainWindow) handleConnectingStateChange(connecting bool, name string) 
 
 		logrus.Infof("🔌 [CONNECT-TOAST] showing (name=%q)", name)
 		message := fmt.Sprintf(i18n.Current.ConnectingToConnection, name)
-		mw.connectingToast = view.ShowConnectingToast(message, connectingToastBarDuration, mw.window)
+		mw.connectingToast = view.ShowConnectingToast(message, connectingToastBarDuration, mw.window, mw.abortInFlightConnect)
 	})
 }
 
@@ -256,7 +257,7 @@ func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, lastE
 		})
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
-		err := mw.doConnectWithProtocol(ctx, mw.hostEntry.Text, protocol)
+		err := mw.doConnectWithProtocol(ctx, mw.hostEntry.Text, protocol, 0)
 		cancel()
 		if err == nil {
 			return true
@@ -419,18 +420,161 @@ func (mw *MainWindow) handleConnectionToggle() {
 		return
 	}
 
+	// Register cancel BEFORE the toast appears so an X tap that lands
+	// between SetConnectionPending and handleConnect still aborts this
+	// attempt instead of racing a newly begun generation.
+	userCtx, gen := mw.beginConnectAttempt()
 	mw.isConnectionPending.Store(true)
 	mw.setConnectionLoading(true)
 	mw.hostEntry.Disable()
 	mw.tokenEntry.Disable()
 	mw.protocolSelect.Disable()
 
-	go mw.handleConnect()
+	go mw.handleConnect(userCtx, gen)
+}
+
+// errConnectAborted is returned when the user cancelled an in-flight connect
+// (the connecting toast's X). Distinct from a timeout / network error so
+// handleConnect does not transform the toast into an error.
+var errConnectAborted = errors.New("connection attempt canceled")
+
+func (mw *MainWindow) beginConnectAttempt() (context.Context, uint64) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mw.connectCancelMu.Lock()
+	mw.connectCancel = cancel
+	mw.connectCtx = ctx
+	gen := mw.connectGen.Add(1)
+	mw.connectLiveGen.Store(gen)
+	mw.connectCancelMu.Unlock()
+	return ctx, gen
+}
+
+func (mw *MainWindow) abortConnectAttempt() {
+	mw.connectCancelMu.Lock()
+	mw.connectGen.Add(1)
+	cancel := mw.connectCancel
+	mw.connectCancelMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (mw *MainWindow) connectAttemptLive(gen uint64) bool {
+	return gen != 0 && mw.connectGen.Load() == gen
+}
+
+func (mw *MainWindow) connectAborted(ctx context.Context, gen uint64) bool {
+	if gen == 0 {
+		return false
+	}
+	if !mw.connectAttemptLive(gen) {
+		return true
+	}
+	return ctx != nil && errors.Is(ctx.Err(), context.Canceled)
+}
+
+func (mw *MainWindow) finishConnectAttempt(gen uint64) {
+	mw.connectCancelMu.Lock()
+	defer mw.connectCancelMu.Unlock()
+	if mw.connectLiveGen.Load() == gen {
+		mw.connectLiveGen.Store(0)
+		mw.connectCancel = nil
+		mw.connectCtx = nil
+	}
+}
+
+// abortInFlightConnect is the connecting toast's X. It only cancels the
+// attempt's context and invalidates its generation -- teardown runs on the
+// connect goroutine (handleConnectCanceled) so a second Connect cannot
+// start until USB/Moonlight cleanup has finished.
+func (mw *MainWindow) abortInFlightConnect() {
+	if !mw.isConnectionPending.Load() {
+		return
+	}
+	logrus.Info("🔌 [CONNECT] aborted by user")
+	mw.abortConnectAttempt()
+}
+
+func (mw *MainWindow) handleConnectCanceled() {
+	logrus.Info("🔌 [CONNECT] attempt canceled — tearing down any partial session")
+
+	if mw.videoWidget != nil {
+		mw.videoWidget.MarkUserStopped()
+	}
+
+	if mw.tailscalePollCancel != nil {
+		mw.tailscalePollCancel()
+		mw.tailscalePollCancel = nil
+	}
+
+	if mw.clipboardSync != nil {
+		mw.clipboardSync.Stop()
+		mw.clipboardSync = nil
+	}
+
+	// Moonlight /cancel and overlay teardown on this goroutine — not via
+	// handleDisconnect, which would SetContent+RefreshList the Connections
+	// screen (and rebuild the Devices dashboard) even when we never left it.
+	// That work on the Fyne loop is what the Vulkan watchdog reports as a
+	// main-loop freeze after a toast-X cancel.
+	if mw.videoWidget != nil {
+		_ = mw.videoWidget.StopVideoSync()
+	}
+	if mw.videoClient != nil {
+		_ = mw.videoClient.Disconnect()
+	}
+
+	client := mw.usbClient
+	mw.usbClient = nil
+	mw.isConnected = false
+	mw.isStreaming = false
+	mw.connectedProtocol = ""
+	if mw.appState != nil {
+		mw.appState.IsConnected = false
+		mw.appState.IsStreaming = false
+	}
+	if client != nil {
+		client.Disconnect()
+	}
+
+	fyne.Do(func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.UpdateClient(nil)
+		}
+		if mw.pcpanelWidget != nil {
+			mw.pcpanelWidget.SetClient(nil)
+		}
+		if mw.scriptsWidget != nil {
+			mw.scriptsWidget.SetClient(nil)
+		}
+		if mw.onMainContent {
+			if mw.diskWidget != nil {
+				mw.diskWidget.UpdateClient(nil)
+			}
+			if mw.backupWidget != nil {
+				mw.backupWidget.UpdateClient(nil)
+			}
+			mw.showConnectionManagerNow()
+		}
+
+		mw.clearConnectionPending()
+		mw.refreshConnectionControls()
+		if mw.hostEntry != nil {
+			mw.hostEntry.Enable()
+		}
+		if mw.tokenEntry != nil {
+			mw.tokenEntry.Enable()
+		}
+		if mw.protocolSelect != nil {
+			mw.protocolSelect.Enable()
+		}
+	})
 }
 
 // handleConnect handles connecting
-func (mw *MainWindow) handleConnect() {
+func (mw *MainWindow) handleConnect(userCtx context.Context, gen uint64) {
 	logrus.Infof("🔍 [DEBUG] handleConnect() called")
+	defer mw.finishConnectAttempt(gen)
 
 	host := mw.hostEntry.Text
 	masterKey := mw.tokenEntry.Text
@@ -442,10 +586,20 @@ func (mw *MainWindow) handleConnect() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
-	defer cancel()
+	if mw.connectAborted(userCtx, gen) {
+		mw.handleConnectCanceled()
+		return
+	}
 
-	if err := mw.doConnect(ctx, host, masterKey); err != nil {
+	apiCtx, apiCancel := context.WithTimeout(userCtx, time.Duration(mw.config.APITimeout)*time.Second)
+	defer apiCancel()
+
+	err := mw.doConnect(userCtx, apiCtx, host, masterKey, gen)
+	if mw.connectAborted(userCtx, gen) || errors.Is(err, errConnectAborted) {
+		mw.handleConnectCanceled()
+		return
+	}
+	if err != nil {
 		mw.handleConnectFailure("Connection failed", err)
 	}
 }
@@ -495,7 +649,7 @@ func getFreeVideoUDPPort() int {
 
 // doConnect performs the blocking connection logic (called from a goroutine).
 // masterKey — API master secret (from the QR code): used for sync and to sign API requests.
-func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) error {
+func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey string, gen uint64) error {
 	mw.lastTailscaleAuthURL = ""
 
 	selectedProtocol := mw.protocolSelect.Selected
@@ -514,7 +668,7 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 	// window on top of the app.
 	if usesTsnetTransport() && mw.tailscaleService != nil &&
 		(isLikelyTailscaleHost(host) || selectedProtocol == models.ConnectionProtocolTailscale) {
-		// Deliberately not derived from ctx (which is bounded by the short
+		// Deliberately not derived from apiCtx (which is bounded by the short
 		// APITimeout meant for the actual API calls below): tsnet coming up
 		// cold — especially first-ever interactive login — can take well
 		// longer than that. Carving this wait out of ctx's budget left
@@ -523,11 +677,18 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 		// "context deadline exceeded"-style error even though tsnet itself
 		// was still fine — a second press then worked because tsnet was
 		// already Running by then.
-		waitCtx, waitCancel := context.WithTimeout(context.Background(), 25*time.Second)
-		if waitErr := mw.tailscaleService.WaitUntilReady(waitCtx); waitErr != nil {
+		//
+		// Parent is waitCtx (user-cancelable, no API timeout) so the
+		// connecting toast's X still unblocks this wait.
+		waitReadyCtx, waitCancel := context.WithTimeout(waitCtx, 25*time.Second)
+		waitErr := mw.tailscaleService.WaitUntilReady(waitReadyCtx)
+		waitCancel()
+		if mw.connectAborted(waitCtx, gen) {
+			return errConnectAborted
+		}
+		if waitErr != nil {
 			logrus.Warnf("⚠️ [CONNECT] tsnet not yet ready: %v (proceeding anyway)", waitErr)
 		}
-		waitCancel()
 	}
 
 	if mw.videoWidget != nil {
@@ -535,6 +696,9 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 	}
 	if mw.videoClient != nil {
 		_ = mw.videoClient.Disconnect()
+	}
+	if mw.connectAborted(waitCtx, gen) {
+		return errConnectAborted
 	}
 
 	mw.config.VideoUDPPort = getFreeVideoUDPPort()
@@ -565,12 +729,16 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 		// tsnet.Up() blocks until Running state (~4s on first launch).
 		if usesTsnetTransport() && isLikelyTailscaleHost(host) && mw.tailscaleService != nil {
 			logrus.Info("🛰️ [SYNC] Waiting for Tailscale to be ready...")
-			// Own budget, not ctx (see the identical rationale above) — otherwise
+			// Own budget, not apiCtx (see the identical rationale above) — otherwise
 			// this wait alone can exhaust the API timeout, leaving the sync
 			// request below to fail immediately with a deadline-exceeded error.
-			waitCtx, waitCancel := context.WithTimeout(context.Background(), 25*time.Second)
-			waitErr := mw.tailscaleService.WaitUntilReady(waitCtx)
+			// Parent is waitCtx so the toast X still unblocks this wait.
+			waitReadyCtx, waitCancel := context.WithTimeout(waitCtx, 25*time.Second)
+			waitErr := mw.tailscaleService.WaitUntilReady(waitReadyCtx)
 			waitCancel()
+			if mw.connectAborted(waitCtx, gen) {
+				return errConnectAborted
+			}
 			if waitErr != nil {
 				logrus.Warnf("🛰️ [SYNC] Tailscale not ready: %v (proceeding anyway)", waitErr)
 			} else {
@@ -578,7 +746,7 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 			}
 		}
 
-		if tsReady, err := mw.syncWithBridgeV2(ctx, host, key); err == nil {
+		if tsReady, err := mw.syncWithBridgeV2(apiCtx, host, key); err == nil {
 			// When the user wants Tailscale registration but the bridge is not yet
 			// in the tailnet (no auth key was sent), fall back to Auto or Direct
 			// so that registration can proceed over the current connection.
@@ -592,6 +760,9 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 				}
 			}
 		} else {
+			if mw.connectAborted(apiCtx, gen) {
+				return errConnectAborted
+			}
 			logrus.Warnf("⚠️ [SYNC] Sync failed: %v", err)
 			// For direct and auto protocols, sync failure is not fatal —
 			// mw.activeAPISecret was already set at the start of
@@ -607,6 +778,10 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 		logrus.Warn("⚠️ [CONNECT] No master key provided")
 	}
 
+	if mw.connectAborted(waitCtx, gen) {
+		return errConnectAborted
+	}
+
 	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s timeout=%ds",
 		strings.TrimSpace(host), protocol, mw.config.APITimeout)
 
@@ -614,7 +789,7 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 		mw.pollTailscaleRegistration(host, masterKey, protocol)
 	}
 
-	return mw.doConnectWithProtocol(ctx, host, protocol)
+	return mw.doConnectWithProtocol(apiCtx, host, protocol, gen)
 }
 
 func (mw *MainWindow) pollTailscaleRegistration(host, masterKey, protocol string) {
@@ -700,7 +875,7 @@ func (mw *MainWindow) reconnectViaTailscaleAfterRegistration(host, masterKey str
 	})
 }
 
-func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol string) error {
+func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol string, gen uint64) error {
 	connectTailscale := func(ctx context.Context) error {
 		resolvedHost := strings.TrimSpace(host)
 
@@ -744,13 +919,22 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 	switch protocol {
 	case models.ConnectionProtocolTailscale:
 		if err := connectTailscale(ctx); err != nil {
+			if mw.connectAborted(ctx, gen) {
+				return errConnectAborted
+			}
 			return err
 		}
 	case models.ConnectionProtocolAuto:
 		if err := connectTailscale(ctx); err != nil {
+			if mw.connectAborted(ctx, gen) {
+				return errConnectAborted
+			}
 			logrus.Warnf("⚠️ Tailscale auto-connect failed, falling back to direct: %v", err)
 			tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
 			if err2 := testConnectionWithRetry(ctx, tempClient, host); err2 != nil {
+				if mw.connectAborted(ctx, gen) {
+					return errConnectAborted
+				}
 				return fmt.Errorf("failed to establish connection in auto mode: %w", err2)
 			}
 			mw.usbClient = mw.attachUSBClient(tempClient)
@@ -761,6 +945,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 	case models.ConnectionProtocolDirect:
 		tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
 		if err := testConnectionWithRetry(ctx, tempClient, host); err != nil {
+			if mw.connectAborted(ctx, gen) {
+				return errConnectAborted
+			}
 			return err
 		}
 		mw.usbClient = mw.attachUSBClient(tempClient)
@@ -770,6 +957,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 	default:
 		tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
 		if err := tempClient.TestConnectionWithContext(ctx); err != nil {
+			if mw.connectAborted(ctx, gen) {
+				return errConnectAborted
+			}
 			return err
 		}
 		mw.usbClient = mw.attachUSBClient(tempClient)
@@ -782,9 +972,19 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 		}
 	}
 
+	if mw.connectAborted(ctx, gen) {
+		return errConnectAborted
+	}
+
 	if err := mw.verifyActiveConnectionWithContext(ctx); err != nil {
 		logrus.Errorf("❌ Connection verification failed: %v", err)
+		if client := mw.usbClient; client != nil {
+			client.Disconnect()
+		}
 		mw.usbClient = nil
+		if mw.connectAborted(ctx, gen) {
+			return errConnectAborted
+		}
 		fyne.Do(func() {
 			mw.clearConnectionPending()
 			mw.isConnected = false
@@ -795,6 +995,10 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 			mw.protocolSelect.Enable()
 		})
 		return fmt.Errorf("connection verification failed: %w", err)
+	}
+
+	if mw.connectAborted(ctx, gen) {
+		return errConnectAborted
 	}
 
 	mw.diskWidget.UpdateClient(mw.usbClient)
@@ -809,6 +1013,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 	mw.connectionLossInProgress.Store(false)
 
 	fyne.Do(func() {
+		if !mw.connectAttemptLive(gen) && gen != 0 {
+			return
+		}
 		mw.clearConnectionPending()
 		mw.refreshConnectionControls()
 		if mw.pcpanelWidget != nil {
@@ -842,20 +1049,41 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 
 	logrus.Infof("✅ Connected to USBridge via %s", mw.connectedProtocol)
 
-	if mw.usbClient != nil && mw.connectionManager != nil {
+	if mw.usbClient != nil && mw.connectionManager != nil && (gen == 0 || mw.connectAttemptLive(gen)) {
 		client := mw.usbClient
 		connMgr := mw.connectionManager
 		connHost := strings.TrimSpace(host)
+		liveGen := gen
+		probeCtx := ctx
+		if gen != 0 {
+			mw.connectCancelMu.Lock()
+			if mw.connectCtx != nil {
+				probeCtx = mw.connectCtx
+			}
+			mw.connectCancelMu.Unlock()
+		}
 		go func() {
+			if liveGen != 0 && !mw.connectAttemptLive(liveGen) {
+				return
+			}
 			osName := ""
 			protocol := ""
-			deviceInfo, err := client.GetDeviceInfo()
+			deviceInfo, err := client.GetDeviceInfoWithContext(probeCtx)
+			if probeCtx.Err() != nil || (liveGen != 0 && !mw.connectAttemptLive(liveGen)) {
+				return
+			}
 			if err == nil && deviceInfo != nil {
 				osName = strings.TrimSpace(deviceInfo.AgentOS)
 				protocol = strings.TrimSpace(deviceInfo.AgentProtocol)
 			}
 			if osName == "" || protocol == "" {
+				if probeCtx.Err() != nil {
+					return
+				}
 				status, statusErr := client.GetStatus()
+				if probeCtx.Err() != nil || (liveGen != 0 && !mw.connectAttemptLive(liveGen)) {
+					return
+				}
 				if statusErr == nil && status != nil && status.Data != nil {
 					if osName == "" {
 						osName = strings.TrimSpace(status.Data.OS)

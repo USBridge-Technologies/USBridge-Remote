@@ -52,7 +52,7 @@ type MoonlightService struct {
 	// color444, set via SetColor444, requests RustShine Pro 4:4:4 chroma --
 	// see moonlightVideoFormat's doc comment for how this changes the
 	// VIDEO_FORMAT_* bit passed into do_li_start's STREAM_CONFIGURATION.
-	color444   bool
+	color444 bool
 	// hdr, set via SetHdr, requests RustShine HDR (HEVC Main10 + BT.2020/PQ)
 	// -- independent of color444 (see docs/COLOR_MODES.md in rust-shine:
 	// chroma and dynamic range are separate axes), same
@@ -666,6 +666,7 @@ func (m *MoonlightService) Disconnect() error {
 	// /launch instead of /resume.
 	if m.lastAppId != 0 {
 		appID := m.lastAppId
+		m.lastAppId = 0
 		client := m.client
 		done := make(chan struct{})
 		cancelStart := time.Now()
