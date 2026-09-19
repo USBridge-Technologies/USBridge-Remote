@@ -387,6 +387,9 @@ func newAccountSnapshot(acc account.Status) accountSnapshot {
 		licensesKey.WriteString(lic.Status)
 		licensesKey.WriteByte(':')
 		licensesKey.WriteString(lic.Tier)
+		if lic.OnThisDevice {
+			licensesKey.WriteString(":here")
+		}
 		licensesKey.WriteByte('|')
 	}
 	return accountSnapshot{
@@ -1420,11 +1423,12 @@ func (w *Window) refreshSupportButton(st entitlement.Status) {
 	}
 	paid := protocolPaidTier(st, acc)
 	needsBuy := protocolNeedsPurchase(w.protocolPick, st, acc)
+	ownsPaid := accountHasPaidLicense(acc) || paid != ""
 	switch {
 	case needsBuy && w.protocolPick == protocolEnterprise:
 		w.supportBtn.SetText(loc().BuyEnterprise)
 		w.supportBtn.Show()
-	case paid != "":
+	case ownsPaid:
 		w.supportBtn.Hide()
 	default:
 		w.supportBtn.SetText(loc().BuyPro)

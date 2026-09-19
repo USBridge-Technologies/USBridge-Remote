@@ -84,29 +84,60 @@ func protocolCoveredByEntitlement(pick string, st entitlement.Status) bool {
 }
 
 // accountLicenseIdentifier returns a licensed desktop license this account
-// already owns that covers pick, or "" if they still need to buy. Mirrors
-// the account menu's Plan/Active labels (accountPlanLabel) so a logged-in
-// Pro subscriber can Change to Pro even when this machine's hardware-bound
-// entitlement is still free.
+// already owns that covers pick, or "" if they still need to buy. Prefers
+// a license already bound to this machine, then one sitting on another PC.
 func accountLicenseIdentifier(acc account.Status, pick string) string {
+	return accountLicenseIdentifierPref(acc, pick, false)
+}
+
+func accountLicenseOnThisDevice(acc account.Status, pick string) string {
+	return accountLicenseIdentifierPref(acc, pick, true)
+}
+
+func accountLicenseIdentifierPref(acc account.Status, pick string, onlyHere bool) string {
 	if pick != protocolPro && pick != protocolEnterprise {
 		return ""
 	}
-	var proID string
+	var here, other string
 	for _, lic := range acc.Licenses {
 		if !strings.EqualFold(lic.Status, "licensed") {
 			continue
 		}
+		if onlyHere && !lic.OnThisDevice {
+			continue
+		}
 		switch strings.ToLower(strings.TrimSpace(lic.Tier)) {
 		case "enterprise":
-			return lic.Identifier
+			if lic.OnThisDevice {
+				return lic.Identifier
+			}
+			if other == "" {
+				other = lic.Identifier
+			}
 		case "pro":
-			if pick == protocolPro {
-				proID = lic.Identifier
+			if pick != protocolPro {
+				continue
+			}
+			if lic.OnThisDevice {
+				here = lic.Identifier
+			} else if other == "" {
+				other = lic.Identifier
 			}
 		}
 	}
-	return proID
+	if here != "" {
+		return here
+	}
+	return other
+}
+
+func accountLicenseBoundHere(acc account.Status, identifier string) bool {
+	for _, lic := range acc.Licenses {
+		if lic.Identifier == identifier {
+			return lic.OnThisDevice
+		}
+	}
+	return false
 }
 
 func protocolPurchaseTier(pick string) string {
@@ -116,13 +147,15 @@ func protocolPurchaseTier(pick string) string {
 	return "pro"
 }
 
-// protocolPaidTier is the highest paid plan this machine or logged-in
-// account already has: "enterprise", "pro", or "".
+// protocolPaidTier is the highest paid plan actually bound to THIS
+// machine (hardware entitlement or an account license flagged OnThisDevice).
+// A Pro license parked on another PC does not count: this agent can stay
+// on Free until the user rebinds it.
 func protocolPaidTier(st entitlement.Status, acc account.Status) string {
-	if protocolCoveredByEntitlement(protocolEnterprise, st) || accountLicenseIdentifier(acc, protocolEnterprise) != "" {
+	if protocolCoveredByEntitlement(protocolEnterprise, st) || accountLicenseOnThisDevice(acc, protocolEnterprise) != "" {
 		return protocolEnterprise
 	}
-	if protocolCoveredByEntitlement(protocolPro, st) || accountLicenseIdentifier(acc, protocolPro) != "" {
+	if protocolCoveredByEntitlement(protocolPro, st) || accountLicenseOnThisDevice(acc, protocolPro) != "" {
 		return protocolPro
 	}
 	return ""
@@ -375,8 +408,23 @@ func (w *Window) requestPaidTier(parent fyne.Window, st entitlement.Status, tier
 		if tier == "enterprise" {
 			pick = protocolEnterprise
 		}
-		if id := accountLicenseIdentifier(w.token.AccountStatus(), pick); id != "" {
-			w.applyAccountLicense(id, tier, done)
+		acc := w.token.AccountStatus()
+		if id := accountLicenseIdentifier(acc, pick); id != "" {
+			if accountLicenseBoundHere(acc, id) {
+				w.applyAccountLicense(id, tier, done)
+				return
+			}
+			if parent == nil {
+				fyne.Do(done)
+				return
+			}
+			showConfirmToast(fmt.Sprintf(loc().RebindLicenseConfirm, tierDisplayName(tier)), func(yes bool) {
+				if !yes {
+					done()
+					return
+				}
+				w.applyAccountLicense(id, tier, done)
+			}, parent)
 			return
 		}
 	}

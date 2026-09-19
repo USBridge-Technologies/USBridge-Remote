@@ -133,9 +133,28 @@ type Status struct {
 // shape as billing.usbridge.io/manage's own license list (db.ts's
 // LicenseRow, the fields this package's caller actually needs).
 type License struct {
-	Identifier string `json:"identifier"`
-	Status     string `json:"status"` // "licensed" | "trial" | "trial_used" | "revoked"
-	Tier       string `json:"tier"`
+	Identifier   string `json:"identifier"`
+	Status       string `json:"status"` // "licensed" | "trial" | "trial_used" | "revoked"
+	Tier         string `json:"tier"`
+	OnThisDevice bool   `json:"on_this_device,omitempty"`
+}
+
+// MarkOnThisDevice copies licenses and flags the row whose Identifier is
+// this machine's hardware id — Identifier is the bound hwid (see Rebind).
+func MarkOnThisDevice(licenses []License, hwID string) []License {
+	if len(licenses) == 0 {
+		return licenses
+	}
+	out := make([]License, len(licenses))
+	copy(out, licenses)
+	hwID = strings.TrimSpace(hwID)
+	if hwID == "" {
+		return out
+	}
+	for i := range out {
+		out[i].OnThisDevice = strings.EqualFold(out[i].Identifier, hwID)
+	}
+	return out
 }
 
 // ListLicenses fetches every desktop license belonging to the account

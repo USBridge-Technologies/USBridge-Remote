@@ -1598,8 +1598,14 @@ func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) bool {
 // separate account login.
 func (a *App) AccountStatus() account.Status {
 	a.accMu.Lock()
-	defer a.accMu.Unlock()
-	return a.accStatus
+	st := a.accStatus
+	if n := len(st.Licenses); n > 0 {
+		st.Licenses = append([]account.License(nil), st.Licenses...)
+	}
+	a.accMu.Unlock()
+	hwID, _ := hwid.Get()
+	st.Licenses = account.MarkOnThisDevice(st.Licenses, hwID)
+	return st
 }
 
 func (a *App) setAccError(msg string) {

@@ -109,6 +109,10 @@ type LocalizedStrings struct {
 	LogInWithGoogle         string
 	NoDesktopLicenses       string
 	UseLicenseOnDevice      string
+	LicenseOnThisDevice     string
+	LicenseUsedElsewhere    string
+	LicenseUsedHere         string
+	RebindLicenseConfirm    string
 	AlreadyBoughtIntro      string
 	USBridgeAccount         string
 	SubActive               string
@@ -327,6 +331,10 @@ func EN() *LocalizedStrings {
 		LogInWithGoogle:         "Log in with Google",
 		NoDesktopLicenses:       "No desktop licenses on this account yet.",
 		UseLicenseOnDevice:      "Use here",
+		LicenseOnThisDevice:     "This device",
+		LicenseUsedElsewhere:    "Your %s plan is used on another machine. Move it here?",
+		LicenseUsedHere:         "Your %s plan is used on this device.",
+		RebindLicenseConfirm:    "Changing to %s will move the license to this PC.",
 		AlreadyBoughtIntro:      "Already bought a license on another machine? Log in to move it here.",
 		USBridgeAccount:         "USBridge account",
 		SubActive:               "Active",
@@ -511,6 +519,10 @@ func ES() *LocalizedStrings {
 	locale.LogInWithGoogle = "Entrar con Google"
 	locale.NoDesktopLicenses = "Esta cuenta aun no tiene licencias desktop."
 	locale.UseLicenseOnDevice = "Usar aquí"
+	locale.LicenseOnThisDevice = "Este dispositivo"
+	locale.LicenseUsedElsewhere = "Tu plan %s se usa en otro equipo. Moverlo aqui?"
+	locale.LicenseUsedHere = "Tu plan %s se usa en este dispositivo."
+	locale.RebindLicenseConfirm = "Al pasar a %s la licencia se movera a este PC."
 	locale.AlreadyBoughtIntro = "Ya compraste una licencia en otra maquina? Entra para moverla aqui."
 	locale.USBridgeAccount = "Cuenta USBridge"
 	locale.SubActive = "Activa"
@@ -693,6 +705,10 @@ func UK() *LocalizedStrings {
 	locale.LogInWithGoogle = "Увійти з Google"
 	locale.NoDesktopLicenses = "На цьому акаунті ще немає desktop-ліцензій."
 	locale.UseLicenseOnDevice = "Використати тут"
+	locale.LicenseOnThisDevice = "Цей пристрій"
+	locale.LicenseUsedElsewhere = "Ваш план %s використовується на іншому комп’ютері. Перенести сюди?"
+	locale.LicenseUsedHere = "Ваш план %s використовується на цьому пристрої."
+	locale.RebindLicenseConfirm = "Перехід на %s перенесе ліцензію на цей ПК."
 	locale.AlreadyBoughtIntro = "Вже купили ліцензію на іншій машині? Увійдіть, щоб перенести її сюди."
 	locale.USBridgeAccount = "Акаунт USBridge"
 	locale.SubActive = "Активна"

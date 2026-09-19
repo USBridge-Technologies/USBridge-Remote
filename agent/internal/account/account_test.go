@@ -115,3 +115,20 @@ func TestRebind_PostsExpectedBody(t *testing.T) {
 		t.Fatalf("unexpected request body: %+v", gotBody)
 	}
 }
+
+func TestMarkOnThisDevice(t *testing.T) {
+	in := []License{
+		{Identifier: "AAA", Status: "licensed", Tier: "pro"},
+		{Identifier: "BBB", Status: "licensed", Tier: "enterprise"},
+	}
+	out := MarkOnThisDevice(in, "bbb")
+	if out[0].OnThisDevice || !out[1].OnThisDevice {
+		t.Fatalf("expected only BBB flagged: %+v", out)
+	}
+	if in[1].OnThisDevice {
+		t.Fatal("must copy; must not mutate the cached slice")
+	}
+	if MarkOnThisDevice(in, "")[0].OnThisDevice {
+		t.Fatal("empty hwid must not match")
+	}
+}
