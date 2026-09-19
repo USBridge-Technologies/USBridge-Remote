@@ -926,6 +926,15 @@ const (
 	videoDialogPanelWidth   = float32(408)
 	videoDialogBodyInsetLR  = float32(18)
 	videoDialogBoxedInsetLR = float32(10)
+
+	// Other-settings card (VSync / AI Vision / 4:4:4 / HDR / Net Graph /
+	// Smooth Motion): fixed height + inner scroll so new rows don't grow
+	// the dialog into the footer. Gutter keeps Fyne's overlay scrollbar
+	// off the checkboxes -- same 14px as What's New.
+	videoDialogOtherSettingsPadLR   = float32(8)
+	videoDialogOtherSettingsPadTB   = float32(8)
+	videoDialogOtherSettingsGutter  = float32(14)
+	videoDialogOtherSettingsScrollH = float32(180)
 )
 
 // videoDialogBodyInsetQuirk is NewInset's own extra theme.Padding() (4px by
@@ -978,6 +987,8 @@ func videoDialogToggleDescWidthFor(panelW float32, boxed bool) float32 {
 		panelW = videoDialogPanelWidth
 	}
 	width := panelW - (videoDialogBodyInsetLR+videoDialogBodyInsetQuirk)*2 - videoDialogToggleIndent
+	width -= videoDialogOtherSettingsPadLR * 2
+	width -= videoDialogOtherSettingsGutter
 	if boxed {
 		width -= videoDialogBoxedInsetLR * 2
 	} else {
@@ -1460,6 +1471,73 @@ func newVideoDialogBoxedToggleRow(check *videoDialogCheckbox, titleText fyne.Can
 	return newVideoDialogToggleTap(check, container.NewStack(cardBG, cardBorder, NewInsetExact(row, videoDialogBoxedInsetLR, videoDialogBoxedInsetLR, 8, 8)))
 }
 
+// newVideoDialogLabeledDivider is the Add Connection "OR ENTER MANUALLY"
+// hairline: a 1px line that fills the row, label pinned right. Copied here
+// because controller.thinDividerLayout is unexported.
+func newVideoDialogLabeledDivider(text string) fyne.CanvasObject {
+	line := canvas.NewRectangle(color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff})
+	line.SetMinSize(fyne.NewSize(1, 1))
+	label := canvas.NewText(strings.ToUpper(text), color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
+	label.TextSize = 9
+	label.TextStyle = fyne.TextStyle{Monospace: true}
+	return container.New(&videoDialogLabeledDividerLayout{gap: 10}, line, label)
+}
+
+type videoDialogLabeledDividerLayout struct {
+	gap float32
+}
+
+func (l *videoDialogLabeledDividerLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+	lineMin := objects[0].MinSize()
+	labelMin := objects[1].MinSize()
+	height := lineMin.Height
+	if labelMin.Height > height {
+		height = labelMin.Height
+	}
+	return fyne.NewSize(lineMin.Width+l.gap+labelMin.Width, height)
+}
+
+func (l *videoDialogLabeledDividerLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+	line, label := objects[0], objects[1]
+	labelMin := label.MinSize()
+	labelX := size.Width - labelMin.Width
+	if labelX < 0 {
+		labelX = 0
+	}
+	label.Move(fyne.NewPos(labelX, (size.Height-labelMin.Height)/2))
+	label.Resize(labelMin)
+	lineHeight := line.MinSize().Height
+	if lineHeight <= 0 {
+		lineHeight = 1
+	}
+	lineWidth := labelX - l.gap
+	if lineWidth < 0 {
+		lineWidth = 0
+	}
+	line.Move(fyne.NewPos(0, (size.Height-lineHeight)/2))
+	line.Resize(fyne.NewSize(lineWidth, lineHeight))
+}
+
+func newVideoDialogOtherSettingsCard(rows ...fyne.CanvasObject) fyne.CanvasObject {
+	list := container.NewVBox(rows...)
+	scrolled := container.NewScroll(NewInsetExact(list, 0, videoDialogOtherSettingsGutter, 0, 0))
+	scrolled.Direction = container.ScrollVerticalOnly
+	cardBG := canvas.NewRectangle(design.ColorGray950)
+	cardBG.CornerRadius = design.RadiusMD
+	cardBorder := canvas.NewRectangle(color.Transparent)
+	cardBorder.CornerRadius = design.RadiusMD
+	cardBorder.StrokeColor = videoDialogBorderColor
+	cardBorder.StrokeWidth = 1
+	inner := NewInsetExact(NewFixedHeight(scrolled, videoDialogOtherSettingsScrollH), videoDialogOtherSettingsPadLR, videoDialogOtherSettingsPadLR, videoDialogOtherSettingsPadTB, videoDialogOtherSettingsPadTB)
+	return container.NewStack(cardBG, cardBorder, inner)
+}
+
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 	vsd := &VideoStartDialog{
 		parent:           parent,
@@ -1584,7 +1662,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	if service.NetGraphSupported() {
 		vsd.netGraphCheck = newVideoDialogCheckbox(service.NetGraphEnabled(), func(checked bool) {
 			service.SetNetGraphEnabled(checked)
+			applyNetGraphEnabledUI(checked)
 		})
+		registerNetGraphDialogCheck(vsd.netGraphCheck)
 		vsd.netGraphHint = newVideoDialogDescription(i18n.Current.NetGraphHint, videoDialogToggleDescWidthFor(hintPanelW, false))
 		netGraphRow = newVideoDialogToggleRow(
 			vsd.netGraphCheck,
@@ -1739,19 +1819,17 @@ func (vsd *VideoStartDialog) createInterface() {
 		container.NewCenter(vsd.modeDescription),
 		resolutionFPSRow,
 		NewInsetExact(vsd.modeDetailsSlot, 0, 0, 2, 0), // was flush against resolutionFPSRow above
-		videoDialogVSpace(8),                           // breathing room before VSync
-		vsyncRow,
-		aiVisionRow,
-		color444Row,
-		hdrRow,
+		videoDialogVSpace(8),
+		newVideoDialogLabeledDivider(i18n.Current.OtherSettings),
 	}
+	otherRows := []fyne.CanvasObject{vsyncRow, aiVisionRow, color444Row, hdrRow}
 	if netGraphRow != nil {
-		bodyChildren = append(bodyChildren, netGraphRow)
+		otherRows = append(otherRows, netGraphRow)
 	}
 	if frameSmoothingRow != nil {
-		bodyChildren = append(bodyChildren, frameSmoothingRow)
+		otherRows = append(otherRows, frameSmoothingRow)
 	}
-	bodyChildren = append(bodyChildren, videoDialogVSpace(8)) // breathing room after 4:4:4 Color / Net Graph / Smooth Motion
+	bodyChildren = append(bodyChildren, newVideoDialogOtherSettingsCard(otherRows...), videoDialogVSpace(4))
 	bodyContent := container.NewVBox(bodyChildren...)
 
 	// Cancel sits opposite Apply/extra, same as the Add Connection footer --
@@ -1982,6 +2060,9 @@ func (vsd *VideoStartDialog) syncHintWrapWidths() {
 	}
 	if vsd.color444Hint != nil {
 		vsd.color444Hint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+	}
+	if vsd.hdrHint != nil {
+		vsd.hdrHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
 	}
 	if vsd.netGraphHint != nil {
 		vsd.netGraphHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))

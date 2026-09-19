@@ -14,6 +14,8 @@ func resetNetGraphState(t *testing.T) {
 	savedClear := netGraphMetalClear
 	clearState := func() {
 		netGraphEnabled.Store(false)
+		netGraphScalePercent.Store(netGraphScalePercentDefault)
+		netGraphBgAlpha.Store(uint32(netGraphBg.A))
 		netGraphMu.Lock()
 		netGraphSamples = nil
 		netGraphMu.Unlock()
@@ -188,5 +190,36 @@ func TestBuildNetGraphHUDLossEventIsVisible(t *testing.T) {
 	}
 	if !found {
 		t.Error("a single FecFailed event in the sample history must paint at least one netGraphBad pixel")
+	}
+}
+
+func TestSetNetGraphScaleClamps(t *testing.T) {
+	resetNetGraphState(t)
+
+	SetNetGraphScale(100)
+	if got := NetGraphScalePercent(); got != 100 {
+		t.Fatalf("default scale = %d, want 100", got)
+	}
+	SetNetGraphScale(40)
+	if got := NetGraphScalePercent(); got != netGraphScalePercentMin {
+		t.Errorf("scale below min = %d, want %d", got, netGraphScalePercentMin)
+	}
+	SetNetGraphScale(200)
+	if got := NetGraphScalePercent(); got != netGraphScalePercentMax {
+		t.Errorf("scale above max = %d, want %d", got, netGraphScalePercentMax)
+	}
+	SetNetGraphScale(75)
+	if got := NetGraphScalePercent(); got != 75 {
+		t.Errorf("scale 75 = %d, want 75", got)
+	}
+}
+
+func TestBuildNetGraphHUDUsesBgAlpha(t *testing.T) {
+	resetNetGraphState(t)
+	SetNetGraphBgAlpha(0x80)
+	img := buildNetGraphHUD(nil)
+	got := img.RGBAAt(0, 0)
+	if got.A != 0x80 || got.R != 0 || got.G != 0 || got.B != 0 {
+		t.Errorf("HUD wash at (0,0) = %#v, want alpha 0x80 black", got)
 	}
 }

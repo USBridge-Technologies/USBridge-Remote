@@ -14,6 +14,7 @@ extern double   win_get_last_decode_ms(void);
 
 extern int  vk_hud_set_pixels(const uint8_t *rgba, int w, int h);
 extern void vk_hud_clear(void);
+extern void vk_hud_set_scale(float s);
 */
 import "C"
 
@@ -129,6 +130,9 @@ func init() {
 	// branches.
 	netGraphMetalPush = pushNetGraphOverlayToVulkan
 	netGraphMetalClear = vulkanClearHudOverlay
+	netGraphScalePush = func(scale float32) {
+		C.vk_hud_set_scale(C.float(scale))
+	}
 
 	// USBRIDGE_NET_GRAPH=1: force the HUD on at startup, same debug/QA aid
 	// as frame_smoothing_windows.go's USBRIDGE_FRAME_SMOOTHING -- lets a

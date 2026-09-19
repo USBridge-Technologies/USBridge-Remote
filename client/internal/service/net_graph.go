@@ -146,9 +146,22 @@ var (
 	netGraphConcealedFramesFn func() int64
 	netGraphMetalPush         func(img *image.RGBA)
 	netGraphMetalClear        func()
+	// netGraphScalePush applies the on-screen HUD scale (Vulkan quad /
+	// Metal layer frame) without changing the 640x400 canvas -- nil on
+	// platforms that only blit via ApplyNetGraphOverlay.
+	netGraphScalePush func(scale float32)
 
 	netGraphEnabled  atomic.Bool
 	netGraphLoopOnce sync.Once
+
+	// netGraphScalePercent is the on-screen HUD size as a percent of the
+	// native 640x400 canvas (50-150, default 100). The Vulkan/Metal texture
+	// stays 640x400 -- this only scales the dest quad/layer. See
+	// SetNetGraphScale.
+	netGraphScalePercent atomic.Uint32
+	// netGraphBgAlpha is the HUD wash's A channel (0-255, default
+	// netGraphBg.A). Applied on the next 10Hz rebuild.
+	netGraphBgAlpha atomic.Uint32
 
 	netGraphPrevMu              sync.Mutex
 	netGraphPrevRaw             netGraphRawNetworkStats
@@ -157,6 +170,12 @@ var (
 
 	netGraphMu      sync.Mutex
 	netGraphSamples []NetGraphSample
+	// netGraphDrawMu serializes buildNetGraphHUD: opentype.Face is not
+	// safe for concurrent Glyph/LoadGlyph (see netGraphFace's init
+	// comment). The 10Hz loop is the normal caller; the UI slider used
+	// to rebuild on the Fyne thread and raced it -- index-out-of-range
+	// inside sfnt.LoadGlyph.
+	netGraphDrawMu sync.Mutex
 
 	// netGraphCachedImg holds the most recently built HUD canvas for
 	// ApplyNetGraphOverlay below -- the CPU-buffer blit path Linux/Windows
@@ -216,6 +235,48 @@ func SetNetGraphEnabled(enabled bool) {
 // NetGraphEnabled reports the HUD checkbox's current state.
 func NetGraphEnabled() bool {
 	return netGraphEnabled.Load()
+}
+
+const (
+	netGraphScalePercentMin     = 50
+	netGraphScalePercentMax     = 150
+	netGraphScalePercentDefault = 100
+)
+
+// SetNetGraphScale sets the on-screen HUD size as a percent of the native
+// 640x400 canvas (50-150). Takes effect immediately on the Vulkan/Metal
+// dest quad; the CPU blit path picks it up on the next decoded frame.
+func SetNetGraphScale(percent int) {
+	if percent < netGraphScalePercentMin {
+		percent = netGraphScalePercentMin
+	}
+	if percent > netGraphScalePercentMax {
+		percent = netGraphScalePercentMax
+	}
+	netGraphScalePercent.Store(uint32(percent))
+	if push := netGraphScalePush; push != nil {
+		push(float32(percent) / 100)
+	}
+}
+
+// NetGraphScalePercent is the current on-screen HUD size (50-150).
+func NetGraphScalePercent() int {
+	p := int(netGraphScalePercent.Load())
+	if p == 0 {
+		return netGraphScalePercentDefault
+	}
+	return p
+}
+
+// SetNetGraphBgAlpha sets the HUD wash opacity (0 = invisible panel, 255 =
+// solid black). The next 10Hz rebuild picks it up; graphs/text stay opaque.
+func SetNetGraphBgAlpha(a uint8) {
+	netGraphBgAlpha.Store(uint32(a))
+}
+
+// NetGraphBgAlpha is the current HUD wash opacity (0-255).
+func NetGraphBgAlpha() uint8 {
+	return uint8(netGraphBgAlpha.Load())
 }
 
 // netGraphLoop runs for the lifetime of the process once started (first
@@ -370,8 +431,13 @@ var (
 // oldest-first; an empty slice still produces a valid (mostly blank)
 // canvas.
 func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
+	netGraphDrawMu.Lock()
+	defer netGraphDrawMu.Unlock()
+
 	img := image.NewRGBA(image.Rect(0, 0, netGraphCanvasW, netGraphCanvasH))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: netGraphBg}, image.Point{}, draw.Src)
+	bg := netGraphBg
+	bg.A = NetGraphBgAlpha()
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: bg}, image.Point{}, draw.Src)
 
 	var latest NetGraphSample
 	if len(samples) > 0 {
@@ -524,11 +590,20 @@ func ApplyNetGraphOverlay(rgba []byte, w, h, stride int, bgr bool) {
 // a real per-pixel alpha blend rather than a straight overwrite.
 func netGraphBlitOverlay(dst []byte, w, h, stride int, img *image.RGBA, bgr bool) {
 	iw, ih := img.Rect.Dx(), img.Rect.Dy()
-	x0 := w - netGraphHudMargin - iw
+	scalePct := NetGraphScalePercent()
+	dw := iw * scalePct / 100
+	dh := ih * scalePct / 100
+	if dw < 1 {
+		dw = 1
+	}
+	if dh < 1 {
+		dh = 1
+	}
+	x0 := w - netGraphHudMargin - dw
 	if x0 < netGraphHudMargin {
 		x0 = netGraphHudMargin
 	}
-	y0 := h - netGraphHudMargin - ih
+	y0 := h - netGraphHudMargin - dh
 	if y0 < netGraphHudMargin {
 		y0 = netGraphHudMargin
 	}
@@ -536,19 +611,23 @@ func netGraphBlitOverlay(dst []byte, w, h, stride int, img *image.RGBA, bgr bool
 	if bgr {
 		rIdx, bIdx = 2, 0
 	}
-	for y := 0; y < ih; y++ {
+	for y := 0; y < dh; y++ {
 		dy := y0 + y
 		if dy < 0 || dy >= h {
 			continue
 		}
-		srcRow := img.Pix[y*img.Stride:]
+		sy := y * ih / dh
+		srcRow := img.Pix[sy*img.Stride:]
 		dstRowOff := dy * stride
-		for x := 0; x < iw; x++ {
+		for x := 0; x < dw; x++ {
 			dx := x0 + x
 			if dx < 0 || dx >= w {
 				continue
 			}
-			so := x * 4
+			so := (x * iw / dw) * 4
+			if so+3 >= len(srcRow) {
+				continue
+			}
 			sa := srcRow[so+3]
 			if sa == 0 {
 				continue
@@ -726,9 +805,9 @@ func netGraphDrawEventGraph(img *image.RGBA, x0, y0, w, h int, samples []NetGrap
 // Medium weight plus a size bump (11 -> 13 -> 26, alongside the 2x canvas
 // bump -- see netGraphCanvasW/H's doc comment) gives the outline that room
 // back without going back to a washed-out Regular weight. Loaded once here;
-// opentype.Face is documented as not safe for concurrent use, but every
-// caller runs on net_graph.go's single netGraphLoop goroutine (10Hz), so
-// that's fine.
+// opentype.Face is documented as not safe for concurrent use -- every
+// Glyph/LoadGlyph goes through buildNetGraphHUD, which holds
+// netGraphDrawMu for the whole paint.
 var (
 	netGraphFace   font.Face
 	netGraphGlyphH float64 = 16 // overwritten in init() from the real face metrics; this fallback only matters if font loading somehow fails
@@ -739,6 +818,9 @@ var (
 )
 
 func init() {
+	netGraphScalePercent.Store(netGraphScalePercentDefault)
+	netGraphBgAlpha.Store(uint32(netGraphBg.A))
+
 	f, err := opentype.Parse(gomedium.TTF)
 	if err != nil {
 		logrus.Errorf("📊 [Net Graph] failed to parse embedded HUD font, falling back to a blank face: %v", err)

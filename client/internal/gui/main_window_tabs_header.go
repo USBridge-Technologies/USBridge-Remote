@@ -35,6 +35,13 @@ const (
 	headerTabButtonIconSize = float32(15)
 	headerTabButtonTextSize = float32(10)
 	headerTabButtonGap      = float32(4)
+	// Invisible hit padding on desktop: the row packs each tab to MinSize
+	// (centeredInlineLayout), so without this only the glyph/icon pixels
+	// accept clicks. Pad equals half the old 16px inter-tab gap -- the
+	// layout gap itself is 0 so icon+text stay where they were, and the
+	// clickable boxes now meet.
+	headerTabButtonPadX = float32(8)
+	headerTabButtonPadY = float32(6)
 )
 
 // headerTabButton is one entry in the header's tab selector -- an icon next
@@ -89,6 +96,10 @@ func (b *headerTabButton) Tapped(*fyne.PointEvent) {
 
 func (b *headerTabButton) TappedSecondary(*fyne.PointEvent) {}
 
+func (b *headerTabButton) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
 func (b *headerTabButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
 	b.refreshVisuals()
@@ -116,9 +127,11 @@ func (b *headerTabButton) CreateRenderer() fyne.WidgetRenderer {
 	}
 	b.text = view.NewBrandText(b.label, textSize, headerTabButtonMuted, false)
 
+	hit := canvas.NewRectangle(color.Transparent)
 	r := &headerTabButtonRenderer{
 		button:  b,
-		objects: []fyne.CanvasObject{b.icon, b.text},
+		hit:     hit,
+		objects: []fyne.CanvasObject{hit, b.icon, b.text},
 	}
 	b.refreshVisuals()
 	return r
@@ -150,6 +163,7 @@ func (b *headerTabButton) refreshVisuals() {
 
 type headerTabButtonRenderer struct {
 	button  *headerTabButton
+	hit     *canvas.Rectangle
 	objects []fyne.CanvasObject
 }
 
@@ -160,6 +174,10 @@ func (r *headerTabButtonRenderer) contentSize() (iconSize, textSize fyne.Size) {
 }
 
 func (r *headerTabButtonRenderer) Layout(size fyne.Size) {
+	if r.hit != nil {
+		r.hit.Resize(size)
+		r.hit.Move(fyne.NewPos(0, 0))
+	}
 	if r.button.stacked {
 		if r.button.text != nil {
 			r.button.text.Show()
@@ -232,7 +250,7 @@ func (r *headerTabButtonRenderer) MinSize() fyne.Size {
 		rowHeight = textSize.Height
 	}
 	rowWidth := iconSize.Width + headerTabButtonGap + textSize.Width
-	return fyne.NewSize(rowWidth, rowHeight)
+	return fyne.NewSize(rowWidth+headerTabButtonPadX*2, rowHeight+headerTabButtonPadY*2)
 }
 
 func (r *headerTabButtonRenderer) Refresh() {
@@ -252,9 +270,10 @@ func (r *headerTabButtonRenderer) Objects() []fyne.CanvasObject {
 func (r *headerTabButtonRenderer) Destroy() {}
 
 var (
-	_ fyne.Tappable     = (*headerTabButton)(nil)
-	_ desktop.Hoverable = (*headerTabButton)(nil)
-	_ fyne.Widget       = (*headerTabButton)(nil)
+	_ fyne.Tappable      = (*headerTabButton)(nil)
+	_ desktop.Hoverable  = (*headerTabButton)(nil)
+	_ desktop.Cursorable = (*headerTabButton)(nil)
+	_ fyne.Widget        = (*headerTabButton)(nil)
 )
 
 // buildTabHeaderButtons builds the Control/Devices/Snapshots/Scripts row and

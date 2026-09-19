@@ -74,6 +74,14 @@ static pthread_mutex_t g_hud_pending_mu = PTHREAD_MUTEX_INITIALIZER;
 static NSData *g_hud_pending_data = nil;
 static int g_hud_pending_w = 0, g_hud_pending_h = 0, g_hud_pending_stride = 0;
 static atomic_int g_hud_dirty = 0;
+static atomic_int g_hud_scale_pct = 100;
+
+static float metal_hud_scale(void) {
+    int pct = atomic_load(&g_hud_scale_pct);
+    if (pct < 25) pct = 25;
+    if (pct > 200) pct = 200;
+    return (float)pct / 100.0f;
+}
 
 // Diagnostics for the "HUD sometimes freezes, sometimes crawls smoothly"
 // report. Now that applies happen inline from displayLinkFired (already on
@@ -482,12 +490,15 @@ static void metal_video_apply_pending_hud_overlay(void) {
     // needs adjusting -- push the box's right edge in from the container's
     // own right edge by HUD_MARGIN.
     CGFloat containerW = g_hud_layer.superlayer ? g_hud_layer.superlayer.bounds.size.width : (CGFloat)w;
-    CGFloat x = containerW - HUD_MARGIN - (CGFloat)w;
+    float scale = metal_hud_scale();
+    CGFloat dw = (CGFloat)w * scale;
+    CGFloat dh = (CGFloat)h * scale;
+    CGFloat x = containerW - HUD_MARGIN - dw;
     if (x < HUD_MARGIN) x = HUD_MARGIN; // clamp: a window narrower than the HUD pins it left instead of going negative
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    g_hud_layer.frame = CGRectMake(x, HUD_MARGIN, (CGFloat)w, (CGFloat)h);
+    g_hud_layer.frame = CGRectMake(x, HUD_MARGIN, dw, dh);
     g_hud_layer.contents = (__bridge id)img;
     [CATransaction commit];
     CGImageRelease(img);
@@ -524,6 +535,30 @@ void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride) 
 void metal_video_clear_hud_overlay(void) {
     dispatch_block_t blk = ^{
         if (g_hud_layer) g_hud_layer.contents = nil;
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
+void metal_video_set_hud_scale(float s) {
+    if (s < 0.25f) s = 0.25f;
+    if (s > 2.0f) s = 2.0f;
+    atomic_store(&g_hud_scale_pct, (int)(s * 100.0f + 0.5f));
+    dispatch_block_t blk = ^{
+        if (!g_hud_layer) return;
+        pthread_mutex_lock(&g_hud_pending_mu);
+        int w = g_hud_pending_w, h = g_hud_pending_h;
+        pthread_mutex_unlock(&g_hud_pending_mu);
+        if (w <= 0 || h <= 0) return;
+        float scale = metal_hud_scale();
+        CGFloat dw = (CGFloat)w * scale;
+        CGFloat dh = (CGFloat)h * scale;
+        CGFloat containerW = g_hud_layer.superlayer ? g_hud_layer.superlayer.bounds.size.width : dw;
+        CGFloat x = containerW - HUD_MARGIN - dw;
+        if (x < HUD_MARGIN) x = HUD_MARGIN;
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        g_hud_layer.frame = CGRectMake(x, HUD_MARGIN, dw, dh);
+        [CATransaction commit];
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }

@@ -25,6 +25,7 @@ extern void metal_video_clear_overlay(void);
 
 extern void metal_video_set_hud_overlay(const uint8_t *rgba, int w, int h, int stride);
 extern void metal_video_clear_hud_overlay(void);
+extern void metal_video_set_hud_scale(float s);
 extern double metal_video_last_decode_ms(void);
 
 // Forward declaration matching the CGO-generated export signature (char*, not const char*).
@@ -61,6 +62,9 @@ func init() {
 	// g_overlay_layer AI Vision uses).
 	netGraphMetalPush = pushNetGraphOverlayToMetal
 	netGraphMetalClear = MetalVideoClearHudOverlay
+	netGraphScalePush = func(scale float32) {
+		C.metal_video_set_hud_scale(C.float(scale))
+	}
 	netGraphRenderFPS = MetalVideoLastFPS
 	netGraphDecodeMs = MetalVideoLastDecodeMs
 }

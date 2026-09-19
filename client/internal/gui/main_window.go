@@ -170,11 +170,12 @@ type MainWindow struct {
 	videoStatusGroup    *fyne.Container
 	// fullscreenIcon is that same group's own fullscreen button, right
 	// after videoResolutionText -- shown/hidden together with the rest of
-	// the group (only makes sense while actually streaming). Tapping
-	// mw.videoIcon itself used to open a menu with a "Fullscreen" item
-	// alongside "Settings" -- now that fullscreen is its own button, that
-	// menu would only ever have one item, so mw.videoIcon's own tap goes
-	// straight to ShowCurrentVideoSettings instead (see showVideoMenu's
+	// the group (only makes sense while actually streaming). Net Graph
+	// toggle + metrics settings sit after it, behind a vertical divider.
+	// Tapping mw.videoIcon itself used to open a menu with a "Fullscreen"
+	// item alongside "Settings" -- now that fullscreen is its own button,
+	// that menu would only ever have one item, so mw.videoIcon's own tap
+	// goes straight to ShowCurrentVideoSettings instead (see showVideoMenu's
 	// removal in main_window_layout.go).
 	fullscreenIcon *headerStatusBadgeButton
 	audioIcon      *headerStatusBadgeButton

@@ -26,7 +26,10 @@ func mobileControlTabGaps() (gap, minGap float32) {
 	if useMobileControl() {
 		return 10, 6
 	}
-	return 16, 8
+	// Desktop: inter-tab spacing lives inside headerTabButtonPadX so the
+	// clickable boxes meet; icon+text stay 16px apart the way they did
+	// when this was a 16px layout gap around tight text-sized widgets.
+	return 0, 0
 }
 
 func scriptsTabLabel() string {

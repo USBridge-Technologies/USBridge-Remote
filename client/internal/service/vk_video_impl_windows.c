@@ -479,6 +479,11 @@ static void          *g_hud_stage_ptr  = NULL;
 static uint8_t        g_hud_pixels[VK_HUD_W * VK_HUD_H * 4];
 static volatile int   g_hud_dirty  = 0;
 static volatile int   g_hud_active = 0;
+// On-screen size as percent of VK_HUD_W/H (50-150, default 100). The
+// texture stays 640x400 -- vk_hud_record_draw scales the dest quad.
+// Written from Go (vk_hud_set_scale) on any thread; read on the render
+// thread. atomic_int so those don't race.
+static atomic_int     g_hud_scale_pct = 100;
 
 // ─── AI Vision overlay: full-frame-sized counterpart to the HUD above ──────
 // Same shared pipeline/sampler/layout (see vk_hud_ensure_resources), but its
@@ -1444,19 +1449,27 @@ static void vk_hud_maybe_upload_cmds(VkCommandBuffer cb) {
 // to the bottom-right of the fw x fh video frame (native decode resolution,
 // NOT the on-screen letterboxed size) -- matches net_graph.go's
 // netGraphBlitOverlay anchoring exactly, so the HUD sits in the same place
-// relative to the picture regardless of window size. Must be called between
+// relative to the picture regardless of window size. Dest size is
+// VK_HUD_W/H * g_hud_scale_pct/100 so the operator can shrink/grow the HUD
+// without reallocating the 640x400 texture. Must be called between
 // pfnBeginRendering and pfnEndRendering, with a viewport/scissor already
 // bound (reuses whatever the video draw just set).
 static void vk_hud_record_draw(VkCommandBuffer cb, int fw, int fh) {
     if (!g_hud_active || g_hud_resources_ok <= 0) return;
     if (fw <= 0 || fh <= 0) return;
 
-    float hx0 = (float)(fw - VK_HUD_MARGIN - VK_HUD_W);
-    if (hx0 < VK_HUD_MARGIN) hx0 = (float)VK_HUD_MARGIN;
-    float hy0 = (float)(fh - VK_HUD_MARGIN - VK_HUD_H);
-    if (hy0 < VK_HUD_MARGIN) hy0 = (float)VK_HUD_MARGIN;
-    float hx1 = hx0 + (float)VK_HUD_W;
-    float hy1 = hy0 + (float)VK_HUD_H;
+    int pct = atomic_load(&g_hud_scale_pct);
+    if (pct < 25) pct = 25;
+    if (pct > 200) pct = 200;
+    float dw = (float)VK_HUD_W * ((float)pct / 100.0f);
+    float dh = (float)VK_HUD_H * ((float)pct / 100.0f);
+
+    float hx0 = (float)fw - (float)VK_HUD_MARGIN - dw;
+    if (hx0 < (float)VK_HUD_MARGIN) hx0 = (float)VK_HUD_MARGIN;
+    float hy0 = (float)fh - (float)VK_HUD_MARGIN - dh;
+    if (hy0 < (float)VK_HUD_MARGIN) hy0 = (float)VK_HUD_MARGIN;
+    float hx1 = hx0 + dw;
+    float hy1 = hy0 + dh;
 
     float rect[4] = {
         (hx0 / (float)fw) * 2.0f - 1.0f, (hy0 / (float)fh) * 2.0f - 1.0f,
@@ -3520,6 +3533,16 @@ void vk_hud_clear(void) {
     g_hud_active = 0;
     g_hud_dirty  = 0;
     LeaveCriticalSection(&g_cs);
+}
+
+// vk_hud_set_scale is the on-screen size knob from net_graph.go's
+// SetNetGraphScale -- percent of the native 640x400 canvas, applied to
+// the dest quad on the next frame (texture size unchanged). Safe from any
+// Go goroutine.
+void vk_hud_set_scale(float s) {
+    if (s < 0.25f) s = 0.25f;
+    if (s > 2.0f) s = 2.0f;
+    atomic_store(&g_hud_scale_pct, (int)(s * 100.0f + 0.5f));
 }
 
 // vk_aivision_set_pixels is AI Vision's counterpart to vk_hud_set_pixels --
