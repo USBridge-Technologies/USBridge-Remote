@@ -1277,7 +1277,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 	bg := canvas.NewRectangle(design.ColorPanel)
 	w.protocolBusy = newFooterBusyHint(loc().ChangingProtocol)
 	w.themeBtn = newFooterTextButton(loc().Theme, func() { w.showThemeMenu(w.themeBtn) })
-	footer := newAppFooter(appVersion, w.protocolBusy, w.themeBtn)
+	footer := newAppFooter(appVersion, w.protocolBusy, w.themeBtn, func() {
+		showWhatsNewDialog(win)
+	})
 	body := container.NewBorder(header, footer, nil, nil, newExactInset(content, 16, 16, 8, 8))
 	win.SetContent(container.NewStack(bg, body))
 
@@ -3193,7 +3195,7 @@ func newHeaderBar(left fyne.CanvasObject, right fyne.CanvasObject) (fyne.CanvasO
 	return container.New(&overlayEdgeLineLayout{}, container.NewStack(bg, inner), hairline), hairline
 }
 
-func newAppFooter(version string, busy fyne.CanvasObject, themeBtn fyne.CanvasObject) fyne.CanvasObject {
+func newAppFooter(version string, busy fyne.CanvasObject, themeBtn fyne.CanvasObject, onVersion func()) fyne.CanvasObject {
 	bg := canvas.NewRectangle(design.ColorGray950)
 	hairline := canvas.NewRectangle(design.ColorChromeOlive)
 	hairline.SetMinSize(fyne.NewSize(0, 1))
@@ -3203,9 +3205,16 @@ func newAppFooter(version string, busy fyne.CanvasObject, themeBtn fyne.CanvasOb
 		rightBits = append(rightBits, themeBtn)
 	}
 	if v := strings.TrimSpace(version); v != "" {
-		label := canvas.NewText("v"+v, design.ColorMutedOlive)
-		label.TextSize = 9
-		rightBits = append(rightBits, label)
+		if !strings.HasPrefix(strings.ToLower(v), "v") {
+			v = "v" + v
+		}
+		if onVersion != nil {
+			rightBits = append(rightBits, newFooterTextButton(v, onVersion))
+		} else {
+			label := canvas.NewText(v, design.ColorMutedOlive)
+			label.TextSize = 9
+			rightBits = append(rightBits, label)
+		}
 	}
 	var right fyne.CanvasObject
 	switch len(rightBits) {

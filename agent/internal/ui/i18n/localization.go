@@ -194,6 +194,9 @@ type LocalizedStrings struct {
 	UpdateAvailableBody string
 	Updating            string
 	DownloadingVersion  string
+	WhatsNewTitle       string
+	WhatsNewGotIt       string
+	WhatsNewBadge       string
 
 	// Tray
 	TrayOpen         string
@@ -219,13 +222,26 @@ var Current *LocalizedStrings
 
 const LanguagePrefKey = "language"
 
+var currentCode = "en"
+
+// Code is the active UI language: "en", "es", or "uk".
+func Code() string {
+	if currentCode == "" {
+		return "en"
+	}
+	return currentCode
+}
+
 func Init(language string) {
 	switch language {
 	case "es", "ES":
+		currentCode = "es"
 		Current = ES()
 	case "uk", "UK", "ua", "UA":
+		currentCode = "uk"
 		Current = UK()
 	default:
+		currentCode = "en"
 		Current = EN()
 	}
 }
@@ -412,6 +428,9 @@ func EN() *LocalizedStrings {
 		UpdateAvailableBody: "USBridge Agent %s is available (you have %s). Update now?",
 		Updating:            "Updating…",
 		DownloadingVersion:  "Downloading version %s…",
+		WhatsNewTitle:       "What's new",
+		WhatsNewGotIt:       "Got it",
+		WhatsNewBadge:       "New",
 
 		TrayOpen:         "Open USBridge Agent",
 		TrayRestart:      "Restart Streaming",
@@ -599,6 +618,9 @@ func ES() *LocalizedStrings {
 	locale.UpdateAvailableBody = "USBridge Agent %s esta disponible (tienes %s). Actualizar ahora?"
 	locale.Updating = "Actualizando…"
 	locale.DownloadingVersion = "Descargando version %s…"
+	locale.WhatsNewTitle = "Novedades"
+	locale.WhatsNewGotIt = "Entendido"
+	locale.WhatsNewBadge = "Nuevo"
 
 	locale.TrayOpen = "Abrir USBridge Agent"
 	locale.TrayRestart = "Reiniciar streaming"
@@ -785,6 +807,9 @@ func UK() *LocalizedStrings {
 	locale.UpdateAvailableBody = "USBridge Agent %s доступний (у вас %s). Оновити зараз?"
 	locale.Updating = "Оновлення…"
 	locale.DownloadingVersion = "Завантаження версії %s…"
+	locale.WhatsNewTitle = "Що нового"
+	locale.WhatsNewGotIt = "Зрозуміло"
+	locale.WhatsNewBadge = "Нове"
 
 	locale.TrayOpen = "Відкрити USBridge Agent"
 	locale.TrayRestart = "Перезапустити стрім"

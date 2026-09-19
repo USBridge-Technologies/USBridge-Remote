@@ -235,17 +235,26 @@ func newBrandedDialogPanelInsets(title string, width, padX, bodyPadT float32, bo
 }
 
 func newBrandedDialogPanelChrome(title, subtitle string, width, padX, bodyPadT float32, body, footer fyne.CanvasObject, onClose func()) fyne.CanvasObject {
+	return newBrandedDialogPanelChromeExtra(title, subtitle, nil, width, padX, bodyPadT, body, footer, onClose)
+}
+
+func newBrandedDialogPanelChromeExtra(title, subtitle string, titleExtra fyne.CanvasObject, width, padX, bodyPadT float32, body, footer fyne.CanvasObject, onClose func()) fyne.CanvasObject {
 	titleText := canvas.NewText(title, design.ColorTextLight)
 	titleText.TextSize = 13
 	titleText.TextStyle.Bold = true
 
-	var headerInner fyne.CanvasObject = titleText
+	var titleRow fyne.CanvasObject = titleText
+	if titleExtra != nil {
+		titleRow = container.New(&tightHBoxLayout{gap: 8}, titleText, titleExtra)
+	}
+
+	var headerInner fyne.CanvasObject = titleRow
 	headerBandH := float32(45)
 	headerPadT, headerPadB := float32(12), float32(17)
 	if strings.TrimSpace(subtitle) != "" {
 		sub := canvas.NewText(subtitle, design.ColorMutedOlive)
 		sub.TextSize = 8
-		headerInner = container.New(&tightVBoxLayout{gap: 4}, titleText, sub)
+		headerInner = container.New(&tightVBoxLayout{gap: 4}, titleRow, sub)
 		headerBandH = 61
 		headerPadT, headerPadB = 10, 17
 	}
