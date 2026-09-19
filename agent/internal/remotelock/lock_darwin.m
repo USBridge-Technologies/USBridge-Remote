@@ -2,29 +2,58 @@
 
 #import <ApplicationServices/ApplicationServices.h>
 #import <Cocoa/Cocoa.h>
+#include <dlfcn.h>
 #include <stdint.h>
 #include <unistd.h>
 
 static volatile int gArmed;
-static CFMachPortRef gTap;
-static CFRunLoopSourceRef gSrc;
+static CFMachPortRef gTapSession;
+static CFMachPortRef gTapHID;
+static CFRunLoopSourceRef gSrcSession;
+static CFRunLoopSourceRef gSrcHID;
+
+// Real trackpad/mouse clicks still carry an IOHIDEvent at the HID tap.
+// Sunshine / USBridge-streamer mouse is CGEventPost with HIDSystemState
+// and PID 0. Do not treat HIDSystemState alone as injected: local clicks
+// use that state too and freezing the window is worse than a leak.
+// CGEventCopyIOHIDEvent is not in the public SDK — resolve at runtime.
+typedef CFTypeRef (*copyIOHIDEventFn)(CGEventRef);
+static copyIOHIDEventFn gCopyIOHIDEvent;
+static dispatch_once_t gCopyIOHIDOnce;
+
+static copyIOHIDEventFn copyIOHIDEvent(void) {
+	dispatch_once(&gCopyIOHIDOnce, ^{
+		gCopyIOHIDEvent = (copyIOHIDEventFn)dlsym(RTLD_DEFAULT, "CGEventCopyIOHIDEvent");
+	});
+	return gCopyIOHIDEvent;
+}
 
 void usbridgeRemoteLockSetArmed(int on) {
 	gArmed = on ? 1 : 0;
 }
 
-static int eventIsInjected(CGEventRef event) {
-	// Hardware at a session tap is CombinedSessionState with PID 0.
-	// Sunshine / libvirtualhid mouse is HIDSystemState posted at the HID
-	// tap, which also reports PID 0 — so PID alone is not enough. Keyboard
-	// uses a private source.
+static int eventIsInjected(CGEventRef event, int hidLevel) {
 	int64_t pid = CGEventGetIntegerValueField(event, kCGEventSourceUnixProcessID);
 	if (pid != 0) {
 		return 1;
 	}
 	int64_t state = CGEventGetIntegerValueField(event, kCGEventSourceStateID);
-	return state == (int64_t)kCGEventSourceStatePrivate
-		|| state == (int64_t)kCGEventSourceStateHIDSystemState;
+	if (state == (int64_t)kCGEventSourceStatePrivate) {
+		return 1;
+	}
+	if (!hidLevel) {
+		return 0;
+	}
+	copyIOHIDEventFn copyHID = copyIOHIDEvent();
+	if (copyHID == NULL) {
+		return 0;
+	}
+	CFTypeRef hid = copyHID(event);
+	if (hid != NULL) {
+		CFRelease(hid);
+		return 0;
+	}
+	return 1;
 }
 
 static int isMouseButtonOrWheel(CGEventType type) {
@@ -127,17 +156,20 @@ static CGEventRef usbridgeRemoteLockCallback(
 	CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon)
 {
 	(void)proxy;
-	(void)refcon;
+	int hidLevel = refcon != NULL;
 	if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
-		if (gTap != NULL) {
-			CGEventTapEnable(gTap, true);
+		if (gTapSession != NULL) {
+			CGEventTapEnable(gTapSession, true);
+		}
+		if (gTapHID != NULL) {
+			CGEventTapEnable(gTapHID, true);
 		}
 		return event;
 	}
 	if (!gArmed) {
 		return event;
 	}
-	if (!eventIsInjected(event)) {
+	if (!eventIsInjected(event, hidLevel)) {
 		return event;
 	}
 	if (isMouseButtonOrWheel(type)) {
@@ -166,14 +198,39 @@ static CGEventMask usbridgeRemoteLockMask(void) {
 		| CGEventMaskBit(kCGEventFlagsChanged);
 }
 
-static CFMachPortRef createTap(CGEventTapLocation loc, CGEventMask mask) {
+static CFMachPortRef createTap(CGEventTapLocation loc, CGEventMask mask, void *refcon) {
 	return CGEventTapCreate(
 		loc,
 		kCGHeadInsertEventTap,
 		kCGEventTapOptionDefault,
 		mask,
 		usbridgeRemoteLockCallback,
-		NULL);
+		refcon);
+}
+
+static int addTapToLoop(CFMachPortRef tap, CFRunLoopSourceRef *outSrc) {
+	*outSrc = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0);
+	if (*outSrc == NULL) {
+		return 0;
+	}
+	CFRunLoopAddSource(CFRunLoopGetMain(), *outSrc, kCFRunLoopCommonModes);
+	CGEventTapEnable(tap, true);
+	return 1;
+}
+
+static void dropTap(CFMachPortRef *tap, CFRunLoopSourceRef *src) {
+	if (*tap != NULL) {
+		CGEventTapEnable(*tap, false);
+	}
+	if (*src != NULL) {
+		CFRunLoopRemoveSource(CFRunLoopGetMain(), *src, kCFRunLoopCommonModes);
+		CFRelease(*src);
+		*src = NULL;
+	}
+	if (*tap != NULL) {
+		CFRelease(*tap);
+		*tap = NULL;
+	}
 }
 
 static void promptAccessibility(void) {
@@ -194,43 +251,29 @@ static void promptAccessibility(void) {
 }
 
 int usbridgeRemoteLockInstall(void) {
-	if (gTap != NULL) {
+	if (gTapSession != NULL) {
 		return 1;
 	}
 	CGEventMask mask = usbridgeRemoteLockMask();
-	// Session, not HID: Sunshine posts mouse at kCGHIDEventTap with
-	// HIDSystemState. Those events can skip a HID-level tap, and
-	// kCGEventSourceUnixProcessID is not annotated there.
-	gTap = createTap(kCGSessionEventTap, mask);
-	if (gTap == NULL && !AXIsProcessTrusted()) {
+	gTapSession = createTap(kCGSessionEventTap, mask, NULL);
+	if (gTapSession == NULL && !AXIsProcessTrusted()) {
 		promptAccessibility();
-		gTap = createTap(kCGSessionEventTap, mask);
+		gTapSession = createTap(kCGSessionEventTap, mask, NULL);
 	}
-	if (gTap == NULL) {
+	if (gTapSession == NULL || !addTapToLoop(gTapSession, &gSrcSession)) {
+		dropTap(&gTapSession, &gSrcSession);
 		return 0;
 	}
-	gSrc = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, gTap, 0);
-	if (gSrc == NULL) {
-		CFRelease(gTap);
-		gTap = NULL;
-		return 0;
+	// HID tap is extra: IOHIDEvent is only meaningful here. Sunshine posts
+	// can skip it, which is why the session tap stays primary.
+	gTapHID = createTap(kCGHIDEventTap, mask, (void *)1);
+	if (gTapHID != NULL && !addTapToLoop(gTapHID, &gSrcHID)) {
+		dropTap(&gTapHID, &gSrcHID);
 	}
-	CFRunLoopAddSource(CFRunLoopGetMain(), gSrc, kCFRunLoopCommonModes);
-	CGEventTapEnable(gTap, true);
 	return 1;
 }
 
 void usbridgeRemoteLockRemove(void) {
-	if (gTap != NULL) {
-		CGEventTapEnable(gTap, false);
-	}
-	if (gSrc != NULL) {
-		CFRunLoopRemoveSource(CFRunLoopGetMain(), gSrc, kCFRunLoopCommonModes);
-		CFRelease(gSrc);
-		gSrc = NULL;
-	}
-	if (gTap != NULL) {
-		CFRelease(gTap);
-		gTap = NULL;
-	}
+	dropTap(&gTapHID, &gSrcHID);
+	dropTap(&gTapSession, &gSrcSession);
 }
