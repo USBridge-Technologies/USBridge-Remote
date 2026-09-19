@@ -556,11 +556,15 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 // corner, alpha-composited over the video pixels -- the CPU-buffer
 // counterpart to netGraphMetalPush's native compositor layer (macOS/iOS,
 // see metal_video_darwin.go/metal_video_ios.go): Linux and Windows already
-// run every decoded frame through a CPU-readable RGBA buffer on its way to
-// vk_video_try_submit/gl_video_try_submit (see moonlight_cgo_linux.go's
-// deliver_frame and moonlight_cgo_windows.go's win_deliver_frame), exactly
-// like ai_vision.go's drawCachedOverlay already does for AI Vision on those
-// platforms -- so there's no need for a separate compositor layer there.
+	// run every decoded frame through a CPU-readable RGBA buffer on its way to
+	// vk_video_try_submit/gl_video_try_submit (see moonlight_cgo_linux.go's
+	// deliver_frame and moonlight_cgo_windows.go's win_deliver_frame), exactly
+	// like ai_vision.go's drawCachedOverlay already does for AI Vision on those
+	// platforms -- so there's no need for a separate compositor layer there.
+	// Android uses the same blit, but only while the HUD is on: its default
+	// path is AHardwareBuffer zero-copy (no CPU pixels), so
+	// moonlight_cgo_android.go's dr_submit falls back to glReadPixels +
+	// android_vk_try_submit for as long as the checkbox is ticked.
 // Called once per decoded frame; the disabled case (the default) costs one
 // atomic load, same philosophy as ApplyAIVisionOverlay.
 // bgr: true when dst's byte order is BGRA rather than RGBA -- Windows's GDI

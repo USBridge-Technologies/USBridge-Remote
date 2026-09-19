@@ -16,14 +16,18 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// Control header Net Graph controls: a graph toggle (teal when the HUD
-// is on, gray when off) and a metrics-settings chip that opens a panel
-// with size + background-opacity sliders. Desktop-only --
-// NewNetGraphHeaderButtons returns nils on mobile and on builds without a
-// HUD push path.
+// Control Net Graph controls: a graph toggle (teal when the HUD is on,
+// gray when off) and a metrics-settings chip that opens a panel with
+// size + background-opacity sliders. Desktop places them in the Control
+// header after fullscreen (NewNetGraphHeaderButtons); mobile places the
+// same pair in the Control footer after fullscreen
+// (NewNetGraphMobileFooterButtons). Both return nils when the build has
+// no HUD push path.
 const (
 	netGraphHeaderIconSide  = float32(12)
 	netGraphHeaderHitSide   = float32(22)
+	netGraphMobileIconSide  = float32(16)
+	netGraphMobileHitSide   = float32(32)
 	netGraphHeaderHoverR    = float32(4)
 	netGraphFooterGray      = "#8f9381"
 	netGraphFooterGrayHover = "#c5c8b5"
@@ -66,19 +70,35 @@ func registerNetGraphDialogCheck(c *videoDialogCheckbox) {
 
 // NewNetGraphHeaderButtons is the desktop Control header pair: graph
 // toggle + metrics settings, to sit after the fullscreen button. Nils
-// when Net Graph isn't available here.
+// on mobile (see NewNetGraphMobileFooterButtons) and when Net Graph
+// isn't available here.
 func NewNetGraphHeaderButtons() (graph, settings fyne.CanvasObject) {
 	if IsMobile() || !service.NetGraphSupported() {
 		return nil, nil
 	}
-	g := newNetGraphFooterIcon(service.NetGraphEnabled(), func(c *netGraphFooterIcon) {
+	return newNetGraphControlButtons(netGraphHeaderHitSide, netGraphHeaderIconSide, false)
+}
+
+// NewNetGraphMobileFooterButtons is the same pair for the mobile Control
+// footer (after fullscreen, with video / pan / mouse / keyboard). The
+// settings panel opens upward so it isn't clipped under the footer.
+// Nils when Net Graph isn't available here.
+func NewNetGraphMobileFooterButtons() (graph, settings fyne.CanvasObject) {
+	if !IsMobile() || !service.NetGraphSupported() {
+		return nil, nil
+	}
+	return newNetGraphControlButtons(netGraphMobileHitSide, netGraphMobileIconSide, true)
+}
+
+func newNetGraphControlButtons(hit, icon float32, settingsAbove bool) (graph, settings fyne.CanvasObject) {
+	g := newNetGraphFooterIcon(hit, icon, service.NetGraphEnabled(), func(c *netGraphFooterIcon) {
 		on := !service.NetGraphEnabled()
 		service.SetNetGraphEnabled(on)
 		applyNetGraphEnabledUI(on)
 	})
 	liveNetGraphToggle.Store(g)
-	s := newNetGraphFooterIcon(false, func(c *netGraphFooterIcon) {
-		showNetGraphSettingsPanel(c)
+	s := newNetGraphFooterIcon(hit, icon, false, func(c *netGraphFooterIcon) {
+		showNetGraphSettingsPanel(c, settingsAbove)
 	})
 	s.setIcons(netGraphTuneIcon, netGraphTuneHover)
 	return g, s
@@ -89,6 +109,8 @@ type netGraphFooterIcon struct {
 
 	active    bool
 	hovered   bool
+	hitSide   float32
+	iconSide  float32
 	icon      fyne.Resource
 	hoverIcon fyne.Resource
 	onTap     func(*netGraphFooterIcon)
@@ -102,8 +124,8 @@ var (
 	_ desktop.Cursorable = (*netGraphFooterIcon)(nil)
 )
 
-func newNetGraphFooterIcon(active bool, onTap func(*netGraphFooterIcon)) *netGraphFooterIcon {
-	c := &netGraphFooterIcon{onTap: onTap}
+func newNetGraphFooterIcon(hit, icon float32, active bool, onTap func(*netGraphFooterIcon)) *netGraphFooterIcon {
+	c := &netGraphFooterIcon{onTap: onTap, hitSide: hit, iconSide: icon}
 	c.ExtendBaseWidget(c)
 	c.setActive(active)
 	return c
@@ -148,13 +170,28 @@ func (c *netGraphFooterIcon) MouseOut() {
 	c.refreshVisuals()
 }
 
+func (c *netGraphFooterIcon) hoverFill() color.Color {
+	if c.hitSide >= netGraphMobileHitSide {
+		return design.ColorAlphaWhite07
+	}
+	return design.ColorStatusBarIconChip
+}
+
+func (c *netGraphFooterIcon) hoverRadius() float32 {
+	if c.hitSide >= netGraphMobileHitSide {
+		return c.hitSide / 2
+	}
+	return netGraphHeaderHoverR
+}
+
 func (c *netGraphFooterIcon) refreshVisuals() {
 	if c.bg != nil {
 		if c.hovered {
-			c.bg.FillColor = design.ColorStatusBarIconChip
+			c.bg.FillColor = c.hoverFill()
 		} else {
 			c.bg.FillColor = color.Transparent
 		}
+		c.bg.CornerRadius = c.hoverRadius()
 		c.bg.Refresh()
 	}
 	if c.img == nil || c.icon == nil {
@@ -169,12 +206,12 @@ func (c *netGraphFooterIcon) refreshVisuals() {
 }
 
 func (c *netGraphFooterIcon) MinSize() fyne.Size {
-	return fyne.NewSize(netGraphHeaderHitSide, netGraphHeaderHitSide)
+	return fyne.NewSize(c.hitSide, c.hitSide)
 }
 
 func (c *netGraphFooterIcon) CreateRenderer() fyne.WidgetRenderer {
 	c.bg = canvas.NewRectangle(color.Transparent)
-	c.bg.CornerRadius = netGraphHeaderHoverR
+	c.bg.CornerRadius = c.hoverRadius()
 	c.img = canvas.NewImageFromResource(c.icon)
 	c.img.FillMode = canvas.ImageFillContain
 	c.refreshVisuals()
@@ -189,13 +226,13 @@ type netGraphFooterIconRenderer struct {
 func (r *netGraphFooterIconRenderer) Layout(size fyne.Size) {
 	r.icon.bg.Resize(size)
 	r.icon.bg.Move(fyne.NewPos(0, 0))
-	side := netGraphHeaderIconSide
+	side := r.icon.iconSide
 	r.icon.img.Resize(fyne.NewSize(side, side))
 	r.icon.img.Move(fyne.NewPos((size.Width-side)/2, (size.Height-side)/2))
 }
 
 func (r *netGraphFooterIconRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(netGraphHeaderHitSide, netGraphHeaderHitSide)
+	return fyne.NewSize(r.icon.hitSide, r.icon.hitSide)
 }
 
 func (r *netGraphFooterIconRenderer) Refresh() {
@@ -208,7 +245,7 @@ func (r *netGraphFooterIconRenderer) Objects() []fyne.CanvasObject { return r.ob
 
 func (r *netGraphFooterIconRenderer) Destroy() {}
 
-func showNetGraphSettingsPanel(anchor fyne.CanvasObject) {
+func showNetGraphSettingsPanel(anchor fyne.CanvasObject, openAbove bool) {
 	sizeLbl := "Size"
 	bgLbl := "Background"
 	if i18n.Current != nil {
@@ -263,5 +300,5 @@ func showNetGraphSettingsPanel(anchor fyne.CanvasObject) {
 		row(sizeTitle, sizeSlider, sizePct),
 		NewInset(row(bgTitle, bgSlider, bgVal), 0, 0, 8, 0),
 	)
-	showStyledPanel(anchor, content, 0, false)
+	showStyledPanel(anchor, content, 0, openAbove)
 }

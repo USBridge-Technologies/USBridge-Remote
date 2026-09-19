@@ -1655,9 +1655,10 @@ func (vsd *VideoStartDialog) createInterface() {
 	// Net Graph: off by default, takes effect immediately (like AI Vision)
 	// since it's a pure local-rendering HUD -- see
 	// service.SetNetGraphEnabled's doc comment. Only built/shown on
-	// platforms with a working push path (macOS today); on the rest the
-	// row simply doesn't exist, rather than a checkbox that silently does
-	// nothing.
+	// platforms with a working push path (desktop + Android); on the rest
+	// the row simply doesn't exist, rather than a checkbox that silently
+	// does nothing. On mobile the header chips are hidden (IsMobile);
+	// this dialog checkbox is the Android toggle.
 	var netGraphRow fyne.CanvasObject
 	if service.NetGraphSupported() {
 		vsd.netGraphCheck = newVideoDialogCheckbox(service.NetGraphEnabled(), func(checked bool) {
