@@ -34,6 +34,9 @@ func TestDirIsUsable_BlockedByFile(t *testing.T) {
 }
 
 func TestRemoteWindowLockEnabled_DefaultOff(t *testing.T) {
+	if Default().RemoteWindowLockEnabled() {
+		t.Fatal("fresh install must leave the remote-window lock off")
+	}
 	var c Config
 	if c.RemoteWindowLockEnabled() {
 		t.Fatal("omitted YAML must keep the agent clickable from remote")

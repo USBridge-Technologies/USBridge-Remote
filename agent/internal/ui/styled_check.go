@@ -61,9 +61,14 @@ func (c *styledCheck) CreateRenderer() fyne.WidgetRenderer {
 	box.CornerRadius = 3
 	box.StrokeWidth = 1
 	mark := newCheckImage(checkGlyphOnTeal)
+	if !c.Checked {
+		mark.Hide()
+	}
 	text := canvas.NewText(c.Label, design.ColorSectionTitle)
 	text.TextSize = 11
-	return &styledCheckRenderer{check: c, box: box, mark: mark, text: text, objects: []fyne.CanvasObject{box, mark, text}}
+	r := &styledCheckRenderer{check: c, box: box, mark: mark, text: text, objects: []fyne.CanvasObject{box, mark, text}}
+	r.Refresh()
+	return r
 }
 
 func (c *styledCheck) MinSize() fyne.Size {

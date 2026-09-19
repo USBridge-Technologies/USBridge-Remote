@@ -106,6 +106,7 @@ type Config struct {
 }
 
 func Default() Config {
+	remoteLockOff := false
 	return Config{
 		AppName:            "USBridge Agent",
 		ListenHost:         "0.0.0.0",
@@ -118,6 +119,7 @@ func Default() Config {
 
 		ClipboardSyncEnabled: true,
 		ClipboardMaxBytes:    200 * 1024 * 1024,
+		RemoteWindowLock:     &remoteLockOff,
 	}
 }
 
