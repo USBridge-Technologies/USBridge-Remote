@@ -144,3 +144,41 @@ func TestMergeVideoConfigWithInfo_EmptyEncodingLeavesVideoModeUntouched(t *testi
 		t.Errorf("VideoMode = %q, want %q (untouched -- info.Encoding was empty)", merged.VideoMode, models.VideoModeAV1)
 	}
 }
+
+// TestMergeVideoConfigWithInfo_NeverAutoAdoptsAV1 is the regression test for
+// a real perf incident confirmed via [CODEC-TRACE] + the frame-smoothing
+// telemetry (app.log, 2026-09-19 ~14:42:36): a mid-stream "stuck-no-frame"
+// reconnect landed on a device list whose winid paths had changed shape
+// (plain "winid:0" -> GUID-keyed "winid:{...}", i.e. the host re-enumerated
+// its outputs), so resolvePreferredVideoConfig's saved-device lookup missed
+// and fell back to devices[0]. That device had no saved config, so this
+// merge ran -- and because the agent's /api/video/info happened to report
+// "av1" as currently running at that exact instant, the client silently
+// adopted av1 for that device path and never switched back.
+//
+// That's specifically bad on this client (unlike h264/h265): AV1 has no
+// Vulkan Video zero-copy decode here (moonlight_cgo_windows.go's decoder
+// setup falls straight through to D3D11VA + a CPU sws_scale+overlay path for
+// AV1), which cost ~25-45ms/frame at 2560x1600 instead of a few ms --
+// visible afterward as "SLOW win_deliver_frame" on nearly every frame and a
+// NetGraph DEC bar stuck at 25-30ms, sustained for the rest of that session
+// purely because the device had no prior config to fall back to instead.
+func TestMergeVideoConfigWithInfo_NeverAutoAdoptsAV1(t *testing.T) {
+	cfg := models.VideoDeviceConfig{VideoMode: models.VideoModeH264, VideoWidth: 1280, VideoHeight: 720}
+	info := &models.VideoInfoData{
+		VideoStatus: models.VideoStatus{Mode: "moonlight", Encoding: "av1", Width: 2560, Height: 1600},
+	}
+
+	merged := mergeVideoConfigWithInfo(cfg, info)
+
+	if merged.VideoMode == models.VideoModeAV1 {
+		t.Fatalf("mergeVideoConfigWithInfo auto-adopted info.Encoding=%q for a never-configured device -- AV1 has no zero-copy decode on this client and must only be selected explicitly by the user, not inherited from whatever the server happens to be running", info.Encoding)
+	}
+	if merged.VideoMode != models.VideoModeH264 {
+		t.Errorf("VideoMode = %q, want %q (left untouched since av1 must not be auto-adopted)", merged.VideoMode, models.VideoModeH264)
+	}
+	// Resolution merging is unrelated to this guard and must keep working.
+	if merged.VideoWidth != 2560 || merged.VideoHeight != 1600 {
+		t.Errorf("resolution = %dx%d, want 2560x1600 (from info)", merged.VideoWidth, merged.VideoHeight)
+	}
+}

@@ -149,7 +149,17 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
     // In overlay mode: don't steal keyboard focus on click.
     // In standalone mode: allow activation so keyboard works.
-    if (msg == WM_MOUSEACTIVATE) return g_standalone ? MA_ACTIVATE : MA_NOACTIVATE;
+    if (msg == WM_MOUSEACTIVATE) {
+        if (g_standalone) return MA_ACTIVATE;
+        // The overlay stays visible while another app is in front (it is OWNED
+        // by the Fyne window, so the OS z-orders it with that window instead
+        // of forcing it above everything). A click on it must bring the app
+        // forward exactly like a click on the Fyne window itself would, while
+        // the overlay never takes activation for itself.
+        HWND p = g_parent_hwnd;
+        if (p && GetForegroundWindow() != p) SetForegroundWindow(p);
+        return MA_NOACTIVATE;
+    }
 
     // Standalone mode keyboard: push raw Win32 VK codes into the key queue.
     // Go polls via vk_video_next_key_event() and forwards to Moonlight directly.
@@ -187,7 +197,13 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_INPUT) {
         HWND _fg = GetForegroundWindow();
         // In standalone mode g_parent_hwnd is NULL; check only g_child_hwnd.
-        if (_fg == g_child_hwnd || (g_parent_hwnd && _fg == g_parent_hwnd)) {
+        // IsWindowVisible: when the overlay is hidden (any tab other than
+        // Control, a popup open, app minimised) its client rect is still a
+        // valid rect and RIDEV_INPUTSINK keeps reporting every hardware sample
+        // while the app is foreground -- without this gate the pointer moving
+        // over e.g. the Devices tab was still forwarded to the remote.
+        if ((_fg == g_child_hwnd || (g_parent_hwnd && _fg == g_parent_hwnd)) &&
+            hw && IsWindowVisible(hw)) {
             UINT sz = 0;
             GetRawInputData((HRAWINPUT)lp, RID_INPUT, NULL, &sz, sizeof(RAWINPUTHEADER));
             if (sz > 0 && sz <= 256) {
@@ -261,13 +277,12 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     // WM_USER+1/+2: hide/show requests posted by the render thread.
     if (msg == WM_USER+1) { ShowWindow(hw, SW_HIDE); return 0; }
     if (msg == WM_USER+2) {
-        // Re-assert HWND_TOPMOST synchronously on the window thread before making
-        // the overlay visible. Between vk_video_bring_to_top (called from Go) and
-        // this ShowWindow, the GLFW fullscreen window may have raised itself back to
-        // the top of the TOPMOST Z-order (via its WM_ACTIVATE / WM_SETFOCUS handler).
-        // By re-asserting here we guarantee VK appears on top in the single operation
-        // that transitions the window from hidden to visible.
-        SetWindowPos(hw, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        // Owned overlay: the OS keeps it directly above its owner (the Fyne
+        // window) and moves it with the owner in the z-order, so showing it
+        // needs no z-order poke. Only the ownerless fallback (no parent HWND
+        // at create time) still relies on TOPMOST and must re-assert it here.
+        if (!GetWindow(hw, GW_OWNER))
+            SetWindowPos(hw, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         ShowWindow(hw, SW_SHOWNOACTIVATE);
         return 0;
     }
@@ -296,18 +311,26 @@ static DWORD WINAPI vk_hwnd_thread(LPVOID unused) {
         px = pt.x; py = pt.y;
         cw = g_hwnd_args.w > 0 ? g_hwnd_args.w : 1;
         ch = g_hwnd_args.h > 0 ? g_hwnd_args.h : 1;
-        // Overlay mode: TOPMOST keeps us above Fyne; NOACTIVATE prevents focus theft.
-        ex_style = WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+        // Overlay mode: NOACTIVATE prevents focus theft. The window is OWNED by
+        // the Fyne window (below) rather than TOPMOST: an owned popup is always
+        // kept just above its owner, and stacks with it relative to every other
+        // app's windows. So the video stays visible when the app is inactive but
+        // no longer paints over other apps -- the same behaviour the X11 child
+        // window gives on Linux. TOPMOST is only kept as the fallback when there
+        // is no owner to attach to.
+        ex_style = WS_EX_NOACTIVATE | (g_hwnd_args.parent ? 0 : WS_EX_TOPMOST);
     }
 
     // Create window on THIS thread — own message queue, independent DWM context.
-    // No owner (NULL hwndParent) decouples from Fyne's present queue entirely.
+    // Ownership only affects z-order/minimise/destroy -- unlike WS_CHILD it does
+    // not attach the two threads' input queues, so the separate-input-queue
+    // property described at the top of this file still holds.
     g_child_hwnd = CreateWindowExW(
         ex_style,
         L"usbridgeVKVideo", L"",
         WS_POPUP | WS_VISIBLE,
         px, py, cw, ch,
-        NULL,                          // no owner — independent DWM context
+        g_hwnd_args.standalone ? NULL : g_hwnd_args.parent, // owner: z-order follows the Fyne window
         NULL, GetModuleHandleW(NULL), NULL);
 
     SetEvent(g_hwnd_ready);            // wake vk_video_create (with or without HWND)
@@ -446,6 +469,10 @@ static VkImage                  g_tex          = VK_NULL_HANDLE;
 static VkDeviceMemory           g_tex_mem      = VK_NULL_HANDLE;
 static int                      g_tex_w        = 0, g_tex_h = 0;
 
+// TODO(windows): the HUD / AI Vision overlay code below is duplicated in
+// vk_overlay_common.h (written on Linux, untested here). On a Windows machine:
+// verify that header builds and works, then migrate this file onto it and
+// delete this private copy -- see the TODO at the top of that header.
 // ─── Net Graph HUD overlay ──────────────────────────────────────────────────
 // A small (VK_HUD_W x VK_HUD_H) RGBA texture holding the most recently pushed
 // HUD canvas (net_graph.go's netGraphCachedImg, ~10Hz), drawn as a second,
@@ -532,8 +559,19 @@ static volatile int    g_aivision_active = 0;
 static VkCommandPool            g_cmdpool      = VK_NULL_HANDLE;
 static VkCommandBuffer          g_cmdbuf       = VK_NULL_HANDLE;
 static VkFence                  g_fence        = VK_NULL_HANDLE;
-static VkSemaphore              g_img_sem      = VK_NULL_HANDLE;
-static VkSemaphore              g_rnd_sem      = VK_NULL_HANDLE;
+// Per-swapchain-image semaphore pools, NOT single reused globals -- see
+// their allocation site (vk_video_create) for why. g_img_sems is indexed by
+// a rotating g_img_sem_next (the acquired image index isn't known until
+// AFTER the call that needs this semaphore); g_rnd_sems is indexed by the
+// acquired image index itself (known before the submit/present that need
+// it). Both arrays are sized g_swap_count.
+static VkSemaphore             *g_img_sems     = NULL;
+static VkSemaphore             *g_rnd_sems     = NULL;
+static uint32_t                 g_img_sem_next = 0;
+// How many entries g_img_sems/g_rnd_sems actually have -- tracked separately
+// from g_swap_count, which vk_destroy_swapchain() zeroes before these are
+// torn down on a swapchain recreate (see vk_destroy_sync_semaphores).
+static uint32_t                 g_sync_sem_count = 0;
 
 // ─── render-thread state ──────────────────────────────────────────────────────
 
@@ -1084,6 +1122,8 @@ static int vk_create_swapchain(int w, int h) {
 }
 
 static void vk_destroy_swapchain(void); // forward declaration
+static void vk_destroy_sync_semaphores(void); // forward declaration
+static int  vk_create_sync_semaphores(void);  // forward declaration
 
 // vk_recreate_swapchain — called from render thread when swapchain is out-of-date.
 // Also resizes the popup overlay to match the stored atomic rect.
@@ -1101,8 +1141,8 @@ static int vk_recreate_swapchain(void) {
     if (g_child_hwnd && g_parent_hwnd && w > 0 && h > 0) {
         POINT pt = {x, y};
         ClientToScreen(g_parent_hwnd, &pt);
-        SetWindowPos(g_child_hwnd, HWND_TOPMOST, pt.x, pt.y, w, h,
-                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        SetWindowPos(g_child_hwnd, NULL, pt.x, pt.y, w, h,
+                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | SWP_NOZORDER);
     }
 
     if (w <= 0) w = 1;
@@ -1112,8 +1152,19 @@ static int vk_recreate_swapchain(void) {
     snprintf(m, sizeof(m), "vk: recreating swapchain %dx%d", w, h);
     goVKLog(m, 0);
     int ok = vk_create_swapchain(w, h);
-    if (!ok) goVKLog("vk: swapchain recreation failed", 2);
-    return ok;
+    if (!ok) { goVKLog("vk: swapchain recreation failed", 2); return 0; }
+
+    // Rebuild the per-image semaphore pools sized to whatever image count
+    // this new swapchain actually got -- it can differ from before, and a
+    // stale array size here would go out of bounds indexing by the acquired
+    // image index (or the old array only being safe for a shrunk one and
+    // leaving new images pointing at a stale/destroyed semaphore).
+    vk_destroy_sync_semaphores();
+    if (!vk_create_sync_semaphores()) {
+        goVKLog("vk: sync semaphore recreation failed", 2);
+        return 0;
+    }
+    return 1;
 }
 
 static void vk_destroy_swapchain(void) {
@@ -1125,6 +1176,43 @@ static void vk_destroy_swapchain(void) {
     if (g_swap_imgs) { free(g_swap_imgs); g_swap_imgs = NULL; }
     if (g_swap != VK_NULL_HANDLE) { vkDestroySwapchainKHR(g_dev, g_swap, NULL); g_swap = VK_NULL_HANDLE; }
     g_swap_count = 0;
+}
+
+// vk_destroy_sync_semaphores / vk_create_sync_semaphores manage the
+// per-swapchain-image g_img_sems/g_rnd_sems pools (see their doc comment).
+// Split out from vk_video_create's original inline version so
+// vk_recreate_swapchain can also rebuild them sized to whatever image count
+// the NEW swapchain actually got -- a resize/out-of-date recreate can in
+// principle change it, and a stale array size would either leave new images
+// without a semaphore or (worse) go out of bounds indexing by image index.
+static void vk_destroy_sync_semaphores(void) {
+    if (g_img_sems) {
+        for (uint32_t i = 0; i < g_sync_sem_count; i++)
+            if (g_img_sems[i]) vkDestroySemaphore(g_dev, g_img_sems[i], NULL);
+        free(g_img_sems); g_img_sems = NULL;
+    }
+    if (g_rnd_sems) {
+        for (uint32_t i = 0; i < g_sync_sem_count; i++)
+            if (g_rnd_sems[i]) vkDestroySemaphore(g_dev, g_rnd_sems[i], NULL);
+        free(g_rnd_sems); g_rnd_sems = NULL;
+    }
+    g_sync_sem_count = 0;
+    g_img_sem_next = 0;
+}
+
+static int vk_create_sync_semaphores(void) {
+    if (g_swap_count == 0) return 0;
+    VkSemaphoreCreateInfo semi = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    g_img_sems = (VkSemaphore*)calloc(g_swap_count, sizeof(VkSemaphore));
+    g_rnd_sems = (VkSemaphore*)calloc(g_swap_count, sizeof(VkSemaphore));
+    if (!g_img_sems || !g_rnd_sems) return 0;
+    for (uint32_t i = 0; i < g_swap_count; i++) {
+        if (vkCreateSemaphore(g_dev, &semi, NULL, &g_img_sems[i]) != VK_SUCCESS) return 0;
+        if (vkCreateSemaphore(g_dev, &semi, NULL, &g_rnd_sems[i]) != VK_SUCCESS) return 0;
+        g_sync_sem_count = i + 1;
+    }
+    g_img_sem_next = 0;
+    return 1;
 }
 
 static int vk_ensure_tex(int w, int h) {
@@ -1898,9 +1986,14 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     if (g_decode_queue) vkQueueWaitIdle(g_decode_queue);
 
     uint32_t img_idx = 0;
+    // See g_img_sems's doc comment: rotate through the pool since the
+    // acquired image index (needed to index g_rnd_sems below) isn't known
+    // until AFTER this call.
+    VkSemaphore this_img_sem = g_img_sems[g_img_sem_next];
+    g_img_sem_next = (g_img_sem_next + 1) % g_swap_count;
     g_render_stage = 3; // acquire
     double t0 = mono_sec();
-    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, this_img_sem, VK_NULL_HANDLE, &img_idx);
     double dt = mono_sec() - t0;
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW AcquireNextImage %.0f ms res=%d", dt * 1000.0, (int)res);
@@ -2093,15 +2186,15 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
+    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &this_img_sem; si.pWaitDstStageMask = &wait_stage;
     si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
-    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sems[img_idx];
     vk_conceal_note_real_frame(conceal_slot);
     g_render_stage = 5; // queue-submit
     vk_check_device_lost(vkQueueSubmit(g_queue, 1, &si, g_fence));
 
     VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
+    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sems[img_idx];
     pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
     g_render_stage = 6; // present
     t0 = mono_sec();
@@ -2199,9 +2292,14 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
 
     // Acquire swapchain image — 3 s timeout so we don't hang forever on DWM deadlock.
     uint32_t img_idx = 0;
+    // See g_img_sems's doc comment: rotate through the pool since the
+    // acquired image index (needed to index g_rnd_sems below) isn't known
+    // until AFTER this call.
+    VkSemaphore this_img_sem = g_img_sems[g_img_sem_next];
+    g_img_sem_next = (g_img_sem_next + 1) % g_swap_count;
     g_render_stage = 3; // acquire
     double t0 = mono_sec();
-    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, this_img_sem, VK_NULL_HANDLE, &img_idx);
     double dt = mono_sec() - t0;
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW AcquireNextImage %.0f ms res=%d", dt * 1000.0, (int)res);
@@ -2213,8 +2311,11 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     }
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
         // Swapchain out of date — recreate and skip this frame.
-        // NOTE: AcquireNextImage with OUT_OF_DATE did NOT signal g_img_sem, so
-        // we must NOT wait on it in QueueSubmit this iteration.
+        // NOTE: AcquireNextImage with OUT_OF_DATE did NOT signal this_img_sem,
+        // so we must NOT wait on it in QueueSubmit this iteration -- moot
+        // here since we return before reaching QueueSubmit, but also means
+        // this_img_sem's slot is still unsignaled and safe to reuse next
+        // time g_img_sem_next cycles back to it.
         g_render_stage = 7; // recreate
         vk_recreate_swapchain();
         g_render_stage = 1; return 0;
@@ -2346,12 +2447,12 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     si.waitSemaphoreCount   = 1;
-    si.pWaitSemaphores      = &g_img_sem;
+    si.pWaitSemaphores      = &this_img_sem;
     si.pWaitDstStageMask    = &wait_stage;
     si.commandBufferCount   = 1;
     si.pCommandBuffers      = &g_cmdbuf;
     si.signalSemaphoreCount = 1;
-    si.pSignalSemaphores    = &g_rnd_sem;
+    si.pSignalSemaphores    = &g_rnd_sems[img_idx];
 
     vk_conceal_note_real_frame(conceal_slot);
 
@@ -2360,7 +2461,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
 
     VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     pi.waitSemaphoreCount = 1;
-    pi.pWaitSemaphores    = &g_rnd_sem;
+    pi.pWaitSemaphores    = &g_rnd_sems[img_idx];
     pi.swapchainCount     = 1;
     pi.pSwapchains        = &g_swap;
     pi.pImageIndices      = &img_idx;
@@ -3109,7 +3210,12 @@ static int vk_render_frame_conceal(void) {
     int fw = g_conceal_tex_w, fh = g_conceal_tex_h;
 
     uint32_t img_idx = 0;
-    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    // See g_img_sems's doc comment: rotate through the pool since the
+    // acquired image index (needed to index g_rnd_sems below) isn't known
+    // until AFTER this call.
+    VkSemaphore this_img_sem = g_img_sems[g_img_sem_next];
+    g_img_sem_next = (g_img_sem_next + 1) % g_swap_count;
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, this_img_sem, VK_NULL_HANDLE, &img_idx);
     if (res == VK_TIMEOUT) return 0;
     if (res == VK_ERROR_OUT_OF_DATE_KHR) { vk_recreate_swapchain(); return 0; }
     if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) { vk_check_device_lost(res); return 0; }
@@ -3249,9 +3355,9 @@ static int vk_render_frame_conceal(void) {
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
+    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &this_img_sem; si.pWaitDstStageMask = &wait_stage;
     si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
-    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sems[img_idx];
     vk_check_device_lost(vkQueueSubmit(g_queue, 1, &si, g_fence));
 
     g_conceal_consecutive++;
@@ -3259,7 +3365,7 @@ static int vk_render_frame_conceal(void) {
     g_stat_concealing = 1;
 
     VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
+    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sems[img_idx];
     pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
     res = vkQueuePresentKHR(g_queue, &pi);
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
@@ -3270,6 +3376,41 @@ static int vk_render_frame_conceal(void) {
     return (res == VK_SUCCESS) ? 1 : 0;
 }
 
+// ─── overlay visibility ───────────────────────────────────────────────────────
+// Two independent Go-side hide requests (g_hidden: popup/nav hooks; g_hidden_canvas:
+// "some Fyne canvas overlay is open", polled per frame) plus the minimised state
+// decide whether the overlay window is shown. g_vis_applied is what was last
+// posted to the window thread (-1 = nothing posted yet for this session).
+//
+// Hide is applied IMMEDIATELY from whichever thread asked, so the overlay is gone
+// before Fyne's next frame paints the popup. Show is debounced: a popup that is
+// closed and replaced by another in the same handler (dropdown swaps, dialog ->
+// dialog) must not flash the video in between.
+#define VK_UNHIDE_DEBOUNCE_S 0.07
+static volatile atomic_int g_hidden_canvas;
+static atomic_int          g_vis_applied = -1;
+static volatile double     g_unhide_req_t = 0.0;
+
+static void vk_apply_visibility(void) {
+    HWND hw = g_child_hwnd, parent = g_parent_hwnd;
+    if (!hw || !parent) return; // standalone / not created
+    int iconic = IsIconic(parent) ? 1 : 0;
+    int req    = atomic_load(&g_hidden) | atomic_load(&g_hidden_canvas);
+    int want   = iconic | req;
+    int applied = atomic_load(&g_vis_applied);
+    if (want == applied) return;
+    if (!want && applied == 1 && mono_sec() - g_unhide_req_t < VK_UNHIDE_DEBOUNCE_S)
+        return; // still inside the show debounce; the render loop retries
+    if (!atomic_compare_exchange_strong(&g_vis_applied, &applied, want)) return;
+    char vis[128];
+    snprintf(vis, sizeof(vis),
+        "overlay visibility change: want_hidden=%d (iconic=%d g_hidden=%d canvas=%d)",
+        want, iconic, (int)atomic_load(&g_hidden), (int)atomic_load(&g_hidden_canvas));
+    goVKLog(vis, want ? 1 : 0);
+    // Post to window thread — ShowWindow cross-thread needs message pump.
+    PostMessageW(hw, want ? WM_USER+1 : WM_USER+2, 0, 0);
+}
+
 // ─── render thread ────────────────────────────────────────────────────────────
 
 static DWORD WINAPI vk_render_thread(LPVOID unused) {
@@ -3277,7 +3418,6 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
     double hb_log_t = mono_sec(); // last time we printed a heartbeat log
     long long consec_fail = 0;    // consecutive vk_render_frame failures
     POINT last_parent_pt  = {-1, -1}; // last known screen origin of parent client area
-    int   last_want_hidden = -1;       // -1=unknown; 0=visible; 1=hidden (iconic OR g_hidden)
     int last_rendered = 0;
     while (atomic_load(&g_active)) {
         g_render_stage = 0; // idle — waiting for next frame event
@@ -3301,29 +3441,14 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
         }
 
         if (g_parent_hwnd && g_child_hwnd) {
-            // Unified visibility: hide when:
-            //   • parent minimized (iconic)
-            //   • Fyne window is not foreground (another app has focus)
-            //   • Go requested hide: open menu/popup (same as macOS Metal SetHidden)
-            int iconic     = IsIconic(g_parent_hwnd) ? 1 : 0;
-            HWND _fg2 = GetForegroundWindow();
-            DWORD fg_pid = 0;
-            if (_fg2) GetWindowThreadProcessId(_fg2, &fg_pid);
-            int fg_hidden  = (fg_pid != GetCurrentProcessId()) ? 1 : 0;
-            int want_hidden = iconic | fg_hidden | atomic_load(&g_hidden);
-            if (want_hidden != last_want_hidden) {
-                char vis[128];
-                snprintf(vis, sizeof(vis),
-                    "overlay visibility change: want_hidden=%d (iconic=%d fg_hidden=%d g_hidden=%d)",
-                    want_hidden, iconic, fg_hidden, (int)atomic_load(&g_hidden));
-                goVKLog(vis, want_hidden ? 1 : 0);
-                last_want_hidden = want_hidden;
-                // Post to window thread — ShowWindow cross-thread needs message pump.
-                PostMessageW(g_child_hwnd, want_hidden ? WM_USER+1 : WM_USER+2, 0, 0);
-            }
+            // Visibility (minimised / Go-requested hide) is decided in one place,
+            // shared with vk_video_set_hidden. NOT hidden just because another app
+            // is foreground any more -- the overlay is owned by the Fyne window, so
+            // it already sits behind whatever covers that window.
+            vk_apply_visibility();
 
-            if (!last_want_hidden) {
-                // Track parent window movement (WS_EX_TOPMOST keeps Z-order stable).
+            if (atomic_load(&g_vis_applied) == 0) {
+                // Track parent window movement (the owner relation keeps Z-order stable).
                 POINT origin = {0, 0};
                 ClientToScreen(g_parent_hwnd, &origin);
                 if (origin.x != last_parent_pt.x || origin.y != last_parent_pt.y) {
@@ -3335,8 +3460,8 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
                     if (cw > 0 && ch > 0) {
                         POINT pt = {cx, cy};
                         ClientToScreen(g_parent_hwnd, &pt);
-                        SetWindowPos(g_child_hwnd, HWND_TOPMOST, pt.x, pt.y, cw, ch,
-                                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+                        SetWindowPos(g_child_hwnd, NULL, pt.x, pt.y, cw, ch,
+                                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | SWP_NOZORDER);
                     }
                 }
             }
@@ -3685,8 +3810,8 @@ void vk_video_update_frame(int x, int y, int w, int h) {
     if (g_child_hwnd && g_parent_hwnd && w > 0 && h > 0) {
         POINT pt = {x, y};
         ClientToScreen(g_parent_hwnd, &pt);
-        SetWindowPos(g_child_hwnd, HWND_TOPMOST, pt.x, pt.y, w, h,
-                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        SetWindowPos(g_child_hwnd, NULL, pt.x, pt.y, w, h,
+                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | SWP_NOZORDER);
     }
 }
 
@@ -3803,8 +3928,7 @@ static void vk_full_cleanup(void) {
         free(g_aivision_pixels); g_aivision_pixels = NULL; g_aivision_pixels_sz = 0;
         g_aivision_pending_w = 0; g_aivision_pending_h = 0;
 
-        if (g_img_sem) { vkDestroySemaphore(g_dev, g_img_sem, NULL); g_img_sem = VK_NULL_HANDLE; }
-        if (g_rnd_sem) { vkDestroySemaphore(g_dev, g_rnd_sem, NULL); g_rnd_sem = VK_NULL_HANDLE; }
+        vk_destroy_sync_semaphores();
         if (g_fence)   { vkDestroyFence(g_dev, g_fence, NULL);       g_fence = VK_NULL_HANDLE; }
         if (g_cmdbuf && g_cmdpool) { vkFreeCommandBuffers(g_dev, g_cmdpool, 1, &g_cmdbuf); g_cmdbuf = VK_NULL_HANDLE; }
         if (g_cmdpool) { vkDestroyCommandPool(g_dev, g_cmdpool, NULL); g_cmdpool = VK_NULL_HANDLE; }
@@ -3960,13 +4084,18 @@ static int vk_video_init_common(int x, int y, int w, int h) {
         if (vkAllocateCommandBuffers(g_dev, &cbai, &g_cmdbuf) != VK_SUCCESS) goto fail;
     }
 
-    // Semaphores + fence
+    // Semaphores + fence. One img/rnd semaphore PER SWAPCHAIN IMAGE, not a
+    // single pair reused every frame -- a single reused pair let the
+    // validation layer catch real, live VUID-vkAcquireNextImageKHR-semaphore-01779
+    // / VUID-vkQueueSubmit-pSignalSemaphores-00067 violations (semaphore
+    // still had a pending wait/signal from a previous cycle when reused),
+    // which is undefined behavior per spec and a plausible contributor to
+    // the driver-level VK_ERROR_DEVICE_LOST crashes this was investigated
+    // alongside (2026-09-19) -- see g_img_sems/g_rnd_sems's own doc comment.
     {
-        VkSemaphoreCreateInfo semi = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        if (!vk_create_sync_semaphores()) goto fail;
         VkFenceCreateInfo fci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        if (vkCreateSemaphore(g_dev, &semi, NULL, &g_img_sem) != VK_SUCCESS) goto fail;
-        if (vkCreateSemaphore(g_dev, &semi, NULL, &g_rnd_sem) != VK_SUCCESS) goto fail;
         if (vkCreateFence(g_dev, &fci, NULL, &g_fence)        != VK_SUCCESS) goto fail;
     }
 
@@ -4009,6 +4138,8 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
     atomic_store(&g_vsync, vsync ? 1 : 0);
     g_parent_hwnd = parent;
     g_standalone = 0;
+    atomic_store(&g_vis_applied, -1);
+    atomic_store(&g_hidden_canvas, 0);
     g_hwnd_args.parent = parent; g_hwnd_args.x = x; g_hwnd_args.y = y;
     g_hwnd_args.w = w; g_hwnd_args.h = h; g_hwnd_args.standalone = 0;
 
@@ -4146,8 +4277,24 @@ void vk_video_get_conceal_stats(long long *concealed_frames, int *concealing) {
 // Hide (hidden=1) or show (hidden=0) the overlay without destroying it.
 // Called from Go when a Fyne menu/popup appears or disappears so the native
 // overlay doesn't paint over Fyne's own UI — mirrors macOS MetalVideoSetHidden.
+static void vk_set_hide_flag(volatile atomic_int *flag, int hidden) {
+    // Stamp the time BEFORE clearing so the render loop can never see the
+    // cleared flag paired with a stale timestamp (which would skip the debounce).
+    if (!hidden && atomic_load(flag)) g_unhide_req_t = mono_sec();
+    atomic_store(flag, hidden ? 1 : 0);
+    if (hidden) vk_apply_visibility(); // hide now; show is applied by the render loop
+}
+
 void vk_video_set_hidden(int hidden) {
-    atomic_store(&g_hidden, hidden ? 1 : 0);
+    vk_set_hide_flag(&g_hidden, hidden);
+}
+
+// vk_video_set_canvas_hidden -- same effect as vk_video_set_hidden but a separate
+// flag, driven by polling whether the Fyne canvas currently has ANY overlay open
+// (covers popups/dialogs/menus that never call the overlayShow hook). Kept apart
+// so the two sources can't clear each other's request.
+void vk_video_set_canvas_hidden(int hidden) {
+    vk_set_hide_flag(&g_hidden_canvas, hidden);
 }
 
 // vk_video_bring_to_top — re-assert HWND_TOPMOST on the overlay window.
@@ -4155,6 +4302,9 @@ void vk_video_set_hidden(int hidden) {
 void vk_video_bring_to_top(void) {
     if (g_standalone) return;
     HWND hw = g_child_hwnd;
+    // Owned overlay: the OS already keeps it above its owner. Forcing it to the
+    // top here would lift it over other apps' windows again.
+    if (hw && GetWindow(hw, GW_OWNER)) return;
     if (hw) {
         int active = (int)atomic_load(&g_active);
         char m[96];

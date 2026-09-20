@@ -11,6 +11,10 @@
 #
 # Build deps (install before running this script):
 #   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
+#   Zero-copy VAAPI/QSV->Vulkan render path (vk_video_impl_linux.c's
+#   dma-buf import): libva-dev libva-drm2 or equivalent -- if missing, the
+#   build fails outright (pkg-config libva/libva-drm are required, not
+#   optional) rather than silently losing the feature.
 #   Moonlight core:       opus openssl pkg-config cmake
 #   USB passthrough:      libusb-1.0-0-dev (enables -tags usbpass_gousb claim path)
 #   Optional:             python3 (pip) -- fetches the local ui.parse/AI
@@ -18,7 +22,13 @@
 #                          its absence only disables that one feature.
 #
 # One-liner: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libpulse-dev \
-#              libopus-dev libssl-dev libusb-1.0-0-dev pkg-config cmake
+#              libva-dev libopus-dev libssl-dev libusb-1.0-0-dev pkg-config cmake
+#
+# Zero-copy hw decode at RUNTIME also needs (target machine, not just build):
+#   - Intel: intel-media-va-driver (or -non-free) for VAAPI, plus
+#     libmfx-gen1.2 (Intel oneVPL GPU runtime) for QSV -- without the
+#     latter, h264_qsv/hevc_qsv/av1_qsv decoders exist in ffmpeg but MFX
+#     session creation fails and decode falls back to software.
 
 set -euo pipefail
 
@@ -57,6 +67,13 @@ for pkg in libavcodec libavutil libswscale libpulse-simple; do
     if ! pkg-config --exists "$pkg" 2>/dev/null; then
         echo -e "${RED}❌ Missing build dep: $pkg${NC}"
         echo "   Install: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libpulse-dev"
+        exit 1
+    fi
+done
+for pkg in libva libva-drm; do
+    if ! pkg-config --exists "$pkg" 2>/dev/null; then
+        echo -e "${RED}❌ Missing build dep: $pkg${NC}"
+        echo "   Install: sudo apt-get install -y libva-dev"
         exit 1
     fi
 done

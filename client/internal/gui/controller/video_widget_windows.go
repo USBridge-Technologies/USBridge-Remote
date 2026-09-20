@@ -90,7 +90,9 @@ func (vw *VideoWidget) queueVKWinMouseBatch(scale float32, batch []vkWinMouseEv)
 		evs := vkWinMousePending
 		vkWinMousePending = nil
 		vkWinMousePendingMu.Unlock()
-		if service.VKVideoIsActive() && len(evs) > 0 {
+		// Video is not the active surface (another tab, popup open): drop
+		// every pointer sample so none of them reaches the remote.
+		if service.VKVideoIsActive() && len(evs) > 0 && !view.VideoShouldBeHidden() {
 			s := scale
 			if fsWin := vkWinFullscreenWin; fsWin != nil {
 				if fsWin.Canvas() != nil {
@@ -461,6 +463,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 
 		// Try Vulkan first; fall back to GDI if unavailable.
 		service.VKVideoResetLastFrame()
+		vkWinCanvasOverlayHidden = false // C side resets its flag on create
 		logrus.Infof("[Vulkan/Win] RunNative: hwnd=%x rect=(%d,%d,%dx%d) fullscreen=%v onNativeReadySet=%v",
 			hwnd, x, y, w, h, fullscreen, vw.onNativeReady != nil)
 		if service.VKVideoCreate(hwnd, x, y, w, h, vw.enableVSync) {
@@ -520,6 +523,35 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 	})
 }
 
+// vkWinCanvasOverlayHidden is the last value pushed by syncCanvasOverlayHidden.
+// Fyne main goroutine only.
+var vkWinCanvasOverlayHidden bool
+
+// syncCanvasOverlayHidden hides the native video whenever the Fyne canvas that
+// hosts it has ANY overlay open -- dialogs, context menus, popups. The
+// OnOverlayShow/Hide hook only sees popups that explicitly call overlayShow, so
+// everything else used to be painted over by the Vulkan window. The C side hides
+// immediately on true and debounces the show, so back-to-back popups don't flash
+// the video between them. Must run on the Fyne main goroutine (the overlay
+// stack isn't thread-safe); every caller of updateMetalVideoFrame does.
+func (vw *VideoWidget) syncCanvasOverlayHidden() {
+	var w fyne.Window
+	if vkWinFullscreenWin != nil {
+		w = vkWinFullscreenWin
+	} else {
+		w = vw.parentWindow
+	}
+	if w == nil || w.Canvas() == nil {
+		return
+	}
+	open := w.Canvas().Overlays().Top() != nil
+	if open == vkWinCanvasOverlayHidden {
+		return
+	}
+	vkWinCanvasOverlayHidden = open
+	service.VKVideoSetCanvasHidden(open)
+}
+
 // revealNativeVideoOverlay repeats the Hide/Show + HWND_TOPMOST sequence
 // that a Control-tab switch already performs via syncVideoOverlayForNav.
 // Call after overlay create and after the first presented frame so the
@@ -555,6 +587,8 @@ func (vw *VideoWidget) stopMetalVideo() {
 
 // updateMetalVideoFrame repositions the overlay and logs stats at 1 Hz.
 func (vw *VideoWidget) updateMetalVideoFrame() {
+	vw.syncCanvasOverlayHidden()
+
 	// When fullscreen is active the Vulkan child-window belongs to the fullscreen
 	// window. The main-window VideoWidget must not call VKVideoUpdateFrame or it
 	// would reposition the overlay to the smaller main-window rect, causing the
