@@ -1936,3 +1936,51 @@ func (r *deviceDashboardSpaceMeterRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *deviceDashboardSpaceMeterRenderer) Destroy() {}
+
+// DeviceDashboardHeaderBadge is a small uppercase pill for a dashboard
+// card header -- USB Emulation's "Available for Pro" plaque, matching
+// the video-parameters Pro badge (newVideoDialogBadge).
+type DeviceDashboardHeaderBadge struct {
+	widget.BaseWidget
+
+	OnHover func(bool)
+	content fyne.CanvasObject
+}
+
+func NewDeviceDashboardHeaderBadge(text string, textColor color.Color) *DeviceDashboardHeaderBadge {
+	bg := canvas.NewRectangle(color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff})
+	bg.CornerRadius = 4
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = 4
+	border.StrokeColor = color.NRGBA{R: 0x33, G: 0x37, B: 0x2f, A: 0xff}
+	border.StrokeWidth = 1
+	label := canvas.NewText(strings.ToUpper(text), textColor)
+	label.TextSize = 7
+	label.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	b := &DeviceDashboardHeaderBadge{
+		content: container.NewStack(bg, border, NewInsetExact(label, 6, 6, 1, 1)),
+	}
+	b.ExtendBaseWidget(b)
+	b.Hide()
+	return b
+}
+
+func (b *DeviceDashboardHeaderBadge) MouseIn(*desktop.MouseEvent) {
+	if b.OnHover != nil {
+		b.OnHover(true)
+	}
+}
+
+func (b *DeviceDashboardHeaderBadge) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *DeviceDashboardHeaderBadge) MouseOut() {
+	if b.OnHover != nil {
+		b.OnHover(false)
+	}
+}
+
+func (b *DeviceDashboardHeaderBadge) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(b.content)
+}
+
+var _ desktop.Hoverable = (*DeviceDashboardHeaderBadge)(nil)

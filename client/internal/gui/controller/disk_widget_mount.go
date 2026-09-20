@@ -96,6 +96,7 @@ func (dw *DiskWidget) endOperation() {
 	var newMounted []*models.DeviceInfo
 	var newLocalDrives []*models.LocalDrive
 	var newAgentOS string
+	var newAgentProtocol string
 	var newPassSessions []string
 
 	if dw.usbClient != nil {
@@ -108,6 +109,7 @@ func (dw *DiskWidget) endOperation() {
 				newMounted[i] = &deviceInfo.Devices[i]
 			}
 			newAgentOS = deviceInfo.AgentOS
+			newAgentProtocol = strings.TrimSpace(deviceInfo.AgentProtocol)
 		} else {
 			logrus.Errorf("endOperation: GetDeviceInfo: %v", err)
 		}
@@ -133,6 +135,8 @@ func (dw *DiskWidget) endOperation() {
 		if newMounted != nil {
 			dw.mountedDevices = newMounted
 			dw.agentOS = newAgentOS
+			dw.agentProtocol = newAgentProtocol
+			dw.syncEmulationProBadge()
 		}
 		if newLocalDrives != nil {
 			dw.localDrives = newLocalDrives

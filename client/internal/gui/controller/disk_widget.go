@@ -110,6 +110,10 @@ type DiskWidget struct {
 	// updateSDStorageInfo has a reading.
 	dashboardBackupSpace *view.DeviceDashboardSpaceMeter
 
+	// dashboardEmulationProBadge is USB Emulation's header plaque,
+	// shown while the connected agent is on Sunshine/Free.
+	dashboardEmulationProBadge *view.DeviceDashboardHeaderBadge
+
 	// dashboardSnapshotCount is the number of snapshots last reported by
 	// BackupWidget (via SetDashboardSnapshotCount). Shown as a plaque on
 	// the Backups row; dashboardSnapshotKnown is false until the first
@@ -211,7 +215,8 @@ type DiskWidget struct {
 
 	safHelper *platform.SAFHelper
 
-	agentOS string
+	agentOS       string
+	agentProtocol string
 }
 
 // MaxDevicesToMount maximum number of devices that can be selected at once
@@ -1031,6 +1036,7 @@ func (dw *DiskWidget) showWarningAsync(title, message string) {
 func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	dw.usbClient = usbClient
 	dw.agentOS = ""
+	dw.agentProtocol = ""
 	dw.audioAutoStarted.Store(false)
 	if usbClient == nil {
 		fyne.Do(func() {
@@ -1041,6 +1047,7 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 			dw.dashboardSnapshotCount = 0
 			dw.dashboardSnapshotKnown = false
 			dw.dashboardSnapshotMounted = false
+			dw.syncEmulationProBadge()
 			dw.updateSDStorageInfo()
 			dw.stopAllGamepadCaptures()
 			dw.stopAllPenCaptures()

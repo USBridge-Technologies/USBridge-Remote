@@ -411,9 +411,11 @@ func newConnectionListNameCell(data ConnectionRowData, onEdit func(), isAgent, i
 	if platformLabel == "" {
 		platformLabel = connectionListPlatformLabel(data.RemoteOS)
 	}
-	platformPlaque := newConnectionCardChipsRow(platformLabel, "", accent)
-
-	return container.New(&tightStatsVBoxLayout{Gap: 2}, nameRow, platformPlaque)
+	nameBits := []fyne.CanvasObject{nameRow}
+	if platformLabel != "" {
+		nameBits = append(nameBits, newConnectionCardChipsRow(platformLabel, "", accent))
+	}
+	return container.New(&tightStatsVBoxLayout{Gap: 2}, nameBits...)
 }
 
 // connectionListPlatformLabel is the small muted line under the name.
@@ -421,7 +423,10 @@ func connectionListPlatformLabel(remoteOS string) string {
 	if label := ConnectionPlatformLabel(remoteOS, ""); label != "" {
 		return label
 	}
-	return i18n.Current.AwaitingConnection
+	if strings.TrimSpace(remoteOS) == "" {
+		return i18n.Current.AwaitingConnection
+	}
+	return ""
 }
 
 func newConnectionListStateCell(isAgent, isKVM bool) fyne.CanvasObject {

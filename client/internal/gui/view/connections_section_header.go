@@ -74,9 +74,10 @@ func ClassifyConnectionRemoteOS(remoteOS string) (isAgent bool, isKVM bool) {
 
 // ConnectionPlatformLabel is the small plaque under a connection name.
 // KVM stays "Radxa". Software agents use the tariff the host reported
-// after connect (opensource / free / pro / enterprise); until then the
-// combined "Opensource/Pro" stub remains. Empty RemoteOS (never connected)
-// returns "" so callers can show their awaiting-connection copy.
+// after connect (opensource / free / pro / enterprise) — never a combined
+// stub. Empty RemoteOS (never connected) or an agent whose tariff has not
+// been reported yet returns "" so callers can show awaiting-connection
+// copy only when this host has never connected.
 func ConnectionPlatformLabel(remoteOS, remoteProtocol string) string {
 	isAgent, isKVM := ClassifyConnectionRemoteOS(remoteOS)
 	if isKVM {
@@ -85,10 +86,7 @@ func ConnectionPlatformLabel(remoteOS, remoteProtocol string) string {
 	if !isAgent {
 		return ""
 	}
-	if label := protocolPlaqueText(remoteProtocol); label != "" {
-		return label
-	}
-	return "Opensource/Pro"
+	return protocolPlaqueText(remoteProtocol)
 }
 
 func protocolPlaqueText(protocol string) string {

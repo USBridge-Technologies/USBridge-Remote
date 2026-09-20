@@ -9,7 +9,7 @@ func TestConnectionPlatformLabel(t *testing.T) {
 	}{
 		{"", "", ""},
 		{"usbridge", "pro", "Radxa"},
-		{"Windows", "", "Opensource/Pro"},
+		{"Windows", "", ""},
 		{"linux", "opensource", "Opensource"},
 		{"darwin", "free", "Free"},
 		{"macOS", "pro", "Pro"},

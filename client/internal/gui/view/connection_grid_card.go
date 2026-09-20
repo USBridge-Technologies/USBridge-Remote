@@ -40,7 +40,8 @@ type ConnectionCardData struct {
 
 	// PlatformLabel/CapabilityText: the chip row under the title.
 	// PlatformLabel is the agent tariff (Opensource / Free / Pro /
-	// Enterprise) or "Radxa" for KVM. Empty falls back in the card.
+	// Enterprise) or "Radxa" for KVM. Empty means never connected
+	// (awaiting copy) or a connected agent whose tariff is not known yet.
 	PlatformLabel  string
 	CapabilityText string
 
@@ -159,11 +160,14 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 		platformLabel := strings.TrimSpace(data.PlatformLabel)
 		if platformLabel == "" {
 			platformLabel = ConnectionPlatformLabel(data.RemoteOS, "")
-			if platformLabel == "" {
-				platformLabel = i18n.Current.AwaitingConnection
-			}
 		}
-		plaque := newConnectionCardChipsRow(platformLabel, strings.TrimSpace(data.CapabilityText), accent)
+		if platformLabel == "" && strings.TrimSpace(data.RemoteOS) == "" {
+			platformLabel = i18n.Current.AwaitingConnection
+		}
+		var plaque fyne.CanvasObject
+		if platformLabel != "" {
+			plaque = newConnectionCardChipsRow(platformLabel, strings.TrimSpace(data.CapabilityText), accent)
+		}
 		syncDrop := newConnectionSyncDropdown(data.SyncBadge, data.SyncOptions, data.SyncEnabled, state.Disabled, actions.OnSyncChange, actions.OnSyncLocked)
 		chipsRow = NewInset(container.NewBorder(nil, nil, plaque, syncDrop), 0, 0, 4, 8)
 	}

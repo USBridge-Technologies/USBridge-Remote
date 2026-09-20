@@ -82,9 +82,6 @@ type LocalizedStrings struct {
 	AccountLogOut                     string
 	AccountLoginIntro                 string
 	AccountLoginGoogle                string
-	AccountLicensesLoadErr            string
-	AccountNoLicenses                 string
-	AccountLoadingLicenses            string
 	AccountConnectionsSync            string
 	AccountSyncOn                     string
 	AccountSyncOff                    string
@@ -126,6 +123,7 @@ type LocalizedStrings struct {
 	DevicesEmptyAudio                 string
 	DevicesEmptyStorage               string
 	DevicesEmptyUSB                   string
+	USBEmulationProBadge              string // USB Emulation header plaque when the agent is on Sunshine/Free, e.g. "Available for Pro"
 	DevicesEmptyNetwork               string
 	DevicesEmptyBackup                string
 	DevicesCardNetwork                string
@@ -379,6 +377,8 @@ type LocalizedStrings struct {
 	UpdateDownloadingTitle   string
 	UpdateDownloadingMessage string // %s = new version
 	WhatsNewTitle            string
+	WhatsNewSubtitle         string
+	WhatsNewGitHub           string
 	WhatsNewGotIt            string
 
 	// Video Settings/Dialogs
@@ -494,6 +494,9 @@ type LocalizedStrings struct {
 	EnableVSync                          string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
 	EnableVSyncHint                      string // description shown under the VSync checkbox
 	EnableVSyncBadge                     string // small badge next to the VSync title, e.g. "RECOMMENDED"
+	AMDFSR                               string // "AMD FSR 1.0 Upscaler" checkbox title, video parameters dialog
+	AMDFSRHint                           string // description shown under the AMD FSR checkbox
+	AMDFSRBadge                          string // small badge next to the AMD FSR title, e.g. "NEW"
 	AIVision                             string // "AI Vision Detection Overlay" checkbox title, video parameters dialog
 	AIVisionHint                         string // hint shown under the AI Vision checkbox
 	AIVisionBadge                        string // small badge next to the AI Vision title, e.g. "EXPERIMENTAL"
@@ -653,11 +656,8 @@ func EN() *LocalizedStrings {
 		AccountForgotPassphrase:           "Forgot passphrase? ",
 		AccountResetIt:                    "Reset it",
 		AccountLogOut:                     "Log out",
-		AccountLoginIntro:                 "Log in to see your USBridge licenses and sync your saved connections across devices.",
+		AccountLoginIntro:                 "Log in to sync your saved connections across devices.",
 		AccountLoginGoogle:                "Log in with Google",
-		AccountLicensesLoadErr:            "Could not load licenses: %v",
-		AccountNoLicenses:                 "No licenses on this account yet.",
-		AccountLoadingLicenses:            "Loading your licenses…",
 		AccountConnectionsSync:            "Connections sync",
 		AccountSyncOn:                     "on",
 		AccountSyncOff:                    "off",
@@ -699,6 +699,7 @@ func EN() *LocalizedStrings {
 		DevicesEmptyAudio:                 "No audio devices",
 		DevicesEmptyStorage:               "No storage or ISO media",
 		DevicesEmptyUSB:                   "No USB devices",
+		USBEmulationProBadge:              "Available for Pro",
 		DevicesEmptyNetwork:               "No network bridge devices",
 		DevicesEmptyBackup:                "No backup devices",
 		DevicesCardNetwork:                "Network",
@@ -950,6 +951,8 @@ func EN() *LocalizedStrings {
 		UpdateDownloadingTitle:   "Updating…",
 		UpdateDownloadingMessage: "Downloading version %s…",
 		WhatsNewTitle:            "What's new",
+		WhatsNewSubtitle:         "Explore the latest features, hardware passthrough capabilities, and performance optimizations.",
+		WhatsNewGitHub:           "View Full Changelog on GitHub",
 		WhatsNewGotIt:            "Got it",
 
 		// Video Settings/Dialogs
@@ -1064,6 +1067,9 @@ func EN() *LocalizedStrings {
 		EnableVSync:                          "VSync (Vertical Sync)",
 		EnableVSyncHint:                      "Synchronizes frame delivery with the host display's refresh rate to eliminate tearing during fast motion.",
 		EnableVSyncBadge:                     "Recommended",
+		AMDFSR:                               "AMD FSR 1.0 Upscaler",
+		AMDFSRHint:                           "Improves picture sharpness when the stream is at a lower resolution.",
+		AMDFSRBadge:                          "New",
 		AIVision:                             "AI Vision Detection Overlay",
 		AIVisionHint:                         "Overlays live object detection (Set-of-Mark bounding boxes + hex IDs) on the video feed, mirroring an agent's ui.parse() telemetry call.",
 		AIVisionBadge:                        "Experimental",
@@ -1262,6 +1268,8 @@ func ES() *LocalizedStrings {
 	locale.UpdateDownloadingTitle = "Actualizando…"
 	locale.UpdateDownloadingMessage = "Descargando la version %s…"
 	locale.WhatsNewTitle = "Novedades"
+	locale.WhatsNewSubtitle = "Las ultimas funciones, passthrough de hardware y mejoras de rendimiento."
+	locale.WhatsNewGitHub = "Ver changelog completo en GitHub"
 	locale.WhatsNewGotIt = "Entendido"
 	locale.VideoQualitySettings = "Configuracion de calidad de video"
 	locale.Resolution = "Resolucion"
@@ -1319,11 +1327,8 @@ func ES() *LocalizedStrings {
 	locale.AccountForgotPassphrase = "Olvidaste passphrase? "
 	locale.AccountResetIt = "Resetear"
 	locale.AccountLogOut = "Salir"
-	locale.AccountLoginIntro = "Entra para ver tus licencias USBridge y sincronizar conexiones entre devices."
+	locale.AccountLoginIntro = "Entra para sincronizar tus conexiones guardadas entre dispositivos."
 	locale.AccountLoginGoogle = "Entrar con Google"
-	locale.AccountLicensesLoadErr = "No se pudieron cargar licencias: %v"
-	locale.AccountNoLicenses = "Aun no hay licencias en esta cuenta."
-	locale.AccountLoadingLicenses = "Cargando licencias…"
 	locale.AccountConnectionsSync = "Sync de conexiones"
 	locale.AccountSyncOn = "on"
 	locale.AccountSyncOff = "off"
@@ -1361,12 +1366,18 @@ func ES() *LocalizedStrings {
 	locale.VideoLowLatencyFmt = "Baja latencia (%.1f %s)"
 	locale.VideoHighFidelityFmt = "Alta fidelidad (%.1f %s)"
 	locale.VideoParameters = "Parametros de video"
+	locale.PairingPINTitle = "Emparejamiento"
+	locale.PairingPINMessage = "Introduce este PIN en la pagina de pairing del host:"
+	locale.PairingPINWaiting = "Esperando a que el host lo acepte..."
 	locale.OtherSettings = "OTROS AJUSTES"
 	locale.NetGraphSize = "Tamano"
 	locale.NetGraphBackground = "Fondo"
 	locale.EnableVSync = "VSync"
 	locale.EnableVSyncHint = "Sincroniza los fotogramas con la pantalla para evitar tearing en movimiento rapido."
 	locale.EnableVSyncBadge = "Recomendado"
+	locale.AMDFSR = "AMD FSR 1.0 Upscaler"
+	locale.AMDFSRHint = "Mejora la nitidez de la imagen cuando la transmision va a baja resolucion."
+	locale.AMDFSRBadge = "Nuevo"
 	locale.AIVision = "Overlay AI Vision"
 	locale.AIVisionHint = "Deteccion en vivo (cajas + IDs hex) sobre el video, como ui.parse() del agent."
 	locale.AIVisionBadge = "Prueba"
@@ -1388,6 +1399,7 @@ func ES() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Sin audio"
 	locale.DevicesEmptyStorage = "Sin storage ni ISO"
 	locale.DevicesEmptyUSB = "Sin USB"
+	locale.USBEmulationProBadge = "Disponible en Pro"
 	locale.DevicesEmptyNetwork = "Sin bridge de red"
 	locale.DevicesEmptyBackup = "Sin backup"
 	locale.DevicesCardNetwork = "Network"
@@ -1579,6 +1591,8 @@ func UKProper() *LocalizedStrings {
 	locale.UpdateDownloadingTitle = "Оновлення…"
 	locale.UpdateDownloadingMessage = "Завантаження версії %s…"
 	locale.WhatsNewTitle = "Що нового"
+	locale.WhatsNewSubtitle = "Нові функції, проброс периферії та оптимізації продуктивності."
+	locale.WhatsNewGitHub = "Повний changelog на GitHub"
 	locale.WhatsNewGotIt = "Зрозуміло"
 	locale.VideoQualitySettings = "Налаштування якості відео"
 	locale.Resolution = "Роздільна здатність"
@@ -1636,11 +1650,8 @@ func UKProper() *LocalizedStrings {
 	locale.AccountForgotPassphrase = "Забули passphrase? "
 	locale.AccountResetIt = "Скинути"
 	locale.AccountLogOut = "Вийти"
-	locale.AccountLoginIntro = "Увійдіть, щоб бачити ліцензії USBridge і синкати з'єднання між девайсами."
+	locale.AccountLoginIntro = "Увійдіть, щоб синхронізувати збережені з’єднання між пристроями."
 	locale.AccountLoginGoogle = "Увійти з Google"
-	locale.AccountLicensesLoadErr = "Не вдалось завантажити ліцензії: %v"
-	locale.AccountNoLicenses = "На цьому акаунті ще немає ліцензій."
-	locale.AccountLoadingLicenses = "Завантаження ліцензій…"
 	locale.AccountConnectionsSync = "Синк з'єднань"
 	locale.AccountSyncOn = "вкл"
 	locale.AccountSyncOff = "вимк"
@@ -1678,12 +1689,18 @@ func UKProper() *LocalizedStrings {
 	locale.VideoLowLatencyFmt = "Низька затримка (%.1f %s)"
 	locale.VideoHighFidelityFmt = "Висока якість (%.1f %s)"
 	locale.VideoParameters = "Параметри відео"
+	locale.PairingPINTitle = "Потрібне парування"
+	locale.PairingPINMessage = "Введіть цей PIN на сторінці парування хоста:"
+	locale.PairingPINWaiting = "Чекаємо, поки хост підтвердить..."
 	locale.OtherSettings = "ІНШІ НАЛАШТУВАННЯ"
 	locale.NetGraphSize = "Розмір"
 	locale.NetGraphBackground = "Фон"
 	locale.EnableVSync = "VSync"
 	locale.EnableVSyncHint = "Синхронізує кадри з екраном, без розривів при швидкому русі."
 	locale.EnableVSyncBadge = "Радимо"
+	locale.AMDFSR = "AMD FSR 1.0 Upscaler"
+	locale.AMDFSRHint = "Підвищує чіткість картинки при низькій роздільній здатності трансляції."
+	locale.AMDFSRBadge = "Нове"
 	locale.AIVision = "Накладка AI Vision"
 	locale.AIVisionHint = "Живе розпізнавання (рамки + hex ID) поверх відео, як ui.parse() агента."
 	locale.AIVisionBadge = "Тест"
@@ -1704,6 +1721,7 @@ func UKProper() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Немає аудіо"
 	locale.DevicesEmptyStorage = "Немає storage / ISO"
 	locale.DevicesEmptyUSB = "Немає USB"
+	locale.USBEmulationProBadge = "Доступно для Pro"
 	locale.DevicesEmptyNetwork = "Немає network bridge"
 	locale.DevicesEmptyBackup = "Немає backup"
 	locale.DevicesCardNetwork = "Network"

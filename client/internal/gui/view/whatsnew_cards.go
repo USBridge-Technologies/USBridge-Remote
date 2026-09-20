@@ -2,8 +2,11 @@ package view
 
 import (
 	"sort"
+	"strings"
 
 	"usbridge-client/internal/gui/i18n"
+
+	"fyne.io/fyne/v2"
 )
 
 // whatsNewCopy is EN/ES/UK text that lives next to the card, not in the
@@ -40,7 +43,20 @@ const (
 	whatsNewKindOther         whatsNewKind = "other"
 )
 
+// whatsNewGlyph picks the left icon tile for one feature row.
+type whatsNewGlyph string
+
+const (
+	whatsNewGlyphAI      whatsNewGlyph = "ai"
+	whatsNewGlyphUSB     whatsNewGlyph = "usb"
+	whatsNewGlyphColor   whatsNewGlyph = "color"
+	whatsNewGlyphDisplay whatsNewGlyph = "display"
+	whatsNewGlyphCloud   whatsNewGlyph = "cloud"
+	whatsNewGlyphMetrics whatsNewGlyph = "metrics"
+)
+
 type whatsNewPoint struct {
+	Glyph whatsNewGlyph
 	Title whatsNewCopy
 	Body  whatsNewCopy
 }
@@ -55,6 +71,7 @@ type whatsNewItem struct {
 // whatsNewCard is one post-update appeal. Newest first in the catalog.
 type whatsNewCard struct {
 	Version string
+	Date    string
 	Items   []whatsNewItem
 }
 
@@ -85,20 +102,67 @@ func sortWhatsNewItems(items []whatsNewItem) []whatsNewItem {
 	return out
 }
 
+// whatsNewSeenPrefKey stores the catalog fingerprint the user last opened.
+// A new card in whatsNewCatalog changes the fingerprint, so the desktop
+// footer pip lights again until they open What's new.
+const whatsNewSeenPrefKey = "whats_new_seen_catalog"
+
+// whatsNewCatalogFingerprint is the unseen-pip identity: every card
+// version, newest first. Edit copy freely; add a card (new version) to
+// make the footer pip return.
+func whatsNewCatalogFingerprint() string {
+	cards := whatsNewCatalog()
+	if len(cards) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(cards))
+	for _, c := range cards {
+		if v := strings.TrimSpace(c.Version); v != "" {
+			parts = append(parts, v)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func whatsNewHasUnseen() bool {
+	fp := whatsNewCatalogFingerprint()
+	if fp == "" {
+		return false
+	}
+	app := fyne.CurrentApp()
+	if app == nil {
+		return true
+	}
+	return app.Preferences().StringWithFallback(whatsNewSeenPrefKey, "") != fp
+}
+
+func markWhatsNewCatalogSeen() {
+	fp := whatsNewCatalogFingerprint()
+	if fp == "" {
+		return
+	}
+	if app := fyne.CurrentApp(); app != nil {
+		app.Preferences().SetString(whatsNewSeenPrefKey, fp)
+	}
+	refreshWhatsNewFooterUnseen()
+}
+
 // whatsNewCatalog is the release-notes deck. Add a new card at the top
 // before shipping; leave older ones so the window can page through them.
 func whatsNewCatalog() []whatsNewCard {
 	return []whatsNewCard{
 		{
 			Version: "2.4.48",
+			Date:    "September 2026",
 			Items: []whatsNewItem{
 				{
 					Kind: whatsNewKindBeta,
 					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphAI,
 						Title: whatsNewCopy{
-							EN: "AI Vision",
-							ES: "AI Vision",
-							UK: "AI Vision",
+							EN: "AI Vision Overlay",
+							ES: "Overlay AI Vision",
+							UK: "Накладка AI Vision",
 						},
 						Body: whatsNewCopy{
 							EN: "Live object detection overlay on the video feed.",
@@ -111,10 +175,11 @@ func whatsNewCatalog() []whatsNewCard {
 					Kind: whatsNewKindPro,
 					Points: []whatsNewPoint{
 						{
+							Glyph: whatsNewGlyphUSB,
 							Title: whatsNewCopy{
-								EN: "USB emulation",
-								ES: "Emulacion USB",
-								UK: "USB-емуляція",
+								EN: "USB Emulation & Passthrough",
+								ES: "Emulacion y passthrough USB",
+								UK: "USB-емуляція та проброс",
 							},
 							Body: whatsNewCopy{
 								EN: "Pass local USB devices through to the host.",
@@ -123,10 +188,11 @@ func whatsNewCatalog() []whatsNewCard {
 							},
 						},
 						{
+							Glyph: whatsNewGlyphColor,
 							Title: whatsNewCopy{
-								EN: "4:4:4 color",
-								ES: "Color 4:4:4",
-								UK: "Колір 4:4:4",
+								EN: "4:4:4 True Color Fidelity",
+								ES: "Fidelidad de color 4:4:4",
+								UK: "Точна передача кольору 4:4:4",
 							},
 							Body: whatsNewCopy{
 								EN: "Full chroma for sharper text and color-critical work.",
@@ -139,10 +205,11 @@ func whatsNewCatalog() []whatsNewCard {
 				{
 					Kind: whatsNewKindFree,
 					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphDisplay,
 						Title: whatsNewCopy{
-							EN: "Virtual Display",
-							ES: "Virtual Display",
-							UK: "Virtual Display",
+							EN: "Virtual Displays",
+							ES: "Pantallas virtuales",
+							UK: "Віртуальні дисплеї",
 						},
 						Body: whatsNewCopy{
 							EN: "Extra screens without extra hardware.",
@@ -155,10 +222,11 @@ func whatsNewCatalog() []whatsNewCard {
 					Kind: whatsNewKindOther,
 					Points: []whatsNewPoint{
 						{
+							Glyph: whatsNewGlyphCloud,
 							Title: whatsNewCopy{
-								EN: "Connection sync via Google",
-								ES: "Sincronizacion de conexiones con Google",
-								UK: "Синхронізація з’єднань через Google",
+								EN: "Cloud Connection Sync",
+								ES: "Sincronizacion de conexiones",
+								UK: "Хмарна синхронізація з’єднань",
 							},
 							Body: whatsNewCopy{
 								EN: "Saved connections stay in sync across devices when you log in with Google.",
@@ -167,6 +235,7 @@ func whatsNewCatalog() []whatsNewCard {
 							},
 						},
 						{
+							Glyph: whatsNewGlyphMetrics,
 							Title: whatsNewCopy{
 								EN: "Video metrics",
 								ES: "Metricas de video",

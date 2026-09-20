@@ -15,7 +15,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -150,7 +149,7 @@ type VideoWidget struct {
 	// Dialogs
 	fullscreenDialog         *FullscreenDialog
 	startDialog              *view.VideoStartDialog
-	pairingPINDialog         dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
+	pairingPINDialog         *view.PairingPINDialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
 	parentWindow             fyne.Window
 	virtualKeyboard          *graphics.VirtualKeyboard
 	onKeyboardStackChanged   func()

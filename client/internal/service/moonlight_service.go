@@ -68,6 +68,7 @@ type MoonlightService struct {
 
 	client             *moonlight.Client
 	pairingPIN         string               // retained across reconnects so the user only needs to enter one PIN
+	pairCancel         context.CancelFunc   // cancels an in-flight Pair() HTTP wait (Sunshine holds getservercert until the PIN is entered)
 	lastAppId          int                  // app ID from the last Launch(); used to quit before reconnect
 	stopPlayerCh       chan struct{}        // closed to stop the active video/audio decoder goroutines
 	activeWrapper      *MoonlightCgoWrapper // set while a stream is running, used for input routing
@@ -206,10 +207,25 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 
 		// Pair() blocks in the getservercert stage until Sunshine receives the PIN via its web API.
 		// Start it in a goroutine, then submit the PIN after giving Sunshine time to register the request.
+		// pairCtx lets Disconnect() abort that wait when the human closes the PIN overlay
+		// instead of leaving the UI stuck until Sunshine's 120s pairing timeout.
+		pairCtx, pairCancel := context.WithCancel(context.Background())
+		m.mu.Lock()
+		m.pairCancel = pairCancel
+		m.mu.Unlock()
 		pairErrCh := make(chan error, 1)
-		go func() { pairErrCh <- m.client.Pair(pin) }()
+		go func() { pairErrCh <- m.client.Pair(pairCtx, pin) }()
 
 		time.Sleep(500 * time.Millisecond) // let Sunshine register the pending pairing
+		if aborted() {
+			pairCancel()
+			<-pairErrCh
+			m.mu.Lock()
+			m.pairCancel = nil
+			m.mu.Unlock()
+			m.isRunning = false
+			return fmt.Errorf("connect aborted by disconnect (pairing)")
+		}
 
 		if submitErr := m.submitPinToService(pin); submitErr != nil {
 			// Not a usbridge agent (a stock Sunshine or real NVIDIA GameStream
@@ -228,8 +244,16 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		}
 
 		err = <-pairErrCh
+		pairCancel()
+		m.mu.Lock()
+		m.pairCancel = nil
+		m.mu.Unlock()
 		if m.onPairingPINResolved != nil {
 			m.onPairingPINResolved()
+		}
+		if aborted() {
+			m.isRunning = false
+			return fmt.Errorf("connect aborted by disconnect (pairing)")
 		}
 		if err != nil {
 			errStr := fmt.Errorf("pairing failed: %v", err)
@@ -605,6 +629,10 @@ func (m *MoonlightService) Disconnect() error {
 			close(m.abort)
 		}
 		m.abort = nil
+	}
+	if m.pairCancel != nil {
+		m.pairCancel()
+		m.pairCancel = nil
 	}
 
 	activeWrapper := m.activeWrapper

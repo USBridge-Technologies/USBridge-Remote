@@ -591,7 +591,9 @@ func (dw *DiskWidget) loadMountedDevices() {
 				dw.mountedDevices[i] = &deviceInfo.Devices[i]
 			}
 			dw.agentOS = deviceInfo.AgentOS
+			dw.agentProtocol = strings.TrimSpace(deviceInfo.AgentProtocol)
 			dw.usbPassSessions = passSessions
+			dw.syncEmulationProBadge()
 			// Only propagate the server's MountInProgress flag when no local user
 			// operation is in flight — a stale poll response must not re-lock the UI
 			// after endOperation() already cleared the flag.

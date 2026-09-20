@@ -27,13 +27,16 @@ func newMobileConnectionGridCard(data ConnectionCardData, state ConnectionRowSta
 	statusIndicator := newConnectionCardStatusIndicator(data.RemoteOS)
 	typeBadge := newConnectionTypeBadge(isAgent, isKVM, accent)
 	nameText := NewBrandText(strings.TrimSpace(data.Name), 12, design.ColorTextLight, true)
-	platformChip := newConnectionPlatformChip(mobileConnectionPlatformLabel(data, isAgent, isKVM))
 
 	nameCluster := NewInsetExact(
 		container.New(&DeviceRowControlsLayout{Gap: 6}, statusIndicator, nameText),
 		6, 0, 0, 0,
 	)
-	leftTop := container.New(&DeviceRowControlsLayout{Gap: 16}, nameCluster, platformChip)
+	leftBits := []fyne.CanvasObject{nameCluster}
+	if plat := mobileConnectionPlatformLabel(data); plat != "" {
+		leftBits = append(leftBits, newConnectionPlatformChip(plat))
+	}
+	leftTop := container.New(&DeviceRowControlsLayout{Gap: 16}, leftBits...)
 	topRow := container.NewBorder(nil, nil, leftTop, typeBadge)
 
 	statsBox := newMobileConnectionCardStatsBox(data.LANAddress, data.TailscaleAddress)
@@ -129,14 +132,17 @@ func newMobileConnectionGridCard(data ConnectionCardData, state ConnectionRowSta
 	return container.NewStack(overlay, card)
 }
 
-func mobileConnectionPlatformLabel(data ConnectionCardData, isAgent, isKVM bool) string {
+func mobileConnectionPlatformLabel(data ConnectionCardData) string {
 	if label := strings.TrimSpace(data.PlatformLabel); label != "" {
 		return label
 	}
 	if label := ConnectionPlatformLabel(data.RemoteOS, ""); label != "" {
 		return label
 	}
-	return i18n.Current.AwaitingConnection
+	if strings.TrimSpace(data.RemoteOS) == "" {
+		return i18n.Current.AwaitingConnection
+	}
+	return ""
 }
 
 func newMobileConnectionCardStatsBox(lanAddress, tailscaleAddress string) fyne.CanvasObject {

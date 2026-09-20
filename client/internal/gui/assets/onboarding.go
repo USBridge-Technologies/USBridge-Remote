@@ -138,6 +138,7 @@ var (
 	// Teal variants match design.ColorConnectionBadgeText (#41e0c3) — the
 	// phone settings menu's row labels.
 	QuestionIconTeal   = fyne.NewStaticResource("question-svgrepo-com-teal.svg", recolorMonoIcon(questionIcon, "#41e0c3", "2.6"))
+	WhatsNewIconTeal   = fyne.NewStaticResource("whatsnew-teal.svg", recolorStrokeIcon(starIcon, "#41e0c3", "2"))
 	DiscordIconTeal    = fyne.NewStaticResource("message-chat-square-svgrepo-com-teal.svg", recolorStrokeIcon(messageChatSquareIcon, "#41e0c3", "1.9"))
 	LanguageIconTeal   = fyne.NewStaticResource("language-svgrepo-com-teal.svg", recolorFillIcon(languageIcon, "#41e0c3"))
 	PowerResetIconTeal = fyne.NewStaticResource("power-reset-teal.svg", recolorFillIcon(powerOffFillIcon, "#41e0c3"))

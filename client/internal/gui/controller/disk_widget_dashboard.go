@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
@@ -141,11 +142,14 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		dw.dashboardStorageScroll,
 		storageBind,
 	)
+	emulationProBadge := view.NewDeviceDashboardHeaderBadge(i18n.Current.USBEmulationProBadge, design.ColorProSoft)
+	emulationProBadge.OnHover = dw.dashboardEmulationHover
+	dw.dashboardEmulationProBadge = emulationProBadge
 	emulationCard := view.NewDeviceDashboardCard(
 		view.DeviceDashboardUSBIconSVG,
 		deviceDashboardEmulationTitle,
 		"",
-		nil,
+		emulationProBadge,
 		dw.dashboardEmulationScroll,
 		emulationBind,
 	)
@@ -230,6 +234,28 @@ func (dw *DiskWidget) firmwarePromoDismissed() bool {
 		return false
 	}
 	return dw.app.Preferences().BoolWithFallback(devicesFirmwarePromoDismissedPrefKey, false)
+}
+
+// syncEmulationProBadge shows USB Emulation's "Available for Pro" plaque
+// only while the connected agent reports Sunshine or RustShine Free.
+func (dw *DiskWidget) syncEmulationProBadge() {
+	if dw.dashboardEmulationProBadge == nil {
+		return
+	}
+	if emulationProBadgeVisible(dw.agentProtocol) {
+		dw.dashboardEmulationProBadge.Show()
+	} else {
+		dw.dashboardEmulationProBadge.Hide()
+	}
+}
+
+func emulationProBadgeVisible(protocol string) bool {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "opensource", "open source", "sunshine", "free":
+		return true
+	default:
+		return false
+	}
 }
 
 func (dw *DiskWidget) setFirmwarePromoDismissed(on bool) {
@@ -440,6 +466,7 @@ func (dw *DiskWidget) refreshDashboard() {
 	if dw.dashboardEmulation != nil {
 		setDashboardRows(dw.dashboardEmulation, emulationRows, i18n.Current.DevicesEmptyUSB)
 	}
+	dw.syncEmulationProBadge()
 
 	softwareAgent := !isUSBridgeAgentOS(dw.agentOS)
 	promoDismissed := dw.firmwarePromoDismissed()

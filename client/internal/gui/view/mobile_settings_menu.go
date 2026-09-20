@@ -14,7 +14,7 @@ import (
 
 // ShowMobileSettingsMenu is the phone Connections gear panel: a larger
 // Grid/List segmented control (same look as the desktop header toggle)
-// plus icon rows for Info / Community / Language.
+// plus icon rows for What's new / Info / Community / Language.
 func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode func(string), onHardwareAgent, onSoftwareAgent, onInfo, onCommunity, onLanguage func()) {
 	if anchor == nil {
 		return
@@ -51,6 +51,9 @@ func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode fu
 		rule,
 		row("Hardware Agent", assets.HardwareAgentIconTeal, onHardwareAgent),
 		row("Software Agent", assets.SoftwareAgentIconTeal, onSoftwareAgent),
+		row(i18n.Current.WhatsNewTitle, assets.WhatsNewIconTeal, func() {
+			ShowWhatsNewDialog(whatsNewParentWindow())
+		}),
 		row(i18n.Current.MenuInfo, assets.QuestionIconTeal, onInfo),
 		row(i18n.Current.MenuCommunity, assets.DiscordIconTeal, onCommunity),
 		row(i18n.Current.Language, assets.LanguageIconTeal, onLanguage),

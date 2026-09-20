@@ -1,6 +1,7 @@
 package moonlight
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
@@ -19,7 +20,7 @@ type PairResponse struct {
 	StatusMessage     string `xml:"statusmessage"`
 }
 
-func (c *Client) getPairStatus(phrase string, params map[string]string, secure bool) (*PairResponse, error) {
+func (c *Client) getPairStatus(ctx context.Context, phrase string, params map[string]string, secure bool) (*PairResponse, error) {
 	if params == nil {
 		params = make(map[string]string)
 	}
@@ -28,16 +29,19 @@ func (c *Client) getPairStatus(phrase string, params map[string]string, secure b
 	params["phrase"] = phrase
 	params["version"] = "7" // Force SHA-256
 
-	url := c.getURL(secure, "/pair", params)
-	var resp *http.Response
-	var err error
-
-	if secure {
-		resp, err = c.httpsClient.Get(url)
-	} else {
-		resp, err = c.pairingHTTPClient.Get(url)
+	if ctx == nil {
+		ctx = context.Background()
 	}
-
+	url := c.getURL(secure, "/pair", params)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := c.pairingHTTPClient
+	if secure {
+		client = c.httpsClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +66,7 @@ func (c *Client) getPairStatus(phrase string, params map[string]string, secure b
 	return &root, nil
 }
 
-func (c *Client) Pair(pin string) error {
+func (c *Client) Pair(ctx context.Context, pin string) error {
 	salt := GenerateSalt()
 	aesKey := DeriveAESKey(salt, pin)
 
@@ -72,7 +76,7 @@ func (c *Client) Pair(pin string) error {
 	plainCertHex := hex.EncodeToString(c.Identity.CertPEM)
 	saltHex := hex.EncodeToString(salt)
 
-	resp, err := c.getPairStatus("getservercert", map[string]string{
+	resp, err := c.getPairStatus(ctx, "getservercert", map[string]string{
 		"salt":       saltHex,
 		"clientcert": plainCertHex,
 	}, false)
@@ -92,7 +96,7 @@ func (c *Client) Pair(pin string) error {
 		return err
 	}
 
-	resp, err = c.getPairStatus("clientchallenge", map[string]string{
+	resp, err = c.getPairStatus(ctx, "clientchallenge", map[string]string{
 		"clientchallenge": hex.EncodeToString(encryptedChallenge),
 	}, false)
 	if err != nil {
@@ -126,7 +130,7 @@ func (c *Client) Pair(pin string) error {
 		return err
 	}
 
-	resp, err = c.getPairStatus("serverchallengeresp", map[string]string{
+	resp, err = c.getPairStatus(ctx, "serverchallengeresp", map[string]string{
 		"serverchallengeresp": hex.EncodeToString(encryptedHash),
 	}, false)
 	if err != nil {
@@ -142,7 +146,7 @@ func (c *Client) Pair(pin string) error {
 
 	clientPairingSecret := append(clientSecretData, clientSignature...)
 
-	resp, err = c.getPairStatus("clientpairingsecret", map[string]string{
+	resp, err = c.getPairStatus(ctx, "clientpairingsecret", map[string]string{
 		"clientpairingsecret": hex.EncodeToString(clientPairingSecret),
 	}, false)
 	if err != nil {
@@ -150,7 +154,7 @@ func (c *Client) Pair(pin string) error {
 	}
 
 	// Stage 5: Pair challenge (HTTPS)
-	_, err = c.getPairStatus("pairchallenge", nil, true)
+	_, err = c.getPairStatus(ctx, "pairchallenge", nil, true)
 	if err != nil {
 		return fmt.Errorf("stage 5 failed: %v", err)
 	}
