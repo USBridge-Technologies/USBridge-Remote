@@ -3154,6 +3154,8 @@ func (a *App) AdminPass() string {
 // ListSunshineClients returns Moonlight clients currently paired with the
 // bundled Sunshine instance.
 func (a *App) ListSunshineClients() ([]streamhost.Client, error) {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
 	if a.stream == nil {
 		return nil, nil
 	}
@@ -3218,6 +3220,8 @@ func (a *App) VirtualDisplaySupported() bool {
 // UnpairSunshineClient removes the Moonlight client with the given UUID from
 // Sunshine's authorized client list.
 func (a *App) UnpairSunshineClient(uniqueID string) error {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
 	if a.stream == nil {
 		return nil
 	}
@@ -3363,7 +3367,27 @@ func (a *App) RelinquishEngine() error {
 
 // SubmitMoonlightPIN sends the PIN shown by a Moonlight client to Sunshine
 // to complete the pairing handshake.
+//
+// Takes streamMu (matching SetStreamBackend, which holds it for its entire
+// Stop-old/Start-new/WaitReady sequence) rather than reading a.stream
+// unguarded -- a real race, not theoretical: a client's PIN submission
+// landing in the middle of a backend switch used to read a.stream (or a
+// stream host it points at) mid-teardown, sent against the old process
+// after it had already been killed, and got rejected outright. The
+// Moonlight client on the other end only tries once and falls back to
+// manual PIN entry on any failure, so this used to surface as "switching
+// streamers broke auto-pairing" -- confirmed live: session was active,
+// switch was triggered, and the very next auto-pair attempt 401'd while
+// the switch was still settling, a moment before it started working again
+// on its own. Blocking here for the (bounded, ~5s worst case -- see
+// SetStreamBackend's own WaitReady) duration of an in-flight switch is
+// well inside the client's own 10s HTTP timeout for this call
+// (submitPinToService in the client's moonlight_service.go), so this PIN
+// now simply waits for the switch to finish and lands on the fresh,
+// correctly-provisioned backend instead of racing it.
 func (a *App) SubmitMoonlightPIN(pin string) error {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
 	if a.stream == nil {
 		return nil
 	}
