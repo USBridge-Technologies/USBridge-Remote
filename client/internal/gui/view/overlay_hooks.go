@@ -38,6 +38,16 @@ func SetMenuSwapTargets(objs ...fyne.CanvasObject) {
 	menuSwapMu.Unlock()
 }
 
+func AddMenuSwapTargets(objs ...fyne.CanvasObject) {
+	menuSwapMu.Lock()
+	defer menuSwapMu.Unlock()
+	for _, obj := range objs {
+		if obj != nil {
+			menuSwapTargets = append(menuSwapTargets, obj)
+		}
+	}
+}
+
 func menuSwapTargetAt(pos fyne.Position) fyne.CanvasObject {
 	menuSwapMu.Lock()
 	targets := append([]fyne.CanvasObject(nil), menuSwapTargets...)

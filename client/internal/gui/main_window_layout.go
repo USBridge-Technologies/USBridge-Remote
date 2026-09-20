@@ -242,6 +242,10 @@ func (mw *MainWindow) recreateContainers() {
 			})
 			mw.diskWidget.SetOnVideoConnect(func(devicePath string) {
 				mw.videoWidget.StartVideoDevice(devicePath)
+				mw.scheduleVideoMonitorChipRefresh()
+			})
+			mw.diskWidget.SetOnVideoDevicesChanged(func(devices []models.SystemDevice) {
+				mw.applyVideoMonitorChip(devices)
 			})
 			mw.diskWidget.SetOnVideoDisconnect(func() {
 				mw.videoWidget.StopVideoAsync()
@@ -614,19 +618,13 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		mw.mainExitBtn,
 	))
 	middleGroup := mw.buildStatusIndicatorBar()
-	// Clip, not Scroll: on a narrow/mobile window this row can genuinely
-	// run out of horizontal space for the SD-progress + status readout,
-	// but they're passive indicators, not something worth navigating to --
-	// an HScroll here used to leave a persistent thin scrollbar sitting
-	// right above the video/Control-tab content whenever that happened
-	// (Fyne's scroll-bar-area renders any time content overflows its
-	// viewport, not just on hover/drag -- see internal/widget/scroller.go's
-	// handleAreaVisibility), which read as a stray UI glitch since nobody
-	// was ever meant to actually scroll this row. Clip keeps
-	// mainHeaderBarLayout.Layout's existing width-capping math (below)
-	// working exactly the same way, it just quietly clips whatever
-	// overflows instead of exposing a scrollbar for it.
-	middleClip := container.NewClip(middleGroup)
+	// Phone: clip the status strip so a narrow frame cannot grow the window.
+	// Desktop: leave it unclipped so showing the monitor chip can widen the
+	// info block instead of chopping it off on the right.
+	middleSlot := fyne.CanvasObject(middleGroup)
+	if useMobileControl() {
+		middleSlot = container.NewClip(middleGroup)
+	}
 	// mw.pcpanelWidget's own container used to sit here (the power/reset
 	// button) -- it's the gear menu's "Power Reset" row now (see
 	// OnPowerReset above), freeing this left zone for the tab selector.
@@ -647,7 +645,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	row := container.New(
 		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
 		left,
-		middleClip,
+		middleSlot,
 		rightGroup,
 	)
 	normal := view.NewHeaderBand("", row)
@@ -1351,8 +1349,6 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		// parents the same widgets from buildDesktopControlFooterActions.
 		mw.statusBarButtonsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
 			container.NewGridWrap(statusBarIconBoxSize, mw.audioIcon),
-			container.NewGridWrap(statusBarIconBoxSize, mw.keyboardIcon),
-			container.NewGridWrap(statusBarIconBoxSize, mw.mouseIcon),
 			container.NewGridWrap(statusBarIconBoxSize, mw.rndisIcon),
 			container.NewGridWrap(statusBarIconBoxSize, mw.scriptIcon),
 		)
@@ -1590,13 +1586,7 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 	fyne.Do(func() {
 		if mw.keyboardIcon != nil {
 			if useMobileControl() {
-				if keyboardConnected {
-					mw.keyboardIcon.SetIcon(assets.KeyboardIconStatusBar)
-					mw.keyboardIcon.Show()
-				} else {
-					mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
-					mw.keyboardIcon.Hide()
-				}
+				mw.keyboardIcon.Hide()
 			} else {
 				mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
 				mw.keyboardIcon.Show()
@@ -1605,13 +1595,7 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.mouseIcon != nil {
 			if useMobileControl() {
-				if mouseConnected {
-					mw.mouseIcon.SetIcon(assets.MouseIconStatusBar)
-					mw.mouseIcon.Show()
-				} else {
-					mw.mouseIcon.SetIcon(assets.MouseIcon)
-					mw.mouseIcon.Hide()
-				}
+				mw.mouseIcon.Hide()
 			} else {
 				mw.mouseIcon.SetIcon(assets.MouseIcon)
 				mw.mouseIcon.Show()
@@ -1647,8 +1631,6 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			if !mw.videoMonitorChipLoaded {
 				mw.videoMonitorChipLoaded = true
 				mw.scheduleVideoMonitorChipRefresh()
-			} else {
-				mw.syncVideoMonitorChipLabel()
 			}
 		} else {
 			mw.videoMonitorChipLoaded = false
@@ -1657,6 +1639,12 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			if mw.videoMonitorDot != nil {
 				mw.videoMonitorDot.Hide()
+			}
+			if mw.videoMonitorText != nil {
+				mw.videoMonitorText.Hide()
+			}
+			if mw.mobileMonitorBtn != nil {
+				mw.mobileMonitorBtn.Hide()
 			}
 		}
 		if mw.fullscreenIcon != nil {
@@ -1698,6 +1686,13 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 				mw.mobileNetGraphSettingsBtn.Hide()
 			}
 			mw.mobileNetGraphSettingsBtn.Refresh()
+		}
+		if mw.mobileFooterGraphDivider != nil {
+			if videoStreaming && mw.mobileNetGraphBtn != nil {
+				mw.mobileFooterGraphDivider.Show()
+			} else {
+				mw.mobileFooterGraphDivider.Hide()
+			}
 		}
 		if mw.controlFooterGraphDivider != nil {
 			if videoStreaming && !useMobileControl() {
@@ -1851,7 +1846,6 @@ func (mw *MainWindow) updateVideoIconLabel() {
 			mw.videoResolutionText.Text = resLabel
 			mw.videoResolutionText.Refresh()
 		}
-		mw.syncVideoMonitorChipLabel()
 	})
 }
 

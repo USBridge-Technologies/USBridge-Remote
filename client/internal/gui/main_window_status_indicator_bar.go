@@ -289,23 +289,26 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoFPSText.TextSize = statusIndicatorFPSTextSize
 	mw.videoResolutionText = canvas.NewText("", design.ColorStatusBarResolutionText)
 	mw.videoResolutionText.TextSize = statusIndicatorFPSTextSize
-	mw.videoMonitorText = canvas.NewText("", design.ColorStatusBarResolutionText)
-	mw.videoMonitorText.TextSize = statusIndicatorFPSTextSize
 
-	var fpsBtn, resBtn, monitorBtn *statusBarTextButton
+	var fpsBtn, resBtn *statusBarTextButton
 	fpsBtn = newStatusBarTextButton(mw.videoFPSText, func() {
 		mw.showVideoFPSMenu(fpsBtn)
 	})
 	resBtn = newStatusBarTextButton(mw.videoResolutionText, func() {
 		mw.showVideoResolutionMenu(resBtn)
 	})
-	monitorBtn = newStatusBarTextButton(mw.videoMonitorText, func() {
-		mw.showVideoMonitorMenu(monitorBtn)
+	var monitorIcon *headerStatusBadgeButton
+	monitorIcon = newHeaderStatusBadgeButton(assets.MonitorTabIconFooter, func() {
+		mw.showVideoMonitorMenu(monitorIcon)
 	})
-	mw.videoMonitorBtn = monitorBtn
+	monitorIcon.SetIconSize(fyne.NewSize(12, 12))
+	monitorIcon.SetBadgeText("")
+	mw.videoMonitorToggle = monitorIcon
 	mw.videoMonitorDot = newStatusBarDot()
-	mw.videoMonitorBtn.Hide()
 	mw.videoMonitorDot.Hide()
+	mw.videoMonitorText = canvas.NewText("", design.ColorStatusBarResolutionText)
+	mw.videoMonitorText.TextSize = statusIndicatorFPSTextSize
+	mw.videoMonitorText.Hide()
 
 	mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
 	mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
@@ -322,13 +325,14 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		newFixedWidthFPSText(mw.videoFPSText, fpsBtn),
 		newStatusBarDot(),
 		resBtn,
-		mw.videoMonitorDot,
-		mw.videoMonitorBtn,
+	}
+	if !useMobileControl() {
+		videoItems = append(videoItems, mw.videoMonitorDot, mw.videoMonitorText)
 	}
 	swapTargets := []fyne.CanvasObject{
 		fpsBtn,
 		resBtn,
-		monitorBtn,
+		monitorIcon,
 		mw.videoIcon,
 		mw.footerVideoSettingsIcon,
 		mw.fullscreenIcon,
@@ -394,6 +398,7 @@ func (mw *MainWindow) applyControlFooterIconHover() {
 	}
 	style(mw.footerVideoSettingsIcon, assets.CameraIconFooterHover)
 	style(mw.fullscreenIcon, assets.FullscreenIconFooterHover)
+	style(mw.videoMonitorToggle, assets.MonitorTabIconHover)
 	style(mw.keyboardIcon, assets.KeyboardIconFooterHover)
 	style(mw.mouseIcon, assets.MouseIconFooterHover)
 	style(mw.audioIcon, assets.AudioIconFooterHover)
@@ -434,6 +439,11 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 	videoParts := []fyne.CanvasObject{
 		controlFooterIconBox(mw.footerVideoSettingsIcon),
 		controlFooterIconBox(mw.fullscreenIcon),
+	}
+	if mw.videoMonitorToggle != nil {
+		mw.videoMonitorBtn = controlFooterIconBox(mw.videoMonitorToggle)
+		mw.videoMonitorBtn.Hide()
+		videoParts = append(videoParts, mw.videoMonitorBtn)
 	}
 	if graph, settings := view.NewNetGraphDesktopFooterButtons(); graph != nil {
 		mw.controlFooterGraphDivider = newControlFooterDivider()
@@ -489,76 +499,124 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 	return mw.controlFooterActions
 }
 
-func shortMonitorLabel(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return ""
-	}
-	runes := []rune(name)
-	if len(runes) > 18 {
-		return string(runes[:17]) + "…"
-	}
-	return name
-}
-
-func (mw *MainWindow) syncVideoMonitorChipLabel() {
-	if mw.videoMonitorText == nil || mw.videoWidget == nil {
-		return
-	}
-	_, name := mw.videoWidget.CurrentCaptureDevice()
-	label := shortMonitorLabel(name)
-	if label == "" {
-		return
-	}
-	if mw.videoMonitorText.Text != label {
-		mw.videoMonitorText.Text = label
-		mw.videoMonitorText.Refresh()
-	}
-}
-
 func (mw *MainWindow) applyVideoMonitorChip(devices []models.SystemDevice) {
-	if mw.videoMonitorBtn == nil || mw.videoMonitorDot == nil {
-		return
-	}
-	if len(devices) < 2 {
-		mw.videoMonitorBtn.Hide()
-		mw.videoMonitorDot.Hide()
-		if mw.videoStatusGroup != nil {
-			mw.videoStatusGroup.Refresh()
+	streaming := mw.isStreaming || (mw.videoStatusGroup != nil && mw.videoStatusGroup.Visible())
+	multi := len(devices) >= 2 && streaming
+	if useMobileControl() {
+		if mw.videoMonitorBtn != nil {
+			mw.videoMonitorBtn.Hide()
 		}
-		return
-	}
-	selected, name := "", ""
-	if mw.videoWidget != nil {
-		selected, name = mw.videoWidget.CurrentCaptureDevice()
-	}
-	if name == "" {
-		for _, d := range devices {
-			if d.Path == selected {
-				name = d.Name
-				break
+		if mw.videoMonitorDot != nil {
+			mw.videoMonitorDot.Hide()
+		}
+		if mw.videoMonitorText != nil {
+			mw.videoMonitorText.Hide()
+		}
+		if mw.mobileMonitorBtn != nil {
+			if multi {
+				mw.mobileMonitorBtn.Show()
+			} else {
+				mw.mobileMonitorBtn.Hide()
+			}
+			mw.mobileMonitorBtn.Refresh()
+			if mw.controlFooterActions != nil {
+				mw.controlFooterActions.Refresh()
+			}
+			if mw.connectedChromeHost != nil {
+				mw.connectedChromeHost.Refresh()
 			}
 		}
+		return
 	}
-	if name == "" && selected != "" {
-		name = filepath.Base(selected)
+	mw.syncVideoMonitorName(devices, streaming)
+	if mw.videoMonitorBtn == nil {
+		return
 	}
-	if name == "" && len(devices) > 0 {
-		name = devices[0].Name
+	if multi {
+		mw.videoMonitorBtn.Show()
+	} else {
+		mw.videoMonitorBtn.Hide()
 	}
-	if mw.videoMonitorText != nil {
-		mw.videoMonitorText.Text = shortMonitorLabel(name)
-		mw.videoMonitorText.Refresh()
+	if mw.controlFooterActions != nil {
+		mw.controlFooterActions.Refresh()
 	}
-	mw.videoMonitorBtn.Show()
-	mw.videoMonitorDot.Show()
 	if mw.videoStatusGroup != nil {
 		mw.videoStatusGroup.Refresh()
 	}
+	mw.refreshMainHeaderLayout()
+}
+
+func (mw *MainWindow) syncVideoMonitorName(devices []models.SystemDevice, streaming bool) {
+	if mw.videoMonitorText == nil || mw.videoMonitorDot == nil {
+		return
+	}
+	label := ""
+	if streaming && len(devices) >= 2 {
+		path, name := "", ""
+		if mw.videoWidget != nil {
+			path, name = mw.videoWidget.CurrentCaptureDevice()
+		}
+		label = shortenMonitorLabel(currentMonitorLabel(path, name, devices))
+	}
+	if label == "" {
+		mw.videoMonitorText.Hide()
+		mw.videoMonitorDot.Hide()
+		return
+	}
+	mw.videoMonitorText.Text = label
+	mw.videoMonitorText.Show()
+	mw.videoMonitorDot.Show()
+	mw.videoMonitorText.Refresh()
+}
+
+func currentMonitorLabel(path, name string, devices []models.SystemDevice) string {
+	for _, device := range devices {
+		if device.Path == path {
+			if label := strings.TrimSpace(device.Name); label != "" {
+				return label
+			}
+			break
+		}
+	}
+	if strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
+	}
+	if path != "" {
+		return filepath.Base(path)
+	}
+	return ""
+}
+
+// shortenMonitorLabel keeps a readable head and tail when a capture-device
+// name would stretch the header strip ("Generic PnP Monitor (HDMI-1)" stays
+// whole; a long EDID string becomes "Samsung Odyssey…HDMI-1)").
+func shortenMonitorLabel(name string) string {
+	name = strings.TrimSpace(name)
+	runes := []rune(name)
+	const maxRunes = 28
+	if len(runes) <= maxRunes {
+		return name
+	}
+	tail := 8
+	if i := strings.LastIndex(name, "("); i >= 0 {
+		paren := []rune(name[i:])
+		if len(paren) >= 3 && len(paren) <= 12 {
+			tail = len(paren)
+		}
+	}
+	head := maxRunes - tail - 1
+	if head < 8 {
+		head = 8
+		tail = maxRunes - head - 1
+	}
+	if head+tail >= len(runes) {
+		return name
+	}
+	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
 }
 
 func (mw *MainWindow) scheduleVideoMonitorChipRefresh() {
-	if useMobileControl() || mw.videoWidget == nil || mw.videoMonitorBtn == nil {
+	if mw.videoWidget == nil {
 		return
 	}
 	go func() {
@@ -612,6 +670,10 @@ func (mw *MainWindow) showVideoMonitorMenu(anchor fyne.CanvasObject) {
 		}
 		fyne.Do(func() {
 			mw.applyVideoMonitorChip(devices)
+			if useMobileControl() {
+				view.ShowMobileStyledMenuAbove(anchor, items)
+				return
+			}
 			view.ShowStyledMenuTeal(anchor, items)
 		})
 	}()

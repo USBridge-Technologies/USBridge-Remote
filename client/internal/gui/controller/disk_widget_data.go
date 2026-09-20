@@ -201,6 +201,9 @@ func (dw *DiskWidget) loadVideoDevices() {
 		dw.updateUIAsync(func() {
 			dw.videoDevices = devices
 			dw.scheduleCombine()
+			if dw.onVideoDevicesChanged != nil {
+				dw.onVideoDevicesChanged(devices)
+			}
 		})
 	}()
 }

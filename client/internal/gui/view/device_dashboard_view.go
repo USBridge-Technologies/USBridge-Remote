@@ -1160,7 +1160,8 @@ type DeviceDashboardHeaderButton struct {
 	// DeviceToggle.OnHover's own doc comment.
 	OnHover func(bool)
 
-	bg *canvas.Rectangle
+	bg    *canvas.Rectangle
+	label *canvas.Text
 }
 
 // NewDeviceDashboardHeaderButton builds a header button filled with
@@ -1202,6 +1203,25 @@ func (b *DeviceDashboardHeaderButton) SetBusy(busy bool) {
 	}
 	b.busy = busy
 	b.refreshVisuals()
+}
+
+// SetText updates the header pill label. Empty text leaves only the icon
+// (Storage's "+" on a software agent).
+func (b *DeviceDashboardHeaderButton) SetText(text string) {
+	if b.text == text {
+		return
+	}
+	b.text = text
+	if b.label != nil {
+		b.label.Text = text
+		if strings.TrimSpace(text) == "" {
+			b.label.Hide()
+		} else {
+			b.label.Show()
+		}
+		b.label.Refresh()
+	}
+	b.Refresh()
 }
 
 func (b *DeviceDashboardHeaderButton) TappedSecondary(*fyne.PointEvent) {}
@@ -1270,17 +1290,95 @@ func (b *DeviceDashboardHeaderButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg.CornerRadius = 6
 
 	_, _, textCol := deviceDashboardHeaderButtonPalette(b.accent)
-	label := canvas.NewText(b.text, textCol)
-	label.TextSize = 10
-
-	var row fyne.CanvasObject = label
-	if b.icon != nil {
-		row = container.New(&DeviceRowControlsLayout{Gap: 6}, b.icon, label)
+	b.label = canvas.NewText(b.text, textCol)
+	b.label.TextSize = 10
+	if strings.TrimSpace(b.text) == "" {
+		b.label.Hide()
 	}
 
-	// 4px top/bottom padding -- shorter than view.DeviceActionButton's own
-	// (unexported) padding, per this button's own "shorter" requirement.
-	return widget.NewSimpleRenderer(container.NewStack(b.bg, NewInsetExact(row, 10, 10, 4, 4)))
+	objects := []fyne.CanvasObject{b.bg}
+	if b.icon != nil {
+		objects = append(objects, b.icon)
+	}
+	objects = append(objects, b.label)
+	return &deviceDashboardHeaderButtonRenderer{btn: b, objects: objects}
+}
+
+type deviceDashboardHeaderButtonRenderer struct {
+	btn     *DeviceDashboardHeaderButton
+	objects []fyne.CanvasObject
+}
+
+func (r *deviceDashboardHeaderButtonRenderer) Destroy() {}
+
+func (r *deviceDashboardHeaderButtonRenderer) Objects() []fyne.CanvasObject {
+	return r.objects
+}
+
+func (r *deviceDashboardHeaderButtonRenderer) iconOnly() bool {
+	return strings.TrimSpace(r.btn.text) == ""
+}
+
+func (r *deviceDashboardHeaderButtonRenderer) MinSize() fyne.Size {
+	if r.iconOnly() {
+		return fyne.NewSize(22, 22)
+	}
+	labelMin := r.btn.label.MinSize()
+	w := float32(20) + labelMin.Width
+	h := float32(8) + labelMin.Height
+	if r.btn.icon != nil {
+		iconMin := r.btn.icon.MinSize()
+		w += iconMin.Width + 6
+		if iconMin.Height+8 > h {
+			h = iconMin.Height + 8
+		}
+	}
+	return fyne.NewSize(w, h)
+}
+
+func (r *deviceDashboardHeaderButtonRenderer) Layout(size fyne.Size) {
+	r.btn.bg.Resize(size)
+	r.btn.bg.Move(fyne.NewPos(0, 0))
+	if r.iconOnly() {
+		if r.btn.label != nil {
+			r.btn.label.Hide()
+		}
+		if r.btn.icon != nil {
+			im := r.btn.icon.MinSize()
+			r.btn.icon.Resize(im)
+			r.btn.icon.Move(fyne.NewPos((size.Width-im.Width)/2, (size.Height-im.Height)/2))
+		}
+		return
+	}
+	if r.btn.label != nil {
+		r.btn.label.Show()
+	}
+	x := float32(10)
+	if r.btn.icon != nil {
+		im := r.btn.icon.MinSize()
+		r.btn.icon.Resize(im)
+		r.btn.icon.Move(fyne.NewPos(x, (size.Height-im.Height)/2))
+		x += im.Width + 6
+	}
+	lm := r.btn.label.MinSize()
+	r.btn.label.Resize(lm)
+	r.btn.label.Move(fyne.NewPos(x, (size.Height-lm.Height)/2))
+}
+
+func (r *deviceDashboardHeaderButtonRenderer) Refresh() {
+	r.btn.refreshVisuals()
+	if r.btn.label != nil {
+		_, _, textCol := deviceDashboardHeaderButtonPalette(r.btn.accent)
+		r.btn.label.Color = textCol
+		r.btn.label.Text = r.btn.text
+		if r.iconOnly() {
+			r.btn.label.Hide()
+		} else {
+			r.btn.label.Show()
+		}
+		r.btn.label.Refresh()
+	}
+	canvas.Refresh(r.btn)
 }
 
 // NewDeviceDashboardModePicker is a Storage row's own USB Stick/CD-ROM
@@ -1938,8 +2036,8 @@ func (r *deviceDashboardSpaceMeterRenderer) Objects() []fyne.CanvasObject {
 func (r *deviceDashboardSpaceMeterRenderer) Destroy() {}
 
 // DeviceDashboardHeaderBadge is a small uppercase pill for a dashboard
-// card header -- USB Emulation's "Available for Pro" plaque, matching
-// the video-parameters Pro badge (newVideoDialogBadge).
+// card header -- USB Passthrough's Pro plaque and Storage's Hardware only
+// marker, matching the video-parameters Pro badge (newVideoDialogBadge).
 type DeviceDashboardHeaderBadge struct {
 	widget.BaseWidget
 
@@ -1984,3 +2082,78 @@ func (b *DeviceDashboardHeaderBadge) CreateRenderer() fyne.WidgetRenderer {
 }
 
 var _ desktop.Hoverable = (*DeviceDashboardHeaderBadge)(nil)
+
+// DeviceDashboardZadigHint is the Windows glyph with a question mark in the
+// top-right corner on the USB Passthrough card header. Tap opens the Zadig
+// help dialog.
+type DeviceDashboardZadigHint struct {
+	widget.BaseWidget
+
+	OnHover func(bool)
+	onTap   func()
+}
+
+func NewDeviceDashboardZadigHint(onTap func()) *DeviceDashboardZadigHint {
+	h := &DeviceDashboardZadigHint{onTap: onTap}
+	h.ExtendBaseWidget(h)
+	return h
+}
+
+func (h *DeviceDashboardZadigHint) Tapped(*fyne.PointEvent) {
+	if h.onTap != nil {
+		h.onTap()
+	}
+}
+
+func (h *DeviceDashboardZadigHint) TappedSecondary(*fyne.PointEvent) {}
+
+func (h *DeviceDashboardZadigHint) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (h *DeviceDashboardZadigHint) MouseIn(*desktop.MouseEvent) {
+	if h.OnHover != nil {
+		h.OnHover(true)
+	}
+}
+
+func (h *DeviceDashboardZadigHint) MouseMoved(*desktop.MouseEvent) {}
+
+func (h *DeviceDashboardZadigHint) MouseOut() {
+	if h.OnHover != nil {
+		h.OnHover(false)
+	}
+}
+
+func (h *DeviceDashboardZadigHint) CreateRenderer() fyne.WidgetRenderer {
+	win := canvas.NewImageFromResource(assets.WindowsOSIcon)
+	win.FillMode = canvas.ImageFillContain
+	win.SetMinSize(fyne.NewSize(16, 16))
+	q := canvas.NewImageFromResource(assets.QuestionIconMuted)
+	q.FillMode = canvas.ImageFillContain
+	q.SetMinSize(fyne.NewSize(9, 9))
+	return widget.NewSimpleRenderer(container.New(&deviceDashboardCornerBadgeLayout{}, win, q))
+}
+
+var (
+	_ fyne.Tappable      = (*DeviceDashboardZadigHint)(nil)
+	_ desktop.Hoverable  = (*DeviceDashboardZadigHint)(nil)
+	_ desktop.Cursorable = (*DeviceDashboardZadigHint)(nil)
+)
+
+type deviceDashboardCornerBadgeLayout struct{}
+
+func (*deviceDashboardCornerBadgeLayout) MinSize([]fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(20, 20)
+}
+
+func (*deviceDashboardCornerBadgeLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+	base, badge := objects[0], objects[1]
+	base.Resize(fyne.NewSize(16, 16))
+	base.Move(fyne.NewPos(0, maxFloat32(0, size.Height-16)))
+	badge.Resize(fyne.NewSize(9, 9))
+	badge.Move(fyne.NewPos(maxFloat32(0, size.Width-9), 0))
+}

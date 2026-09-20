@@ -81,8 +81,13 @@ type DiskWidget struct {
 
 	// dashboardAddImageBtn is Storage's own "Mount New ISO" header button --
 	// kept so refreshDashboard can darken it (SetBusy) while its own file
-	// picker is in flight, without rebuilding it every refresh.
+	// picker is in flight, without rebuilding it every refresh. On a
+	// software agent it is icon-only "+" next to the Hardware only plaque.
 	dashboardAddImageBtn *view.DeviceDashboardHeaderButton
+
+	// dashboardStorageHardwareBadge is Storage's "Hardware only" plaque,
+	// shown while connected to a software agent (ISO gadget is KVM-only).
+	dashboardStorageHardwareBadge *view.DeviceDashboardHeaderBadge
 
 	// dashboardAddVirtualDisplayBtn is the dynamic header action for Video.
 	dashboardAddVirtualDisplayBtn *view.DeviceDashboardHeaderButton
@@ -111,8 +116,8 @@ type DiskWidget struct {
 	// updateSDStorageInfo has a reading.
 	dashboardBackupSpace *view.DeviceDashboardSpaceMeter
 
-	// dashboardEmulationProBadge is USB Emulation's header plaque,
-	// shown while the connected agent is on Sunshine/Free.
+	// dashboardEmulationProBadge is USB Passthrough's header plaque
+	// ("Pro USBridge Streamer"), always shown.
 	dashboardEmulationProBadge *view.DeviceDashboardHeaderBadge
 
 	// dashboardSnapshotCount is the number of snapshots last reported by
@@ -209,6 +214,7 @@ type DiskWidget struct {
 	onVideoConfigRequested  func(devicePath string)
 	onVideoConnect          func(devicePath string)
 	onVideoDisconnect       func()
+	onVideoDevicesChanged   func(devices []models.SystemDevice)
 	onAudioConnect          func(devicePath string)
 	onAudioDisconnect       func()
 	onUSBAudioConnect       func(mode string)
@@ -550,6 +556,10 @@ func (dw *DiskWidget) SetOnVideoConfigRequested(fn func(devicePath string)) {
 
 func (dw *DiskWidget) SetOnVideoConnect(fn func(devicePath string)) {
 	dw.onVideoConnect = fn
+}
+
+func (dw *DiskWidget) SetOnVideoDevicesChanged(fn func(devices []models.SystemDevice)) {
+	dw.onVideoDevicesChanged = fn
 }
 
 func (dw *DiskWidget) SetOnVideoDisconnect(fn func()) {

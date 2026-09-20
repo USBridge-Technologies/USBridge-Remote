@@ -20,7 +20,7 @@ import (
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
 // column (HID & Input Hub, Video Pipe & EDID, Audio Pipeline) stacked above
 // one another, and a wide right column (Virtual Mass Storage & ISO Media,
-// then USB Emulation, then a short Network + Backups pair or the firmware
+// then USB Passthrough, then a short Network + Backups pair or the firmware
 // promo on an agent), all styled
 // after the Connections grid's own cards (see view.NewDeviceDashboardCard),
 // including their own teal-on-hover border.
@@ -63,14 +63,14 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardNetworkHover, networkBind = view.NewDeviceDashboardHoverCell()
 	dw.dashboardBackupHover, backupBind = view.NewDeviceDashboardHoverCell()
 
-	plusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
-	addLabel := i18n.Current.DevicesMountNewISO
-	if view.IsMobile() {
-		addLabel = i18n.Current.DevicesMount
-	}
-	addImageBtn := view.NewDeviceDashboardHeaderButton(addLabel, plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
+	plusGlyph := view.NewDeviceDashboardPlusGlyph(8, view.DeviceDashboardHeaderButtonTextColor)
+	addImageBtn := view.NewDeviceDashboardHeaderButton("", plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
 	addImageBtn.OnHover = dw.dashboardStorageHover
 	dw.dashboardAddImageBtn = addImageBtn
+	storageHardwareBadge := view.NewDeviceDashboardHeaderBadge(i18n.Current.DevicesHardwareOnly, design.ColorConnectionAddFill)
+	storageHardwareBadge.OnHover = dw.dashboardStorageHover
+	dw.dashboardStorageHardwareBadge = storageHardwareBadge
+	storageHeaderRight := container.New(&view.DeviceRowControlsLayout{Gap: 8}, addImageBtn, storageHardwareBadge)
 
 	vdPlusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTealTextColor)
 	vdLabel := "Add"
@@ -138,18 +138,26 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		view.DeviceDashboardStorageIconSVG,
 		storageTitle,
 		"",
-		addImageBtn,
+		storageHeaderRight,
 		dw.dashboardStorageScroll,
 		storageBind,
 	)
 	emulationProBadge := view.NewDeviceDashboardHeaderBadge(i18n.Current.USBEmulationProBadge, design.ColorProSoft)
 	emulationProBadge.OnHover = dw.dashboardEmulationHover
+	emulationProBadge.Show()
 	dw.dashboardEmulationProBadge = emulationProBadge
+	zadigHint := view.NewDeviceDashboardZadigHint(dw.showZadigHelp)
+	zadigHint.OnHover = dw.dashboardEmulationHover
+	emulationHeaderRight := container.New(&view.DeviceRowControlsLayout{Gap: 8}, zadigHint, emulationProBadge)
+	emulationTitle := i18n.Current.DevicesCardUSBPassthrough
+	if strings.TrimSpace(emulationTitle) == "" {
+		emulationTitle = deviceDashboardEmulationTitle
+	}
 	emulationCard := view.NewDeviceDashboardCard(
 		view.DeviceDashboardUSBIconSVG,
-		deviceDashboardEmulationTitle,
+		emulationTitle,
 		"",
-		emulationProBadge,
+		emulationHeaderRight,
 		dw.dashboardEmulationScroll,
 		emulationBind,
 	)
@@ -226,7 +234,7 @@ func (dw *DiskWidget) AttachConnectingHint(hint *view.DeviceDashboardBusySpinner
 const (
 	devicesFirmwarePromoDismissedPrefKey = "devices.firmware_promo.dismissed"
 	deviceDashboardStorageTitle          = "Virtual Mass Storage & ISO Media"
-	deviceDashboardEmulationTitle        = "USB Emulation"
+	deviceDashboardEmulationTitle        = "USB Passthrough"
 )
 
 func (dw *DiskWidget) firmwarePromoDismissed() bool {
@@ -236,26 +244,59 @@ func (dw *DiskWidget) firmwarePromoDismissed() bool {
 	return dw.app.Preferences().BoolWithFallback(devicesFirmwarePromoDismissedPrefKey, false)
 }
 
-// syncEmulationProBadge shows USB Emulation's "Available for Pro" plaque
-// only while the connected agent reports Sunshine or RustShine Free.
+// syncEmulationProBadge keeps USB Passthrough's Pro plaque visible.
 func (dw *DiskWidget) syncEmulationProBadge() {
 	if dw.dashboardEmulationProBadge == nil {
 		return
 	}
-	if emulationProBadgeVisible(dw.agentProtocol) {
-		dw.dashboardEmulationProBadge.Show()
-	} else {
-		dw.dashboardEmulationProBadge.Hide()
+	dw.dashboardEmulationProBadge.Show()
+}
+
+func (dw *DiskWidget) syncStorageHardwareChrome(softwareAgent bool) {
+	if dw.dashboardAddImageBtn != nil {
+		dw.dashboardAddImageBtn.SetText("")
+	}
+	if dw.dashboardStorageHardwareBadge != nil {
+		if softwareAgent {
+			dw.dashboardStorageHardwareBadge.Show()
+		} else {
+			dw.dashboardStorageHardwareBadge.Hide()
+		}
 	}
 }
 
-func emulationProBadgeVisible(protocol string) bool {
-	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case "opensource", "open source", "sunshine", "free":
-		return true
-	default:
-		return false
+const zadigDownloadURL = "https://zadig.akeo.ie/"
+
+func (dw *DiskWidget) showZadigHelp() {
+	if dw.window == nil {
+		return
 	}
+	view.ShowChromeActionDialog(
+		dw.window,
+		i18n.Current.DevicesZadigTitle,
+		i18n.Current.DevicesZadigMessage,
+		i18n.Current.DevicesZadigDownload,
+		func() {
+			uri, err := url.Parse(zadigDownloadURL)
+			if err != nil {
+				logrus.Errorf("failed to parse Zadig URL %q: %v", zadigDownloadURL, err)
+				return
+			}
+			fyneApp := dw.app
+			if fyneApp == nil {
+				fyneApp = fyne.CurrentApp()
+			}
+			if fyneApp == nil {
+				logrus.Errorf("failed to open Zadig URL: fyne app is nil")
+				return
+			}
+			go func() {
+				if err := fyneApp.OpenURL(uri); err != nil {
+					logrus.Errorf("failed to open Zadig URL %q: %v", zadigDownloadURL, err)
+				}
+			}()
+		},
+	)
 }
 
 func (dw *DiskWidget) setFirmwarePromoDismissed(on bool) {
@@ -304,6 +345,9 @@ func (dw *DiskWidget) refreshDashboard() {
 	if dw.dashboardHID == nil {
 		return
 	}
+
+	softwareAgent := !isUSBridgeAgentOS(dw.agentOS)
+	dw.syncStorageHardwareChrome(softwareAgent)
 
 	// "Mount New ISO" darkens while its own file picker is open -- and
 	// greys out (SetEnabled) while a mount/unmount is in flight. The
@@ -395,7 +439,13 @@ func (dw *DiskWidget) refreshDashboard() {
 				continue
 			}
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
-			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(storageIcon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, dw.newDashboardConnectSlot(idx, drive, dw.dashboardStorageHover), nil, drive.Size))
+			var connectSlot fyne.CanvasObject
+			if !softwareAgent {
+				connectSlot = dw.newDashboardConnectSlot(idx, drive, dw.dashboardStorageHover)
+			} else {
+				uploadBtn = nil
+			}
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(storageIcon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectSlot, nil, drive.Size))
 		}
 	}
 
@@ -468,7 +518,6 @@ func (dw *DiskWidget) refreshDashboard() {
 	}
 	dw.syncEmulationProBadge()
 
-	softwareAgent := !isUSBridgeAgentOS(dw.agentOS)
 	promoDismissed := dw.firmwarePromoDismissed()
 	showPromo := softwareAgent && !promoDismissed
 

@@ -60,6 +60,10 @@ type MainWindow struct {
 	mobileMouseToggle         *headerStatusBadgeButton
 	mobileNetGraphBtn         fyne.CanvasObject
 	mobileNetGraphSettingsBtn fyne.CanvasObject
+	mobileMonitorBtn          fyne.CanvasObject
+	mobileMonitorToggle       *headerStatusBadgeButton
+	mobileFooterGraphDivider  fyne.CanvasObject
+	mobileFooterHIDDivider    fyne.CanvasObject
 	// connectedChromeHost holds portrait (tab bar + version) or landscape
 	// (single row) chrome under the connected tabs; swapped by
 	// applyConnectedChromeLayout without a full reloadUI.
@@ -187,11 +191,13 @@ type MainWindow struct {
 	videoFPSText        *canvas.Text
 	videoResolutionText *canvas.Text
 	videoStatusGroup    *fyne.Container
-	// videoMonitorText/Btn/Dot are the optional capture-device chip after
-	// fps/resolution -- hidden when the agent only has one monitor.
-	videoMonitorText *canvas.Text
-	videoMonitorBtn  fyne.CanvasObject
-	videoMonitorDot  fyne.CanvasObject
+	// videoMonitorText/Dot are the capture-device name after fps/resolution
+	// in the Control header. videoMonitorToggle/Btn are the desktop footer
+	// picker (after fullscreen), hidden when the agent only has one monitor.
+	videoMonitorText    *canvas.Text
+	videoMonitorDot     fyne.CanvasObject
+	videoMonitorToggle  *headerStatusBadgeButton
+	videoMonitorBtn     fyne.CanvasObject
 	// videoMonitorChipLoaded is true after the first device-list fetch for
 	// this stream so updateStatusBarUI does not hammer GetVideoDevices.
 	videoMonitorChipLoaded bool

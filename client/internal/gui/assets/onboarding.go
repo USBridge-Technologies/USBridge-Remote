@@ -281,6 +281,7 @@ var (
 	MonitorTabIconMuted    = fyne.NewStaticResource("monitor-svgrepo-com-muted.svg", recolorStrokeIcon(monitorTabIcon, "#c5c8b5", "1.9"))
 	MonitorTabIconSelected = fyne.NewStaticResource("monitor-svgrepo-com-selected.svg", recolorStrokeIcon(monitorTabIcon, "#ebffbc", "1.9"))
 	MonitorTabIconHover    = fyne.NewStaticResource("monitor-svgrepo-com-hover.svg", recolorStrokeIcon(monitorTabIcon, "#e0e3e7", "1.9"))
+	MonitorTabIconFooter   = fyne.NewStaticResource("monitor-svgrepo-com-footer.svg", recolorStrokeIcon(monitorTabIcon, "#C9C9C9", "1.9"))
 	USBTabIconMuted        = fyne.NewStaticResource("usb-svgrepo-com-muted2.svg", recolorFillIcon(usbTabIcon, "#c5c8b5"))
 	USBTabIconSelected     = fyne.NewStaticResource("usb-svgrepo-com-selected.svg", recolorFillIcon(usbTabIcon, "#ebffbc"))
 	USBTabIconHover        = fyne.NewStaticResource("usb-svgrepo-com-hover.svg", recolorFillIcon(usbTabIcon, "#e0e3e7"))

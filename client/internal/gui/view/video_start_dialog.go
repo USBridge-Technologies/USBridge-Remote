@@ -321,6 +321,11 @@ type videoDialogPillButton struct {
 	bg     *canvas.Rectangle
 	border *canvas.Rectangle
 	label  *canvas.Text
+
+	textSize  float32
+	minHeight float32
+	padX      float32
+	radius    float32
 }
 
 const (
@@ -431,23 +436,43 @@ func (b *videoDialogPillButton) Cursor() desktop.Cursor {
 }
 
 func (b *videoDialogPillButton) MinSize() fyne.Size {
+	textSize := b.textSize
+	if textSize <= 0 {
+		textSize = videoDialogPillTextSize
+	}
+	minH := b.minHeight
+	if minH <= 0 {
+		minH = videoDialogPillHeight
+	}
+	padX := b.padX
+	if padX <= 0 {
+		padX = videoDialogPillPadX
+	}
 	measure := canvas.NewText(b.text, color.Black)
-	measure.TextSize = videoDialogPillTextSize
+	measure.TextSize = textSize
 	measure.TextStyle.Bold = true
-	width := measure.MinSize().Width + videoDialogPillPadX*2
-	return fyne.NewSize(width, videoDialogPillHeight)
+	width := measure.MinSize().Width + padX*2
+	return fyne.NewSize(width, minH)
 }
 
 func (b *videoDialogPillButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg = canvas.NewRectangle(color.Transparent)
-	b.bg.CornerRadius = design.RadiusMD
+	radius := b.radius
+	if radius <= 0 {
+		radius = design.RadiusMD
+	}
+	b.bg.CornerRadius = radius
 
 	b.border = canvas.NewRectangle(color.Transparent)
-	b.border.CornerRadius = design.RadiusMD
+	b.border.CornerRadius = radius
 	b.border.StrokeWidth = 1
 
+	textSize := b.textSize
+	if textSize <= 0 {
+		textSize = videoDialogPillTextSize
+	}
 	b.label = canvas.NewText(b.text, b.textColor)
-	b.label.TextSize = videoDialogPillTextSize
+	b.label.TextSize = textSize
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 

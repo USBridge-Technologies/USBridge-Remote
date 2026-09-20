@@ -123,7 +123,12 @@ type LocalizedStrings struct {
 	DevicesEmptyAudio                 string
 	DevicesEmptyStorage               string
 	DevicesEmptyUSB                   string
-	USBEmulationProBadge              string // USB Emulation header plaque when the agent is on Sunshine/Free, e.g. "Available for Pro"
+	DevicesCardUSBPassthrough         string
+	DevicesHardwareOnly               string
+	USBEmulationProBadge              string // USB Passthrough header plaque, e.g. "Pro USBridge Streamer"
+	DevicesZadigTitle                 string
+	DevicesZadigMessage               string
+	DevicesZadigDownload              string
 	DevicesEmptyNetwork               string
 	DevicesEmptyBackup                string
 	DevicesCardNetwork                string
@@ -701,7 +706,12 @@ func EN() *LocalizedStrings {
 		DevicesEmptyAudio:                 "No audio devices",
 		DevicesEmptyStorage:               "No storage or ISO media",
 		DevicesEmptyUSB:                   "No USB devices",
-		USBEmulationProBadge:              "Available for Pro",
+		DevicesCardUSBPassthrough:         "USB Passthrough",
+		DevicesHardwareOnly:               "Hardware only",
+		USBEmulationProBadge:              "Pro USBridge Streamer",
+		DevicesZadigTitle:                 "Can't find your device?",
+		DevicesZadigMessage:               "If the USB device does not appear in this list, install Zadig and bind the WinUSB driver to it. After you replug the device, it will show up here.",
+		DevicesZadigDownload:              "Download Zadig",
 		DevicesEmptyNetwork:               "No network bridge devices",
 		DevicesEmptyBackup:                "No backup devices",
 		DevicesCardNetwork:                "Network",
@@ -1403,7 +1413,12 @@ func ES() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Sin audio"
 	locale.DevicesEmptyStorage = "Sin storage ni ISO"
 	locale.DevicesEmptyUSB = "Sin USB"
-	locale.USBEmulationProBadge = "Disponible en Pro"
+	locale.DevicesCardUSBPassthrough = "Passthrough USB"
+	locale.DevicesHardwareOnly = "Solo hardware"
+	locale.USBEmulationProBadge = "Pro USBridge Streamer"
+	locale.DevicesZadigTitle = "No aparece tu dispositivo?"
+	locale.DevicesZadigMessage = "Si el dispositivo USB no esta en esta lista, instala Zadig y asignale el controlador WinUSB. Al volver a conectarlo, aparecera aqui."
+	locale.DevicesZadigDownload = "Descargar Zadig"
 	locale.DevicesEmptyNetwork = "Sin bridge de red"
 	locale.DevicesEmptyBackup = "Sin backup"
 	locale.DevicesCardNetwork = "Network"
@@ -1725,7 +1740,12 @@ func UKProper() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Немає аудіо"
 	locale.DevicesEmptyStorage = "Немає storage / ISO"
 	locale.DevicesEmptyUSB = "Немає USB"
-	locale.USBEmulationProBadge = "Доступно для Pro"
+	locale.DevicesCardUSBPassthrough = "USB-проброс"
+	locale.DevicesHardwareOnly = "Лише hardware"
+	locale.USBEmulationProBadge = "Pro USBridge Streamer"
+	locale.DevicesZadigTitle = "Не бачите свій пристрій?"
+	locale.DevicesZadigMessage = "Якщо USB-пристрій не з’явився в цьому списку, встановіть Zadig і призначте йому драйвер WinUSB. Після повторного підключення він з’явиться тут."
+	locale.DevicesZadigDownload = "Завантажити Zadig"
 	locale.DevicesEmptyNetwork = "Немає network bridge"
 	locale.DevicesEmptyBackup = "Немає backup"
 	locale.DevicesCardNetwork = "Network"
