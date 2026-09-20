@@ -19,6 +19,16 @@ const (
 	usbRulePath  = "/etc/udev/rules.d/99-usbridge-usb.rules"
 )
 
+// InputMonitoringGranted is always true on Linux -- Input Monitoring is a
+// macOS-only TCC permission (see hidbridge_darwin.go's IOHIDDeviceOpen).
+func InputMonitoringGranted() bool { return true }
+
+// RequestInputMonitoringAccess is a no-op on Linux.
+func RequestInputMonitoringAccess() bool { return true }
+
+// OpenInputMonitoringSettingsPane is a no-op on Linux.
+func OpenInputMonitoringSettingsPane() {}
+
 // Same shape as the agent's uinput rule: scoped GROUP+MODE=0660 (not world
 // writable), plus TAG+=uaccess so an interactive desktop session gets an
 // immediate logind ACL without waiting for the next login to pick up the

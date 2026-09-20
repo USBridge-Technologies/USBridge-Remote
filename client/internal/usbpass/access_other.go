@@ -1,9 +1,20 @@
-//go:build !linux || android
+//go:build (!linux || android) && !darwin
 
 package usbpass
 
-// LastUSBAccessError is Linux-only (pkexec/udev grant).
+// LastUSBAccessError is Linux-only (pkexec/udev grant); macOS has its own
+// implementation in access_darwin.go for Input Monitoring denials.
 func LastUSBAccessError() string { return "" }
+
+// InputMonitoringGranted is always true off macOS -- Input Monitoring is a
+// macOS-only TCC permission (see hidbridge_darwin.go's IOHIDDeviceOpen).
+func InputMonitoringGranted() bool { return true }
+
+// RequestInputMonitoringAccess is a no-op off macOS.
+func RequestInputMonitoringAccess() bool { return true }
+
+// OpenInputMonitoringSettingsPane is a no-op off macOS.
+func OpenInputMonitoringSettingsPane() {}
 
 // USBAccessGranted is always true off Linux (Windows uses a different path).
 func USBAccessGranted(devs []usbDevRef) bool { return true }

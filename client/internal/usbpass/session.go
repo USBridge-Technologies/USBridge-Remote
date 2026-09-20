@@ -126,7 +126,7 @@ func claimDevice(ed *ExportedDevice, ref usbDevRef) (use *ExportedDevice, abando
 		return fresh, false, err
 	}
 	if err != nil && !isGousbDisabled(err) {
-		logrus.Warnf("usbpass: claim %s failed (%v); requesting unbind/grant via pkexec", ed.BusID, err)
+		logrus.Warnf("usbpass: claim %s failed (%v); requesting OS-level access grant", ed.BusID, err)
 		if !RequestUSBAccess([]usbDevRef{ref}) {
 			if msg := LastUSBAccessError(); msg != "" {
 				return ed, false, fmt.Errorf("USB access: %s", msg)

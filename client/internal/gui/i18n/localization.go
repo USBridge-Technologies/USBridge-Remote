@@ -268,6 +268,8 @@ type LocalizedStrings struct {
 	DevicesSectionPassthroughHint     string
 	USBPassthroughEnterpriseHint      string
 	USBPassthroughProtected           string
+	USBPassthroughInputMonitoring     string
+	USBPassthroughOpenSettingsButton  string
 	LocalDrives                       string
 	NetworkDrives                     string
 	MountButton                       string
@@ -839,6 +841,8 @@ func EN() *LocalizedStrings {
 		DevicesSectionPassthroughHint:     "Redirect a local USB device into the remote Windows session.",
 		USBPassthroughEnterpriseHint:      "Requires Enterprise on the Windows agent.",
 		USBPassthroughProtected:           "Protected (session input / capture)",
+		USBPassthroughInputMonitoring:     "USB passthrough for this device needs Input Monitoring access on macOS.",
+		USBPassthroughOpenSettingsButton:  "Open Input Monitoring Settings",
 		LocalDrives:                       "Local Drives",
 		NetworkDrives:                     "Network Drives",
 		MountButton:                       "🔌 Mount",

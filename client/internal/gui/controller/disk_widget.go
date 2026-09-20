@@ -16,6 +16,7 @@ import (
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/service"
+	"usbridge-client/internal/usbpass"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
@@ -1014,6 +1015,27 @@ func (dw *DiskWidget) showErrorAsync(err error) {
 		if dw.window != nil {
 			view.ShowErrorDialog(err, dw.window)
 		}
+	})
+}
+
+// showUSBPassthroughErrorAsync shows a USB-passthrough claim error from a
+// goroutine. On macOS, when the underlying cause is missing Input
+// Monitoring access (hidbridge_darwin.go's IOHIDDeviceOpen -- the only way
+// a HID-class device like a mouse/keyboard dongle can be tapped there), it
+// adds a button that takes the user straight to the System Settings pane
+// instead of leaving them to puzzle out a raw libusb/hidbridge error string.
+func (dw *DiskWidget) showUSBPassthroughErrorAsync(err error) {
+	logrus.Errorf("Error: %v", err)
+	needsInputMonitoring := !usbpass.InputMonitoringGranted()
+	dw.updateUIAsync(func() {
+		if dw.window == nil {
+			return
+		}
+		if needsInputMonitoring {
+			view.ShowErrorDialogWithAction(err, i18n.Current.USBPassthroughOpenSettingsButton, usbpass.OpenInputMonitoringSettingsPane, dw.window)
+			return
+		}
+		view.ShowErrorDialog(err, dw.window)
 	})
 }
 
