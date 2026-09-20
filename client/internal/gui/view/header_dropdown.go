@@ -1173,6 +1173,10 @@ func ShowStyledInfoDropdown(anchor fyne.CanvasObject, content fyne.CanvasObject,
 	showStyledPanel(anchor, content, minWidth, false)
 }
 
+func ShowStyledInfoDropdownAbove(anchor fyne.CanvasObject, content fyne.CanvasObject, minWidth float32) {
+	showStyledPanel(anchor, content, minWidth, true)
+}
+
 // showStyledPanelAbove is ShowStyledInfoDropdown opening upward — footer
 // panels (phone preview + scale slider) need this so they are not clipped
 // below the window.

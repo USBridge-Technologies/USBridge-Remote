@@ -137,14 +137,24 @@ const (
 )
 
 func newFooterVersionButton(version string) fyne.CanvasObject {
-	if IsMobile() {
-		return NewDeviceDashboardFooterTextButton(version, func() {
-			ShowWhatsNewDialog(whatsNewParentWindow())
-		})
-	}
 	b := &whatsNewFooterVersion{text: version}
 	b.ExtendBaseWidget(b)
 	return b
+}
+
+// footerVersionDigitsVisible hides the version numerals without changing
+// MinSize -- Control tab keeps the same footer height as Devices/Snapshots
+// /Scripts, it just does not paint the digits (or the What's-new pip).
+var footerVersionDigitsVisible = true
+
+// SetFooterVersionDigitsVisible paints or un-paints every live version
+// chip. Hidden digits still occupy their layout slot.
+func SetFooterVersionDigitsVisible(visible bool) {
+	if footerVersionDigitsVisible == visible {
+		return
+	}
+	footerVersionDigitsVisible = visible
+	refreshWhatsNewFooterUnseen()
 }
 
 var whatsNewFooterVersions []*whatsNewFooterVersion
@@ -210,7 +220,9 @@ func (b *whatsNewFooterVersion) refreshLabel() {
 	if b.lbl == nil {
 		return
 	}
-	if b.hovered {
+	if !footerVersionDigitsVisible {
+		b.lbl.Color = color.Transparent
+	} else if b.hovered {
 		b.lbl.Color = design.ColorTextLight
 	} else {
 		b.lbl.Color = design.ColorTextMuted
@@ -222,7 +234,7 @@ func (b *whatsNewFooterVersion) syncUnseen() {
 	if b.dot == nil {
 		return
 	}
-	if whatsNewHasUnseen() {
+	if footerVersionDigitsVisible && whatsNewHasUnseen() {
 		b.dot.Show()
 	} else {
 		b.dot.Hide()

@@ -90,6 +90,8 @@ type MainWindow struct {
 	statusBarIndicatorsDivider fyne.CanvasObject
 	statusBarButtonsGroup      *fyne.Container
 	statusBarIndicatorsGroup   *fyne.Container
+	controlFooterActions       fyne.CanvasObject
+	controlFooterKVMDivider    fyne.CanvasObject
 
 	// Services
 	nbdServer        *service.NBDServer
@@ -180,15 +182,18 @@ type MainWindow struct {
 	videoFPSText        *canvas.Text
 	videoResolutionText *canvas.Text
 	videoStatusGroup    *fyne.Container
-	// fullscreenIcon is that same group's own fullscreen button, right
-	// after videoResolutionText -- shown/hidden together with the rest of
-	// the group (only makes sense while actually streaming). Net Graph
-	// toggle + metrics settings sit after it, behind a vertical divider.
-	// Tapping mw.videoIcon itself used to open a menu with a "Fullscreen"
-	// item alongside "Settings" -- now that fullscreen is its own button,
-	// that menu would only ever have one item, so mw.videoIcon's own tap
-	// goes straight to ShowCurrentVideoSettings instead (see showVideoMenu's
-	// removal in main_window_layout.go).
+	// videoMonitorText/Btn/Dot are the optional capture-device chip after
+	// fps/resolution -- hidden when the agent only has one monitor.
+	videoMonitorText *canvas.Text
+	videoMonitorBtn  fyne.CanvasObject
+	videoMonitorDot  fyne.CanvasObject
+	// videoMonitorChipLoaded is true after the first device-list fetch for
+	// this stream so updateStatusBarUI does not hammer GetVideoDevices.
+	videoMonitorChipLoaded bool
+	// fullscreenIcon sits in the Control footer (after net-graph), shown
+	// while streaming. mw.videoIcon (settings) is in that same footer
+	// cluster. Tapping mw.videoIcon goes straight to ShowCurrentVideoSettings
+	// (see showVideoMenu's removal in main_window_layout.go).
 	fullscreenIcon *headerStatusBadgeButton
 	audioIcon      *headerStatusBadgeButton
 	captureIcon    *widget.Button

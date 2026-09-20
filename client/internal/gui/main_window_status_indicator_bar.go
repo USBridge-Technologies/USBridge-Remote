@@ -1,18 +1,16 @@
 package gui
 
 // main_window_status_indicator_bar.go -- the Control header's bordered
-// video/peripherals/storage strip: a single rounded, bordered container
-// (design.ColorStatusBarBorder/Fill) holding, left to right, the video icon
-// + fps + a dot + the capture resolution, a thin divider, the peripheral
-// status icons (mw.statusPanel), another divider, and the SD storage chip
-// (mw.sdStorageProgress). Replaces the old plain mw.sdStorageProgress +
-// mw.statusPanel pairing that used to sit directly in createMainAddressBar's
-// middleGroup with no shared background/border of its own.
+// fps/resolution/monitor strip, plus the desktop Control footer action
+// cluster (keyboard/mouse/net-graph/fullscreen/video settings and the
+// KVM indicators). Replaces the old header packing of those same icons.
 
 import (
 	"fmt"
 	"image/color"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
@@ -251,62 +249,73 @@ func (mw *MainWindow) syncStatusBarDividers() {
 		}
 	}
 
-	if mw.statusBarPeripheralsDivider == nil {
-		return
+	if mw.statusBarPeripheralsDivider != nil {
+		videoVisible := mw.videoStatusGroup != nil && hasVisibleContent(mw.videoStatusGroup)
+		peripheralsVisible := mw.statusPanel != nil && hasVisibleContent(mw.statusPanel)
+		if videoVisible && peripheralsVisible {
+			mw.statusBarPeripheralsDivider.Show()
+		} else {
+			mw.statusBarPeripheralsDivider.Hide()
+		}
 	}
-	videoVisible := mw.videoStatusGroup != nil && hasVisibleContent(mw.videoStatusGroup)
-	peripheralsVisible := mw.statusPanel != nil && hasVisibleContent(mw.statusPanel)
-	if videoVisible && peripheralsVisible {
-		mw.statusBarPeripheralsDivider.Show()
-	} else {
-		mw.statusBarPeripheralsDivider.Hide()
+	if mw.controlFooterKVMDivider != nil {
+		kvmVisible := (mw.statusBarButtonsGroup != nil && hasVisibleContent(mw.statusBarButtonsGroup)) ||
+			(mw.statusBarIndicatorsGroup != nil && hasVisibleContent(mw.statusBarIndicatorsGroup)) ||
+			(mw.sdStorageProgress != nil && mw.sdStorageProgress.Visible())
+		if kvmVisible {
+			mw.controlFooterKVMDivider.Show()
+		} else {
+			mw.controlFooterKVMDivider.Hide()
+		}
 	}
+}
+
+func controlFooterIconBox(obj fyne.CanvasObject) fyne.CanvasObject {
+	return container.NewGridWrap(fyne.NewSize(view.AppFooterRowHeight, view.AppFooterRowHeight), obj)
+}
+
+func newControlFooterDivider() fyne.CanvasObject {
+	line := canvas.NewRectangle(design.ColorStatusBarDivider)
+	return container.NewGridWrap(fyne.NewSize(1, 10), line)
 }
 
 // buildStatusIndicatorBar assembles the bordered strip itself. mw.videoIcon,
 // mw.statusPanel and mw.sdStorageProgress must already exist (built by
 // createStatusBar) before this is called.
 func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
-	mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
-	mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
-	mw.audioIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
-	mw.audioIcon.SetHoverIcon(assets.AudioIconStatusBarHover)
-	mw.keyboardIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
-	mw.keyboardIcon.SetHoverIcon(assets.KeyboardIconStatusBarHover)
-	mw.mouseIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
-	mw.mouseIcon.SetHoverIcon(assets.MouseIconStatusBarHover)
-	mw.rndisIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
-	mw.rndisIcon.SetHoverIcon(assets.NetworkIconStatusBarHover)
-	mw.fullscreenIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
-	mw.fullscreenIcon.SetHoverIcon(assets.FullscreenIconStatusBarHover)
-
 	mw.videoFPSText = canvas.NewText("", design.ColorStatusBarAccent)
 	mw.videoFPSText.TextSize = statusIndicatorFPSTextSize
 	mw.videoResolutionText = canvas.NewText("", design.ColorStatusBarResolutionText)
 	mw.videoResolutionText.TextSize = statusIndicatorFPSTextSize
+	mw.videoMonitorText = canvas.NewText("", design.ColorStatusBarResolutionText)
+	mw.videoMonitorText.TextSize = statusIndicatorFPSTextSize
 
-	videoItems := []fyne.CanvasObject{
-		container.NewGridWrap(statusBarIconBoxSize, mw.videoIcon),
-	}
-	// fps/resolution are both tappable -- each opens a quick picker
-	// (styled like every other header dropdown, view.ShowStyledMenuTeal)
-	// sourced from the same capture-mode data the video settings dialog
-	// itself uses (see showVideoFPSMenu/showVideoResolutionMenu).
-	var fpsBtn, resBtn *statusBarTextButton
+	var fpsBtn, resBtn, monitorBtn *statusBarTextButton
 	fpsBtn = newStatusBarTextButton(mw.videoFPSText, func() {
 		mw.showVideoFPSMenu(fpsBtn)
 	})
 	resBtn = newStatusBarTextButton(mw.videoResolutionText, func() {
 		mw.showVideoResolutionMenu(resBtn)
 	})
-	videoItems = append(videoItems,
+	monitorBtn = newStatusBarTextButton(mw.videoMonitorText, func() {
+		mw.showVideoMonitorMenu(monitorBtn)
+	})
+	mw.videoMonitorBtn = monitorBtn
+	mw.videoMonitorDot = newStatusBarDot()
+	mw.videoMonitorBtn.Hide()
+	mw.videoMonitorDot.Hide()
+
+	videoItems := []fyne.CanvasObject{
 		newFixedWidthFPSText(mw.videoFPSText, fpsBtn),
 		newStatusBarDot(),
 		resBtn,
-	)
+		mw.videoMonitorDot,
+		mw.videoMonitorBtn,
+	}
 	swapTargets := []fyne.CanvasObject{
 		fpsBtn,
 		resBtn,
+		monitorBtn,
 		mw.videoIcon,
 		mw.audioIcon,
 		mw.keyboardIcon,
@@ -314,45 +323,46 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		mw.rndisIcon,
 		mw.sdStorageProgress,
 	}
-	if !useMobileControl() {
-		videoItems = append(videoItems, container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon))
-		swapTargets = append(swapTargets, mw.fullscreenIcon)
-		if graph, settings := view.NewNetGraphHeaderButtons(); graph != nil {
-			videoItems = append(videoItems,
-				newStatusBarDivider(),
-				container.NewGridWrap(statusBarIconBoxSize, graph),
-				container.NewGridWrap(statusBarIconBoxSize, settings),
-			)
-			swapTargets = append(swapTargets, graph, settings)
-		}
+
+	if useMobileControl() {
+		mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+		mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
+		mw.audioIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+		mw.audioIcon.SetHoverIcon(assets.AudioIconStatusBarHover)
+		mw.keyboardIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+		mw.keyboardIcon.SetHoverIcon(assets.KeyboardIconStatusBarHover)
+		mw.mouseIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+		mw.mouseIcon.SetHoverIcon(assets.MouseIconStatusBarHover)
+		mw.rndisIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+		mw.rndisIcon.SetHoverIcon(assets.NetworkIconStatusBarHover)
+		mw.fullscreenIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+		mw.fullscreenIcon.SetHoverIcon(assets.FullscreenIconStatusBarHover)
+		videoItems = append([]fyne.CanvasObject{
+			container.NewGridWrap(statusBarIconBoxSize, mw.videoIcon),
+		}, videoItems...)
 	}
+
 	view.SetMenuSwapTargets(swapTargets...)
 	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2}, videoItems...)
 	mw.videoStatusGroup.Hide()
 
-	peripheralsSized := container.NewThemeOverride(mw.statusPanel, &statusBarPeripheralTheme{Theme: design.NewBrandTheme()})
-
-	// statusBarPeripheralsDivider sits between the video group and the
-	// peripherals group -- hidden whenever either side is empty (see
-	// syncStatusBarDividers) so it never appears with nothing to separate
-	// on one side (e.g. video off, or every peripheral disconnected).
 	mw.statusBarPeripheralsDivider = newStatusBarDivider()
 	mw.statusBarPeripheralsDivider.Hide()
-
-	// statusBarStorageDivider sits only between the peripherals group and
-	// mw.sdStorageProgress -- hidden together with it (see
-	// syncStorageChipVisibility) so an agent connection with no SD card at
-	// all doesn't leave a dangling divider with nothing after it.
 	mw.statusBarStorageDivider = newStatusBarDivider()
 	mw.statusBarStorageDivider.Hide()
 
-	content := container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4},
-		mw.videoStatusGroup,
-		mw.statusBarPeripheralsDivider,
-		peripheralsSized,
-		mw.statusBarStorageDivider,
-		mw.sdStorageProgress,
-	)
+	contentParts := []fyne.CanvasObject{mw.videoStatusGroup}
+	if useMobileControl() {
+		peripheralsSized := container.NewThemeOverride(mw.statusPanel, &statusBarPeripheralTheme{Theme: design.NewBrandTheme()})
+		contentParts = append(contentParts,
+			mw.statusBarPeripheralsDivider,
+			peripheralsSized,
+			mw.statusBarStorageDivider,
+			mw.sdStorageProgress,
+		)
+	}
+
+	content := container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4}, contentParts...)
 
 	bg := canvas.NewRectangle(design.ColorStatusBarFill)
 	bg.StrokeColor = design.ColorStatusBarBorder
@@ -360,6 +370,225 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	bg.CornerRadius = design.RadiusMD
 
 	return container.NewStack(bg, view.NewInsetExact(content, statusIndicatorBarPadX, statusIndicatorBarPadX, statusIndicatorBarPadY, statusIndicatorBarPadY))
+}
+
+func (mw *MainWindow) applyControlFooterIconHover() {
+	hover := design.ColorAlphaWhite07
+	radius := float32(3)
+	if mw.videoIcon != nil {
+		mw.videoIcon.SetHoverStyle(hover, radius)
+		mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
+	}
+	if mw.audioIcon != nil {
+		mw.audioIcon.SetHoverStyle(hover, radius)
+		mw.audioIcon.SetHoverIcon(assets.AudioIconStatusBarHover)
+	}
+	if mw.keyboardIcon != nil {
+		mw.keyboardIcon.SetHoverStyle(hover, radius)
+		mw.keyboardIcon.SetHoverIcon(assets.KeyboardIconStatusBarHover)
+	}
+	if mw.mouseIcon != nil {
+		mw.mouseIcon.SetHoverStyle(hover, radius)
+		mw.mouseIcon.SetHoverIcon(assets.MouseIconStatusBarHover)
+	}
+	if mw.rndisIcon != nil {
+		mw.rndisIcon.SetHoverStyle(hover, radius)
+		mw.rndisIcon.SetHoverIcon(assets.NetworkIconStatusBarHover)
+	}
+	if mw.fullscreenIcon != nil {
+		mw.fullscreenIcon.SetHoverStyle(hover, radius)
+		mw.fullscreenIcon.SetHoverIcon(assets.FullscreenIconStatusBarHover)
+	}
+}
+
+// buildDesktopControlFooterActions is keyboard, mouse, net-graph, metrics,
+// fullscreen, video settings, then KVM indicators packed to the right of
+// the Control footer. Height is locked to AppFooterRowHeight.
+func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
+	mw.applyControlFooterIconHover()
+	mw.keyboardIcon.Show()
+	mw.mouseIcon.Show()
+
+	videoParts := []fyne.CanvasObject{
+		controlFooterIconBox(mw.keyboardIcon),
+		controlFooterIconBox(mw.mouseIcon),
+	}
+	if graph, settings := view.NewNetGraphDesktopFooterButtons(); graph != nil {
+		mw.mobileNetGraphBtn = controlFooterIconBox(graph)
+		mw.mobileNetGraphBtn.Hide()
+		videoParts = append(videoParts, mw.mobileNetGraphBtn)
+		if settings != nil {
+			mw.mobileNetGraphSettingsBtn = controlFooterIconBox(settings)
+			mw.mobileNetGraphSettingsBtn.Hide()
+			videoParts = append(videoParts, mw.mobileNetGraphSettingsBtn)
+		}
+	}
+	videoParts = append(videoParts,
+		controlFooterIconBox(mw.fullscreenIcon),
+		controlFooterIconBox(mw.videoIcon),
+	)
+	videoGroup := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, videoParts...)
+
+	mw.statusBarButtonsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
+		controlFooterIconBox(mw.audioIcon),
+		controlFooterIconBox(mw.rndisIcon),
+		controlFooterIconBox(mw.scriptIcon),
+	)
+	mw.statusBarIndicatorsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
+		controlFooterIconBox(mw.backupIcon),
+		controlFooterIconBox(mw.cdromIcon),
+		controlFooterIconBox(mw.gamepadIcon),
+		controlFooterIconBox(mw.snapshotIcon),
+	)
+	storageW := mw.sdStorageProgress.MinSize().Width
+	if storageW < 36 {
+		storageW = 72
+	}
+	storageBox := container.NewGridWrap(fyne.NewSize(storageW, view.AppFooterRowHeight), mw.sdStorageProgress)
+
+	mw.controlFooterKVMDivider = newControlFooterDivider()
+	mw.controlFooterKVMDivider.Hide()
+	kvmGroup := container.New(&centeredInlineLayout{gap: 4, minGap: 2},
+		mw.statusBarButtonsGroup,
+		mw.statusBarIndicatorsGroup,
+		storageBox,
+	)
+	kvmSized := container.NewThemeOverride(kvmGroup, &statusBarPeripheralTheme{Theme: design.NewBrandTheme()})
+
+	mw.controlFooterActions = container.New(&centeredInlineLayout{gap: 8, minGap: 4},
+		videoGroup,
+		mw.controlFooterKVMDivider,
+		kvmSized,
+	)
+	return mw.controlFooterActions
+}
+
+func shortMonitorLabel(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	runes := []rune(name)
+	if len(runes) > 18 {
+		return string(runes[:17]) + "…"
+	}
+	return name
+}
+
+func (mw *MainWindow) syncVideoMonitorChipLabel() {
+	if mw.videoMonitorText == nil || mw.videoWidget == nil {
+		return
+	}
+	_, name := mw.videoWidget.CurrentCaptureDevice()
+	label := shortMonitorLabel(name)
+	if label == "" {
+		return
+	}
+	if mw.videoMonitorText.Text != label {
+		mw.videoMonitorText.Text = label
+		mw.videoMonitorText.Refresh()
+	}
+}
+
+func (mw *MainWindow) applyVideoMonitorChip(devices []models.SystemDevice) {
+	if mw.videoMonitorBtn == nil || mw.videoMonitorDot == nil {
+		return
+	}
+	if len(devices) < 2 {
+		mw.videoMonitorBtn.Hide()
+		mw.videoMonitorDot.Hide()
+		if mw.videoStatusGroup != nil {
+			mw.videoStatusGroup.Refresh()
+		}
+		return
+	}
+	selected, name := "", ""
+	if mw.videoWidget != nil {
+		selected, name = mw.videoWidget.CurrentCaptureDevice()
+	}
+	if name == "" {
+		for _, d := range devices {
+			if d.Path == selected {
+				name = d.Name
+				break
+			}
+		}
+	}
+	if name == "" && selected != "" {
+		name = filepath.Base(selected)
+	}
+	if name == "" && len(devices) > 0 {
+		name = devices[0].Name
+	}
+	if mw.videoMonitorText != nil {
+		mw.videoMonitorText.Text = shortMonitorLabel(name)
+		mw.videoMonitorText.Refresh()
+	}
+	mw.videoMonitorBtn.Show()
+	mw.videoMonitorDot.Show()
+	if mw.videoStatusGroup != nil {
+		mw.videoStatusGroup.Refresh()
+	}
+}
+
+func (mw *MainWindow) scheduleVideoMonitorChipRefresh() {
+	if useMobileControl() || mw.videoWidget == nil || mw.videoMonitorBtn == nil {
+		return
+	}
+	go func() {
+		devices, err := mw.videoWidget.GetAvailableVideoDevices()
+		if err != nil {
+			logrus.Debugf("monitor chip: cannot list capture devices: %v", err)
+			return
+		}
+		fyne.Do(func() {
+			mw.applyVideoMonitorChip(devices)
+		})
+	}()
+}
+
+func (mw *MainWindow) showVideoMonitorMenu(anchor fyne.CanvasObject) {
+	if mw.videoWidget == nil || anchor == nil {
+		return
+	}
+	go func() {
+		devices, err := mw.videoWidget.GetAvailableVideoDevices()
+		if err != nil {
+			logrus.Warnf("⚠️ cannot load monitor options: %v", err)
+			return
+		}
+		if len(devices) < 2 {
+			fyne.Do(func() {
+				mw.applyVideoMonitorChip(devices)
+			})
+			return
+		}
+		selected, _ := mw.videoWidget.CurrentCaptureDevice()
+		items := make([]view.StyledMenuItem, 0, len(devices))
+		for _, device := range devices {
+			device := device
+			label := strings.TrimSpace(device.Name)
+			if label == "" {
+				label = filepath.Base(device.Path)
+			}
+			items = append(items, view.StyledMenuItem{
+				Label:    label,
+				Selected: device.Path == selected,
+				OnTap: func() {
+					go func() {
+						mw.videoWidget.StartVideoDevice(device.Path)
+						fyne.Do(func() {
+							mw.applyVideoMonitorChip(devices)
+						})
+					}()
+				},
+			})
+		}
+		fyne.Do(func() {
+			mw.applyVideoMonitorChip(devices)
+			view.ShowStyledMenuTeal(anchor, items)
+		})
+	}()
 }
 
 // showVideoFPSMenu opens a teal dropdown (view.ShowStyledMenuTeal, the same

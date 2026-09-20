@@ -19,13 +19,13 @@ import (
 // Control Net Graph controls: a graph toggle (teal when the HUD is on,
 // gray when off) and a metrics-settings chip that opens a panel with
 // size + background-opacity sliders. Desktop places them in the Control
-// header after fullscreen (NewNetGraphHeaderButtons); mobile places the
+// footer after mouse (NewNetGraphDesktopFooterButtons); mobile places the
 // same pair in the Control footer after fullscreen
 // (NewNetGraphMobileFooterButtons). Both return nils when the build has
 // no HUD push path.
 const (
-	netGraphHeaderIconSide  = float32(12)
-	netGraphHeaderHitSide   = float32(22)
+	netGraphHeaderIconSide  = float32(11)
+	netGraphHeaderHitSide   = float32(14)
 	netGraphMobileIconSide  = float32(16)
 	netGraphMobileHitSide   = float32(32)
 	netGraphHeaderHoverR    = float32(4)
@@ -68,15 +68,15 @@ func registerNetGraphDialogCheck(c *videoDialogCheckbox) {
 	liveNetGraphDialogCheck.Store(c)
 }
 
-// NewNetGraphHeaderButtons is the desktop Control header pair: graph
-// toggle + metrics settings, to sit after the fullscreen button. Nils
-// on mobile (see NewNetGraphMobileFooterButtons) and when Net Graph
-// isn't available here.
-func NewNetGraphHeaderButtons() (graph, settings fyne.CanvasObject) {
+// NewNetGraphDesktopFooterButtons is the desktop Control footer pair:
+// graph toggle + metrics settings, after keyboard/mouse. Settings open
+// upward so the panel is not clipped under the footer. Nils on mobile
+// (see NewNetGraphMobileFooterButtons) and when Net Graph isn't available.
+func NewNetGraphDesktopFooterButtons() (graph, settings fyne.CanvasObject) {
 	if IsMobile() || !service.NetGraphSupported() {
 		return nil, nil
 	}
-	return newNetGraphControlButtons(netGraphHeaderHitSide, netGraphHeaderIconSide, false)
+	return newNetGraphControlButtons(netGraphHeaderHitSide, netGraphHeaderIconSide, true)
 }
 
 // NewNetGraphMobileFooterButtons is the same pair for the mobile Control

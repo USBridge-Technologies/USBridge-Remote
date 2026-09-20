@@ -64,6 +64,7 @@ func (mw *MainWindow) showConnectionManagerNow() {
 	}
 	mw.window.SetContent(mw.wrapWithResizeGuard(mw.connectionContent))
 	mw.onMainContent = false
+	view.SetFooterVersionDigitsVisible(true)
 	if view.ForceMobileDesign {
 		mw.applyPhonePreviewWindowSize()
 	}
@@ -82,6 +83,9 @@ func (mw *MainWindow) showMainContent() {
 		}
 		mw.window.SetContent(mw.wrapWithResizeGuard(mw.mainContent))
 		mw.onMainContent = true
+		if useMobileControl() {
+			view.SetFooterVersionDigitsVisible(mw.tabs == nil || mw.tabs.SelectedIndex() != mw.controlTabIndex())
+		}
 		if view.ForceMobileDesign {
 			mw.applyPhonePreviewWindowSize()
 		}

@@ -355,7 +355,7 @@ func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject 
 		if usableConnectedChromeObject(mw.connectedFooterScript) {
 			rightParts = append(rightParts, mw.connectedFooterScript)
 		}
-		if label := connectedVersionLabel(view.AppVersion()); label != nil {
+		if label := connectedVersionLabel(view.AppVersion(), false); label != nil {
 			rightParts = append(rightParts, label)
 		}
 		if actions := mw.mobileControlRightActions(); actions != nil {
@@ -430,7 +430,7 @@ func (mw *MainWindow) buildTabsFooterStrip(landscape bool) fyne.CanvasObject {
 		if usableConnectedChromeObject(mw.connectedFooterScript) {
 			rightParts = append(rightParts, mw.connectedFooterScript)
 		}
-		if label := connectedVersionLabel(view.AppVersion()); label != nil {
+		if label := connectedVersionLabel(view.AppVersion(), true); label != nil {
 			rightParts = append(rightParts, label)
 		}
 		var right fyne.CanvasObject
@@ -523,12 +523,16 @@ func usableConnectedChromeObject(obj fyne.CanvasObject) bool {
 	return obj != nil
 }
 
-func connectedVersionLabel(version string) fyne.CanvasObject {
+func connectedVersionLabel(version string, digitsVisible bool) fyne.CanvasObject {
 	v := strings.TrimSpace(version)
 	if v == "" {
 		return nil
 	}
-	label := canvas.NewText("v"+v, design.ColorTextMuted)
+	var col color.Color = design.ColorTextMuted
+	if !digitsVisible {
+		col = color.Transparent
+	}
+	label := canvas.NewText("v"+v, col)
 	label.TextSize = 9
 	return label
 }
