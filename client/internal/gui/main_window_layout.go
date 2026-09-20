@@ -246,6 +246,7 @@ func (mw *MainWindow) recreateContainers() {
 			mw.diskWidget.SetOnVideoDisconnect(func() {
 				mw.videoWidget.StopVideoAsync()
 			})
+			mw.diskWidget.SetOnAgentProtocol(mw.videoWidget.SetAgentProtocol)
 			mw.diskWidget.SetOnAudioConnect(func(devicePath string) {
 				if mw.usbClient != nil {
 					if err := mw.usbClient.StartAudio(devicePath); err != nil {

@@ -1318,7 +1318,9 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 		vw.userStoppedVideo.Store(false)
 		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
 		vw.PrefetchCaptureModesAsync()
+		go vw.refreshAgentProtocol()
 	} else {
+		vw.SetAgentProtocol("")
 		clearCaptureModesCache()
 	}
 	vw.updateButtons()

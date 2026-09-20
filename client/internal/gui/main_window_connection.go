@@ -1095,6 +1095,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 			}
 			if osName != "" || protocol != "" {
 				connMgr.UpdateConnectionOS(connHost, osName, protocol)
+				if protocol != "" && mw.videoWidget != nil {
+					mw.videoWidget.SetAgentProtocol(protocol)
+				}
 			}
 		}()
 	}

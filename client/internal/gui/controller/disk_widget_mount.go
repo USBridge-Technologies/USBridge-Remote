@@ -137,6 +137,9 @@ func (dw *DiskWidget) endOperation() {
 			dw.agentOS = newAgentOS
 			dw.agentProtocol = newAgentProtocol
 			dw.syncEmulationProBadge()
+			if dw.onAgentProtocol != nil && dw.agentProtocol != "" {
+				dw.onAgentProtocol(dw.agentProtocol)
+			}
 		}
 		if newLocalDrives != nil {
 			dw.localDrives = newLocalDrives

@@ -1140,8 +1140,7 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 // absolutePictureRect is the on-screen desktop picture in the same dp space as
 // pointer events. Starts from the native overlay dest (client letterbox of the
 // encoded frame), then applies frameContent (in-stream contain-fit of the host
-// monitor into the encode). Both layers of bars must be excluded or the remote
-// cursor lags toward the edges.
+// monitor into the encode — RustShine only; Sunshine already maps stream space).
 func (vw *VideoWidget) absolutePictureRect() (rectX, rectY, rectW, rectH float32) {
 	if dx, dy, dw, dh, ok := vw.nativeDestRectDp(); ok {
 		rectX, rectY, rectW, rectH = dx, dy, dw, dh
@@ -1199,9 +1198,10 @@ func aspectFitSize(viewW, viewH, srcW, srcH float32) (baseW, baseH float32) {
 }
 
 // containFitNorm is the normalized inner rect of innerW×innerH contain-fitted
-// into containerW×containerH. Used for in-stream letterbox: the host desktop
-// is fitted into the encode, so mouse 0..32767 must map to that inner rect,
-// not the black bars that are pixels in the frame.
+// into containerW×containerH. Used for in-stream letterbox on RustShine: the
+// host desktop is fitted into the encode, and 0..32767 maps onto that inner
+// rect. Sunshine applies the same contain-fit on the host (touch_port) and
+// must receive stream-space coordinates instead.
 func containFitNorm(containerW, containerH, innerW, innerH float32) (x, y, w, h float32) {
 	if containerW <= 0 || containerH <= 0 || innerW <= 0 || innerH <= 0 {
 		return 0, 0, 1, 1
@@ -1263,6 +1263,7 @@ func (vw *VideoWidget) setHostDesktopSize(w, h float32) {
 	vw.frameMutex.Lock()
 	vw.hostDesktopW, vw.hostDesktopH = w, h
 	vw.frameMutex.Unlock()
+	vw.updateInStreamContentRect()
 }
 
 func (vw *VideoWidget) hostDesktopSize() (float32, float32) {
@@ -1276,6 +1277,11 @@ func (vw *VideoWidget) rememberHostDesktopFromInfo(info *models.VideoInfoData) {
 		return
 	}
 	w, h := hostDesktopSizeFromModes(info.CaptureModes)
+	if info.Width > 0 && info.Height > 0 {
+		if area := float32(info.Width) * float32(info.Height); area > w*h {
+			w, h = float32(info.Width), float32(info.Height)
+		}
+	}
 	if nw, nh, ok := parseWxH(info.Device); ok && nw*nh > w*h {
 		w, h = nw, nh
 	}
@@ -1317,16 +1323,66 @@ func (vw *VideoWidget) updateInStreamContentRect() {
 
 func (vw *VideoWidget) updateInStreamContentRectWith(streamW, streamH float32) {
 	vw.ensureHostDesktopSize()
-	hostW, hostH := vw.hostDesktopSize()
-	x, y, w, h := containFitNorm(streamW, streamH, hostW, hostH)
+	var x, y, w, h float32
+	if vw.hostMapsMouseInStreamSpace() {
+		// Sunshine's touch_port already contain-fits the desktop into the
+		// encode (client_offset / scalar_inv). 0..32767 must stay in stream
+		// space — the same mapping Moonlight-qt sends. Cropping to the inner
+		// desktop here double-applies that letterbox: the host cursor lags
+		// and never reaches the physical edge.
+		x, y, w, h = 0, 0, 1, 1
+	} else {
+		hostW, hostH := vw.hostDesktopSize()
+		x, y, w, h = containFitNorm(streamW, streamH, hostW, hostH)
+	}
 	vw.frameMutex.Lock()
 	vw.frameContentX, vw.frameContentY, vw.frameContentW, vw.frameContentH = x, y, w, h
 	vw.frameMutex.Unlock()
 	if w < 0.999 || h < 0.999 {
 		if now := time.Now(); now.Sub(inStreamLogAt) >= 2*time.Second {
 			inStreamLogAt = now
+			hostW, hostH := vw.hostDesktopSize()
 			logrus.Infof("[ABS] in-stream crop: host=%.0fx%.0f stream=%.0fx%.0f frameRect=(%.3f,%.3f,%.3f,%.3f)",
 				hostW, hostH, streamW, streamH, x, y, w, h)
+		}
+	}
+}
+
+// SetAgentProtocol records the connected agent's streamer (opensource =
+// Sunshine, otherwise RustShine). Absolute mouse mapping differs: Sunshine
+// consumes stream-space coordinates, RustShine consumes desktop-space.
+func (vw *VideoWidget) SetAgentProtocol(protocol string) {
+	p := strings.TrimSpace(protocol)
+	if vw.agentProtocol == p {
+		return
+	}
+	vw.agentProtocol = p
+	vw.updateInStreamContentRect()
+	logrus.Infof("[ABS] agent protocol=%q stream-space mouse=%v", p, vw.hostMapsMouseInStreamSpace())
+}
+
+func (vw *VideoWidget) hostMapsMouseInStreamSpace() bool {
+	switch strings.ToLower(strings.TrimSpace(vw.agentProtocol)) {
+	case "opensource", "open source", "sunshine":
+		return true
+	default:
+		return false
+	}
+}
+
+func (vw *VideoWidget) refreshAgentProtocol() {
+	if vw == nil || vw.usbClient == nil {
+		return
+	}
+	if info, err := vw.usbClient.GetDeviceInfo(); err == nil && info != nil {
+		if p := strings.TrimSpace(info.AgentProtocol); p != "" {
+			vw.SetAgentProtocol(p)
+			return
+		}
+	}
+	if status, err := vw.usbClient.GetStatus(); err == nil && status != nil && status.Data != nil {
+		if p := strings.TrimSpace(status.Data.AgentProtocol); p != "" {
+			vw.SetAgentProtocol(p)
 		}
 	}
 }
@@ -1439,9 +1495,9 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	if vw.moonlightInput() != nil {
 		// Do not run the dark-pixel heuristic on desktop capture: a black
 		// terminal at the edge looks like a letterbox bar and collapses the
-		// mouse rect. Sunshine/RustShine still contain-fits the monitor into
-		// the encode when the chosen stream aspect differs, so those bars are
-		// real pixels in the frame. Crop from host vs stream aspect instead.
+		// mouse rect. Both hosts contain-fit the monitor into the encode when
+		// aspects differ. RustShine maps 0..32767 onto the desktop (crop
+		// here); Sunshine's touch_port already subtracts those bars.
 		vw.updateInStreamContentRectWith(float32(frameW), float32(frameH))
 		return
 	}

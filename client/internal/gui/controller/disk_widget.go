@@ -212,6 +212,7 @@ type DiskWidget struct {
 	onAudioDisconnect       func()
 	onUSBAudioConnect       func(mode string)
 	onButtonsChanged        func()
+	onAgentProtocol         func(protocol string)
 
 	safHelper *platform.SAFHelper
 
@@ -564,6 +565,10 @@ func (dw *DiskWidget) SetOnAudioDisconnect(fn func()) {
 
 func (dw *DiskWidget) SetOnUSBAudioConnect(fn func(mode string)) {
 	dw.onUSBAudioConnect = fn
+}
+
+func (dw *DiskWidget) SetOnAgentProtocol(fn func(protocol string)) {
+	dw.onAgentProtocol = fn
 }
 
 func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {

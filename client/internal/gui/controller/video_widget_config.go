@@ -536,6 +536,7 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 
 	saveVideoDeviceConfig(cfg)
 	resetVideoInfoCache()
+	vw.refreshAgentProtocol()
 	vw.rememberHostDesktopFromConfig(cfg)
 
 	if vw.onResolutionChanged != nil {
