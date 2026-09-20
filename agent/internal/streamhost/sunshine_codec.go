@@ -198,9 +198,9 @@ type serverInfoXML struct {
 // started", until the probing happened to let a launch through. Since
 // hardware encoder capability cannot change while Sunshine keeps running,
 // there is no reason to re-probe more than very rarely.
-// Color444Status: Sunshine (opensource) never offers the RustShine Pro
-// color upgrade -- it's a RustShine-only feature, see CodecProbe's doc
-// comment.
+// Color444Status: the backend itself reports nothing (no entitlement
+// knowledge here); App.Color444Status layers the Pro-license gate on top via
+// Color444Supported.
 func (b *sunshineBackend) Color444Status() (active bool, available bool) {
 	return false, false
 }
@@ -226,10 +226,12 @@ func (b *sunshineBackend) SupportedVideoCodecs(adminPort int) []string {
 	}
 	b.supportedCodecsCache.mu.Unlock()
 
-	codecs := fetchSupportedVideoCodecs(adminPort)
+	flags, ok := fetchServerCodecFlags(adminPort)
+	codecs := codecsFromFlags(flags, ok)
 
 	b.supportedCodecsCache.mu.Lock()
 	b.supportedCodecsCache.codecs = codecs
+	b.supportedCodecsCache.flags = flags
 	b.supportedCodecsCache.fetchedAt = time.Now()
 	b.supportedCodecsCache.mu.Unlock()
 	return codecs
@@ -245,7 +247,38 @@ func (b *sunshineBackend) SupportedVideoCodecs(adminPort int) []string {
 var serverinfoHTTPClient = &http.Client{Timeout: 2 * time.Second}
 
 func fetchSupportedVideoCodecs(adminPort int) []string {
-	fallback := []string{"h264"}
+	flags, ok := fetchServerCodecFlags(adminPort)
+	return codecsFromFlags(flags, ok)
+}
+
+// codecsFromFlags decodes ServerCodecModeSupport; !ok (query failed) is
+// h264-only, never a guess at h265/av1.
+func codecsFromFlags(flags int, ok bool) []string {
+	codecs := []string{"h264"}
+	if !ok {
+		return codecs
+	}
+	if flags&scmMaskHEVC != 0 {
+		codecs = append(codecs, "h265")
+	}
+	if flags&scmMaskAV1 != 0 {
+		codecs = append(codecs, "av1")
+	}
+	log.Printf("🎯 [CODEC-TRACE] [sunshine] serverinfo codec support: flags=0x%08X -> %v", flags, codecs)
+	return codecs
+}
+
+// Color444Supported reports whether this host's Sunshine can encode any 4:4:4
+// format right now (SCM_*_444 bits of /serverinfo's ServerCodecModeSupport).
+// Whether the customer is *entitled* to it is the caller's decision.
+func (b *sunshineBackend) Color444Supported(adminPort int) bool {
+	b.SupportedVideoCodecs(adminPort) // fills/refreshes the shared cache
+	b.supportedCodecsCache.mu.Lock()
+	defer b.supportedCodecsCache.mu.Unlock()
+	return b.supportedCodecsCache.flags&(scmH264High8444|scmHEVCRext8444|scmHEVCRext10444|scmAV1High8444|scmAV1High10444) != 0
+}
+
+func fetchServerCodecFlags(adminPort int) (flags int, ok bool) {
 	if adminPort <= 0 {
 		adminPort = 47990
 	}
@@ -257,30 +290,21 @@ func fetchSupportedVideoCodecs(adminPort int) []string {
 	resp, err := serverinfoHTTPClient.Get(fmt.Sprintf("http://127.0.0.1:%d/serverinfo", nvhttpPort))
 	if err != nil {
 		log.Printf("[sunshine] serverinfo query failed (%v) — reporting h264-only", err)
-		return fallback
+		return 0, false
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("[sunshine] serverinfo read failed (%v) — reporting h264-only", err)
-		return fallback
+		return 0, false
 	}
 
 	var info serverInfoXML
 	if err := xml.Unmarshal(body, &info); err != nil {
 		log.Printf("[sunshine] serverinfo parse failed (%v) — reporting h264-only", err)
-		return fallback
+		return 0, false
 	}
 
-	flags := info.ServerCodecModeSupport
-	codecs := []string{"h264"}
-	if flags&scmMaskHEVC != 0 {
-		codecs = append(codecs, "h265")
-	}
-	if flags&scmMaskAV1 != 0 {
-		codecs = append(codecs, "av1")
-	}
-	log.Printf("🎯 [CODEC-TRACE] [sunshine] serverinfo codec support: flags=0x%08X -> %v", flags, codecs)
-	return codecs
+	return info.ServerCodecModeSupport, true
 }

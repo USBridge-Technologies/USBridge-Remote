@@ -18,6 +18,8 @@ var (
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#c4e77a" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12L10 18L20 6"/></svg>`))
 	checkGlyphOnTeal = fyne.NewStaticResource("check-on-teal.svg", []byte(
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12L10 18L20 6"/></svg>`))
+	crossGlyphRed = fyne.NewStaticResource("cross-red.svg", []byte(
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#fda4af" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6L18 18M18 6L6 18"/></svg>`))
 	checkGlyphMuted = fyne.NewStaticResource("check-muted.svg", []byte(
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#6e7168" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12L10 18L20 6"/></svg>`))
 )
@@ -186,23 +188,43 @@ type permStatusChip struct {
 	root      *fyne.Container
 	mark      *canvas.Image
 	labelT    *canvas.Text
+	btn       *iconActionButton
 	baseLabel string
 	onRequest func()
 	granted   bool
 	busy      bool
 }
 
+// newPermStatusChip builds one Permissions line: [✓/✗] Label ...... [button].
+// The button is a "Grant" request while not granted and an inactive "Granted"
+// once it is; with a nil onRequest (nothing actionable on this platform) the
+// button is omitted.
 func newPermStatusChip(label string, onRequest func()) *permStatusChip {
-	slot := canvas.NewRectangle(color.Transparent)
-	slot.SetMinSize(fyne.NewSize(11, 11))
 	mark := newCheckImage(checkGlyphLime)
 	mark.SetMinSize(fyne.NewSize(11, 11))
-	labelT := canvas.NewText(label, design.ColorMutedOlive)
-	labelT.TextSize = 10
+	labelT := canvas.NewText(label, design.ColorSectionTitle)
+	labelT.TextSize = 11
 	c := &permStatusChip{mark: mark, labelT: labelT, baseLabel: label, onRequest: onRequest}
-	c.root = container.New(&tightHBoxLayout{gap: 3},
-		container.NewStack(slot, container.New(&checkNudgeLayout{dy: -1}, mark)),
-		labelT)
+	left := container.New(&tightHBoxLayout{gap: 6}, container.New(&checkNudgeLayout{dy: -1}, mark), labelT)
+	var right fyne.CanvasObject
+	if onRequest != nil {
+		c.btn = newIconActionButton(loc().PermGrant, nil, func() {
+			if c.busy {
+				return
+			}
+			c.busy = true
+			c.onRequest()
+		})
+		c.btn.Tiny = true
+		right = c.btn
+	}
+	lock := canvas.NewRectangle(color.Transparent)
+	lock.SetMinSize(fyne.NewSize(0, tinyActionSize))
+	if right != nil {
+		c.root = container.NewMax(lock, container.New(&flushEndsLayout{}, left, right))
+	} else {
+		c.root = container.NewMax(lock, container.New(&flushEndsLayout{}, left))
+	}
 	c.ExtendBaseWidget(c)
 	c.SetChecked(false)
 	return c
@@ -226,9 +248,9 @@ func (c *permStatusChip) SetChecked(on bool) {
 	}
 	c.granted = on
 	if on {
-		c.mark.Show()
+		c.mark.Resource = checkGlyphLime
 	} else {
-		c.mark.Hide()
+		c.mark.Resource = crossGlyphRed
 	}
 	c.mark.Refresh()
 	c.refreshVisuals()
@@ -238,22 +260,19 @@ func (c *permStatusChip) refreshVisuals() {
 	if c.labelT == nil {
 		return
 	}
-	if c.onRequest != nil && !c.granted {
-		c.labelT.Text = c.baseLabel + loc().GrantSuffix
-		c.labelT.Color = design.ColorTeal
-	} else {
-		c.labelT.Text = c.baseLabel
-		c.labelT.Color = design.ColorMutedOlive
-	}
+	c.labelT.Text = c.baseLabel
 	c.labelT.Refresh()
-}
-
-func (c *permStatusChip) Tapped(*fyne.PointEvent) {
-	if c.onRequest == nil || c.busy {
-		return
+	if c.btn != nil {
+		if c.granted {
+			c.btn.Accent = false
+			c.btn.Disable()
+			c.btn.SetText(loc().PermGranted)
+		} else {
+			c.btn.Accent = true
+			c.btn.Enable()
+			c.btn.SetText(loc().PermGrant)
+		}
 	}
-	c.busy = true
-	c.onRequest()
 }
 
 // requestDone lets the caller clear the busy flag once its (async) request
@@ -266,29 +285,6 @@ func (c *permStatusChip) requestDone() {
 	}
 	c.busy = false
 }
-
-func (c *permStatusChip) TappedSecondary(*fyne.PointEvent) {}
-
-func (c *permStatusChip) Cursor() desktop.Cursor {
-	if c.onRequest != nil && !c.granted {
-		return desktop.PointerCursor
-	}
-	return desktop.DefaultCursor
-}
-
-func (c *permStatusChip) MouseIn(ev *desktop.MouseEvent) {
-	if ev != nil {
-		noteChromeHoverIn(ev.AbsolutePosition)
-	}
-}
-
-func (c *permStatusChip) MouseMoved(ev *desktop.MouseEvent) {
-	if ev != nil {
-		noteChromeHoverIn(ev.AbsolutePosition)
-	}
-}
-
-func (c *permStatusChip) MouseOut() { noteChromeHoverOut() }
 
 type checkNudgeLayout struct{ dx, dy float32 }
 

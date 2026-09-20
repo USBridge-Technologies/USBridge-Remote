@@ -31,6 +31,9 @@ type LocalizedStrings struct {
 	InputControl        string
 	ScreenCapture       string
 	GrantSuffix         string
+	PermGrant           string
+	PermGranted         string
+	AutostartInfo       string
 	AutostartAtBoot     string
 	AutostartRebootHint string
 	LockGPUClocks       string
@@ -39,6 +42,7 @@ type LocalizedStrings struct {
 	ClipboardInstall    string
 	ClipboardNoPkgMgr   string
 	USBPassthrough      string
+	USBAccess           string
 	InstallUSBDriver    string
 	GetUSBIPDriver      string
 	MoonlightClients    string
@@ -276,6 +280,9 @@ func EN() *LocalizedStrings {
 		InputControl:        "Input Control",
 		ScreenCapture:       "Screen Capture",
 		GrantSuffix:         " · Grant",
+		PermGrant:           "Grant",
+		PermGranted:         "Granted",
+		AutostartInfo:       "Autostart entry",
 		AutostartAtBoot:     "Autostart at Boot",
 		AutostartRebootHint: "(Windows restart required)",
 		LockGPUClocks:       "Lock GPU Clocks",
@@ -284,6 +291,7 @@ func EN() *LocalizedStrings {
 		ClipboardInstall:    "Clipboard Tool Install",
 		ClipboardNoPkgMgr:   "No supported package manager (or pkexec) was found on this system -- clicking Install will show why, instead of a command preview.",
 		USBPassthrough:      "USB Passthrough Driver",
+		USBAccess:           "USB Passthrough",
 		InstallUSBDriver:    "Install USB Driver",
 		GetUSBIPDriver:      "Get USB/IP Driver",
 		MoonlightClients:    "Moonlight Clients",
@@ -475,6 +483,9 @@ func ES() *LocalizedStrings {
 	locale.InputControl = "Control de entrada"
 	locale.ScreenCapture = "Captura de pantalla"
 	locale.GrantSuffix = " · Conceder"
+	locale.PermGrant = "Conceder"
+	locale.PermGranted = "Concedido"
+	locale.AutostartInfo = "Entrada de inicio automatico"
 	locale.AutostartAtBoot = "Inicio automatico"
 	locale.AutostartRebootHint = "(se requiere reinicio de Windows)"
 	locale.LockGPUClocks = "Bloquear relojes GPU"
@@ -483,6 +494,7 @@ func ES() *LocalizedStrings {
 	locale.ClipboardInstall = "Instalar herramienta de portapapeles"
 	locale.ClipboardNoPkgMgr = "No se encontro un gestor de paquetes (o pkexec) en este sistema -- Instalar mostrara el motivo, no una vista previa del comando."
 	locale.USBPassthrough = "Driver USB Passthrough"
+	locale.USBAccess = "USB Passthrough"
 	locale.InstallUSBDriver = "Instalar driver USB"
 	locale.GetUSBIPDriver = "Obtener driver USB/IP"
 	locale.MoonlightClients = "Clientes Moonlight"
@@ -664,6 +676,9 @@ func UK() *LocalizedStrings {
 	locale.InputControl = "Керування введенням"
 	locale.ScreenCapture = "Захоплення екрана"
 	locale.GrantSuffix = " · Надати"
+	locale.PermGrant = "Надати"
+	locale.PermGranted = "Надано"
+	locale.AutostartInfo = "Запис автозапуску"
 	locale.AutostartAtBoot = "Автозапуск"
 	locale.AutostartRebootHint = "(потрібен перезапуск Windows)"
 	locale.LockGPUClocks = "Фіксувати частоти GPU"
@@ -672,6 +687,7 @@ func UK() *LocalizedStrings {
 	locale.ClipboardInstall = "Встановлення буфера обміну"
 	locale.ClipboardNoPkgMgr = "Не знайдено менеджер пакетів (або pkexec) — Встановити покаже причину, а не попередній перегляд команди."
 	locale.USBPassthrough = "USB Passthrough Driver"
+	locale.USBAccess = "USB Passthrough"
 	locale.InstallUSBDriver = "Встановити USB driver"
 	locale.GetUSBIPDriver = "Отримати USB/IP Driver"
 	locale.MoonlightClients = "Клієнти Moonlight"

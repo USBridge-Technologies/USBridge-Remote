@@ -1080,6 +1080,110 @@ func ShowInfoDialog(title, message string, parent fyne.Window) {
 	showStyledMessageDialog(title, message, design.ColorTextMuted, design.ColorBorder, parent)
 }
 
+// ShowErrorDialogWithAction is ShowErrorDialog's panel with one extra
+// affordance: a labeled button (actionLabel/onAction) below the message,
+// for errors the user can resolve themselves right there -- e.g. macOS USB
+// passthrough failing for lack of Input Monitoring access, where the fix is
+// one settings toggle away rather than something to just read and dismiss.
+func ShowErrorDialogWithAction(err error, actionLabel string, onAction func(), parent fyne.Window) {
+	if err == nil {
+		return
+	}
+	if strings.TrimSpace(actionLabel) == "" || onAction == nil {
+		ShowErrorDialog(err, parent)
+		return
+	}
+	showStyledMessageDialogWithAction(i18n.Current.Error, err.Error(), design.ColorDanger, design.ColorDanger, actionLabel, onAction, parent)
+}
+
+func showStyledMessageDialogWithAction(title, message string, titleColor, borderColor color.Color, actionLabel string, onAction func(), parent fyne.Window) {
+	var popup *widget.PopUp
+	closePopup := func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	}
+
+	errLabel := widget.NewRichText(&widget.TextSegment{
+		Text: message,
+		Style: widget.RichTextStyle{
+			ColorName: theme.ColorNameForeground,
+			SizeName:  design.SizeNameToastText,
+		},
+	})
+	errLabel.Wrapping = fyne.TextWrapWord
+
+	copyBtn := newToastCopyButton(func() {
+		if parent != nil && parent.Clipboard() != nil {
+			parent.Clipboard().SetContent(message)
+		}
+	})
+	titleText := NewBrandText(title, 10, titleColor, true)
+	buttonsRow := container.NewHBox(copyBtn, newToastCloseButton(closePopup))
+	headerRow := container.NewBorder(nil, nil, titleText, buttonsRow)
+
+	actionBtn := widget.NewButton(actionLabel, func() {
+		closePopup()
+		onAction()
+	})
+	actionBtn.Importance = widget.HighImportance
+
+	body := container.NewVBox(
+		headerRow,
+		container.NewThemeOverride(errLabel, toastTextPaddingTheme{Theme: design.NewBrandTheme()}),
+		NewInset(actionBtn, 0, 0, 10, 0),
+	)
+
+	panelContent := fyne.CanvasObject(body)
+	if parent != nil {
+		var minW float32 = 360
+		canvasSize := parent.Canvas().Size()
+		if UseCompactLayout(canvasSize.Width) {
+			minW = canvasSize.Width * 0.85
+			if minW < 280 {
+				minW = 280
+			}
+		}
+		panelContent = container.New(&minWidthLayout{minWidth: minW}, body)
+	}
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = confirmToastRadius
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = confirmToastRadius
+	border.StrokeColor = borderColor
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(
+		bg,
+		NewInset(panelContent, 9, 9, 4, 4),
+		border,
+	)
+
+	popup = ShowOverlayPopup(parent, OverlayPopupSpec{
+		Panel:        panel,
+		DimColor:     color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		OnOutsideTap: closePopup,
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			if maxWidth <= 0 {
+				maxWidth = canvasSize.Width
+			}
+			if maxHeight <= 0 {
+				maxHeight = canvasSize.Height
+			}
+
+			panelMin := panel.MinSize()
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 320), minFloat32(maxWidth, 420))
+			panelHeight := minFloat32(panelMin.Height, maxHeight)
+			return fyne.NewSize(panelWidth, panelHeight)
+		},
+	})
+}
+
 func showStyledMessageDialog(title, message string, titleColor, borderColor color.Color, parent fyne.Window) {
 	var popup *widget.PopUp
 	closePopup := func() {

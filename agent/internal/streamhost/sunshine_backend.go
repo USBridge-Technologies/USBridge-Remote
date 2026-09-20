@@ -113,6 +113,7 @@ type sunshineBackend struct {
 	supportedCodecsCache struct {
 		mu        sync.Mutex
 		codecs    []string
+		flags     int // raw ServerCodecModeSupport behind codecs
 		fetchedAt time.Time
 	}
 }

@@ -82,13 +82,42 @@ func acquireEngineLock(stateDir string) (lockFile *os.File, holderPID int, acqui
 }
 
 func readLockPID(f *os.File) int {
-	data := make([]byte, 32)
+	data := make([]byte, 64)
 	n, _ := f.ReadAt(data, 0)
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data[:n])))
+	fields := strings.Fields(string(data[:n]))
+	if len(fields) == 0 {
+		return 0
+	}
+	pid, err := strconv.Atoi(fields[0])
 	if err != nil {
 		return 0
 	}
 	return pid
+}
+
+// stampEngineMode appends "headless" or "gui" after the PID in the lock file
+// so a later launch can tell what kind of process owns the engine.
+func stampEngineMode(f *os.File, headless bool) {
+	if f == nil {
+		return
+	}
+	mode := "gui"
+	if headless {
+		mode = "headless"
+	}
+	_ = f.Truncate(0)
+	_, _ = f.WriteAt([]byte(strconv.Itoa(os.Getpid())+" "+mode), 0)
+}
+
+// engineHolderIsHeadless reports whether the current holder stamped itself
+// headless (unstamped/legacy lock files read as "no").
+func engineHolderIsHeadless(stateDir string) bool {
+	data, err := os.ReadFile(engineLockPath(stateDir))
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(string(data))
+	return len(fields) >= 2 && fields[1] == "headless"
 }
 
 // evictEngineLockHolder gets holderPID to stop owning the engine so a

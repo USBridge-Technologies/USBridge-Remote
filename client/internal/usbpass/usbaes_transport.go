@@ -26,8 +26,11 @@ import (
 // usbAesInfo must match the Rust side's transport::INFO exactly.
 const usbAesInfo = "usbridge-usb-passthrough-v1"
 
+// usbTunnelInfo must match the Rust side's transport::TUNNEL_INFO exactly.
+const usbTunnelInfo = "usbridge-usb-tunnel-v1"
+
 const (
-	usbAesMinFrame = 12 + 16       // nonce + GCM tag, empty plaintext
+	usbAesMinFrame = 12 + 16 // nonce + GCM tag, empty plaintext
 	usbAesMaxFrame = 16 * 1024 * 1024
 )
 
@@ -35,6 +38,21 @@ func deriveSessionKey(masterKey []byte) [32]byte {
 	h := sha256.New()
 	h.Write([]byte(usbAesInfo))
 	h.Write(masterKey)
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+// deriveTunnelKey mirrors rust-shine's transport::derive_tunnel_key exactly:
+// an ephemeral, single-attach key for the USB/IP data-plane tunnel, distinct
+// per (session key, busID, nonce) so a leaked key only ever covers one
+// attach of one device, never the whole pairing.
+func deriveTunnelKey(sessionKey [32]byte, busID string, nonce []byte) [32]byte {
+	h := sha256.New()
+	h.Write([]byte(usbTunnelInfo))
+	h.Write(sessionKey[:])
+	h.Write([]byte(busID))
+	h.Write(nonce)
 	var out [32]byte
 	copy(out[:], h.Sum(nil))
 	return out
@@ -51,6 +69,15 @@ type aeadStream struct {
 }
 
 func newAeadStream(conn net.Conn, key [32]byte) (*aeadStream, error) {
+	return newAeadStreamWithCounters(conn, key, 0, 0)
+}
+
+// newAeadStreamWithCounters is newAeadStream plus explicit starting
+// counters, for a stream that continues an AEAD sequence whose first frame
+// was already consumed elsewhere (see the tunnel listener's key-probing
+// accept path in usbtunnel.go, which must decrypt frame #1 itself before it
+// even knows which registered key matched).
+func newAeadStreamWithCounters(conn net.Conn, key [32]byte, sendCounter, recvCounter uint64) (*aeadStream, error) {
 	if tc, ok := conn.(*net.TCPConn); ok {
 		_ = tc.SetNoDelay(true)
 		// A dead agent (crashed, network drop, machine asleep) otherwise
@@ -64,15 +91,19 @@ func newAeadStream(conn net.Conn, key [32]byte) (*aeadStream, error) {
 			Count:    6,
 		})
 	}
+	gcm, err := newGCMCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	return &aeadStream{gcm: gcm, sendCounter: sendCounter, recvCounter: recvCounter, conn: conn}, nil
+}
+
+func newGCMCipher(key [32]byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	return &aeadStream{gcm: gcm, conn: conn}, nil
+	return cipher.NewGCM(block)
 }
 
 func frameIV(counter uint64, sending bool) [12]byte {

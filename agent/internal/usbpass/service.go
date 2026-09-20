@@ -25,38 +25,46 @@ const (
 )
 
 type Status struct {
-	Available    bool     `json:"available"`
-	Platform     string   `json:"platform"`
-	BrokerAlive  bool     `json:"broker_alive"`
-	StubDriver   bool     `json:"stub_driver"`
-	VhciDriver   bool     `json:"vhci_driver"`
-	ListenPort   int      `json:"listen_port"`
-	Sessions     []string `json:"sessions"`
-	BrokerError  string   `json:"broker_error,omitempty"`
-	DriverHint   string   `json:"driver_hint,omitempty"`
+	Available   bool     `json:"available"`
+	Platform    string   `json:"platform"`
+	BrokerAlive bool     `json:"broker_alive"`
+	StubDriver  bool     `json:"stub_driver"`
+	VhciDriver  bool     `json:"vhci_driver"`
+	ListenPort  int      `json:"listen_port"`
+	Sessions    []string `json:"sessions"`
+	BrokerError string   `json:"broker_error,omitempty"`
+	DriverHint  string   `json:"driver_hint,omitempty"`
+	// AttachGranted is false on Linux until the one-time polkit grant (see
+	// access_linux.go) is in place; without it every attach/detach prompts.
+	AttachGranted bool `json:"attach_granted"`
 }
 
 type Device struct {
-	BusID          string `json:"bus_id"`
-	VID            string `json:"vid"`
-	PID            string `json:"pid"`
-	Description    string `json:"description"`
-	Protected      bool   `json:"protected"`
-	PreferredTest  bool   `json:"preferred_test"`
+	BusID         string `json:"bus_id"`
+	VID           string `json:"vid"`
+	PID           string `json:"pid"`
+	Description   string `json:"description"`
+	Protected     bool   `json:"protected"`
+	PreferredTest bool   `json:"preferred_test"`
 }
 
 type Service struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	exe      string
-	stateDir string
-	exeDir   string
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	exe         string
+	stateDir    string
+	exeDir      string
 	secret      string
 	urbPort     int
 	controlAddr string
+	tsnetBridge string
 }
 
-func New(exeDir, stateDir, secret string, urbPort int) *Service {
+// tsnetBridge is the Go agent's UsbTunnelBridge loopback address (see
+// agent/internal/tailscale/usb_bridge.go) — empty disables it, which just
+// means USB passthrough over Tailscale won't work (Direct/LAN attaches
+// never need it, so they're unaffected either way).
+func New(exeDir, stateDir, secret string, urbPort int, tsnetBridge string) *Service {
 	if urbPort <= 0 {
 		urbPort = DefaultURBPort
 	}
@@ -66,6 +74,7 @@ func New(exeDir, stateDir, secret string, urbPort int) *Service {
 		secret:      secret,
 		urbPort:     urbPort,
 		controlAddr: DefaultControlAddr,
+		tsnetBridge: tsnetBridge,
 	}
 }
 
@@ -95,6 +104,9 @@ func (s *Service) resolveBroker() string {
 	return ""
 }
 
+// Staged reports whether the usb-broker binary is present on disk.
+func (s *Service) Staged() bool { return s.resolveBroker() != "" }
+
 func (s *Service) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -110,6 +122,9 @@ func (s *Service) Start() error {
 		"--listen", fmt.Sprintf("0.0.0.0:%d", s.urbPort),
 		"--control", s.controlAddr,
 		"--secret", s.secret,
+	}
+	if s.tsnetBridge != "" {
+		args = append(args, "--tsnet-bridge", s.tsnetBridge)
 	}
 	if os.Getenv("USBRIDGE_USB_ALLOW_UNLICENSED") == "1" {
 		args = append(args, "--allow-unlicensed")
@@ -220,6 +235,7 @@ func (s *Service) Status() Status {
 		Platform:   runtime.GOOS,
 		ListenPort: s.urbPort,
 	}
+	st.AttachGranted = AttachAccessGranted()
 	if !st.Available {
 		st.DriverHint = "USB passthrough v1 is Windows/Linux only"
 		return st

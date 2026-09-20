@@ -60,6 +60,7 @@ type App struct {
 	screen    *capture.Service
 	perms     *permissions.Service
 	ts        *tailscale.Service
+	usbBridge *tailscale.UsbTunnelBridge
 	stream    streamhost.Backend
 	tsProxy   *tailscale.StreamProxy
 	server    *http.Server
@@ -187,6 +188,15 @@ type StartOptions struct {
 // genuinely free, or the existing holder turned out to be unresponsive to
 // both the graceful ask and a dial retry).
 func Start(opts StartOptions, version string) error {
+	// One GUI per state dir: a second normal/tray launch asks the running
+	// one to come forward and exits, instead of piling up windows and tray
+	// icons (see acquireGUILock).
+	if !opts.Headless {
+		if !acquireGUILockForStart() {
+			return nil
+		}
+	}
+
 	if opts.Attach != "" {
 		// The Windows service can hand us --attach a few hundred ms before
 		// the engine has actually called Listen on that socket (it used to
@@ -237,6 +247,17 @@ func Start(opts StartOptions, version string) error {
 			log.Printf("[app] headless launch always takes ownership -- evicting existing holder pid=%d instead of refusing to start", holderPID)
 		}
 
+		if opts.Headless && engineHolderIsHeadless(cfg.StateDir) {
+			// A second headless copy (a duplicate autostart entry, a manual
+			// launch on top of the systemd unit) must not kill a live headless
+			// engine just to replace it with itself -- even one whose admin
+			// socket isn't up yet (it only binds after tsnet comes up). The
+			// flock is only ever held by a live process, so holder-alive is
+			// enough.
+			log.Printf("[app] a headless engine is already running (pid=%d) -- exiting instead of replacing it", holderPID)
+			return nil
+		}
+
 		if evictEngineLockHolder(cfg.StateDir, socketPath, holderPID) {
 			lockFile, holderPID, acquired, lockErr = acquireEngineLock(cfg.StateDir)
 		}
@@ -248,6 +269,7 @@ func Start(opts StartOptions, version string) error {
 		}
 	}
 
+	stampEngineMode(lockFile, opts.Headless)
 	log.Printf("[app] this process (pid=%d) now owns the engine at %s", os.Getpid(), socketPath)
 
 	// update.BeforeRelaunch lets apply() (any platform) release our engine
@@ -533,7 +555,22 @@ func New() (*App, error) {
 	instance.syncSunshineCaptureMode()
 	instance.syncSunshineCapExec()
 	apiServer := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort)
-	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort)
+	// Started unconditionally (like ts itself, which doesn't actually spin up
+	// tsnet until Server() is first called) rather than gated on
+	// cfg.TailscaleEnabled: Tailscale can be toggled on later without this
+	// agent process restarting, but the broker subprocess spawned by
+	// usbpass.New below only gets --tsnet-bridge baked in once, at its own
+	// spawn time — the bridge address needs to already be valid then
+	// regardless of what Tailscale's enablement looks like right now. Until
+	// RememberPeer is ever called (which only happens once StreamProxy
+	// actually relays a Tailscale connection), this bridge just sits idle.
+	instance.usbBridge = tailscale.NewUsbTunnelBridge(instance.ts)
+	usbBridgeAddr, err := instance.usbBridge.Start(tailscale.DefaultUsbBridgeAddr)
+	if err != nil {
+		log.Printf("[app] usb tunnel bridge: %v (USB passthrough over Tailscale will not work; Direct/LAN unaffected)", err)
+		usbBridgeAddr = ""
+	}
+	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort, usbBridgeAddr)
 	apiServer.SetUSBPassthrough(instance.usbBroker)
 	instance.apiServer = apiServer
 	handler := apiServer.Routes()
@@ -953,7 +990,7 @@ func (a *App) restartStreamProxy() {
 	if usbPort <= 0 {
 		usbPort = usbpass.DefaultURBPort
 	}
-	a.tsProxy = a.ts.StartStreamProxy(basePort, usbPort)
+	a.tsProxy = a.ts.StartStreamProxy(basePort, a.usbBridge, usbPort)
 }
 
 func (a *App) initTailscale(ctx context.Context) {
@@ -1998,6 +2035,15 @@ func (a *App) InstallUSBDriver() error {
 	return a.usbBroker.InstallDrivers()
 }
 
+// GrantUSBAttach installs the one-time passwordless-usbip grant (Linux; see
+// usbpass.Service.GrantAttachAccess).
+func (a *App) GrantUSBAttach() error {
+	if a.usbBroker == nil {
+		return fmt.Errorf("usb passthrough not available")
+	}
+	return a.usbBroker.GrantAttachAccess()
+}
+
 // ClearLicense clears the saved entitlement token and switches back to
 // Sunshine if RustShine was active. Does not delete the already-staged
 // RustShine binary -- buying/trialing again later can reuse it without
@@ -2237,7 +2283,28 @@ func (a *App) recheckEntitlement(ctx context.Context) bool {
 	}
 	a.refreshLocalEntitlementStatus()
 	a.ensureRustShineFresh(ctx, res.Token)
+	a.ensureUSBBroker(ctx, res.Token, claims.Tier)
 	return true
+}
+
+// ensureUSBBroker stages and starts the usb-broker for paid tiers regardless
+// of which stream backend is active: the broker is a separate process from
+// RustShine (it only needs the entitlement token file, see usbpass.Start), so
+// a Pro/Enterprise customer running Sunshine gets USB passthrough too, without
+// having to switch backends or download RustShine's streamer first. No-op for
+// free tiers or once the broker is already on disk.
+func (a *App) ensureUSBBroker(ctx context.Context, token, tier string) {
+	if a.usbBroker == nil || (tier != "pro" && tier != "enterprise") || a.usbBroker.Staged() {
+		return
+	}
+	log.Printf("[app] %s license — staging usb-broker", tier)
+	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, token, nil); err != nil {
+		log.Printf("[app] usb-broker not staged (will retry next interval): %v", err)
+		return
+	}
+	if err := a.usbBroker.Start(); err != nil {
+		log.Printf("[usbpass] broker not started: %v", err)
+	}
 }
 
 // ensureRustShineFresh makes sure a licensed/trialing customer always has
@@ -3154,6 +3221,8 @@ func (a *App) AdminPass() string {
 // ListSunshineClients returns Moonlight clients currently paired with the
 // bundled Sunshine instance.
 func (a *App) ListSunshineClients() ([]streamhost.Client, error) {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
 	if a.stream == nil {
 		return nil, nil
 	}
@@ -3194,7 +3263,22 @@ func (a *App) Color444Status() (active bool, available bool) {
 	if a.stream == nil {
 		return false, false
 	}
-	return a.stream.Color444Status()
+	active, available = a.stream.Color444Status()
+	// Sunshine has no license gate of its own: a Pro/Enterprise entitlement
+	// unlocks the 4:4:4 option there too, offered whenever the host's encoder
+	// can actually produce a 4:4:4 format (the client negotiates it via the
+	// codec-support flags, see client moonlightVideoFormat).
+	if !available {
+		if sb, ok := a.stream.(interface{ Color444Supported(int) bool }); ok {
+			a.entMu.Lock()
+			tier := a.entStatus.Tier
+			a.entMu.Unlock()
+			if (tier == "pro" || tier == "enterprise") && sb.Color444Supported(a.SunshineAdminPort()) {
+				available = true
+			}
+		}
+	}
+	return active, available
 }
 
 // HdrStatus mirrors Color444Status exactly, for the RustShine HDR color
@@ -3218,6 +3302,8 @@ func (a *App) VirtualDisplaySupported() bool {
 // UnpairSunshineClient removes the Moonlight client with the given UUID from
 // Sunshine's authorized client list.
 func (a *App) UnpairSunshineClient(uniqueID string) error {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
 	if a.stream == nil {
 		return nil
 	}
@@ -3363,7 +3449,27 @@ func (a *App) RelinquishEngine() error {
 
 // SubmitMoonlightPIN sends the PIN shown by a Moonlight client to Sunshine
 // to complete the pairing handshake.
+//
+// Takes streamMu (matching SetStreamBackend, which holds it for its entire
+// Stop-old/Start-new/WaitReady sequence) rather than reading a.stream
+// unguarded -- a real race, not theoretical: a client's PIN submission
+// landing in the middle of a backend switch used to read a.stream (or a
+// stream host it points at) mid-teardown, sent against the old process
+// after it had already been killed, and got rejected outright. The
+// Moonlight client on the other end only tries once and falls back to
+// manual PIN entry on any failure, so this used to surface as "switching
+// streamers broke auto-pairing" -- confirmed live: session was active,
+// switch was triggered, and the very next auto-pair attempt 401'd while
+// the switch was still settling, a moment before it started working again
+// on its own. Blocking here for the (bounded, ~5s worst case -- see
+// SetStreamBackend's own WaitReady) duration of an in-flight switch is
+// well inside the client's own 10s HTTP timeout for this call
+// (submitPinToService in the client's moonlight_service.go), so this PIN
+// now simply waits for the switch to finish and lands on the fresh,
+// correctly-provisioned backend instead of racing it.
 func (a *App) SubmitMoonlightPIN(pin string) error {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
 	if a.stream == nil {
 		return nil
 	}

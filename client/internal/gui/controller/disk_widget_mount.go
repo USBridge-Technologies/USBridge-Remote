@@ -1455,7 +1455,7 @@ func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
 		// is the USB/IP client (win2 VHCI).
 		exportPort := 3240
 		if _, err := usbpass.StartSession(fmt.Sprintf("0.0.0.0:%d", exportPort), devices); err != nil {
-			dw.showErrorAsync(fmt.Errorf("USB/IP export: %w", err))
+			dw.showUSBPassthroughErrorAsync(fmt.Errorf("USB/IP export: %w", err))
 			return
 		}
 		if _, err := dw.usbClient.OpenUSBPassthroughSession(); err != nil {

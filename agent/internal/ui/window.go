@@ -91,6 +91,9 @@ type TokenProvider interface {
 	// refreshRustShineUI.
 	USBPassthroughStatus() usbpass.Status
 	InstallUSBDriver() error
+	// GrantUSBAttach: Linux one-time polkit grant so usbip attach/detach
+	// stop prompting for a password (see usbpass/access_linux.go).
+	GrantUSBAttach() error
 
 	// Account login (see internal/account) -- a separate identity from the
 	// hardware-bound entitlement above, used only to pick which of the
@@ -166,6 +169,10 @@ type Window struct {
 
 	// UI components
 	accessCheck *permStatusChip
+	// usbAccessCheck: Linux + USB-passthrough license only -- separate
+	// Permissions row whose button does the one-time polkit grant so usbip
+	// attach/detach stop prompting; hidden once granted (refreshUSBPassthroughUI).
+	usbAccessCheck *permStatusChip
 
 	// Screen Capture: a single unified control for how video gets captured.
 	// On Linux this is Sunshine's capture backend, picked automatically from
@@ -251,7 +258,7 @@ type Window struct {
 	permPanel     *themedPanel
 	statusPanel   *themedPanel
 	protocolPanel *themedPanel
-	autostartLang *permToggleRow
+	autostartLang *autostartRow
 	gpuClockLang  *permToggleRow
 	mlClientsLang *canvas.Text
 	usbDriverLang *canvas.Text
@@ -339,6 +346,17 @@ type Window struct {
 	// is the hairline under the header; its color follows the same status.
 	tierBadge  *subscriptionBadge
 	headerLine *canvas.Rectangle
+}
+
+var raiseMain atomic.Pointer[func()]
+
+// RaiseMainWindow shows and focuses this process's main window (no-op before
+// it exists). Called when a second launch asks the running GUI to come
+// forward instead of starting another copy.
+func RaiseMainWindow() {
+	if f := raiseMain.Load(); f != nil {
+		(*f)()
+	}
 }
 
 // SetStartHidden marks this window to come up minimized to the tray instead
@@ -667,15 +685,22 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 	w.showFooterIdle(loc().AlreadyUpToDate, footerIdleMessageDuration)
 }
 
-// refreshUSBPassthroughUI keeps usbDriverRow in sync -- shown only while
-// RustShine is the active backend (Sunshine never gets USB passthrough,
-// see internal/usbpass's own doc comment) and this platform's driver isn't
+// refreshUSBPassthroughUI keeps usbDriverRow in sync -- shown only with a
+// Pro/Enterprise license (any stream backend) and this platform's driver isn't
 // present yet (st.VhciDriver false). Disappears once the driver install
 // actually takes -- InstallUSBDriver's pkexec call updates the real
 // vhci-hcd state that usbStatus is read from on the very next tick, no
 // separate "installed" signal needed.
 func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Status) {
-	active := st.ActiveBackend == "rustshine"
+	// USB passthrough is licensed (Pro/Enterprise), not tied to the stream
+	// backend: the broker is its own process, so it works under Sunshine too.
+	active := st.Tier == "pro" || st.Tier == "enterprise"
+	if w.usbAccessCheck != nil {
+		// Always listed on Linux (not license-hidden): tick when the polkit
+		// grant is in place, active Grant button otherwise.
+		w.usbAccessCheck.Show()
+		w.usbAccessCheck.SetChecked(usb.AttachGranted)
+	}
 	if w.usbDriverRow != nil {
 		if active && usb.Available && !usb.VhciDriver {
 			w.usbDriverRow.Show()
@@ -714,6 +739,13 @@ func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Stat
 func (w *Window) ShowAndRun(onClose func()) {
 	win := w.app.NewWindow(loc().AppTitle)
 	w.guiWin = win
+	raise := func() {
+		fyne.Do(func() {
+			win.Show()
+			win.RequestFocus()
+		})
+	}
+	raiseMain.Store(&raise)
 	win.SetPadded(false)
 	win.Resize(fyne.NewSize(640, 460))
 	win.CenterOnScreen()
@@ -821,7 +853,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	w.accessCheck = newPermStatusChip(accessLabelBase, onRequestAccess)
 	w.screenCaptureCheck = newPermStatusChip(loc().ScreenCapture, onRequestCapture)
-	permStatusRow := container.New(&flushEndsLayout{}, w.accessCheck, w.screenCaptureCheck)
+	permStatusRow := container.NewVBox(w.accessCheck, w.screenCaptureCheck)
 
 	// Autostart at Boot: installs the OS-native autostart mechanism (a
 	// system-wide systemd unit on Linux — so it starts at boot before any
@@ -860,7 +892,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 
 	// Autostart at Boot is always shown, regardless of platform.
-	autostartRow := newPermToggleRow(loc().AutostartAtBoot, w.autostartCheck)
+	autostartRow := newAutostartRow(loc().AutostartAtBoot, w.autostartCheck, win)
 	w.autostartLang = autostartRow
 	w.refreshAutostartChrome()
 
@@ -1010,6 +1042,28 @@ func (w *Window) ShowAndRun(onClose func()) {
 	usbDriverTitle.TextSize = 11
 	w.usbDriverRow = newStatusRow(usbDriverTitle, w.usbDriverBtn)
 	w.usbDriverRow.Hide()
+
+	if runtime.GOOS == "linux" {
+		// Same chip as Input Control / Screen Capture: green check when
+		// granted, "· Grant" tap target otherwise.
+		w.usbAccessCheck = newPermStatusChip(loc().USBAccess, func() {
+			if w.token == nil {
+				w.usbAccessCheck.requestDone()
+				return
+			}
+			go func() {
+				err := w.token.GrantUSBAttach()
+				fyne.Do(func() {
+					w.usbAccessCheck.requestDone()
+					if err != nil {
+						dialog.ShowError(err, win)
+					}
+				})
+				w.performRefresh()
+			}()
+		})
+		permStatusRow.Add(w.usbAccessCheck)
+	}
 
 	permRule := canvas.NewRectangle(design.ColorDivider)
 	permRule.SetMinSize(fyne.NewSize(0, 1))
@@ -1624,6 +1678,9 @@ func (w *Window) applyLanguage() {
 	}
 	w.accessCheck.SetBaseLabel(access)
 	w.screenCaptureCheck.SetBaseLabel(c.ScreenCapture)
+	if w.usbAccessCheck != nil {
+		w.usbAccessCheck.SetBaseLabel(c.USBAccess)
+	}
 	w.refreshAutostartChrome()
 
 	if w.gpuClockLang != nil {
@@ -1720,6 +1777,9 @@ func (w *Window) refreshAutostartChrome() {
 	}
 	if w.autostartCheck != nil && !w.autostartCheck.Disabled() {
 		w.autostartCheck.SetChecked(autostart.IsEnabled())
+	}
+	if w.autostartLang != nil {
+		w.autostartLang.SetEnabled(autostart.IsEnabled())
 	}
 	if w.tray != nil && w.tray.autostartItem != nil {
 		label := autostartMenuLabel()
@@ -4525,3 +4585,89 @@ func (r *headerIconButtonRenderer) Refresh() {
 	r.bg.Refresh()
 	r.icon.Refresh()
 }
+
+// autostartRow is the Permissions "Autostart at Boot" line, styled like the
+// status rows above it: [✓/✗] Label [ⓘ] ...... [checkbox]. ⓘ shows where the
+// autostart entry lives (autostart.Location). The whole row still toggles the
+// checkbox, same as permToggleRow.
+type autostartRow struct {
+	widget.BaseWidget
+	mark  *canvas.Image
+	label *canvas.Text
+	hint  *canvas.Text
+	check *styledCheck
+	inner *fyne.Container
+}
+
+func newAutostartRow(label string, check *styledCheck, win fyne.Window) *autostartRow {
+	t := canvas.NewText(label, design.ColorSectionTitle)
+	t.TextSize = 11
+	hint := canvas.NewText("", design.ColorEmptyHint)
+	hint.TextSize = 8
+	hint.Hide()
+	mark := newCheckImage(crossGlyphRed)
+	info := newIconActionButton("", theme.InfoIcon(), func() {
+		path := autostart.Location()
+		if path == "" {
+			path = "—"
+		}
+		dialog.ShowInformation(loc().AutostartInfo, path, win)
+	})
+	info.Tiny = true
+	r := &autostartRow{mark: mark, label: t, hint: hint, check: check}
+	left := container.New(&tightHBoxLayout{gap: 6}, container.New(&checkNudgeLayout{dy: -1}, mark), t, hint, info)
+	r.inner = container.New(&flushEndsLayout{}, left, check)
+	r.ExtendBaseWidget(r)
+	return r
+}
+
+func (r *autostartRow) SetEnabled(on bool) {
+	if r == nil {
+		return
+	}
+	if on {
+		r.mark.Resource = checkGlyphLime
+	} else {
+		r.mark.Resource = crossGlyphRed
+	}
+	r.mark.Refresh()
+}
+
+func (r *autostartRow) SetLabel(label string) {
+	r.label.Text = label
+	r.label.Refresh()
+}
+
+func (r *autostartRow) SetHint(hint string) {
+	r.hint.Text = hint
+	if strings.TrimSpace(hint) == "" {
+		r.hint.Hide()
+	} else {
+		r.hint.Show()
+	}
+	r.hint.Refresh()
+	r.Refresh()
+}
+
+func (r *autostartRow) CreateRenderer() fyne.WidgetRenderer { return widget.NewSimpleRenderer(r.inner) }
+
+func (r *autostartRow) MinSize() fyne.Size {
+	s := fyne.NewSize(0, tinyActionSize)
+	if m := r.inner.MinSize(); m.Width > s.Width || m.Height > s.Height {
+		if m.Width > s.Width {
+			s.Width = m.Width
+		}
+		if m.Height > s.Height {
+			s.Height = m.Height
+		}
+	}
+	return s
+}
+
+func (r *autostartRow) Tapped(*fyne.PointEvent) {
+	if r.check != nil && !r.check.Disabled() {
+		r.check.Tapped(nil)
+	}
+}
+
+func (r *autostartRow) TappedSecondary(*fyne.PointEvent) {}

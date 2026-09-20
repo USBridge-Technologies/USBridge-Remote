@@ -44,17 +44,18 @@ import (
 // 47989); HTTPS/control/RTSP ports are derived from it using Sunshine's fixed
 // offsets. Returns immediately; listeners come up in the background once
 // tsnet has a valid tailnet IP.
-func (s *Service) StartStreamProxy(basePort int, extraTCP ...int) *StreamProxy {
-	p := &StreamProxy{svc: s, basePort: basePort, extraTCP: extraTCP, seenUDP: make(map[int]bool)}
+func (s *Service) StartStreamProxy(basePort int, usbBridge *UsbTunnelBridge, extraTCP ...int) *StreamProxy {
+	p := &StreamProxy{svc: s, basePort: basePort, usbBridge: usbBridge, extraTCP: extraTCP, seenUDP: make(map[int]bool)}
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	go p.run()
 	return p
 }
 
 type StreamProxy struct {
-	svc      *Service
-	basePort int
-	extraTCP []int
+	svc       *Service
+	basePort  int
+	usbBridge *UsbTunnelBridge
+	extraTCP  []int
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -129,9 +130,9 @@ func (p *StreamProxy) run() {
 	logrus.Infof("🛰️ [StreamProxy] relaying Sunshine ports via tsnet at %s (http=%d https=%d control=%d rtsp=%d)",
 		p.selfIP, httpPort, httpsPort, controlPort, rtspPort)
 
-	p.startTCPRelay(httpPort, false)
-	p.startTCPRelay(httpsPort, false)
-	p.startTCPRelay(rtspPort, true)
+	p.startTCPRelay(httpPort, false, false)
+	p.startTCPRelay(httpsPort, false, false)
+	p.startTCPRelay(rtspPort, true, false)
 	// Mark controlPort seen before opening it directly: the "control" SETUP
 	// response also carries "server_port=<controlPort>" (handle_setup replies
 	// with the same Transport header for every stream type), so scanServerPorts
@@ -148,7 +149,11 @@ func (p *StreamProxy) run() {
 	for _, port := range p.extraTCP {
 		if port > 0 {
 			logrus.Infof("🛰️ [StreamProxy] relaying USB passthrough TCP :%d via tsnet (Direct/Tailscale same port)", port)
-			p.startTCPRelay(port, false)
+			// recordPeer=true: this is the USB control-plane port, whose
+			// real tsnet peer address UsbTunnelBridge needs to actually
+			// dial back out for the USB/IP data-plane tunnel (see
+			// usb_bridge.go's doc comment).
+			p.startTCPRelay(port, false, true)
 		}
 	}
 }
@@ -167,7 +172,7 @@ func (p *StreamProxy) addListener(c io.Closer) bool {
 
 // ── TCP relay (HTTP, HTTPS, RTSP) ──────────────────────────────────────────
 
-func (p *StreamProxy) startTCPRelay(port int, snoopRTSP bool) {
+func (p *StreamProxy) startTCPRelay(port int, snoopRTSP bool, recordPeer bool) {
 	ln, err := p.srv.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		logrus.Errorf("🛰️ [StreamProxy] tsnet listen tcp :%d: %v", port, err)
@@ -188,13 +193,17 @@ func (p *StreamProxy) startTCPRelay(port int, snoopRTSP bool) {
 				}
 				return
 			}
-			go p.handleTCP(conn, port, snoopRTSP)
+			go p.handleTCP(conn, port, snoopRTSP, recordPeer)
 		}
 	}()
 }
 
-func (p *StreamProxy) handleTCP(remote net.Conn, port int, snoopRTSP bool) {
+func (p *StreamProxy) handleTCP(remote net.Conn, port int, snoopRTSP bool, recordPeer bool) {
 	defer remote.Close()
+
+	if recordPeer && p.usbBridge != nil {
+		p.usbBridge.RememberPeer(remote.RemoteAddr())
+	}
 
 	local, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 5*time.Second)
 	if err != nil {
