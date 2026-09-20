@@ -27,27 +27,28 @@ type LocalizedStrings struct {
 	Change      string
 
 	// Permissions
-	Accessibility       string
-	InputControl        string
-	ScreenCapture       string
-	GrantSuffix         string
-	PermGrant           string
-	PermGranted         string
-	AutostartInfo       string
-	AutostartAtBoot     string
-	AutostartRebootHint string
-	LockGPUClocks       string
-	ClipboardTool       string
-	Install             string
-	ClipboardInstall    string
-	ClipboardNoPkgMgr   string
-	USBPassthrough      string
-	USBAccess           string
-	InstallUSBDriver    string
-	GetUSBIPDriver      string
-	MoonlightClients    string
-	RemoveAllMoonlight  string
-	WebRTCToggle        string
+	Accessibility        string
+	InputControl         string
+	ScreenCapture        string
+	GrantSuffix          string
+	PermGrant            string
+	PermGranted          string
+	AutostartInfo        string
+	AutostartAtBoot      string
+	AutostartRebootHint  string
+	LockGPUClocks        string
+	ClipboardTool        string
+	Install              string
+	ClipboardInstall     string
+	ClipboardNoPkgMgr    string
+	USBPassthrough       string
+	USBAccess            string
+	VirtualDisplayAccess string
+	InstallUSBDriver     string
+	GetUSBIPDriver       string
+	MoonlightClients     string
+	RemoveAllMoonlight   string
+	WebRTCToggle         string
 
 	// Status rows (technical labels stay English)
 	Streamer   string
@@ -276,27 +277,28 @@ func EN() *LocalizedStrings {
 		Protocol:    "Protocol",
 		Change:      "Change",
 
-		Accessibility:       "Accessibility",
-		InputControl:        "Input Control",
-		ScreenCapture:       "Screen Capture",
-		GrantSuffix:         " · Grant",
-		PermGrant:           "Grant",
-		PermGranted:         "Granted",
-		AutostartInfo:       "Autostart entry",
-		AutostartAtBoot:     "Autostart at Boot",
-		AutostartRebootHint: "(Windows restart required)",
-		LockGPUClocks:       "Lock GPU Clocks",
-		ClipboardTool:       "Clipboard Tool",
-		Install:             "Install",
-		ClipboardInstall:    "Clipboard Tool Install",
-		ClipboardNoPkgMgr:   "No supported package manager (or pkexec) was found on this system -- clicking Install will show why, instead of a command preview.",
-		USBPassthrough:      "USB Passthrough Driver",
-		USBAccess:           "USB Passthrough",
-		InstallUSBDriver:    "Install USB Driver",
-		GetUSBIPDriver:      "Get USB/IP Driver",
-		MoonlightClients:    "Moonlight Clients",
-		RemoveAllMoonlight:  "Remove all paired Moonlight devices?",
-		WebRTCToggle:        "USBridge-streamer Web (WebRTC)",
+		Accessibility:        "Accessibility",
+		InputControl:         "Input Control",
+		ScreenCapture:        "Screen Capture",
+		GrantSuffix:          " · Grant",
+		PermGrant:            "Grant",
+		PermGranted:          "Granted",
+		AutostartInfo:        "Autostart entry",
+		AutostartAtBoot:      "Autostart at Boot",
+		AutostartRebootHint:  "(Windows restart required)",
+		LockGPUClocks:        "Lock GPU Clocks",
+		ClipboardTool:        "Clipboard Tool",
+		Install:              "Install",
+		ClipboardInstall:     "Clipboard Tool Install",
+		ClipboardNoPkgMgr:    "No supported package manager (or pkexec) was found on this system -- clicking Install will show why, instead of a command preview.",
+		USBPassthrough:       "USB Passthrough Driver",
+		USBAccess:            "USB Passthrough",
+		VirtualDisplayAccess: "Virtual Display",
+		InstallUSBDriver:     "Install USB Driver",
+		GetUSBIPDriver:       "Get USB/IP Driver",
+		MoonlightClients:     "Moonlight Clients",
+		RemoveAllMoonlight:   "Remove all paired Moonlight devices?",
+		WebRTCToggle:         "USBridge-streamer Web (WebRTC)",
 
 		Streamer:   "Streamer",
 		USBBroker:  "USB Broker",
@@ -495,6 +497,7 @@ func ES() *LocalizedStrings {
 	locale.ClipboardNoPkgMgr = "No se encontro un gestor de paquetes (o pkexec) en este sistema -- Instalar mostrara el motivo, no una vista previa del comando."
 	locale.USBPassthrough = "Driver USB Passthrough"
 	locale.USBAccess = "USB Passthrough"
+	locale.VirtualDisplayAccess = "Display virtual"
 	locale.InstallUSBDriver = "Instalar driver USB"
 	locale.GetUSBIPDriver = "Obtener driver USB/IP"
 	locale.MoonlightClients = "Clientes Moonlight"
@@ -688,6 +691,7 @@ func UK() *LocalizedStrings {
 	locale.ClipboardNoPkgMgr = "Не знайдено менеджер пакетів (або pkexec) — Встановити покаже причину, а не попередній перегляд команди."
 	locale.USBPassthrough = "USB Passthrough Driver"
 	locale.USBAccess = "USB Passthrough"
+	locale.VirtualDisplayAccess = "Віртуальний дисплей"
 	locale.InstallUSBDriver = "Встановити USB driver"
 	locale.GetUSBIPDriver = "Отримати USB/IP Driver"
 	locale.MoonlightClients = "Клієнти Moonlight"
