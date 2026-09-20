@@ -188,6 +188,15 @@ type StartOptions struct {
 // genuinely free, or the existing holder turned out to be unresponsive to
 // both the graceful ask and a dial retry).
 func Start(opts StartOptions, version string) error {
+	// One GUI per state dir: a second normal/tray launch asks the running
+	// one to come forward and exits, instead of piling up windows and tray
+	// icons (see acquireGUILock).
+	if !opts.Headless {
+		if !acquireGUILockForStart() {
+			return nil
+		}
+	}
+
 	if opts.Attach != "" {
 		// The Windows service can hand us --attach a few hundred ms before
 		// the engine has actually called Listen on that socket (it used to
@@ -238,6 +247,17 @@ func Start(opts StartOptions, version string) error {
 			log.Printf("[app] headless launch always takes ownership -- evicting existing holder pid=%d instead of refusing to start", holderPID)
 		}
 
+		if opts.Headless && engineHolderIsHeadless(cfg.StateDir) {
+			// A second headless copy (a duplicate autostart entry, a manual
+			// launch on top of the systemd unit) must not kill a live headless
+			// engine just to replace it with itself -- even one whose admin
+			// socket isn't up yet (it only binds after tsnet comes up). The
+			// flock is only ever held by a live process, so holder-alive is
+			// enough.
+			log.Printf("[app] a headless engine is already running (pid=%d) -- exiting instead of replacing it", holderPID)
+			return nil
+		}
+
 		if evictEngineLockHolder(cfg.StateDir, socketPath, holderPID) {
 			lockFile, holderPID, acquired, lockErr = acquireEngineLock(cfg.StateDir)
 		}
@@ -249,6 +269,7 @@ func Start(opts StartOptions, version string) error {
 		}
 	}
 
+	stampEngineMode(lockFile, opts.Headless)
 	log.Printf("[app] this process (pid=%d) now owns the engine at %s", os.Getpid(), socketPath)
 
 	// update.BeforeRelaunch lets apply() (any platform) release our engine
@@ -2262,7 +2283,28 @@ func (a *App) recheckEntitlement(ctx context.Context) bool {
 	}
 	a.refreshLocalEntitlementStatus()
 	a.ensureRustShineFresh(ctx, res.Token)
+	a.ensureUSBBroker(ctx, res.Token, claims.Tier)
 	return true
+}
+
+// ensureUSBBroker stages and starts the usb-broker for paid tiers regardless
+// of which stream backend is active: the broker is a separate process from
+// RustShine (it only needs the entitlement token file, see usbpass.Start), so
+// a Pro/Enterprise customer running Sunshine gets USB passthrough too, without
+// having to switch backends or download RustShine's streamer first. No-op for
+// free tiers or once the broker is already on disk.
+func (a *App) ensureUSBBroker(ctx context.Context, token, tier string) {
+	if a.usbBroker == nil || (tier != "pro" && tier != "enterprise") || a.usbBroker.Staged() {
+		return
+	}
+	log.Printf("[app] %s license — staging usb-broker", tier)
+	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, token, nil); err != nil {
+		log.Printf("[app] usb-broker not staged (will retry next interval): %v", err)
+		return
+	}
+	if err := a.usbBroker.Start(); err != nil {
+		log.Printf("[usbpass] broker not started: %v", err)
+	}
 }
 
 // ensureRustShineFresh makes sure a licensed/trialing customer always has
@@ -3221,7 +3263,22 @@ func (a *App) Color444Status() (active bool, available bool) {
 	if a.stream == nil {
 		return false, false
 	}
-	return a.stream.Color444Status()
+	active, available = a.stream.Color444Status()
+	// Sunshine has no license gate of its own: a Pro/Enterprise entitlement
+	// unlocks the 4:4:4 option there too, offered whenever the host's encoder
+	// can actually produce a 4:4:4 format (the client negotiates it via the
+	// codec-support flags, see client moonlightVideoFormat).
+	if !available {
+		if sb, ok := a.stream.(interface{ Color444Supported(int) bool }); ok {
+			a.entMu.Lock()
+			tier := a.entStatus.Tier
+			a.entMu.Unlock()
+			if (tier == "pro" || tier == "enterprise") && sb.Color444Supported(a.SunshineAdminPort()) {
+				available = true
+			}
+		}
+	}
+	return active, available
 }
 
 // HdrStatus mirrors Color444Status exactly, for the RustShine HDR color

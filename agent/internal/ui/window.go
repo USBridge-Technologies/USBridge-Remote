@@ -348,6 +348,17 @@ type Window struct {
 	headerLine *canvas.Rectangle
 }
 
+var raiseMain atomic.Pointer[func()]
+
+// RaiseMainWindow shows and focuses this process's main window (no-op before
+// it exists). Called when a second launch asks the running GUI to come
+// forward instead of starting another copy.
+func RaiseMainWindow() {
+	if f := raiseMain.Load(); f != nil {
+		(*f)()
+	}
+}
+
 // SetStartHidden marks this window to come up minimized to the tray instead
 // of shown -- see the startHidden field doc for why.
 func (w *Window) SetStartHidden(hidden bool) {
@@ -674,22 +685,21 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 	w.showFooterIdle(loc().AlreadyUpToDate, footerIdleMessageDuration)
 }
 
-// refreshUSBPassthroughUI keeps usbDriverRow in sync -- shown only while
-// RustShine is the active backend (Sunshine never gets USB passthrough,
-// see internal/usbpass's own doc comment) and this platform's driver isn't
+// refreshUSBPassthroughUI keeps usbDriverRow in sync -- shown only with a
+// Pro/Enterprise license (any stream backend) and this platform's driver isn't
 // present yet (st.VhciDriver false). Disappears once the driver install
 // actually takes -- InstallUSBDriver's pkexec call updates the real
 // vhci-hcd state that usbStatus is read from on the very next tick, no
 // separate "installed" signal needed.
 func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Status) {
-	active := st.ActiveBackend == "rustshine"
+	// USB passthrough is licensed (Pro/Enterprise), not tied to the stream
+	// backend: the broker is its own process, so it works under Sunshine too.
+	active := st.Tier == "pro" || st.Tier == "enterprise"
 	if w.usbAccessCheck != nil {
-		if (st.Tier == "pro" || st.Tier == "enterprise") && usb.Available {
-			w.usbAccessCheck.Show()
-			w.usbAccessCheck.SetChecked(usb.AttachGranted)
-		} else {
-			w.usbAccessCheck.Hide()
-		}
+		// Always listed on Linux (not license-hidden): tick when the polkit
+		// grant is in place, active Grant button otherwise.
+		w.usbAccessCheck.Show()
+		w.usbAccessCheck.SetChecked(usb.AttachGranted)
 	}
 	if w.usbDriverRow != nil {
 		if active && usb.Available && !usb.VhciDriver {
@@ -729,6 +739,13 @@ func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Stat
 func (w *Window) ShowAndRun(onClose func()) {
 	win := w.app.NewWindow(loc().AppTitle)
 	w.guiWin = win
+	raise := func() {
+		fyne.Do(func() {
+			win.Show()
+			win.RequestFocus()
+		})
+	}
+	raiseMain.Store(&raise)
 	win.SetPadded(false)
 	win.Resize(fyne.NewSize(640, 460))
 	win.CenterOnScreen()
@@ -1045,7 +1062,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 				w.performRefresh()
 			}()
 		})
-		w.usbAccessCheck.Hide()
+		permStatusRow.Add(w.usbAccessCheck)
 	}
 
 	permRule := canvas.NewRectangle(design.ColorDivider)
@@ -1661,6 +1678,9 @@ func (w *Window) applyLanguage() {
 	}
 	w.accessCheck.SetBaseLabel(access)
 	w.screenCaptureCheck.SetBaseLabel(c.ScreenCapture)
+	if w.usbAccessCheck != nil {
+		w.usbAccessCheck.SetBaseLabel(c.USBAccess)
+	}
 	w.refreshAutostartChrome()
 
 	if w.gpuClockLang != nil {
@@ -4565,3 +4585,89 @@ func (r *headerIconButtonRenderer) Refresh() {
 	r.bg.Refresh()
 	r.icon.Refresh()
 }
+
+// autostartRow is the Permissions "Autostart at Boot" line, styled like the
+// status rows above it: [✓/✗] Label [ⓘ] ...... [checkbox]. ⓘ shows where the
+// autostart entry lives (autostart.Location). The whole row still toggles the
+// checkbox, same as permToggleRow.
+type autostartRow struct {
+	widget.BaseWidget
+	mark  *canvas.Image
+	label *canvas.Text
+	hint  *canvas.Text
+	check *styledCheck
+	inner *fyne.Container
+}
+
+func newAutostartRow(label string, check *styledCheck, win fyne.Window) *autostartRow {
+	t := canvas.NewText(label, design.ColorSectionTitle)
+	t.TextSize = 11
+	hint := canvas.NewText("", design.ColorEmptyHint)
+	hint.TextSize = 8
+	hint.Hide()
+	mark := newCheckImage(crossGlyphRed)
+	info := newIconActionButton("", theme.InfoIcon(), func() {
+		path := autostart.Location()
+		if path == "" {
+			path = "—"
+		}
+		dialog.ShowInformation(loc().AutostartInfo, path, win)
+	})
+	info.Tiny = true
+	r := &autostartRow{mark: mark, label: t, hint: hint, check: check}
+	left := container.New(&tightHBoxLayout{gap: 6}, container.New(&checkNudgeLayout{dy: -1}, mark), t, hint, info)
+	r.inner = container.New(&flushEndsLayout{}, left, check)
+	r.ExtendBaseWidget(r)
+	return r
+}
+
+func (r *autostartRow) SetEnabled(on bool) {
+	if r == nil {
+		return
+	}
+	if on {
+		r.mark.Resource = checkGlyphLime
+	} else {
+		r.mark.Resource = crossGlyphRed
+	}
+	r.mark.Refresh()
+}
+
+func (r *autostartRow) SetLabel(label string) {
+	r.label.Text = label
+	r.label.Refresh()
+}
+
+func (r *autostartRow) SetHint(hint string) {
+	r.hint.Text = hint
+	if strings.TrimSpace(hint) == "" {
+		r.hint.Hide()
+	} else {
+		r.hint.Show()
+	}
+	r.hint.Refresh()
+	r.Refresh()
+}
+
+func (r *autostartRow) CreateRenderer() fyne.WidgetRenderer { return widget.NewSimpleRenderer(r.inner) }
+
+func (r *autostartRow) MinSize() fyne.Size {
+	s := fyne.NewSize(0, tinyActionSize)
+	if m := r.inner.MinSize(); m.Width > s.Width || m.Height > s.Height {
+		if m.Width > s.Width {
+			s.Width = m.Width
+		}
+		if m.Height > s.Height {
+			s.Height = m.Height
+		}
+	}
+	return s
+}
+
+func (r *autostartRow) Tapped(*fyne.PointEvent) {
+	if r.check != nil && !r.check.Disabled() {
+		r.check.Tapped(nil)
+	}
+}
+
+func (r *autostartRow) TappedSecondary(*fyne.PointEvent) {}

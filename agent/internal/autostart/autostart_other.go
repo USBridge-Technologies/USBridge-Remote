@@ -8,4 +8,4 @@ func Disable() error        { return nil }
 func NeedsReboot() bool     { return false }
 func RefreshX11SessionEnv() {}
 func EnsureDisplayActive()  {}
-func Location() string        { return "" }
+func Location() string      { return "" }

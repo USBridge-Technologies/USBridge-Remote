@@ -264,11 +264,13 @@ func (c *permStatusChip) refreshVisuals() {
 	c.labelT.Refresh()
 	if c.btn != nil {
 		if c.granted {
-			c.btn.SetText(loc().PermGranted)
+			c.btn.Accent = false
 			c.btn.Disable()
+			c.btn.SetText(loc().PermGranted)
 		} else {
-			c.btn.SetText(loc().PermGrant)
+			c.btn.Accent = true
 			c.btn.Enable()
+			c.btn.SetText(loc().PermGrant)
 		}
 	}
 }

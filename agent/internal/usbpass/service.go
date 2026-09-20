@@ -104,6 +104,9 @@ func (s *Service) resolveBroker() string {
 	return ""
 }
 
+// Staged reports whether the usb-broker binary is present on disk.
+func (s *Service) Staged() bool { return s.resolveBroker() != "" }
+
 func (s *Service) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
