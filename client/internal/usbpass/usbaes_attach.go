@@ -16,6 +16,7 @@ package usbpass
 // change at all.
 
 import (
+	"crypto/rand"
 	"fmt"
 	"net"
 	"sync"
@@ -100,6 +101,14 @@ func Attach(opts AttachOptions) error {
 	}
 	logrus.Infof("usbpass: agent hello ack: %s", detail)
 
+	tunnelNonce := make([]byte, 32)
+	if _, err := rand.Read(tunnelNonce); err != nil {
+		conn.Close()
+		return fmt.Errorf("tunnel nonce: %w", err)
+	}
+	tunnelKey := deriveTunnelKey(key, opts.USBIPBusID, tunnelNonce)
+	registerTunnelKey(opts.USBIPBusID, tunnelKey)
+
 	attachFrame := attachPayload{
 		BusID:         opts.USBIPBusID,
 		VID:           vid,
@@ -109,6 +118,7 @@ func Attach(opts AttachOptions) error {
 		ConfigDesc:    syntheticMSCConfig(),
 		ExportHost:    "", // empty → agent uses the AES peer IP (Direct/Tailscale)
 		ExportService: opts.ExportService,
+		TunnelNonce:   tunnelNonce,
 	}
 	if err := stream.sendFrame(encodeAttachFrame(attachFrame)); err != nil {
 		conn.Close()

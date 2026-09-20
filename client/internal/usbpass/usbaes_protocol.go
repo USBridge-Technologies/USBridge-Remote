@@ -34,6 +34,10 @@ type attachPayload struct {
 	ConfigDesc    []byte
 	ExportHost    string
 	ExportService string
+	// TunnelNonce derives the USB/IP data-plane tunnel's own ephemeral AES
+	// key (see deriveTunnelKey) — fresh per attach, never reused, and only
+	// ever sent inside this already AES-GCM-encrypted Attach frame.
+	TunnelNonce []byte
 }
 
 func appendUint16(out []byte, v uint16) []byte {
@@ -80,6 +84,7 @@ func encodeAttachFrame(a attachPayload) []byte {
 	p = appendUsbpBytes(p, a.ConfigDesc)
 	p = appendUsbpString(p, a.ExportHost)
 	p = appendUsbpString(p, a.ExportService)
+	p = appendUsbpBytes(p, a.TunnelNonce)
 	return encodeUsbpFrame(msgAttach, p)
 }
 

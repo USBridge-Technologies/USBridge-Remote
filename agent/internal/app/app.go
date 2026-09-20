@@ -60,6 +60,7 @@ type App struct {
 	screen    *capture.Service
 	perms     *permissions.Service
 	ts        *tailscale.Service
+	usbBridge *tailscale.UsbTunnelBridge
 	stream    streamhost.Backend
 	tsProxy   *tailscale.StreamProxy
 	server    *http.Server
@@ -533,7 +534,22 @@ func New() (*App, error) {
 	instance.syncSunshineCaptureMode()
 	instance.syncSunshineCapExec()
 	apiServer := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort)
-	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort)
+	// Started unconditionally (like ts itself, which doesn't actually spin up
+	// tsnet until Server() is first called) rather than gated on
+	// cfg.TailscaleEnabled: Tailscale can be toggled on later without this
+	// agent process restarting, but the broker subprocess spawned by
+	// usbpass.New below only gets --tsnet-bridge baked in once, at its own
+	// spawn time — the bridge address needs to already be valid then
+	// regardless of what Tailscale's enablement looks like right now. Until
+	// RememberPeer is ever called (which only happens once StreamProxy
+	// actually relays a Tailscale connection), this bridge just sits idle.
+	instance.usbBridge = tailscale.NewUsbTunnelBridge(instance.ts)
+	usbBridgeAddr, err := instance.usbBridge.Start(tailscale.DefaultUsbBridgeAddr)
+	if err != nil {
+		log.Printf("[app] usb tunnel bridge: %v (USB passthrough over Tailscale will not work; Direct/LAN unaffected)", err)
+		usbBridgeAddr = ""
+	}
+	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort, usbBridgeAddr)
 	apiServer.SetUSBPassthrough(instance.usbBroker)
 	instance.apiServer = apiServer
 	handler := apiServer.Routes()
@@ -953,7 +969,7 @@ func (a *App) restartStreamProxy() {
 	if usbPort <= 0 {
 		usbPort = usbpass.DefaultURBPort
 	}
-	a.tsProxy = a.ts.StartStreamProxy(basePort, usbPort)
+	a.tsProxy = a.ts.StartStreamProxy(basePort, a.usbBridge, usbPort)
 }
 
 func (a *App) initTailscale(ctx context.Context) {
