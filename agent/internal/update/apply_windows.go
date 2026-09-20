@@ -64,6 +64,9 @@ func apply(ctx context.Context, artifactPath, version string) error {
 		"-ExeName", exeName,
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	if BeforeRelaunch != nil {
+		BeforeRelaunch()
+	}
 	if err := cmd.Start(); err != nil {
 		os.RemoveAll(stagingDir)
 		return fmt.Errorf("launch update helper: %w", err)

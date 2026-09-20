@@ -458,15 +458,23 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		return nil
 	}
 	if adminPort > 0 && portReachable(adminPort, 300*time.Millisecond) {
-		log.Printf("[rustshine] admin port %d already reachable, assuming gamestream-server is already running", adminPort)
-		if pf := b.ourPassFile(); pf != "" {
-			if data, err := os.ReadFile(pf); err == nil {
-				if pass := strings.TrimSpace(string(data)); pass != "" {
-					b.activeAdminPassword = pass
-				}
-			}
+		// See sunshineBackend.Start()'s identical guard for the full
+		// reasoning: b.proc == nil here means whatever answered on
+		// adminPort is not something this backend object is tracking, so
+		// adopting a persisted password and hoping it happens to match is
+		// exactly the bug that let a stale/foreign process (Sunshine, or a
+		// different agent process's own gamestream-server) keep answering
+		// every PIN submission with 401. Clear it by name and always launch
+		// fresh instead.
+		log.Printf("[rustshine] admin port %d is reachable but not tracked by this process -- clearing it instead of adopting unverified credentials", adminPort)
+		killOrphanStreamerProcesses()
+		deadline := time.Now().Add(3 * time.Second)
+		for portReachable(adminPort, 200*time.Millisecond) && time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
 		}
-		return nil
+		if portReachable(adminPort, 200*time.Millisecond) {
+			return fmt.Errorf("rustshine: admin port %d still occupied by an unrecognized process after attempting to clear it", adminPort)
+		}
 	}
 
 	// Backfill adapter_name if capture=kms was persisted without one (e.g.

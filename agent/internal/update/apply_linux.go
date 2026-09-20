@@ -86,6 +86,9 @@ func apply(ctx context.Context, artifactPath, version string) error {
 	// (e.g. if the parent was launched from a terminal that sends SIGHUP
 	// to its process group on exit).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if BeforeRelaunch != nil {
+		BeforeRelaunch()
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("relaunch updated binary: %w", err)
 	}

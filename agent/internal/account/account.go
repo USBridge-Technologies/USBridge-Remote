@@ -77,10 +77,21 @@ func StartLogin(ctx context.Context) (*LoginStart, error) {
 		VerificationURL string `json:"verification_url"`
 		ExpiresIn       int    `json:"expires_in"`
 	}
-	if err := doJSON(ctx, http.MethodPost, "/v1/account/login/start", nil, "", &out); err != nil {
+	if err := doJSON(ctx, http.MethodPost, "/v1/account/login/start", startBody(), "", &out); err != nil {
 		return nil, err
 	}
 	return &LoginStart{Code: out.Code, VerificationURL: out.VerificationURL, ExpiresIn: out.ExpiresIn}, nil
+}
+
+// startBody is the (optional, best-effort) hardware summary sent with the
+// login start request -- see DeviceInfo's doc comment. A marshal failure
+// just means the request goes out without a body, same as before.
+func startBody() []byte {
+	b, err := json.Marshal(map[string]any{"device_info": CollectDeviceInfo()})
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // LoginPollResult is Poll's outcome for one poll tick.

@@ -65,6 +65,12 @@ type TokenBackend interface {
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
 
+	// RelinquishEngine gracefully steps this instance down from owning the
+	// engine (see app.App.RelinquishEngine's doc comment) -- called by
+	// another process's evictEngineLockHolder as its first, cooperative
+	// attempt at taking over engine ownership.
+	RelinquishEngine() error
+
 	// USB passthrough (see internal/usbpass) -- see
 	// internal/ui.TokenProvider's own copy of this same doc comment.
 	USBPassthroughStatus() usbpass.Status
@@ -205,6 +211,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/clients", s.handleListClients)
 	mux.HandleFunc("POST /token/unpair", s.handleUnpair)
 	mux.HandleFunc("POST /token/pin", s.handlePIN)
+	mux.HandleFunc("POST /engine/relinquish", s.handleRelinquishEngine)
 	mux.HandleFunc("POST /token/listen-addr", s.handleListenAddr)
 	mux.HandleFunc("POST /token/sunshine-port", s.handleSunshinePort)
 	mux.HandleFunc("POST /token/sunshine-stream-addr", s.handleSunshineStreamAddr)
@@ -423,6 +430,19 @@ func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.token.UnpairSunshineClient(body.UniqueID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+// handleRelinquishEngine asks this instance to gracefully step down from
+// owning the engine -- see app.App.RelinquishEngine's doc comment. The
+// response is written (and this handler returns) before the token's own
+// implementation actually exits the process, so the caller reliably sees
+// this 200 rather than a connection reset racing process teardown.
+func (s *Server) handleRelinquishEngine(w http.ResponseWriter, r *http.Request) {
+	if err := s.token.RelinquishEngine(); err != nil {
 		writeError(w, err)
 		return
 	}
