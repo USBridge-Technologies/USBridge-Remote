@@ -27,8 +27,8 @@ const (
 
 // DeviceFirmwarePromo is the Devices-tab stand-in for Network and Backup
 // Flash on a software agent: one card with a shared title,
-// a small website button, a hover-only X, and three compact feature
-// plaques inside. Shown only while connected to a software agent (not
+// a small website button, a dismiss X (always on the phone, hover-only
+// on desktop), and three compact feature plaques inside. Shown only while connected to a software agent (not
 // hardware KVM). Border stays idle until hover — same as the other
 // dashboard cards (see NewDeviceDashboardCard).
 type DeviceFirmwarePromo struct {
@@ -93,6 +93,11 @@ func (p *DeviceFirmwarePromo) syncChrome() {
 	if p.closeBtn == nil {
 		return
 	}
+	if IsMobile() {
+		p.closeBtn.Show()
+		p.closeBtn.Refresh()
+		return
+	}
 	if p.hovered || p.closeHovered {
 		p.closeBtn.Show()
 	} else {
@@ -128,6 +133,12 @@ func (p *DeviceFirmwarePromo) CreateRenderer() fyne.WidgetRenderer {
 			}
 		},
 	})
+	closeIcon := float32(10)
+	closeSize := fyne.NewSize(16, 16)
+	if IsMobile() {
+		closeIcon = 12
+		closeSize = fyne.NewSize(20, 20)
+	}
 	p.closeBtn = newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
 		HoverFill:    design.ColorSurfaceLight,
@@ -135,8 +146,8 @@ func (p *DeviceFirmwarePromo) CreateRenderer() fyne.WidgetRenderer {
 		CornerRadius: 3,
 		NormalIcon:   scriptFooterCloseIcon,
 		HoverIcon:    scriptFooterCloseHoverIcon,
-		IconSize:     fyne.NewSize(10, 10),
-		ButtonSize:   fyne.NewSize(16, 16),
+		IconSize:     fyne.NewSize(closeIcon, closeIcon),
+		ButtonSize:   closeSize,
 		OnHover: func(on bool) {
 			p.closeHovered = on
 			if on {
@@ -153,14 +164,25 @@ func (p *DeviceFirmwarePromo) CreateRenderer() fyne.WidgetRenderer {
 			}
 		},
 	})
-	p.closeBtn.Hide()
-	// Fixed-width slot so the website button never jumps left when the
-	// hover X appears -- Hide() on the X itself would collapse the row.
-	// The X itself is overlaid on the card (see closeOverlay) so it can
-	// sit a bit higher and further right than this header slot.
-	closeReserve := canvas.NewRectangle(color.Transparent)
-	closeReserve.SetMinSize(fyne.NewSize(16, 16))
-	headerRight := container.New(&DeviceRowControlsLayout{Gap: 4}, webBtn, closeReserve)
+	mobilePromo := IsMobile()
+	if !mobilePromo {
+		p.closeBtn.Hide()
+	}
+	headerGap := float32(4)
+	var headerRight fyne.CanvasObject
+	var closeOverlay fyne.CanvasObject
+	if mobilePromo {
+		headerGap = 8
+		headerRight = container.New(&DeviceRowControlsLayout{Gap: headerGap}, webBtn, p.closeBtn)
+	} else {
+		closeReserve := canvas.NewRectangle(color.Transparent)
+		closeReserve.SetMinSize(fyne.NewSize(16, 16))
+		headerRight = container.New(&DeviceRowControlsLayout{Gap: headerGap}, webBtn, closeReserve)
+		closeOverlay = container.NewBorder(
+			NewInsetExact(container.NewHBox(layout.NewSpacer(), p.closeBtn), 0, 4, 4, 0),
+			nil, nil, nil,
+		)
+	}
 	header := container.NewBorder(nil, nil, titleCluster, headerRight)
 
 	plaques := container.New(&DeviceDashboardPairLayout{Gap: 8},
@@ -178,13 +200,12 @@ func (p *DeviceFirmwarePromo) CreateRenderer() fyne.WidgetRenderer {
 	// covers the empty card area the interactive controls don't occupy.
 	overlay := newConnectionCardOverlay(nil, p.setHovered)
 
-	closeOverlay := container.NewBorder(
-		NewInsetExact(container.NewHBox(layout.NewSpacer(), p.closeBtn), 0, 4, 4, 0),
-		nil, nil, nil,
-	)
-
 	p.syncChrome()
-	return widget.NewSimpleRenderer(container.NewStack(overlay, p.border, inner, closeOverlay))
+	stack := []fyne.CanvasObject{overlay, p.border, inner}
+	if closeOverlay != nil {
+		stack = append(stack, closeOverlay)
+	}
+	return widget.NewSimpleRenderer(container.NewStack(stack...))
 }
 
 func newFirmwareFeaturePlaque(icon fyne.Resource, label string) fyne.CanvasObject {

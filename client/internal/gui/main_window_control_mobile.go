@@ -124,7 +124,8 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	})
 	burger.SetIconSize(fyne.NewSize(16, 16))
 	burger.SetBadgeText("")
-	burger.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	burger.SetIdleStyle(design.ColorGray900, design.ColorStatusBarBorder, 1, 6)
+	burger.SetHoverStyle(design.ColorAlphaWhite15, 6)
 	mw.mobileControlBurgerBtn = burger
 	mw.mobileControlBurgerWrap = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), burger)
 
@@ -453,7 +454,7 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	case 1:
 		return parts[0]
 	default:
-		return container.New(&view.DeviceRowControlsLayout{Gap: 8}, parts...)
+		return container.New(&view.DeviceRowControlsLayout{Gap: 4}, parts...)
 	}
 }
 
