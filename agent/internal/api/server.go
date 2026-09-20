@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/display"
 	"usbridge_agent/internal/usbpass"
+	"usbridge_agent/internal/vdisplay"
 )
 
 type Application interface {
@@ -900,10 +902,16 @@ func filterDevices(devices []DeviceRequest) []DeviceRequest {
 }
 
 func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
-	devices := s.app.VideoDevices()
-	
+	devices := markVkmsConnectors(s.app.VideoDevices())
+
 	if s.app.VirtualDisplaySupported() {
 		s.virtMu.Lock()
+		// The pinned virtual output survives an agent restart in the config
+		// only; rebuild its entry from there so it stays listed (and
+		// deletable) instead of surfacing as a raw vkms connector.
+		if cur := s.app.SunshineOutputName(); strings.HasPrefix(cur, "virtual:") {
+			s.addVirtualEntryLocked(cur)
+		}
 		devices = append(devices, s.virtualDisplays...)
 		s.virtMu.Unlock()
 	}
@@ -932,25 +940,8 @@ func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
 
 	path := fmt.Sprintf("virtual:%dx%d@%d", req.Width, req.Height, req.FPS)
 
-	vd := VideoDeviceInfo{
-		Name:      fmt.Sprintf("Virtual Display (%dx%d@%d)", req.Width, req.Height, req.FPS),
-		Path:      path,
-		Bus:       "virtual",
-		Connected: true,
-	}
-
 	s.virtMu.Lock()
-	// Only add if not already present
-	exists := false
-	for _, existing := range s.virtualDisplays {
-		if existing.Path == path {
-			exists = true
-			break
-		}
-	}
-	if !exists {
-		s.virtualDisplays = append(s.virtualDisplays, vd)
-	}
+	vd := s.addVirtualEntryLocked(path)
 	s.virtMu.Unlock()
 
 	s.ok(w, "virtual_display_created", vd)
@@ -961,19 +952,126 @@ func (s *Server) virtualDisplayDelete(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		id = r.PathValue("id")
 	}
-	
+
+	cur := s.app.SunshineOutputName()
+	curVirtual := strings.HasPrefix(cur, "virtual:")
+
+	// id is either one of the "virtual:WxH@FPS" entries or the row of the live
+	// vkms connector. Only the display that is actually running is torn down;
+	// other listed virtual displays are just saved specs and stay untouched.
+	isConnector := false
+	for _, d := range s.app.VideoDevices() {
+		if d.Path == id && isVkmsConnector(d) {
+			isConnector = true
+			break
+		}
+	}
+	teardown := isConnector || (curVirtual && cur == id)
+
 	s.virtMu.Lock()
-	defer s.virtMu.Unlock()
-	
+	drop := map[string]bool{id: true}
+	if isConnector && curVirtual {
+		drop[cur] = true
+	}
 	filtered := make([]VideoDeviceInfo, 0, len(s.virtualDisplays))
 	for _, vd := range s.virtualDisplays {
-		if vd.Path != id {
+		if !drop[vd.Path] {
 			filtered = append(filtered, vd)
 		}
 	}
 	s.virtualDisplays = filtered
+	s.virtMu.Unlock()
+
+	if teardown {
+		// Back to a physical output (restarts the stream host) whenever the
+		// pin points at the virtual display, either as the "virtual:" spec or
+		// as the vkms connector picked from the DRM list ("cardN|Virtual-M").
+		if curVirtual || strings.Contains(cur, "Virtual-") {
+			// Always pin an explicit physical output: clearing only the
+			// virtual_display key leaves adapter_name/kms_connector on the
+			// vkms connector picked earlier, so the stream host would come
+			// straight back to it.
+			back := s.firstPhysicalOutput(curVirtual || strings.Contains(cur, "|"))
+			if err := s.app.SetSunshineOutputName(back); err != nil {
+				log.Printf("[api] virtual display delete: unpin failed: %v", err)
+				s.fail(w, http.StatusInternalServerError, "virtual_display_unpin_failed", err)
+				return
+			}
+		}
+		if err := vdisplay.Unload(); err != nil {
+			log.Printf("[api] virtual display delete: %v", err)
+		}
+	}
 
 	s.ok(w, "virtual_display_deleted", nil)
+}
+
+var drmConnectorNameRe = regexp.MustCompile(`^(card\d+)-(.+)$`)
+
+// firstPhysicalOutput returns the output_name value of the first non-virtual
+// DRM device, or "" when none is listed. compound selects RustShine's
+// "/dev/dri/cardN|CONNECTOR" form (by name, so it does not depend on index
+// order once the vkms connector disappears) instead of the numeric index.
+func (s *Server) firstPhysicalOutput(compound bool) string {
+	for _, d := range s.app.VideoDevices() {
+		if d.Bus == "virtual" || isVkmsConnector(d) {
+			continue
+		}
+		if compound {
+			if m := drmConnectorNameRe.FindStringSubmatch(d.Name); m != nil {
+				return "/dev/dri/" + m[1] + "|" + m[2]
+			}
+		}
+		return stripDevicePrefix(d.Path)
+	}
+	return ""
+}
+
+// stripDevicePrefix turns a VideoDeviceInfo.Path ("drm:1", "raw:...",
+// "winid:...", "display:0") into the bare value SetSunshineOutputName wants.
+func stripDevicePrefix(p string) string {
+	for _, prefix := range []string{"drm:", "winid:", "display:", "raw:"} {
+		if strings.HasPrefix(p, prefix) {
+			return strings.TrimPrefix(p, prefix)
+		}
+	}
+	return p
+}
+
+// addVirtualEntryLocked adds the "virtual:WxH@FPS" entry if missing and
+// returns it. Caller holds virtMu.
+func (s *Server) addVirtualEntryLocked(path string) VideoDeviceInfo {
+	for _, existing := range s.virtualDisplays {
+		if existing.Path == path {
+			return existing
+		}
+	}
+	vd := VideoDeviceInfo{
+		Name:      "Virtual Display (" + strings.TrimPrefix(path, "virtual:") + ")",
+		Path:      path,
+		Bus:       "virtual",
+		Connected: true,
+	}
+	s.virtualDisplays = append(s.virtualDisplays, vd)
+	return vd
+}
+
+func isVkmsConnector(d VideoDeviceInfo) bool {
+	return strings.Contains(d.Name, "-Virtual-") && !strings.Contains(d.Name, "Writeback")
+}
+
+// markVkmsConnectors labels the kernel vkms connector ("cardN-Virtual-M") as a
+// virtual display (Bus "virtual") instead of a physical DRM output, so clients
+// offer the delete action on it.
+func markVkmsConnectors(in []VideoDeviceInfo) []VideoDeviceInfo {
+	out := make([]VideoDeviceInfo, len(in))
+	copy(out, in)
+	for i := range out {
+		if out[i].Bus == "drm" && isVkmsConnector(out[i]) {
+			out[i].Bus = "virtual"
+		}
+	}
+	return out
 }
 
 // videoSetDevice pins Sunshine's capture to the monitor identified by
@@ -1005,11 +1103,12 @@ func (s *Server) videoSetDevice(w http.ResponseWriter, r *http.Request) {
 	// literal string "display:0" (or "winid:{...}") was written to
 	// output_name verbatim, which Sunshine can't parse and silently falls
 	// back to auto-pick — monitor switching had no effect.
-	outputName := req.Device
-	for _, prefix := range []string{"drm:", "winid:", "display:", "raw:"} {
-		if strings.HasPrefix(outputName, prefix) {
-			outputName = strings.TrimPrefix(outputName, prefix)
-			break
+	outputName := stripDevicePrefix(req.Device)
+	// A vkms connector forced off by an earlier delete must be brought back
+	// before the stream host looks for it.
+	if strings.HasPrefix(outputName, "virtual:") || strings.Contains(outputName, "Virtual-") {
+		if err := vdisplay.Revive(); err != nil {
+			log.Printf("[api] video_set_device: reviving virtual display: %v", err)
 		}
 	}
 	log.Printf("[api] video_set_device device=%s", req.Device)

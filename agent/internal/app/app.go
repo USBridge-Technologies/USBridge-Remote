@@ -3549,6 +3549,13 @@ func (a *App) reconcileOutputName() {
 		// not staleness, and must never be "corrected" away from here.
 		return
 	}
+	if fb, ok := disconnectedPinFallback(current); ok {
+		log.Printf("[app] output_name %q points at a connector that is not connected; falling back to %q", current, fb)
+		if err := a.SetSunshineOutputName(fb); err != nil {
+			log.Printf("[app] failed to fall back to a connected output: %v", err)
+		}
+		return
+	}
 	devices := a.stream.ListCaptureDevices()
 	if len(devices) == 0 {
 		// No correlation data yet (fresh boot, or the backend hasn't
