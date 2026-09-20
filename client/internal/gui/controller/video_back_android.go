@@ -39,31 +39,31 @@ func deliverSystemBackFromJNI() C.jboolean {
 	return 0
 }
 
-// handleAndroidSystemBack consumes Back for in-app chrome that Vulkan covers
-// (no on-screen close control): fullscreen first, then the keyboard stack.
-// Peek state on this thread and mutate via fyne.Do — DoAndWait would deadlock
-// if CloseAllKeyboards / exitFullscreen posts back to the Android UI thread.
+// handleAndroidSystemBack consumes Back for in-app chrome after Kotlin has
+// already dismissed a visible soft IME. Fullscreen first, then the Control
+// keyboard stack, then any Fyne overlay (Add/Edit connection). Peek state
+// on this thread and mutate via fyne.Do — DoAndWait would deadlock if
+// CloseAllKeyboards / exitFullscreen posts back to the Android UI thread.
 func handleAndroidSystemBack() bool {
 	vw := activeGestureVideoWidget()
-	if vw == nil {
-		return false
+	if vw != nil {
+		if vw.fullscreenDialog != nil && vw.fullscreenDialog.IsFullscreen() {
+			logrus.Info("⬅️ System Back: exiting fullscreen")
+			fyne.Do(func() {
+				vw.ExitFullscreenIfNeeded()
+			})
+			return true
+		}
+		if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
+			logrus.Info("⬅️ System Back: dismissing keyboard stack")
+			fyne.Do(func() {
+				vw.CloseAllKeyboards()
+			})
+			return true
+		}
 	}
-	if vw.fullscreenDialog != nil && vw.fullscreenDialog.IsFullscreen() {
-		logrus.Info("⬅️ System Back: exiting fullscreen")
-		fyne.Do(func() {
-			vw.ExitFullscreenIfNeeded()
-		})
-		return true
-	}
-	if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
-		logrus.Info("⬅️ System Back: dismissing keyboard stack")
-		fyne.Do(func() {
-			vw.CloseAllKeyboards()
-		})
-		return true
-	}
-	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
-		if top := vw.parentWindow.Canvas().Overlays().Top(); top != nil {
+	if win := androidBackWindow(); win != nil && win.Canvas() != nil {
+		if top := win.Canvas().Overlays().Top(); top != nil {
 			logrus.Info("⬅️ System Back: dismissing Fyne overlay")
 			overlay := top
 			fyne.Do(func() {
@@ -73,4 +73,18 @@ func handleAndroidSystemBack() bool {
 		}
 	}
 	return false
+}
+
+func androidBackWindow() fyne.Window {
+	if vw := activeGestureVideoWidget(); vw != nil && vw.parentWindow != nil {
+		return vw.parentWindow
+	}
+	if fyne.CurrentApp() == nil || fyne.CurrentApp().Driver() == nil {
+		return nil
+	}
+	wins := fyne.CurrentApp().Driver().AllWindows()
+	if len(wins) == 0 {
+		return nil
+	}
+	return wins[0]
 }

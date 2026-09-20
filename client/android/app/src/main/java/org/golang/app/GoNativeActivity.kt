@@ -31,6 +31,9 @@ open class GoNativeActivity : NativeActivity() {
     private var defaultKeyListener: android.text.method.KeyListener? = null
     private var ignoreKey = false
     private var keyboardUp = false
+
+    /** Fyne Entry / sticky IME asked the driver to show the soft keyboard. */
+    fun isNativeKeyboardUp(): Boolean = keyboardUp
     /** Last EditText contents while sticky IME is active (for LCP diff). */
     private var lastStickyText = " "
 

@@ -210,7 +210,7 @@ func ShowWhatsNewDialog(parent fyne.Window) {
 	footerPad := float32(20)
 	if IsMobile() {
 		titleSize = 14
-		headerPadL, headerPadR, headerPadT, headerPadB = 16, 40, 10, 10
+		headerPadL, headerPadR, headerPadT, headerPadB = 16, 44, 10, 10
 		bodyPad = 12
 		footerPad = 14
 	}
@@ -226,14 +226,8 @@ func ShowWhatsNewDialog(parent fyne.Window) {
 		Text:  i18n.Current.WhatsNewSubtitle,
 		Color: design.ColorConnectionsSectionSubtitle,
 	})
-	var headerInner fyne.CanvasObject
-	if IsMobile() {
-		meta := container.New(&DeviceRowControlsLayout{Gap: 8}, version, dateLbl, older, newer)
-		headerInner = container.New(&tightStatsVBoxLayout{Gap: 4}, title, meta, subtitle)
-	} else {
-		titleRow := container.New(&DeviceRowControlsLayout{Gap: 8}, title, version, dateLbl, older, newer)
-		headerInner = container.New(&tightStatsVBoxLayout{Gap: 4}, titleRow, subtitle)
-	}
+	titleRow := container.New(&DeviceRowControlsLayout{Gap: 8}, title, version, dateLbl, older, newer)
+	headerInner := container.New(&tightStatsVBoxLayout{Gap: 4}, titleRow, subtitle)
 	closeBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill: color.Transparent,
 		HoverFill:  design.ColorSurfaceLight,
@@ -256,15 +250,7 @@ func ShowWhatsNewDialog(parent fyne.Window) {
 
 	gotIt := newVideoDialogApplyButton(i18n.Current.WhatsNewGotIt, closeDialog)
 	github := newWhatsNewGitHubLink()
-	var footerInner fyne.CanvasObject
-	if IsMobile() {
-		footerInner = container.NewVBox(
-			github,
-			NewInsetExact(container.NewBorder(nil, nil, nil, gotIt), 0, 0, 8, 0),
-		)
-	} else {
-		footerInner = container.NewBorder(nil, nil, github, gotIt)
-	}
+	footerInner := container.NewBorder(nil, nil, github, gotIt)
 	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerInner, footerPad, footerPad, 8, 10))
 
 	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInsetExact(body, bodyPad, bodyPad, 12, 8))
@@ -409,7 +395,10 @@ func (r *whatsNewVersionChipRenderer) Destroy()                     {}
 
 func newWhatsNewCardView(card whatsNewCard, bodyW, scrollMax float32) fyne.CanvasObject {
 	var rows []fyne.CanvasObject
-	rowW := bodyW
+	rowW := bodyW - whatsNewScrollGutter
+	if rowW < 200 {
+		rowW = bodyW
+	}
 	for _, item := range sortWhatsNewItems(card.Items) {
 		for _, pt := range item.Points {
 			rows = append(rows, newWhatsNewFeatureRow(item.Kind, pt, rowW))
@@ -610,18 +599,14 @@ func newWhatsNewOverflowBody(inner fyne.CanvasObject, minW, maxH float32) fyne.C
 }
 
 func (b *whatsNewOverflowBody) MinSize() fyne.Size {
-	m := fyne.NewSize(b.minW, 0)
+	h := float32(0)
 	if b.inner != nil {
-		im := b.inner.MinSize()
-		if im.Width > m.Width {
-			m.Width = im.Width
-		}
-		m.Height = im.Height
+		h = b.inner.MinSize().Height
 	}
-	if m.Height > b.maxH {
-		m.Height = b.maxH
+	if h > b.maxH {
+		h = b.maxH
 	}
-	return m
+	return fyne.NewSize(b.minW, h)
 }
 
 func (b *whatsNewOverflowBody) CreateRenderer() fyne.WidgetRenderer {
@@ -745,11 +730,7 @@ func (b *whatsNewGitHubLink) MinSize() fyne.Size {
 	t := canvas.NewText(b.linkText(), design.ColorConnectionsSectionSubtitle)
 	t.TextSize = b.textSize()
 	s := t.MinSize()
-	h := s.Height + 4
-	if IsMobile() {
-		return fyne.NewSize(1, h)
-	}
-	return fyne.NewSize(s.Width, h)
+	return fyne.NewSize(s.Width, s.Height+4)
 }
 
 func (b *whatsNewGitHubLink) CreateRenderer() fyne.WidgetRenderer {

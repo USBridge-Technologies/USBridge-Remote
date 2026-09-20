@@ -147,13 +147,26 @@ func deliverIMETextFromJNI(deleteCount C.jint, textStr *C.char) {
 //export deliverIMEUserDismissedFromJNI
 func deliverIMEUserDismissedFromJNI() {
 	logrus.Info("⌨️ [IME-JNI] user dismissed soft IME (Back)")
-	imeUserDismissedMu.Lock()
-	fn := imeUserDismissedHandler
-	imeUserDismissedMu.Unlock()
-	if fn == nil {
+	fyne.Do(func() {
+		unfocusAndroidIMECanvases()
+		imeUserDismissedMu.Lock()
+		fn := imeUserDismissedHandler
+		imeUserDismissedMu.Unlock()
+		if fn != nil {
+			fn()
+		}
+	})
+}
+
+func unfocusAndroidIMECanvases() {
+	if fyne.CurrentApp() == nil || fyne.CurrentApp().Driver() == nil {
 		return
 	}
-	fyne.Do(fn)
+	for _, w := range fyne.CurrentApp().Driver().AllWindows() {
+		if w != nil && w.Canvas() != nil {
+			w.Canvas().Unfocus()
+		}
+	}
 }
 
 // GetLastIMEH returns the last cached IME margin (including NavBar)
