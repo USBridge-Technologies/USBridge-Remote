@@ -1348,6 +1348,21 @@ func (vw *VideoWidget) updateInStreamContentRectWith(streamW, streamH float32) {
 	}
 }
 
+// SetOnAgentProtocolChanged is notified when the live agent tariff changes
+// (opensource / free / pro / enterprise), so the Connections plaque can
+// follow a mid-session backend switch.
+func (vw *VideoWidget) SetOnAgentProtocolChanged(fn func(string)) {
+	vw.onAgentProtocolChanged = fn
+}
+
+// AgentProtocol is the last tariff reported by the connected agent.
+func (vw *VideoWidget) AgentProtocol() string {
+	if vw == nil {
+		return ""
+	}
+	return strings.TrimSpace(vw.agentProtocol)
+}
+
 // SetAgentProtocol records the connected agent's streamer (opensource =
 // Sunshine, otherwise RustShine). Absolute mouse mapping differs: Sunshine
 // consumes stream-space coordinates, RustShine consumes desktop-space.
@@ -1359,6 +1374,9 @@ func (vw *VideoWidget) SetAgentProtocol(protocol string) {
 	vw.agentProtocol = p
 	vw.updateInStreamContentRect()
 	logrus.Infof("[ABS] agent protocol=%q stream-space mouse=%v", p, vw.hostMapsMouseInStreamSpace())
+	if p != "" && vw.onAgentProtocolChanged != nil {
+		vw.onAgentProtocolChanged(p)
+	}
 }
 
 func (vw *VideoWidget) hostMapsMouseInStreamSpace() bool {
