@@ -21,6 +21,7 @@ extern void vk_video_get_stats(long long *rendered, long long *submitted,
 extern void vk_video_clear_pending_stats(void);
 extern void vk_video_get_diag(long long *hb, int *stage);
 extern void vk_video_set_hidden(int hidden);
+extern void vk_video_set_canvas_hidden(int hidden);
 extern void vk_video_bring_to_top(void);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
 extern int  vk_video_create_standalone(uintptr_t hint_hwnd, int vsync);
@@ -155,6 +156,18 @@ func VKVideoSetHidden(hidden bool) {
 		h = 1
 	}
 	C.vk_video_set_hidden(h)
+}
+
+// VKVideoSetCanvasHidden is VKVideoSetHidden's counterpart for "the Fyne canvas
+// currently has an overlay (popup/dialog/menu) open", polled by the video widget
+// every frame. It is a separate flag so it can't clear -- or be cleared by -- the
+// depth-counter driven VKVideoSetHidden request.
+func VKVideoSetCanvasHidden(hidden bool) {
+	h := C.int(0)
+	if hidden {
+		h = 1
+	}
+	C.vk_video_set_canvas_hidden(h)
 }
 
 // VKVideoCreateStandalone creates a standalone fullscreen Vulkan window covering
