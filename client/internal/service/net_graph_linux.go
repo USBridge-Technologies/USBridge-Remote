@@ -14,7 +14,10 @@ import "C"
 
 import (
 	"image"
+	"sync/atomic"
 	"unsafe"
+
+	"github.com/sirupsen/logrus"
 )
 
 // init wires the Net Graph HUD's render-fps hook (net_graph.go) to
@@ -48,8 +51,13 @@ func pushNetGraphOverlayToVulkan(img *image.RGBA) {
 	if img == nil || len(img.Pix) == 0 {
 		return
 	}
-	C.vk_hud_set_pixels((*C.uint8_t)(unsafe.Pointer(&img.Pix[0])), C.int(img.Rect.Dx()), C.int(img.Rect.Dy()))
+	rc := C.vk_hud_set_pixels((*C.uint8_t)(unsafe.Pointer(&img.Pix[0])), C.int(img.Rect.Dx()), C.int(img.Rect.Dy()))
+	if n := netGraphVkPushCount.Add(1); n == 1 {
+		logrus.Infof("[Net Graph/Vulkan] push #%d rc=%d img=%dx%d", n, int(rc), img.Rect.Dx(), img.Rect.Dy())
+	}
 }
+
+var netGraphVkPushCount atomic.Int64
 
 func netGraphLinuxNativeFPS() float64 {
 	if VKVideoIsActive() {

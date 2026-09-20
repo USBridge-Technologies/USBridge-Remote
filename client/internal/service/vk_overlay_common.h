@@ -375,6 +375,13 @@ static int vk_hud_maybe_upload_cmds(VkCommandBuffer cb) {
         g_hud_tex_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     }
     // Nothing to draw until the first canvas has ever been uploaded.
+    {
+        static int logged = 0;
+        if (!logged && g_hud_tex_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            logged = 1;
+            goVKLog("HUD texture uploaded, drawing Net Graph overlay", 0);
+        }
+    }
     return g_hud_tex_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
