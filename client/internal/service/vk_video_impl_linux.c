@@ -708,6 +708,11 @@ static void vk_dmabuf_release_prev(void) {
     }
 }
 
+#define VKOV_MUTEX_DECL static pthread_mutex_t g_hud_mu = PTHREAD_MUTEX_INITIALIZER;
+#define VKOV_LOCK()     pthread_mutex_lock(&g_hud_mu)
+#define VKOV_UNLOCK()   pthread_mutex_unlock(&g_hud_mu)
+#include "vk_overlay_common.h"
+
 // vk_render_frame_dmabuf — zero-copy counterpart to vk_render_frame: imports
 // the caller's dma-buf as a VkImage and samples it directly into the
 // swapchain instead of blitting an uploaded RGBA staging texture. Takes
@@ -897,6 +902,11 @@ static int vk_render_frame_dmabuf(DmabufFrame *f) {
                               0, 0, NULL, 0, NULL, 1, &b);
     }
 
+    // Overlay textures (Net Graph HUD) upload here: transfers are not valid
+    // inside the rendering pass below.
+    int draw_hud = vk_hud_maybe_upload_cmds(g_cmdbuf);
+    vk_aivision_maybe_upload_cmds(g_cmdbuf);
+
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
@@ -937,6 +947,9 @@ static int vk_render_frame_dmabuf(DmabufFrame *f) {
     };
     vkCmdPushConstants(g_cmdbuf, g_yplayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uvScale), uvScale);
     vkCmdDraw(g_cmdbuf, 3, 1, 0, 0);
+
+    vk_aivision_record_draw(g_cmdbuf, f->vis_w, f->vis_h);
+    if (draw_hud) vk_hud_record_draw(g_cmdbuf, f->vis_w, f->vis_h);
 
     vkCmdEndRendering(g_cmdbuf);
 
@@ -1397,6 +1410,7 @@ static void vk_full_cleanup(void) {
         // frame was in flight (prev, mid-render-defer) or still queued
         // (pending, never picked up) and tear down the fixed NV12 pipeline.
         vk_dmabuf_release_prev();
+        vk_hud_destroy();
         if (g_dmabuf_ready) {
             close(g_dmabuf_pending.fd);
             if (g_dmabuf_pending.release_fn) g_dmabuf_pending.release_fn(g_dmabuf_pending.release_ctx);

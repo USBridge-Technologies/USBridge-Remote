@@ -33,6 +33,8 @@ extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
 extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
 extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride);
+extern int  goAIVisionShouldSample(void);
+extern void goAIVisionSample(uint8_t *rgba, int width, int height, int stride);
 
 // GL overlay fast path (defined in gl_video_impl_linux.c).
 extern int gl_video_is_active(void);
@@ -411,9 +413,39 @@ static int map_to_vaapi_frame(AVFrame *frame, AVFrame **out_vaframe, VADisplay *
 // (not a QSV/VAAPI frame, Vulkan not active/capable, or any step up to and
 // including handing the fd to Vulkan failed) -- frame is untouched, caller
 // proceeds with the existing hwframe_transfer + sws_scale path.
+// sample_frame_for_ai_vision does the rare CPU readback AI Vision's detector
+// needs (goAIVisionShouldSample gates it to the ~2Hz frames the detector is
+// actually due on, so the zero-copy path stays zero-copy otherwise). The
+// buffer is throwaway scratch -- boxes are drawn on the GPU by the native
+// overlay layer, never into this.
+static void sample_frame_for_ai_vision(AVFrame *frame) {
+    AVFrame *sw = av_frame_alloc();
+    if (!sw) return;
+    if (av_hwframe_transfer_data(sw, frame, 0) == 0) {
+        int w = frame->width, h = frame->height;
+        if (!g_sws || w != g_av_w || h != g_av_h) {
+            if (g_sws) sws_freeContext(g_sws);
+            g_sws = sws_getContext(w, h, (enum AVPixelFormat)sw->format,
+                                   w, h, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
+            g_av_w = w; g_av_h = h;
+        }
+        uint8_t *rgba = g_sws ? (uint8_t *)malloc((size_t)w * (size_t)h * 4) : NULL;
+        if (rgba) {
+            uint8_t *dst[4]   = { rgba, NULL, NULL, NULL };
+            int dst_stride[4] = { w * 4, 0, 0, 0 };
+            sws_scale(g_sws, (const uint8_t *const *)sw->data, sw->linesize, 0, h, dst, dst_stride);
+            goAIVisionSample(rgba, w, h, w * 4);
+            free(rgba);
+        }
+    }
+    av_frame_free(&sw);
+}
+
 static int try_deliver_zerocopy(AVFrame *frame) {
     if (!vk_video_is_active() || !vk_video_zerocopy_supported()) return 0;
     if (frame->format != AV_PIX_FMT_QSV && frame->format != AV_PIX_FMT_VAAPI) return 0;
+
+    if (goAIVisionShouldSample()) sample_frame_for_ai_vision(frame);
 
     AVFrame *vaframe = NULL;
     VADisplay dpy = NULL;
