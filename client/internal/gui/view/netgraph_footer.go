@@ -29,8 +29,8 @@ const (
 	netGraphMobileIconSide  = float32(16)
 	netGraphMobileHitSide   = float32(32)
 	netGraphHeaderHoverR    = float32(4)
-	netGraphFooterGray      = "#8f9381"
-	netGraphFooterGrayHover = "#c5c8b5"
+	netGraphFooterGray      = "#C9C9C9"
+	netGraphFooterGrayHover = "#e0e3e7"
 	netGraphFooterTeal      = "#41e0c3"
 	netGraphFooterTealHover = "#7aecd4"
 	netGraphChartPath       = "M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"
@@ -174,7 +174,7 @@ func (c *netGraphFooterIcon) hoverFill() color.Color {
 	if c.hitSide >= netGraphMobileHitSide {
 		return design.ColorAlphaWhite07
 	}
-	return design.ColorStatusBarIconChip
+	return color.Transparent
 }
 
 func (c *netGraphFooterIcon) hoverRadius() float32 {

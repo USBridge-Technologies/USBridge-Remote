@@ -33,12 +33,14 @@ import (
 // icon isn't touching its own box's edge, which read as "stuck to the
 // frame" once this strip got its own visible border. 22 + the strip's own
 // 3px top/bottom padding (statusIndicatorBarPadY) lands back on the same
-// 28px total row height as before.
+// 28px total row height as before. Desktop adds 2px pad on each side and
+// shrinks the box to 18 so that total stays 28.
 var statusBarIconBoxSize = fyne.NewSize(22, 22)
 
 const (
 	statusIndicatorBarPadX     = float32(10)
 	statusIndicatorBarPadY     = float32(3)
+	statusIndicatorDesktopPadY = float32(5)
 	statusIndicatorBarGap      = float32(8)
 	statusIndicatorGroupGap    = float32(4)
 	statusIndicatorDividerH    = float32(16)
@@ -305,7 +307,18 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoMonitorBtn.Hide()
 	mw.videoMonitorDot.Hide()
 
+	mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
+
+	iconBox := statusBarIconBoxSize
+	padY := statusIndicatorBarPadY
+	if !useMobileControl() {
+		iconBox = fyne.NewSize(18, 18)
+		padY = statusIndicatorDesktopPadY
+	}
+
 	videoItems := []fyne.CanvasObject{
+		container.NewGridWrap(iconBox, mw.videoIcon),
 		newFixedWidthFPSText(mw.videoFPSText, fpsBtn),
 		newStatusBarDot(),
 		resBtn,
@@ -317,6 +330,8 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		resBtn,
 		monitorBtn,
 		mw.videoIcon,
+		mw.footerVideoSettingsIcon,
+		mw.fullscreenIcon,
 		mw.audioIcon,
 		mw.keyboardIcon,
 		mw.mouseIcon,
@@ -325,8 +340,6 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	}
 
 	if useMobileControl() {
-		mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
-		mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
 		mw.audioIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
 		mw.audioIcon.SetHoverIcon(assets.AudioIconStatusBarHover)
 		mw.keyboardIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
@@ -337,9 +350,6 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		mw.rndisIcon.SetHoverIcon(assets.NetworkIconStatusBarHover)
 		mw.fullscreenIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
 		mw.fullscreenIcon.SetHoverIcon(assets.FullscreenIconStatusBarHover)
-		videoItems = append([]fyne.CanvasObject{
-			container.NewGridWrap(statusBarIconBoxSize, mw.videoIcon),
-		}, videoItems...)
 	}
 
 	view.SetMenuSwapTargets(swapTargets...)
@@ -369,63 +379,79 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	bg.StrokeWidth = 1
 	bg.CornerRadius = design.RadiusMD
 
-	return container.NewStack(bg, view.NewInsetExact(content, statusIndicatorBarPadX, statusIndicatorBarPadX, statusIndicatorBarPadY, statusIndicatorBarPadY))
+	return container.NewStack(bg, view.NewInsetExact(content, statusIndicatorBarPadX, statusIndicatorBarPadX, padY, padY))
 }
 
 func (mw *MainWindow) applyControlFooterIconHover() {
-	hover := design.ColorAlphaWhite07
-	radius := float32(3)
-	if mw.videoIcon != nil {
-		mw.videoIcon.SetHoverStyle(hover, radius)
-		mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
+	style := func(btn *headerStatusBadgeButton, hover fyne.Resource) {
+		if btn == nil {
+			return
+		}
+		btn.SetHoverStyle(color.Transparent, 0)
+		if hover != nil {
+			btn.SetHoverIcon(hover)
+		}
 	}
-	if mw.audioIcon != nil {
-		mw.audioIcon.SetHoverStyle(hover, radius)
-		mw.audioIcon.SetHoverIcon(assets.AudioIconStatusBarHover)
-	}
-	if mw.keyboardIcon != nil {
-		mw.keyboardIcon.SetHoverStyle(hover, radius)
-		mw.keyboardIcon.SetHoverIcon(assets.KeyboardIconStatusBarHover)
-	}
-	if mw.mouseIcon != nil {
-		mw.mouseIcon.SetHoverStyle(hover, radius)
-		mw.mouseIcon.SetHoverIcon(assets.MouseIconStatusBarHover)
-	}
-	if mw.rndisIcon != nil {
-		mw.rndisIcon.SetHoverStyle(hover, radius)
-		mw.rndisIcon.SetHoverIcon(assets.NetworkIconStatusBarHover)
-	}
-	if mw.fullscreenIcon != nil {
-		mw.fullscreenIcon.SetHoverStyle(hover, radius)
-		mw.fullscreenIcon.SetHoverIcon(assets.FullscreenIconStatusBarHover)
-	}
+	style(mw.footerVideoSettingsIcon, assets.CameraIconFooterHover)
+	style(mw.fullscreenIcon, assets.FullscreenIconFooterHover)
+	style(mw.keyboardIcon, assets.KeyboardIconFooterHover)
+	style(mw.mouseIcon, assets.MouseIconFooterHover)
+	style(mw.audioIcon, assets.AudioIconFooterHover)
+	style(mw.rndisIcon, assets.NetworkIconFooterHover)
 }
 
-// buildDesktopControlFooterActions is keyboard, mouse, net-graph, metrics,
-// fullscreen, video settings, then KVM indicators packed to the right of
-// the Control footer. Height is locked to AppFooterRowHeight.
+type controlFooterTheme struct {
+	fyne.Theme
+}
+
+func (t *controlFooterTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	switch name {
+	case theme.ColorNameButton, theme.ColorNameHover:
+		return color.Transparent
+	}
+	return t.Theme.Color(name, variant)
+}
+
+func (t *controlFooterTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == theme.SizeNameInlineIcon {
+		return float32(11)
+	}
+	return t.Theme.Size(name)
+}
+
+// buildDesktopControlFooterActions is video settings, fullscreen, net-graph,
+// then keyboard/mouse, then KVM indicators packed to the right of the
+// Control footer. Height is locked to AppFooterRowHeight. Icons are flat
+// #C9C9C9 (graph turns teal while the HUD is on), no hover chip.
 func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 	mw.applyControlFooterIconHover()
 	mw.keyboardIcon.Show()
 	mw.mouseIcon.Show()
+	if mw.fullscreenIcon != nil {
+		mw.fullscreenIcon.SetIcon(assets.FullscreenIconFooter)
+	}
 
 	videoParts := []fyne.CanvasObject{
-		controlFooterIconBox(mw.keyboardIcon),
-		controlFooterIconBox(mw.mouseIcon),
+		controlFooterIconBox(mw.footerVideoSettingsIcon),
+		controlFooterIconBox(mw.fullscreenIcon),
 	}
 	if graph, settings := view.NewNetGraphDesktopFooterButtons(); graph != nil {
+		mw.controlFooterGraphDivider = newControlFooterDivider()
+		mw.controlFooterGraphDivider.Hide()
 		mw.mobileNetGraphBtn = controlFooterIconBox(graph)
 		mw.mobileNetGraphBtn.Hide()
-		videoParts = append(videoParts, mw.mobileNetGraphBtn)
+		videoParts = append(videoParts, mw.controlFooterGraphDivider, mw.mobileNetGraphBtn)
 		if settings != nil {
 			mw.mobileNetGraphSettingsBtn = controlFooterIconBox(settings)
 			mw.mobileNetGraphSettingsBtn.Hide()
 			videoParts = append(videoParts, mw.mobileNetGraphSettingsBtn)
 		}
 	}
+	mw.controlFooterHIDDivider = newControlFooterDivider()
 	videoParts = append(videoParts,
-		controlFooterIconBox(mw.fullscreenIcon),
-		controlFooterIconBox(mw.videoIcon),
+		mw.controlFooterHIDDivider,
+		controlFooterIconBox(mw.keyboardIcon),
+		controlFooterIconBox(mw.mouseIcon),
 	)
 	videoGroup := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, videoParts...)
 
@@ -453,7 +479,7 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 		mw.statusBarIndicatorsGroup,
 		storageBox,
 	)
-	kvmSized := container.NewThemeOverride(kvmGroup, &statusBarPeripheralTheme{Theme: design.NewBrandTheme()})
+	kvmSized := container.NewThemeOverride(kvmGroup, &controlFooterTheme{Theme: design.NewBrandTheme()})
 
 	mw.controlFooterActions = container.New(&centeredInlineLayout{gap: 8, minGap: 4},
 		videoGroup,

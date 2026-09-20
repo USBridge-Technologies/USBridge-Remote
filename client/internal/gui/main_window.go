@@ -92,6 +92,8 @@ type MainWindow struct {
 	statusBarIndicatorsGroup   *fyne.Container
 	controlFooterActions       fyne.CanvasObject
 	controlFooterKVMDivider    fyne.CanvasObject
+	controlFooterGraphDivider  fyne.CanvasObject
+	controlFooterHIDDivider    fyne.CanvasObject
 
 	// Services
 	nbdServer        *service.NBDServer
@@ -173,7 +175,10 @@ type MainWindow struct {
 	// Status icons
 	connectionIcon *widget.Button
 	nbdIcon        *widget.Button
-	videoIcon      *headerStatusBadgeButton
+	videoIcon *headerStatusBadgeButton
+	// footerVideoSettingsIcon is the Control footer duplicate of mw.videoIcon
+	// (header keeps the original, in front of fps).
+	footerVideoSettingsIcon *headerStatusBadgeButton
 	// videoFPSText/videoResolutionText/videoStatusGroup back the Control
 	// header's status-indicator strip (main_window_status_indicator_bar.go):
 	// the fps/resolution text next to videoIcon, and the container the three
@@ -190,10 +195,7 @@ type MainWindow struct {
 	// videoMonitorChipLoaded is true after the first device-list fetch for
 	// this stream so updateStatusBarUI does not hammer GetVideoDevices.
 	videoMonitorChipLoaded bool
-	// fullscreenIcon sits in the Control footer (after net-graph), shown
-	// while streaming. mw.videoIcon (settings) is in that same footer
-	// cluster. Tapping mw.videoIcon goes straight to ShowCurrentVideoSettings
-	// (see showVideoMenu's removal in main_window_layout.go).
+	// fullscreenIcon sits in the Control footer (after video settings).
 	fullscreenIcon *headerStatusBadgeButton
 	audioIcon      *headerStatusBadgeButton
 	captureIcon    *widget.Button

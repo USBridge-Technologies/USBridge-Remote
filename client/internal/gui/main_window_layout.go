@@ -1259,7 +1259,15 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.videoIcon.SetBadgeText("")
 	mw.videoIcon.SetSecondaryBadgeText("")
 	mw.videoIcon.Hide()
-	mw.fullscreenIcon = newHeaderStatusBadgeButton(assets.FullscreenIconStatusBar, func() {
+	mw.footerVideoSettingsIcon = newHeaderStatusBadgeButton(assets.CameraIcon, func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowCurrentVideoSettings(false)
+		}
+	})
+	mw.footerVideoSettingsIcon.SetIconSize(fyne.NewSize(12, 12))
+	mw.footerVideoSettingsIcon.SetBadgeText("")
+	mw.footerVideoSettingsIcon.Hide()
+	mw.fullscreenIcon = newHeaderStatusBadgeButton(assets.FullscreenIconFooter, func() {
 		if mw.videoWidget != nil {
 			mw.videoWidget.ShowFullscreen()
 		}
@@ -1581,35 +1589,31 @@ func (mw *MainWindow) updateStatusBar() {
 func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming bool) {
 	fyne.Do(func() {
 		if mw.keyboardIcon != nil {
-			if keyboardConnected {
-				mw.keyboardIcon.SetIcon(assets.KeyboardIconStatusBar)
-			} else {
-				mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
-			}
 			if useMobileControl() {
 				if keyboardConnected {
+					mw.keyboardIcon.SetIcon(assets.KeyboardIconStatusBar)
 					mw.keyboardIcon.Show()
 				} else {
+					mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
 					mw.keyboardIcon.Hide()
 				}
 			} else {
+				mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
 				mw.keyboardIcon.Show()
 			}
 			mw.keyboardIcon.Refresh()
 		}
 		if mw.mouseIcon != nil {
-			if mouseConnected {
-				mw.mouseIcon.SetIcon(assets.MouseIconStatusBar)
-			} else {
-				mw.mouseIcon.SetIcon(assets.MouseIcon)
-			}
 			if useMobileControl() {
 				if mouseConnected {
+					mw.mouseIcon.SetIcon(assets.MouseIconStatusBar)
 					mw.mouseIcon.Show()
 				} else {
+					mw.mouseIcon.SetIcon(assets.MouseIcon)
 					mw.mouseIcon.Hide()
 				}
 			} else {
+				mw.mouseIcon.SetIcon(assets.MouseIcon)
 				mw.mouseIcon.Show()
 			}
 			mw.mouseIcon.Refresh()
@@ -1623,6 +1627,14 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 				mw.videoIcon.Hide()
 			}
 			mw.videoIcon.Refresh()
+		}
+		if mw.footerVideoSettingsIcon != nil {
+			if videoStreaming && !useMobileControl() {
+				mw.footerVideoSettingsIcon.Show()
+			} else {
+				mw.footerVideoSettingsIcon.Hide()
+			}
+			mw.footerVideoSettingsIcon.Refresh()
 		}
 		if mw.videoStatusGroup != nil {
 			if videoStreaming {
@@ -1687,9 +1699,20 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.mobileNetGraphSettingsBtn.Refresh()
 		}
+		if mw.controlFooterGraphDivider != nil {
+			if videoStreaming && !useMobileControl() {
+				mw.controlFooterGraphDivider.Show()
+			} else {
+				mw.controlFooterGraphDivider.Hide()
+			}
+		}
 		if mw.audioIcon != nil {
 			if audioStreaming {
-				mw.audioIcon.SetIcon(assets.AudioIconStatusBar)
+				if useMobileControl() {
+					mw.audioIcon.SetIcon(assets.AudioIconStatusBar)
+				} else {
+					mw.audioIcon.SetIcon(assets.AudioIcon)
+				}
 				mw.audioIcon.Show()
 			} else {
 				mw.audioIcon.SetIcon(assets.AudioIcon)
@@ -1707,7 +1730,11 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.rndisIcon != nil {
 			if rndisConnected {
-				mw.rndisIcon.SetIcon(assets.NetworkIconStatusBar)
+				if useMobileControl() {
+					mw.rndisIcon.SetIcon(assets.NetworkIconStatusBar)
+				} else {
+					mw.rndisIcon.SetIcon(assets.NetworkIcon)
+				}
 				mw.rndisIcon.Show()
 			} else {
 				mw.rndisIcon.SetIcon(assets.NetworkIcon)
