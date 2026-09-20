@@ -520,8 +520,19 @@ static volatile int    g_aivision_active = 0;
 static VkCommandPool            g_cmdpool      = VK_NULL_HANDLE;
 static VkCommandBuffer          g_cmdbuf       = VK_NULL_HANDLE;
 static VkFence                  g_fence        = VK_NULL_HANDLE;
-static VkSemaphore              g_img_sem      = VK_NULL_HANDLE;
-static VkSemaphore              g_rnd_sem      = VK_NULL_HANDLE;
+// Per-swapchain-image semaphore pools, NOT single reused globals -- see
+// their allocation site (vk_video_create) for why. g_img_sems is indexed by
+// a rotating g_img_sem_next (the acquired image index isn't known until
+// AFTER the call that needs this semaphore); g_rnd_sems is indexed by the
+// acquired image index itself (known before the submit/present that need
+// it). Both arrays are sized g_swap_count.
+static VkSemaphore             *g_img_sems     = NULL;
+static VkSemaphore             *g_rnd_sems     = NULL;
+static uint32_t                 g_img_sem_next = 0;
+// How many entries g_img_sems/g_rnd_sems actually have -- tracked separately
+// from g_swap_count, which vk_destroy_swapchain() zeroes before these are
+// torn down on a swapchain recreate (see vk_destroy_sync_semaphores).
+static uint32_t                 g_sync_sem_count = 0;
 
 // ─── render-thread state ──────────────────────────────────────────────────────
 
@@ -1072,6 +1083,8 @@ static int vk_create_swapchain(int w, int h) {
 }
 
 static void vk_destroy_swapchain(void); // forward declaration
+static void vk_destroy_sync_semaphores(void); // forward declaration
+static int  vk_create_sync_semaphores(void);  // forward declaration
 
 // vk_recreate_swapchain — called from render thread when swapchain is out-of-date.
 // Also resizes the popup overlay to match the stored atomic rect.
@@ -1100,8 +1113,19 @@ static int vk_recreate_swapchain(void) {
     snprintf(m, sizeof(m), "vk: recreating swapchain %dx%d", w, h);
     goVKLog(m, 0);
     int ok = vk_create_swapchain(w, h);
-    if (!ok) goVKLog("vk: swapchain recreation failed", 2);
-    return ok;
+    if (!ok) { goVKLog("vk: swapchain recreation failed", 2); return 0; }
+
+    // Rebuild the per-image semaphore pools sized to whatever image count
+    // this new swapchain actually got -- it can differ from before, and a
+    // stale array size here would go out of bounds indexing by the acquired
+    // image index (or the old array only being safe for a shrunk one and
+    // leaving new images pointing at a stale/destroyed semaphore).
+    vk_destroy_sync_semaphores();
+    if (!vk_create_sync_semaphores()) {
+        goVKLog("vk: sync semaphore recreation failed", 2);
+        return 0;
+    }
+    return 1;
 }
 
 static void vk_destroy_swapchain(void) {
@@ -1113,6 +1137,43 @@ static void vk_destroy_swapchain(void) {
     if (g_swap_imgs) { free(g_swap_imgs); g_swap_imgs = NULL; }
     if (g_swap != VK_NULL_HANDLE) { vkDestroySwapchainKHR(g_dev, g_swap, NULL); g_swap = VK_NULL_HANDLE; }
     g_swap_count = 0;
+}
+
+// vk_destroy_sync_semaphores / vk_create_sync_semaphores manage the
+// per-swapchain-image g_img_sems/g_rnd_sems pools (see their doc comment).
+// Split out from vk_video_create's original inline version so
+// vk_recreate_swapchain can also rebuild them sized to whatever image count
+// the NEW swapchain actually got -- a resize/out-of-date recreate can in
+// principle change it, and a stale array size would either leave new images
+// without a semaphore or (worse) go out of bounds indexing by image index.
+static void vk_destroy_sync_semaphores(void) {
+    if (g_img_sems) {
+        for (uint32_t i = 0; i < g_sync_sem_count; i++)
+            if (g_img_sems[i]) vkDestroySemaphore(g_dev, g_img_sems[i], NULL);
+        free(g_img_sems); g_img_sems = NULL;
+    }
+    if (g_rnd_sems) {
+        for (uint32_t i = 0; i < g_sync_sem_count; i++)
+            if (g_rnd_sems[i]) vkDestroySemaphore(g_dev, g_rnd_sems[i], NULL);
+        free(g_rnd_sems); g_rnd_sems = NULL;
+    }
+    g_sync_sem_count = 0;
+    g_img_sem_next = 0;
+}
+
+static int vk_create_sync_semaphores(void) {
+    if (g_swap_count == 0) return 0;
+    VkSemaphoreCreateInfo semi = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    g_img_sems = (VkSemaphore*)calloc(g_swap_count, sizeof(VkSemaphore));
+    g_rnd_sems = (VkSemaphore*)calloc(g_swap_count, sizeof(VkSemaphore));
+    if (!g_img_sems || !g_rnd_sems) return 0;
+    for (uint32_t i = 0; i < g_swap_count; i++) {
+        if (vkCreateSemaphore(g_dev, &semi, NULL, &g_img_sems[i]) != VK_SUCCESS) return 0;
+        if (vkCreateSemaphore(g_dev, &semi, NULL, &g_rnd_sems[i]) != VK_SUCCESS) return 0;
+        g_sync_sem_count = i + 1;
+    }
+    g_img_sem_next = 0;
+    return 1;
 }
 
 static int vk_ensure_tex(int w, int h) {
@@ -1886,9 +1947,14 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     if (g_decode_queue) vkQueueWaitIdle(g_decode_queue);
 
     uint32_t img_idx = 0;
+    // See g_img_sems's doc comment: rotate through the pool since the
+    // acquired image index (needed to index g_rnd_sems below) isn't known
+    // until AFTER this call.
+    VkSemaphore this_img_sem = g_img_sems[g_img_sem_next];
+    g_img_sem_next = (g_img_sem_next + 1) % g_swap_count;
     g_render_stage = 3; // acquire
     double t0 = mono_sec();
-    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, this_img_sem, VK_NULL_HANDLE, &img_idx);
     double dt = mono_sec() - t0;
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW AcquireNextImage %.0f ms res=%d", dt * 1000.0, (int)res);
@@ -2080,15 +2146,15 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
+    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &this_img_sem; si.pWaitDstStageMask = &wait_stage;
     si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
-    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sems[img_idx];
     vk_conceal_note_real_frame(conceal_slot);
     g_render_stage = 5; // queue-submit
     vk_check_device_lost(vkQueueSubmit(g_queue, 1, &si, g_fence));
 
     VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
+    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sems[img_idx];
     pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
     g_render_stage = 6; // present
     t0 = mono_sec();
@@ -2186,9 +2252,14 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
 
     // Acquire swapchain image — 3 s timeout so we don't hang forever on DWM deadlock.
     uint32_t img_idx = 0;
+    // See g_img_sems's doc comment: rotate through the pool since the
+    // acquired image index (needed to index g_rnd_sems below) isn't known
+    // until AFTER this call.
+    VkSemaphore this_img_sem = g_img_sems[g_img_sem_next];
+    g_img_sem_next = (g_img_sem_next + 1) % g_swap_count;
     g_render_stage = 3; // acquire
     double t0 = mono_sec();
-    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, this_img_sem, VK_NULL_HANDLE, &img_idx);
     double dt = mono_sec() - t0;
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW AcquireNextImage %.0f ms res=%d", dt * 1000.0, (int)res);
@@ -2200,8 +2271,11 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     }
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
         // Swapchain out of date — recreate and skip this frame.
-        // NOTE: AcquireNextImage with OUT_OF_DATE did NOT signal g_img_sem, so
-        // we must NOT wait on it in QueueSubmit this iteration.
+        // NOTE: AcquireNextImage with OUT_OF_DATE did NOT signal this_img_sem,
+        // so we must NOT wait on it in QueueSubmit this iteration -- moot
+        // here since we return before reaching QueueSubmit, but also means
+        // this_img_sem's slot is still unsignaled and safe to reuse next
+        // time g_img_sem_next cycles back to it.
         g_render_stage = 7; // recreate
         vk_recreate_swapchain();
         g_render_stage = 1; return 0;
@@ -2332,12 +2406,12 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     si.waitSemaphoreCount   = 1;
-    si.pWaitSemaphores      = &g_img_sem;
+    si.pWaitSemaphores      = &this_img_sem;
     si.pWaitDstStageMask    = &wait_stage;
     si.commandBufferCount   = 1;
     si.pCommandBuffers      = &g_cmdbuf;
     si.signalSemaphoreCount = 1;
-    si.pSignalSemaphores    = &g_rnd_sem;
+    si.pSignalSemaphores    = &g_rnd_sems[img_idx];
 
     vk_conceal_note_real_frame(conceal_slot);
 
@@ -2346,7 +2420,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
 
     VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     pi.waitSemaphoreCount = 1;
-    pi.pWaitSemaphores    = &g_rnd_sem;
+    pi.pWaitSemaphores    = &g_rnd_sems[img_idx];
     pi.swapchainCount     = 1;
     pi.pSwapchains        = &g_swap;
     pi.pImageIndices      = &img_idx;
@@ -3095,7 +3169,12 @@ static int vk_render_frame_conceal(void) {
     int fw = g_conceal_tex_w, fh = g_conceal_tex_h;
 
     uint32_t img_idx = 0;
-    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    // See g_img_sems's doc comment: rotate through the pool since the
+    // acquired image index (needed to index g_rnd_sems below) isn't known
+    // until AFTER this call.
+    VkSemaphore this_img_sem = g_img_sems[g_img_sem_next];
+    g_img_sem_next = (g_img_sem_next + 1) % g_swap_count;
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, this_img_sem, VK_NULL_HANDLE, &img_idx);
     if (res == VK_TIMEOUT) return 0;
     if (res == VK_ERROR_OUT_OF_DATE_KHR) { vk_recreate_swapchain(); return 0; }
     if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) { vk_check_device_lost(res); return 0; }
@@ -3234,9 +3313,9 @@ static int vk_render_frame_conceal(void) {
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
+    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &this_img_sem; si.pWaitDstStageMask = &wait_stage;
     si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
-    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sems[img_idx];
     vk_check_device_lost(vkQueueSubmit(g_queue, 1, &si, g_fence));
 
     g_conceal_consecutive++;
@@ -3244,7 +3323,7 @@ static int vk_render_frame_conceal(void) {
     g_stat_concealing = 1;
 
     VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
+    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sems[img_idx];
     pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
     res = vkQueuePresentKHR(g_queue, &pi);
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
@@ -3788,8 +3867,7 @@ static void vk_full_cleanup(void) {
         free(g_aivision_pixels); g_aivision_pixels = NULL; g_aivision_pixels_sz = 0;
         g_aivision_pending_w = 0; g_aivision_pending_h = 0;
 
-        if (g_img_sem) { vkDestroySemaphore(g_dev, g_img_sem, NULL); g_img_sem = VK_NULL_HANDLE; }
-        if (g_rnd_sem) { vkDestroySemaphore(g_dev, g_rnd_sem, NULL); g_rnd_sem = VK_NULL_HANDLE; }
+        vk_destroy_sync_semaphores();
         if (g_fence)   { vkDestroyFence(g_dev, g_fence, NULL);       g_fence = VK_NULL_HANDLE; }
         if (g_cmdbuf && g_cmdpool) { vkFreeCommandBuffers(g_dev, g_cmdpool, 1, &g_cmdbuf); g_cmdbuf = VK_NULL_HANDLE; }
         if (g_cmdpool) { vkDestroyCommandPool(g_dev, g_cmdpool, NULL); g_cmdpool = VK_NULL_HANDLE; }
@@ -3945,13 +4023,18 @@ static int vk_video_init_common(int x, int y, int w, int h) {
         if (vkAllocateCommandBuffers(g_dev, &cbai, &g_cmdbuf) != VK_SUCCESS) goto fail;
     }
 
-    // Semaphores + fence
+    // Semaphores + fence. One img/rnd semaphore PER SWAPCHAIN IMAGE, not a
+    // single pair reused every frame -- a single reused pair let the
+    // validation layer catch real, live VUID-vkAcquireNextImageKHR-semaphore-01779
+    // / VUID-vkQueueSubmit-pSignalSemaphores-00067 violations (semaphore
+    // still had a pending wait/signal from a previous cycle when reused),
+    // which is undefined behavior per spec and a plausible contributor to
+    // the driver-level VK_ERROR_DEVICE_LOST crashes this was investigated
+    // alongside (2026-09-19) -- see g_img_sems/g_rnd_sems's own doc comment.
     {
-        VkSemaphoreCreateInfo semi = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        if (!vk_create_sync_semaphores()) goto fail;
         VkFenceCreateInfo fci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        if (vkCreateSemaphore(g_dev, &semi, NULL, &g_img_sem) != VK_SUCCESS) goto fail;
-        if (vkCreateSemaphore(g_dev, &semi, NULL, &g_rnd_sem) != VK_SUCCESS) goto fail;
         if (vkCreateFence(g_dev, &fci, NULL, &g_fence)        != VK_SUCCESS) goto fail;
     }
 

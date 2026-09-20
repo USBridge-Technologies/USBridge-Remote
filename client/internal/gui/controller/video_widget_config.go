@@ -442,8 +442,29 @@ func mergeVideoConfigWithInfo(cfg models.VideoDeviceConfig, info *models.VideoIn
 	// field that actually carries the codec the server is running right now
 	// (VideoStatus.Encoding, "h264"/"h265"/"av1") -- see CurrentVideoCodec on
 	// the agent.
-	if strings.TrimSpace(info.Encoding) != "" {
-		cfg.VideoMode = info.Encoding
+	//
+	// EXCEPT av1: confirmed live via [CODEC-TRACE] (2026-09-19, app.log
+	// ~14:42:36) that a mid-stream reconnect can hand back a device list
+	// whose winid paths changed shape (plain "winid:0"/"winid:1" ->
+	// GUID-keyed "winid:{...}", e.g. after the host re-enumerates its
+	// outputs), which makes resolvePreferredVideoConfig's saved-device
+	// lookup miss and fall back to devices[0]. That device has no saved
+	// config yet, so this merge runs -- and if the server just happened to
+	// be reporting "av1" at that instant (for reasons unrelated to any
+	// choice made here), the client would permanently adopt av1 for that
+	// device path. win_deliver_frame's win32 win_deliver_frame_vulkan
+	// comment records why that's specifically bad on this client: AV1 has
+	// no Vulkan Video zero-copy decode implemented here and always falls
+	// through to the CPU sws_scale+overlay path (moonlight_cgo_windows.go),
+	// costing ~25-45ms/frame at high resolutions instead of a few ms --
+	// exactly the "DEC 25-30ms, scattered yellow" NetGraph symptom this was
+	// diagnosed from, sustained for the rest of that session because the
+	// device had no prior config to fall back to instead. Never silently
+	// auto-adopt av1 this way; require the user to pick it explicitly via
+	// the device-settings dialog. h264/h265 are unaffected -- both have the
+	// zero-copy path and are safe to inherit.
+	if enc := strings.TrimSpace(info.Encoding); enc != "" && enc != models.VideoModeAV1 {
+		cfg.VideoMode = enc
 	}
 	return cfg
 }
