@@ -610,6 +610,12 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			scale = vw.parentWindow.Canvas().Scale()
 		}
 		service.VKVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
+		if st.FW > 0 && st.FH > 0 {
+			vw.noteStreamPixelSize(float32(st.FW), float32(st.FH))
+		}
+		if w > 0 && h > 0 {
+			vw.UpdateTouchpadAndContentRect(w, h, nil)
+		}
 		return
 	}
 

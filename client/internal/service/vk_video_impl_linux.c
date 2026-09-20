@@ -53,6 +53,17 @@ static Window   g_parent_win = 0;
 
 // Desired overlay rect — updated atomically; render thread uses for swapchain recreation.
 static atomic_int g_dst_x, g_dst_y, g_dst_w, g_dst_h;
+static atomic_int g_video_dx, g_video_dy, g_video_dw, g_video_dh;
+static atomic_int g_video_sw, g_video_sh;
+
+static void vk_store_video_dest(int dx, int dy, int dw, int dh, int sw, int sh) {
+    atomic_store(&g_video_dx, dx);
+    atomic_store(&g_video_dy, dy);
+    atomic_store(&g_video_dw, dw);
+    atomic_store(&g_video_dh, dh);
+    atomic_store(&g_video_sw, sw);
+    atomic_store(&g_video_sh, sh);
+}
 
 // Hide flag: set by vk_video_set_hidden(); applied in vk_video_update_frame() (CGO thread).
 static volatile atomic_int g_hidden;
@@ -526,6 +537,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
     else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
     VkClearColorValue black = {0};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -970,6 +982,15 @@ void vk_video_clear_pending_stats(void) {
 void vk_video_get_diag(long long *hb, int *stage) {
     *hb    = g_render_hb;
     *stage = g_render_stage;
+}
+
+void vk_video_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *sh) {
+    if (dx) *dx = atomic_load(&g_video_dx);
+    if (dy) *dy = atomic_load(&g_video_dy);
+    if (dw) *dw = atomic_load(&g_video_dw);
+    if (dh) *dh = atomic_load(&g_video_dh);
+    if (sw) *sw = atomic_load(&g_video_sw);
+    if (sh) *sh = atomic_load(&g_video_sh);
 }
 
 #endif // defined(__linux__) && !defined(__ANDROID__)

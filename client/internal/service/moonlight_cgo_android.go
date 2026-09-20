@@ -1030,6 +1030,7 @@ var vtFramePool sync.Pool
 
 //export goVTFrame
 func goVTFrame(rgba *C.uint8_t, w, h, s C.int) {
+	noteNativeFrameSize(int(w), int(h))
 	vtFrameCallbackMu.Lock()
 	cb := vtFrameCallback
 	vtFrameCallbackMu.Unlock()

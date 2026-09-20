@@ -251,6 +251,11 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	vkLastRenderedX, vkLastRenderedY = px, py
 	vkLastRenderedW, vkLastRenderedH = pw, ph
 	service.VKVideoAndroidUpdateRect(px, py, pw, ph)
+	if tw := vw.activeViewportWrapper(); tw != nil {
+		if sz := tw.Size(); sz.Width > 0 && sz.Height > 0 {
+			vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+		}
+	}
 	vw.updateNativeViewportAndCursor()
 }
 
@@ -500,6 +505,32 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return
 	}
 	return pos.X, videoTop, sz.Width, videoH
+}
+
+// nativePointerOriginDp maps SurfaceView origin into TouchpadWrapper-local dp.
+// Android touches are wrapper-local; Vulkan dest is SurfaceView-local. When the
+// SurfaceView is inset (special keys / IME) the picture starts below the wrapper
+// origin and mouse mapping must follow it.
+func (vw *VideoWidget) nativePointerOriginDp() (float32, float32) {
+	sx, sy, sw, sh := vw.videoCanvasFrame()
+	tw := vw.activeViewportWrapper()
+	if tw == nil {
+		return 0, 0
+	}
+	sz := tw.Size()
+	if sw > 0 && sh > 0 && almostEqual(sw, sz.Width) && almostEqual(sh, sz.Height) {
+		return 0, 0
+	}
+	wx, wy := float32(0), float32(0)
+	if fyne.CurrentApp() != nil {
+		if drv, ok := fyne.CurrentApp().Driver().(interface {
+			AbsolutePositionForObject(fyne.CanvasObject) fyne.Position
+		}); ok {
+			p := drv.AbsolutePositionForObject(tw)
+			wx, wy = p.X, p.Y
+		}
+	}
+	return sx - wx, sy - wy
 }
 
 func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {

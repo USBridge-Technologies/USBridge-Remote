@@ -285,6 +285,7 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 
 	if changed {
 		service.MetalVideoUpdateFrame(x, y, w, h)
+		vw.UpdateTouchpadAndContentRect(w, h, nil)
 	}
 
 	if vw.metalFPSWarned.Load() || vw.videoClient == nil {

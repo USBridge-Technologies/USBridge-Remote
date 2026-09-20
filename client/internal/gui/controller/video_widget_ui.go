@@ -273,22 +273,20 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		vw.enableVSync = request.EnableVSync
 		if request.VideoWidth > 0 && request.VideoHeight > 0 {
 			vw.videoClient.SetExpectedVideoSize(request.VideoWidth, request.VideoHeight)
-			// Pre-set viewport dims from the requested resolution so absolute mouse mapping
-			// is correct immediately — without waiting for the first decoded frame.
-			// Needed when Vulkan/Metal is already active and frames arrive as nil, preventing
-			// updateFrameContentRect from ever running (and triggering the fyne.Do update).
+			// Set stream size on this goroutine (not only inside fyne.Do) so a
+			// later layout/UpdateTouchpad cannot fall back to AppConfig 1280×720
+			// while the UI callback is still queued. Native GPU frames are nil
+			// and would never restore the size.
 			newFW, newFH := float32(request.VideoWidth), float32(request.VideoHeight)
+			vw.lastVideoImgW = newFW
+			vw.lastVideoImgH = newFH
+			if cfg, err := localPreferredVideoConfig(); err == nil {
+				vw.rememberHostDesktopFromConfig(cfg)
+			}
 			fyne.Do(func() {
-				if vw.lastVideoImgW != newFW || vw.lastVideoImgH != newFH {
-					vw.lastVideoImgW = newFW
-					vw.lastVideoImgH = newFH
-					if tw := vw.activeViewportWrapper(); tw != nil {
-						sz := tw.Size()
-						if sz.Width > 0 && sz.Height > 0 {
-							vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
-						}
-					}
-				}
+				vw.lastVideoImgW = newFW
+				vw.lastVideoImgH = newFH
+				vw.refreshContentRectFromTouchpad()
 			})
 		}
 		if request.VideoMode != "" {
@@ -941,6 +939,15 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		vw.frameMutex.Unlock()
 		vw.frameDecoder.IncrementFrameCount()
 		vw.noteVideoTraceFirstFrame(frameNum)
+		if nw, nh := service.NativeFrameSize(); nw > 0 && nh > 0 {
+			if float32(nw) != vw.lastVideoImgW || float32(nh) != vw.lastVideoImgH {
+				fyne.Do(func() {
+					vw.noteStreamPixelSize(float32(nw), float32(nh))
+				})
+			}
+		} else if frameNum == 1 || frameNum == 10 {
+			fyne.Do(func() { vw.refreshContentRectFromTouchpad() })
+		}
 		if frameNum == 1 && !vw.isClosing.Load() && vw.isStreaming {
 			go vw.startMetalVideoOnWindow(vw.parentWindow, false)
 		}
