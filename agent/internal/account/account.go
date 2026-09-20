@@ -228,3 +228,27 @@ func truncate(b []byte) string {
 	}
 	return string(b[:max]) + "..."
 }
+
+// UserFacingError strips HTTP/path wrappers from a doJSON error, leaving
+// the backend's "error" (or "message") field when the body was JSON.
+func UserFacingError(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if i := strings.LastIndex(raw, "{"); i >= 0 {
+		var payload struct {
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(raw[i:]), &payload) == nil {
+			if s := strings.TrimSpace(payload.Error); s != "" {
+				return s
+			}
+			if s := strings.TrimSpace(payload.Message); s != "" {
+				return s
+			}
+		}
+	}
+	return raw
+}

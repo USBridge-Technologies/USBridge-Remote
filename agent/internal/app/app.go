@@ -1859,7 +1859,11 @@ func (a *App) RebindLicenseToThisDevice(oldIdentifier string) error {
 	}
 
 	if err := account.Rebind(context.Background(), token, oldIdentifier, hwID); err != nil {
-		a.setAccError(fmt.Sprintf("could not rebind license: %v", err))
+		msg := account.UserFacingError(err.Error())
+		if msg == "" || msg == err.Error() {
+			msg = "Couldn't move this license to this device."
+		}
+		a.setAccError(msg)
 		return err
 	}
 

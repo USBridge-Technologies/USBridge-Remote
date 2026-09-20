@@ -160,6 +160,23 @@ func (p *tealMenuPopup) ShowAtPosition(pos fyne.Position) {
 	p.Refresh()
 }
 
+func (p *tealMenuPopup) setSize(size fyne.Size) {
+	if p == nil {
+		return
+	}
+	p.size = size
+	if p.canvas != nil {
+		cs := p.canvas.Size()
+		if p.pos.Y+size.Height > cs.Height-8 {
+			p.pos.Y = cs.Height - size.Height - 8
+		}
+		if p.pos.Y < 8 {
+			p.pos.Y = 8
+		}
+	}
+	p.Refresh()
+}
+
 func (p *tealMenuPopup) Hide() {
 	if p.shown {
 		p.canvas.Overlays().Remove(p)
