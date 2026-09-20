@@ -225,6 +225,14 @@ func (c *Client) SendSAS() error {
 	return c.do(http.MethodPost, "/token/send-sas", nil, nil)
 }
 
+// RelinquishEngine asks the instance on the other end of this socket to
+// gracefully step down from owning the engine -- see
+// app.App.RelinquishEngine's doc comment and enginelock.go's
+// evictEngineLockHolder, the only caller.
+func (c *Client) RelinquishEngine() error {
+	return c.do(http.MethodPost, "/engine/relinquish", nil, nil)
+}
+
 func (c *Client) ListSunshineClients() ([]streamhost.Client, error) {
 	var clients []streamhost.Client
 	err := c.do(http.MethodGet, "/token/clients", nil, &clients)

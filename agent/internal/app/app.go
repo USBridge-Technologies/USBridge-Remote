@@ -92,6 +92,18 @@ type App struct {
 	// export them separately.
 	exeDir  string
 	logPath string
+	// engineLock is the open handle on this state dir's exclusive
+	// engine.lock -- see acquireEngineLock's doc comment. Never closed while
+	// the process is alive: the OS drops the lock (and lets the next
+	// launch's acquireEngineLock succeed) the instant this fd closes, for
+	// any reason including a crash or SIGKILL, which is the actual
+	// single-instance guarantee. Kept only so the *os.File isn't garbage
+	// collected out from under that guarantee -- nothing reads it again.
+	engineLock *os.File
+	// headless mirrors the flag Run was started with -- RelinquishEngine
+	// reads it to decide whether there's a GUI window worth relaunching as
+	// a thin client after stepping down (see its own doc comment).
+	headless bool
 	// streamMu serializes SetStreamBackend calls against each other (a GUI
 	// click racing the entitlement watchdog's own downgrade, say) --
 	// a.stream/a.streamKind must only ever be read/written while held.
@@ -140,14 +152,40 @@ type StartOptions struct {
 	Attach string
 }
 
-// Start is the sole entry point from main(). It decides, based on mode and
-// whether another instance's admin socket is already reachable, whether
-// this process owns the engine (HTTP server, Sunshine, tsnet) or just
-// attaches a GUI to one that's already running headless — see
-// runThinClientGUI. This is what lets the same binary/AppImage work both as
-// a `--headless` systemd/launchd/autostart service and as the normal GUI
-// app without ever running two engines (and two Sunshine/tsnet instances)
-// at once on the same machine.
+// Start is the sole entry point from main(). It decides whether this
+// process owns the engine (HTTP server, Sunshine, tsnet) or just attaches a
+// GUI to one that's already running headless — see runThinClientGUI. This
+// is what lets the same binary/AppImage work both as a `--headless`
+// systemd/launchd/autostart service and as the normal GUI app without ever
+// running two engines (and two Sunshine/tsnet instances) at once on the
+// same machine.
+//
+// Ownership is decided by engine.lock (see acquireEngineLock in
+// enginelock.go), not by "is the admin socket reachable" alone. That used
+// to be the whole check, and it was racy: a dial that spuriously timed out
+// against an otherwise-healthy instance (or two launches racing the same
+// check) could make two processes each conclude "nobody's home" and each go
+// on to bind their own HTTP server, streamhost backend, and admin socket —
+// confirmed live, a headless LaunchAgent and a manually-launched GUI both
+// ended up owning a streamhost.Backend at once, fighting over the same
+// GameStream ports with the loser's stale credentials used against the
+// winner's process. flock-based mutual exclusion doesn't have that TOCTOU
+// window: at most one process can ever hold the lock, full stop.
+//
+// A --headless launch (autostart/login item, or the Windows service) always
+// ends up owning the engine — if another process already holds the lock, it
+// gets evicted (gracefully asked to step down first, then killed if
+// unresponsive; see evictEngineLockHolder) rather than this launch quietly
+// refusing to start. That is what makes "enable launch at login" actually
+// take effect immediately: it starts a --headless instance right away (see
+// autostart_darwin.go's Enable, activateNow=true), which now reliably
+// replaces whatever GUI-owned engine was running instead of dying on
+// "already running" and leaving the old one in charge.
+//
+// A normal GUI launch prefers to attach as a thin client to whoever already
+// owns the engine, and only takes ownership itself as a last resort (lock
+// genuinely free, or the existing holder turned out to be unresponsive to
+// both the graceful ask and a dial retry).
 func Start(opts StartOptions, version string) error {
 	if opts.Attach != "" {
 		// The Windows service can hand us --attach a few hundred ms before
@@ -168,44 +206,65 @@ func Start(opts StartOptions, version string) error {
 		return err
 	}
 
-	socketPath := adminapi.SocketPath(cfg.StateDir)
-	// Dial before EnsureState: a LocalSystem config.yaml sitting next to
-	// the exe points state_dir at SYSTEM's profile, and MkdirAll of that
-	// path fails for an interactive user ("Cannot create a file when that
-	// file already exists"). If the engine is already up we can still
-	// attach without creating anything.
-	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
-		if opts.Headless {
-			client.Close()
-			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
-		}
-		return runThinClientGUI(client, opts.Tray)
-	}
-
 	if !config.DirIsUsable(cfg.StateDir) {
 		fallback := config.Default().StateDir
 		log.Printf("[app] state dir %s is not writable by this process; using %s", cfg.StateDir, fallback)
 		cfg.StateDir = fallback
-		socketPath = adminapi.SocketPath(cfg.StateDir)
-		if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
-			if opts.Headless {
-				client.Close()
-				return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
-			}
-			return runThinClientGUI(client, opts.Tray)
-		}
 	}
-
 	if err := cfg.EnsureState(); err != nil {
 		return err
 	}
 
-	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
-		if opts.Headless {
-			client.Close()
-			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
+	socketPath := adminapi.SocketPath(cfg.StateDir)
+
+	lockFile, holderPID, acquired, lockErr := acquireEngineLock(cfg.StateDir)
+	if lockErr != nil {
+		log.Printf("[app] warning: engine lock (%s) unusable, proceeding without single-instance protection: %v", engineLockPath(cfg.StateDir), lockErr)
+	}
+
+	if !acquired && lockErr == nil {
+		log.Printf("[app] engine lock already held by pid=%d (headless=%v)", holderPID, opts.Headless)
+		if !opts.Headless {
+			// GUI: the normal, fast, happy path is to attach to whoever
+			// already owns the engine rather than fight over it.
+			if client, dialErr := dialAdminSocket(socketPath, 3*time.Second); dialErr == nil {
+				log.Printf("[app] attaching as a thin-client GUI to the existing engine (pid=%d)", holderPID)
+				return runThinClientGUI(client, opts.Tray)
+			} else {
+				log.Printf("[app] lock is held by pid=%d but its admin socket did not respond (%v) -- treating it as stale", holderPID, dialErr)
+			}
+		} else {
+			log.Printf("[app] headless launch always takes ownership -- evicting existing holder pid=%d instead of refusing to start", holderPID)
 		}
-		return runThinClientGUI(client, opts.Tray)
+
+		if evictEngineLockHolder(cfg.StateDir, socketPath, holderPID) {
+			lockFile, holderPID, acquired, lockErr = acquireEngineLock(cfg.StateDir)
+		}
+		if !acquired {
+			if lockErr != nil {
+				return fmt.Errorf("could not become the engine owner: %w", lockErr)
+			}
+			return fmt.Errorf("usbridge-agent is already running (pid=%d) and could not be replaced", holderPID)
+		}
+	}
+
+	log.Printf("[app] this process (pid=%d) now owns the engine at %s", os.Getpid(), socketPath)
+
+	// update.BeforeRelaunch lets apply() (any platform) release our engine
+	// lock right before it spawns the process/helper that becomes the new
+	// owner, instead of leaving that to this process's eventual os.Exit —
+	// closes a real race where the replacement's own acquireEngineLock
+	// attempt could otherwise land before this fd actually closes. Reset to
+	// close instance.engineLock (not this local lockFile) once New()
+	// succeeds below, since a GUI launch's own later user-confirmed update
+	// (internal/ui's ShowAndRun -> DownloadAndApply) happens long after
+	// this function has returned, against the *App's* copy of the lock.
+	update.BeforeRelaunch = func() {
+		if lockFile != nil {
+			log.Printf("[app] releasing engine lock before self-update relaunch")
+			_ = lockFile.Close()
+			lockFile = nil
+		}
 	}
 
 	// Mandatory startup update check — only here, not on a thin-GUI attach
@@ -223,7 +282,18 @@ func Start(opts StartOptions, version string) error {
 
 	instance, err := New()
 	if err != nil {
+		if lockFile != nil {
+			_ = lockFile.Close()
+		}
 		return err
+	}
+	instance.engineLock = lockFile
+	update.BeforeRelaunch = func() {
+		if instance.engineLock != nil {
+			log.Printf("[app] releasing engine lock before self-update relaunch")
+			_ = instance.engineLock.Close()
+			instance.engineLock = nil
+		}
 	}
 	return instance.Run(opts.Headless, opts.Tray)
 }
@@ -564,6 +634,7 @@ func resolveConfigPath() string {
 // startHidden is forwarded to ui.Window.SetStartHidden when a window is
 // shown at all -- see StartOptions.Tray's doc comment.
 func (a *App) Run(headless, startHidden bool) error {
+	a.headless = headless
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -3227,6 +3298,63 @@ func (a *App) UpdateSunshineStreamAddr(host string, streamPort int) (config.Conf
 	}
 	_ = a.RestartSunshine()
 	return a.cfg, nil
+}
+
+// RelinquishEngine steps this process down from owning the engine so
+// another process -- normally a --headless autostart launch that just
+// started via launchctl/systemd/the Windows service right after the user
+// checked "launch at login" -- can take over without needing a hard kill.
+// Called over the admin socket by evictEngineLockHolder (see enginelock.go)
+// as its first, cooperative attempt before ever falling back to killing the
+// holder's PID outright.
+//
+// Stops the streamhost backend (killing whatever streamer is currently
+// running -- the incoming owner starts its own fresh one right after
+// acquiring the lock, so there is no point leaving this one up) and
+// releases the engine lock so the waiting process's acquireEngineLock can
+// succeed. If this process has a GUI window (it isn't headless), it also
+// relaunches itself as a plain GUI process before exiting: that relaunch
+// runs through Start()'s normal discovery, finds the new owner's admin
+// socket already up, and attaches as a thin client -- so the user ends up
+// looking at the same window in the same place, just backed by the new
+// headless engine instead of running its own, rather than it simply
+// vanishing.
+//
+// The actual process exit is deferred a moment (see the goroutine below) so
+// the RPC caller gets a clean response before this process's admin socket
+// (which is what's still carrying that very response) goes away.
+func (a *App) RelinquishEngine() error {
+	log.Printf("[app] relinquishing engine ownership (pid=%d) -- another process is taking over", os.Getpid())
+
+	a.streamMu.Lock()
+	if a.stream != nil {
+		_ = a.stream.Stop()
+	}
+	a.streamMu.Unlock()
+
+	if a.engineLock != nil {
+		_ = a.engineLock.Close()
+		a.engineLock = nil
+	}
+
+	if !a.headless {
+		if exe, err := os.Executable(); err != nil {
+			log.Printf("[app] warning: could not resolve own executable to relaunch as a thin client: %v", err)
+		} else {
+			cmd := exec.Command(exe)
+			if err := cmd.Start(); err != nil {
+				log.Printf("[app] warning: could not relaunch as a thin client: %v", err)
+			} else {
+				log.Printf("[app] relaunched pid=%d as a thin-client GUI against the incoming engine owner", cmd.Process.Pid)
+			}
+		}
+	}
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		os.Exit(0)
+	}()
+	return nil
 }
 
 // SubmitMoonlightPIN sends the PIN shown by a Moonlight client to Sunshine

@@ -75,6 +75,9 @@ func apply(ctx context.Context, artifactPath, version string) error {
 	}
 	os.RemoveAll(backupApp)
 
+	if BeforeRelaunch != nil {
+		BeforeRelaunch()
+	}
 	if err := exec.Command("open", "-n", installedApp).Start(); err != nil {
 		return fmt.Errorf("relaunch updated app: %w", err)
 	}

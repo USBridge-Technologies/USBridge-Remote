@@ -481,22 +481,32 @@ func (b *sunshineBackend) Start(adminPort int) error {
 		return nil
 	}
 	if adminPort > 0 && portReachable(adminPort, 300*time.Millisecond) {
-		log.Printf("[sunshine] admin port %d already reachable, assuming Sunshine is already running", adminPort)
-		// This backend never ran --creds this session, so activeAdminPassword
-		// is still empty. The already-running Sunshine still has whatever
-		// password was baked in via --creds the last time IT was launched
-		// fresh, which is exactly what's persisted in adminPassFile — load it
-		// so SubmitPIN/ListClients/UnpairClient (which read adminPass()
-		// directly, not the file-fallback AdminPass()) don't send an empty
-		// password and get every request rejected with 401.
-		if pf := b.adminPassFile(); pf != "" {
-			if data, err := os.ReadFile(pf); err == nil {
-				if pass := strings.TrimSpace(string(data)); pass != "" {
-					b.activeAdminPassword = pass
-				}
-			}
+		// Something is answering on adminPort, but b.proc == nil (checked
+		// above) means it's definitely not a process THIS backend object
+		// spawned and is tracking. It used to be tempting to assume "must be
+		// Sunshine, already running from a previous life of this same
+		// backend" and just adopt whatever password was last persisted to
+		// adminPassFile -- but nothing actually verifies that assumption,
+		// and when it's wrong (a leftover RustShine gamestream-server, or a
+		// Sunshine/RustShine instance owned by a *different* agent process
+		// entirely) every SubmitPIN/ListClients/UnpairClient call sends a
+		// password that has nothing to do with whatever's actually
+		// listening, and gets rejected with 401 on every single request --
+		// confirmed live, this exact bug. Kill it by name instead (covers
+		// both backends' known process names) and fall through to a normal
+		// fresh launch below: deterministic and always ends with a Sunshine
+		// this backend actually knows the credentials for, at the cost of a
+		// brief stream interruption in the rare case where it really was our
+		// own still-healthy Sunshine surviving an agent restart.
+		log.Printf("[sunshine] admin port %d is reachable but not tracked by this process -- clearing it instead of adopting unverified credentials", adminPort)
+		killOrphanStreamerProcesses()
+		deadline := time.Now().Add(3 * time.Second)
+		for portReachable(adminPort, 200*time.Millisecond) && time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
 		}
-		return nil
+		if portReachable(adminPort, 200*time.Millisecond) {
+			return fmt.Errorf("sunshine: admin port %d still occupied by an unrecognized process after attempting to clear it", adminPort)
+		}
 	}
 
 	// One-time, copy-only migration from Sunshine's own default config
@@ -684,8 +694,18 @@ func (b *sunshineBackend) SetOnExit(fn func()) {
 	b.onExit = fn
 }
 
-// Stop terminates a Sunshine instance started by this backend. No-op if not
-// running or if Sunshine wasn't launched by us (e.g. system service).
+// Stop terminates a Sunshine instance started by this backend. If this
+// backend never actually spawned it (b.proc is nil -- e.g. Start() never
+// ran on this object, or this is a fresh Backend value constructed just to
+// switch away from Sunshine), it still kills any orphaned sunshine/
+// gamestream-server/usbridge-streamer process by name so a caller that
+// expects Stop() to leave the ports free (SetStreamBackend, in particular)
+// can actually rely on that -- mirrors rustshineBackend.Stop()'s identical
+// fallback, added for the same reason: a blank b.proc used to mean Stop()
+// silently did nothing, which is exactly what let a stale Sunshine or
+// RustShine instance survive a backend switch and keep answering PIN
+// submissions with credentials that no longer matched what the new backend
+// was sending.
 func (b *sunshineBackend) Stop() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -706,6 +726,9 @@ func (b *sunshineBackend) Stop() error {
 			}
 		}
 		b.proc = nil
+	} else {
+		log.Printf("[sunshine] stopping orphaned process by name")
+		killOrphanStreamerProcesses()
 	}
 	if b.watchdog != nil && b.watchdog.Process != nil {
 		// Stop the watchdog too: we're already terminating Sunshine

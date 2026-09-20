@@ -21,6 +21,26 @@ const checkTimeout = 8 * time.Second
 // for a headless launch with no one to ask).
 const downloadTimeout = 5 * time.Minute
 
+// BeforeRelaunch, if set, is called by apply() (every platform's
+// apply_*.go) immediately before it spawns the replacement process/helper
+// that will become the new engine owner. internal/app sets this to release
+// its engine.lock fd first -- without it, the replacement's own
+// acquireEngineLock races this (about to exit) process's own fd close:
+// dial it wrong and the replacement either attaches as a thin client to a
+// process that's mid-exit (macOS's "open -n" relaunch carries no
+// --headless, so it can't tell the difference and just attaches to
+// whatever answers first) or, if it's a --headless relaunch itself,
+// unnecessarily evicts a process that was already on its way out anyway.
+// Neither is wrong exactly, but releasing the lock first removes the race
+// entirely: the replacement's very first acquireEngineLock attempt just
+// succeeds. nil (the zero value) is a safe no-op -- update's own tests, and
+// any platform whose apply() doesn't relaunch a long-lived process at all
+// (apply_other.go), never call it.
+//
+// internal/update cannot import internal/app directly (app already imports
+// update, for CheckAndApply) -- this indirection is what avoids the cycle.
+var BeforeRelaunch func()
+
 // platformKey identifies this build in the manifest's "platforms" map.
 func platformKey() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
