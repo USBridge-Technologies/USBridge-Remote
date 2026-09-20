@@ -61,6 +61,7 @@ type LocalizedStrings struct {
 	AddConnectionSubtitle             string
 	AddVirtualDisplayTitle            string
 	AddVirtualDisplaySubtitle         string
+	DeleteVirtualDisplayConfirm       string
 	TailscaleRedirectHint             string
 	AutoRegistrationBadge             string
 	ConnectionBadgeUnknown            string
@@ -644,6 +645,7 @@ func EN() *LocalizedStrings {
 		AddConnectionSubtitle:             "Pair a hardware or software agent using its IP address and master key.",
 		AddVirtualDisplayTitle:            "Add virtual display",
 		AddVirtualDisplaySubtitle:         "Pick a preset or enter a custom resolution for the video pipe.",
+		DeleteVirtualDisplayConfirm:       "Remove this virtual display?",
 		TailscaleRedirectHint:             "After connection, the redirect will open on the web.",
 		AutoRegistrationBadge:             "AUTO-REGISTRATION",
 		ConnectionBadgeUnknown:            "Unknown",
@@ -1218,6 +1220,7 @@ func ES() *LocalizedStrings {
 	locale.AddConnectionSubtitle = "Empareja un agent de hardware o software con su IP y master key."
 	locale.AddVirtualDisplayTitle = "Agregar display virtual"
 	locale.AddVirtualDisplaySubtitle = "Elige un preset o una resolucion personalizada para el video pipe."
+	locale.DeleteVirtualDisplayConfirm = "Quitar este display virtual?"
 	locale.TailscaleRedirectHint = "Tras conectar, la redireccion se abrira en el navegador."
 	locale.AutoRegistrationBadge = "AUTO-REGISTRO"
 	locale.QRScanSuccess = "Codigo QR escaneado"
@@ -1546,6 +1549,7 @@ func UKProper() *LocalizedStrings {
 	locale.AddConnectionSubtitle = "Прив'яжіть hardware або software agent за IP та master key."
 	locale.AddVirtualDisplayTitle = "Додати віртуальний дисплей"
 	locale.AddVirtualDisplaySubtitle = "Оберіть пресет або свою роздільність для video pipe."
+	locale.DeleteVirtualDisplayConfirm = "Прибрати цей віртуальний дисплей?"
 	locale.TailscaleRedirectHint = "Після конекту редірект відкриється в браузері."
 	locale.AutoRegistrationBadge = "АВТОРЕЄСТРАЦІЯ"
 	locale.QRScanSuccess = "QR-код відскановано"
