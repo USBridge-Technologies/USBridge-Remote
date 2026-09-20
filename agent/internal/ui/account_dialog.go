@@ -121,7 +121,7 @@ func (w *Window) showAccountLoginDialog(parent fyne.Window) {
 			})))
 
 			if acc.LastError != "" {
-				errText := canvas.NewText(acc.LastError, design.ColorAlert)
+				errText := canvas.NewText(account.UserFacingError(acc.LastError), design.ColorAlert)
 				errText.TextSize = 11
 				body.Add(spacerSize(1, 8))
 				body.Add(errText)
@@ -244,14 +244,15 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 	// (see internal/account's doc comment) -- only rendered when there's
 	// actually another license on the account to offer, so the common
 	// single-device case doesn't grow a menu row it'll never use.
+	width := float32(280)
 	licensesBody := container.NewVBox()
+	var popup *tealMenuPopup
+	var content fyne.CanvasObject
 	var renderLicenses func(acc account.Status)
 	renderLicenses = func(acc account.Status) {
 		licensesBody.RemoveAll()
-		if acc.LastError != "" {
-			errLbl := widget.NewLabel(acc.LastError)
-			errLbl.Wrapping = fyne.TextWrapWord
-			licensesBody.Add(wrapAccountField(errLbl, 9, design.ColorAlert))
+		if msg := account.UserFacingError(acc.LastError); msg != "" {
+			licensesBody.Add(newAccountMenuError(msg, width-20))
 		}
 		for _, lic := range acc.Licenses {
 			if !strings.EqualFold(lic.Status, "licensed") {
@@ -275,10 +276,11 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 			licensesBody.Add(newAccountLicenseCard(lic, acc.RebindInProgress, onUse))
 		}
 		licensesBody.Refresh()
+		if popup != nil && content != nil {
+			fitAccountMenuPopup(popup, content, width, c.Size())
+		}
 	}
-	renderLicenses(acc)
 
-	var popup *tealMenuPopup
 	logout := newCardHeaderButton(loc().LogOut, headerLogoutIcon, func() {
 		if popup != nil {
 			popup.Hide()
@@ -308,15 +310,15 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 	border.CornerRadius = design.RadiusMD
 	border.StrokeColor = design.ColorBorder
 	border.StrokeWidth = 1
-	content := container.NewStack(bg, newExactInset(inner, 10, 10, 10, 10), border)
+	content = container.NewStack(bg, newExactInset(inner, 10, 10, 10, 10), border)
 
-	width := float32(280)
 	if min := content.MinSize(); min.Width > width {
 		width = min.Width
 	}
 	if ew := email.MinSize().Width + 24; ew > width {
 		width = ew
 	}
+	renderLicenses(acc)
 	height := content.MinSize().Height
 	popup = newTealMenuPopup(content, c, fyne.NewSize(width, height))
 	pos := drv.AbsolutePositionForObject(anchor)
@@ -338,6 +340,7 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 		popupPos.Y = 8
 	}
 	popup.ShowAtPosition(popupPos)
+	fitAccountMenuPopup(popup, content, width, canvasSize)
 
 	if !acc.LoggedIn {
 		return
@@ -429,6 +432,61 @@ func accountPlanLabel(acc account.Status) string {
 		}
 	}
 	return plan
+}
+
+func newAccountMenuError(msg string, maxWidth float32) fyne.CanvasObject {
+	errLbl := widget.NewLabel(msg)
+	errLbl.Wrapping = fyne.TextWrapWord
+	h := wrapTextBlockHeight(msg, 9, maxWidth)
+	return container.New(&accountLicenseHintLayout{height: h}, wrapAccountField(errLbl, 9, design.ColorAlert))
+}
+
+func wrapTextBlockHeight(msg string, textSize, maxWidth float32) float32 {
+	line := fyne.MeasureText("Ag", textSize, fyne.TextStyle{}).Height
+	if line < 1 {
+		line = 12
+	}
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return 0
+	}
+	if maxWidth < 40 {
+		maxWidth = 40
+	}
+	lines := 0
+	for _, para := range strings.Split(msg, "\n") {
+		words := strings.Fields(para)
+		if len(words) == 0 {
+			lines++
+			continue
+		}
+		cur := words[0]
+		lines++
+		for _, w := range words[1:] {
+			trial := cur + " " + w
+			if fyne.MeasureText(trial, textSize, fyne.TextStyle{}).Width > maxWidth {
+				lines++
+				cur = w
+			} else {
+				cur = trial
+			}
+		}
+	}
+	return float32(lines)*line + 4
+}
+
+func fitAccountMenuPopup(popup *tealMenuPopup, content fyne.CanvasObject, width float32, canvasSize fyne.Size) {
+	if popup == nil || content == nil {
+		return
+	}
+	height := content.MinSize().Height
+	if height < 1 {
+		return
+	}
+	if maxH := canvasSize.Height - 16; maxH > 0 && height > maxH {
+		height = maxH
+	}
+	popup.setSize(fyne.NewSize(width, height))
 }
 
 func newAccountLicenseCard(lic account.License, moving bool, onUse func()) fyne.CanvasObject {

@@ -116,6 +116,18 @@ func TestRebind_PostsExpectedBody(t *testing.T) {
 	}
 }
 
+func TestUserFacingError_ExtractsJSONError(t *testing.T) {
+	raw := `could not rebind license: account: /manage/api/rebind: HTTP 404: {"error":"no license with that identifier belongs to your account"}`
+	got := UserFacingError(raw)
+	want := "no license with that identifier belongs to your account"
+	if got != want {
+		t.Fatalf("UserFacingError = %q, want %q", got, want)
+	}
+	if UserFacingError("Log in first.") != "Log in first." {
+		t.Fatalf("plain message should pass through")
+	}
+}
+
 func TestMarkOnThisDevice(t *testing.T) {
 	in := []License{
 		{Identifier: "AAA", Status: "licensed", Tier: "pro"},
