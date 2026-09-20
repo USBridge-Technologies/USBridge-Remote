@@ -3,6 +3,15 @@
 // carries an older private copy of the same logic that can be switched to
 // this header once verified on a Windows build).
 //
+// TODO(windows): on a Windows machine, verify this header and migrate
+// vk_video_impl_windows.c onto it, deleting its private copy of the HUD /
+// AI Vision code (g_hud_*, g_aivision_*, vk_hud_*, vk_aivision_* and their
+// set_pixels/clear/set_scale exports). Needs VKOV_MUTEX_DECL/LOCK/UNLOCK
+// mapped onto g_cs (EnterCriticalSection/LeaveCriticalSection; the Windows
+// copy also gates on g_cs_init), and the Windows-only differences checked
+// (g_hud_active gating in vk_hud_record_draw, g_hud_resources_ok checks).
+// Not compiled or tested on Windows yet -- it was written on Linux.
+//
 // Plain #include into ONE translation unit, not a standalone module. The
 // includer must, before including this file, provide:
 //   - Vulkan globals/helpers: g_dev, g_pdev, g_swap_fmt, vk_find_mem(),

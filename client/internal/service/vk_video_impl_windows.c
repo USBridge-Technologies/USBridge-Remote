@@ -434,6 +434,10 @@ static VkImage                  g_tex          = VK_NULL_HANDLE;
 static VkDeviceMemory           g_tex_mem      = VK_NULL_HANDLE;
 static int                      g_tex_w        = 0, g_tex_h = 0;
 
+// TODO(windows): the HUD / AI Vision overlay code below is duplicated in
+// vk_overlay_common.h (written on Linux, untested here). On a Windows machine:
+// verify that header builds and works, then migrate this file onto it and
+// delete this private copy -- see the TODO at the top of that header.
 // ─── Net Graph HUD overlay ──────────────────────────────────────────────────
 // A small (VK_HUD_W x VK_HUD_H) RGBA texture holding the most recently pushed
 // HUD canvas (net_graph.go's netGraphCachedImg, ~10Hz), drawn as a second,
