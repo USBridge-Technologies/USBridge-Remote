@@ -218,3 +218,6 @@ func RefreshX11SessionEnv() {}
 // EnsureDisplayActive is a Linux/X11-only concept (see its doc comment on
 // the linux build) -- no-op everywhere else.
 func EnsureDisplayActive() {}
+
+// Location is what the GUI's info button shows.
+func Location() string { return "Windows service: " + serviceName }

@@ -91,6 +91,9 @@ type TokenProvider interface {
 	// refreshRustShineUI.
 	USBPassthroughStatus() usbpass.Status
 	InstallUSBDriver() error
+	// GrantUSBAttach: Linux one-time polkit grant so usbip attach/detach
+	// stop prompting for a password (see usbpass/access_linux.go).
+	GrantUSBAttach() error
 
 	// Account login (see internal/account) -- a separate identity from the
 	// hardware-bound entitlement above, used only to pick which of the
@@ -166,6 +169,10 @@ type Window struct {
 
 	// UI components
 	accessCheck *permStatusChip
+	// usbAccessCheck: Linux + USB-passthrough license only -- separate
+	// Permissions row whose button does the one-time polkit grant so usbip
+	// attach/detach stop prompting; hidden once granted (refreshUSBPassthroughUI).
+	usbAccessCheck *permStatusChip
 
 	// Screen Capture: a single unified control for how video gets captured.
 	// On Linux this is Sunshine's capture backend, picked automatically from
@@ -251,7 +258,7 @@ type Window struct {
 	permPanel     *themedPanel
 	statusPanel   *themedPanel
 	protocolPanel *themedPanel
-	autostartLang *permToggleRow
+	autostartLang *autostartRow
 	gpuClockLang  *permToggleRow
 	mlClientsLang *canvas.Text
 	usbDriverLang *canvas.Text
@@ -676,6 +683,14 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 // separate "installed" signal needed.
 func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Status) {
 	active := st.ActiveBackend == "rustshine"
+	if w.usbAccessCheck != nil {
+		if (st.Tier == "pro" || st.Tier == "enterprise") && usb.Available {
+			w.usbAccessCheck.Show()
+			w.usbAccessCheck.SetChecked(usb.AttachGranted)
+		} else {
+			w.usbAccessCheck.Hide()
+		}
+	}
 	if w.usbDriverRow != nil {
 		if active && usb.Available && !usb.VhciDriver {
 			w.usbDriverRow.Show()
@@ -821,7 +836,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	w.accessCheck = newPermStatusChip(accessLabelBase, onRequestAccess)
 	w.screenCaptureCheck = newPermStatusChip(loc().ScreenCapture, onRequestCapture)
-	permStatusRow := container.New(&flushEndsLayout{}, w.accessCheck, w.screenCaptureCheck)
+	permStatusRow := container.NewVBox(w.accessCheck, w.screenCaptureCheck)
 
 	// Autostart at Boot: installs the OS-native autostart mechanism (a
 	// system-wide systemd unit on Linux — so it starts at boot before any
@@ -860,7 +875,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 
 	// Autostart at Boot is always shown, regardless of platform.
-	autostartRow := newPermToggleRow(loc().AutostartAtBoot, w.autostartCheck)
+	autostartRow := newAutostartRow(loc().AutostartAtBoot, w.autostartCheck, win)
 	w.autostartLang = autostartRow
 	w.refreshAutostartChrome()
 
@@ -1010,6 +1025,28 @@ func (w *Window) ShowAndRun(onClose func()) {
 	usbDriverTitle.TextSize = 11
 	w.usbDriverRow = newStatusRow(usbDriverTitle, w.usbDriverBtn)
 	w.usbDriverRow.Hide()
+
+	if runtime.GOOS == "linux" {
+		// Same chip as Input Control / Screen Capture: green check when
+		// granted, "· Grant" tap target otherwise.
+		w.usbAccessCheck = newPermStatusChip(loc().USBAccess, func() {
+			if w.token == nil {
+				w.usbAccessCheck.requestDone()
+				return
+			}
+			go func() {
+				err := w.token.GrantUSBAttach()
+				fyne.Do(func() {
+					w.usbAccessCheck.requestDone()
+					if err != nil {
+						dialog.ShowError(err, win)
+					}
+				})
+				w.performRefresh()
+			}()
+		})
+		w.usbAccessCheck.Hide()
+	}
 
 	permRule := canvas.NewRectangle(design.ColorDivider)
 	permRule.SetMinSize(fyne.NewSize(0, 1))
@@ -1720,6 +1757,9 @@ func (w *Window) refreshAutostartChrome() {
 	}
 	if w.autostartCheck != nil && !w.autostartCheck.Disabled() {
 		w.autostartCheck.SetChecked(autostart.IsEnabled())
+	}
+	if w.autostartLang != nil {
+		w.autostartLang.SetEnabled(autostart.IsEnabled())
 	}
 	if w.tray != nil && w.tray.autostartItem != nil {
 		label := autostartMenuLabel()

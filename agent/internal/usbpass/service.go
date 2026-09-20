@@ -34,6 +34,9 @@ type Status struct {
 	Sessions    []string `json:"sessions"`
 	BrokerError string   `json:"broker_error,omitempty"`
 	DriverHint  string   `json:"driver_hint,omitempty"`
+	// AttachGranted is false on Linux until the one-time polkit grant (see
+	// access_linux.go) is in place; without it every attach/detach prompts.
+	AttachGranted bool `json:"attach_granted"`
 }
 
 type Device struct {
@@ -229,6 +232,7 @@ func (s *Service) Status() Status {
 		Platform:   runtime.GOOS,
 		ListenPort: s.urbPort,
 	}
+	st.AttachGranted = AttachAccessGranted()
 	if !st.Available {
 		st.DriverHint = "USB passthrough v1 is Windows/Linux only"
 		return st

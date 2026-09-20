@@ -364,6 +364,10 @@ func (c *Client) InstallUSBDriver() error {
 	return c.do(http.MethodPost, "/token/install-usb-driver", nil, nil)
 }
 
+func (c *Client) GrantUSBAttach() error {
+	return c.do(http.MethodPost, "/token/grant-usb-attach", nil, nil)
+}
+
 func (c *Client) AccountStatus() account.Status {
 	var status account.Status
 	_ = c.do(http.MethodGet, "/token/account-status", nil, &status)

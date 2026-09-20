@@ -75,6 +75,7 @@ type TokenBackend interface {
 	// internal/ui.TokenProvider's own copy of this same doc comment.
 	USBPassthroughStatus() usbpass.Status
 	InstallUSBDriver() error
+	GrantUSBAttach() error
 
 	// Account login (see internal/account) -- see internal/ui.TokenProvider's
 	// own copy of this same doc comment.
@@ -230,6 +231,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
 	mux.HandleFunc("GET /token/usb-driver-status", s.handleUSBPassthroughStatus)
 	mux.HandleFunc("POST /token/install-usb-driver", s.handleInstallUSBDriver)
+	mux.HandleFunc("POST /token/grant-usb-attach", s.handleGrantUSBAttach)
 	mux.HandleFunc("GET /token/account-status", s.handleAccountStatus)
 	mux.HandleFunc("POST /token/start-account-login", s.handleStartAccountLogin)
 	mux.HandleFunc("POST /token/cancel-account-login", s.handleCancelAccountLogin)
@@ -651,6 +653,16 @@ func (s *Server) handleInstallUSBDriver(w http.ResponseWriter, r *http.Request) 
 			logrus.WithError(err).Warn("usb driver install failed")
 		}
 	}()
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+// handleGrantUSBAttach is synchronous (unlike the driver install) so the GUI
+// can show the failure reason; the client's 90s timeout covers the prompt.
+func (s *Server) handleGrantUSBAttach(w http.ResponseWriter, r *http.Request) {
+	if err := s.token.GrantUSBAttach(); err != nil {
+		writeError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, struct{}{})
 }
 

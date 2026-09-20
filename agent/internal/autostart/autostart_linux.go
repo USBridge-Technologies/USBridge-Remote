@@ -532,3 +532,13 @@ func removeTrayAutostart() error {
 	}
 	return err
 }
+
+// Location is what the GUI's info button shows: where this platform's
+// autostart entry actually lives.
+func Location() string {
+	loc := unitPath
+	if dir, err := trayAutostartDir(); err == nil {
+		loc += "\n" + dir + "/" + trayAutostartFile
+	}
+	return loc
+}

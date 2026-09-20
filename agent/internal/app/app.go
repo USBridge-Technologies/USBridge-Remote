@@ -2014,6 +2014,15 @@ func (a *App) InstallUSBDriver() error {
 	return a.usbBroker.InstallDrivers()
 }
 
+// GrantUSBAttach installs the one-time passwordless-usbip grant (Linux; see
+// usbpass.Service.GrantAttachAccess).
+func (a *App) GrantUSBAttach() error {
+	if a.usbBroker == nil {
+		return fmt.Errorf("usb passthrough not available")
+	}
+	return a.usbBroker.GrantAttachAccess()
+}
+
 // ClearLicense clears the saved entitlement token and switches back to
 // Sunshine if RustShine was active. Does not delete the already-staged
 // RustShine binary -- buying/trialing again later can reuse it without
