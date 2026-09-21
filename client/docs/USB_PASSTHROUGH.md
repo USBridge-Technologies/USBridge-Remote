@@ -14,10 +14,89 @@ where to pull it from. Referenced from code comments in `access_linux.go` and
 | --- | --- | --- |
 | Raw libusb claim (`backend_gousb.go`) | Windows, Linux (build tag `-tags usbpass_gousb`) | libusb-1.0 at build time; **Windows: WinUSB bound to the target interface first — see below** |
 | Non-exclusive HID tap (`hidbridge_darwin.go`) | macOS only | Nothing extra — IOHIDManager reads input reports without claiming the interface |
+| HID bridge (`hidbridge_windows.go`, `hidgen_backend.go`) | Windows, HID-class devices | Nothing extra — no Zadig/WinUSB; see "Windows HID bridge" below |
+| Synthetic Xbox 360 (`x360_claim_windows.go`, `x360_backend.go`) | Windows, Xbox pads readable through XInput | Nothing extra — see "Xbox pads" below |
 
 Android has its own raw-claim path (`backend_android.go`, JNI). Everything
 below is about the raw libusb path, which is what a gamepad, tablet, or
 storage device on Windows/Linux actually goes through.
+
+## Windows HID bridge (no Zadig)
+
+For a HID-class device the Windows client does **not** need WinUSB. `TryClaimGousb`
+first tries `tryClaimHID` (`hidbridge_windows.go`): it finds the device's HID
+collection nodes (`HID\...&COLnn`), opens each one with a shared handle through
+`hid.dll`, reads its input reports and round-trips feature/output reports, and
+presents the result to the importer as a synthetic USB HID device (real VID/PID,
+strings and report descriptor — same idea as the macOS bridge). The device keeps
+its normal Windows driver locally, and the importer binds its own class/vendor
+driver to it.
+
+Windows never gives user mode the raw report descriptor, so it is reconstructed
+from the preparsed data (`hidpp_reconstruct.go`, a port of hidapi's
+`hidapi_descriptor_reconstruct.c`). The result is functionally equivalent, not
+byte-identical to what the device sends.
+
+**Limits (verified on real hardware):**
+
+- Windows holds the collections of **mice, keyboards and pens/digitizers
+  exclusively**: `hid.dll` refuses read access (`Access is denied` / sharing
+  violation). Those collections are still opened with query-only access (enough
+  for the descriptor and feature reports), and their input reports come from
+  **Raw Input** (`WM_INPUT`, `hidrawinput_windows.go`), which delivers raw HID
+  reports for pen/digitizer/consumer/vendor/gamepad collections without taking
+  the device from the OS. A Wacom Intuos S is bridged this way (verified: ~740
+  pen reports in 12 s through the URB path, WinUSB not needed).
+- **Mice and keyboards give no raw reports** (Raw Input returns parsed
+  `RAWMOUSE`/`RAWKEYBOARD`), so such collections are exported but stay silent
+  (a warning lists them, e.g. the tablet's mouse-emulation collection). An
+  interface consisting only of them is left out.
+- If some interfaces of a composite device cannot be bridged, the bridge exports
+  only the interfaces it could (a warning names the rest). If none can be
+  bridged, the libusb path is used.
+- Not HID, not bridged by this path: mass storage. Xbox pads have their own path,
+  see "Xbox pads" below.
+- Aliased usages/collections (report descriptor delimiters) are not supported;
+  such a device also falls back to libusb.
+- **The bridge is opt-in** (`USBRIDGE_HID_BRIDGE=1`); by default every device keeps
+  the full-fidelity libusb path. Reason: a vendor driver such as Wacom's router
+  sends feature reports the HID descriptor does not declare (`0x02`, `0x83`,
+  `0x0D`, ...) at USB level, and `hid.dll` refuses undeclared report IDs
+  ("The parameter is incorrect"), so they cannot be forwarded. The importer's
+  native driver still binds (`WacHidRouterPro`) and pen reports flow, but its
+  initialisation/config traffic is acknowledged, not delivered — whether the
+  tablet is then fully usable was not verified with a separate importer machine.
+- Live check against a physically attached device:
+  `USBRIDGE_HID_LIVE_USB='USB\VID_xxxx&PID_yyyy\<instance>' go test -v -run TestLiveWindowsHIDBridge ./internal/usbpass/`
+
+## Xbox pads: synthetic Xbox 360 controller (Windows)
+
+An Xbox One/Series (GIP) pad cannot be passed through raw: the importer's driver
+waits for an Announce, runs GIP authentication and is timing sensitive. So when
+the device's setup class is `XboxComposite` (GIP) or `XnaComposite` (wired 360)
+and XInput can read a pad, `TryClaimGousb` calls `tryClaimX360`
+(`x360_claim_windows.go`) **before** the HID and libusb paths:
+
+- the export becomes a genuine Xbox 360 wired controller (`045E:028E`, four
+  interfaces, descriptors in `x360_backend.go`);
+- its state is the local pad read through XInput (`x360_xinput_windows.go`,
+  first connected slot, 4 ms poll, follows a replug), sent as the 20-byte
+  interrupt-IN report; rumble/LED written by the importer go back to the pad
+  through `XInputSetState`;
+- the importer's Windows binds its inbox `xusb22.sys` (no ViGEmBus, no Zadig,
+  nothing to change on the agent) and games there see a normal XInput pad.
+
+Verified live: a Razer Wolverine V2 (`1532:0A29`, GIP) exported through
+`usbip attach` to the local VHCI enumerates as "Xbox 360 Controller for Windows"
+(`XnaComposite`), appears in a free XInput slot and the driver's LED command
+reaches the backend. `USBRIDGE_X360=0` disables it and restores the raw libusb
+path. Not covered: the pad's headset/audio and plugin interfaces (acknowledged,
+never active), and more than one Xbox pad exported at once (all would mirror the
+first XInput slot).
+
+Live checks: `USBRIDGE_X360_LIVE_USB='USB\VID_xxxx&PID_yyyy\<serial>' go test -v -run TestLiveX360Claim ./internal/usbpass/`
+and, for the loopback export, `USBRIDGE_X360_LIVE_SECS=60 USBRIDGE_X360_SOURCE=xinput go test -v -run TestLiveX360Loopback ./internal/usbpass/`
+then `usbip attach -r 127.0.0.1 -b 9-8`.
 
 ## Windows: WinUSB must already be bound (no automatic step)
 

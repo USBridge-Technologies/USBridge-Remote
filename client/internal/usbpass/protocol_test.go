@@ -71,7 +71,7 @@ func TestResolveUSBSpeedMapping(t *testing.T) {
 func TestDescGetDevice(t *testing.T) {
 	d := NewExportedFromVIDPID("1-92", 0x24a9, 0x205a)
 	setup := [8]byte{0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00}
-	st, data := d.Backend.HandleControl(context.Background(), setup, 18)
+	st, data := d.Backend.HandleControl(context.Background(), setup, 18, nil)
 	if st != 0 || len(data) != 18 {
 		t.Fatalf("st=%d len=%d", st, len(data))
 	}

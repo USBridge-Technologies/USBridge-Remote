@@ -56,6 +56,8 @@ type ExportedDevice struct {
 	DeviceDesc []byte
 	ConfigDesc []byte
 	Backend    DeviceBackend
+
+	trace urbTrace // see urbtrace.go
 }
 
 // DeviceBackend answers URBs for an imported device. ctx is per-URB: it is
@@ -66,7 +68,10 @@ type ExportedDevice struct {
 // its own internal timeout, which is what left CMD_UNLINK unprocessable and
 // made Windows reset the port after a slow/stuck transfer (see serveURBs).
 type DeviceBackend interface {
-	HandleControl(ctx context.Context, setup [8]byte, wLength int) (status int32, data []byte)
+	// outData is the host-to-device data stage of a control-OUT URB (nil for
+	// control-IN or an OUT with no data stage); a backend must forward it, not
+	// just the setup packet. For an OUT the returned data is ignored.
+	HandleControl(ctx context.Context, setup [8]byte, wLength int, outData []byte) (status int32, data []byte)
 	HandleBulk(ctx context.Context, ep uint8, dirIn bool, length int, outData []byte) (status int32, data []byte)
 	Close() error
 }
@@ -287,6 +292,7 @@ func (s *Server) serveURBs(c net.Conn, dev *ExportedDevice) error {
 			buf = buf[consumed:]
 
 			if frame.cmd == cmdUnlink {
+				dev.trace.unlink(frame.seq, frame.unlinkSeq)
 				inflightMu.Lock()
 				if cancel, ok := inflight[frame.unlinkSeq]; ok {
 					cancel()
@@ -395,14 +401,21 @@ func dispatchURB(ctx context.Context, dev *ExportedDevice, f urbFrame) []byte {
 	ep := uint8(f.ep)
 	var status int32
 	var data []byte
+	start := time.Now()
 	if ep&0x7f == 0 {
 		wLen := int(binary.LittleEndian.Uint16(f.setup[6:8]))
 		if f.transferLen > 0 && int(f.transferLen) < wLen {
 			wLen = int(f.transferLen)
 		}
-		status, data = dev.Backend.HandleControl(ctx, f.setup, wLen)
+		status, data = dev.Backend.HandleControl(ctx, f.setup, wLen, f.data)
 	} else {
 		status, data = dev.Backend.HandleBulk(ctx, ep, f.direction == dirIn, int(f.transferLen), f.data)
+	}
+	dev.trace.record(f, status, data, time.Since(start))
+	if f.direction == dirOut {
+		// A RET_SUBMIT for an OUT carries no data stage; stray bytes here
+		// desync the importer's stream.
+		data = nil
 	}
 
 	actualLength := int32(len(data))
