@@ -740,6 +740,12 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			// A software agent reports the requested mode ("mapx360", "xinput", ...) as the
 			// type, not "gamepad:<mode>" like the KVM hardware, so also match the device kind.
 			if drive.IsGamepad && (device.Device == "gamepad" || device.Type == "gamepad" || strings.HasPrefix(device.Type, "gamepad:")) {
+				// Several local pads can be listed, but the agent only knows the
+				// VID/PID we sent, so a software agent's entry belongs to the
+				// row with that identity, not simply to the first gamepad row.
+				if IsSoftwareAgentOS(dw.agentOS) && !gamepadIdentityMatches(drive.GamepadVendorID, drive.GamepadProductID, device.VendorID, device.ProductID) {
+					continue
+				}
 				isMounted = true
 				usedMountedIdx[j] = true
 				logrus.Debugf("🎮 Found connected gamepad: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)

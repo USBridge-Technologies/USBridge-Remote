@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"sync/atomic"
 
 	"usbridge-client/internal/platform"
@@ -111,4 +112,19 @@ func (dw *DiskWidget) stopAllGamepadCaptures() {
 		cap.Stop()
 		delete(dw.activeCaptures, id)
 	}
+}
+
+// gamepadIdentityMatches reports whether an agent-reported gamepad entry can
+// belong to a local pad. Either side lacking a VID/PID leaves it undecided,
+// which counts as a match.
+func gamepadIdentityMatches(driveVID, drivePID, deviceVID, devicePID string) bool {
+	norm := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		s = strings.TrimPrefix(s, "0x")
+		return strings.TrimLeft(s, "0")
+	}
+	if norm(driveVID) == "" && norm(drivePID) == "" || norm(deviceVID) == "" && norm(devicePID) == "" {
+		return true
+	}
+	return norm(driveVID) == norm(deviceVID) && norm(drivePID) == norm(devicePID)
 }

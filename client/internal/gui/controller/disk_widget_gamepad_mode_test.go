@@ -27,3 +27,24 @@ func TestEffectiveGamepadMode(t *testing.T) {
 		})
 	}
 }
+
+func TestGamepadIdentityMatches(t *testing.T) {
+	tests := []struct {
+		name                               string
+		driveVID, drivePID, devVID, devPID string
+		want                               bool
+	}{
+		{"same", "0x1532", "0x0a29", "0x1532", "0x0a29", true},
+		{"case and prefix", "0x045E", "0x028E", "045e", "028e", true},
+		{"different pad", "0x045e", "0x028e", "0x1532", "0x0a29", false},
+		{"agent reports none", "0x1532", "0x0a29", "", "", true},
+		{"drive has none", "", "", "0x1532", "0x0a29", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := gamepadIdentityMatches(tt.driveVID, tt.drivePID, tt.devVID, tt.devPID); got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
