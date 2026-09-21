@@ -223,20 +223,70 @@ var rndisModeOptions = []string{"auto", "wifirouter", "etherouter", "etherbridge
 const (
 	gamepadModeDirectInput = "directinput"
 	gamepadModeXInput      = "xinput"
+	// gamepadModeMapX360 maps the local gamepad to a virtual Xbox 360 pad on
+	// the agent (Moonlight controller path). Software agents only; the
+	// hardware KVM has no such mode.
+	gamepadModeMapX360 = "mapx360"
 )
 
 func normalizeGamepadMode(mode string) string {
-	if strings.ToLower(mode) == gamepadModeXInput {
+	switch strings.ToLower(mode) {
+	case gamepadModeXInput:
 		return gamepadModeXInput
+	case gamepadModeMapX360:
+		return gamepadModeMapX360
 	}
 	return gamepadModeDirectInput
 }
 
 func gamepadModeLabel(mode string) string {
-	if mode == gamepadModeXInput {
+	switch mode {
+	case gamepadModeXInput:
 		return i18n.Current.DeviceXInput
+	case gamepadModeMapX360:
+		return i18n.Current.DeviceMapX360
 	}
 	return i18n.Current.DeviceDirectInput
+}
+
+// effectiveGamepadMode resolves a row's stored mode against the connected
+// agent. An empty mode (the user has not picked one) defaults to Map Xbox 360
+// on a software agent and to XInput on the KVM hardware; Map Xbox 360 is not
+// available on the hardware, so it falls back to XInput there.
+func (dw *DiskWidget) effectiveGamepadMode(mode string) string {
+	software := IsSoftwareAgentOS(dw.agentOS)
+	switch strings.ToLower(mode) {
+	case gamepadModeMapX360:
+		if software {
+			return gamepadModeMapX360
+		}
+		return gamepadModeXInput
+	case gamepadModeXInput, gamepadModeDirectInput:
+		return normalizeGamepadMode(mode)
+	}
+	if software {
+		return gamepadModeMapX360
+	}
+	return gamepadModeXInput
+}
+
+// gamepadModeOptions lists the mode picker's labels for the connected agent.
+func (dw *DiskWidget) gamepadModeOptions() []string {
+	if IsSoftwareAgentOS(dw.agentOS) {
+		return []string{i18n.Current.DeviceMapX360, i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput}
+	}
+	return []string{i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput}
+}
+
+// gamepadModeFromLabel is gamepadModeOptions' inverse.
+func gamepadModeFromLabel(label string) string {
+	switch label {
+	case i18n.Current.DeviceXInput:
+		return gamepadModeXInput
+	case i18n.Current.DeviceMapX360:
+		return gamepadModeMapX360
+	}
+	return gamepadModeDirectInput
 }
 
 func normalizeRNDISMode(mode string) string {

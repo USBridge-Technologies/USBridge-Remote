@@ -205,7 +205,7 @@ func (dw *DiskWidget) handleMount() {
 		if d.IsMounted && (d.IsKeyboard || d.IsMouse) {
 			hidMountedCount++
 		}
-		if d.IsMounted && d.IsGamepad && normalizeGamepadMode(d.GamepadMode) == gamepadModeXInput {
+		if d.IsMounted && d.IsGamepad && dw.effectiveGamepadMode(d.GamepadMode) == gamepadModeXInput {
 			xinputMountedCount++
 		}
 	}
@@ -214,7 +214,7 @@ func (dw *DiskWidget) handleMount() {
 	hidSelectedCount := 0
 	xinputSelectedCount := 0
 	for _, d := range selectedDrives {
-		if d.IsGamepad && normalizeGamepadMode(d.GamepadMode) == gamepadModeXInput {
+		if d.IsGamepad && dw.effectiveGamepadMode(d.GamepadMode) == gamepadModeXInput {
 			hasXInputSelected = true
 			xinputSelectedCount++
 		}
@@ -637,7 +637,7 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		req := newRNDISStartRequest(rndisMode)
 		return &req, "", nil
 	case "gamepad":
-		req := newGamepadStartRequest(sel.GamepadMode, sel.GamepadVendorID, sel.GamepadProductID)
+		req := newGamepadStartRequest(dw.effectiveGamepadMode(sel.GamepadMode), sel.GamepadVendorID, sel.GamepadProductID)
 		return &req, "", nil
 	case "usbaudio":
 		mode := sel.USBAudioMode
@@ -1145,7 +1145,7 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		return &req, nil
 	}
 	if drive.Source == "gamepad" {
-		req := newGamepadStartRequest(drive.GamepadMode, drive.GamepadVendorID, drive.GamepadProductID)
+		req := newGamepadStartRequest(dw.effectiveGamepadMode(drive.GamepadMode), drive.GamepadVendorID, drive.GamepadProductID)
 		return &req, nil
 	}
 	if drive.Source == "usbaudio" {

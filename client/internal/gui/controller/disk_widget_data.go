@@ -250,7 +250,7 @@ func (dw *DiskWidget) combineDrives() {
 	selectedKeys := make(map[string]bool)
 	oldMouseType := normalizeMouseMode(dw.preferredMouseMode) // preserve the user's choice (touchpad/touchscreen/absolute)
 	oldRNDISMode := "auto"
-	oldGamepadMode := gamepadModeXInput
+	oldGamepadMode := "" // "" = not chosen; resolved per agent by effectiveGamepadMode
 	oldUSBAudioMode := "uac1"
 	for i, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
@@ -737,7 +737,9 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				break
 			}
 
-			if drive.IsGamepad && (device.Type == "gamepad" || strings.HasPrefix(device.Type, "gamepad:")) {
+			// A software agent reports the requested mode ("mapx360", "xinput", ...) as the
+			// type, not "gamepad:<mode>" like the KVM hardware, so also match the device kind.
+			if drive.IsGamepad && (device.Device == "gamepad" || device.Type == "gamepad" || strings.HasPrefix(device.Type, "gamepad:")) {
 				isMounted = true
 				usedMountedIdx[j] = true
 				logrus.Debugf("🎮 Found connected gamepad: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
