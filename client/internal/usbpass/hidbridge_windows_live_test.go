@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 // TestLiveWindowsHIDBridge exercises the HID bridge against a real, physically
@@ -126,5 +127,37 @@ func TestLiveHIDImportServer(t *testing.T) {
 	}
 	defer srv.Stop()
 	t.Logf("EXPORT-READY %s bus id 9-9 (holding %ds)", addr, secs)
-	time.Sleep(time.Duration(secs) * time.Second)
+	procAuditBeep.Call(1000, 300) // move the pen now
+	type pt struct{ x, y int32 }
+	cur := func() (p pt) {
+		procGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
+		return
+	}
+	lo, hi := cur(), cur()
+	for end := time.Now().Add(time.Duration(secs) * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		c := cur()
+		lo.x, lo.y = min(lo.x, c.x), min(lo.y, c.y)
+		hi.x, hi.y = max(hi.x, c.x), max(hi.y, c.y)
+	}
+	srv.Stop()
+	for i := 0; i < 90 && fileExists(localInputStateFile()); i++ { // the tablet's local input comes back
+		time.Sleep(time.Second)
+	}
+	t.Logf("local cursor moved x %d..%d, y %d..%d (unchanged = the tablet no longer drives it locally)", lo.x, hi.x, lo.y, hi.y)
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// TestLiveRestoreLocalInput brings back a tablet a crashed run left switched off.
+func TestLiveRestoreLocalInput(t *testing.T) {
+	if os.Getenv("USBRIDGE_RESTORE_LOCAL") == "" {
+		t.Skip("set USBRIDGE_RESTORE_LOCAL=1")
+	}
+	RestoreLocalInput()
+	if fileExists(localInputStateFile()) {
+		t.Fatal("state file still there: restore failed")
+	}
 }

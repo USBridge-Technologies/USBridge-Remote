@@ -380,6 +380,31 @@ func TestLiveWacomModelFeed(t *testing.T) {
 	if m == nil {
 		t.Fatal("no model")
 	}
+	if os.Getenv("USBRIDGE_WACOM_DB") != "" { // the generic path: database descriptor + the device's own descriptors
+		var dd, cd []byte
+		if hp, err := findUSBHubPort(0x056a, 0x0374); err == nil {
+			dd, _ = hp.control(0x80, 0x06, 0x0100, 0, 18)
+			cd, _ = hp.control(0x80, 0x06, 0x0200, 0, 34)
+		}
+		if m = wacomModelFromDB(0x056a, 0x0374, 0x0111, "Wacom Co.,Ltd.", "Intuos S", "1EH00R2017722", dd, cd); m == nil {
+			t.Fatal("no DB model")
+		}
+		t.Logf("DB model %q: %d interface(s), live descriptors %v", m.Name, len(m.Ifaces), dd != nil)
+	}
+	if os.Getenv("USBRIDGE_WACOM_ZERO") != "" { // do the drivers need the real feature values?
+		z := *m
+		zi := *m.Ifaces[0]
+		zi.Features = map[uint8][]byte{}
+		for id, v := range m.Ifaces[0].Features {
+			if v != nil {
+				zi.Features[id] = append([]byte{id}, make([]byte, len(v)-1)...)
+			} else {
+				zi.Features[id] = nil
+			}
+		}
+		z.Ifaces = []*wacomIface{&zi}
+		m = &z
+	}
 	dev := &ExportedDevice{BusID: "9-9", Path: "/sys/devices/usbridge/9-9", Busnum: 9, Devnum: 9}
 	b := applyWacomModel(dev, m)
 	srv, err := StartExport("127.0.0.1:3240", []*ExportedDevice{dev})
@@ -466,7 +491,7 @@ func TestLiveWacomModelRemote(t *testing.T) {
 			if err != nil {
 				continue
 			}
-			if w := wacomWireReport(raw); w != nil {
+			if w := m.wireReport(raw); w != nil {
 				b.push(0, w)
 				pushed.Add(1)
 				if w[0] == 0x10 {

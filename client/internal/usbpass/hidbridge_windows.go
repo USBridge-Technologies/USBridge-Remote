@@ -218,18 +218,45 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 		Interfaces:   ifaces,
 	}
 	backend := newHIDGenBackend(info)
-	push := backend.push
-	if m := wacomModelFor(vid, pid); m != nil {
+	push := func(i int, rep []byte, _ string) { backend.push(i, rep) }
+	exportedFromModel := false
+	if m := wacomModelForDevice(vid, pid, ver, info.Manufacturer, info.Product, info.Serial); m != nil {
 		// A tablet we hold the captured descriptors of is exported from that model
 		// (what Wacom's driver expects); only its live input reports are bridged.
 		backend = newWacomModelBackend(m)
-		push = func(i int, rep []byte) {
-			if w := wacomWireReport(rep); w != nil {
-				backend.push(i, w)
+		exportedFromModel = true
+		seen := sync.Map{}
+		push = func(i int, rep []byte, src string) {
+			idx, w := m.route(rep, int(ifaces[i].Number))
+			if len(rep) > 0 {
+				if _, dup := seen.LoadOrStore(fmt.Sprintf("%s/%02x/%v", src, rep[0], w != nil), true); !dup {
+					logrus.Infof("usbpass: hidbridge: first report %#02x (%d bytes) from %s: forwarded=%v", rep[0], len(rep), src, w != nil)
+				}
+			}
+			if w != nil {
+				backend.push(idx, w)
 			}
 		}
 		logrus.Infof("usbpass: hidbridge: %04x:%04x is exported from the captured %s model", vid, pid, m.Name)
 	}
+
+	// A tablet exported from a model needs only the collection its data is read from.
+	// The others (mouse, pen, digitizer) are released here so that they can be
+	// switched off for the duration of the export, which Windows refuses while
+	// something holds them open; see suppressLocalInput.
+	keep := map[string]bool{}
+	if exportedFromModel {
+		for _, g := range groups {
+			for _, c := range g.cols {
+				// The data comes from the vendor-defined collection; the pointer-like
+				// ones (mouse, pen, digitizer) are what moves the local cursor.
+				if c.liveKind() == liveRead && c.pp.UsagePage >= 0xFF00 {
+					keep[normalizeHIDID(c.instance)] = true
+				}
+			}
+		}
+	}
+	suppressLocal := len(keep) > 0
 
 	// Input: collections we may read use hid.dll; the OS-held ones are fed by
 	// one Raw Input window, routed by device path.
@@ -246,12 +273,16 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 	for _, g := range groups {
 		f := ifaces[g.idx]
 		for _, c := range g.cols {
+			if suppressLocal && !keep[normalizeHIDID(c.instance)] {
+				c.close()
+				continue
+			}
 			switch c.liveKind() {
 			case liveRead:
 				wg.Add(1)
 				go func(i int, hasIDs bool, c *winHIDCollection) {
 					defer wg.Done()
-					c.readLoop(stop, hasIDs, func(rep []byte) { push(i, rep) })
+					c.readLoop(stop, hasIDs, func(rep []byte) { push(i, rep, "read "+c.instance) })
 				}(g.idx, f.HasIDs, c)
 			case liveRaw:
 				rawRoutes[normalizeHIDID(c.instance)] = rawTarget{iface: g.idx, hasIDs: f.HasIDs, col: c}
@@ -279,7 +310,7 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 				if !t.hasIDs && len(rep) == t.col.inLen && len(rep) > 0 {
 					rep = rep[1:]
 				}
-				push(t.iface, rep)
+				push(t.iface, rep, "raw "+ev.Path)
 			}
 		})
 		if err != nil {
@@ -290,6 +321,18 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 			return false, nil
 		}
 	}
+	// An exported tablet must not also move the local pointer: switch off its
+	// mouse/pen/digitizer nodes for the duration (the nodes we read from stay on).
+	restoreLocal := func() {}
+	if suppressLocal {
+		var off []string
+		for _, n := range nodes {
+			if !keep[normalizeHIDID(n.InstanceID)] {
+				off = append(off, n.InstanceID)
+			}
+		}
+		restoreLocal = suppressLocalInput(dev.InstanceID, off)
+	}
 	backend.onClose = func() {
 		if raw != nil {
 			raw.Stop()
@@ -297,6 +340,7 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 		close(stop)
 		wg.Wait()
 		closeAll()
+		restoreLocal()
 	}
 
 	dev.Backend = backend
@@ -308,7 +352,7 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 	dev.BCDDevice = ver
 	dev.VID, dev.PID = vid, pid
 	dev.Interfaces = nil
-	for range ifaces {
+	for range backend.ifaces {
 		dev.Interfaces = append(dev.Interfaces, [3]uint8{0x03, 0x00, 0x00})
 	}
 	dev.Speed = 2 // full speed, like the real tablets this was built for

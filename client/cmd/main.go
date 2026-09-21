@@ -19,6 +19,7 @@ import (
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/update"
+	"usbridge-client/internal/usbpass"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -177,6 +178,7 @@ func main() {
 		})
 	})
 
+	go usbpass.RestoreLocalInput() // a tablet a crashed export left with its local input off
 	logrus.Info("Starting GUI")
 	mainWindow.Show()
 }

@@ -339,7 +339,7 @@ func (dw *DiskWidget) refreshDashboard() {
 		drive DriveItem
 	}
 	var hidKeyboard, hidMouse *hidDrive
-	var hidGamepads []hidDrive
+	var hidGamepads, hidTablets []hidDrive
 	for idx, drive := range dw.allDrives {
 		name := dw.deviceRowText(drive)
 		icon := driveIconResource(drive)
@@ -394,6 +394,8 @@ func (dw *DiskWidget) refreshDashboard() {
 				dw.newDashboardConnectSlot(idx, drive, dw.dashboardBackupHover),
 				nil, dw.dashboardBackupChips(drive.Size)...,
 			))
+		case drive.IsUSBPassthrough && isWacomTablet(drive):
+			hidTablets = append(hidTablets, hidDrive{idx: idx, drive: drive})
 		case drive.IsUSBPassthrough:
 			emulationRows = append(emulationRows, view.NewDeviceDashboardStorageRow(
 				icon, name, drive.IsMounted, nil, nil, nil,
@@ -452,7 +454,22 @@ func (dw *DiskWidget) refreshDashboard() {
 		))
 	}
 
-	setDashboardRows(dw.dashboardHID, hidRows, "No keyboard, mouse, or gamepad devices")
+	// Pen tablets sit with the other input devices: switching one on exports it
+	// to the host as the original USB tablet (its own driver binds to it).
+	for _, tab := range hidTablets {
+		toggle := dw.newDriveToggle(tab.idx, tab.drive, dw.dashboardHIDHover)
+		if tab.drive.USBPassthrough != nil && tab.drive.USBPassthrough.Protected && !tab.drive.IsMounted {
+			toggle.SetEnabled(false)
+		}
+		hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
+			driveIconResource(tab.drive),
+			strings.TrimSpace(dw.deviceRowText(tab.drive)),
+			tab.drive.IsMounted,
+			toggle,
+		))
+	}
+
+	setDashboardRows(dw.dashboardHID, hidRows, "No keyboard, mouse, gamepad, or tablet devices")
 	setDashboardRows(dw.dashboardVideo, videoRows, "No capture devices")
 	if view.IsMobile() && len(audioRows) == 0 {
 		if dw.dashboardAudioCard != nil {
@@ -1163,4 +1180,10 @@ func (dw *DiskWidget) toggleDriveMount(index int) {
 	} else {
 		dw.handleMount()
 	}
+}
+
+// isWacomTablet reports whether a USB passthrough entry is a Wacom pen tablet, which
+// the HID & Input Hub lists (and exports) like the other input devices.
+func isWacomTablet(drive DriveItem) bool {
+	return drive.USBPassthrough != nil && strings.EqualFold(drive.USBPassthrough.VID, "056a")
 }
