@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"usbridge-client/internal/gui/assets"
@@ -19,7 +20,7 @@ import (
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
 // column (HID & Input Hub, Video Pipe & EDID, Audio Pipeline) stacked above
 // one another, and a wide right column (Virtual Mass Storage & ISO Media,
-// then USB Emulation, then a short Network + Backups pair or the firmware
+// then Raw USB, then a short Network + Backups pair or the firmware
 // promo on an agent), all styled
 // after the Connections grid's own cards (see view.NewDeviceDashboardCard),
 // including their own teal-on-hover border.
@@ -141,11 +142,18 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		dw.dashboardStorageScroll,
 		storageBind,
 	)
+	// WinUSB/Zadig is a Windows-client prerequisite of raw claims only.
+	var emulationHelp fyne.CanvasObject
+	if runtime.GOOS == "windows" {
+		helpBtn := view.NewDeviceDashboardHeaderButton("?", nil, view.DeviceDashboardAccentLime, dw.openRawUSBHelp)
+		helpBtn.OnHover = dw.dashboardEmulationHover
+		emulationHelp = helpBtn
+	}
 	emulationCard := view.NewDeviceDashboardCard(
 		view.DeviceDashboardUSBIconSVG,
 		deviceDashboardEmulationTitle,
 		"",
-		nil,
+		emulationHelp,
 		dw.dashboardEmulationScroll,
 		emulationBind,
 	)
@@ -222,8 +230,41 @@ func (dw *DiskWidget) AttachConnectingHint(hint *view.DeviceDashboardBusySpinner
 const (
 	devicesFirmwarePromoDismissedPrefKey = "devices.firmware_promo.dismissed"
 	deviceDashboardStorageTitle          = "Virtual Mass Storage & ISO Media"
-	deviceDashboardEmulationTitle        = "USB Emulation"
+	deviceDashboardEmulationTitle        = "Raw USB"
+	zadigURL                             = "https://zadig.akeo.ie/"
 )
+
+// openRawUSBHelp explains the Windows-only prerequisite of raw USB
+// passthrough (WinUSB bound through Zadig) and links to Zadig.
+func (dw *DiskWidget) openRawUSBHelp() {
+	if dw.window == nil {
+		return
+	}
+	view.ShowInfoDialogWithAction(
+		i18n.Current.DevicesUSBHelpTitle,
+		i18n.Current.DevicesUSBHelpText,
+		i18n.Current.DevicesUSBHelpOpenZadig,
+		func() {
+			uri, err := url.Parse(zadigURL)
+			if err != nil {
+				return
+			}
+			fyneApp := dw.app
+			if fyneApp == nil {
+				fyneApp = fyne.CurrentApp()
+			}
+			if fyneApp == nil {
+				return
+			}
+			go func() {
+				if err := fyneApp.OpenURL(uri); err != nil {
+					logrus.Errorf("failed to open Zadig URL %q: %v", zadigURL, err)
+				}
+			}()
+		},
+		dw.window,
+	)
+}
 
 func (dw *DiskWidget) firmwarePromoDismissed() bool {
 	if dw.app == nil {

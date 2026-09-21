@@ -222,8 +222,12 @@ func (dw *DiskWidget) handleMount() {
 			hidSelectedCount++
 		}
 	}
-	dropHIDForGamepad := hasXInputSelected && (hidSelectedCount > 0 || hidMountedCount > 0)
-	dropGamepadForHID := hidSelectedCount > 0 && xinputMountedCount > 0 && !dropHIDForGamepad
+	// The XInput-vs-keyboard/mouse exclusivity comes from the hardware KVM's
+	// single USB gadget. A Windows/Linux/macOS software agent injects HID as
+	// OS-level input and gamepads through Moonlight, so they coexist there.
+	hardwareKVM := isUSBridgeAgentOS(dw.agentOS)
+	dropHIDForGamepad := hardwareKVM && hasXInputSelected && (hidSelectedCount > 0 || hidMountedCount > 0)
+	dropGamepadForHID := hardwareKVM && hidSelectedCount > 0 && xinputMountedCount > 0 && !dropHIDForGamepad
 
 	effectiveMounted := mountedGadgetCount
 	effectiveAdding := len(selectedDrives)
