@@ -126,7 +126,7 @@ type LocalizedStrings struct {
 	DevicesEmptyUSB                   string
 	DevicesCardUSBPassthrough         string
 	DevicesHardwareOnly               string
-	USBEmulationProBadge              string // USB Passthrough header plaque, e.g. "Pro USBridge Streamer"
+	USBEmulationProBadge              string // Raw USB header plaque, e.g. "Pro USBridge Streamer"
 	DevicesZadigTitle                 string
 	DevicesZadigMessage               string
 	DevicesZadigDownload              string
@@ -712,7 +712,7 @@ func EN() *LocalizedStrings {
 		DevicesEmptyAudio:                 "No audio devices",
 		DevicesEmptyStorage:               "No storage or ISO media",
 		DevicesEmptyUSB:                   "No USB devices",
-		DevicesCardUSBPassthrough:         "USB Passthrough",
+		DevicesCardUSBPassthrough:         "Raw USB",
 		DevicesHardwareOnly:               "Hardware only",
 		USBEmulationProBadge:              "Pro USBridge Streamer",
 		DevicesZadigTitle:                 "Can't find your device?",
@@ -857,7 +857,7 @@ func EN() *LocalizedStrings {
 		DevicesSectionConnectivityHint:    "RNDIS bridge and channel infrastructure used to link the remote host.",
 		DevicesSectionAudio:               "Audio",
 		DevicesSectionAudioHint:           "Audio capture sources and USB Audio Codec gadget.",
-		DevicesSectionPassthrough:         "USB Passthrough",
+		DevicesSectionPassthrough:         "Raw USB",
 		DevicesSectionPassthroughHint:     "Redirect a local USB device into the remote Windows session.",
 		USBPassthroughEnterpriseHint:      "Requires Enterprise on the Windows agent.",
 		USBPassthroughProtected:           "Protected (session input / capture)",
@@ -1424,7 +1424,7 @@ func ES() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Sin audio"
 	locale.DevicesEmptyStorage = "Sin storage ni ISO"
 	locale.DevicesEmptyUSB = "Sin USB"
-	locale.DevicesCardUSBPassthrough = "Passthrough USB"
+	locale.DevicesCardUSBPassthrough = "USB en bruto"
 	locale.DevicesHardwareOnly = "Solo hardware"
 	locale.USBEmulationProBadge = "Pro USBridge Streamer"
 	locale.DevicesZadigTitle = "No aparece tu dispositivo?"
@@ -1755,7 +1755,7 @@ func UKProper() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Немає аудіо"
 	locale.DevicesEmptyStorage = "Немає storage / ISO"
 	locale.DevicesEmptyUSB = "Немає USB"
-	locale.DevicesCardUSBPassthrough = "USB-проброс"
+	locale.DevicesCardUSBPassthrough = "Сирий USB"
 	locale.DevicesHardwareOnly = "Лише hardware"
 	locale.USBEmulationProBadge = "Pro USBridge Streamer"
 	locale.DevicesZadigTitle = "Не бачите свій пристрій?"

@@ -1112,22 +1112,6 @@ func ShowErrorDialogWithAction(err error, actionLabel string, onAction func(), p
 	showStyledMessageDialogWithAction(i18n.Current.Error, err.Error(), design.ColorDanger, design.ColorDanger, actionLabel, onAction, parent)
 }
 
-// ShowInfoDialogWithAction is ShowInfoDialog's panel with one extra labeled
-// button below the message (e.g. a help text that links to a download page).
-func ShowInfoDialogWithAction(title, message, actionLabel string, onAction func(), parent fyne.Window) {
-	if strings.TrimSpace(actionLabel) == "" || onAction == nil {
-		ShowInfoDialog(title, message, parent)
-		return
-	}
-	if strings.TrimSpace(message) == "" {
-		return
-	}
-	if strings.TrimSpace(title) == "" {
-		title = i18n.Current.Information
-	}
-	showStyledMessageDialogWithAction(title, message, design.ColorTextMuted, design.ColorBorder, actionLabel, onAction, parent)
-}
-
 func showStyledMessageDialogWithAction(title, message string, titleColor, borderColor color.Color, actionLabel string, onAction func(), parent fyne.Window) {
 	var popup *widget.PopUp
 	closePopup := func() {

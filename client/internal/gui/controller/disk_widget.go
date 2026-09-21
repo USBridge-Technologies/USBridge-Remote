@@ -116,7 +116,7 @@ type DiskWidget struct {
 	// updateSDStorageInfo has a reading.
 	dashboardBackupSpace *view.DeviceDashboardSpaceMeter
 
-	// dashboardEmulationProBadge is USB Passthrough's header plaque
+	// dashboardEmulationProBadge is Raw USB's header plaque
 	// ("Pro USBridge Streamer"), always shown.
 	dashboardEmulationProBadge *view.DeviceDashboardHeaderBadge
 

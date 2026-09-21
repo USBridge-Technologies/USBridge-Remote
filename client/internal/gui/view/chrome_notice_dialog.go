@@ -2,6 +2,7 @@ package view
 
 import (
 	"image/color"
+	"strings"
 
 	"usbridge-client/internal/gui/design"
 
@@ -11,11 +12,11 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-const chromeNoticeDialogWidth = float32(400)
+const chromeNoticeDialogWidth = float32(440)
 
 // ShowChromeActionDialog is the shared Account / Video Parameters chrome
-// for a short notice plus one compact lime action: accent hairline, title,
-// close X, body copy, footer pill. No copy button.
+// for a notice: accent hairline, title, close X, body copy. A compact lime
+// footer pill is added only when actionLabel is non-empty.
 func ShowChromeActionDialog(parent fyne.Window, title, message, actionLabel string, onAction func()) *widget.PopUp {
 	if parent == nil {
 		return nil
@@ -42,25 +43,39 @@ func ShowChromeActionDialog(parent fyne.Window, title, message, actionLabel stri
 	headerSepLine := color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff}
 	headerSep := canvas.NewRectangle(headerSepLine)
 	headerSep.SetMinSize(fyne.NewSize(0, 1))
-	footerSep := canvas.NewRectangle(headerSepLine)
-	footerSep.SetMinSize(fyne.NewSize(0, 1))
 	headerBlock := container.NewVBox(newVideoDialogTopAccentBar(), NewInset(titleText, 21, 44, 9, 4), headerSep)
 
-	msg := newVideoDialogWrapText(
-		chromeNoticeDialogWidth-52,
-		12,
-		false,
-		videoDialogWrapSpan{Text: message, Color: color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}},
-	)
-
-	actionBtn := newVideoDialogLimeButton(actionLabel, func() {
-		closePopup()
-		if onAction != nil {
-			onAction()
+	bodyColor := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	paragraphs := chromeNoticeParagraphs(message)
+	msgObjs := make([]fyne.CanvasObject, 0, len(paragraphs)*2)
+	for i, p := range paragraphs {
+		if i > 0 {
+			gap := canvas.NewRectangle(color.Transparent)
+			gap.SetMinSize(fyne.NewSize(0, 10))
+			msgObjs = append(msgObjs, gap)
 		}
-	})
-	footerButtons := container.NewCenter(actionBtn)
-	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerButtons, 12, 18, 10, 4))
+		msgObjs = append(msgObjs, newVideoDialogWrapText(
+			chromeNoticeDialogWidth-52,
+			12,
+			false,
+			videoDialogWrapSpan{Text: p, Color: bodyColor},
+		))
+	}
+	msg := container.NewVBox(msgObjs...)
+
+	var footerBlock fyne.CanvasObject
+	if strings.TrimSpace(actionLabel) != "" {
+		footerSep := canvas.NewRectangle(headerSepLine)
+		footerSep.SetMinSize(fyne.NewSize(0, 1))
+		actionBtn := newVideoDialogLimeButton(actionLabel, func() {
+			closePopup()
+			if onAction != nil {
+				onAction()
+			}
+		})
+		footerButtons := container.NewCenter(actionBtn)
+		footerBlock = container.NewVBox(footerSep, NewInsetExact(footerButtons, 12, 18, 10, 4))
+	}
 
 	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInset(msg, 18, 18, 14, 8))
 	bg := canvas.NewRectangle(design.ColorGray900)
@@ -93,6 +108,22 @@ func ShowChromeActionDialog(parent fyne.Window, title, message, actionLabel stri
 		},
 	})
 	return popup
+}
+
+func chromeNoticeParagraphs(message string) []string {
+	raw := strings.Split(message, "\n")
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		out = append(out, line)
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
 }
 
 // newVideoDialogLimeButton is the compact lime pill Account's Google login

@@ -57,7 +57,7 @@ var (
 	// Pro/Enterprise rows -- #9c58f9.
 	ColorPro = color.NRGBA{R: 0x9c, G: 0x58, B: 0xf9, A: 0xff}
 	// ColorProSoft is the lighter Pro chrome used on video-parameter
-	// 4:4:4/HDR markers and the USB Passthrough "Pro USBridge Streamer" plaque
+	// 4:4:4/HDR markers and the Raw USB "Pro USBridge Streamer" plaque
 	// -- #B39EF1, matching the agent's ColorProSoft.
 	ColorProSoft = color.NRGBA{R: 0xb3, G: 0x9e, B: 0xf1, A: 0xff}
 

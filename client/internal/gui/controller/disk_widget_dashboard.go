@@ -20,7 +20,7 @@ import (
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
 // column (HID & Input Hub, Video Pipe & EDID, Audio Pipeline) stacked above
 // one another, and a wide right column (Virtual Mass Storage & ISO Media,
-// then USB Passthrough, then a short Network + Backups pair or the firmware
+// then Raw USB, then a short Network + Backups pair or the firmware
 // promo on an agent), all styled
 // after the Connections grid's own cards (see view.NewDeviceDashboardCard),
 // including their own teal-on-hover border.
@@ -234,7 +234,7 @@ func (dw *DiskWidget) AttachConnectingHint(hint *view.DeviceDashboardBusySpinner
 const (
 	devicesFirmwarePromoDismissedPrefKey = "devices.firmware_promo.dismissed"
 	deviceDashboardStorageTitle          = "Virtual Mass Storage & ISO Media"
-	deviceDashboardEmulationTitle        = "USB Passthrough"
+	deviceDashboardEmulationTitle        = "Raw USB"
 )
 
 func (dw *DiskWidget) firmwarePromoDismissed() bool {
@@ -244,7 +244,7 @@ func (dw *DiskWidget) firmwarePromoDismissed() bool {
 	return dw.app.Preferences().BoolWithFallback(devicesFirmwarePromoDismissedPrefKey, false)
 }
 
-// syncEmulationProBadge keeps USB Passthrough's Pro plaque visible.
+// syncEmulationProBadge keeps Raw USB's Pro plaque visible.
 func (dw *DiskWidget) syncEmulationProBadge() {
 	if dw.dashboardEmulationProBadge == nil {
 		return
@@ -265,38 +265,15 @@ func (dw *DiskWidget) syncStorageHardwareChrome(softwareAgent bool) {
 	}
 }
 
-const zadigDownloadURL = "https://zadig.akeo.ie/"
-
 func (dw *DiskWidget) showZadigHelp() {
 	if dw.window == nil {
 		return
 	}
-	view.ShowChromeActionDialog(
-		dw.window,
-		i18n.Current.DevicesZadigTitle,
-		i18n.Current.DevicesZadigMessage,
-		i18n.Current.DevicesZadigDownload,
-		func() {
-			uri, err := url.Parse(zadigDownloadURL)
-			if err != nil {
-				logrus.Errorf("failed to parse Zadig URL %q: %v", zadigDownloadURL, err)
-				return
-			}
-			fyneApp := dw.app
-			if fyneApp == nil {
-				fyneApp = fyne.CurrentApp()
-			}
-			if fyneApp == nil {
-				logrus.Errorf("failed to open Zadig URL: fyne app is nil")
-				return
-			}
-			go func() {
-				if err := fyneApp.OpenURL(uri); err != nil {
-					logrus.Errorf("failed to open Zadig URL %q: %v", zadigDownloadURL, err)
-				}
-			}()
-		},
-	)
+	title := i18n.Current.DevicesUSBHelpTitle
+	if strings.TrimSpace(title) == "" {
+		title = deviceDashboardEmulationTitle
+	}
+	view.ShowChromeActionDialog(dw.window, title, i18n.Current.DevicesUSBHelpText, "", nil)
 }
 
 func (dw *DiskWidget) setFirmwarePromoDismissed(on bool) {

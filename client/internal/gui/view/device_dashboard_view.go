@@ -2036,7 +2036,7 @@ func (r *deviceDashboardSpaceMeterRenderer) Objects() []fyne.CanvasObject {
 func (r *deviceDashboardSpaceMeterRenderer) Destroy() {}
 
 // DeviceDashboardHeaderBadge is a small uppercase pill for a dashboard
-// card header -- USB Passthrough's Pro plaque and Storage's Hardware only
+// card header -- Raw USB's Pro plaque and Storage's Hardware only
 // marker, matching the video-parameters Pro badge (newVideoDialogBadge).
 type DeviceDashboardHeaderBadge struct {
 	widget.BaseWidget
@@ -2084,8 +2084,8 @@ func (b *DeviceDashboardHeaderBadge) CreateRenderer() fyne.WidgetRenderer {
 var _ desktop.Hoverable = (*DeviceDashboardHeaderBadge)(nil)
 
 // DeviceDashboardZadigHint is the Windows glyph with a question mark in the
-// top-right corner on the USB Passthrough card header. Tap opens the Zadig
-// help dialog.
+// top-right corner on the Raw USB card header. Tap opens the WinUSB help
+// notice (HID/Xbox need no extra setup; other devices use Zadig).
 type DeviceDashboardZadigHint struct {
 	widget.BaseWidget
 
