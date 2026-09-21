@@ -212,7 +212,7 @@ func (dw *DiskWidget) handleMount() {
 		if d.IsMounted && (d.IsKeyboard || d.IsMouse) {
 			hidMountedCount++
 		}
-		if d.IsMounted && d.IsGamepad && normalizeGamepadMode(d.GamepadMode) == gamepadModeXInput {
+		if d.IsMounted && d.IsGamepad && dw.effectiveGamepadMode(d.GamepadMode) == gamepadModeXInput {
 			xinputMountedCount++
 		}
 	}
@@ -221,7 +221,7 @@ func (dw *DiskWidget) handleMount() {
 	hidSelectedCount := 0
 	xinputSelectedCount := 0
 	for _, d := range selectedDrives {
-		if d.IsGamepad && normalizeGamepadMode(d.GamepadMode) == gamepadModeXInput {
+		if d.IsGamepad && dw.effectiveGamepadMode(d.GamepadMode) == gamepadModeXInput {
 			hasXInputSelected = true
 			xinputSelectedCount++
 		}
@@ -229,8 +229,12 @@ func (dw *DiskWidget) handleMount() {
 			hidSelectedCount++
 		}
 	}
-	dropHIDForGamepad := hasXInputSelected && (hidSelectedCount > 0 || hidMountedCount > 0)
-	dropGamepadForHID := hidSelectedCount > 0 && xinputMountedCount > 0 && !dropHIDForGamepad
+	// The XInput-vs-keyboard/mouse exclusivity comes from the hardware KVM's
+	// single USB gadget. A Windows/Linux/macOS software agent injects HID as
+	// OS-level input and gamepads through Moonlight, so they coexist there.
+	hardwareKVM := isUSBridgeAgentOS(dw.agentOS)
+	dropHIDForGamepad := hardwareKVM && hasXInputSelected && (hidSelectedCount > 0 || hidMountedCount > 0)
+	dropGamepadForHID := hardwareKVM && hidSelectedCount > 0 && xinputMountedCount > 0 && !dropHIDForGamepad
 
 	effectiveMounted := mountedGadgetCount
 	effectiveAdding := len(selectedDrives)
@@ -640,7 +644,7 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		req := newRNDISStartRequest(rndisMode)
 		return &req, "", nil
 	case "gamepad":
-		req := newGamepadStartRequest(sel.GamepadMode, sel.GamepadVendorID, sel.GamepadProductID)
+		req := newGamepadStartRequest(dw.effectiveGamepadMode(sel.GamepadMode), sel.GamepadVendorID, sel.GamepadProductID)
 		return &req, "", nil
 	case "usbaudio":
 		mode := sel.USBAudioMode
@@ -1091,6 +1095,11 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 // already shown as mounted, skipping kinds that are in this mount batch.
 func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.DeviceStartRequest {
 	skip := make(map[string]bool, 3)
+	// A software agent takes any number of pads (each is Moonlight controller N),
+	// so mounting one must keep the others; the KVM hardware has a single gamepad
+	// gadget, which a new pad replaces.
+	multiPad := IsSoftwareAgentOS(dw.agentOS)
+	selectedPads := make(map[string]bool)
 	for _, d := range selected {
 		switch {
 		case d.IsKeyboard:
@@ -1098,7 +1107,11 @@ func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.Devi
 		case d.IsMouse:
 			skip["mouse"] = true
 		case d.IsGamepad:
-			skip["gamepad"] = true
+			if multiPad {
+				selectedPads[d.GamepadID] = true
+			} else {
+				skip["gamepad"] = true
+			}
 		}
 	}
 
@@ -1118,7 +1131,7 @@ func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.Devi
 		default:
 			continue
 		}
-		if skip[kind] {
+		if skip[kind] || (d.IsGamepad && multiPad && selectedPads[d.GamepadID]) {
 			continue
 		}
 		req, err := dw.buildDeviceRequestForDrive(d, true)
@@ -1148,7 +1161,7 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		return &req, nil
 	}
 	if drive.Source == "gamepad" {
-		req := newGamepadStartRequest(drive.GamepadMode, drive.GamepadVendorID, drive.GamepadProductID)
+		req := newGamepadStartRequest(dw.effectiveGamepadMode(drive.GamepadMode), drive.GamepadVendorID, drive.GamepadProductID)
 		return &req, nil
 	}
 	if drive.Source == "usbaudio" {

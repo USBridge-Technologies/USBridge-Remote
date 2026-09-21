@@ -273,8 +273,8 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			modeSelect.SetOptions(rndisModeOptions)
 			modeSelect.SetSelected(normalizeRNDISMode(drive.RNDISMode))
 		case "gamepad":
-			modeSelect.SetOptions([]string{i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput})
-			modeSelect.SetSelected(gamepadModeLabel(normalizeGamepadMode(drive.GamepadMode)))
+			modeSelect.SetOptions(dw.gamepadModeOptions())
+			modeSelect.SetSelected(gamepadModeLabel(dw.effectiveGamepadMode(drive.GamepadMode)))
 		case "usbaudio":
 			modeSelect.SetOptions([]string{i18n.Current.AudioDeviceUAC1, i18n.Current.AudioDeviceUAC2})
 			if drive.USBAudioMode == "uac2" {
@@ -480,11 +480,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			if dw.controlsLocked() || rowID >= len(dw.allDrives) {
 				return
 			}
-			mode := gamepadModeDirectInput
-			if s == i18n.Current.DeviceXInput {
-				mode = gamepadModeXInput
-			}
-			dw.allDrives[rowID].GamepadMode = mode
+			dw.allDrives[rowID].GamepadMode = gamepadModeFromLabel(s)
 		}
 	} else if drive.Source == "mouse" {
 		rowID := id

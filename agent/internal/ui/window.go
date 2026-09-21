@@ -37,6 +37,7 @@ import (
 	"usbridge_agent/internal/ui/i18n"
 	"usbridge_agent/internal/update"
 	"usbridge_agent/internal/usbpass"
+	"usbridge_agent/internal/vdisplay"
 )
 
 // TokenProvider is whatever owns the agent's config/Sunshine lifecycle —
@@ -173,6 +174,10 @@ type Window struct {
 	// Permissions row whose button does the one-time polkit grant so usbip
 	// attach/detach stop prompting; hidden once granted (refreshUSBPassthroughUI).
 	usbAccessCheck *permStatusChip
+	// vdisplayAccessCheck: Linux only -- Permissions row whose button installs
+	// the polkit rule that lets `modprobe [-r] vkms` (virtual monitor) run
+	// without a password prompt (see internal/vdisplay/access_linux.go).
+	vdisplayAccessCheck *permStatusChip
 
 	// Screen Capture: a single unified control for how video gets captured.
 	// On Linux this is Sunshine's capture backend, picked automatically from
@@ -701,6 +706,9 @@ func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Stat
 		w.usbAccessCheck.Show()
 		w.usbAccessCheck.SetChecked(usb.AttachGranted)
 	}
+	if w.vdisplayAccessCheck != nil {
+		w.vdisplayAccessCheck.SetChecked(vdisplay.AccessGranted())
+	}
 	if w.usbDriverRow != nil {
 		if active && usb.Available && !usb.VhciDriver {
 			w.usbDriverRow.Show()
@@ -1063,6 +1071,21 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}()
 		})
 		permStatusRow.Add(w.usbAccessCheck)
+
+		w.vdisplayAccessCheck = newPermStatusChip(loc().VirtualDisplayAccess, func() {
+			go func() {
+				err := vdisplay.GrantAccess()
+				fyne.Do(func() {
+					w.vdisplayAccessCheck.requestDone()
+					if err != nil {
+						dialog.ShowError(err, win)
+					}
+				})
+				w.performRefresh()
+			}()
+		})
+		w.vdisplayAccessCheck.SetChecked(vdisplay.AccessGranted())
+		permStatusRow.Add(w.vdisplayAccessCheck)
 	}
 
 	permRule := canvas.NewRectangle(design.ColorDivider)
@@ -1680,6 +1703,9 @@ func (w *Window) applyLanguage() {
 	w.screenCaptureCheck.SetBaseLabel(c.ScreenCapture)
 	if w.usbAccessCheck != nil {
 		w.usbAccessCheck.SetBaseLabel(c.USBAccess)
+	}
+	if w.vdisplayAccessCheck != nil {
+		w.vdisplayAccessCheck.SetBaseLabel(c.VirtualDisplayAccess)
 	}
 	w.refreshAutostartChrome()
 

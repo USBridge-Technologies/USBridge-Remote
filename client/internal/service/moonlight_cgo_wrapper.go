@@ -526,6 +526,14 @@ func goMoonlightConnected() {
 	notifyMoonlightStreamReady()
 }
 
+// goMoonlightRumble receives the host's gamepad rumble (moonlight-common-c
+// ConnListenerRumble) and hands it to the handler set with SetRumbleHandler.
+//
+//export goMoonlightRumble
+func goMoonlightRumble(controller, lowFreq, highFreq C.ushort) {
+	dispatchRumble(uint16(controller), uint16(lowFreq), uint16(highFreq))
+}
+
 //export goMoonlightTerminated
 func goMoonlightTerminated(errCode C.int) {
 	reason := "unknown"

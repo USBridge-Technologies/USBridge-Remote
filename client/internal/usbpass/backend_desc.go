@@ -143,7 +143,7 @@ type descBackend struct {
 	configDesc []byte
 }
 
-func (b *descBackend) HandleControl(_ context.Context, setup [8]byte, wLength int) (int32, []byte) {
+func (b *descBackend) HandleControl(_ context.Context, setup [8]byte, wLength int, _ []byte) (int32, []byte) {
 	bm := setup[0]
 	req := setup[1]
 	wValue := binary.LittleEndian.Uint16(setup[2:4])

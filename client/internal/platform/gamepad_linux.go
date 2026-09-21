@@ -4,8 +4,10 @@ package platform
 
 import (
 	"bufio"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -44,9 +46,41 @@ func parseProcInputDevices() []GamepadDevice {
 		return nil
 	}
 	defer f.Close()
+	return parseInputDevices(f)
+}
 
+// evdev key codes BTN_JOYSTICK (0x120) .. BTN_THUMBR (0x13f) cover joystick
+// and gamepad buttons. A mouse only has BTN_MOUSE (0x110..0x11f).
+const (
+	btnJoystickFirst = 0x120
+	btnGamepadLast   = 0x13f
+)
+
+// keyBitmapHasRange reports whether any key code in [lo, hi] is set in the
+// "B: KEY=" bitmap of /proc/bus/input/devices: space-separated hex words of
+// unsigned long size, most significant word first.
+func keyBitmapHasRange(bitmap string, lo, hi int) bool {
+	const wordBits = 32 << (^uint(0) >> 63)
+	words := strings.Fields(bitmap)
+	for code := lo; code <= hi; code++ {
+		idx := len(words) - 1 - code/wordBits
+		if idx < 0 {
+			continue
+		}
+		v, err := strconv.ParseUint(words[idx], 16, 64)
+		if err != nil {
+			continue
+		}
+		if v>>(uint(code%wordBits))&1 == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func parseInputDevices(r io.Reader) []GamepadDevice {
 	var result []GamepadDevice
-	var currentName, currentVendor, currentProduct string
+	var currentName, currentVendor, currentProduct, currentKeys string
 	var currentHandlers []string
 
 	flush := func() {
@@ -54,6 +88,7 @@ func parseProcInputDevices() []GamepadDevice {
 			currentName = ""
 			currentVendor = ""
 			currentProduct = ""
+			currentKeys = ""
 			currentHandlers = nil
 		}()
 		if currentName == "" {
@@ -69,7 +104,14 @@ func parseProcInputDevices() []GamepadDevice {
 				eventPath = "/dev/input/" + h
 			}
 		}
-		if (hasJS || isGamepadName(currentName)) && eventPath != "" {
+		// A js* handler alone is not enough: any device with absolute axes
+		// gets one, including the virtual pointer devices the agent creates
+		// ("usbridge-mouse"), which would otherwise be listed as a gamepad.
+		isPad := hasJS && keyBitmapHasRange(currentKeys, btnJoystickFirst, btnGamepadLast)
+		if strings.HasPrefix(strings.ToLower(currentName), "usbridge") {
+			return
+		}
+		if (isPad || isGamepadName(currentName)) && eventPath != "" {
 			result = append(result, GamepadDevice{
 				ID:        eventPath,
 				Name:      currentName,
@@ -79,7 +121,7 @@ func parseProcInputDevices() []GamepadDevice {
 		}
 	}
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -102,6 +144,8 @@ func parseProcInputDevices() []GamepadDevice {
 		case strings.HasPrefix(line, "N: Name="):
 			name := strings.TrimPrefix(line, "N: Name=")
 			currentName = strings.Trim(name, `"`)
+		case strings.HasPrefix(line, "B: KEY="):
+			currentKeys = strings.TrimPrefix(line, "B: KEY=")
 		case strings.HasPrefix(line, "H: Handlers="):
 			handlers := strings.TrimPrefix(line, "H: Handlers=")
 			currentHandlers = strings.Fields(handlers)

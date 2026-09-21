@@ -20,6 +20,15 @@ import (
 // the descriptor backend with live libusb control/bulk. Build with
 // -tags usbpass_gousb and link against libusb-1.0.
 func TryClaimGousb(dev *ExportedDevice) error {
+	// A HID-class device needs no WinUSB rebind on Windows: bridge it through
+	// the OS HID API instead (hidbridge_windows.go). Everything else, and any
+	// HID device that cannot be bridged, takes the libusb claim below.
+	if handled, err := tryClaimX360(dev); handled {
+		return err
+	}
+	if handled, err := tryClaimHID(dev); handled {
+		return err
+	}
 	ctx := gousb.NewContext()
 	devices, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
 		if uint16(desc.Vendor) != dev.VID || uint16(desc.Product) != dev.PID {
@@ -520,7 +529,7 @@ func (b *gousbBackend) clearEndpointHalt(ep uint8) {
 	}
 }
 
-func (b *gousbBackend) HandleControl(ctx context.Context, setup [8]byte, wLength int) (int32, []byte) {
+func (b *gousbBackend) HandleControl(ctx context.Context, setup [8]byte, wLength int, outData []byte) (int32, []byte) {
 	_ = ctx // control transfers use gousb's own fixed ControlTimeout; only bulk is UNLINK-cancellable (see HandleBulk)
 	bm := setup[0]
 	req := setup[1]
@@ -591,6 +600,19 @@ live:
 	// on the device behind it -- confirmed live: the HID interface's own
 	// enumeration (SET_IDLE, GET_DESCRIPTOR(HID_REPORT)) never got a turn to
 	// even start while an unrelated audio probe was cycling.
+	if bm&0x80 == 0 {
+		// Host-to-device: the data stage is outData. It used to be a zeroed
+		// wLength-sized buffer (and then echoed back in the RET_SUBMIT), so
+		// every control-OUT with a payload -- HID SET_REPORT, the Xbox
+		// driver's vendor init -- reached the device as zeros.
+		_, err := b.dev.Control(bm, req, wValue, wIndex, outData)
+		logrus.Debugf("usbpass: control OUT bm=%#02x req=%#02x wValue=%#04x wIndex=%#04x len=%d -> err=%v",
+			bm, req, wValue, wIndex, len(outData), err)
+		if err != nil {
+			return errnoEPIPE, nil
+		}
+		return 0, nil
+	}
 	data := make([]byte, wLength)
 	n, err := b.dev.Control(bm, req, wValue, wIndex, data)
 	logrus.Debugf("usbpass: control bm=%#02x req=%#02x wValue=%#04x wIndex=%#04x wLength=%d -> n=%d err=%v",
@@ -950,6 +972,7 @@ func (b *gousbBackend) handleNonBulk(ctx context.Context, fullAddr uint8, num in
 		// attempts, so a concurrent HandleControl/other-endpoint call always
 		// gets a fair turn regardless of how long this one keeps waiting for
 		// real data.
+		lastErr := ""
 		for {
 			pollCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			b.devMu.Lock()
@@ -958,6 +981,13 @@ func (b *gousbBackend) handleNonBulk(ctx context.Context, fullAddr uint8, num in
 			cancel()
 			if n > 0 || err == nil {
 				return 0, buf[:n]
+			}
+			// Anything other than our own poll window elapsing (cancelled)
+			// or a STALL is a real transfer error that this loop would
+			// otherwise retry silently and forever.
+			if !isCancelled(err) && !isStall(err) && err.Error() != lastErr {
+				lastErr = err.Error()
+				logrus.Warnf("usbpass: interrupt IN ep=%#02x read error (retrying): %v", fullAddr, err)
 			}
 			if isStall(err) {
 				logrus.Debugf("usbpass: interrupt IN ep=%#02x STALL, clearing halt and retrying", fullAddr)

@@ -927,17 +927,13 @@ func (dw *DiskWidget) newDriveToggle(idx int, drive DriveItem, cardHover func(bo
 // settings menus' own look.
 func (dw *DiskWidget) newDashboardGamepadModePicker(idx int, drive DriveItem) *view.HeaderDropdown {
 	picker := view.NewDeviceDashboardModePicker(
-		[]string{i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput},
-		gamepadModeLabel(normalizeGamepadMode(drive.GamepadMode)),
+		dw.gamepadModeOptions(),
+		gamepadModeLabel(dw.effectiveGamepadMode(drive.GamepadMode)),
 		func(s string) {
 			if dw.controlsLocked() || idx >= len(dw.allDrives) {
 				return
 			}
-			mode := gamepadModeDirectInput
-			if s == i18n.Current.DeviceXInput {
-				mode = gamepadModeXInput
-			}
-			dw.allDrives[idx].GamepadMode = mode
+			dw.allDrives[idx].GamepadMode = gamepadModeFromLabel(s)
 		},
 	)
 	picker.OnHover = dw.dashboardHIDHover

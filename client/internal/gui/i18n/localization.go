@@ -130,6 +130,9 @@ type LocalizedStrings struct {
 	DevicesZadigTitle                 string
 	DevicesZadigMessage               string
 	DevicesZadigDownload              string
+	DevicesUSBHelpTitle               string
+	DevicesUSBHelpText                string
+	DevicesUSBHelpOpenZadig           string
 	DevicesEmptyNetwork               string
 	DevicesEmptyBackup                string
 	DevicesCardNetwork                string
@@ -493,6 +496,7 @@ type LocalizedStrings struct {
 	DeviceGamepad                        string // "Gamepad"
 	DeviceDirectInput                    string // "DirectInput"
 	DeviceXInput                         string // "XInput"
+	DeviceMapX360                        string // software agent: gamepad mapped to a virtual Xbox 360 pad
 	XInputIncompatibleWithHID            string // error: XInput + keyboard/mouse
 	GamepadDisconnectHIDConfirm          string // toast: connecting XInput gamepad will drop keyboard/mouse
 	HIDDisconnectGamepadConfirm          string // toast: connecting keyboard/mouse will drop the XInput gamepad
@@ -714,6 +718,9 @@ func EN() *LocalizedStrings {
 		DevicesZadigTitle:                 "Can't find your device?",
 		DevicesZadigMessage:               "If the USB device does not appear in this list, install Zadig and bind the WinUSB driver to it. After you replug the device, it will show up here.",
 		DevicesZadigDownload:              "Download Zadig",
+		DevicesUSBHelpTitle:               "Raw USB passthrough on Windows",
+		DevicesUSBHelpText:                "Keyboards, mice, pens and other HID devices, as well as Xbox gamepads, are passed through with no extra setup.\n\nTo pass any other device through raw (storage, adapters, custom hardware), Windows must use the WinUSB driver for it. Replace the device's driver with WinUSB using Zadig: select the device, choose WinUSB as the target driver and click Replace Driver.\n\nReinstall the original driver in Device Manager to return the device to normal use.",
+		DevicesUSBHelpOpenZadig:           "Open Zadig website",
 		DevicesEmptyNetwork:               "No network bridge devices",
 		DevicesEmptyBackup:                "No backup devices",
 		DevicesCardNetwork:                "Network",
@@ -1074,6 +1081,7 @@ func EN() *LocalizedStrings {
 		DeviceGamepad:                        "Gamepad",
 		DeviceDirectInput:                    "DirectInput",
 		DeviceXInput:                         "XInput",
+		DeviceMapX360:                        "Map Xbox 360",
 		XInputIncompatibleWithHID:            "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
 		GamepadDisconnectHIDConfirm:          "Connecting the gamepad will disconnect the keyboard and mouse.",
 		HIDDisconnectGamepadConfirm:          "Connecting the keyboard or mouse will disconnect the gamepad.",
@@ -1422,6 +1430,9 @@ func ES() *LocalizedStrings {
 	locale.DevicesZadigTitle = "No aparece tu dispositivo?"
 	locale.DevicesZadigMessage = "Si el dispositivo USB no esta en esta lista, instala Zadig y asignale el controlador WinUSB. Al volver a conectarlo, aparecera aqui."
 	locale.DevicesZadigDownload = "Descargar Zadig"
+	locale.DevicesUSBHelpTitle = "USB en bruto en Windows"
+	locale.DevicesUSBHelpText = "Teclados, ratones, lápices y otros dispositivos HID, así como los mandos Xbox, se reenvían sin configuración adicional.\n\nPara reenviar en bruto cualquier otro dispositivo (almacenamiento, adaptadores, hardware propio), Windows debe usar para él el controlador WinUSB. Sustituye el controlador del dispositivo por WinUSB con Zadig: selecciona el dispositivo, elige WinUSB como controlador de destino y pulsa Replace Driver.\n\nReinstala el controlador original en el Administrador de dispositivos para volver al uso normal."
+	locale.DevicesUSBHelpOpenZadig = "Abrir sitio de Zadig"
 	locale.DevicesEmptyNetwork = "Sin bridge de red"
 	locale.DevicesEmptyBackup = "Sin backup"
 	locale.DevicesCardNetwork = "Network"
@@ -1750,6 +1761,9 @@ func UKProper() *LocalizedStrings {
 	locale.DevicesZadigTitle = "Не бачите свій пристрій?"
 	locale.DevicesZadigMessage = "Якщо USB-пристрій не з’явився в цьому списку, встановіть Zadig і призначте йому драйвер WinUSB. Після повторного підключення він з’явиться тут."
 	locale.DevicesZadigDownload = "Завантажити Zadig"
+	locale.DevicesUSBHelpTitle = "Сирий USB у Windows"
+	locale.DevicesUSBHelpText = "Клавіатури, миші, пера та інші HID-пристрої, а також геймпади Xbox прокидаються без додаткового налаштування.\n\nЩоб прокинути будь-який інший пристрій сирим (накопичувачі, адаптери, власне обладнання), Windows має використовувати для нього драйвер WinUSB. Замініть драйвер пристрою на WinUSB через Zadig: виберіть пристрій, оберіть WinUSB цільовим драйвером і натисніть Replace Driver.\n\nЩоб повернути пристрій до звичайного використання, перевстановіть початковий драйвер у Диспетчері пристроїв."
+	locale.DevicesUSBHelpOpenZadig = "Відкрити сайт Zadig"
 	locale.DevicesEmptyNetwork = "Немає network bridge"
 	locale.DevicesEmptyBackup = "Немає backup"
 	locale.DevicesCardNetwork = "Network"

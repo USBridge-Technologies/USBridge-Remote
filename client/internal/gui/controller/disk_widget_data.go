@@ -253,7 +253,7 @@ func (dw *DiskWidget) combineDrives() {
 	selectedKeys := make(map[string]bool)
 	oldMouseType := normalizeMouseMode(dw.preferredMouseMode) // preserve the user's choice (touchpad/touchscreen/absolute)
 	oldRNDISMode := "auto"
-	oldGamepadMode := gamepadModeXInput
+	oldGamepadMode := "" // "" = not chosen; resolved per agent by effectiveGamepadMode
 	oldUSBAudioMode := "uac1"
 	for i, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
@@ -542,6 +542,11 @@ func (dw *DiskWidget) combineDrives() {
 // loadGamepadDevices refreshes the gamepad list from the OS and rebuilds the device list.
 func (dw *DiskWidget) loadGamepadDevices() {
 	gamepads := platform.EnumerateGamepads()
+	ids := make([]string, 0, len(gamepads))
+	for _, g := range gamepads {
+		ids = append(ids, fmt.Sprintf("%s %q %s:%s", g.ID, g.Name, g.VendorID, g.ProductID))
+	}
+	logrus.Infof("🎮 gamepads found: %d %v", len(gamepads), ids)
 	dw.updateUIAsync(func() {
 		dw.gamepadDevices = gamepads
 		dw.scheduleCombine()
@@ -745,7 +750,15 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				break
 			}
 
-			if drive.IsGamepad && (device.Type == "gamepad" || strings.HasPrefix(device.Type, "gamepad:")) {
+			// A software agent reports the requested mode ("mapx360", "xinput", ...) as the
+			// type, not "gamepad:<mode>" like the KVM hardware, so also match the device kind.
+			if drive.IsGamepad && (device.Device == "gamepad" || device.Type == "gamepad" || strings.HasPrefix(device.Type, "gamepad:")) {
+				// Several local pads can be listed, but the agent only knows the
+				// VID/PID we sent, so a software agent's entry belongs to the
+				// row with that identity, not simply to the first gamepad row.
+				if IsSoftwareAgentOS(dw.agentOS) && !gamepadIdentityMatches(drive.GamepadVendorID, drive.GamepadProductID, device.VendorID, device.ProductID) {
+					continue
+				}
 				isMounted = true
 				usedMountedIdx[j] = true
 				logrus.Debugf("🎮 Found connected gamepad: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)

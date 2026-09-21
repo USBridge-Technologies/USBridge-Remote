@@ -687,7 +687,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 		}
 	}
 
-	if xinputGamepadConnected {
+	if xinputGamepadConnected && isUSBridgeAgentOS(deviceInfo.AgentOS) {
 		logrus.Info("🎮 Control HID auto-connect skipped: XInput gamepad connected — keyboard/mouse share incompatible with XInput composite")
 		return nil
 	}
