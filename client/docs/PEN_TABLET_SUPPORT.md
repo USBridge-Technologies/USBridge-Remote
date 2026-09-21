@@ -19,6 +19,8 @@ The macOS client can get a Wacom tablet's pen input to the remote host two diffe
    USB/IP export server. The agent's own native Wacom driver enumerates and parses it — **this
    path has no model restriction at all**, since it never decodes anything itself.
 
+**Windows and Linux clients** export a Wacom tablet as the original USB device without a driver change; see [Pen tablets](./TABLETS.md) for the model database and what has been tried on hardware.
+
 If you just need a tablet to work and don't care which path, USB/IP passthrough already
 supports any Wacom (or other HID) device. The rest of this document is about path 1, which
 gets you lower latency and no driver install on the agent side, but only for cataloged models.
