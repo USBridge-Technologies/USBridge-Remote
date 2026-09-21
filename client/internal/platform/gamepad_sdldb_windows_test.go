@@ -50,3 +50,18 @@ func TestWinmmUnitHandlesReversedRanges(t *testing.T) {
 		t.Errorf("legacy scale on a reversed range must not read as dead: %d", got)
 	}
 }
+
+func TestFriendlyPadNameReplacesOnlyTheGenericDriverName(t *testing.T) {
+	if got := friendlyPadName("Microsoft PC-joystick driver", "0x1532", "0x1007"); got != "Razer Raiju TE" {
+		t.Errorf("known pad: %q", got)
+	}
+	if got := friendlyPadName("Microsoft PC-joystick driver", "0x1234", "0x5678"); got != "Microsoft PC-joystick driver" {
+		t.Errorf("unknown pad keeps the generic name: %q", got)
+	}
+	if got := friendlyPadName("My Custom Pad", "0x1532", "0x1007"); got != "My Custom Pad" {
+		t.Errorf("a specific name must be kept: %q", got)
+	}
+	if got := friendlyPadName("Microsoft PC-joystick driver", "", ""); got != "Microsoft PC-joystick driver" {
+		t.Errorf("no ids: %q", got)
+	}
+}

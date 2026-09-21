@@ -139,6 +139,7 @@ func enumerateWinMM() []GamepadDevice {
 			name = fmt.Sprintf("Gamepad %d", joyID+1)
 		}
 		vid, pid := winmmJoystickVIDPID(joyID)
+		name = friendlyPadName(name, vid, pid)
 		result = append(result, GamepadDevice{
 			ID:        fmt.Sprintf("winmm:%d", joyID),
 			Name:      name,

@@ -539,6 +539,11 @@ func (dw *DiskWidget) combineDrives() {
 // loadGamepadDevices refreshes the gamepad list from the OS and rebuilds the device list.
 func (dw *DiskWidget) loadGamepadDevices() {
 	gamepads := platform.EnumerateGamepads()
+	ids := make([]string, 0, len(gamepads))
+	for _, g := range gamepads {
+		ids = append(ids, fmt.Sprintf("%s %q %s:%s", g.ID, g.Name, g.VendorID, g.ProductID))
+	}
+	logrus.Infof("🎮 gamepads found: %d %v", len(gamepads), ids)
 	dw.updateUIAsync(func() {
 		dw.gamepadDevices = gamepads
 		dw.scheduleCombine()
