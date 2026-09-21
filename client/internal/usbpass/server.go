@@ -84,6 +84,56 @@ type Server struct {
 	conns   []net.Conn
 	closing bool
 	wg      sync.WaitGroup
+
+	// owner is the connection currently serving each device. A device is one
+	// physical thing: a second import of the same bus id must replace the first,
+	// not run beside it, or the importer ends up with two
+	// virtual copies -- two gamepads in Steam for one pad.
+	owner map[*ExportedDevice]*importOwner
+}
+
+// importOwner is one URB session on a device; done closes when its serveURBs
+// has fully returned.
+type importOwner struct {
+	conn net.Conn
+	done chan struct{}
+}
+
+// evictTimeout bounds how long a new import waits for the previous session's
+// in-flight URBs to be aborted before it takes the device over anyway.
+const evictTimeout = 3 * time.Second
+
+// takeOver makes c the only session serving dev. A previous session is
+// closed (its importer sees the socket drop and removes that virtual device --
+// also what recovers a stale connection whose peer vanished without a FIN) and
+// awaited, so two sessions never drive one backend at once. release must be
+// called when c's session ends.
+func (s *Server) takeOver(dev *ExportedDevice, c net.Conn) (release func()) {
+	mine := &importOwner{conn: c, done: make(chan struct{})}
+	s.mu.Lock()
+	if s.owner == nil {
+		s.owner = map[*ExportedDevice]*importOwner{}
+	}
+	prev := s.owner[dev]
+	s.owner[dev] = mine
+	s.mu.Unlock()
+	if prev != nil {
+		logrus.Warnf("usbpass: %s imported again; closing the previous session", dev.BusID)
+		_ = prev.conn.Close()
+		select {
+		case <-prev.done:
+		case <-time.After(evictTimeout):
+			logrus.Warnf("usbpass: previous session of %s did not stop within %s", dev.BusID, evictTimeout)
+		}
+	}
+	return func() {
+		s.mu.Lock()
+		if s.owner[dev] == mine {
+			delete(s.owner, dev)
+		}
+		s.mu.Unlock()
+		close(mine.done)
+	}
 }
 
 // StartExport binds addr (e.g. "0.0.0.0:3240") and serves devices.
@@ -225,11 +275,14 @@ func (s *Server) handleConn(c net.Conn) error {
 			}
 		}
 		s.mu.Unlock()
+		if found == nil {
+			_, _ = c.Write(packRepImport(nil))
+			return fmt.Errorf("unknown busid %q", busID)
+		}
+		release := s.takeOver(found, c)
+		defer release()
 		if _, err := c.Write(packRepImport(found)); err != nil {
 			return err
-		}
-		if found == nil {
-			return fmt.Errorf("unknown busid %q", busID)
 		}
 		_ = c.SetDeadline(time.Time{}) // URB session can be long
 		return s.serveURBs(c, found)
