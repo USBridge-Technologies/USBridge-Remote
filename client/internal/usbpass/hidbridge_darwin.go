@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 // HID-descriptor-level USB/IP export for macOS.
 //
