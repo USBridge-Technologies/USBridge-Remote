@@ -1,3 +1,5 @@
+//go:build !(js && wasm)
+
 package localui
 
 // claheGray is a from-scratch CLAHE (Contrast Limited Adaptive Histogram

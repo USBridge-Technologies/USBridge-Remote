@@ -40,8 +40,8 @@ func EncodeBrowserGamepadFrame(buttons uint16, leftTrigger, rightTrigger uint8, 
 	return b
 }
 
-// GamepadCapture is an active browser Gamepad API poller.
-type GamepadCapture struct {
+// BrowserGamepadCapture is an active browser Gamepad API poller.
+type BrowserGamepadCapture struct {
 	stop chan struct{}
 }
 
@@ -52,15 +52,15 @@ type GamepadCapture struct {
 // unchanged snapshot).
 const gamepadPollInterval = 16 * time.Millisecond
 
-// StartGamepadCapture polls navigator.getGamepads() and calls onFrame with
+// StartBrowserGamepadCapture polls navigator.getGamepads() and calls onFrame with
 // an EncodeBrowserGamepadFrame-shaped frame each time the first connected
 // pad's state changes. Only the first connected pad is forwarded -- the
 // agent's loopback export presents exactly one synthetic controller per
 // browser attach (see agent/internal/browserusb.GamepadSession), same
 // one-controller-per-attach shape usbpass/x360_backend.go already has
 // natively.
-func StartGamepadCapture(onFrame func([]byte)) *GamepadCapture {
-	c := &GamepadCapture{stop: make(chan struct{})}
+func StartBrowserGamepadCapture(onFrame func([]byte)) *BrowserGamepadCapture {
+	c := &BrowserGamepadCapture{stop: make(chan struct{})}
 	go func() {
 		ticker := time.NewTicker(gamepadPollInterval)
 		defer ticker.Stop()
@@ -86,7 +86,7 @@ func StartGamepadCapture(onFrame func([]byte)) *GamepadCapture {
 }
 
 // Stop halts the polling goroutine.
-func (c *GamepadCapture) Stop() { close(c.stop) }
+func (c *BrowserGamepadCapture) Stop() { close(c.stop) }
 
 func pollGamepad() ([]byte, bool) {
 	pads := js.Global().Get("navigator").Call("getGamepads")

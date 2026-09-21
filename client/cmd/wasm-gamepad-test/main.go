@@ -56,7 +56,7 @@ func startBrowserGamepad(this js.Value, args []js.Value) interface{} {
 	}
 	log("attached -- press a button on the gamepad, then check the agent for a new Xbox 360 controller")
 
-	capture := platform.StartGamepadCapture(send)
+	capture := platform.StartBrowserGamepadCapture(send)
 	activeStop = func() {
 		capture.Stop()
 		stop()
