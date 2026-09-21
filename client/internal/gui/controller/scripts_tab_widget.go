@@ -115,7 +115,9 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 
 	w.mu.Lock()
 	w.usbClient = c
-	w.agentOS = ""
+	if c == nil {
+		w.agentOS = ""
+	}
 	w.mu.Unlock()
 
 	// Keep an already-running proxy pointed at the current device
@@ -136,10 +138,18 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 		return
 	}
 
+	w.mu.Lock()
+	seededOS := w.agentOS
+	w.mu.Unlock()
+
 	fyne.Do(func() {
 		w.agentPromo = false
 		w.lockedMessage = ""
 		w.newScriptEnabled = false
+		if !isUSBridgeAgentOS(seededOS) {
+			w.showScriptsAgentPromo()
+			return
+		}
 		w.rebuild()
 	})
 
@@ -172,7 +182,16 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 	}()
 }
 
-// showScriptsLocked replaces the Scripts table with a centered notice
+// SetAgentOS records the OS from connect verification so the first Scripts
+// paint can skip KVM-only chrome on a software agent.
+func (w *ScriptsTabWidget) SetAgentOS(osName string) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.agentOS = strings.TrimSpace(osName)
+	w.mu.Unlock()
+}
 // and disables New Script -- SD/eMMC storage doesn't exist on a software
 // Agent. The MCP card stays fully usable regardless of agent type.
 func (w *ScriptsTabWidget) showScriptsLocked(msg string) {

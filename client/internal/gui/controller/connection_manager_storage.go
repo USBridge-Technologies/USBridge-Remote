@@ -176,6 +176,32 @@ func applyConnectionAgentInfo(conns []SavedConnection, currentHost, os, protocol
 	return -1, false
 }
 
+func lookupConnectionAgentInfo(conns []SavedConnection, currentHost string) (osName, protocol string) {
+	currentHost = strings.TrimSpace(currentHost)
+	if currentHost == "" {
+		return "", ""
+	}
+	for i := range conns {
+		conn := conns[i]
+		savedInternal, savedTailscale := classifyConnectionHosts(conn)
+		if strings.TrimSpace(conn.Host) != currentHost && savedInternal != currentHost && savedTailscale != currentHost {
+			continue
+		}
+		return strings.TrimSpace(conns[i].RemoteOS), strings.TrimSpace(conns[i].RemoteProtocol)
+	}
+	return "", ""
+}
+
+// LookupAgentIdentity returns the last known OS/tariff for this host from
+// connections.json, used to seed Devices/mouse mapping while live
+// /api/device/info is already in hand or still filling a blank field.
+func (cm *ConnectionManager) LookupAgentIdentity(currentHost string) (osName, protocol string) {
+	if cm == nil {
+		return "", ""
+	}
+	return lookupConnectionAgentInfo(cm.connections, currentHost)
+}
+
 // getStorageURI returns the storage URI
 func (cm *ConnectionManager) getStorageURI() fyne.URI {
 	uri, err := storage.Child(cm.app.Storage().RootURI(), "connections.json")

@@ -985,7 +985,10 @@ func (l *mainHeaderBarLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 // has no natural size of its own.
 func headerCenterContentMinSize(center fyne.CanvasObject) fyne.Size {
 	if cl, ok := center.(*container.Clip); ok && cl.Content != nil {
-		return cl.Content.MinSize()
+		center = cl.Content
+	}
+	if center == nil || !center.Visible() {
+		return fyne.NewSize(0, 0)
 	}
 	return center.MinSize()
 }

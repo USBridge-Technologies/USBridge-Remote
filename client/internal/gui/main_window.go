@@ -86,6 +86,10 @@ type MainWindow struct {
 	// statusBarPeripheralsDivider is that same strip's divider between the
 	// video group and the peripherals group -- see syncStatusBarDividers.
 	statusBarPeripheralsDivider fyne.CanvasObject
+	// statusIndicatorBar is the Control header's bordered fps/resolution
+	// strip. Hidden entirely while it has nothing to show -- otherwise the
+	// fill/border still paints as a tiny empty chip.
+	statusIndicatorBar fyne.CanvasObject
 	// statusBarIndicatorsDivider is the divider *inside* the peripherals
 	// group, between mw.statusBarButtonsGroup (audio/keyboard/mouse/rndis/
 	// script -- real actions) and mw.statusBarIndicatorsGroup (SD card, SD

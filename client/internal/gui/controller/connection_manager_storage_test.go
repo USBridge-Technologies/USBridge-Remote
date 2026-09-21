@@ -48,3 +48,17 @@ func TestApplyConnectionAgentInfo_UnknownHost(t *testing.T) {
 		t.Fatalf("must not rewrite other hosts, got %q", conns[0].RemoteProtocol)
 	}
 }
+
+func TestLookupConnectionAgentInfo(t *testing.T) {
+	conns := []SavedConnection{
+		{Name: "Office", Host: "192.168.1.10", InternalHost: "192.168.1.10", RemoteOS: "Windows", RemoteProtocol: "opensource"},
+	}
+	osName, protocol := lookupConnectionAgentInfo(conns, "192.168.1.10")
+	if osName != "Windows" || protocol != "opensource" {
+		t.Fatalf("got os=%q protocol=%q", osName, protocol)
+	}
+	osName, protocol = lookupConnectionAgentInfo(conns, "10.9.9.9")
+	if osName != "" || protocol != "" {
+		t.Fatalf("unknown host got os=%q protocol=%q", osName, protocol)
+	}
+}

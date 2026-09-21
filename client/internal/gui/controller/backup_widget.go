@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"usbridge-client/internal/api"
@@ -80,6 +81,15 @@ func (bw *BackupWidget) SetWindow(window fyne.Window) {
 	bw.window = window
 }
 
+// SetAgentOS seeds the hardware vs software chrome before the first snapshot
+// load, matching DiskWidget.SetAgentIdentity on connect.
+func (bw *BackupWidget) SetAgentOS(osName string) {
+	if bw == nil {
+		return
+	}
+	bw.agentOS = strings.TrimSpace(osName)
+}
+
 // UpdateClient updates the USB client
 func (bw *BackupWidget) UpdateClient(usbClient *api.USBClient) {
 	bw.usbClient = usbClient
@@ -87,6 +97,7 @@ func (bw *BackupWidget) UpdateClient(usbClient *api.USBClient) {
 		bw.isClosing.Store(false)
 	}
 	if usbClient == nil {
+		bw.agentOS = ""
 		bw.sdSpaceInfo = nil
 		bw.updateSDStorageInfo()
 	}

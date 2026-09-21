@@ -69,7 +69,7 @@ func TestVerifyActiveConnectionRejectsWrongMasterKey(t *testing.T) {
 
 	mw := &MainWindow{usbClient: newTestUSBClient(t, server)}
 
-	if err := mw.verifyActiveConnectionWithContext(context.Background()); err == nil {
+	if _, err := mw.verifyActiveConnectionWithContext(context.Background()); err == nil {
 		t.Fatal("verifyActiveConnectionWithContext succeeded against a server that 401s /api/device/info -- a wrong master key would falsely look connected")
 	} else if !strings.Contains(err.Error(), "401") {
 		t.Errorf("expected the 401 to surface in the error, got: %v", err)
@@ -86,7 +86,7 @@ func TestVerifyActiveConnectionAcceptsCorrectMasterKey(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case "/api/device/info":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"success":true,"data":{}}`))
+			_, _ = w.Write([]byte(`{"success":true,"data":{"agent_os":"Windows","agent_protocol":"opensource"}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -95,8 +95,12 @@ func TestVerifyActiveConnectionAcceptsCorrectMasterKey(t *testing.T) {
 
 	mw := &MainWindow{usbClient: newTestUSBClient(t, server)}
 
-	if err := mw.verifyActiveConnectionWithContext(context.Background()); err != nil {
+	info, err := mw.verifyActiveConnectionWithContext(context.Background())
+	if err != nil {
 		t.Fatalf("verifyActiveConnectionWithContext failed against a server that accepts /api/device/info: %v", err)
+	}
+	if info == nil || info.AgentOS != "Windows" || info.AgentProtocol != "opensource" {
+		t.Fatalf("verify must return the agent identity payload, got %+v", info)
 	}
 }
 

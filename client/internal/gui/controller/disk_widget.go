@@ -227,6 +227,18 @@ type DiskWidget struct {
 	agentProtocol string
 }
 
+// SetAgentIdentity records OS/tariff from connect verification (or the last
+// saved connection row) before UpdateClient starts the Devices loaders, so
+// the first dashboard paint is already software vs KVM instead of flashing
+// KVM chrome while agentOS is still empty.
+func (dw *DiskWidget) SetAgentIdentity(osName, protocol string) {
+	if dw == nil {
+		return
+	}
+	dw.agentOS = strings.TrimSpace(osName)
+	dw.agentProtocol = strings.TrimSpace(protocol)
+}
+
 // MaxDevicesToMount maximum number of devices that can be selected at once
 const MaxDevicesToMount = 5
 
@@ -1072,10 +1084,10 @@ func (dw *DiskWidget) showWarningAsync(title, message string) {
 // on connect — kicks off the full load cycle.
 func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	dw.usbClient = usbClient
-	dw.agentOS = ""
-	dw.agentProtocol = ""
 	dw.audioAutoStarted.Store(false)
 	if usbClient == nil {
+		dw.agentOS = ""
+		dw.agentProtocol = ""
 		fyne.Do(func() {
 			dw.localDrives = nil
 			dw.mountedDevices = nil

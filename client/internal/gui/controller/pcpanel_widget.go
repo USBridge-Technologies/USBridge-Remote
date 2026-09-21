@@ -1215,7 +1215,9 @@ func (p *PCPanelWidget) SetClient(c *api.USBClient) {
 		p.pollCtxCancel = nil
 	}
 	p.usbClient = c
-	p.agentOS = ""
+	if c == nil {
+		p.agentOS = ""
+	}
 	p.pollMu.Unlock()
 
 	if c == nil {
@@ -1259,6 +1261,16 @@ func (p *PCPanelWidget) getAgentOS() string {
 	p.pollMu.Lock()
 	defer p.pollMu.Unlock()
 	return p.agentOS
+}
+
+// SetAgentOS seeds power/reset lockout before the async GetDeviceInfo poll.
+func (p *PCPanelWidget) SetAgentOS(osName string) {
+	if p == nil {
+		return
+	}
+	p.pollMu.Lock()
+	p.agentOS = strings.TrimSpace(osName)
+	p.pollMu.Unlock()
 }
 
 // pollLeds periodically polls LEDs state

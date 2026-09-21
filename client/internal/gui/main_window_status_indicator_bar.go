@@ -270,6 +270,24 @@ func (mw *MainWindow) syncStatusBarDividers() {
 			mw.controlFooterKVMDivider.Hide()
 		}
 	}
+	mw.syncStatusIndicatorBarVisibility()
+}
+
+func (mw *MainWindow) syncStatusIndicatorBarVisibility() {
+	if mw.statusIndicatorBar == nil {
+		return
+	}
+	show := mw.videoStatusGroup != nil && hasVisibleContent(mw.videoStatusGroup)
+	if useMobileControl() {
+		show = show ||
+			(mw.statusPanel != nil && hasVisibleContent(mw.statusPanel)) ||
+			(mw.sdStorageProgress != nil && mw.sdStorageProgress.Visible())
+	}
+	if show {
+		mw.statusIndicatorBar.Show()
+	} else {
+		mw.statusIndicatorBar.Hide()
+	}
 }
 
 func controlFooterIconBox(obj fyne.CanvasObject) fyne.CanvasObject {
@@ -383,7 +401,10 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	bg.StrokeWidth = 1
 	bg.CornerRadius = design.RadiusMD
 
-	return container.NewStack(bg, view.NewInsetExact(content, statusIndicatorBarPadX, statusIndicatorBarPadX, padY, padY))
+	bar := container.NewStack(bg, view.NewInsetExact(content, statusIndicatorBarPadX, statusIndicatorBarPadX, padY, padY))
+	bar.Hide()
+	mw.statusIndicatorBar = bar
+	return bar
 }
 
 func (mw *MainWindow) applyControlFooterIconHover() {

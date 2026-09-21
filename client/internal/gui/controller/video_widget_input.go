@@ -1383,8 +1383,13 @@ func (vw *VideoWidget) hostMapsMouseInStreamSpace() bool {
 	switch strings.ToLower(strings.TrimSpace(vw.agentProtocol)) {
 	case "opensource", "open source", "sunshine":
 		return true
-	default:
+	case "pro", "free", "enterprise":
 		return false
+	default:
+		// Unknown tariff must not assume RustShine crop: that made Sunshine
+		// sessions subtract letterbox bars until reconnect. Software agents
+		// default to stream-space; empty OS still follows the KVM default.
+		return IsSoftwareAgentOS(vw.agentOS)
 	}
 }
 

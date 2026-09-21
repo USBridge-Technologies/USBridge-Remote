@@ -243,6 +243,27 @@ func TestSetAgentProtocolSwitchesInStreamCrop(t *testing.T) {
 	}
 }
 
+func TestUnknownProtocolUsesSoftwareStreamSpace(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.lastVideoImgW = 1920
+	vw.lastVideoImgH = 1080
+	vw.setHostDesktopSize(1920, 1200)
+	vw.agentOS = "Windows"
+	vw.UpdateTouchpadAndContentRect(1920, 1080, nil)
+
+	_, _, fw, _ := vw.getFrameContentRect()
+	if fw != 1 {
+		t.Fatalf("unknown tariff on a software agent must not crop (Sunshine-safe), fw=%v", fw)
+	}
+
+	vw.agentOS = ""
+	vw.updateInStreamContentRect()
+	_, _, fw, _ = vw.getFrameContentRect()
+	if fw >= 0.999 {
+		t.Fatalf("unknown tariff with unknown OS still defaults to KVM crop, fw=%v", fw)
+	}
+}
+
 func mathAbs32(v float32) float32 {
 	if v < 0 {
 		return -v
