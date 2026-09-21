@@ -218,4 +218,4 @@ To trigger a quick WASM web build:
 
 ## 📜 License
 
-This project is licensed under **GPLv3** (see `LICENSE`). The client incorporates code from `moonlight-common-c` (also GPLv3).
+This project is licensed under **GPLv3** (see `LICENSE`). The client incorporates code from `moonlight-common-c` (also GPLv3). The Windows client embeds an excerpt of SDL_GameControllerDB (zlib license, see `third_party/SDL_GameControllerDB/`).

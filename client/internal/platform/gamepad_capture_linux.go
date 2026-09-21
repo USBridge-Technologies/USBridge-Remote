@@ -18,6 +18,9 @@ const (
 	linuxEvSyn     = 0
 	linuxEventSize = 24 // struct input_event on 64-bit Linux
 
+	linuxSynDropped = 3     // SYN_DROPPED: the kernel's event buffer overflowed
+	linuxKeyMax     = 0x2ff // KEY_MAX
+
 	linuxAbsX     = 0
 	linuxAbsY     = 1
 	linuxAbsZ     = 2
@@ -73,6 +76,31 @@ func linuxEviocgabs(fd int, axis uint16) (linuxInputAbsinfo, bool) {
 	return info, errno == 0
 }
 
+// linuxEviocgkey reads the pad's current key/button bitmap (EVIOCGKEY).
+func linuxEviocgkey(fd int) ([]byte, bool) {
+	buf := make([]byte, linuxKeyMax/8+1)
+	ioc := uintptr(0x80000000) | uintptr(len(buf))<<16 | uintptr('E')<<8 | 0x18
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), ioc, uintptr(unsafe.Pointer(&buf[0])))
+	return buf, errno == 0
+}
+
+// linuxKeyDown reports whether key code is set in an EVIOCGKEY bitmap.
+func linuxKeyDown(bitmap []byte, code uint16) bool {
+	i := int(code) / 8
+	return i < len(bitmap) && bitmap[i]&(1<<(uint(code)%8)) != 0
+}
+
+// invertAxis flips a stick axis from evdev's "positive is down" to the
+// Moonlight/XInput "positive is up". Negating int16 directly overflows at
+// -32768 (it stays -32768), which turned a fully deflected stick into the
+// opposite extreme, so that value is clamped to 32767.
+func invertAxis(v int16) int16 {
+	if v == -32768 {
+		return 32767
+	}
+	return -v
+}
+
 type linuxAxisRange struct{ min, max int32 }
 
 type linuxState struct {
@@ -118,6 +146,49 @@ func (s *linuxState) normalizeTrigger(code uint16, raw int32) uint8 {
 	return uint8(v)
 }
 
+// seed loads the pad's current state from the kernel: axis values, the hat and
+// every held button. evdev only reports changes, so without this a stick that
+// is off-centre or a button that is held when the capture starts (or after a
+// SYN_DROPPED) stays wrong until it moves again.
+func (s *linuxState) seed(fd int) {
+	value := func(axis uint16) (int32, bool) {
+		info, ok := linuxEviocgabs(fd, axis)
+		return info.Value, ok
+	}
+	if v, ok := value(linuxAbsX); ok {
+		s.leftXRaw = v
+	}
+	if v, ok := value(linuxAbsY); ok {
+		s.leftYRaw = v
+	}
+	if v, ok := value(linuxAbsRX); ok {
+		s.rightXRaw = v
+	}
+	if v, ok := value(linuxAbsRY); ok {
+		s.rightYRaw = v
+	}
+	if v, ok := value(linuxAbsZ); ok {
+		s.leftTrigger = s.normalizeTrigger(linuxAbsZ, v)
+	}
+	if v, ok := value(linuxAbsRZ); ok {
+		s.rightTrigger = s.normalizeTrigger(linuxAbsRZ, v)
+	}
+	if v, ok := value(linuxAbsHat0X); ok {
+		s.hatX = v
+	}
+	if v, ok := value(linuxAbsHat0Y); ok {
+		s.hatY = v
+	}
+	if keys, ok := linuxEviocgkey(fd); ok {
+		s.buttons = 0
+		for code, bit := range linuxButtonMap {
+			if linuxKeyDown(keys, code) {
+				s.buttons |= bit
+			}
+		}
+	}
+}
+
 func (s *linuxState) toCapture() GamepadCaptureState {
 	buttons := s.buttons
 	if s.hatX < 0 {
@@ -135,9 +206,9 @@ func (s *linuxState) toCapture() GamepadCaptureState {
 	return GamepadCaptureState{
 		Buttons:      buttons,
 		LeftX:        s.rawAxisToInt16(linuxAbsX, s.leftXRaw),
-		LeftY:        -s.rawAxisToInt16(linuxAbsY, s.leftYRaw),
+		LeftY:        invertAxis(s.rawAxisToInt16(linuxAbsY, s.leftYRaw)),
 		RightX:       s.rawAxisToInt16(linuxAbsRX, s.rightXRaw),
-		RightY:       -s.rawAxisToInt16(linuxAbsRY, s.rightYRaw),
+		RightY:       invertAxis(s.rawAxisToInt16(linuxAbsRY, s.rightYRaw)),
 		LeftTrigger:  s.leftTrigger,
 		RightTrigger: s.rightTrigger,
 	}
@@ -188,7 +259,9 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 				logrus.Warnf("🎮 [LinuxCapture] axis %s (code=%d) calibration failed", axisName[axis], axis)
 			}
 		}
+		st.seed(fd)
 		logrus.Infof("🎮 [LinuxCapture] Ready: %s", deviceID)
+		dropping := false // discarding events until the SYN_REPORT after a SYN_DROPPED
 
 		buf := make([]byte, linuxEventSize)
 		var logSeq uint64
@@ -232,6 +305,24 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 			evType := binary.LittleEndian.Uint16(buf[16:18])
 			evCode := binary.LittleEndian.Uint16(buf[18:20])
 			evValue := int32(binary.LittleEndian.Uint32(buf[20:24]))
+
+			// The kernel dropped events: what follows up to the next
+			// SYN_REPORT is unreliable. Re-read the real state afterwards
+			// instead of trusting a partial delta (a lost release would leave
+			// a button stuck).
+			if evType == linuxEvSyn && evCode == linuxSynDropped {
+				logrus.Warnf("🎮 [LinuxCapture] %s: SYN_DROPPED, resyncing", deviceID)
+				dropping = true
+				continue
+			}
+			if dropping {
+				if evType == linuxEvSyn {
+					st.seed(fd)
+					dropping = false
+					onState(st.toCapture())
+				}
+				continue
+			}
 
 			switch evType {
 			case linuxEvKey:

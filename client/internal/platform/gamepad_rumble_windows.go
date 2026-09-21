@@ -6,49 +6,36 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unsafe"
-
-	"golang.org/x/sys/windows"
 )
 
 // Force feedback for a captured gamepad through XInput: the host's Moonlight
 // rumble levels drive the pad's two motors with XInputSetState.
 
 var (
-	modXInputRumble    = windows.NewLazySystemDLL("xinput1_4.dll")
-	procXInputGetState = modXInputRumble.NewProc("XInputGetState")
-	procXInputSetState = modXInputRumble.NewProc("XInputSetState")
-
 	rumbleMu    sync.Mutex
 	rumbleSlots = map[string]int{} // pad id -> XInput slot currently vibrating
 )
 
-type xinputVibration struct{ Left, Right uint16 }
-
-func xinputConnected(slot int) bool {
-	var state [16]byte // XINPUT_STATE
-	r, _, _ := procXInputGetState.Call(uintptr(slot), uintptr(unsafe.Pointer(&state[0])))
-	return r == 0
-}
-
-// xinputSlotFor picks the XInput slot for a "winmm:N" pad id. WinMM and
-// XInput number pads independently, so N is only a hint: it is used when that
-// slot holds a pad, otherwise the first connected slot.
+// xinputSlotFor resolves a pad id to its XInput slot. "xinput:N" names the slot
+// exactly. For a legacy "winmm:N" id, WinMM and XInput number pads
+// independently, so N is only a hint: it is used when that slot holds a pad,
+// otherwise the first connected slot.
 func xinputSlotFor(id string) int {
-	if n, err := strconv.Atoi(strings.TrimPrefix(id, "winmm:")); err == nil && n >= 0 && n < 4 && xinputConnected(n) {
-		return n
+	if n, ok := strings.CutPrefix(id, "xinput:"); ok {
+		if slot, err := strconv.Atoi(n); err == nil && slot >= 0 && slot < xinputMaxSlots && xinputConnected(slot) {
+			return slot
+		}
+		return -1
 	}
-	for i := 0; i < 4; i++ {
+	if slot, err := strconv.Atoi(strings.TrimPrefix(id, "winmm:")); err == nil && slot >= 0 && slot < xinputMaxSlots && xinputConnected(slot) {
+		return slot
+	}
+	for i := 0; i < xinputMaxSlots; i++ {
 		if xinputConnected(i) {
 			return i
 		}
 	}
 	return -1
-}
-
-func setVibration(slot int, low, high uint16) {
-	v := xinputVibration{Left: low, Right: high}
-	procXInputSetState.Call(uintptr(slot), uintptr(unsafe.Pointer(&v)))
 }
 
 // SetGamepadRumble drives the pad's motors: low is the large (low-frequency)
@@ -62,7 +49,7 @@ func SetGamepadRumble(id string, low, high uint16) {
 		return
 	}
 	rumbleSlots[id] = slot
-	setVibration(slot, low, high)
+	xinputSetVibration(slot, low, high)
 }
 
 // StopGamepadRumble silences the pad.
@@ -70,7 +57,7 @@ func StopGamepadRumble(id string) {
 	rumbleMu.Lock()
 	defer rumbleMu.Unlock()
 	if slot, ok := rumbleSlots[id]; ok {
-		setVibration(slot, 0, 0)
+		xinputSetVibration(slot, 0, 0)
 		delete(rumbleSlots, id)
 	}
 }

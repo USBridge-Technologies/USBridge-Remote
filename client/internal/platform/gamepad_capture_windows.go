@@ -4,6 +4,7 @@ package platform
 
 import (
 	"fmt"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -83,6 +84,9 @@ type GamepadCapture struct {
 // StartGamepadCapture opens the gamepad identified by deviceID ("winmm:N") and calls
 // onState at ~60 Hz with the latest decoded input. Returns an error if the device cannot be opened.
 func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*GamepadCapture, error) {
+	if strings.HasPrefix(deviceID, "xinput:") {
+		return startXInputCapture(deviceID, onState)
+	}
 	var joyID uint32
 	if _, err := fmt.Sscanf(deviceID, "winmm:%d", &joyID); err != nil {
 		return nil, fmt.Errorf("invalid Windows gamepad device ID %q (expected winmm:N)", deviceID)
@@ -105,6 +109,16 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 		caps.zMin, caps.zMax, caps.rMin, caps.rMax,
 		caps.uMin, caps.uMax, caps.vMin, caps.vMax)
 
+	// A pad the SDL database knows is read through its mapping (a PlayStation-
+	// layout pad has its triggers, right stick and face buttons elsewhere than
+	// an Xbox pad); an unknown one keeps the Xbox-style layout below.
+	mapping := sdlMappingFor(caps.vid, caps.pid)
+	if mapping != nil {
+		logrus.Infof("🎮 [WinMM] winmm:%d %04x:%04x uses the SDL mapping %q", joyID, caps.vid, caps.pid, mapping.name)
+	} else {
+		logrus.Infof("🎮 [WinMM] winmm:%d %04x:%04x has no SDL mapping, assuming the Xbox layout", joyID, caps.vid, caps.pid)
+	}
+
 	cap := &GamepadCapture{
 		joyID: joyID,
 		stop:  make(chan struct{}),
@@ -124,7 +138,7 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 			case <-cap.stop:
 				return
 			case <-ticker.C:
-				state, ok := pollWinMMState(joyID, caps)
+				state, ok := pollWinMMState(joyID, caps, mapping)
 				if !ok {
 					logrus.Warnf("🎮 [WinMM] Device winmm:%d disconnected during capture", joyID)
 					return
@@ -154,6 +168,7 @@ func (c *GamepadCapture) Stop() {
 }
 
 type winmmCaps struct {
+	vid, pid   uint16
 	xMin, xMax uint32
 	yMin, yMax uint32
 	zMin, zMax uint32 // Z  = Left Trigger
@@ -173,6 +188,7 @@ func winmmGetCaps(joyID uint32) (winmmCaps, error) {
 		return winmmCaps{}, fmt.Errorf("joyGetDevCapsW returned %d", ret)
 	}
 	return winmmCaps{
+		vid: raw.wMid, pid: raw.wPid,
 		xMin: raw.wXmin, xMax: raw.wXmax,
 		yMin: raw.wYmin, yMax: raw.wYmax,
 		zMin: raw.wZmin, zMax: raw.wZmax,
@@ -182,7 +198,7 @@ func winmmGetCaps(joyID uint32) (winmmCaps, error) {
 	}, nil
 }
 
-func pollWinMMState(joyID uint32, caps winmmCaps) (GamepadCaptureState, bool) {
+func pollWinMMState(joyID uint32, caps winmmCaps, mapping *sdlMapping) (GamepadCaptureState, bool) {
 	var info joyInfoEx
 	info.dwSize = uint32(unsafe.Sizeof(info))
 	info.dwFlags = joyReturnAll
@@ -190,6 +206,25 @@ func pollWinMMState(joyID uint32, caps winmmCaps) (GamepadCaptureState, bool) {
 	ret, _, _ := procJoyGetPosEx.Call(uintptr(joyID), uintptr(unsafe.Pointer(&info)))
 	if ret != joyErrNoError {
 		return GamepadCaptureState{}, false
+	}
+
+	if mapping != nil {
+		in := joyInput{
+			axes: [6]float64{
+				winmmUnit(info.dwXpos, caps.xMin, caps.xMax),
+				winmmUnit(info.dwYpos, caps.yMin, caps.yMax),
+				winmmUnit(info.dwZpos, caps.zMin, caps.zMax),
+				winmmUnit(info.dwRpos, caps.rMin, caps.rMax),
+				winmmUnit(info.dwUpos, caps.uMin, caps.uMax),
+				winmmUnit(info.dwVpos, caps.vMin, caps.vMax),
+			},
+			buttons: info.dwButtons,
+			pov:     -1,
+		}
+		if info.dwPOV != joyPOVCentered {
+			in.pov = int(info.dwPOV)
+		}
+		return mapping.capture(in), true
 	}
 
 	// Map buttons: iterate over the lower 16 bits of dwButtons.
@@ -231,8 +266,34 @@ func pollWinMMState(joyID uint32, caps winmmCaps) (GamepadCaptureState, bool) {
 	}, true
 }
 
+// winmmUnit scales a raw WinMM axis value to -1 (the low end of its range) ..
+// +1 (the high end). A driver that reports its range the wrong way round
+// (minimum above maximum) is tolerated by ordering the two ends first; the
+// value itself is not flipped, since the sign convention is the mapping's
+// business.
+func winmmUnit(val, min, max uint32) float64 {
+	lo, hi := min, max
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	if hi == lo {
+		return 0
+	}
+	v := (float64(val)-float64(lo))/(float64(hi)-float64(lo))*2 - 1
+	if v > 1 {
+		return 1
+	}
+	if v < -1 {
+		return -1
+	}
+	return v
+}
+
 // winmmScaleAxis maps a raw WinMM axis value (min..max) to int16 (-32767..32767).
 func winmmScaleAxis(val, min, max uint32) int16 {
+	if min > max {
+		min, max = max, min // a reversed range would read as a dead axis
+	}
 	if max <= min {
 		return 0
 	}

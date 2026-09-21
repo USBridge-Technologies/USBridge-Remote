@@ -4,6 +4,7 @@ package platform
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -67,8 +68,62 @@ type GamepadDevice struct {
 }
 
 // EnumerateGamepads returns all gamepads currently connected to the system.
-// On Windows it uses the WinMM joystick API which enumerates both XInput and DirectInput devices.
+//
+// Xbox-class pads (XInput) are listed as "xinput:N" and read through XInput, which
+// gives separate full-range triggers and the Guide button. WinMM reports the two
+// triggers of such a pad as one shared axis, so the WinMM entry of an XInput pad
+// is hidden; every other pad (DirectInput) stays "winmm:N".
 func EnumerateGamepads() []GamepadDevice {
+	winmmPads := enumerateWinMM()
+	return mergeXInputPads(winmmPads, xinputPads())
+}
+
+// xinputPads lists the connected XInput slots with their USB ids when known.
+func xinputPads() []GamepadDevice {
+	var out []GamepadDevice
+	for slot := 0; slot < xinputMaxSlots; slot++ {
+		if !xinputConnected(slot) {
+			continue
+		}
+		d := GamepadDevice{ID: fmt.Sprintf("xinput:%d", slot)}
+		if vid, pid, ok := xinputVIDPID(slot); ok {
+			d.VendorID = fmt.Sprintf("0x%04x", vid)
+			d.ProductID = fmt.Sprintf("0x%04x", pid)
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// mergeXInputPads puts the XInput pads first and drops the WinMM entry that is the
+// same physical pad (same VID/PID, one WinMM entry consumed per XInput pad). An
+// XInput pad takes the name of its WinMM twin, which has the product string.
+func mergeXInputPads(winmmPads, xinput []GamepadDevice) []GamepadDevice {
+	used := make([]bool, len(winmmPads))
+	merged := make([]GamepadDevice, 0, len(winmmPads)+len(xinput))
+	for i, x := range xinput {
+		for j, w := range winmmPads {
+			if used[j] || x.VendorID == "" || !strings.EqualFold(x.VendorID, w.VendorID) || !strings.EqualFold(x.ProductID, w.ProductID) {
+				continue
+			}
+			used[j] = true
+			x.Name = w.Name
+			break
+		}
+		if x.Name == "" {
+			x.Name = fmt.Sprintf("Xbox Controller %d", i+1)
+		}
+		merged = append(merged, x)
+	}
+	for j, w := range winmmPads {
+		if !used[j] {
+			merged = append(merged, w)
+		}
+	}
+	return merged
+}
+
+func enumerateWinMM() []GamepadDevice {
 	numDevs, _, _ := procJoyGetNumDevs.Call()
 	if numDevs == 0 {
 		return nil
