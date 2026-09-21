@@ -14,7 +14,9 @@ the whole matrix is in [Supported input devices](./INPUT_DEVICES.md).
 | **USB export** (this page) | the original USB tablet, with its own VID/PID, descriptors and serial | the vendor's own driver (Wacom's on Windows, the kernel `wacom` driver on Linux); **no Zadig / WinUSB** on the client | the table below |
 | Pen over the stream ([macOS only](./PEN_TABLET_SUPPORT.md)) | a Moonlight pen event | nothing | the IntuosV2 family |
 
-Switching a tablet on in **Devices → HID & Input Hub** starts the USB export. It
+Switching a tablet on in **Devices → HID & Input Hub** starts the USB export. For Wacom tablets
+this works in every build, with or without libusb (the HID bridge is on by default for
+vendor `056A`; `USBRIDGE_HID_BRIDGE=0` turns it off, `=1` turns it on for other devices too). It
 carries everything the tablet has: position, pressure, hover distance, tilt where the
 pen has it, both side buttons and the ExpressKeys.
 

@@ -16,12 +16,24 @@ import (
 // idSets makes winHIDCollection a hidGenPort.
 func (c *winHIDCollection) idSets() [ppReportTypes]map[uint8]bool { return c.ids }
 
-// hidBridgeEnabled reports whether the HID bridge may take HID devices. It is
-// opt-in: it cannot forward the vendor-specific feature reports some drivers
-// send at USB level (Wacom's router does; hid.dll refuses report IDs the
-// descriptor does not declare), so by default every device keeps using the
-// full-fidelity libusb path. Set USBRIDGE_HID_BRIDGE=1 to try the bridge.
-func hidBridgeEnabled() bool { return os.Getenv("USBRIDGE_HID_BRIDGE") == "1" }
+// hidBridgeEnabled reports whether the HID bridge may take the device with this
+// USB instance ID. Wacom tablets always go through it (exported from a model, see
+// wacom_model.go): the libusb path would need a Zadig/WinUSB driver swap, and a
+// client built without libusb has no such path at all. For every other device it is
+// opt-in, because it cannot forward the vendor-specific feature reports some
+// drivers send at USB level (hid.dll refuses report IDs the descriptor does not
+// declare), so those keep using the full-fidelity libusb path.
+// USBRIDGE_HID_BRIDGE=1 turns the bridge on for all devices, =0 off for all.
+func hidBridgeEnabled(usbInstanceID string) bool {
+	switch os.Getenv("USBRIDGE_HID_BRIDGE") {
+	case "1":
+		return true
+	case "0":
+		return false
+	}
+	vid, _, ok := parseUSBInstanceVIDPID(usbInstanceID)
+	return ok && strings.EqualFold(vid, "056A")
+}
 
 // colNumber extracts nn from a "...&COLnn\..." HID instance ID (0 if none) so
 // a device's collections are put back in report-descriptor order.
@@ -92,7 +104,7 @@ func normalizeHIDID(s string) string {
 // bridgeable): use the libusb path", handled=true means the outcome (nil or
 // error) is final.
 func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
-	if !hidBridgeEnabled() || dev.InstanceID == "" || !strings.HasPrefix(strings.ToUpper(dev.InstanceID), "USB\\") {
+	if dev.InstanceID == "" || !hidBridgeEnabled(dev.InstanceID) || !strings.HasPrefix(strings.ToUpper(dev.InstanceID), "USB\\") {
 		return false, nil
 	}
 	nodes, err := hidNodesOfUSBDevice(dev.InstanceID)
