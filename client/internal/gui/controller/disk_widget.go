@@ -388,6 +388,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 	dw.createInterface()
 	dw.startPeriodicRefresh()
 	go dw.loadGamepadDevices()
+	dw.startBrowserGamepadPolling()
 	go dw.loadUSBPassthroughDevices()
 
 	return dw
