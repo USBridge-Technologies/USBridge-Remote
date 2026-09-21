@@ -141,6 +141,11 @@ type DiskWidget struct {
 
 	// Gamepad capture
 	activeCaptures    map[string]*platform.GamepadCapture
+	// rumbleIDs mirrors activeCaptures' keys for the Moonlight callback
+	// thread, which must not touch activeCaptures (UI-goroutine only).
+	rumbleMu   sync.Mutex
+	rumbleIDs  []string
+	rumbleOnce sync.Once
 	moonlightProvider moonlightProvider
 
 	// Pen/tablet capture (macOS only for now — see platform.ListPenTablets)

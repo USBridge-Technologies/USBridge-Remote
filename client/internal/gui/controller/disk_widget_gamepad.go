@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"sort"
 	"strings"
 	"sync/atomic"
 
@@ -37,11 +38,15 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 		}
 	}
 
+	// The host's rumble goes to whichever pads are being captured.
+	dw.rumbleOnce.Do(func() { service.SetRumbleHandler(dw.onHostRumble) })
+
 	// Stop captures for devices that are no longer mounted.
 	for id, cap := range dw.activeCaptures {
 		if !wanted[id] {
 			logrus.Infof("🎮 [GAMEPAD] stopping capture for %s", id)
 			cap.Stop()
+			platform.StopGamepadRumble(id)
 			delete(dw.activeCaptures, id)
 		}
 	}
@@ -61,6 +66,35 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 			continue
 		}
 		dw.activeCaptures[id] = cap
+	}
+	dw.publishRumbleTargets()
+}
+
+// publishRumbleTargets snapshots the captured pad ids for onHostRumble.
+func (dw *DiskWidget) publishRumbleTargets() {
+	ids := make([]string, 0, len(dw.activeCaptures))
+	for id := range dw.activeCaptures {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	dw.rumbleMu.Lock()
+	dw.rumbleIDs = ids
+	dw.rumbleMu.Unlock()
+}
+
+// onHostRumble applies the host's rumble request to the captured pads. It runs
+// on moonlight-common-c's callback thread. The client always reports its pad
+// as controller 0, so every captured pad follows the host's controller 0.
+func (dw *DiskWidget) onHostRumble(controller, lowFreq, highFreq uint16) {
+	dw.rumbleMu.Lock()
+	ids := append([]string(nil), dw.rumbleIDs...)
+	dw.rumbleMu.Unlock()
+	if len(ids) == 0 {
+		return
+	}
+	logrus.Debugf("🎮 [GAMEPAD] host rumble controller=%d low=%d high=%d -> %v", controller, lowFreq, highFreq, ids)
+	for _, id := range ids {
+		platform.SetGamepadRumble(id, lowFreq, highFreq)
 	}
 }
 
@@ -110,8 +144,10 @@ func (dw *DiskWidget) stopAllGamepadCaptures() {
 	for id, cap := range dw.activeCaptures {
 		logrus.Infof("🎮 [GAMEPAD] stopping capture (disconnect) for %s", id)
 		cap.Stop()
+		platform.StopGamepadRumble(id)
 		delete(dw.activeCaptures, id)
 	}
+	dw.publishRumbleTargets()
 }
 
 // gamepadIdentityMatches reports whether an agent-reported gamepad entry can

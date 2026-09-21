@@ -42,6 +42,7 @@ package service
 extern void goMoonlightStage(int stage, int result, int errCode);
 extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
+extern void goMoonlightRumble(unsigned short controllerNumber, unsigned short lowFreq, unsigned short highFreq);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
@@ -90,6 +91,7 @@ static void cl_stage_complete(int s)       { goMoonlightStage(s,  1, 0); }
 static void cl_stage_failed(int s, int ec) { goMoonlightStage(s, -1, ec); }
 static void cl_connected(void)             { goMoonlightConnected(); }
 static void cl_terminated(int ec)          { goMoonlightTerminated(ec); }
+static void cl_rumble(unsigned short n, unsigned short low, unsigned short high) { goMoonlightRumble(n, low, high); }
 static void cl_log(const char *fmt, ...) {
     char buf[256];
     va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
@@ -907,6 +909,7 @@ static int do_li_start(
     cl.stageStarting = cl_stage_starting; cl.stageComplete = cl_stage_complete;
     cl.stageFailed = cl_stage_failed; cl.connectionStarted = cl_connected;
     cl.connectionTerminated = cl_terminated; cl.logMessage = cl_log;
+    cl.rumble = cl_rumble;
 
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
     if (ret != 0) return ret;
@@ -1308,6 +1311,14 @@ func goMoonlightStage(stage, result, errCode C.int) {
 func goMoonlightConnected() {
 	logrus.Info("🌕 [Moonlight] stream connected ✅")
 	notifyMoonlightStreamReady()
+}
+
+// goMoonlightRumble receives the host's gamepad rumble (moonlight-common-c
+// ConnListenerRumble) and hands it to the handler set with SetRumbleHandler.
+//
+//export goMoonlightRumble
+func goMoonlightRumble(controller, lowFreq, highFreq C.ushort) {
+	dispatchRumble(uint16(controller), uint16(lowFreq), uint16(highFreq))
 }
 
 //export goMoonlightTerminated
