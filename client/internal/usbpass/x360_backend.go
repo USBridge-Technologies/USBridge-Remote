@@ -17,6 +17,7 @@ package usbpass
 import (
 	"context"
 	"encoding/binary"
+	"os"
 	"sync"
 )
 
@@ -188,6 +189,25 @@ func (b *X360Backend) SetState(s X360State) {
 			}
 		}
 	}
+}
+
+// x360Enabled reports whether an Xbox pad may be presented as the synthetic
+// Xbox 360 controller. It is on by default (a GIP pad cannot be passed through
+// raw: it only announces itself once after power-up, so a host that did not see
+// that never starts it); USBRIDGE_X360=0 restores the raw libusb path.
+func x360Enabled() bool { return os.Getenv("USBRIDGE_X360") != "0" }
+
+// applyTo rewrites dev (whose BusID/InstanceID/Busnum/Devnum are kept) to be
+// this synthetic controller.
+func (b *X360Backend) applyTo(dev *ExportedDevice) {
+	syn := b.ExportedDevice(dev.BusID)
+	dev.Backend = b
+	dev.DeviceDesc, dev.ConfigDesc = syn.DeviceDesc, syn.ConfigDesc
+	dev.VID, dev.PID, dev.BCDDevice = syn.VID, syn.PID, syn.BCDDevice
+	dev.Class, dev.SubClass, dev.Protocol = syn.Class, syn.SubClass, syn.Protocol
+	dev.ConfigVal, dev.NumConfigs = syn.ConfigVal, syn.NumConfigs
+	dev.Interfaces = syn.Interfaces
+	dev.Speed = syn.Speed
 }
 
 // ExportedDevice wraps the backend as an exportable USB/IP device.

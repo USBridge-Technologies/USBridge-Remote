@@ -8,9 +8,3 @@ package usbpass
 func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 	return false, nil
 }
-
-// tryClaimX360 is the synthetic Xbox 360 hook (x360_claim_windows.go); the
-// XInput source only exists on Windows.
-func tryClaimX360(dev *ExportedDevice) (handled bool, err error) {
-	return false, nil
-}

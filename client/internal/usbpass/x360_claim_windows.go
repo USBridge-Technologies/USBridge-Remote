@@ -3,7 +3,6 @@
 package usbpass
 
 import (
-	"os"
 	"strings"
 	"time"
 
@@ -14,12 +13,6 @@ import (
 // x360Poll is how often the local XInput pad is sampled: faster than the 4 ms
 // (250 Hz) interval the synthetic endpoint advertises would only queue reports.
 const x360Poll = 4 * time.Millisecond
-
-// x360Enabled reports whether an Xbox pad may be presented as the synthetic
-// Xbox 360 controller. It is on by default (a GIP pad cannot be passed through
-// raw at all); USBRIDGE_X360=0 restores the raw libusb path, which for a
-// wired Xbox 360 pad with WinUSB bound is full fidelity.
-func x360Enabled() bool { return os.Getenv("USBRIDGE_X360") != "0" }
 
 // usbSetupClass returns the setup class name Windows gave the USB device node
 // with the given instance ID ("XboxComposite", "HIDClass", ...), or "".
@@ -107,14 +100,7 @@ func tryClaimX360(dev *ExportedDevice) (handled bool, err error) {
 		<-done
 	}
 
-	syn := b.ExportedDevice(dev.BusID)
-	dev.Backend = b
-	dev.DeviceDesc, dev.ConfigDesc = syn.DeviceDesc, syn.ConfigDesc
-	dev.VID, dev.PID, dev.BCDDevice = syn.VID, syn.PID, syn.BCDDevice
-	dev.Class, dev.SubClass, dev.Protocol = syn.Class, syn.SubClass, syn.Protocol
-	dev.ConfigVal, dev.NumConfigs = syn.ConfigVal, syn.NumConfigs
-	dev.Interfaces = syn.Interfaces
-	dev.Speed = syn.Speed
+	b.applyTo(dev)
 	logrus.Infof("usbpass: x360: %s (%s) exported as Xbox 360 controller %04x:%04x from XInput slot %d",
 		dev.InstanceID, class, dev.VID, dev.PID, slot)
 	return true, nil
