@@ -218,6 +218,18 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 		Interfaces:   ifaces,
 	}
 	backend := newHIDGenBackend(info)
+	push := backend.push
+	if m := wacomModelFor(vid, pid); m != nil {
+		// A tablet we hold the captured descriptors of is exported from that model
+		// (what Wacom's driver expects); only its live input reports are bridged.
+		backend = newWacomModelBackend(m)
+		push = func(i int, rep []byte) {
+			if w := wacomWireReport(rep); w != nil {
+				backend.push(i, w)
+			}
+		}
+		logrus.Infof("usbpass: hidbridge: %04x:%04x is exported from the captured %s model", vid, pid, m.Name)
+	}
 
 	// Input: collections we may read use hid.dll; the OS-held ones are fed by
 	// one Raw Input window, routed by device path.
@@ -239,7 +251,7 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 				wg.Add(1)
 				go func(i int, hasIDs bool, c *winHIDCollection) {
 					defer wg.Done()
-					c.readLoop(stop, hasIDs, func(rep []byte) { backend.push(i, rep) })
+					c.readLoop(stop, hasIDs, func(rep []byte) { push(i, rep) })
 				}(g.idx, f.HasIDs, c)
 			case liveRaw:
 				rawRoutes[normalizeHIDID(c.instance)] = rawTarget{iface: g.idx, hasIDs: f.HasIDs, col: c}
@@ -267,7 +279,7 @@ func tryClaimHID(dev *ExportedDevice) (handled bool, err error) {
 				if !t.hasIDs && len(rep) == t.col.inLen && len(rep) > 0 {
 					rep = rep[1:]
 				}
-				backend.push(t.iface, rep)
+				push(t.iface, rep)
 			}
 		})
 		if err != nil {

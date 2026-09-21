@@ -116,11 +116,15 @@ func TestLiveHIDImportServer(t *testing.T) {
 	if err != nil || !handled {
 		t.Fatalf("tryClaimHID handled=%v err=%v", handled, err)
 	}
-	srv, err := StartExport("127.0.0.1:3240", []*ExportedDevice{dev})
+	addr := "127.0.0.1:3240"
+	if v := os.Getenv("USBRIDGE_HID_IMPORT_ADDR"); v != "" { // e.g. 0.0.0.0:3240 for a remote importer
+		addr = v
+	}
+	srv, err := StartExport(addr, []*ExportedDevice{dev})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer srv.Stop()
-	t.Logf("EXPORT-READY 127.0.0.1:3240 bus id 9-9 (holding %ds)", secs)
+	t.Logf("EXPORT-READY %s bus id 9-9 (holding %ds)", addr, secs)
 	time.Sleep(time.Duration(secs) * time.Second)
 }
