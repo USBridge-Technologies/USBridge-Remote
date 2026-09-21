@@ -1088,6 +1088,11 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 // already shown as mounted, skipping kinds that are in this mount batch.
 func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.DeviceStartRequest {
 	skip := make(map[string]bool, 3)
+	// A software agent takes any number of pads (each is Moonlight controller N),
+	// so mounting one must keep the others; the KVM hardware has a single gamepad
+	// gadget, which a new pad replaces.
+	multiPad := IsSoftwareAgentOS(dw.agentOS)
+	selectedPads := make(map[string]bool)
 	for _, d := range selected {
 		switch {
 		case d.IsKeyboard:
@@ -1095,7 +1100,11 @@ func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.Devi
 		case d.IsMouse:
 			skip["mouse"] = true
 		case d.IsGamepad:
-			skip["gamepad"] = true
+			if multiPad {
+				selectedPads[d.GamepadID] = true
+			} else {
+				skip["gamepad"] = true
+			}
 		}
 	}
 
@@ -1115,7 +1124,7 @@ func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.Devi
 		default:
 			continue
 		}
-		if skip[kind] {
+		if skip[kind] || (d.IsGamepad && multiPad && selectedPads[d.GamepadID]) {
 			continue
 		}
 		req, err := dw.buildDeviceRequestForDrive(d, true)

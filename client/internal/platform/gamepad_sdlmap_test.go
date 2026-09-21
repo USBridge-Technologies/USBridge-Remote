@@ -183,3 +183,36 @@ func TestLookupPicksTheMatchingUsableEntry(t *testing.T) {
 		t.Error("unknown pad must not match")
 	}
 }
+
+func TestRaijuPSButtonIsGuideAndTheTouchpadClickIsNotAnXboxButton(t *testing.T) {
+	m := raijuTE(t) // the database entry names neither
+	m.withDS4Defaults()
+	in := raijuIdle()
+	in.buttons = 1 << 12
+	if st := m.capture(in); st.Buttons != 0x0400 {
+		t.Errorf("PS button: %#04x, want Guide 0x0400", st.Buttons)
+	}
+	// The touchpad click belongs to the touchpad-as-mouse, not to the pad state.
+	in = raijuIdle()
+	in.buttons = 1 << 13
+	if st := m.capture(in); st.Buttons != 0 {
+		t.Errorf("touchpad click leaked into the pad buttons: %#04x", st.Buttons)
+	}
+	// An entry that already names a guide button keeps its own choice.
+	_, own, _ := parseSDLMapping("03000000aaaa00000005000000000000,Pad,a:b0,b:b1,leftx:a0,lefty:a1,rightx:a2,righty:a3,guide:b5,platform:Windows,")
+	own.withDS4Defaults()
+	if own.src["guide"].index != 5 {
+		t.Errorf("defaults overrode the entry: %+v", own.src["guide"])
+	}
+}
+
+func TestIsDS4Family(t *testing.T) {
+	for _, c := range []struct {
+		vid, pid uint16
+		want     bool
+	}{{0x1532, 0x1007, true}, {0x054C, 0x09CC, true}, {0x1532, 0x0A29, false}, {0x045E, 0x028E, false}} {
+		if got := isDS4Family(c.vid, c.pid); got != c.want {
+			t.Errorf("%04x:%04x = %v", c.vid, c.pid, got)
+		}
+	}
+}

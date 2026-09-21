@@ -65,3 +65,13 @@ func TestFriendlyPadNameReplacesOnlyTheGenericDriverName(t *testing.T) {
 		t.Errorf("no ids: %q", got)
 	}
 }
+
+func TestEmbeddedRaijuGetsPSAndTouchpad(t *testing.T) {
+	m := sdlMappingFor(0x1532, 0x1007)
+	if m == nil {
+		t.Fatal("Raiju TE missing")
+	}
+	if m.src["guide"].kind != sdlButton {
+		t.Fatalf("PS button not mapped: %+v", m.src["guide"])
+	}
+}

@@ -7,6 +7,7 @@ Technical reference for the USBridge Client — the cross-platform control app (
 * **[Interface Guide](./interface-guide.md)** — the four tabs (Control, Devices, Snapshots, Scripts) and what each one does.
 * **[Mouse & Touchpad Modes](./MOUSE_TOUCHPAD.md)** — relative/absolute pointer translation math.
 * **[Virtual Keyboard](./virtual_keyboard.md)** — the on-screen keyboard used in fullscreen mode (mobile/touch).
+* **[Gamepads](./GAMEPADS.md)** — how a physical pad is captured and mapped to an Xbox 360 controller on the host, several pads at once, rumble back to the pad, and a table of what is supported and what has been tried on hardware.
 
 ## Platform-Specific Notes
 

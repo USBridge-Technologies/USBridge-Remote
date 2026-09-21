@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"errors"
+	"math"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -48,54 +50,123 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 			cap.Stop()
 			platform.StopGamepadRumble(id)
 			delete(dw.activeCaptures, id)
+			dw.stopTouchpad(id)
+			dw.releasePadSlot(id)
 		}
 	}
 
-	// Start captures for newly mounted devices.
+	// Start captures for newly mounted devices, in a fixed order so the same
+	// pads get the same controller numbers on every run.
+	newIDs := make([]string, 0, len(wanted))
 	for id := range wanted {
-		if _, ok := dw.activeCaptures[id]; ok {
+		if _, ok := dw.activeCaptures[id]; !ok {
+			newIDs = append(newIDs, id)
+		}
+	}
+	sort.Strings(newIDs)
+	for _, id := range newIDs {
+		slot, ok := dw.padSlots.assign(id)
+		if !ok {
+			logrus.Warnf("🎮 [GAMEPAD] not capturing %s: all %d controller slots are in use", id, maxGamepadSlots)
 			continue
 		}
-		logrus.Infof("🎮 [GAMEPAD] starting capture for %s", id)
+		logrus.Infof("🎮 [GAMEPAD] starting capture for %s as controller %d", id, slot)
 		capturedID := id
 		cap, err := platform.StartGamepadCapture(id, func(state platform.GamepadCaptureState) {
 			dw.forwardGamepadState(capturedID, state)
 		})
 		if err != nil {
 			logrus.Warnf("🎮 [GAMEPAD] capture failed for %s: %v", id, err)
+			dw.padSlots.release(id)
 			continue
 		}
 		dw.activeCaptures[id] = cap
+		dw.startTouchpad(id)
 	}
-	dw.publishRumbleTargets()
 }
 
-// publishRumbleTargets snapshots the captured pad ids for onHostRumble.
-func (dw *DiskWidget) publishRumbleTargets() {
-	ids := make([]string, 0, len(dw.activeCaptures))
-	for id := range dw.activeCaptures {
-		ids = append(ids, id)
+// startTouchpad turns the pad's touchpad (DualShock 4 layout) into a relative
+// mouse for the host, next to the normal pad capture. A pad without one just
+// does not get a reader.
+func (dw *DiskWidget) startTouchpad(id string) {
+	if dw.activeTouchpads == nil {
+		dw.activeTouchpads = make(map[string]*platform.TouchpadCapture)
 	}
-	sort.Strings(ids)
-	dw.rumbleMu.Lock()
-	dw.rumbleIDs = ids
-	dw.rumbleMu.Unlock()
-}
-
-// onHostRumble applies the host's rumble request to the captured pads. It runs
-// on moonlight-common-c's callback thread. The client always reports its pad
-// as controller 0, so every captured pad follows the host's controller 0.
-func (dw *DiskWidget) onHostRumble(controller, lowFreq, highFreq uint16) {
-	dw.rumbleMu.Lock()
-	ids := append([]string(nil), dw.rumbleIDs...)
-	dw.rumbleMu.Unlock()
-	if len(ids) == 0 {
+	tp, err := platform.StartGamepadTouchpad(id, dw.forwardTouchpad)
+	if err != nil {
+		if !errors.Is(err, platform.ErrNoTouchpad) {
+			logrus.Warnf("🎮 [GAMEPAD] touchpad of %s unavailable: %v", id, err)
+		}
 		return
 	}
-	logrus.Debugf("🎮 [GAMEPAD] host rumble controller=%d low=%d high=%d -> %v", controller, lowFreq, highFreq, ids)
-	for _, id := range ids {
-		platform.SetGamepadRumble(id, lowFreq, highFreq)
+	dw.activeTouchpads[id] = tp
+}
+
+// stopTouchpad ends a pad's touchpad reader and releases its click if it was held.
+func (dw *DiskWidget) stopTouchpad(id string) {
+	tp, ok := dw.activeTouchpads[id]
+	if !ok {
+		return
 	}
+	tp.Stop()
+	delete(dw.activeTouchpads, id)
+	dw.forwardTouchpad(platform.TouchpadEvent{ClickChanged: true, ClickDown: false})
+}
+
+// forwardTouchpad sends touchpad motion and clicks to the host as a relative mouse.
+// Called from the touchpad reader goroutine.
+func (dw *DiskWidget) forwardTouchpad(ev platform.TouchpadEvent) {
+	if dw.moonlightProvider == nil {
+		return
+	}
+	sender := dw.moonlightProvider()
+	if sender == nil || !sender.IsInputActive() {
+		return
+	}
+	clamp := func(v int) int16 {
+		if v > math.MaxInt16 {
+			return math.MaxInt16
+		}
+		if v < math.MinInt16 {
+			return math.MinInt16
+		}
+		return int16(v)
+	}
+	if ev.DX != 0 || ev.DY != 0 {
+		sender.SendMoonlightMouseMove(clamp(ev.DX), clamp(ev.DY))
+	}
+	if ev.ClickChanged {
+		action := service.LiMouseButtonRelease
+		if ev.ClickDown {
+			action = service.LiMouseButtonPress
+		}
+		sender.SendMoonlightMouseButton(action, service.LiMouseButtonLeft)
+	}
+}
+
+// releasePadSlot frees a stopped pad's controller number and tells the host
+// the controller is gone: the streamer unplugs its virtual pad when the number
+// leaves the active gamepad mask, so a pad that was switched off does not stay
+// "connected" (and stuck at its last state) in the game.
+func (dw *DiskWidget) releasePadSlot(id string) {
+	slot, ok := dw.padSlots.release(id)
+	if !ok || dw.moonlightProvider == nil {
+		return
+	}
+	if sender := dw.moonlightProvider(); sender != nil && sender.IsInputActive() {
+		sender.SendMoonlightControllerEvent(uint16(slot), dw.padSlots.mask(), 0, 0, 0, 0, 0, 0, 0)
+	}
+}
+
+// onHostRumble applies the host's rumble request to the pad that holds that
+// controller number. It runs on moonlight-common-c's callback thread.
+func (dw *DiskWidget) onHostRumble(controller, lowFreq, highFreq uint16) {
+	id, ok := dw.padSlots.idAt(int(controller))
+	if !ok {
+		return
+	}
+	logrus.Debugf("🎮 [GAMEPAD] host rumble controller=%d low=%d high=%d -> %s", controller, lowFreq, highFreq, id)
+	platform.SetGamepadRumble(id, lowFreq, highFreq)
 }
 
 // gamepadLogSeq is used to rate-limit per-frame gamepad debug logs.
@@ -120,9 +191,13 @@ func (dw *DiskWidget) forwardGamepadState(id string, state platform.GamepadCaptu
 			if seq%300 == 1 {
 				logrus.Infof("🎮 [GAMEPAD] → Moonlight path (seq=%d)", seq)
 			}
+			slot, ok := dw.padSlots.slot(id)
+			if !ok {
+				return // stopped while this sample was in flight
+			}
 			sender.SendMoonlightControllerEvent(
-				0,
-				1,
+				uint16(slot),
+				dw.padSlots.mask(),
 				state.Buttons,
 				state.LeftTrigger,
 				state.RightTrigger,
@@ -146,8 +221,9 @@ func (dw *DiskWidget) stopAllGamepadCaptures() {
 		cap.Stop()
 		platform.StopGamepadRumble(id)
 		delete(dw.activeCaptures, id)
+		dw.stopTouchpad(id)
+		dw.releasePadSlot(id)
 	}
-	dw.publishRumbleTargets()
 }
 
 // gamepadIdentityMatches reports whether an agent-reported gamepad entry can

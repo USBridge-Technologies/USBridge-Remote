@@ -17,7 +17,11 @@ var sdlDB string
 // sdlMappingFor returns the SDL mapping of a DirectInput pad by USB vendor and
 // product id, or nil when the database does not know it.
 func sdlMappingFor(vid, pid uint16) *sdlMapping {
-	return lookupSDLMapping(sdlDB, vid, pid)
+	m := lookupSDLMapping(sdlDB, vid, pid)
+	if m != nil && isDS4Family(vid, pid) {
+		m.withDS4Defaults()
+	}
+	return m
 }
 
 // genericWinMMName is what WinMM reports for practically every DirectInput pad

@@ -141,10 +141,12 @@ type DiskWidget struct {
 
 	// Gamepad capture
 	activeCaptures    map[string]*platform.GamepadCapture
-	// rumbleIDs mirrors activeCaptures' keys for the Moonlight callback
-	// thread, which must not touch activeCaptures (UI-goroutine only).
-	rumbleMu   sync.Mutex
-	rumbleIDs  []string
+	// activeTouchpads are the touchpad-as-mouse readers of the captured pads that have one.
+	activeTouchpads map[string]*platform.TouchpadCapture
+	// padSlots gives every captured pad its Moonlight controller number; it is
+	// safe from the Moonlight rumble callback thread, which must not touch
+	// activeCaptures (UI-goroutine only).
+	padSlots   gamepadSlots
 	rumbleOnce sync.Once
 	moonlightProvider moonlightProvider
 

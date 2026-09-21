@@ -64,10 +64,10 @@ var sdlButtonFlags = map[string]uint16{
 	"leftshoulder":  0x0100,
 	"rightshoulder": 0x0200,
 	"guide":         0x0400,
-	"a":             0x1000,
-	"b":             0x2000,
-	"x":             0x4000,
-	"y":             0x8000,
+	"a":        0x1000,
+	"b":        0x2000,
+	"x":        0x4000,
+	"y":        0x8000,
 }
 
 // parseSDLSource parses "b1", "a3", "+a3", "-a3", "a3~" or "h0.4".
@@ -319,4 +319,32 @@ func lookupSDLMapping(db string, vid, pid uint16) *sdlMapping {
 		}
 	}
 	return nil
+}
+
+// isDS4Family reports whether a USB id is a pad with the DualShock 4 button
+// layout (Sony's own and the Razer Raiju family). Their HID descriptor numbers
+// the buttons square, cross, circle, triangle, L1, R1, L2, R2, Share, Options,
+// L3, R3, PS, touchpad click, but the SDL entries of some of them (the Raiju TE
+// on Windows) name no guide or touchpad button.
+func isDS4Family(vid, pid uint16) bool {
+	switch vid {
+	case 0x054C:
+		return pid == 0x05C4 || pid == 0x09CC || pid == 0x0BA0
+	case 0x1532:
+		switch pid {
+		case 0x1000, 0x1004, 0x1007, 0x1009, 0x100A:
+			return true
+		}
+	}
+	return false
+}
+
+// withDS4Defaults adds the PS button (guide, button 13) when the mapping does not
+// name it. The touchpad click (button 14) is deliberately not mapped to an Xbox
+// button: the touchpad is a relative mouse (gamepad_touchpad.go), and its click
+// the mouse's left button.
+func (m *sdlMapping) withDS4Defaults() {
+	if _, ok := m.src["guide"]; !ok {
+		m.src["guide"] = sdlSource{kind: sdlButton, index: 12}
+	}
 }
