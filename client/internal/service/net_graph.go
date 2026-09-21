@@ -218,6 +218,9 @@ func SetNetGraphEnabled(enabled bool) {
 		netGraphPrevValid = false
 		netGraphPrevConcealedFrames = 0
 		netGraphPrevMu.Unlock()
+		// A new Vulkan/Metal session starts with C-side scale = 100%;
+		// push the Go value so a reconnect keeps the operator's size.
+		SyncNetGraphNativeScale()
 	} else {
 		netGraphMu.Lock()
 		netGraphSamples = nil
@@ -277,6 +280,15 @@ func SetNetGraphBgAlpha(a uint8) {
 // NetGraphBgAlpha is the current HUD wash opacity (0-255).
 func NetGraphBgAlpha() uint8 {
 	return uint8(netGraphBgAlpha.Load())
+}
+
+// SyncNetGraphNativeScale pushes the current HUD size to the Vulkan/Metal
+// dest quad. Call after a new video session is up: C-side scale is 100%
+// until the first SetNetGraphScale of that session.
+func SyncNetGraphNativeScale() {
+	if push := netGraphScalePush; push != nil {
+		push(float32(NetGraphScalePercent()) / 100)
+	}
 }
 
 // netGraphLoop runs for the lifetime of the process once started (first

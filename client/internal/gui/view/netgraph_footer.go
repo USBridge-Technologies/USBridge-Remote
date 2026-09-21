@@ -36,6 +36,12 @@ const (
 	netGraphChartPath       = "M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"
 	netGraphTunePath        = "M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
 	netGraphSettingsSliderW = float32(72)
+
+	// Fyne preference keys for the Control-footer HUD knobs. Size and
+	// wash opacity used to live only in process-wide atomics, so a
+	// disconnect (new Vulkan/Metal session) dropped them back to defaults.
+	netGraphScalePrefKey   = "netgraph.scale_percent"
+	netGraphBgAlphaPrefKey = "netgraph.bg_alpha"
 )
 
 var (
@@ -66,6 +72,41 @@ func applyNetGraphEnabledUI(on bool) {
 
 func registerNetGraphDialogCheck(c *videoDialogCheckbox) {
 	liveNetGraphDialogCheck.Store(c)
+}
+
+// RestoreNetGraphPreferences loads the last Size / Background the operator
+// set in the Control metrics panel and applies them before the first HUD
+// frame. Safe to call with no fyne app (tests): it is then a no-op.
+func RestoreNetGraphPreferences() {
+	app := fyne.CurrentApp()
+	if app == nil {
+		return
+	}
+	prefs := app.Preferences()
+	if prefs == nil {
+		return
+	}
+	service.SetNetGraphScale(prefs.IntWithFallback(netGraphScalePrefKey, service.NetGraphScalePercent()))
+	alpha := prefs.IntWithFallback(netGraphBgAlphaPrefKey, int(service.NetGraphBgAlpha()))
+	if alpha < 0 {
+		alpha = 0
+	}
+	if alpha > 255 {
+		alpha = 255
+	}
+	service.SetNetGraphBgAlpha(uint8(alpha))
+}
+
+func persistNetGraphScale(percent int) {
+	if app := fyne.CurrentApp(); app != nil {
+		app.Preferences().SetInt(netGraphScalePrefKey, percent)
+	}
+}
+
+func persistNetGraphBgAlpha(a uint8) {
+	if app := fyne.CurrentApp(); app != nil {
+		app.Preferences().SetInt(netGraphBgAlphaPrefKey, int(a))
+	}
 }
 
 // NewNetGraphDesktopFooterButtons is the desktop Control footer pair:
@@ -275,6 +316,7 @@ func showNetGraphSettingsPanel(anchor fyne.CanvasObject, openAbove bool) {
 	sizeSlider := newSizeMenuSlider(50, 150, 5, float64(service.NetGraphScalePercent()))
 	sizeSlider.OnChanged = func(v float64) {
 		service.SetNetGraphScale(int(v))
+		persistNetGraphScale(service.NetGraphScalePercent())
 		sizePct.Text = fmt.Sprintf("%d%%", service.NetGraphScalePercent())
 		sizePct.Refresh()
 	}
@@ -284,7 +326,9 @@ func showNetGraphSettingsPanel(anchor fyne.CanvasObject, openAbove bool) {
 	bgVal.Alignment = fyne.TextAlignTrailing
 	bgSlider := newSizeMenuSlider(0, 100, 1, float64(alphaPct))
 	bgSlider.OnChanged = func(v float64) {
-		service.SetNetGraphBgAlpha(uint8(v*255.0/100.0 + 0.5))
+		a := uint8(v*255.0/100.0 + 0.5)
+		service.SetNetGraphBgAlpha(a)
+		persistNetGraphBgAlpha(a)
 		bgVal.Text = fmt.Sprintf("%d%%", int(v))
 		bgVal.Refresh()
 	}

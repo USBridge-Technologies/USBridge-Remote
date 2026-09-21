@@ -395,6 +395,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	vw.isVideoConnected = true
 	vw.debugLogSpinner("ConnectToMoonlight-succeeded")
 	logrus.Info("✅ Moonlight stream started")
+	service.SyncNetGraphNativeScale()
 
 	// Re-check right after marking the session live: ConnectToMoonlight()
 	// returns once LiStartConnection is merely *submitted* (see its own

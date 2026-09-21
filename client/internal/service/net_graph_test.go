@@ -214,6 +214,19 @@ func TestSetNetGraphScaleClamps(t *testing.T) {
 	}
 }
 
+func TestSetNetGraphEnabledReappliesScale(t *testing.T) {
+	resetNetGraphState(t)
+	var got float32
+	netGraphScalePush = func(scale float32) { got = scale }
+	t.Cleanup(func() { netGraphScalePush = nil })
+
+	SetNetGraphScale(75)
+	SetNetGraphEnabled(true)
+	if got != 0.75 {
+		t.Fatalf("native scale push after enable = %v, want 0.75", got)
+	}
+}
+
 func TestBuildNetGraphHUDUsesBgAlpha(t *testing.T) {
 	resetNetGraphState(t)
 	SetNetGraphBgAlpha(0x80)
