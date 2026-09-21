@@ -1,4 +1,4 @@
-//go:build ios || (!darwin && !(linux && !android) && !windows)
+//go:build (ios || (!darwin && !(linux && !android) && !windows)) && !(js && wasm)
 
 package platform
 

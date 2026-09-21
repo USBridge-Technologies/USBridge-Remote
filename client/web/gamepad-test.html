@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Browser gamepad USB/IP test</title></head>
+<body>
+<p>Agent base URL: <input id="url" size="40" placeholder="https://192.168.1.20:47990" /></p>
+<p>Secret (master key): <input id="secret" size="40" /></p>
+<button id="start">Start</button>
+<button id="stop">Stop</button>
+<pre id="log" style="white-space:pre-wrap;font-family:monospace;"></pre>
+<script src="wasm_exec.js"></script>
+<script>
+const logEl = document.getElementById('log');
+function log(msg) {
+  logEl.textContent += msg + "\n";
+  console.log('[gamepad-test]', msg);
+}
+
+const go = new Go();
+WebAssembly.instantiateStreaming(fetch('gamepad-test.wasm', {cache: 'no-store'}), go.importObject).then((result) => {
+  go.run(result.instance);
+  log('wasm loaded');
+});
+
+document.getElementById('start').addEventListener('click', () => {
+  const url = document.getElementById('url').value;
+  const secret = document.getElementById('secret').value;
+  window.usbridgeStartBrowserGamepad(url, secret, log);
+});
+document.getElementById('stop').addEventListener('click', () => {
+  window.usbridgeStopBrowserGamepad();
+  log('stopped');
+});
+
+// Gamepad API only reports a pad after the browser has seen at least one
+// button press/axis move on it -- log connect/disconnect so it's obvious
+// when that's happened.
+window.addEventListener('gamepadconnected', (e) => {
+  log('gamepad connected: ' + e.gamepad.id);
+});
+window.addEventListener('gamepaddisconnected', (e) => {
+  log('gamepad disconnected: ' + e.gamepad.id);
+});
+</script>
+</body>
+</html>

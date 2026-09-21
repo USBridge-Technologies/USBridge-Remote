@@ -1,5 +1,3 @@
-//go:build darwin && !ios
-
 package platform
 
 import "testing"
@@ -8,7 +6,9 @@ import "testing"
 // captures from a physical Wacom Intuos S (CTL-4100, vid=0x056a pid=0x0374),
 // recorded live via client/cmd/pentest against this exact decoder -- not
 // synthesized -- so this test also guards the InRange bit regression fixed
-// in decodePenReport's doc comment (bit5 vs bit6).
+// in decodePenReport's doc comment (bit5 vs bit6). decodePenReport/
+// PenRangeFor are pure Go with no OS dependency (see pen_protocol.go), so
+// this test runs on every platform, not just darwin.
 func TestDecodePenReportFarAway(t *testing.T) {
 	raw := []byte{0x10, 0x00, 0x7b, 0x1e, 0x00, 0xaf, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	state, ok := decodePenReport(raw)

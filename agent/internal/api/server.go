@@ -206,6 +206,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/usb/passthrough/status", sec.LimitPolling(s.usbPassthroughStatus))
 	mux.HandleFunc("/api/usb/passthrough/install", sec.LimitPolling(s.usbPassthroughInstall))
 	mux.HandleFunc("/api/usb/passthrough/session", sec.LimitPolling(s.usbPassthroughSession))
+	mux.HandleFunc("/api/usb/passthrough/browser-session", sec.LimitPolling(s.usbPassthroughBrowserSession))
+	// browser-attach/browser-gamepad are WebSockets opened directly by
+	// browser JS (`new WebSocket(url)`), which cannot set the custom
+	// X-Auth-Signature/X-Auth-Timestamp headers sec.LimitRealtime/LimitPolling
+	// verify -- these two check the same HMAC via ?ts=&sig= query params
+	// themselves (see verifyWSAuth in usb_passthrough_browser.go) instead of
+	// going through the shared header-based middleware.
+	mux.HandleFunc("/api/usb/passthrough/browser-attach", s.usbPassthroughBrowserAttach)
+	mux.HandleFunc("/api/usb/passthrough/browser-gamepad", s.usbPassthroughBrowserGamepad)
 
 	return s.withCORS(s.withLogging(s.withRecovery(mux)))
 }

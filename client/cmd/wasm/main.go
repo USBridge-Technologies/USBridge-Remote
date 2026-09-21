@@ -21,6 +21,8 @@ import (
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/platform"
+	"usbridge-client/internal/usbpass"
 	"usbridge-client/internal/webrtcweb"
 )
 
@@ -28,6 +30,11 @@ import (
 // harness page can drive input sends from a separate button without
 // plumbing the *webrtcweb.WebRTCClient through JS values.
 var activeClient *webrtcweb.WebRTCClient
+
+// activeGamepadStop tears down the current browser-gamepad USB/IP export
+// (see startBrowserGamepad) -- same single-active-session convention
+// usbaes_attach.go's own package-level `attach` var uses natively.
+var activeGamepadStop func()
 
 // version is patched at build time via `-ldflags "-X main.version=..."`
 // (see scripts/build_web.sh), same mechanism client/cmd/main.go uses for
@@ -40,6 +47,8 @@ var version = "web"
 func main() {
 	js.Global().Set("usbridgeConnect", js.FuncOf(connect))
 	js.Global().Set("usbridgeSendInput", js.FuncOf(sendInput))
+	js.Global().Set("usbridgeStartBrowserGamepad", js.FuncOf(startBrowserGamepad))
+	js.Global().Set("usbridgeStopBrowserGamepad", js.FuncOf(stopBrowserGamepad))
 
 	i18n.Init("en")
 	config := models.DefaultConfig()
@@ -97,5 +106,54 @@ func connect(this js.Value, args []js.Value) interface{} {
 		log("offer/answer exchange complete, waiting for datachannel...")
 	}()
 
+	return nil
+}
+
+// startBrowserGamepad(agentBaseURL, secret, onLog) is the test harness entry
+// point for the browser-sourced USB/IP gamepad path: attaches a synthetic
+// Xbox 360 controller on the agent (usbpass.AttachBrowserGamepad, the wasm
+// counterpart of the native client's usbaes_attach.go Attach()) and starts
+// forwarding the browser's Gamepad API state to it
+// (platform.StartGamepadCapture). agentBaseURL/secret are the same values
+// already used to reach the agent's HTTP API elsewhere in this build (e.g.
+// usbridgeConnect's baseURL/masterKey) -- this does not introduce a new
+// pairing/secret of its own.
+func startBrowserGamepad(this js.Value, args []js.Value) interface{} {
+	agentBaseURL := args[0].String()
+	secret := args[1].String()
+	onLog := args[2]
+	log := func(msg string) { onLog.Invoke(msg) }
+
+	if activeGamepadStop != nil {
+		log("stopping previous browser gamepad session")
+		activeGamepadStop()
+		activeGamepadStop = nil
+	}
+
+	send, stop, err := usbpass.AttachBrowserGamepad(usbpass.BrowserGamepadAttachOptions{
+		AgentBaseURL: agentBaseURL,
+		Secret:       []byte(secret),
+	})
+	if err != nil {
+		log("attach error: " + err.Error())
+		return nil
+	}
+	log("attached -- press a button on the gamepad to make the browser see it, then check the agent for a new Xbox 360 controller")
+
+	capture := platform.StartGamepadCapture(send)
+	activeGamepadStop = func() {
+		capture.Stop()
+		stop()
+	}
+	return nil
+}
+
+// stopBrowserGamepad() detaches the active browser gamepad session started
+// by startBrowserGamepad, if any.
+func stopBrowserGamepad(this js.Value, args []js.Value) interface{} {
+	if activeGamepadStop != nil {
+		activeGamepadStop()
+		activeGamepadStop = nil
+	}
 	return nil
 }
