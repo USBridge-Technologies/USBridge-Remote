@@ -68,11 +68,15 @@ func FetchStreamerName(apiHost string, apiPort int, masterKey string) (string, e
 }
 
 // StreamerSupportsWebRTC reports whether name (as returned by
-// FetchStreamerName, e.g. "RustShine (Proprietary)" or "Sunshine (Open
-// Source)") is a backend that implements the WebRTC signaling endpoint
-// this package's Connect/postOffer target. Only rustshine does -- upstream
-// Sunshine has no WebRTC support at all, classic GameStream/Moonlight
-// protocol only.
+// FetchStreamerName, e.g. "USBridge Streamer (Proprietary)" or "Sunshine
+// (Open Source)") is a backend that implements the WebRTC signaling
+// endpoint this package's Connect/postOffer target. Only the proprietary
+// backend does -- upstream Sunshine has no WebRTC support at all, classic
+// GameStream/Moonlight protocol only. Matches both the current
+// rustshineBackend.DisplayName() ("USBridge Streamer") and its pre-rename
+// "RustShine" name, since an agent that hasn't updated yet may still
+// report the old one (see streamhost/rustshine_backend.go's DisplayName).
 func StreamerSupportsWebRTC(name string) bool {
-	return strings.Contains(strings.ToLower(name), "rustshine")
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "rustshine") || strings.Contains(lower, "usbridge streamer")
 }
