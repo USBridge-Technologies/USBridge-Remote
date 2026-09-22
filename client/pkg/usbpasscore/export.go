@@ -33,7 +33,37 @@ type (
 	X360State = usbpass.X360State
 	// X360Command is something the importer's driver wrote to the OUT endpoint.
 	X360Command = usbpass.X360Command
+	// TunnelListener decrypts an AEAD-wrapped USB/IP data-plane connection
+	// (as rust-shine's usb-broker relay sends) into the plain bytes a local
+	// Server expects.
+	TunnelListener = usbpass.TunnelListener
 )
+
+// StartTunnelListener listens on addr (e.g. "0.0.0.0:0") and relays
+// AEAD-authenticated connections to exportAddr (a plain loopback Server from
+// StartExport).
+func StartTunnelListener(addr, exportAddr string) (*TunnelListener, error) {
+	return usbpass.StartTunnelListener(addr, exportAddr)
+}
+
+// RegisterTunnelKey arms a TunnelListener to accept one incoming connection
+// for busID under key.
+func RegisterTunnelKey(busID string, key [32]byte) {
+	usbpass.RegisterTunnelKey(busID, key)
+}
+
+// DeriveSessionKey derives the shared AES session key from the same HMAC
+// master secret the agent's HTTP API already authenticates with.
+func DeriveSessionKey(masterKey []byte) [32]byte {
+	return usbpass.DeriveSessionKey(masterKey)
+}
+
+// DeriveTunnelKey derives one attach's ephemeral USB/IP tunnel key from the
+// session key, bus id, and a nonce -- both ends (whoever knows the nonce)
+// compute the identical key independently; it is never sent on the wire.
+func DeriveTunnelKey(sessionKey [32]byte, busID string, nonce []byte) [32]byte {
+	return usbpass.DeriveTunnelKey(sessionKey, busID, nonce)
+}
 
 // StartExport binds addr (e.g. "127.0.0.1:<port>") and serves devices.
 func StartExport(addr string, devices []*ExportedDevice) (*Server, error) {

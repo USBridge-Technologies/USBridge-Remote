@@ -22,20 +22,18 @@ package usbpass
 //     actually reaches the usbridge-usb-broker's AES port on the agent's
 //     behalf.
 //
-// The tunnel-key dance native Attach() does (registerTunnelKey/
-// deriveTunnelKey, usbtunnel.go) is deliberately skipped here: rust-shine's
-// bin/usb-broker/src/main.rs (resolve_dial_target) only AEAD-wraps the
-// data-plane relay for a real network peer or a tsnet bridge -- a loopback
-// ExportHost with no tsnet bridge configured (how
-// agent/internal/usbpass/service.go starts the broker today) dials
-// 127.0.0.1 directly and unencrypted, so there is no tunnel listener on the
-// other end to ever consume a registered key. TunnelNonce is still sent
-// (it's a required wire field) since the Rust side does not special-case an
-// empty one, just never looked up.
+// Unlike native Attach(), the TunnelNonce here is *not* generated locally:
+// the agent already generated one (and armed its own TunnelListener with the
+// key derived from it) by the time postBrowserSession returns, since the
+// agent -- not this browser tab -- is the one hosting the tunnel listener
+// that protects the loopback exporter (see agent/internal/browserusb's doc
+// comment for why a production agent's --tsnet-bridge makes that tunnel
+// mandatory here, unlike the plain-loopback case native Attach() gets away
+// with). This code just has to echo the same nonce back in its Attach frame
+// so the broker derives the identical key agent already did.
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -80,6 +78,7 @@ type browserSessionData struct {
 	BusID         string `json:"bus_id"`
 	ExportHost    string `json:"export_host"`
 	ExportService string `json:"export_service"`
+	TunnelNonce   string `json:"tunnel_nonce"` // hex-encoded; see AttachBrowserGamepad
 }
 
 type browserSessionEnvelope struct {
@@ -201,8 +200,8 @@ func AttachBrowserGamepad(opts BrowserGamepadAttachOptions) (send func([]byte), 
 		return nil, nil, fmt.Errorf("agent refused hello: %s", detail)
 	}
 
-	tunnelNonce := make([]byte, 32)
-	if _, err := rand.Read(tunnelNonce); err != nil {
+	tunnelNonce, err := hex.DecodeString(session.TunnelNonce)
+	if err != nil {
 		conn.Close()
 		return nil, nil, fmt.Errorf("tunnel nonce: %w", err)
 	}

@@ -128,6 +128,32 @@ func (t *TunnelListener) Stop() {
 	_ = t.ln.Close()
 }
 
+// Addr returns the address this tunnel listener is actually bound to --
+// useful when StartTunnelListener was given a ":0"-style ephemeral bind and
+// the caller needs to learn which port the OS actually picked (e.g. to hand
+// it to a remote peer, see agent/internal/browserusb).
+func (t *TunnelListener) Addr() string { return t.ln.Addr().String() }
+
+// RegisterTunnelKey exposes registerTunnelKey outside this package (via
+// usbpasscore) for a caller that isn't itself running Attach() -- namely
+// agent/internal/browserusb, which hosts both ends of this tunnel (the
+// TunnelListener here and the loopback exporter it protects) in-process,
+// instead of the usual split where the client runs this listener and the
+// broker's data-plane relay is the one dialing in.
+func RegisterTunnelKey(busID string, key [32]byte) { registerTunnelKey(busID, key) }
+
+// DeriveSessionKey exposes deriveSessionKey outside this package -- see
+// RegisterTunnelKey's doc comment for why agent/internal/browserusb needs to
+// compute this independently instead of only the client/broker pair doing
+// so.
+func DeriveSessionKey(masterKey []byte) [32]byte { return deriveSessionKey(masterKey) }
+
+// DeriveTunnelKey exposes deriveTunnelKey outside this package -- see
+// RegisterTunnelKey's doc comment.
+func DeriveTunnelKey(sessionKey [32]byte, busID string, nonce []byte) [32]byte {
+	return deriveTunnelKey(sessionKey, busID, nonce)
+}
+
 func (t *TunnelListener) acceptLoop(exportAddr string) {
 	for {
 		conn, err := t.ln.Accept()

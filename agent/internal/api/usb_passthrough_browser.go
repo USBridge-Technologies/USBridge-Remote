@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/hmac"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -11,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"usbridge_agent/internal/browserusb"
 	"usbridge-client/pkg/usbpasscore"
+	"usbridge_agent/internal/browserusb"
 
 	"github.com/gorilla/websocket"
 )
@@ -23,12 +24,14 @@ import (
 // -- which owns a real local device and exports it over the network for the
 // agent's usbip-win2/vhci-hcd to dial into -- a browser-sourced device
 // (Gamepad API state today; WebHID-sourced devices later) is exported from
-// *inside this agent process itself*, bound to loopback (see
-// agent/internal/browserusb). rust-shine's bin/usb-broker/src/main.rs
-// (resolve_dial_target) dials that loopback address unencrypted when
-// ExportHost="127.0.0.1" and no tsnet bridge is configured -- which is how
-// agent/internal/usbpass/service.go starts the broker today -- so no AEAD
-// tunnel is needed on this path at all, only browserusb's plain Server.
+// *inside this agent process itself* (see agent/internal/browserusb), behind
+// an AEAD tunnel listener the same way a native Attach() protects its own
+// exporter -- a production agent normally has a --tsnet-bridge configured,
+// which makes rust-shine's broker route any loopback-looking ExportHost
+// through its remote-peer relay instead of skipping encryption, so this
+// path cannot get away with an unencrypted loopback export the way an
+// agent with no bridge at all could (see browserusb's own doc comment for
+// how that was confirmed live).
 //
 // Two things the browser still needs that only this agent process can give
 // it, since a browser tab can't net.Dial the broker's AES control-plane
@@ -99,16 +102,15 @@ func (s *Server) usbPassthroughBrowserSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	busID := fmt.Sprintf("browser-%d", time.Now().UnixNano())
-	session, err := browserusb.NewGamepadSession(busID, busID)
-	if err != nil {
-		s.fail(w, http.StatusInternalServerError, "browser_session_failed", err)
+	masterKey := s.sec.currentMasterKey()
+	if len(masterKey) == 0 {
+		s.fail(w, http.StatusInternalServerError, "browser_session_failed", fmt.Errorf("no master key"))
 		return
 	}
 
-	_, portStr, err := net.SplitHostPort(session.Addr())
+	busID := fmt.Sprintf("browser-%d", time.Now().UnixNano())
+	session, err := browserusb.NewGamepadSession(busID, busID, masterKey)
 	if err != nil {
-		session.Close()
 		s.fail(w, http.StatusInternalServerError, "browser_session_failed", err)
 		return
 	}
@@ -119,8 +121,9 @@ func (s *Server) usbPassthroughBrowserSession(w http.ResponseWriter, r *http.Req
 
 	s.ok(w, "browser_usb_session", map[string]any{
 		"bus_id":         busID,
-		"export_host":    "127.0.0.1",
-		"export_service": portStr,
+		"export_host":    session.ExportHost(),
+		"export_service": session.ExportPort(),
+		"tunnel_nonce":   hex.EncodeToString(session.Nonce()),
 		"broker_addr":    fmt.Sprintf("127.0.0.1:%d", s.usb.ListenPort()),
 	})
 }
