@@ -28,38 +28,45 @@
     html, body { height: 100dvh; }
   }
   canvas { display: block; }
-  #hidGamepadBtn {
+  /* No fixed position: this button is docked to the "HID & Input Hub"
+     card's own header, wherever Fyne currently renders it (see
+     internal/gui/controller/disk_widget_hid_connect_wasm.go's
+     syncHIDConnectOverlay, which drives usbridgeSetHIDButtonRect below).
+     Fully transparent -- the Fyne-drawn DeviceDashboardHeaderButton
+     underneath supplies the visible label in the app's own style; this
+     element exists purely to be a real DOM click target sitting exactly on
+     top of it (see that same file's doc comment for why the click itself
+     cannot originate from Go). display:none until the first rect arrives,
+     so it can't flash at the CSS default (0,0) position beforehand. */
+  #hidConnectBtn {
     position: fixed;
-    right: 12px;
-    bottom: 12px;
     z-index: 1000;
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.25);
-    background: rgba(20,20,20,0.75);
-    color: #eee;
-    font: 13px system-ui, sans-serif;
+    display: none;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
     cursor: pointer;
   }
-  #hidGamepadBtn:active { background: rgba(40,40,40,0.9); }
 </style>
 </head>
 <body>
-<!-- Grants WebHID access to a gamepad -- the primary capture path in
-     Chrome/Edge (see internal/platform/gamepad_hid_wasm.go's doc comment for
-     why: it gives real vendor/product id and the real HID report
-     descriptor, which is what lets that code use the same
+<!-- Grants WebHID access to a gamepad or pen tablet -- the primary capture
+     path in Chrome/Edge (see internal/platform/gamepad_hid_wasm.go's doc
+     comment for why: it gives real vendor/product id and the real HID
+     report descriptor, which is what lets that code use the same
      SDL_GameControllerDB mapping the native Windows/Linux client already
      uses instead of Chrome's own -- sometimes incomplete -- Gamepad API
-     mapping). Deliberately a plain HTML button, not a Fyne canvas control:
-     navigator.hid.requestDevice() is user-gesture-gated and reliably fails
-     when called from inside a Go js.FuncOf callback (see
+     mapping; and what lets pen_capture_wasm.go export a real Wacom tablet
+     at all, see wacom_model.go). Deliberately a plain HTML button, not a
+     Fyne canvas control: navigator.hid.requestDevice() is user-gesture-gated
+     and reliably fails when called from inside a Go js.FuncOf callback (see
      installFullscreenOnFirstTap/installClipboardPasteBridge below for two
      other browser APIs that showed the exact same failure live) -- this
      stays outside Go entirely for that one call. Hidden by installHIDButton
      below on browsers with no WebHID (Firefox, Safari), where the Gamepad
      API poller is the only option anyway. -->
-<button id="hidGamepadBtn" style="display:none">🎮 Connect gamepad (HID)</button>
+<button id="hidConnectBtn" aria-label="Connect USB"></button>
 <!-- Fyne's wasm/js driver looks up #dummyEntry by ID (see
      internal/driver/glfw/device_wasm.go) and uses it as a real, native
      <input> element to host IME composition, on-screen-keyboard triggering,
@@ -274,19 +281,39 @@
     }, true);
   }
 
-  // See the #hidGamepadBtn element's doc comment above for why this whole
+  // See #hidConnectBtn's own doc comment above for why this whole
   // request/open sequence has to run outside Go. Handing the *result* to Go
   // afterward (usbridgeRegisterHIDDevice) is a plain call with no gesture
   // requirement of its own, same as usbridgePasteText above.
-  function installHIDGamepadButton() {
-    var btn = document.getElementById('hidGamepadBtn');
+  //
+  // usbridgeSetHIDButtonRect/usbridgeSetHIDButtonVisible are called
+  // repeatedly by disk_widget_hid_connect_wasm.go's syncHIDConnectOverlay to
+  // keep this transparent button positioned exactly over the Fyne-drawn
+  // "Connect USB" pill on the HID & Input Hub card's header, wherever that
+  // currently renders (scroll position, window size, other tabs hiding it
+  // entirely). Defined as plain properties here (not through Go) since
+  // nothing about moving/showing/hiding a DOM element needs a user gesture.
+  function installHIDConnectButton() {
+    var btn = document.getElementById('hidConnectBtn');
     if (!navigator.hid) return; // Firefox/Safari: no WebHID, Gamepad API stays the only path
-    btn.style.display = 'block';
+
+    window.usbridgeSetHIDButtonRect = function (x, y, w, h) {
+      btn.style.left = x + 'px';
+      btn.style.top = y + 'px';
+      btn.style.width = w + 'px';
+      btn.style.height = h + 'px';
+      btn.style.display = 'block';
+    };
+    window.usbridgeSetHIDButtonVisible = function (visible) {
+      btn.style.display = visible ? 'block' : 'none';
+    };
+
     btn.addEventListener('click', function () {
       navigator.hid.requestDevice({
         filters: [
           { usagePage: 0x01, usage: 0x05 }, // Generic Desktop / Gamepad
           { usagePage: 0x01, usage: 0x04 }, // Generic Desktop / Joystick
+          { usagePage: 0x0D, usage: 0x02 }, // Digitizer / Pen (Wacom tablets)
         ],
       }).then(function (devices) {
         devices.forEach(function (device) {
@@ -310,7 +337,7 @@
     installViewportFollow();
     installFullscreenOnFirstTap();
     installClipboardPasteBridge();
-    installHIDGamepadButton();
+    installHIDConnectButton();
   });
 </script>
 </body>

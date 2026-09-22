@@ -33,12 +33,14 @@ package usbpass
 // so the broker derives the identical key agent already did.
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -87,14 +89,20 @@ type browserSessionEnvelope struct {
 	Data    browserSessionData `json:"data"`
 }
 
-func postBrowserSession(opts BrowserGamepadAttachOptions) (browserSessionData, error) {
-	const path = "/api/usb/passthrough/browser-session"
+func postBrowserSession(opts BrowserGamepadAttachOptions, path string, body []byte) (browserSessionData, error) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig := calculateHMACV2(http.MethodPost, path, ts, "", opts.Secret)
+	sig := calculateHMACV2(http.MethodPost, path, ts, string(body), opts.Secret)
 
-	req, err := http.NewRequest(http.MethodPost, opts.AgentBaseURL+path, nil)
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(http.MethodPost, opts.AgentBaseURL+path, bodyReader)
 	if err != nil {
 		return browserSessionData{}, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("X-Auth-Signature", sig)
 	req.Header.Set("X-Auth-Timestamp", ts)
@@ -104,15 +112,15 @@ func postBrowserSession(opts BrowserGamepadAttachOptions) (browserSessionData, e
 		return browserSessionData{}, fmt.Errorf("browser session request: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return browserSessionData{}, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return browserSessionData{}, fmt.Errorf("browser session: HTTP %d: %s", resp.StatusCode, string(body))
+		return browserSessionData{}, fmt.Errorf("browser session: HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 	var env browserSessionEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
+	if err := json.Unmarshal(respBody, &env); err != nil {
 		return browserSessionData{}, fmt.Errorf("browser session: decode response: %w", err)
 	}
 	if !env.Success {
@@ -151,7 +159,75 @@ func browserRelayWSURL(agentBaseURL, path string, secret []byte) (string, error)
 // against it, and returns send (push one browserGamepadFrameLen-shaped
 // state frame) and stop (detach and close both relay connections).
 func AttachBrowserGamepad(opts BrowserGamepadAttachOptions) (send func([]byte), stop func(), err error) {
-	session, err := postBrowserSession(opts)
+	dataConn, stop, err := attachBrowserDevice(opts,
+		"/api/usb/passthrough/browser-session", nil,
+		x360VID, x360PID, x360DeviceDesc(), x360ConfigDesc(),
+		"/api/usb/passthrough/browser-gamepad")
+	if err != nil {
+		return nil, nil, err
+	}
+	send = func(frame []byte) { _, _ = dataConn.Write(frame) }
+	return send, stop, nil
+}
+
+// browserPenSessionRequest mirrors agent/internal/api's
+// browserPenSessionRequest exactly (JSON tags included) -- the two are not
+// shared code since they live in different modules (see
+// pkg/usbpasscore/export.go's own doc comment for why that split exists at
+// all), but the wire shape must match byte for byte.
+type browserPenSessionRequest struct {
+	VendorID    uint16 `json:"vendor_id"`
+	ProductID   uint16 `json:"product_id"`
+	ProductName string `json:"product_name"`
+}
+
+// AttachBrowserPen asks the agent for a loopback USB/IP export of the Wacom
+// tablet identified by vid/pid/productName (as WebHID's device.vendorId/
+// productId/productName give them -- see pen_capture_wasm.go), performs the
+// AES Hello/Attach handshake against it, and returns send (push one raw
+// HID input report, verbatim from device.oninputreport) and stop (detach
+// and close both relay connections). The device/config descriptor bytes in
+// the Attach frame come from the exact same model resolution
+// usbpasscore.NewWacomExportedDevice does agent-side (wacom_model.go has no
+// build tag, so this package already has it) -- building a throwaway
+// backend here just for its ExportedDevice fields is wasted work, but
+// keeps this file from needing a separate "just the descriptors" entry
+// point into wacom_model.go.
+func AttachBrowserPen(vid, pid uint16, productName string, opts BrowserGamepadAttachOptions) (send func([]byte), stop func(), err error) {
+	dev, _, err := NewWacomExportedDevice("browser-pen-probe", vid, pid, productName)
+	if err != nil {
+		return nil, nil, err
+	}
+	body, err := json.Marshal(browserPenSessionRequest{VendorID: vid, ProductID: pid, ProductName: productName})
+	if err != nil {
+		return nil, nil, err
+	}
+	dataConn, stop, err := attachBrowserDevice(opts,
+		"/api/usb/passthrough/browser-pen-session", body,
+		dev.VID, dev.PID, dev.DeviceDesc, dev.ConfigDesc,
+		"/api/usb/passthrough/browser-pen")
+	if err != nil {
+		return nil, nil, err
+	}
+	send = func(report []byte) { _, _ = dataConn.Write(report) }
+	return send, stop, nil
+}
+
+// attachBrowserDevice is the device-agnostic half of AttachBrowserGamepad/
+// AttachBrowserPen: request a loopback export (sessionPath/sessionBody),
+// speak the AES Hello/Attach handshake describing it as vid:pid with the
+// given descriptors, hold the attach session open in the background, then
+// open the second WebSocket (dataWSPath, with the session's bus id in its
+// query string the same way browserRelayWSURL signs everything else) the
+// caller streams its own device-specific frames over. dataConn is that
+// second connection; stop tears down both.
+func attachBrowserDevice(
+	opts BrowserGamepadAttachOptions,
+	sessionPath string, sessionBody []byte,
+	vid, pid uint16, deviceDesc, configDesc []byte,
+	dataWSPath string,
+) (dataConn net.Conn, stop func(), err error) {
+	session, err := postBrowserSession(opts, sessionPath, sessionBody)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -208,11 +284,11 @@ func AttachBrowserGamepad(opts BrowserGamepadAttachOptions) (send func([]byte), 
 
 	attachFrame := attachPayload{
 		BusID:         session.BusID,
-		VID:           x360VID,
-		PID:           x360PID,
+		VID:           vid,
+		PID:           pid,
 		Speed:         3, // matches usbaes_attach.go's own placeholder value
-		DeviceDesc:    x360DeviceDesc(),
-		ConfigDesc:    x360ConfigDesc(),
+		DeviceDesc:    deviceDesc,
+		ConfigDesc:    configDesc,
 		ExportHost:    session.ExportHost,
 		ExportService: session.ExportService,
 		TunnelNonce:   tunnelNonce,
@@ -221,7 +297,8 @@ func AttachBrowserGamepad(opts BrowserGamepadAttachOptions) (send func([]byte), 
 		conn.Close()
 		return nil, nil, fmt.Errorf("attach: %w", err)
 	}
-	logrus.Infof("usbpass(wasm): browser gamepad attach sent bus=%s -> %s:%s", session.BusID, session.ExportHost, session.ExportService)
+	logrus.Infof("usbpass(wasm): browser attach sent bus=%s vid=%04x pid=%04x -> %s:%s",
+		session.BusID, vid, pid, session.ExportHost, session.ExportService)
 
 	// Mirrors usbaes_attach.go's holdAttachSession: loop until the agent
 	// sends Detach/Reset or the connection drops. stop() below closes conn,
@@ -244,29 +321,26 @@ func AttachBrowserGamepad(opts BrowserGamepadAttachOptions) (send func([]byte), 
 		}
 	}()
 
-	gpURL, err := browserRelayWSURL(opts.AgentBaseURL, "/api/usb/passthrough/browser-gamepad", opts.Secret)
+	dataURL, err := browserRelayWSURL(opts.AgentBaseURL, dataWSPath, opts.Secret)
 	if err != nil {
 		conn.Close()
 		return nil, nil, err
 	}
 	// bus_id rides the query string here too (unlike the attach relay,
 	// where it's already inside the AES-encrypted Attach frame) since this
-	// second, independent WebSocket is how the agent maps a gamepad-state
-	// stream back to the right loopback session.
-	gpURL += "&bus_id=" + url.QueryEscape(session.BusID)
-	gpConn, err := platform.DialWebSocket(gpURL)
+	// second, independent WebSocket is how the agent maps a data stream
+	// back to the right loopback session.
+	dataURL += "&bus_id=" + url.QueryEscape(session.BusID)
+	dataConn, err = platform.DialWebSocket(dataURL)
 	if err != nil {
 		conn.Close()
-		return nil, nil, fmt.Errorf("browser gamepad relay: %w", err)
+		return nil, nil, fmt.Errorf("browser data relay: %w", err)
 	}
 
-	send = func(frame []byte) {
-		_, _ = gpConn.Write(frame)
-	}
 	stop = func() {
 		_ = stream.sendFrame(encodeDetachFrame(1))
 		_ = conn.Close()
-		_ = gpConn.Close()
+		_ = dataConn.Close()
 	}
-	return send, stop, nil
+	return dataConn, stop, nil
 }

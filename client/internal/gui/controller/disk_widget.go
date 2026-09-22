@@ -92,6 +92,18 @@ type DiskWidget struct {
 	// dashboardAddVirtualDisplayBtn is the dynamic header action for Video.
 	dashboardAddVirtualDisplayBtn *view.DeviceDashboardHeaderButton
 
+	// dashboardHIDConnectBtn is the "Connect USB" header action on the HID &
+	// Input Hub card -- wasm-only (see disk_widget_hid_connect_wasm.go/
+	// _other.go), nil on every native platform. Its Tapped is a no-op: the
+	// real navigator.hid.requestDevice() call has to run from a genuine DOM
+	// click, not a Go callback (see index.html's own doc comment on that
+	// restriction), so a plain HTML button is overlaid exactly on top of
+	// this widget's on-screen rect (disk_widget_hid_overlay_wasm.go) and is
+	// what actually receives the click; this Fyne widget exists to draw the
+	// label/pill in the app's own style and to give that overlay something
+	// to track the position of.
+	dashboardHIDConnectBtn *view.DeviceDashboardHeaderButton
+
 	// dashboardFooterDisconnect is Devices' own footer "Disconnect All"
 	// text action -- shown only while something is actually mounted.
 	dashboardFooterDisconnect *view.DeviceDashboardFooterTextButton
@@ -159,8 +171,8 @@ type DiskWidget struct {
 	rumbleOnce        sync.Once
 	moonlightProvider moonlightProvider
 
-	// Pen/tablet capture (macOS only for now — see platform.ListPenTablets)
-	activePenCaptures map[string]*platform.PenCapture
+	// Pen/tablet capture (macOS and the web build -- see platform.ListPenTablets)
+	activePenCaptures map[string]penCaptureHandle
 
 	onStorageInfoUpdate   func(usedPct float64, available, total int64)
 	userImages            []*models.DiskInfo

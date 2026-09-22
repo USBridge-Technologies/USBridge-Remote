@@ -92,10 +92,24 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardBackupCard = dashboardBackupCard
 	dw.dashboardBackupCard.Hide() // only shown once the MTP backup flash exists -- see refreshDashboard
 
+	dw.dashboardHIDConnectBtn = dw.newDashboardHIDConnectButton()
+	dw.startHIDConnectOverlaySync()
+	// A typed-nil *view.DeviceDashboardHeaderButton (the native-platform
+	// case) boxed straight into the fyne.CanvasObject parameter below would
+	// compare non-nil there (interface holding a nil pointer is not a nil
+	// interface) and crash the card's own headerRight != nil branch --
+	// this explicit interface variable is what keeps it a real nil on
+	// every platform where there is no button.
+	var hidHeaderRight fyne.CanvasObject
+	if dw.dashboardHIDConnectBtn != nil {
+		dw.dashboardHIDConnectBtn.OnHover = dw.dashboardHIDHover
+		hidHeaderRight = dw.dashboardHIDConnectBtn
+	}
+
 	dw.dashboardAudioGap = view.NewDeviceDashboardCardGap()
 	dw.dashboardAudioCard = view.NewDeviceDashboardCard(view.DeviceDashboardAudioIconSVG, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind)
 	narrowColumn := container.NewVBox(
-		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", nil, dw.dashboardHID, hidBind),
+		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", hidHeaderRight, dw.dashboardHID, hidBind),
 		view.NewDeviceDashboardCardGap(),
 		view.NewDeviceDashboardCard(view.DeviceDashboardVideoIconSVG, "Video Pipe & EDID", "", dw.dashboardAddVirtualDisplayBtn, dw.dashboardVideo, videoBind),
 		dw.dashboardAudioGap,

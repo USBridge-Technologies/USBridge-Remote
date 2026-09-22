@@ -4,7 +4,9 @@ import (
 	"crypto/hmac"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -249,5 +251,117 @@ func decodeBrowserGamepadFrame(b []byte) usbpasscore.X360State {
 		LY:      int16(binary.LittleEndian.Uint16(b[6:8])),
 		RX:      int16(binary.LittleEndian.Uint16(b[8:10])),
 		RY:      int16(binary.LittleEndian.Uint16(b[10:12])),
+	}
+}
+
+// penSessions tracks active browser-sourced Wacom tablet exports by bus id
+// -- see browserSessions' own doc comment for why this is package-level.
+var (
+	penSessionsMu sync.Mutex
+	penSessions   = map[string]*browserusb.PenSession{}
+)
+
+// browserPenSessionRequest is usbPassthroughBrowserPenSession's POST body:
+// the WebHID vendor/product id and product name the browser itself read
+// off navigator.hid's grant (see pen_capture_wasm.go), used to resolve the
+// tablet's model server-side the same way usbpasscore.NewWacomExportedDevice
+// does for AttachBrowserPen's own attachPayload.
+type browserPenSessionRequest struct {
+	VendorID    uint16 `json:"vendor_id"`
+	ProductID   uint16 `json:"product_id"`
+	ProductName string `json:"product_name"`
+}
+
+// usbPassthroughBrowserPenSession allocates a loopback USB/IP export for a
+// browser-sourced Wacom tablet and returns the bus id + tunnel address +
+// nonce the browser's own Attach payload should use, same shape as
+// usbPassthroughBrowserSession's gamepad response.
+func (s *Server) usbPassthroughBrowserPenSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.fail(w, http.StatusMethodNotAllowed, "method_not_allowed", nil)
+		return
+	}
+	if s.usb == nil {
+		s.fail(w, http.StatusNotImplemented, "usb_passthrough_unavailable", nil)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
+	if err != nil {
+		s.fail(w, http.StatusBadRequest, "invalid_request", err)
+		return
+	}
+	var req browserPenSessionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		s.fail(w, http.StatusBadRequest, "invalid_request", err)
+		return
+	}
+
+	masterKey := s.sec.currentMasterKey()
+	if len(masterKey) == 0 {
+		s.fail(w, http.StatusInternalServerError, "browser_session_failed", fmt.Errorf("no master key"))
+		return
+	}
+
+	busID := fmt.Sprintf("browser-pen-%d", time.Now().UnixNano())
+	session, err := browserusb.NewPenSession(busID, req.VendorID, req.ProductID, req.ProductName, masterKey)
+	if err != nil {
+		s.fail(w, http.StatusBadRequest, "browser_pen_session_failed", err)
+		return
+	}
+
+	penSessionsMu.Lock()
+	penSessions[busID] = session
+	penSessionsMu.Unlock()
+
+	s.ok(w, "browser_usb_session", map[string]any{
+		"bus_id":         busID,
+		"export_host":    session.ExportHost(),
+		"export_service": session.ExportPort(),
+		"tunnel_nonce":   hex.EncodeToString(session.Nonce()),
+		"broker_addr":    fmt.Sprintf("127.0.0.1:%d", s.usb.ListenPort()),
+	})
+}
+
+// usbPassthroughBrowserPen receives a stream of raw HID input reports (each
+// WebSocket binary message is exactly one report, report id first byte,
+// verbatim from the browser's device.oninputreport -- no fixed frame length
+// the way usbPassthroughBrowserGamepad's browserGamepadFrameLen is, since a
+// tablet's report size varies by model and by report id) for one bus id and
+// pushes each into that bus id's PenSession.
+func (s *Server) usbPassthroughBrowserPen(w http.ResponseWriter, r *http.Request) {
+	if !s.verifyWSAuth(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	busID := r.URL.Query().Get("bus_id")
+	penSessionsMu.Lock()
+	session := penSessions[busID]
+	penSessionsMu.Unlock()
+	if session == nil {
+		http.Error(w, "unknown bus_id", http.StatusNotFound)
+		return
+	}
+
+	conn, err := s.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("[api] usb_browser_pen upgrade failed: %v", err)
+		return
+	}
+	defer conn.Close()
+	defer func() {
+		penSessionsMu.Lock()
+		if penSessions[busID] == session {
+			delete(penSessions, busID)
+		}
+		penSessionsMu.Unlock()
+		session.Close()
+	}()
+
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		session.PushReport(data)
 	}
 }

@@ -216,15 +216,42 @@ func openAndRegister(dev js.Value, done func()) {
 	dev.Call("open").Call("then", then).Call("catch", catch)
 }
 
-// EnumerateHIDGamepads lists every currently-registered HID gamepad in the
-// same shape gamepad_enum_wasm.go's EnumerateGamepads uses for the Gamepad
-// API, so disk_widget_data.go's loadGamepadDevices can merge both without
-// caring which source a row came from.
+// hidHasTopLevelUsage reports whether device declares a top-level
+// collection with the given usage page/usage -- the same check
+// buildHIDLayout's own top-level loop makes, factored out so both the
+// gamepad and pen (pen_capture_wasm.go) enumerations can tell one kind of
+// granted HID device from the other. The single "connect USB" button grants
+// access to both kinds at once (see index.html's requestDevice filters);
+// this is what routes each granted device to the right row/backend.
+func hidHasTopLevelUsage(device js.Value, page, usage int) bool {
+	collections := device.Get("collections")
+	if collections.IsUndefined() {
+		return false
+	}
+	n := collections.Length()
+	for i := 0; i < n; i++ {
+		c := collections.Index(i)
+		if c.Get("usagePage").Int() == page && c.Get("usage").Int() == usage {
+			return true
+		}
+	}
+	return false
+}
+
+// EnumerateHIDGamepads lists every currently-registered HID device that
+// declares itself a Generic Desktop Gamepad or Joystick, in the same shape
+// gamepad_enum_wasm.go's EnumerateGamepads uses for the Gamepad API, so
+// disk_widget_data.go's loadGamepadDevices can merge both without caring
+// which source a row came from.
 func EnumerateHIDGamepads() []GamepadDevice {
 	hidDevicesMu.Lock()
 	defer hidDevicesMu.Unlock()
 	out := make([]GamepadDevice, 0, len(hidDevices))
 	for id, dev := range hidDevices {
+		if !hidHasTopLevelUsage(dev, hidUsagePageGenericDesktop, hidUsageGamepad) &&
+			!hidHasTopLevelUsage(dev, hidUsagePageGenericDesktop, hidUsageJoystick) {
+			continue
+		}
 		name := dev.Get("productName").String()
 		if name == "" {
 			name = "HID Gamepad"

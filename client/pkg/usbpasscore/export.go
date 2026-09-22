@@ -37,7 +37,25 @@ type (
 	// (as rust-shine's usb-broker relay sends) into the plain bytes a local
 	// Server expects.
 	TunnelListener = usbpass.TunnelListener
+	// WacomSession pushes raw HID input reports into a synthetic Wacom
+	// tablet's USB export.
+	WacomSession = usbpass.WacomSession
 )
+
+// WacomVendorID is Wacom's USB vendor id.
+const WacomVendorID = usbpass.WacomVendorID
+
+// WacomKnown reports whether vid:pid can be exported from a captured or
+// database Wacom model.
+func WacomKnown(vid, pid uint16) bool {
+	return usbpass.WacomKnown(vid, pid)
+}
+
+// NewWacomExportedDevice resolves vid:pid to a Wacom model and builds the
+// ExportedDevice + WacomSession for it. See usbpass.NewWacomExportedDevice.
+func NewWacomExportedDevice(busID string, vid, pid uint16, productName string) (*ExportedDevice, *WacomSession, error) {
+	return usbpass.NewWacomExportedDevice(busID, vid, pid, productName)
+}
 
 // StartTunnelListener listens on addr (e.g. "0.0.0.0:0") and relays
 // AEAD-authenticated connections to exportAddr (a plain loopback Server from

@@ -1,4 +1,4 @@
-//go:build !darwin || ios
+//go:build (!darwin || ios) && !(js && wasm)
 
 package platform
 
