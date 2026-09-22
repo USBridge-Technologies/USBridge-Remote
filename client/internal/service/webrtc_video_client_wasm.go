@@ -46,6 +46,7 @@ type WebRTCVideoClient struct {
 	connected      atomic.Bool
 	stopFrameWatch func()
 	stopStatsLog   func()
+	stopNetGraph   func()
 
 	onFrame        func(image.Image)
 	onStateChanged func(string)
@@ -197,9 +198,15 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 		stopStats := client.StartStatsLogging(2*time.Second, func(msg string) {
 			logrus.Info("[webrtc-video] " + msg)
 		})
+		// Feeds service.NetGraph's netGraphNetworkStatsFn hook
+		// (net_graph_wasm.go) -- separate from stopStats above since the
+		// HUD wants a much tighter poll interval than the diagnostic
+		// stall logger does (see StartNetGraphStatsPolling's doc comment).
+		stopNetGraph := client.StartNetGraphStatsPolling()
 		c.mu.Lock()
 		c.stopFrameWatch = stop
 		c.stopStatsLog = stopStats
+		c.stopNetGraph = stopNetGraph
 		c.mu.Unlock()
 	})
 
@@ -226,12 +233,17 @@ func (c *WebRTCVideoClient) Disconnect() error {
 	c.stopFrameWatch = nil
 	stopStats := c.stopStatsLog
 	c.stopStatsLog = nil
+	stopNetGraph := c.stopNetGraph
+	c.stopNetGraph = nil
 	c.mu.Unlock()
 	if stop != nil {
 		stop()
 	}
 	if stopStats != nil {
 		stopStats()
+	}
+	if stopNetGraph != nil {
+		stopNetGraph()
 	}
 	if client != nil {
 		client.Close()
