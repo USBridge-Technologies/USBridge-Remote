@@ -3,11 +3,17 @@
 package platform
 
 // WebHID pen tablet capture: the wasm counterpart of pen_capture_darwin.go,
-// for a Wacom (or other digitizer-class HID) tablet granted via the same
-// "Connect USB" button gamepad_hid_wasm.go's requestDevice() call uses (see
-// index.html) -- distinguished from a gamepad grant by its top-level HID
-// collection usage page (Digitizer, 0x0D) instead of Generic Desktop
-// Gamepad/Joystick (see hidHasTopLevelUsage).
+// for a Wacom tablet granted via the same "Connect USB" button
+// gamepad_hid_wasm.go's requestDevice() call uses (see index.html) --
+// distinguished from a gamepad grant by vendor id (WacomVendorID) rather
+// than by HID usage page: confirmed live that a real Intuos S's top-level
+// collection is not on the Digitizer page (0x0D) at all -- Wacom's actual
+// descriptors are vendor-specific enough that wacom_model.go itself never
+// tries to parse them generically either, it works from a captured/database
+// model keyed by vendor:product id (see that file's own doc comment). Vendor
+// id is also the only thing usbpasscore.NewWacomExportedDevice needs to find
+// the right model agent-side, so filtering on it here keeps both sides
+// using the same one signal.
 //
 // Unlike the gamepad path, no client-side decoding happens here at all: a
 // pen tablet's semantics (which bits are pressure, tilt, which report id is
@@ -26,8 +32,6 @@ import (
 	"syscall/js"
 )
 
-const hidUsagePageDigitizer = 0x0D
-
 // PenTabletInfo describes a Wacom-protocol pen tablet currently connected to
 // the system -- same shape as every other platform's (pen_capture_stub.go),
 // which disk_widget_pen.go's syncPenCaptures reads generically.
@@ -38,14 +42,14 @@ type PenTabletInfo struct {
 	PID  uint16
 }
 
-// ListPenTablets lists every currently-registered HID device that declares
-// a top-level Digitizer-page collection.
+// ListPenTablets lists every currently-registered HID device whose vendor
+// id is Wacom's.
 func ListPenTablets() []PenTabletInfo {
 	hidDevicesMu.Lock()
 	defer hidDevicesMu.Unlock()
 	out := make([]PenTabletInfo, 0, len(hidDevices))
 	for id, dev := range hidDevices {
-		if !hidHasAnyTopLevelPage(dev, hidUsagePageDigitizer) {
+		if dev.Get("vendorId").Int() != WacomVendorID {
 			continue
 		}
 		name := dev.Get("productName").String()
@@ -60,25 +64,6 @@ func ListPenTablets() []PenTabletInfo {
 		})
 	}
 	return out
-}
-
-// hidHasAnyTopLevelPage reports whether device declares a top-level
-// collection on the given usage page, regardless of usage -- a digitizer's
-// exact top-level usage varies by device (Pen 0x02, Touch Screen 0x04,
-// Touch Pad 0x05, ...) more than a gamepad's does, so unlike
-// hidHasTopLevelUsage this only checks the page.
-func hidHasAnyTopLevelPage(device js.Value, page int) bool {
-	collections := device.Get("collections")
-	if collections.IsUndefined() {
-		return false
-	}
-	n := collections.Length()
-	for i := 0; i < n; i++ {
-		if collections.Index(i).Get("usagePage").Int() == page {
-			return true
-		}
-	}
-	return false
 }
 
 // BrowserPenCapture is an active WebHID oninputreport capture for a pen
