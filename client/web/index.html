@@ -309,20 +309,18 @@
     };
 
     btn.addEventListener('click', function () {
-      navigator.hid.requestDevice({
-        filters: [
-          { usagePage: 0x01, usage: 0x05 }, // Generic Desktop / Gamepad
-          { usagePage: 0x01, usage: 0x04 }, // Generic Desktop / Joystick
-          // Whole Digitizer page, not just usage 0x02 (Pen): Wacom tablets
-          // vary which specific Digitizer usage (Pen/Light Pen/Touch
-          // Screen/Touch Pad/...) their top-level collection declares, and
-          // pen_capture_wasm.go's own ListPenTablets already matches the
-          // whole page rather than one usage for the same reason -- this
-          // filter narrowing to just 0x02 was stricter than that and hid
-          // devices ListPenTablets would otherwise have found.
-          { usagePage: 0x0D },
-        ],
-      }).then(function (devices) {
+      // No filters at all: list every HID device/interface the OS exposes,
+      // not just what we guessed a gamepad or Wacom tablet declares.
+      // Narrowing by usagePage/usage here previously hid the actual target
+      // device from the picker entirely (confirmed live: a Wacom tablet
+      // never appeared even filtered to the whole Digitizer page, while
+      // unrelated built-in keyboard/trackpad interfaces did match and
+      // showed up instead) -- so this leaves the *picker* unfiltered and
+      // relies entirely on the Go side (hidHasTopLevelUsage/
+      // hidHasAnyTopLevelPage) to sort a chosen device into the right row
+      // once it's granted, exactly as if the user had filtered it
+      // themselves.
+      navigator.hid.requestDevice({ filters: [] }).then(function (devices) {
         devices.forEach(function (device) {
           var adopt = function () {
             if (window.usbridgeRegisterHIDDevice) window.usbridgeRegisterHIDDevice(device);
