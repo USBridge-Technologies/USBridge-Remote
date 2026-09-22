@@ -42,6 +42,13 @@ type WebRTCClient struct {
 	// same as any other wrong/missing key.
 	masterKey string
 
+	// bitrateKbps: this session's requested bitrate ceiling, sent as
+	// OfferRequest.bitrate_kbps in postOffer's body -- see
+	// SetBitrateKbps's own doc comment. 0 (the zero value, and this
+	// struct's default before anyone calls SetBitrateKbps) means "don't
+	// send one", same as never having sent the field at all.
+	bitrateKbps int
+
 	pc      *js.Value
 	dc      *js.Value
 	videoEl js.Value // hidden <video>, srcObject set from the video ontrack event
@@ -82,6 +89,20 @@ func (c *WebRTCClient) signHMAC(method, path, body string) (ts, sig string) {
 	sig = hex.EncodeToString(mac.Sum(nil))
 	return
 }
+
+// SetBitrateKbps sets the bitrate ceiling this session will request from
+// rustshine in its /webrtc/offer body -- previously a no-op on this path
+// (WebRTCVideoClient.SetBitrate was an empty stub; only the classic
+// Moonlight/GameStream path's real ANNOUNCE negotiation honored the
+// video-settings bitrate slider). rustshine treats this as a request, not
+// a command: it's clamped to the operator's own --webrtc-bitrate-kbps
+// ceiling server-side (see rust-shine's signaling.rs,
+// resolve_session_bitrate_bps) -- a client can only ever ask for *less*
+// than what the server permits, never more. Must be called before
+// Connect(); 0 (never called, or called with 0) sends no bitrate_kbps
+// field at all, falling back to today's behavior (the server's own
+// ceiling, unchanged).
+func (c *WebRTCClient) SetBitrateKbps(kbps int) { c.mu.Lock(); c.bitrateKbps = kbps; c.mu.Unlock() }
 
 // OnOpen registers a callback fired when the "input" DataChannel opens.
 func (c *WebRTCClient) OnOpen(fn func()) { c.mu.Lock(); c.onOpen = fn; c.mu.Unlock() }
@@ -351,9 +372,19 @@ func (c *WebRTCClient) waitForICEGatheringComplete(pc js.Value) {
 // rejected offer) once the client was pointed at rustshine directly.
 func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	_ = sessionID // rustshine's endpoint doesn't take a session id -- one PeerConnection per POST, matching its own signaling.rs
-	reqBody, err := json.Marshal(map[string]string{
-		"sdp": offerSDP,
-	})
+	c.mu.Lock()
+	bitrateKbps := c.bitrateKbps
+	c.mu.Unlock()
+	// bitrate_kbps omitted entirely (not sent as 0) when unset -- matches
+	// rust-shine's OfferRequest.bitrate_kbps, an Option<u32> on the wire
+	// (#[serde(default)]), and its own "0 means absent" fallback in
+	// resolve_session_bitrate_bps; sending a literal 0 would ask the
+	// server to freeze the picture rather than just "use your ceiling".
+	reqFields := map[string]any{"sdp": offerSDP}
+	if bitrateKbps > 0 {
+		reqFields["bitrate_kbps"] = bitrateKbps
+	}
+	reqBody, err := json.Marshal(reqFields)
 	if err != nil {
 		return "", err
 	}

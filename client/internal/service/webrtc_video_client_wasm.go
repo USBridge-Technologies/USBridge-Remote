@@ -47,6 +47,10 @@ type WebRTCVideoClient struct {
 	stopFrameWatch func()
 	stopStatsLog   func()
 	stopNetGraph   func()
+	// bitrateKbps: see SetBitrate's own doc comment -- 0 means "use the
+	// server's own --webrtc-bitrate-kbps ceiling", same as never calling
+	// SetBitrate at all.
+	bitrateKbps int
 
 	onFrame        func(image.Image)
 	onStateChanged func(string)
@@ -108,6 +112,7 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	c.mu.Lock()
 	host := c.host
 	secret := c.apiSecret
+	bitrateKbps := c.bitrateKbps
 	c.mu.Unlock()
 	if host == "" {
 		return fmt.Errorf("webrtc video: no host set")
@@ -146,6 +151,7 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	}
 
 	client := webrtcweb.NewWebRTCClient(baseURL, secret)
+	client.SetBitrateKbps(bitrateKbps)
 	sessionID := uuid.NewString()
 
 	client.OnStateChange(func(state string) {
@@ -309,16 +315,34 @@ func (c *WebRTCVideoClient) UpdateHost(host string) {
 func (c *WebRTCVideoClient) UpdateVideoPort(port int)    {}
 func (c *WebRTCVideoClient) UpdateVideoUDPPort(port int) {}
 
-// SetVideoMode/SetExpectedVideoSize/SetFPS/SetBitrate: real Moonlight
-// stream-parameter negotiation (LiInitializeVideoCallbacks etc.) has no
-// WebRTC equivalent yet in this client -- Sunshine's own configured
-// defaults apply for now. Wiring these into the SDP offer (bandwidth
-// hints) or a control-channel message to the agent is a reasonable
-// follow-up, not required for a first working video path.
+// SetVideoMode/SetExpectedVideoSize/SetFPS: real Moonlight stream-parameter
+// negotiation (LiInitializeVideoCallbacks etc.) has no WebRTC equivalent
+// yet in this client -- Sunshine's own configured defaults apply for now.
+// Wiring these into the SDP offer (bandwidth hints) or a control-channel
+// message to the agent is a reasonable follow-up, not required for a
+// first working video path.
 func (c *WebRTCVideoClient) SetVideoMode(mode string)               {}
 func (c *WebRTCVideoClient) SetExpectedVideoSize(width, height int) {}
 func (c *WebRTCVideoClient) SetFPS(fps int)                         {}
-func (c *WebRTCVideoClient) SetBitrate(kbps int)                    {}
+
+// SetBitrate stores the video-settings dialog's bitrate request for the
+// *next* ConnectToMoonlight call -- previously a no-op here (only the
+// classic Moonlight/GameStream path's real ANNOUNCE negotiation honored
+// it). Takes effect via webrtcweb.WebRTCClient.SetBitrateKbps, sent as
+// OfferRequest.bitrate_kbps in the /webrtc/offer POST body; rustshine
+// clamps it to its own --webrtc-bitrate-kbps ceiling server-side (see
+// rust-shine's signaling.rs, resolve_session_bitrate_bps) -- this can only
+// ever lower the session's ceiling, never raise it past what the operator
+// configured. Does NOT affect an already-connected session (there's no
+// mid-session renegotiation path here yet, same limitation
+// SetVideoMode/SetFPS/SetExpectedVideoSize above already have) -- call
+// before Connect, e.g. before the user hits "Apply" mid-session expects a
+// reconnect anyway, same as every other setting in that dialog today.
+func (c *WebRTCVideoClient) SetBitrate(kbps int) {
+	c.mu.Lock()
+	c.bitrateKbps = kbps
+	c.mu.Unlock()
+}
 
 // SetColor444: the RustShine Pro color upgrade is HEVC/VAAPI-specific
 // (moonlight-common-c ANNOUNCE negotiation) -- no WebRTC equivalent, same
