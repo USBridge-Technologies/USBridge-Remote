@@ -28,9 +28,38 @@
     html, body { height: 100dvh; }
   }
   canvas { display: block; }
+  #hidGamepadBtn {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 1000;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.25);
+    background: rgba(20,20,20,0.75);
+    color: #eee;
+    font: 13px system-ui, sans-serif;
+    cursor: pointer;
+  }
+  #hidGamepadBtn:active { background: rgba(40,40,40,0.9); }
 </style>
 </head>
 <body>
+<!-- Grants WebHID access to a gamepad -- the primary capture path in
+     Chrome/Edge (see internal/platform/gamepad_hid_wasm.go's doc comment for
+     why: it gives real vendor/product id and the real HID report
+     descriptor, which is what lets that code use the same
+     SDL_GameControllerDB mapping the native Windows/Linux client already
+     uses instead of Chrome's own -- sometimes incomplete -- Gamepad API
+     mapping). Deliberately a plain HTML button, not a Fyne canvas control:
+     navigator.hid.requestDevice() is user-gesture-gated and reliably fails
+     when called from inside a Go js.FuncOf callback (see
+     installFullscreenOnFirstTap/installClipboardPasteBridge below for two
+     other browser APIs that showed the exact same failure live) -- this
+     stays outside Go entirely for that one call. Hidden by installHIDButton
+     below on browsers with no WebHID (Firefox, Safari), where the Gamepad
+     API poller is the only option anyway. -->
+<button id="hidGamepadBtn" style="display:none">🎮 Connect gamepad (HID)</button>
 <!-- Fyne's wasm/js driver looks up #dummyEntry by ID (see
      internal/driver/glfw/device_wasm.go) and uses it as a real, native
      <input> element to host IME composition, on-screen-keyboard triggering,
@@ -245,12 +274,43 @@
     }, true);
   }
 
+  // See the #hidGamepadBtn element's doc comment above for why this whole
+  // request/open sequence has to run outside Go. Handing the *result* to Go
+  // afterward (usbridgeRegisterHIDDevice) is a plain call with no gesture
+  // requirement of its own, same as usbridgePasteText above.
+  function installHIDGamepadButton() {
+    var btn = document.getElementById('hidGamepadBtn');
+    if (!navigator.hid) return; // Firefox/Safari: no WebHID, Gamepad API stays the only path
+    btn.style.display = 'block';
+    btn.addEventListener('click', function () {
+      navigator.hid.requestDevice({
+        filters: [
+          { usagePage: 0x01, usage: 0x05 }, // Generic Desktop / Gamepad
+          { usagePage: 0x01, usage: 0x04 }, // Generic Desktop / Joystick
+        ],
+      }).then(function (devices) {
+        devices.forEach(function (device) {
+          var adopt = function () {
+            if (window.usbridgeRegisterHIDDevice) window.usbridgeRegisterHIDDevice(device);
+          };
+          if (device.opened) { adopt(); return; }
+          device.open().then(adopt).catch(function (err) {
+            console.log('[hid] open failed: ' + err);
+          });
+        });
+      }).catch(function (err) {
+        console.log('[hid] requestDevice: ' + err);
+      });
+    });
+  }
+
   const go = new Go();
   WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then((result) => {
     go.run(result.instance);
     installViewportFollow();
     installFullscreenOnFirstTap();
     installClipboardPasteBridge();
+    installHIDGamepadButton();
   });
 </script>
 </body>

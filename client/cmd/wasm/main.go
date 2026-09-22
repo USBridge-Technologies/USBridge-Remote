@@ -49,6 +49,13 @@ func main() {
 	js.Global().Set("usbridgeSendInput", js.FuncOf(sendInput))
 	js.Global().Set("usbridgeStartBrowserGamepad", js.FuncOf(startBrowserGamepad))
 	js.Global().Set("usbridgeStopBrowserGamepad", js.FuncOf(stopBrowserGamepad))
+	js.Global().Set("usbridgeRegisterHIDDevice", js.FuncOf(registerHIDDevice))
+
+	// Recovers HID gamepads granted in an earlier visit (getDevices() needs
+	// no user gesture, unlike requestDevice() -- see gamepad_hid_wasm.go's
+	// doc comment) so the Devices screen can show/use them immediately
+	// without the user re-granting access every page load.
+	platform.RefreshGrantedHIDDevices(nil)
 
 	i18n.Init("en")
 	config := models.DefaultConfig()
@@ -155,5 +162,16 @@ func stopBrowserGamepad(this js.Value, args []js.Value) interface{} {
 		activeGamepadStop()
 		activeGamepadStop = nil
 	}
+	return nil
+}
+
+// registerHIDDevice(device) adopts an already-open() HIDDevice into
+// gamepad_hid_wasm.go's registry. Called from index.html's plain-JS
+// requestDevice() button, never from a Go callback -- see
+// gamepad_hid_wasm.go's doc comment for why requestDevice() itself must stay
+// in plain JS, and platform.RegisterHIDDevice's for why adopting the result
+// afterward has no such restriction.
+func registerHIDDevice(this js.Value, args []js.Value) interface{} {
+	platform.RegisterHIDDevice(args[0])
 	return nil
 }

@@ -47,11 +47,20 @@ type GamepadDevice struct {
 // couldn't be read (see xinputPads' own "when known" comment).
 var browserGamepadVIDPID = regexp.MustCompile(`(?i)vendor:\s*([0-9a-f]{4}).*?product:\s*([0-9a-f]{4})`)
 
-// EnumerateGamepads returns every gamepad the browser currently exposes via
-// navigator.getGamepads() -- only ones the user has already interacted with
-// at least once (see this file's doc comment); a freshly plugged-in pad the
-// user hasn't touched yet is invisible to this call, not a bug here.
+// EnumerateGamepads returns every gamepad the browser currently exposes,
+// preferring WebHID-granted devices (see gamepad_hid_wasm.go) over the
+// Gamepad API: once the user has granted HID access to a pad, that grant is
+// both more accurate (real vendor/product id, real per-model SDL mapping
+// instead of Chrome's own -- sometimes incomplete -- gamepad database) and
+// available without needing a button press first, so it fully replaces the
+// Gamepad API entry rather than sitting next to it as a second row for the
+// same physical pad. Gamepad API rows only appear when no HID grant exists
+// yet at all -- the "still visible before the user does anything extra"
+// fallback this project had before WebHID capture existed.
 func EnumerateGamepads() []GamepadDevice {
+	if hidPads := EnumerateHIDGamepads(); len(hidPads) > 0 {
+		return hidPads
+	}
 	pads := js.Global().Get("navigator").Call("getGamepads")
 	length := pads.Get("length").Int()
 	out := make([]GamepadDevice, 0, length)

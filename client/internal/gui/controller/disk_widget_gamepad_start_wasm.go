@@ -3,17 +3,22 @@
 package controller
 
 import (
+	"strings"
+
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/usbpass"
 )
 
 // browserGamepadCapture stops a browser-sourced USB/IP synthetic gamepad
 // export (usbpass.AttachBrowserGamepad): wraps both the AES-attach session
-// teardown and the Gamepad API poller teardown behind one Stop(), so
+// teardown and the input poller/listener teardown behind one Stop(), so
 // syncGamepadCaptures can treat it exactly like every other platform's
-// *platform.GamepadCapture (see gamepadCaptureHandle).
+// *platform.GamepadCapture (see gamepadCaptureHandle). poll is either a
+// *platform.HIDGamepadCapture (id has a "hid:" prefix -- see
+// gamepad_hid_wasm.go) or a *platform.BrowserGamepadCapture (the Gamepad API
+// fallback for browsers/pads with no WebHID grant).
 type browserGamepadCapture struct {
-	poll       *platform.BrowserGamepadCapture
+	poll       interface{ Stop() }
 	stopAttach func()
 }
 
@@ -26,14 +31,18 @@ func (h *browserGamepadCapture) Stop() {
 	}
 }
 
-// startPadCapture exports the browser's Gamepad API state as a synthetic
-// USB/IP Xbox 360 controller hosted by the agent (agent/internal/browserusb)
+// startPadCapture exports the browser's gamepad state as a synthetic USB/IP
+// Xbox 360 controller hosted by the agent (agent/internal/browserusb)
 // instead of native OS-level capture + Moonlight forwarding: the web build
 // has neither (platform.StartGamepadCapture has no wasm implementation, and
 // this path works whether or not a Moonlight stream is even active), so
 // input has to reach the remote host through the agent's own USB stack, the
 // same way the native passthrough client's real devices do (see
-// disk_widget_mount.go's mountUSBPassthrough).
+// disk_widget_mount.go's mountUSBPassthrough). id selects the capture
+// source: WebHID (primary, correctly SDL-mapped per real vendor/product id
+// -- see gamepad_hid_wasm.go's doc comment for why the Gamepad API alone
+// mismaps unrecognized pads) when the row came from a granted HID device,
+// the Gamepad API poller otherwise.
 func (dw *DiskWidget) startPadCapture(id string) (gamepadCaptureHandle, error) {
 	send, stopAttach, err := usbpass.AttachBrowserGamepad(usbpass.BrowserGamepadAttachOptions{
 		AgentBaseURL: dw.usbClient.GetBaseURL(),
@@ -41,6 +50,14 @@ func (dw *DiskWidget) startPadCapture(id string) (gamepadCaptureHandle, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if strings.HasPrefix(id, "hid:") {
+		poll, err := platform.StartHIDGamepadCapture(id, send)
+		if err != nil {
+			stopAttach()
+			return nil, err
+		}
+		return &browserGamepadCapture{poll: poll, stopAttach: stopAttach}, nil
 	}
 	poll := platform.StartBrowserGamepadCapture(send)
 	return &browserGamepadCapture{poll: poll, stopAttach: stopAttach}, nil
