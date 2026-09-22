@@ -36,6 +36,8 @@ import (
 	"strconv"
 	"sync"
 	"syscall/js"
+
+	"github.com/sirupsen/logrus"
 )
 
 // hidGamepadUsages are the two Generic Desktop usages a physical gamepad's
@@ -412,7 +414,16 @@ func StartHIDGamepadCapture(id string, onFrame func([]byte)) (*HIDGamepadCapture
 	layouts := buildHIDLayout(device)
 
 	c := &HIDGamepadCapture{device: device}
-	c.listener = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	c.listener = js.FuncOf(func(this js.Value, args []js.Value) (result interface{}) {
+		// See pen_capture_wasm.go's StartBrowserPenCapture for why this
+		// recover exists: an uncaught panic in any goroutine (including one
+		// a browser event drives) kills the entire wasm program, not just
+		// this one report.
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Warnf("usbpass(wasm): gamepad oninputreport panic recovered: %v", r)
+			}
+		}()
 		event := args[0]
 		reportID := event.Get("reportId").Int()
 		dataView := event.Get("data")

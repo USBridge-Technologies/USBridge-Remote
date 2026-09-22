@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -82,7 +83,7 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 			continue
 		}
 		logrus.Infof("🎮 [GAMEPAD] starting capture for %s as controller %d", id, slot)
-		cap, err := dw.startPadCapture(id)
+		cap, err := dw.startPadCaptureRecovered(id)
 		if err != nil {
 			logrus.Warnf("🎮 [GAMEPAD] capture failed for %s: %v", id, err)
 			dw.padSlots.release(id)
@@ -91,6 +92,19 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 		dw.activeCaptures[id] = cap
 		dw.startTouchpad(id)
 	}
+}
+
+// startPadCaptureRecovered wraps startPadCapture so a panic anywhere in one
+// attach attempt surfaces as an ordinary error for this one pad instead of
+// taking the whole process down -- see disk_widget_pen.go's
+// startPenCaptureRecovered for why this matters specifically on wasm.
+func (dw *DiskWidget) startPadCaptureRecovered(id string) (cap gamepadCaptureHandle, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			cap, err = nil, fmt.Errorf("panic: %v", r)
+		}
+	}()
+	return dw.startPadCapture(id)
 }
 
 // startTouchpad turns the pad's touchpad (DualShock 4 layout) into a relative

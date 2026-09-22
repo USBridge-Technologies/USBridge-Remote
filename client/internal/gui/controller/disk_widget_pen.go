@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"fmt"
+
 	"usbridge-client/internal/platform"
 
 	"github.com/sirupsen/logrus"
@@ -47,13 +49,31 @@ func (dw *DiskWidget) syncPenCaptures() {
 			continue
 		}
 		logrus.Infof("🖊️ [PEN] starting capture for %s (%s, vid=%04x pid=%04x)", t.ID, t.Name, t.VID, t.PID)
-		cap, err := dw.startPenCapture(t)
+		cap, err := dw.startPenCaptureRecovered(t)
 		if err != nil {
 			logrus.Warnf("🖊️ [PEN] capture failed for %s: %v", t.ID, err)
 			continue
 		}
 		dw.activePenCaptures[t.ID] = cap
 	}
+}
+
+// startPenCaptureRecovered wraps startPenCapture (native OS capture, or a
+// browser-sourced USB/IP attach on the web build -- see
+// disk_widget_pen_start_wasm.go) so a panic anywhere in that one attempt --
+// a malformed device shape, a JS interop edge case, anything -- surfaces as
+// an ordinary error for this one tablet instead of taking the whole
+// process down: on wasm specifically, an uncaught panic in any goroutine
+// kills the entire Go runtime (confirmed live as "Go program has already
+// exited" on every subsequent browser callback after one such panic), not
+// just this attach attempt.
+func (dw *DiskWidget) startPenCaptureRecovered(t platform.PenTabletInfo) (cap penCaptureHandle, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			cap, err = nil, fmt.Errorf("panic: %v", r)
+		}
+	}()
+	return dw.startPenCapture(t)
 }
 
 // stopAllPenCaptures stops every active pen capture; called on disconnect.

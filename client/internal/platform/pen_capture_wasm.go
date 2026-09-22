@@ -30,6 +30,8 @@ package platform
 import (
 	"fmt"
 	"syscall/js"
+
+	"github.com/sirupsen/logrus"
 )
 
 // PenTabletInfo describes a Wacom-protocol pen tablet currently connected to
@@ -86,7 +88,19 @@ func StartBrowserPenCapture(id string, onReport func([]byte)) (*BrowserPenCaptur
 	}
 
 	c := &BrowserPenCapture{device: device}
-	c.listener = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	c.listener = js.FuncOf(func(this js.Value, args []js.Value) (result interface{}) {
+		// A panic here (a JS exception surfacing as one, or a bad index) is
+		// a per-report failure, not a reason to take the whole wasm program
+		// down with it -- an uncaught panic in any goroutine, including one
+		// a browser event drives, kills the entire Go runtime (confirmed
+		// live: "Go program has already exited" on every subsequent
+		// callback after one such panic). Recovering here just drops this
+		// one report and keeps capturing.
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Warnf("usbpass(wasm): pen oninputreport panic recovered: %v", r)
+			}
+		}()
 		event := args[0]
 		reportID := byte(event.Get("reportId").Int())
 		dataView := event.Get("data")
