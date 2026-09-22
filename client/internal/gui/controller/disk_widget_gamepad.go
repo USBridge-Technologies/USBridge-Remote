@@ -23,13 +23,24 @@ func (dw *DiskWidget) SetMoonlightProvider(fn func() service.MoonlightInputSende
 	dw.moonlightProvider = fn
 }
 
+// gamepadCaptureHandle is whatever startPadCapture returned for one mounted
+// gamepad row -- a native OS-level capture (*platform.GamepadCapture) on
+// every platform except the web build, where it wraps a browser-sourced
+// USB/IP synthetic controller export instead (see
+// disk_widget_gamepad_start_wasm.go). syncGamepadCaptures only ever calls
+// Stop() on it, so the two can share dw.activeCaptures without a build tag
+// of their own.
+type gamepadCaptureHandle interface {
+	Stop()
+}
+
 // syncGamepadCaptures compares the set of currently mounted gamepad drives against
 // the set of active captures and starts/stops captures accordingly.
 // Must be called from within the Fyne UI goroutine (or any single-threaded context)
 // since it reads dw.allDrives and dw.activeCaptures without a lock.
 func (dw *DiskWidget) syncGamepadCaptures() {
 	if dw.activeCaptures == nil {
-		dw.activeCaptures = make(map[string]*platform.GamepadCapture)
+		dw.activeCaptures = make(map[string]gamepadCaptureHandle)
 	}
 
 	// Build the set of gamepad IDs that should be captured (mounted & has ID).
@@ -71,10 +82,7 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 			continue
 		}
 		logrus.Infof("🎮 [GAMEPAD] starting capture for %s as controller %d", id, slot)
-		capturedID := id
-		cap, err := platform.StartGamepadCapture(id, func(state platform.GamepadCaptureState) {
-			dw.forwardGamepadState(capturedID, state)
-		})
+		cap, err := dw.startPadCapture(id)
 		if err != nil {
 			logrus.Warnf("🎮 [GAMEPAD] capture failed for %s: %v", id, err)
 			dw.padSlots.release(id)

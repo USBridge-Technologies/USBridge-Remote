@@ -71,9 +71,9 @@ type DiskWidget struct {
 	// the same card's hover-border logic (see NewDeviceDashboardCard's own
 	// doc comment for why a stable cell is needed instead of wiring hover
 	// directly).
-	dashboardHIDHover     func(bool)
-	dashboardVideoHover   func(bool)
-	dashboardAudioHover   func(bool)
+	dashboardHIDHover       func(bool)
+	dashboardVideoHover     func(bool)
+	dashboardAudioHover     func(bool)
 	dashboardStorageHover   func(bool)
 	dashboardEmulationHover func(bool)
 	dashboardNetworkHover   func(bool)
@@ -149,14 +149,14 @@ type DiskWidget struct {
 	sdSpaceInfo     *models.ISOSpaceInfo
 
 	// Gamepad capture
-	activeCaptures    map[string]*platform.GamepadCapture
+	activeCaptures map[string]gamepadCaptureHandle
 	// activeTouchpads are the touchpad-as-mouse readers of the captured pads that have one.
 	activeTouchpads map[string]*platform.TouchpadCapture
 	// padSlots gives every captured pad its Moonlight controller number; it is
 	// safe from the Moonlight rumble callback thread, which must not touch
 	// activeCaptures (UI-goroutine only).
-	padSlots   gamepadSlots
-	rumbleOnce sync.Once
+	padSlots          gamepadSlots
+	rumbleOnce        sync.Once
 	moonlightProvider moonlightProvider
 
 	// Pen/tablet capture (macOS only for now — see platform.ListPenTablets)
@@ -176,20 +176,20 @@ type DiskWidget struct {
 	preferredDisplayIndex int // 0-based display index for absolute mouse (0 = first)
 	preferredDisplayCount int // total display count for absolute mouse (0/1 = single)
 
-	loadingLocalDrives    atomic.Bool
-	loadingLocalFiles     atomic.Bool
-	loadingVideoDevices   atomic.Bool
-	loadingAudioDevices   atomic.Bool
-	loadingMountedInfo    atomic.Bool
-	devicesRefreshPending atomic.Bool
-	devicesRefreshQueued  atomic.Bool
-	userOperationInFlight atomic.Bool
-	apiMountInProgress    atomic.Bool
-	audioAutoStarted      atomic.Bool
-	audioConnectGen       atomic.Uint64 // incremented on every manual audio connect to cancel in-flight auto-start
-	pendingAudioPath      atomic.Value  // string: effective audio path while switch is in-flight; cleared after onAudioConnect returns
-	imagePickerInFlight   atomic.Bool
-	virtualDisplaySupported atomic.Bool
+	loadingLocalDrives         atomic.Bool
+	loadingLocalFiles          atomic.Bool
+	loadingVideoDevices        atomic.Bool
+	loadingAudioDevices        atomic.Bool
+	loadingMountedInfo         atomic.Bool
+	devicesRefreshPending      atomic.Bool
+	devicesRefreshQueued       atomic.Bool
+	userOperationInFlight      atomic.Bool
+	apiMountInProgress         atomic.Bool
+	audioAutoStarted           atomic.Bool
+	audioConnectGen            atomic.Uint64 // incremented on every manual audio connect to cancel in-flight auto-start
+	pendingAudioPath           atomic.Value  // string: effective audio path while switch is in-flight; cleared after onAudioConnect returns
+	imagePickerInFlight        atomic.Bool
+	virtualDisplaySupported    atomic.Bool
 	videoCardHadVirtualDisplay bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
