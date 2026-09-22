@@ -1,0 +1,74 @@
+{
+	"folders": [
+		{
+			"name": "Repository",
+			"path": "."
+		},
+		{
+			"name": "Agent",
+			"path": "agent"
+		},
+		{
+			"name": "Client",
+			"path": "client"
+		}
+	],
+	"settings": {
+		"go.coverOnSingleTest": true,
+		"go.testFlags": [
+			"-count=1"
+		],
+		"go.testTimeout": "10m",
+		"go.toolsEnvVars": {
+			"GOTOOLCHAIN": "auto"
+		},
+		"gopls": {
+			"ui.semanticTokens": true
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"golang.go",
+			"ms-vscode.cpptools",
+			"redhat.vscode-yaml"
+		]
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "test: agent",
+				"type": "shell",
+				"command": "go test ./...",
+				"options": {
+					"cwd": "${workspaceFolder:Agent}"
+				},
+				"group": "test",
+				"problemMatcher": "$go"
+			},
+			{
+				"label": "test: client",
+				"type": "shell",
+				"command": "go test ./...",
+				"options": {
+					"cwd": "${workspaceFolder:Client}"
+				},
+				"group": "test",
+				"problemMatcher": "$go"
+			},
+			{
+				"label": "test: all",
+				"dependsOrder": "sequence",
+				"dependsOn": [
+					"test: agent",
+					"test: client"
+				],
+				"group": {
+					"kind": "test",
+					"isDefault": true
+				},
+				"problemMatcher": []
+			}
+		]
+	}
+}
