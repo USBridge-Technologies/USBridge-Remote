@@ -83,8 +83,11 @@ func newMobileConnectionsHeader(summary ConnectionsSummary, actions connectionsH
 
 	titleGap := canvas.NewRectangle(color.Transparent)
 	titleGap.SetMinSize(fyne.NewSize(6, 1))
-	titleItems := []fyne.CanvasObject{container.NewCenter(title), titleGap}
+	titleItems := []fyne.CanvasObject{container.NewCenter(title)}
 	titleItems = appendConnectionSortBadges(titleItems, summary, activeSort, toggleSort)
+	if len(titleItems) > 1 {
+		titleItems = append([]fyne.CanvasObject{titleItems[0], titleGap}, titleItems[1:]...)
+	}
 	titleRow := container.NewHBox(titleItems...)
 
 	subtitle := canvas.NewText(i18n.Current.ConnectionsHeaderSubtitleMobile, design.ColorConnectionsSectionSubtitle)

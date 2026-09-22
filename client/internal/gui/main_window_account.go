@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"usbridge-client/internal/account"
 	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
@@ -27,31 +26,113 @@ import (
 //go:embed assets/google-logo-rounded-google-logo-google-gradient-logo-free-png.webp
 var googleLogoBytes []byte
 
-type loginBtnTheme struct {
-	fyne.Theme
+type accountGoogleLoginButton struct {
+	widget.BaseWidget
+	onTapped func()
+	hovered  bool
 }
 
-func (t *loginBtnTheme) Color(name fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
-	if name == theme.ColorNamePrimary {
-		return color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff} // Lime green
-	}
-	if name == theme.ColorNameForegroundOnPrimary {
-		return color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff} // 4c6803
-	}
-	return t.Theme.Color(name, v)
+func newAccountGoogleLoginButton(onTapped func()) *accountGoogleLoginButton {
+	b := &accountGoogleLoginButton{onTapped: onTapped}
+	b.ExtendBaseWidget(b)
+	return b
 }
 
-func (t *loginBtnTheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == theme.SizeNameText {
-		return 11 // slightly smaller text
+func (b *accountGoogleLoginButton) CreateRenderer() fyne.WidgetRenderer {
+	bg := canvas.NewRectangle(color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff})
+	bg.CornerRadius = 8
+	icon := canvas.NewImageFromResource(fyne.NewStaticResource("google.webp", googleLogoBytes))
+	icon.FillMode = canvas.ImageFillContain
+	icon.SetMinSize(fyne.NewSize(16, 16))
+	text := canvas.NewText(i18n.Current.AccountLoginGoogle, color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff})
+	text.TextSize = 12
+	text.TextStyle.Bold = true
+	return &accountGoogleLoginButtonRenderer{
+		btn:     b,
+		bg:      bg,
+		icon:    icon,
+		text:    text,
+		objects: []fyne.CanvasObject{bg, icon, text},
 	}
-	if name == theme.SizeNameInlineIcon {
-		return 16 // smaller icon
+}
+
+func (b *accountGoogleLoginButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
 	}
-	if strings.HasSuffix(string(name), "Radius") {
-		return 8 // more rounded edges
+}
+func (b *accountGoogleLoginButton) TappedSecondary(*fyne.PointEvent) {}
+func (b *accountGoogleLoginButton) Cursor() desktop.Cursor           { return desktop.PointerCursor }
+func (b *accountGoogleLoginButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.Refresh()
+}
+func (b *accountGoogleLoginButton) MouseOut() {
+	b.hovered = false
+	b.Refresh()
+}
+func (b *accountGoogleLoginButton) MouseMoved(*desktop.MouseEvent) {}
+
+type accountGoogleLoginButtonRenderer struct {
+	btn     *accountGoogleLoginButton
+	bg      *canvas.Rectangle
+	icon    *canvas.Image
+	text    *canvas.Text
+	objects []fyne.CanvasObject
+}
+
+func (r *accountGoogleLoginButtonRenderer) Destroy() {}
+func (r *accountGoogleLoginButtonRenderer) Objects() []fyne.CanvasObject {
+	return r.objects
+}
+
+func (r *accountGoogleLoginButtonRenderer) MinSize() fyne.Size {
+	const (
+		padX = float32(18)
+		padY = float32(8)
+		icon = float32(16)
+		gap  = float32(8)
+		minH = float32(36)
+	)
+	ts := r.text.MinSize()
+	// canvas.Text MinSize clips descenders (g/y) and the last glyph's
+	// side bearing; keep extra room so "Google" is fully visible.
+	textW := ts.Width + 4
+	textH := ts.Height + 4
+	h := textH + padY*2
+	if h < minH {
+		h = minH
 	}
-	return t.Theme.Size(name)
+	return fyne.NewSize(padX*2+icon+gap+textW, h)
+}
+
+func (r *accountGoogleLoginButtonRenderer) Layout(size fyne.Size) {
+	r.bg.Resize(size)
+	const iconSize, gap = float32(16), float32(8)
+	ts := r.text.MinSize()
+	textW := ts.Width + 4
+	textH := ts.Height + 4
+	contentW := iconSize + gap + textW
+	start := (size.Width - contentW) / 2
+	if start < 18 {
+		start = 18
+	}
+	r.icon.Resize(fyne.NewSize(iconSize, iconSize))
+	r.icon.Move(fyne.NewPos(start, (size.Height-iconSize)/2))
+	r.text.Resize(fyne.NewSize(textW, textH))
+	r.text.Move(fyne.NewPos(start+iconSize+gap, (size.Height-textH)/2))
+}
+
+func (r *accountGoogleLoginButtonRenderer) Refresh() {
+	if r.btn.hovered {
+		r.bg.FillColor = color.NRGBA{R: 0xb4, G: 0xd8, B: 0x6a, A: 0xff}
+	} else {
+		r.bg.FillColor = color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
+	}
+	r.bg.Refresh()
+	r.text.Refresh()
+	r.icon.Refresh()
+	r.Layout(r.btn.Size())
 }
 
 // accountDialogSnapshot is the subset of AccountManager state that actually
@@ -60,7 +141,7 @@ func (t *loginBtnTheme) Size(name fyne.ThemeSizeName) float32 {
 // render only happens on a REAL transition (login started/finished/failed,
 // logged out), never unconditionally on every 2s tick. Rebuilding the
 // whole body on every tick regardless of whether anything changed is what
-// caused the dialog to visibly flicker ("No licenses" flashing in and out)
+// caused the dialog to visibly flicker (body flashing in and out)
 // and, worse, wiped out the sync-passphrase Entry's in-progress text on
 // every tick -- widget.NewPasswordEntry() started over from empty each
 // time body.RemoveAll() ran, so a passphrase could never actually be typed
@@ -80,13 +161,9 @@ func newAccountDialogSnapshot(am *controller.AccountManager) accountDialogSnapsh
 }
 
 // showAccountDialog is the client's account button's single entry point --
-// mirrors the Go agent's showLicenseDialog in spirit (a small
-// self-re-rendering dialog driven by a status snapshot) but much simpler:
-// the client has no billing of its own (see internal/account's package doc
-// comment), this is purely "who am I signed in as, and what does that
-// account own" -- plus setting up the sync passphrase that end-to-end
-// encrypts the synced connections list (see internal/syncconn,
-// connection_manager_sync.go).
+// a small self-re-rendering dialog driven by a status snapshot: who am I
+// signed in as, plus the sync passphrase that end-to-end encrypts the
+// synced connections list (see internal/syncconn, connection_manager_sync.go).
 func (mw *MainWindow) showAccountDialog() {
 	if mw.connectionManager == nil || mw.connectionManager.Account == nil {
 		return
@@ -95,21 +172,11 @@ func (mw *MainWindow) showAccountDialog() {
 	am := cm.Account
 
 	body := container.NewVBox()
-	// licensesLoaded/licensesCache/licensesErr: fetched exactly ONCE per
-	// dialog open (the first time render() reaches the LoggedIn case), not
-	// re-fetched on every render -- see accountLicensesList below. Seeded
-	// from AccountManager's own cross-dialog-open cache (am.CachedLicenses)
-	// so re-opening the dialog within the same login session renders the
-	// real license list on its very FIRST render -- no "Loading…"
-	// placeholder, and so no resize once a fetch would otherwise resolve
-	// moments later (see accountLicensesList's own doc comment).
-	licensesCache, licensesErr, licensesLoaded := am.CachedLicenses()
 	// resettingSyncPassphrase: true while the "Forgot passphrase? Reset
 	// it" flow (see accountSyncPassphraseSection) is showing its
 	// new-passphrase entry -- a UI-only flag, not part of AccountManager's
-	// own state, so it has to be threaded through the same way
-	// licensesLoaded above is (render() rebuilds the whole body on every
-	// call, so anything that must survive across renders lives out here).
+	// own state (render() rebuilds the whole body on every call, so
+	// anything that must survive across renders lives out here).
 	var resettingSyncPassphrase bool
 
 	var scroll *container.Scroll
@@ -176,10 +243,6 @@ func (mw *MainWindow) showAccountDialog() {
 				errText.TextSize = 11
 				identityBody.Add(errText)
 			}
-			if !resettingSyncPassphrase {
-				identityBody.Add(view.NewInset(newAccountDivider(), 0, 0, 2, 0))
-				identityBody.Add(accountLicensesList(am, &licensesLoaded, &licensesCache, &licensesErr, mw.window, render))
-			}
 
 			identityBody.Add(newAccountDivider())
 			syncContent, syncFooter := accountSyncPassphraseSection(cm, am, &resettingSyncPassphrase, render)
@@ -202,9 +265,6 @@ func (mw *MainWindow) showAccountDialog() {
 
 			logoutBtn := newAccountDialogDarkButton(i18n.Current.AccountLogOut, logoutIconNormal, logoutIconHover, func() {
 				am.Logout()
-				licensesLoaded = false
-				licensesCache = nil
-				licensesErr = nil
 				resettingSyncPassphrase = false
 				render()
 			})
@@ -235,16 +295,12 @@ func (mw *MainWindow) showAccountDialog() {
 			styledIntro := wrapAccountField(intro, 12, color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
 			body.Add(styledIntro)
 
-			googleIcon := fyne.NewStaticResource("google.webp", googleLogoBytes)
-
-			loginBtn := widget.NewButtonWithIcon(i18n.Current.AccountLoginGoogle, googleIcon, func() {
+			loginBtn := newAccountGoogleLoginButton(func() {
 				if err := am.StartLogin(); err == nil {
 					render()
 				}
 			})
-			loginBtn.Importance = widget.HighImportance
-			styledLoginBtn := container.NewThemeOverride(loginBtn, &loginBtnTheme{Theme: theme.DefaultTheme()})
-			body.Add(container.NewCenter(styledLoginBtn))
+			body.Add(container.NewCenter(loginBtn))
 
 			if errMsg := am.LastError(); errMsg != "" {
 				errText := canvas.NewText(errMsg, design.ColorAlert)
@@ -319,8 +375,8 @@ func (mw *MainWindow) showAccountDialog() {
 		},
 	})
 
-	// Polls while the dialog is open (same 2s cadence the agent's own
-	// license dialog uses) so a login completing in the browser is
+	// Polls while the dialog is open (2s cadence) so a login completing
+	// in the browser is
 	// reflected without needing to close and reopen this dialog -- but
 	// only actually re-renders (rebuilding every widget, including
 	// whatever Entry the human might be mid-typing into) when the
@@ -356,8 +412,7 @@ var accountDialogCloseIcon = fyne.NewStaticResource("account_dialog_cancel.svg",
 // accountDialogIconButton is a minimal transparent-until-hovered icon
 // button -- originally a trimmed-down copy of the Add Connection dialog's
 // own close button (controller.connectionDialogIconButton), generalized to
-// take any icon resource/size (see the close button and the license row's
-// copy button, both built on this).
+// take any icon resource/size (see the header close button).
 type accountDialogIconButton struct {
 	widget.BaseWidget
 
@@ -504,59 +559,6 @@ func clampFloat32(v, lo, hi float32) float32 {
 		return hi
 	}
 	return v
-}
-
-// accountLicensesList fetches the logged-in account's licenses exactly
-// once per dialog open (guarded by *loaded) and renders from the cached
-// result on every subsequent render() call -- render() itself only runs on
-// a real state transition now (see accountDialogSnapshot), but this cache
-// also means a manual re-render (e.g. after setting a sync passphrase)
-// doesn't refire an unnecessary network call. *loaded/*cache/*cacheErr
-// start out already seeded from AccountManager.CachedLicenses() (see
-// showAccountDialog) whenever this isn't the first dialog open of the
-// login session, so the network round-trip below -- and the placeholder
-// row it shows while in flight -- only happens once per login, not once
-// per dialog open.
-func accountLicensesList(am *controller.AccountManager, loaded *bool, cache *[]account.License, cacheErr *error, window fyne.Window, render func()) fyne.CanvasObject {
-	if *loaded {
-		return renderLicenses(*cache, *cacheErr, window)
-	}
-
-	// Same shape (container.NewBorder + 24x24 right slot) a real license
-	// row renders as, so its MinSize height already matches what's about to
-	// replace it -- the license card doesn't change height once the fetch
-	// below resolves and render() swaps this out.
-	box := container.NewVBox(newAccountLicenseSkeletonRow())
-	go func() {
-		licenses, err := am.Licenses(context.Background())
-		*cache = licenses
-		*cacheErr = err
-		*loaded = true
-		fyne.Do(render)
-	}()
-	return box
-}
-
-func renderLicenses(licenses []account.License, err error, window fyne.Window) fyne.CanvasObject {
-	box := container.NewVBox()
-	switch {
-	case err != nil:
-		errText := canvas.NewText(fmt.Sprintf(i18n.Current.AccountLicensesLoadErr, err), design.ColorAlert)
-		errText.TextSize = 11
-		box.Add(errText)
-	case len(licenses) == 0:
-		mutedNone := canvas.NewText(i18n.Current.AccountNoLicenses, design.ColorTextMuted)
-		mutedNone.TextSize = 11
-		box.Add(mutedNone)
-	default:
-		for i, lic := range licenses {
-			if i > 0 {
-				box.Add(newAccountDivider())
-			}
-			box.Add(newAccountLicenseRow(lic.Kind, lic.Identifier, lic.Status, window))
-		}
-	}
-	return box
 }
 
 // accountSyncPassphraseSection lets the human set (or, on a second device,

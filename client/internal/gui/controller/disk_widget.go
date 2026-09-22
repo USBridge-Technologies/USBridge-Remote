@@ -81,8 +81,13 @@ type DiskWidget struct {
 
 	// dashboardAddImageBtn is Storage's own "Mount New ISO" header button --
 	// kept so refreshDashboard can darken it (SetBusy) while its own file
-	// picker is in flight, without rebuilding it every refresh.
+	// picker is in flight, without rebuilding it every refresh. On a
+	// software agent it is icon-only "+" next to the Hardware only plaque.
 	dashboardAddImageBtn *view.DeviceDashboardHeaderButton
+
+	// dashboardStorageHardwareBadge is Storage's "Hardware only" plaque,
+	// shown while connected to a software agent (ISO gadget is KVM-only).
+	dashboardStorageHardwareBadge *view.DeviceDashboardHeaderBadge
 
 	// dashboardAddVirtualDisplayBtn is the dynamic header action for Video.
 	dashboardAddVirtualDisplayBtn *view.DeviceDashboardHeaderButton
@@ -110,6 +115,10 @@ type DiskWidget struct {
 	// card header (used/total + a short teal bar). Hidden until
 	// updateSDStorageInfo has a reading.
 	dashboardBackupSpace *view.DeviceDashboardSpaceMeter
+
+	// dashboardEmulationProBadge is Raw USB's header plaque
+	// ("Pro USBridge Streamer"), always shown.
+	dashboardEmulationProBadge *view.DeviceDashboardHeaderBadge
 
 	// dashboardSnapshotCount is the number of snapshots last reported by
 	// BackupWidget (via SetDashboardSnapshotCount). Shown as a plaque on
@@ -212,14 +221,29 @@ type DiskWidget struct {
 	onVideoConfigRequested  func(devicePath string)
 	onVideoConnect          func(devicePath string)
 	onVideoDisconnect       func()
+	onVideoDevicesChanged   func(devices []models.SystemDevice)
 	onAudioConnect          func(devicePath string)
 	onAudioDisconnect       func()
 	onUSBAudioConnect       func(mode string)
 	onButtonsChanged        func()
+	onAgentProtocol         func(protocol string)
 
 	safHelper *platform.SAFHelper
 
-	agentOS string
+	agentOS       string
+	agentProtocol string
+}
+
+// SetAgentIdentity records OS/tariff from connect verification (or the last
+// saved connection row) before UpdateClient starts the Devices loaders, so
+// the first dashboard paint is already software vs KVM instead of flashing
+// KVM chrome while agentOS is still empty.
+func (dw *DiskWidget) SetAgentIdentity(osName, protocol string) {
+	if dw == nil {
+		return
+	}
+	dw.agentOS = strings.TrimSpace(osName)
+	dw.agentProtocol = strings.TrimSpace(protocol)
 }
 
 // MaxDevicesToMount maximum number of devices that can be selected at once
@@ -604,6 +628,10 @@ func (dw *DiskWidget) SetOnVideoConnect(fn func(devicePath string)) {
 	dw.onVideoConnect = fn
 }
 
+func (dw *DiskWidget) SetOnVideoDevicesChanged(fn func(devices []models.SystemDevice)) {
+	dw.onVideoDevicesChanged = fn
+}
+
 func (dw *DiskWidget) SetOnVideoDisconnect(fn func()) {
 	dw.onVideoDisconnect = fn
 }
@@ -618,6 +646,10 @@ func (dw *DiskWidget) SetOnAudioDisconnect(fn func()) {
 
 func (dw *DiskWidget) SetOnUSBAudioConnect(fn func(mode string)) {
 	dw.onUSBAudioConnect = fn
+}
+
+func (dw *DiskWidget) SetOnAgentProtocol(fn func(protocol string)) {
+	dw.onAgentProtocol = fn
 }
 
 func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
@@ -1110,9 +1142,10 @@ func (dw *DiskWidget) showWarningAsync(title, message string) {
 // on connect — kicks off the full load cycle.
 func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	dw.usbClient = usbClient
-	dw.agentOS = ""
 	dw.audioAutoStarted.Store(false)
 	if usbClient == nil {
+		dw.agentOS = ""
+		dw.agentProtocol = ""
 		fyne.Do(func() {
 			dw.localDrives = nil
 			dw.mountedDevices = nil
@@ -1121,6 +1154,7 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 			dw.dashboardSnapshotCount = 0
 			dw.dashboardSnapshotKnown = false
 			dw.dashboardSnapshotMounted = false
+			dw.syncEmulationProBadge()
 			dw.updateSDStorageInfo()
 			dw.stopAllGamepadCaptures()
 			dw.stopAllPenCaptures()

@@ -1080,6 +1080,22 @@ func ShowInfoDialog(title, message string, parent fyne.Window) {
 	showStyledMessageDialog(title, message, design.ColorTextMuted, design.ColorBorder, parent)
 }
 
+// ShowInfoDialogWithAction is ShowInfoDialog plus one extra button under
+// the message (Zadig download, settings, …).
+func ShowInfoDialogWithAction(title, message, actionLabel string, onAction func(), parent fyne.Window) {
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+	if strings.TrimSpace(title) == "" {
+		title = i18n.Current.Information
+	}
+	if strings.TrimSpace(actionLabel) == "" || onAction == nil {
+		ShowInfoDialog(title, message, parent)
+		return
+	}
+	showStyledMessageDialogWithAction(title, message, design.ColorTextMuted, design.ColorBorder, actionLabel, onAction, parent)
+}
+
 // ShowErrorDialogWithAction is ShowErrorDialog's panel with one extra
 // affordance: a labeled button (actionLabel/onAction) below the message,
 // for errors the user can resolve themselves right there -- e.g. macOS USB
@@ -1094,22 +1110,6 @@ func ShowErrorDialogWithAction(err error, actionLabel string, onAction func(), p
 		return
 	}
 	showStyledMessageDialogWithAction(i18n.Current.Error, err.Error(), design.ColorDanger, design.ColorDanger, actionLabel, onAction, parent)
-}
-
-// ShowInfoDialogWithAction is ShowInfoDialog's panel with one extra labeled
-// button below the message (e.g. a help text that links to a download page).
-func ShowInfoDialogWithAction(title, message, actionLabel string, onAction func(), parent fyne.Window) {
-	if strings.TrimSpace(actionLabel) == "" || onAction == nil {
-		ShowInfoDialog(title, message, parent)
-		return
-	}
-	if strings.TrimSpace(message) == "" {
-		return
-	}
-	if strings.TrimSpace(title) == "" {
-		title = i18n.Current.Information
-	}
-	showStyledMessageDialogWithAction(title, message, design.ColorTextMuted, design.ColorBorder, actionLabel, onAction, parent)
 }
 
 func showStyledMessageDialogWithAction(title, message string, titleColor, borderColor color.Color, actionLabel string, onAction func(), parent fyne.Window) {

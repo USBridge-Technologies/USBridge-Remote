@@ -42,9 +42,9 @@ func accountDialogScrollMetrics(loggedIn, hasSyncKey, loginProgress bool) (left,
 	switch {
 	case loggedIn:
 		left, right, top, bottom = 21, 21, 14, 18
-		minH = 258
+		minH = 180
 		if !hasSyncKey {
-			minH = 260
+			minH = 200
 		}
 		if accountDialogMobile() {
 			left, right, top, bottom = 14, 14, 10, 10
@@ -72,8 +72,8 @@ func applyAccountDialogScroll(scroll *container.Scroll, body fyne.CanvasObject, 
 	l, r, t, b, minH := accountDialogScrollMetrics(loggedIn, hasSyncKey, loginProgress)
 	inset := view.NewInset(body, l, r, t, b)
 	scroll.Content = inset
-	// Grow with the body so a wrapped license row cannot leave a 2px
-	// inner scrollbar; cap still happens in accountDialogPanelSize.
+	// Grow with the body so wrapped content cannot leave a 2px inner
+	// scrollbar; cap still happens in accountDialogPanelSize.
 	if accountDialogMobile() || loggedIn {
 		if h := inset.MinSize().Height; h > minH {
 			minH = h
@@ -98,12 +98,11 @@ func accountDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fyne.
 	}
 
 	panelMin := panel.MinSize()
-	// Desktop width is fixed at 420 — a long license hex must wrap inside
-	// the row (see newAccountLicenseRow) instead of stretching the panel.
+	// Desktop width is fixed at 420 so a long email cannot stretch the panel.
 	panelWidth := minFloat32(420, maxWidth)
 	if accountDialogMobile() {
 		// Fill the phone column. Ignore content MinSize.Width so a long
-		// license id / email cannot force the panel wider than the canvas.
+		// email cannot force the panel wider than the canvas.
 		panelWidth = maxWidth
 	}
 	panelHeight := minFloat32(panelMin.Height, maxHeight)

@@ -37,12 +37,6 @@ const connectionsScrollEdgePad float32 = 10
 // short of the buttons rather than a subtle pullback.
 const connectionsHeaderUnderlineRightPullback float32 = 2
 
-// alwaysShowConnectionsBadges is a temporary preview switch: normally a
-// badge with a 0 count wouldn't render at all (nothing to say), but while
-// we're still designing how they look, showing "0 Agent"/"0 KVM" is more
-// useful than an empty header. Flip back to false once the look is settled.
-const alwaysShowConnectionsBadges = true
-
 // ConnectionsSummary is how many saved connections fall into each category
 // shown as a count badge next to the section title.
 type ConnectionsSummary struct {
@@ -74,9 +68,10 @@ func ClassifyConnectionRemoteOS(remoteOS string) (isAgent bool, isKVM bool) {
 
 // ConnectionPlatformLabel is the small plaque under a connection name.
 // KVM stays "Radxa". Software agents use the tariff the host reported
-// after connect (opensource / free / pro / enterprise); until then the
-// combined "Opensource/Pro" stub remains. Empty RemoteOS (never connected)
-// returns "" so callers can show their awaiting-connection copy.
+// after connect (opensource / free / pro / enterprise) — never a combined
+// stub. Empty RemoteOS (never connected) or an agent whose tariff has not
+// been reported yet returns "" so callers can show awaiting-connection
+// copy only when this host has never connected.
 func ConnectionPlatformLabel(remoteOS, remoteProtocol string) string {
 	isAgent, isKVM := ClassifyConnectionRemoteOS(remoteOS)
 	if isKVM {
@@ -85,10 +80,7 @@ func ConnectionPlatformLabel(remoteOS, remoteProtocol string) string {
 	if !isAgent {
 		return ""
 	}
-	if label := protocolPlaqueText(remoteProtocol); label != "" {
-		return label
-	}
-	return "Opensource/Pro"
+	return protocolPlaqueText(remoteProtocol)
 }
 
 func protocolPlaqueText(protocol string) string {
@@ -198,8 +190,11 @@ func newConnectionsHeader(summary ConnectionsSummary, actions connectionsHeaderA
 	// keeps its own natural size instead.
 	titleGap := canvas.NewRectangle(color.Transparent)
 	titleGap.SetMinSize(fyne.NewSize(10, 1))
-	titleItems := []fyne.CanvasObject{container.NewCenter(title), titleGap}
+	titleItems := []fyne.CanvasObject{container.NewCenter(title)}
 	titleItems = appendConnectionSortBadges(titleItems, summary, activeSort, toggleSort)
+	if len(titleItems) > 1 {
+		titleItems = append([]fyne.CanvasObject{titleItems[0], titleGap}, titleItems[1:]...)
+	}
 	titleRow := container.NewHBox(titleItems...)
 
 	subtitle := canvas.NewText(i18n.Current.ConnectionsHeaderSubtitle, design.ColorConnectionsSectionSubtitle)
@@ -265,17 +260,15 @@ func newConnectionsHeader(summary ConnectionsSummary, actions connectionsHeaderA
 }
 
 func appendConnectionSortBadges(titleItems []fyne.CanvasObject, summary ConnectionsSummary, activeSort string, toggleSort func(kind string) func()) []fyne.CanvasObject {
-	if summary.AgentCount > 0 || alwaysShowConnectionsBadges {
+	if summary.AgentCount > 0 {
 		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
 			fmt.Sprintf("%d Agent", summary.AgentCount), design.ColorConnectionBadgeText,
 			activeSort == "agent", toggleSort("agent"))))
 	}
-	if summary.KVMCount > 0 || alwaysShowConnectionsBadges {
-		titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
-			fmt.Sprintf("%d KVM", summary.KVMCount), design.ColorConnectionAddFill,
-			activeSort == "kvm", toggleSort("kvm"))))
-	}
-	if summary.UnknownCount > 0 || alwaysShowConnectionsBadges {
+	titleItems = append(titleItems, container.NewCenter(newConnectionSortBadge(
+		fmt.Sprintf("%d KVM", summary.KVMCount), design.ColorConnectionAddFill,
+		activeSort == "kvm", toggleSort("kvm"))))
+	if summary.UnknownCount > 0 {
 		label := fmt.Sprintf("%d %s", summary.UnknownCount, i18n.Current.ConnectionBadgeUnknown)
 		if UseMobileConnections() {
 			label = fmt.Sprintf("%d %s", summary.UnknownCount, i18n.Current.ConnectionBadgeUnknownShort)

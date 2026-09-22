@@ -12,6 +12,7 @@ import (
 
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -976,7 +977,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 		return errConnectAborted
 	}
 
-	if err := mw.verifyActiveConnectionWithContext(ctx); err != nil {
+	info, err := mw.verifyActiveConnectionWithContext(ctx)
+	if err != nil {
 		logrus.Errorf("❌ Connection verification failed: %v", err)
 		if client := mw.usbClient; client != nil {
 			client.Disconnect()
@@ -1000,6 +1002,10 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 	if mw.connectAborted(ctx, gen) {
 		return errConnectAborted
 	}
+
+	// /api/device/info already ran for HMAC verification — reuse it so
+	// Devices/Control don't paint a KVM/RustShine default for one frame.
+	mw.applyConnectedAgentIdentity(info, host)
 
 	mw.diskWidget.UpdateClient(mw.usbClient)
 	mw.videoWidget.UpdateClient(mw.usbClient)
@@ -1062,49 +1068,135 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 			}
 			mw.connectCancelMu.Unlock()
 		}
-		go func() {
-			if liveGen != 0 && !mw.connectAttemptLive(liveGen) {
-				return
-			}
-			osName := ""
-			protocol := ""
-			deviceInfo, err := client.GetDeviceInfoWithContext(probeCtx)
-			if probeCtx.Err() != nil || (liveGen != 0 && !mw.connectAttemptLive(liveGen)) {
-				return
-			}
-			if err == nil && deviceInfo != nil {
-				osName = strings.TrimSpace(deviceInfo.AgentOS)
-				protocol = strings.TrimSpace(deviceInfo.AgentProtocol)
-			}
-			if osName == "" || protocol == "" {
-				if probeCtx.Err() != nil {
-					return
-				}
-				status, statusErr := client.GetStatus()
-				if probeCtx.Err() != nil || (liveGen != 0 && !mw.connectAttemptLive(liveGen)) {
-					return
-				}
-				if statusErr == nil && status != nil && status.Data != nil {
-					if osName == "" {
-						osName = strings.TrimSpace(status.Data.OS)
-					}
-					if protocol == "" {
-						protocol = strings.TrimSpace(status.Data.AgentProtocol)
-					}
-				}
-			}
-			if osName != "" || protocol != "" {
-				connMgr.UpdateConnectionOS(connHost, osName, protocol)
-			}
-		}()
+		go mw.refreshConnectionAgentIdentity(probeCtx, client, connMgr, connHost, liveGen)
 	}
 
 	return nil
 }
 
-func (mw *MainWindow) verifyActiveConnectionWithContext(ctx context.Context) error {
+func (mw *MainWindow) applyConnectedAgentIdentity(info *models.DeviceInfoResponse, host string) {
+	liveOS, liveProtocol, liveDisplay := "", "", ""
+	if info != nil {
+		liveOS = strings.TrimSpace(info.AgentOS)
+		liveProtocol = strings.TrimSpace(info.AgentProtocol)
+		liveDisplay = strings.TrimSpace(info.AgentDisplay)
+	}
+	savedOS, savedProtocol := "", ""
+	if mw.connectionManager != nil {
+		savedOS, savedProtocol = mw.connectionManager.LookupAgentIdentity(host)
+	}
+	osName, protocol := controller.MergeAgentIdentity(liveOS, liveProtocol, savedOS, savedProtocol)
+	logrus.Infof("🪪 [CONNECT] agent identity os=%q protocol=%q (live os=%q protocol=%q)", osName, protocol, liveOS, liveProtocol)
+
+	if mw.diskWidget != nil {
+		mw.diskWidget.SetAgentIdentity(osName, protocol)
+	}
+	if mw.videoWidget != nil {
+		mw.videoWidget.SetAgentEnvironment(osName, liveDisplay)
+		if protocol != "" {
+			mw.videoWidget.SetAgentProtocol(protocol)
+		}
+	}
+	if mw.backupWidget != nil {
+		mw.backupWidget.SetAgentOS(osName)
+	}
+	if mw.pcpanelWidget != nil {
+		mw.pcpanelWidget.SetAgentOS(osName)
+	}
+	if mw.scriptsWidget != nil {
+		mw.scriptsWidget.SetAgentOS(osName)
+	}
+}
+
+func (mw *MainWindow) persistAgentProtocol(protocol string) {
+	protocol = strings.TrimSpace(protocol)
+	if protocol == "" || mw.connectionManager == nil {
+		return
+	}
+	host := ""
+	if mw.hostEntry != nil {
+		host = strings.TrimSpace(mw.hostEntry.Text)
+	}
+	mw.connectionManager.UpdateConnectionOS(host, "", protocol)
+}
+
+func (mw *MainWindow) refreshConnectionAgentIdentity(ctx context.Context, client *api.USBClient, connMgr *controller.ConnectionManager, host string, liveGen uint64) {
+	if client == nil || connMgr == nil {
+		return
+	}
+	store := func(osName, protocol string) {
+		if osName == "" && protocol == "" {
+			return
+		}
+		connMgr.UpdateConnectionOS(host, osName, protocol)
+		if protocol != "" && mw.videoWidget != nil {
+			mw.videoWidget.SetAgentProtocol(protocol)
+		}
+	}
+	probe := func() (osName, protocol string) {
+		if ctx != nil && ctx.Err() != nil {
+			return "", ""
+		}
+		if liveGen != 0 && !mw.connectAttemptLive(liveGen) {
+			return "", ""
+		}
+		deviceInfo, err := client.GetDeviceInfoWithContext(ctx)
+		if ctx != nil && ctx.Err() != nil {
+			return "", ""
+		}
+		if liveGen != 0 && !mw.connectAttemptLive(liveGen) {
+			return "", ""
+		}
+		if err == nil && deviceInfo != nil {
+			osName = strings.TrimSpace(deviceInfo.AgentOS)
+			protocol = strings.TrimSpace(deviceInfo.AgentProtocol)
+		}
+		if osName != "" && protocol != "" {
+			return osName, protocol
+		}
+		status, statusErr := client.GetStatus()
+		if statusErr == nil && status != nil && status.Data != nil {
+			if osName == "" {
+				osName = strings.TrimSpace(status.Data.OS)
+			}
+			if protocol == "" {
+				protocol = strings.TrimSpace(status.Data.AgentProtocol)
+			}
+		}
+		return osName, protocol
+	}
+
+	store(probe())
+	// Agent backend switches (Sunshine ↔ RustShine) often finish after the
+	// HTTPS listener is already up. Re-probe so the Connections plaque
+	// follows the live tariff instead of sticking on the value from first
+	// connect.
+	for _, wait := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second} {
+		if ctx != nil && ctx.Err() != nil {
+			return
+		}
+		if liveGen != 0 && !mw.connectAttemptLive(liveGen) {
+			return
+		}
+		timer := time.NewTimer(wait)
+		if ctx == nil {
+			<-timer.C
+			store(probe())
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		store(probe())
+	}
+}
+
+func (mw *MainWindow) verifyActiveConnectionWithContext(ctx context.Context) (*models.DeviceInfoResponse, error) {
 	if mw.usbClient == nil {
-		return fmt.Errorf("usb client is not initialized")
+		return nil, fmt.Errorf("usb client is not initialized")
 	}
 
 	// Deliberately NOT TestConnectionWithContext: that hits /api/healthz,
@@ -1121,12 +1213,16 @@ func (mw *MainWindow) verifyActiveConnectionWithContext(ctx context.Context) err
 	// every actually-authenticated call (screen, PC panel, disk, scripts)
 	// kept silently failing with 401. GetDeviceInfo requires a valid HMAC
 	// signature, so a wrong key fails right here instead.
-	_, err := mw.usbClient.GetDeviceInfoWithContext(ctx)
-	return err
+	//
+	// The payload is reused immediately: agent_os / agent_protocol used to
+	// be discarded, so the first Devices paint treated empty OS as KVM and
+	// mouse mapping treated empty protocol as RustShine.
+	return mw.usbClient.GetDeviceInfoWithContext(ctx)
 }
 
 func (mw *MainWindow) verifyActiveConnection() error {
-	return mw.verifyActiveConnectionWithContext(context.Background())
+	_, err := mw.verifyActiveConnectionWithContext(context.Background())
+	return err
 }
 
 func (mw *MainWindow) handleConnectFailure(message string, err error) {
@@ -1173,6 +1269,13 @@ func (mw *MainWindow) handleDisconnect() {
 	backup := mw.backupWidget
 	nbd := mw.nbdServer
 	diskWidget := mw.diskWidget
+	connHost := ""
+	if mw.hostEntry != nil {
+		connHost = strings.TrimSpace(mw.hostEntry.Text)
+	}
+	if video != nil {
+		mw.persistAgentProtocol(video.AgentProtocol())
+	}
 
 	// Must happen synchronously, before anything else: a pending
 	// scheduleControlBootstrap timer (main_window_lifecycle.go, fires on a
@@ -1289,6 +1392,13 @@ func (mw *MainWindow) handleDisconnect() {
 		}
 
 		if client != nil {
+			if mw.connectionManager != nil && connHost != "" {
+				probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				if info, err := client.GetDeviceInfoWithContext(probeCtx); err == nil && info != nil {
+					mw.connectionManager.UpdateConnectionOS(connHost, info.AgentOS, info.AgentProtocol)
+				}
+				cancel()
+			}
 			// Never call StopAllDevicesWithContext here, on any disconnect
 			// path (plain Disconnect, reconnect cycle, or the app actually
 			// closing) -- it tears down the *device's* whole USB gadget:

@@ -321,6 +321,11 @@ type videoDialogPillButton struct {
 	bg     *canvas.Rectangle
 	border *canvas.Rectangle
 	label  *canvas.Text
+
+	textSize  float32
+	minHeight float32
+	padX      float32
+	radius    float32
 }
 
 const (
@@ -431,23 +436,43 @@ func (b *videoDialogPillButton) Cursor() desktop.Cursor {
 }
 
 func (b *videoDialogPillButton) MinSize() fyne.Size {
+	textSize := b.textSize
+	if textSize <= 0 {
+		textSize = videoDialogPillTextSize
+	}
+	minH := b.minHeight
+	if minH <= 0 {
+		minH = videoDialogPillHeight
+	}
+	padX := b.padX
+	if padX <= 0 {
+		padX = videoDialogPillPadX
+	}
 	measure := canvas.NewText(b.text, color.Black)
-	measure.TextSize = videoDialogPillTextSize
+	measure.TextSize = textSize
 	measure.TextStyle.Bold = true
-	width := measure.MinSize().Width + videoDialogPillPadX*2
-	return fyne.NewSize(width, videoDialogPillHeight)
+	width := measure.MinSize().Width + padX*2
+	return fyne.NewSize(width, minH)
 }
 
 func (b *videoDialogPillButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg = canvas.NewRectangle(color.Transparent)
-	b.bg.CornerRadius = design.RadiusMD
+	radius := b.radius
+	if radius <= 0 {
+		radius = design.RadiusMD
+	}
+	b.bg.CornerRadius = radius
 
 	b.border = canvas.NewRectangle(color.Transparent)
-	b.border.CornerRadius = design.RadiusMD
+	b.border.CornerRadius = radius
 	b.border.StrokeWidth = 1
 
+	textSize := b.textSize
+	if textSize <= 0 {
+		textSize = videoDialogPillTextSize
+	}
 	b.label = canvas.NewText(b.text, b.textColor)
-	b.label.TextSize = videoDialogPillTextSize
+	b.label.TextSize = textSize
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 
@@ -708,7 +733,7 @@ func (r *videoDialogBitrateSliderRenderer) Objects() []fyne.CanvasObject {
 func (r *videoDialogBitrateSliderRenderer) Destroy() {}
 
 // videoDialogBorderColor is the muted olive border shared by this dialog's
-// bordered cards (the bitrate card, the boxed toggle rows) and small badges.
+// bordered cards (bitrate, codec, other-settings) and small badges.
 var videoDialogBorderColor = color.NRGBA{R: 0x33, G: 0x37, B: 0x2f, A: 0xff}
 
 // videoDialogCancelIconSVG is the same muted-gray X glyph the Add
@@ -913,21 +938,19 @@ func (r *videoDialogCheckboxRenderer) Objects() []fyne.CanvasObject {
 
 func (r *videoDialogCheckboxRenderer) Destroy() {}
 
-// videoDialogCardBG is the same slightly-lightened card background as the
-// bitrate card, reused for the boxed AI Vision/4:4:4 toggle rows so every
-// bordered card in this dialog reads as one family.
+// videoDialogCardBG is the slightly-lightened card background the bitrate
+// and other-settings cards share, so every bordered card in this dialog
+// reads as one family.
 var videoDialogCardBG = color.NRGBA{R: 0x1e, G: 0x22, B: 0x25, A: 0xff}
 
-// videoDialogPanelWidth/videoDialogBodyInsetLR/videoDialogBoxedInsetLR mirror
-// the actual layout constants used below (the panel's width floor in
-// PanelSize, bodyContent's own NewInset, and newVideoDialogBoxedToggleRow's
+// videoDialogPanelWidth/videoDialogBodyInsetLR mirror the actual layout
+// constants used below (the panel's width floor in PanelSize, bodyContent's
 // own NewInset) -- kept as named constants here so videoDialogToggleDescWidth
 // can derive the real usable width instead of a second, easily-drifting copy
 // of the same numbers.
 const (
-	videoDialogPanelWidth   = float32(408)
-	videoDialogBodyInsetLR  = float32(18)
-	videoDialogBoxedInsetLR = float32(10)
+	videoDialogPanelWidth  = float32(408)
+	videoDialogBodyInsetLR = float32(18)
 
 	// Other-settings card (VSync / AI Vision / 4:4:4 / HDR / Net Graph /
 	// Smooth Motion): fixed height + inner scroll so new rows don't grow
@@ -973,32 +996,18 @@ func videoDialogEffectivePanelWidth(parent fyne.Window) float32 {
 	return videoDialogCanvasPanelWidth(parent.Canvas().Size())
 }
 
-// videoDialogToggleDescWidth is the width a toggle row's description text
-// actually ends up with once fully laid out -- plain rows (VSync, 4:4:4) vs.
-// AI Vision's own boxed row, which loses an extra 12px of exact padding on
-// each side (see newVideoDialogBoxedToggleRow's own NewInsetExact). Each
-// videoDialogWrapText description needs this width up front, at
-// construction/SetSpans time, since it wraps eagerly rather than lazily on
-// some future Resize.
-func videoDialogToggleDescWidth(boxed bool) float32 {
-	return videoDialogToggleDescWidthFor(videoDialogPanelWidth, boxed)
-}
-
-func videoDialogToggleDescWidthFor(panelW float32, boxed bool) float32 {
+// videoDialogToggleDescWidthFor is the width a toggle row's description
+// text actually ends up with once fully laid out. Each videoDialogWrapText
+// description needs this width up front, at construction/SetSpans time,
+// since it wraps eagerly rather than lazily on some future Resize.
+func videoDialogToggleDescWidthFor(panelW float32) float32 {
 	if panelW <= 0 {
 		panelW = videoDialogPanelWidth
 	}
 	width := panelW - (videoDialogBodyInsetLR+videoDialogBodyInsetQuirk)*2 - videoDialogToggleIndent
 	width -= videoDialogOtherSettingsPadLR * 2
 	width -= videoDialogOtherSettingsGutter
-	if boxed {
-		width -= videoDialogBoxedInsetLR * 2
-	} else {
-		// Plain rows (VSync, 4:4:4) are shifted right by
-		// videoDialogToggleAlignLeft so their checkboxes line up with AI
-		// Vision's own boxed row -- see its use in createInterface.
-		width -= videoDialogToggleAlignLeft
-	}
+	width -= videoDialogToggleAlignLeft
 	if width < 64 {
 		return 64
 	}
@@ -1278,15 +1287,15 @@ func newVideoDialogRowTitle(text string) *canvas.Text {
 // stroke colors rather than pulling from the app theme.
 var videoDialogRobotSVG = fyne.NewStaticResource("video_dialog_robot.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" fill="#c4e77a" viewBox="0 0 24 24"><path d="M9,15a1,1,0,1,0,1,1A1,1,0,0,0,9,15ZM2,14a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,2,14Zm20,0a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,22,14ZM17,7H13V5.72A2,2,0,0,0,14,4a2,2,0,0,0-4,0,2,2,0,0,0,1,1.72V7H7a3,3,0,0,0-3,3v9a3,3,0,0,0,3,3H17a3,3,0,0,0,3-3V10A3,3,0,0,0,17,7ZM13.72,9l-.5,2H10.78l-.5-2ZM18,19a1,1,0,0,1-1,1H7a1,1,0,0,1-1-1V10A1,1,0,0,1,7,9H8.22L9,12.24A1,1,0,0,0,10,13h4a1,1,0,0,0,1-.76L15.78,9H17a1,1,0,0,1,1,1Zm-3-4a1,1,0,1,0,1,1A1,1,0,0,0,15,15Z"/></svg>`))
 
-// videoDialogProColor is the purple used for the 4:4:4 row's star icon and
-// its "Pro" badge -- must match the hex inlined into videoDialogStarSVG
+// videoDialogProColor is the purple used for the 4:4:4/HDR rows' star
+// icon and "Pro" badge -- must match the hex inlined into videoDialogStarSVG
 // below (SVG resources can't reference a Go color value).
-var videoDialogProColor = color.NRGBA{R: 0x9c, G: 0x58, B: 0xf9, A: 0xff}
+var videoDialogProColor = design.ColorProSoft
 
 // videoDialogStarSVG is a small star glyph shown before the 4:4:4 row's
 // title, colored to match videoDialogProColor -- a distinct "Pro" indicator
 // from AI Vision's lime robot.
-var videoDialogStarSVG = fyne.NewStaticResource("video_dialog_star.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#9c58f9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2691 4.41115C11.5006 3.89177 11.6164 3.63208 11.7776 3.55211C11.9176 3.48263 12.082 3.48263 12.222 3.55211C12.3832 3.63208 12.499 3.89177 12.7305 4.41115L14.5745 8.54808C14.643 8.70162 14.6772 8.77839 14.7302 8.83718C14.777 8.8892 14.8343 8.93081 14.8982 8.95929C14.9705 8.99149 15.0541 9.00031 15.2213 9.01795L19.7256 9.49336C20.2911 9.55304 20.5738 9.58288 20.6997 9.71147C20.809 9.82316 20.8598 9.97956 20.837 10.1342C20.8108 10.3122 20.5996 10.5025 20.1772 10.8832L16.8125 13.9154C16.6877 14.0279 16.6252 14.0842 16.5857 14.1527C16.5507 14.2134 16.5288 14.2807 16.5215 14.3503C16.5132 14.429 16.5306 14.5112 16.5655 14.6757L17.5053 19.1064C17.6233 19.6627 17.6823 19.9408 17.5989 20.1002C17.5264 20.2388 17.3934 20.3354 17.2393 20.3615C17.0619 20.3915 16.8156 20.2495 16.323 19.9654L12.3995 17.7024C12.2539 17.6184 12.1811 17.5765 12.1037 17.56C12.0352 17.5455 11.9644 17.5455 11.8959 17.56C11.8185 17.5765 11.7457 17.6184 11.6001 17.7024L7.67662 19.9654C7.18404 20.2495 6.93775 20.3915 6.76034 20.3615C6.60623 20.3354 6.47319 20.2388 6.40075 20.1002C6.31736 19.9408 6.37635 19.6627 6.49434 19.1064L7.4341 14.6757C7.46898 14.5112 7.48642 14.429 7.47814 14.3503C7.47081 14.2807 7.44894 14.2134 7.41394 14.1527C7.37439 14.0842 7.31195 14.0279 7.18708 13.9154L3.82246 10.8832C3.40005 10.5025 3.18884 10.3122 3.16258 10.1342C3.13978 9.97956 3.19059 9.82316 3.29993 9.71147C3.42581 9.58288 3.70856 9.55304 4.27406 9.49336L8.77835 9.01795C8.94553 9.00031 9.02911 8.99149 9.10139 8.95929C9.16534 8.93081 9.2226 8.8892 9.26946 8.83718C9.32241 8.77839 9.35663 8.70162 9.42508 8.54808L11.2691 4.41115Z"/></svg>`))
+var videoDialogStarSVG = fyne.NewStaticResource("video_dialog_star.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#b39ef1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2691 4.41115C11.5006 3.89177 11.6164 3.63208 11.7776 3.55211C11.9176 3.48263 12.082 3.48263 12.222 3.55211C12.3832 3.63208 12.499 3.89177 12.7305 4.41115L14.5745 8.54808C14.643 8.70162 14.6772 8.77839 14.7302 8.83718C14.777 8.8892 14.8343 8.93081 14.8982 8.95929C14.9705 8.99149 15.0541 9.00031 15.2213 9.01795L19.7256 9.49336C20.2911 9.55304 20.5738 9.58288 20.6997 9.71147C20.809 9.82316 20.8598 9.97956 20.837 10.1342C20.8108 10.3122 20.5996 10.5025 20.1772 10.8832L16.8125 13.9154C16.6877 14.0279 16.6252 14.0842 16.5857 14.1527C16.5507 14.2134 16.5288 14.2807 16.5215 14.3503C16.5132 14.429 16.5306 14.5112 16.5655 14.6757L17.5053 19.1064C17.6233 19.6627 17.6823 19.9408 17.5989 20.1002C17.5264 20.2388 17.3934 20.3354 17.2393 20.3615C17.0619 20.3915 16.8156 20.2495 16.323 19.9654L12.3995 17.7024C12.2539 17.6184 12.1811 17.5765 12.1037 17.56C12.0352 17.5455 11.9644 17.5455 11.8959 17.56C11.8185 17.5765 11.7457 17.6184 11.6001 17.7024L7.67662 19.9654C7.18404 20.2495 6.93775 20.3915 6.76034 20.3615C6.60623 20.3354 6.47319 20.2388 6.40075 20.1002C6.31736 19.9408 6.37635 19.6627 6.49434 19.1064L7.4341 14.6757C7.46898 14.5112 7.48642 14.429 7.47814 14.3503C7.47081 14.2807 7.44894 14.2134 7.41394 14.1527C7.37439 14.0842 7.31195 14.0279 7.18708 13.9154L3.82246 10.8832C3.40005 10.5025 3.18884 10.3122 3.16258 10.1342C3.13978 9.97956 3.19059 9.82316 3.29993 9.71147C3.42581 9.58288 3.70856 9.55304 4.27406 9.49336L8.77835 9.01795C8.94553 9.00031 9.02911 8.99149 9.10139 8.95929C9.16534 8.93081 9.2226 8.8892 9.26946 8.83718C9.32241 8.77839 9.35663 8.70162 9.42508 8.54808L11.2691 4.41115Z"/></svg>`))
 
 // newVideoDialogInlineIcon is a small, fixed-size icon glyph meant to sit
 // immediately before a toggle row's title text.
@@ -1326,12 +1335,9 @@ const (
 	videoDialogToggleDescGap = float32(2) // title row -> description
 )
 
-// videoDialogToggleAlignLeft shifts every toggle row right by this amount,
-// so a plain row's checkbox lines up with the boxed AI Vision row's own
-// checkbox -- its card's own left padding (videoDialogBoxedInsetLR) would
-// otherwise push just that one row's checkbox further right than VSync's
-// and 4:4:4's.
-const videoDialogToggleAlignLeft = videoDialogBoxedInsetLR
+// videoDialogToggleAlignLeft is extra left inset inside the other-settings
+// card so checkboxes aren't flush against the card's own padding.
+const videoDialogToggleAlignLeft = float32(10)
 
 // videoDialogToggleLayout is a plain fyne.Layout (not a widget) for one
 // checkbox+title+badge+description row -- not a composition of generic
@@ -1452,27 +1458,6 @@ func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasOb
 	return newVideoDialogToggleTap(check, newVideoDialogToggleRowInner(check, titleText, badge, description))
 }
 
-// newVideoDialogBoxedToggleRow wraps newVideoDialogToggleRow's content in
-// its own bordered card (same bg/border as the bitrate card) -- AI Vision's
-// own "special" treatment. Every other toggle in this dialog (VSync, 4:4:4)
-// stays a plain inline row instead -- boxing every row made the whole
-// section too tall to fit comfortably.
-func newVideoDialogBoxedToggleRow(check *videoDialogCheckbox, titleText fyne.CanvasObject, badge fyne.CanvasObject, description fyne.CanvasObject) fyne.CanvasObject {
-	cardBG := canvas.NewRectangle(design.ColorGray950)
-	cardBG.CornerRadius = design.RadiusMD
-	cardBorder := canvas.NewRectangle(color.Transparent)
-	cardBorder.CornerRadius = design.RadiusMD
-	cardBorder.StrokeColor = videoDialogBorderColor
-	cardBorder.StrokeWidth = 1
-	row := newVideoDialogToggleRowInner(check, titleText, badge, description)
-	// NewInsetExact, not NewInset -- this padding needs to match
-	// videoDialogToggleDescWidth's own subtraction exactly (see that
-	// function's doc comment); NewInset's extra, undocumented
-	// theme.Padding() on top of what's asked would silently widen the gap
-	// between this formula and the row's real available width.
-	return newVideoDialogToggleTap(check, container.NewStack(cardBG, cardBorder, NewInsetExact(row, videoDialogBoxedInsetLR, videoDialogBoxedInsetLR, 8, 8)))
-}
-
 // newVideoDialogLabeledDivider is the Add Connection "OR ENTER MANUALLY"
 // hairline: a 1px line that fills the row, label pinned right. Copied here
 // because controller.thinDividerLayout is unexported.
@@ -1579,7 +1564,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.deviceLabel.Wrapping = fyne.TextWrapWord
 	vsd.vsyncCheck = newVideoDialogCheckbox(true, nil)
 	hintPanelW := videoDialogEffectivePanelWidth(vsd.parent)
-	vsd.vsyncHint = newVideoDialogDescription(i18n.Current.EnableVSyncHint, videoDialogToggleDescWidthFor(hintPanelW, false))
+	vsd.vsyncHint = newVideoDialogDescription(i18n.Current.EnableVSyncHint, videoDialogToggleDescWidthFor(hintPanelW))
 	vsyncRow := newVideoDialogToggleRow(
 		vsd.vsyncCheck,
 		newVideoDialogRowTitle(i18n.Current.EnableVSync),
@@ -1588,11 +1573,11 @@ func (vsd *VideoStartDialog) createInterface() {
 	)
 
 	vsd.fsrCheck = newVideoDialogCheckbox(false, nil)
-	vsd.fsrHint = newVideoDialogDescription("Повышает четкость картинки при низком разрешении трансляции.", videoDialogToggleDescWidthFor(hintPanelW, false))
+	vsd.fsrHint = newVideoDialogDescription(i18n.Current.AMDFSRHint, videoDialogToggleDescWidthFor(hintPanelW))
 	fsrRow := newVideoDialogToggleRow(
 		vsd.fsrCheck,
-		newVideoDialogRowTitle("AMD FSR 1.0 Upscaler"),
-		newVideoDialogBadge("New", design.ColorConnectionBadgeText),
+		newVideoDialogRowTitle(i18n.Current.AMDFSR),
+		newVideoDialogBadge(i18n.Current.AMDFSRBadge, design.ColorConnectionBadgeText),
 		vsd.fsrHint,
 	)
 
@@ -1602,8 +1587,8 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.aiVisionCheck = newVideoDialogCheckbox(service.AIVisionEnabled(), func(checked bool) {
 		service.SetAIVisionEnabled(checked)
 	})
-	vsd.aiVisionHint = newVideoDialogHighlightDescription(i18n.Current.AIVisionHint, "ui.parse()", videoDialogToggleDescWidthFor(hintPanelW, true))
-	aiVisionRow := newVideoDialogBoxedToggleRow(
+	vsd.aiVisionHint = newVideoDialogHighlightDescription(i18n.Current.AIVisionHint, "ui.parse()", videoDialogToggleDescWidthFor(hintPanelW))
+	aiVisionRow := newVideoDialogToggleRow(
 		vsd.aiVisionCheck,
 		newVideoDialogIconTitle(videoDialogRobotSVG, i18n.Current.AIVision),
 		newVideoDialogBadge(i18n.Current.AIVisionBadge, design.ColorConnectionAddFill),
@@ -1632,7 +1617,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.setSelectedModeID(models.VideoModeH265)
 		vsd.color444Check.SetChecked(true)
 	}
-	vsd.color444Hint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW, false), videoDialogHintTextSize, true)
+	vsd.color444Hint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW), videoDialogHintTextSize, true)
 	vsd.color444TitleText = newVideoDialogRowTitle(i18n.Current.Color444)
 	color444Row := newVideoDialogToggleRow(
 		vsd.color444Check,
@@ -1654,7 +1639,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.setSelectedModeID(models.VideoModeH265)
 		vsd.hdrCheck.SetChecked(true)
 	}
-	vsd.hdrHint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW, false), videoDialogHintTextSize, true)
+	vsd.hdrHint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW), videoDialogHintTextSize, true)
 	vsd.hdrTitleText = newVideoDialogRowTitle(i18n.Current.Hdr)
 	hdrRow := newVideoDialogToggleRow(
 		vsd.hdrCheck,
@@ -1677,7 +1662,7 @@ func (vsd *VideoStartDialog) createInterface() {
 			applyNetGraphEnabledUI(checked)
 		})
 		registerNetGraphDialogCheck(vsd.netGraphCheck)
-		vsd.netGraphHint = newVideoDialogDescription(i18n.Current.NetGraphHint, videoDialogToggleDescWidthFor(hintPanelW, false))
+		vsd.netGraphHint = newVideoDialogDescription(i18n.Current.NetGraphHint, videoDialogToggleDescWidthFor(hintPanelW))
 		netGraphRow = newVideoDialogToggleRow(
 			vsd.netGraphCheck,
 			newVideoDialogRowTitle(i18n.Current.NetGraph),
@@ -1695,7 +1680,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.frameSmoothingCheck = newVideoDialogCheckbox(service.FrameSmoothingEnabled(), func(checked bool) {
 			service.SetFrameSmoothingEnabled(checked)
 		})
-		vsd.frameSmoothingHint = newVideoDialogDescription(i18n.Current.FrameSmoothingHint, videoDialogToggleDescWidthFor(hintPanelW, false))
+		vsd.frameSmoothingHint = newVideoDialogDescription(i18n.Current.FrameSmoothingHint, videoDialogToggleDescWidthFor(hintPanelW))
 		frameSmoothingRow = newVideoDialogToggleRow(
 			vsd.frameSmoothingCheck,
 			newVideoDialogRowTitle(i18n.Current.FrameSmoothing),
@@ -1704,13 +1689,9 @@ func (vsd *VideoStartDialog) createInterface() {
 		)
 	}
 
-	// vsyncRow/color444Row/hdrRow/netGraphRow/frameSmoothingRow are plain rows with no left
-	// padding of their own, unlike aiVisionRow's own card (see
-	// newVideoDialogBoxedToggleRow) -- without this, its own left inset
-	// would push just its checkbox further right than these, breaking the
-	// visual column of checkboxes down the whole section.
 	vsyncRow = NewInsetExact(vsyncRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	fsrRow = NewInsetExact(fsrRow, videoDialogToggleAlignLeft, 0, 0, 0)
+	aiVisionRow = NewInsetExact(aiVisionRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	color444Row = NewInsetExact(color444Row, videoDialogToggleAlignLeft, 0, 0, 0)
 	hdrRow = NewInsetExact(hdrRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	if netGraphRow != nil {
@@ -2066,25 +2047,25 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 func (vsd *VideoStartDialog) syncHintWrapWidths() {
 	panelW := videoDialogEffectivePanelWidth(vsd.parent)
 	if vsd.vsyncHint != nil {
-		vsd.vsyncHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+		vsd.vsyncHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW))
 	}
 	if vsd.fsrHint != nil {
-		vsd.fsrHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+		vsd.fsrHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW))
 	}
 	if vsd.aiVisionHint != nil {
-		vsd.aiVisionHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, true))
+		vsd.aiVisionHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW))
 	}
 	if vsd.color444Hint != nil {
-		vsd.color444Hint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+		vsd.color444Hint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW))
 	}
 	if vsd.hdrHint != nil {
-		vsd.hdrHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+		vsd.hdrHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW))
 	}
 	if vsd.netGraphHint != nil {
-		vsd.netGraphHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+		vsd.netGraphHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW))
 	}
 	if vsd.frameSmoothingHint != nil {
-		vsd.frameSmoothingHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW, false))
+		vsd.frameSmoothingHint.SetWrapWidth(videoDialogToggleDescWidthFor(panelW))
 	}
 }
 

@@ -1,7 +1,6 @@
 package view
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 
@@ -18,12 +17,7 @@ func newMobileScriptsSection(data ScriptsSectionData) fyne.CanvasObject {
 	autoHeader := newMobileScriptsColumnHeader(
 		i18n.Current.ScriptsAutomationTitle,
 		i18n.Current.ScriptsAutomationSubtitle,
-		newConnectionSortBadge(
-			fmt.Sprintf(i18n.Current.ScriptsCountFmt, data.ScriptCount),
-			design.ColorConnectionBadgeText,
-			false,
-			nil,
-		),
+		nil,
 		newScriptsNewButtons(data),
 	)
 

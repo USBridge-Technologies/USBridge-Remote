@@ -138,6 +138,7 @@ var (
 	// Teal variants match design.ColorConnectionBadgeText (#41e0c3) — the
 	// phone settings menu's row labels.
 	QuestionIconTeal   = fyne.NewStaticResource("question-svgrepo-com-teal.svg", recolorMonoIcon(questionIcon, "#41e0c3", "2.6"))
+	WhatsNewIconTeal   = fyne.NewStaticResource("whatsnew-teal.svg", recolorStrokeIcon(starIcon, "#41e0c3", "2"))
 	DiscordIconTeal    = fyne.NewStaticResource("message-chat-square-svgrepo-com-teal.svg", recolorStrokeIcon(messageChatSquareIcon, "#41e0c3", "1.9"))
 	LanguageIconTeal   = fyne.NewStaticResource("language-svgrepo-com-teal.svg", recolorFillIcon(languageIcon, "#41e0c3"))
 	PowerResetIconTeal = fyne.NewStaticResource("power-reset-teal.svg", recolorFillIcon(powerOffFillIcon, "#41e0c3"))
@@ -211,6 +212,15 @@ var (
 	ViewportPanIcon       = fyne.NewStaticResource("move-svgrepo-com-pan.svg", recolorFillIcon(moveIcon, "#C9C9C9"))
 	ViewportPanIconActive = fyne.NewStaticResource("move-svgrepo-com-pan-active.svg", recolorFillIcon(moveIcon, "#ebffbc"))
 	FullscreenIconFooter  = fyne.NewStaticResource("fullscreen-svgrepo-com-footer.svg", recolorFillIcon(fullscreenIcon, "#C9C9C9"))
+	// *IconFooterHover are the desktop Control footer glyphs on hover —
+	// same #C9C9C9 rest color as CameraIcon/KeyboardIcon/etc., just
+	// lighter (#e0e3e7). No chip behind them (see applyControlFooterIconHover).
+	CameraIconFooterHover     = fyne.NewStaticResource("cam-svgrepo-com-footer-hover.svg", recolorStrokeIcon(cameraIcon, "#e0e3e7", "1.8"))
+	KeyboardIconFooterHover   = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-footer-hover.svg", recolorStrokeIcon(keyboardIcon, "#e0e3e7", "1.8"))
+	MouseIconFooterHover      = fyne.NewStaticResource("mouse-svgrepo-com-footer-hover.svg", recolorFillIcon(mouseIcon, "#e0e3e7"))
+	FullscreenIconFooterHover = fyne.NewStaticResource("fullscreen-svgrepo-com-footer-hover.svg", recolorFillIcon(fullscreenIcon, "#e0e3e7"))
+	AudioIconFooterHover      = fyne.NewStaticResource("audio-svgrepo-com-footer-hover.svg", recolorFillIcon(audioIcon, "#e0e3e7"))
+	NetworkIconFooterHover    = fyne.NewStaticResource("network-backup-svgrepo-com-footer-hover.svg", recolorFillIcon(networkIcon, "#e0e3e7"))
 	// PencilIconLime -- the same edit-pencil glyph List/Grid's own edit
 	// pencil uses (connection-edit-title.svg's path, muted gray there),
 	// tinted the same lime as LinkIconLime -- the Add Connection dialog's
@@ -271,6 +281,7 @@ var (
 	MonitorTabIconMuted    = fyne.NewStaticResource("monitor-svgrepo-com-muted.svg", recolorStrokeIcon(monitorTabIcon, "#c5c8b5", "1.9"))
 	MonitorTabIconSelected = fyne.NewStaticResource("monitor-svgrepo-com-selected.svg", recolorStrokeIcon(monitorTabIcon, "#ebffbc", "1.9"))
 	MonitorTabIconHover    = fyne.NewStaticResource("monitor-svgrepo-com-hover.svg", recolorStrokeIcon(monitorTabIcon, "#e0e3e7", "1.9"))
+	MonitorTabIconFooter   = fyne.NewStaticResource("monitor-svgrepo-com-footer.svg", recolorStrokeIcon(monitorTabIcon, "#C9C9C9", "1.9"))
 	USBTabIconMuted        = fyne.NewStaticResource("usb-svgrepo-com-muted2.svg", recolorFillIcon(usbTabIcon, "#c5c8b5"))
 	USBTabIconSelected     = fyne.NewStaticResource("usb-svgrepo-com-selected.svg", recolorFillIcon(usbTabIcon, "#ebffbc"))
 	USBTabIconHover        = fyne.NewStaticResource("usb-svgrepo-com-hover.svg", recolorFillIcon(usbTabIcon, "#e0e3e7"))

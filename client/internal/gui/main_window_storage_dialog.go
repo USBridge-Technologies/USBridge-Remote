@@ -107,7 +107,11 @@ func (mw *MainWindow) showStorageInfoDialog() {
 		buildBlock(sdTitle, sdValue, sdPercent),
 	)
 
-	view.ShowStyledInfoDropdown(mw.sdStorageProgress, content, 180)
+	if useMobileControl() {
+		view.ShowStyledInfoDropdown(mw.sdStorageProgress, content, 180)
+		return
+	}
+	view.ShowStyledInfoDropdownAbove(mw.sdStorageProgress, content, 180)
 }
 
 func formatStoragePercent(used, total int64) string {

@@ -60,6 +60,10 @@ type MainWindow struct {
 	mobileMouseToggle         *headerStatusBadgeButton
 	mobileNetGraphBtn         fyne.CanvasObject
 	mobileNetGraphSettingsBtn fyne.CanvasObject
+	mobileMonitorBtn          fyne.CanvasObject
+	mobileMonitorToggle       *headerStatusBadgeButton
+	mobileFooterGraphDivider  fyne.CanvasObject
+	mobileFooterHIDDivider    fyne.CanvasObject
 	// connectedChromeHost holds portrait (tab bar + version) or landscape
 	// (single row) chrome under the connected tabs; swapped by
 	// applyConnectedChromeLayout without a full reloadUI.
@@ -82,6 +86,10 @@ type MainWindow struct {
 	// statusBarPeripheralsDivider is that same strip's divider between the
 	// video group and the peripherals group -- see syncStatusBarDividers.
 	statusBarPeripheralsDivider fyne.CanvasObject
+	// statusIndicatorBar is the Control header's bordered fps/resolution
+	// strip. Hidden entirely while it has nothing to show -- otherwise the
+	// fill/border still paints as a tiny empty chip.
+	statusIndicatorBar fyne.CanvasObject
 	// statusBarIndicatorsDivider is the divider *inside* the peripherals
 	// group, between mw.statusBarButtonsGroup (audio/keyboard/mouse/rndis/
 	// script -- real actions) and mw.statusBarIndicatorsGroup (SD card, SD
@@ -90,6 +98,10 @@ type MainWindow struct {
 	statusBarIndicatorsDivider fyne.CanvasObject
 	statusBarButtonsGroup      *fyne.Container
 	statusBarIndicatorsGroup   *fyne.Container
+	controlFooterActions       fyne.CanvasObject
+	controlFooterKVMDivider    fyne.CanvasObject
+	controlFooterGraphDivider  fyne.CanvasObject
+	controlFooterHIDDivider    fyne.CanvasObject
 
 	// Services
 	nbdServer        *service.NBDServer
@@ -171,7 +183,10 @@ type MainWindow struct {
 	// Status icons
 	connectionIcon *widget.Button
 	nbdIcon        *widget.Button
-	videoIcon      *headerStatusBadgeButton
+	videoIcon *headerStatusBadgeButton
+	// footerVideoSettingsIcon is the Control footer duplicate of mw.videoIcon
+	// (header keeps the original, in front of fps).
+	footerVideoSettingsIcon *headerStatusBadgeButton
 	// videoFPSText/videoResolutionText/videoStatusGroup back the Control
 	// header's status-indicator strip (main_window_status_indicator_bar.go):
 	// the fps/resolution text next to videoIcon, and the container the three
@@ -180,15 +195,17 @@ type MainWindow struct {
 	videoFPSText        *canvas.Text
 	videoResolutionText *canvas.Text
 	videoStatusGroup    *fyne.Container
-	// fullscreenIcon is that same group's own fullscreen button, right
-	// after videoResolutionText -- shown/hidden together with the rest of
-	// the group (only makes sense while actually streaming). Net Graph
-	// toggle + metrics settings sit after it, behind a vertical divider.
-	// Tapping mw.videoIcon itself used to open a menu with a "Fullscreen"
-	// item alongside "Settings" -- now that fullscreen is its own button,
-	// that menu would only ever have one item, so mw.videoIcon's own tap
-	// goes straight to ShowCurrentVideoSettings instead (see showVideoMenu's
-	// removal in main_window_layout.go).
+	// videoMonitorText/Dot are the capture-device name after fps/resolution
+	// in the Control header. videoMonitorToggle/Btn are the desktop footer
+	// picker (after fullscreen), hidden when the agent only has one monitor.
+	videoMonitorText    *canvas.Text
+	videoMonitorDot     fyne.CanvasObject
+	videoMonitorToggle  *headerStatusBadgeButton
+	videoMonitorBtn     fyne.CanvasObject
+	// videoMonitorChipLoaded is true after the first device-list fetch for
+	// this stream so updateStatusBarUI does not hammer GetVideoDevices.
+	videoMonitorChipLoaded bool
+	// fullscreenIcon sits in the Control footer (after video settings).
 	fullscreenIcon *headerStatusBadgeButton
 	audioIcon      *headerStatusBadgeButton
 	captureIcon    *widget.Button
@@ -276,6 +293,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	view.ForceMobilePresetID = view.CompactWindowPreset().ID
 	view.ForceMobileScale = view.ClampPhonePreviewScale(float32(a.Preferences().FloatWithFallback(view.ForceMobileScalePrefKey, float64(view.DefaultPhonePreviewScale))))
 	view.ApplyPreviewUserScale()
+	view.RestoreNetGraphPreferences()
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService()

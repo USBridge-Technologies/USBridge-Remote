@@ -61,6 +61,7 @@ type LocalizedStrings struct {
 	AddConnectionSubtitle             string
 	AddVirtualDisplayTitle            string
 	AddVirtualDisplaySubtitle         string
+	DeleteVirtualDisplayConfirm       string
 	TailscaleRedirectHint             string
 	AutoRegistrationBadge             string
 	ConnectionBadgeUnknown            string
@@ -82,9 +83,6 @@ type LocalizedStrings struct {
 	AccountLogOut                     string
 	AccountLoginIntro                 string
 	AccountLoginGoogle                string
-	AccountLicensesLoadErr            string
-	AccountNoLicenses                 string
-	AccountLoadingLicenses            string
 	AccountConnectionsSync            string
 	AccountSyncOn                     string
 	AccountSyncOff                    string
@@ -126,6 +124,12 @@ type LocalizedStrings struct {
 	DevicesEmptyAudio                 string
 	DevicesEmptyStorage               string
 	DevicesEmptyUSB                   string
+	DevicesCardUSBPassthrough         string
+	DevicesHardwareOnly               string
+	USBEmulationProBadge              string // Raw USB header plaque, e.g. "Pro USBridge Streamer"
+	DevicesZadigTitle                 string
+	DevicesZadigMessage               string
+	DevicesZadigDownload              string
 	DevicesUSBHelpTitle               string
 	DevicesUSBHelpText                string
 	DevicesUSBHelpOpenZadig           string
@@ -384,6 +388,8 @@ type LocalizedStrings struct {
 	UpdateDownloadingTitle   string
 	UpdateDownloadingMessage string // %s = new version
 	WhatsNewTitle            string
+	WhatsNewSubtitle         string
+	WhatsNewGitHub           string
 	WhatsNewGotIt            string
 
 	// Video Settings/Dialogs
@@ -500,6 +506,9 @@ type LocalizedStrings struct {
 	EnableVSync                          string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
 	EnableVSyncHint                      string // description shown under the VSync checkbox
 	EnableVSyncBadge                     string // small badge next to the VSync title, e.g. "RECOMMENDED"
+	AMDFSR                               string // "AMD FSR 1.0 Upscaler" checkbox title, video parameters dialog
+	AMDFSRHint                           string // description shown under the AMD FSR checkbox
+	AMDFSRBadge                          string // small badge next to the AMD FSR title, e.g. "NEW"
 	AIVision                             string // "AI Vision Detection Overlay" checkbox title, video parameters dialog
 	AIVisionHint                         string // hint shown under the AI Vision checkbox
 	AIVisionBadge                        string // small badge next to the AI Vision title, e.g. "EXPERIMENTAL"
@@ -640,6 +649,7 @@ func EN() *LocalizedStrings {
 		AddConnectionSubtitle:             "Pair a hardware or software agent using its IP address and master key.",
 		AddVirtualDisplayTitle:            "Add virtual display",
 		AddVirtualDisplaySubtitle:         "Pick a preset or enter a custom resolution for the video pipe.",
+		DeleteVirtualDisplayConfirm:       "Remove this virtual display?",
 		TailscaleRedirectHint:             "After connection, the redirect will open on the web.",
 		AutoRegistrationBadge:             "AUTO-REGISTRATION",
 		ConnectionBadgeUnknown:            "Unknown",
@@ -659,11 +669,8 @@ func EN() *LocalizedStrings {
 		AccountForgotPassphrase:           "Forgot passphrase? ",
 		AccountResetIt:                    "Reset it",
 		AccountLogOut:                     "Log out",
-		AccountLoginIntro:                 "Log in to see your USBridge licenses and sync your saved connections across devices.",
+		AccountLoginIntro:                 "Log in to sync your saved connections across devices.",
 		AccountLoginGoogle:                "Log in with Google",
-		AccountLicensesLoadErr:            "Could not load licenses: %v",
-		AccountNoLicenses:                 "No licenses on this account yet.",
-		AccountLoadingLicenses:            "Loading your licenses…",
 		AccountConnectionsSync:            "Connections sync",
 		AccountSyncOn:                     "on",
 		AccountSyncOff:                    "off",
@@ -705,6 +712,12 @@ func EN() *LocalizedStrings {
 		DevicesEmptyAudio:                 "No audio devices",
 		DevicesEmptyStorage:               "No storage or ISO media",
 		DevicesEmptyUSB:                   "No USB devices",
+		DevicesCardUSBPassthrough:         "Raw USB",
+		DevicesHardwareOnly:               "Hardware only",
+		USBEmulationProBadge:              "Pro USBridge Streamer",
+		DevicesZadigTitle:                 "Can't find your device?",
+		DevicesZadigMessage:               "If the USB device does not appear in this list, install Zadig and bind the WinUSB driver to it. After you replug the device, it will show up here.",
+		DevicesZadigDownload:              "Download Zadig",
 		DevicesUSBHelpTitle:               "Raw USB passthrough on Windows",
 		DevicesUSBHelpText:                "Keyboards, mice, pens and other HID devices, as well as Xbox gamepads, are passed through with no extra setup.\n\nTo pass any other device through raw (storage, adapters, custom hardware), Windows must use the WinUSB driver for it. Replace the device's driver with WinUSB using Zadig: select the device, choose WinUSB as the target driver and click Replace Driver.\n\nReinstall the original driver in Device Manager to return the device to normal use.",
 		DevicesUSBHelpOpenZadig:           "Open Zadig website",
@@ -728,8 +741,8 @@ func EN() *LocalizedStrings {
 		ScriptsColSource:                  "SOURCE",
 		ScriptsNewEMMC:                    "New (eMMC)",
 		ScriptsNewSD:                      "New (SD Card)",
-		ScriptsNewEMMCMobile:              "(eMMC)",
-		ScriptsNewSDMobile:                "(SD Card)",
+		ScriptsNewEMMCMobile:              "eMMC",
+		ScriptsNewSDMobile:                "SD",
 		PCPanelPowerControls:              "Power controls",
 		PCPanelPowerHardwareOnly:          "Power controls are available on USBridge hardware only.",
 		PCPanelAction:                     "Action",
@@ -844,7 +857,7 @@ func EN() *LocalizedStrings {
 		DevicesSectionConnectivityHint:    "RNDIS bridge and channel infrastructure used to link the remote host.",
 		DevicesSectionAudio:               "Audio",
 		DevicesSectionAudioHint:           "Audio capture sources and USB Audio Codec gadget.",
-		DevicesSectionPassthrough:         "USB Passthrough",
+		DevicesSectionPassthrough:         "Raw USB",
 		DevicesSectionPassthroughHint:     "Redirect a local USB device into the remote Windows session.",
 		USBPassthroughEnterpriseHint:      "Requires Enterprise on the Windows agent.",
 		USBPassthroughProtected:           "Protected (session input / capture)",
@@ -961,6 +974,8 @@ func EN() *LocalizedStrings {
 		UpdateDownloadingTitle:   "Updating…",
 		UpdateDownloadingMessage: "Downloading version %s…",
 		WhatsNewTitle:            "What's new",
+		WhatsNewSubtitle:         "Explore the latest features, hardware passthrough capabilities, and performance optimizations.",
+		WhatsNewGitHub:           "View Full Changelog on GitHub",
 		WhatsNewGotIt:            "Got it",
 
 		// Video Settings/Dialogs
@@ -1076,6 +1091,9 @@ func EN() *LocalizedStrings {
 		EnableVSync:                          "VSync (Vertical Sync)",
 		EnableVSyncHint:                      "Synchronizes frame delivery with the host display's refresh rate to eliminate tearing during fast motion.",
 		EnableVSyncBadge:                     "Recommended",
+		AMDFSR:                               "AMD FSR 1.0 Upscaler",
+		AMDFSRHint:                           "Improves picture sharpness when the stream is at a lower resolution.",
+		AMDFSRBadge:                          "New",
 		AIVision:                             "AI Vision Detection Overlay",
 		AIVisionHint:                         "Overlays live object detection (Set-of-Mark bounding boxes + hex IDs) on the video feed, mirroring an agent's ui.parse() telemetry call.",
 		AIVisionBadge:                        "Experimental",
@@ -1210,6 +1228,7 @@ func ES() *LocalizedStrings {
 	locale.AddConnectionSubtitle = "Empareja un agent de hardware o software con su IP y master key."
 	locale.AddVirtualDisplayTitle = "Agregar display virtual"
 	locale.AddVirtualDisplaySubtitle = "Elige un preset o una resolucion personalizada para el video pipe."
+	locale.DeleteVirtualDisplayConfirm = "Quitar este display virtual?"
 	locale.TailscaleRedirectHint = "Tras conectar, la redireccion se abrira en el navegador."
 	locale.AutoRegistrationBadge = "AUTO-REGISTRO"
 	locale.QRScanSuccess = "Codigo QR escaneado"
@@ -1274,6 +1293,8 @@ func ES() *LocalizedStrings {
 	locale.UpdateDownloadingTitle = "Actualizando…"
 	locale.UpdateDownloadingMessage = "Descargando la version %s…"
 	locale.WhatsNewTitle = "Novedades"
+	locale.WhatsNewSubtitle = "Las ultimas funciones, passthrough de hardware y mejoras de rendimiento."
+	locale.WhatsNewGitHub = "Ver changelog completo en GitHub"
 	locale.WhatsNewGotIt = "Entendido"
 	locale.VideoQualitySettings = "Configuracion de calidad de video"
 	locale.Resolution = "Resolucion"
@@ -1331,11 +1352,8 @@ func ES() *LocalizedStrings {
 	locale.AccountForgotPassphrase = "Olvidaste passphrase? "
 	locale.AccountResetIt = "Resetear"
 	locale.AccountLogOut = "Salir"
-	locale.AccountLoginIntro = "Entra para ver tus licencias USBridge y sincronizar conexiones entre devices."
+	locale.AccountLoginIntro = "Entra para sincronizar tus conexiones guardadas entre dispositivos."
 	locale.AccountLoginGoogle = "Entrar con Google"
-	locale.AccountLicensesLoadErr = "No se pudieron cargar licencias: %v"
-	locale.AccountNoLicenses = "Aun no hay licencias en esta cuenta."
-	locale.AccountLoadingLicenses = "Cargando licencias…"
 	locale.AccountConnectionsSync = "Sync de conexiones"
 	locale.AccountSyncOn = "on"
 	locale.AccountSyncOff = "off"
@@ -1373,12 +1391,18 @@ func ES() *LocalizedStrings {
 	locale.VideoLowLatencyFmt = "Baja latencia (%.1f %s)"
 	locale.VideoHighFidelityFmt = "Alta fidelidad (%.1f %s)"
 	locale.VideoParameters = "Parametros de video"
+	locale.PairingPINTitle = "Emparejamiento"
+	locale.PairingPINMessage = "Introduce este PIN en la pagina de pairing del host:"
+	locale.PairingPINWaiting = "Esperando a que el host lo acepte..."
 	locale.OtherSettings = "OTROS AJUSTES"
 	locale.NetGraphSize = "Tamano"
 	locale.NetGraphBackground = "Fondo"
 	locale.EnableVSync = "VSync"
 	locale.EnableVSyncHint = "Sincroniza los fotogramas con la pantalla para evitar tearing en movimiento rapido."
 	locale.EnableVSyncBadge = "Recomendado"
+	locale.AMDFSR = "AMD FSR 1.0 Upscaler"
+	locale.AMDFSRHint = "Mejora la nitidez de la imagen cuando la transmision va a baja resolucion."
+	locale.AMDFSRBadge = "Nuevo"
 	locale.AIVision = "Overlay AI Vision"
 	locale.AIVisionHint = "Deteccion en vivo (cajas + IDs hex) sobre el video, como ui.parse() del agent."
 	locale.AIVisionBadge = "Prueba"
@@ -1400,6 +1424,12 @@ func ES() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Sin audio"
 	locale.DevicesEmptyStorage = "Sin storage ni ISO"
 	locale.DevicesEmptyUSB = "Sin USB"
+	locale.DevicesCardUSBPassthrough = "USB en bruto"
+	locale.DevicesHardwareOnly = "Solo hardware"
+	locale.USBEmulationProBadge = "Pro USBridge Streamer"
+	locale.DevicesZadigTitle = "No aparece tu dispositivo?"
+	locale.DevicesZadigMessage = "Si el dispositivo USB no esta en esta lista, instala Zadig y asignale el controlador WinUSB. Al volver a conectarlo, aparecera aqui."
+	locale.DevicesZadigDownload = "Descargar Zadig"
 	locale.DevicesUSBHelpTitle = "USB en bruto en Windows"
 	locale.DevicesUSBHelpText = "Teclados, ratones, lápices y otros dispositivos HID, así como los mandos Xbox, se reenvían sin configuración adicional.\n\nPara reenviar en bruto cualquier otro dispositivo (almacenamiento, adaptadores, hardware propio), Windows debe usar para él el controlador WinUSB. Sustituye el controlador del dispositivo por WinUSB con Zadig: selecciona el dispositivo, elige WinUSB como controlador de destino y pulsa Replace Driver.\n\nReinstala el controlador original en el Administrador de dispositivos para volver al uso normal."
 	locale.DevicesUSBHelpOpenZadig = "Abrir sitio de Zadig"
@@ -1530,6 +1560,7 @@ func UKProper() *LocalizedStrings {
 	locale.AddConnectionSubtitle = "Прив'яжіть hardware або software agent за IP та master key."
 	locale.AddVirtualDisplayTitle = "Додати віртуальний дисплей"
 	locale.AddVirtualDisplaySubtitle = "Оберіть пресет або свою роздільність для video pipe."
+	locale.DeleteVirtualDisplayConfirm = "Прибрати цей віртуальний дисплей?"
 	locale.TailscaleRedirectHint = "Після конекту редірект відкриється в браузері."
 	locale.AutoRegistrationBadge = "АВТОРЕЄСТРАЦІЯ"
 	locale.QRScanSuccess = "QR-код відскановано"
@@ -1594,6 +1625,8 @@ func UKProper() *LocalizedStrings {
 	locale.UpdateDownloadingTitle = "Оновлення…"
 	locale.UpdateDownloadingMessage = "Завантаження версії %s…"
 	locale.WhatsNewTitle = "Що нового"
+	locale.WhatsNewSubtitle = "Нові функції, проброс периферії та оптимізації продуктивності."
+	locale.WhatsNewGitHub = "Повний changelog на GitHub"
 	locale.WhatsNewGotIt = "Зрозуміло"
 	locale.VideoQualitySettings = "Налаштування якості відео"
 	locale.Resolution = "Роздільна здатність"
@@ -1651,11 +1684,8 @@ func UKProper() *LocalizedStrings {
 	locale.AccountForgotPassphrase = "Забули passphrase? "
 	locale.AccountResetIt = "Скинути"
 	locale.AccountLogOut = "Вийти"
-	locale.AccountLoginIntro = "Увійдіть, щоб бачити ліцензії USBridge і синкати з'єднання між девайсами."
+	locale.AccountLoginIntro = "Увійдіть, щоб синхронізувати збережені з’єднання між пристроями."
 	locale.AccountLoginGoogle = "Увійти з Google"
-	locale.AccountLicensesLoadErr = "Не вдалось завантажити ліцензії: %v"
-	locale.AccountNoLicenses = "На цьому акаунті ще немає ліцензій."
-	locale.AccountLoadingLicenses = "Завантаження ліцензій…"
 	locale.AccountConnectionsSync = "Синк з'єднань"
 	locale.AccountSyncOn = "вкл"
 	locale.AccountSyncOff = "вимк"
@@ -1693,12 +1723,18 @@ func UKProper() *LocalizedStrings {
 	locale.VideoLowLatencyFmt = "Низька затримка (%.1f %s)"
 	locale.VideoHighFidelityFmt = "Висока якість (%.1f %s)"
 	locale.VideoParameters = "Параметри відео"
+	locale.PairingPINTitle = "Потрібне парування"
+	locale.PairingPINMessage = "Введіть цей PIN на сторінці парування хоста:"
+	locale.PairingPINWaiting = "Чекаємо, поки хост підтвердить..."
 	locale.OtherSettings = "ІНШІ НАЛАШТУВАННЯ"
 	locale.NetGraphSize = "Розмір"
 	locale.NetGraphBackground = "Фон"
 	locale.EnableVSync = "VSync"
 	locale.EnableVSyncHint = "Синхронізує кадри з екраном, без розривів при швидкому русі."
 	locale.EnableVSyncBadge = "Радимо"
+	locale.AMDFSR = "AMD FSR 1.0 Upscaler"
+	locale.AMDFSRHint = "Підвищує чіткість картинки при низькій роздільній здатності трансляції."
+	locale.AMDFSRBadge = "Нове"
 	locale.AIVision = "Накладка AI Vision"
 	locale.AIVisionHint = "Живе розпізнавання (рамки + hex ID) поверх відео, як ui.parse() агента."
 	locale.AIVisionBadge = "Тест"
@@ -1719,6 +1755,12 @@ func UKProper() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Немає аудіо"
 	locale.DevicesEmptyStorage = "Немає storage / ISO"
 	locale.DevicesEmptyUSB = "Немає USB"
+	locale.DevicesCardUSBPassthrough = "Сирий USB"
+	locale.DevicesHardwareOnly = "Лише hardware"
+	locale.USBEmulationProBadge = "Pro USBridge Streamer"
+	locale.DevicesZadigTitle = "Не бачите свій пристрій?"
+	locale.DevicesZadigMessage = "Якщо USB-пристрій не з’явився в цьому списку, встановіть Zadig і призначте йому драйвер WinUSB. Після повторного підключення він з’явиться тут."
+	locale.DevicesZadigDownload = "Завантажити Zadig"
 	locale.DevicesUSBHelpTitle = "Сирий USB у Windows"
 	locale.DevicesUSBHelpText = "Клавіатури, миші, пера та інші HID-пристрої, а також геймпади Xbox прокидаються без додаткового налаштування.\n\nЩоб прокинути будь-який інший пристрій сирим (накопичувачі, адаптери, власне обладнання), Windows має використовувати для нього драйвер WinUSB. Замініть драйвер пристрою на WinUSB через Zadig: виберіть пристрій, оберіть WinUSB цільовим драйвером і натисніть Replace Driver.\n\nЩоб повернути пристрій до звичайного використання, перевстановіть початковий драйвер у Диспетчері пристроїв."
 	locale.DevicesUSBHelpOpenZadig = "Відкрити сайт Zadig"

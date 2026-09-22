@@ -1793,6 +1793,9 @@ type iconChromeButtonSpec struct {
 	CornerRadius float32
 	OnHover      func(bool)
 	LabelSize    float32
+	// LabelPadX is extra width on each side of a text label when MinSize
+	// computes a shrink-wrapped button. 0 keeps the original 9px/side.
+	LabelPadX float32
 	// HoverStroke/HoverLabelColor override Stroke/the label's color while
 	// hovered, on top of HoverFill/HoverIcon -- nil (the zero value) on
 	// either means "no change on hover", the only behavior every existing
@@ -1899,7 +1902,11 @@ func (b *iconChromeButton) MinSize() fyne.Size {
 			measure.TextSize = b.spec.LabelSize
 		}
 		measure.TextStyle = fyne.TextStyle{Bold: b.spec.LabelBold}
-		width := measure.MinSize().Width + 18
+		hPad := float32(18)
+		if b.spec.LabelPadX > 0 {
+			hPad = b.spec.LabelPadX * 2
+		}
+		width := measure.MinSize().Width + hPad
 		if b.spec.NormalIcon != nil {
 			width += b.spec.IconSize.Width + iconChromeButtonIconLabelGap
 		}

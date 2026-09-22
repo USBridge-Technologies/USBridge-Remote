@@ -64,6 +64,17 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileVideoSettingsBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), vid)
 	mw.mobileVideoSettingsBtn.Hide()
 
+	mon := newHeaderStatusBadgeButton(assets.MonitorTabIconMuted, func() {
+		mw.showVideoMonitorMenu(mw.mobileMonitorToggle)
+	})
+	mon.SetIconSize(fyne.NewSize(16, 16))
+	mon.SetBadgeText("")
+	mon.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	mon.SetHoverIcon(assets.MonitorTabIconHover)
+	mw.mobileMonitorToggle = mon
+	mw.mobileMonitorBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), mon)
+	mw.mobileMonitorBtn.Hide()
+
 	fs := newHeaderStatusBadgeButton(assets.FullscreenIconFooter, func() {
 		if mw.videoWidget != nil {
 			mw.videoWidget.ShowFullscreen()
@@ -104,14 +115,27 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileMouseToggle = mouse
 	mw.mobileMouseBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), mouse)
 
+	mw.mobileFooterGraphDivider = newMobileFooterDivider()
+	mw.mobileFooterGraphDivider.Hide()
+	mw.mobileFooterHIDDivider = newMobileFooterDivider()
+
 	burger := newHeaderStatusBadgeButton(theme.MenuIcon(), func() {
 		mw.openDevicesFromControlBurger()
 	})
 	burger.SetIconSize(fyne.NewSize(16, 16))
 	burger.SetBadgeText("")
-	burger.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	burger.SetIdleStyle(design.ColorGray900, design.ColorStatusBarBorder, 1, 6)
+	burger.SetHoverStyle(design.ColorAlphaWhite15, 6)
 	mw.mobileControlBurgerBtn = burger
 	mw.mobileControlBurgerWrap = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), burger)
+
+	view.AddMenuSwapTargets(
+		mw.mobileMonitorToggle,
+		mw.mobileVideoSettingsToggle,
+		mw.mobileFullscreenToggle,
+		mw.mobileMouseToggle,
+		mw.mobileKeyboardToggle,
+	)
 
 	mw.mobileTabsRow = tabs
 	mw.connectedChromeHost = container.NewMax()
@@ -355,7 +379,7 @@ func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject 
 		if usableConnectedChromeObject(mw.connectedFooterScript) {
 			rightParts = append(rightParts, mw.connectedFooterScript)
 		}
-		if label := connectedVersionLabel(view.AppVersion()); label != nil {
+		if label := connectedVersionLabel(view.AppVersion(), false); label != nil {
 			rightParts = append(rightParts, label)
 		}
 		if actions := mw.mobileControlRightActions(); actions != nil {
@@ -387,13 +411,27 @@ func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject 
 	return newConnectedChromeStrip(inner)
 }
 
+func newMobileFooterDivider() fyne.CanvasObject {
+	line := canvas.NewRectangle(design.ColorStatusBarDivider)
+	return container.NewGridWrap(fyne.NewSize(1, 20), line)
+}
+
 func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	var parts []fyne.CanvasObject
 	if mw.mobileVideoSettingsBtn != nil {
 		parts = append(parts, mw.mobileVideoSettingsBtn)
 	}
+	if mw.mobileMonitorBtn != nil {
+		parts = append(parts, mw.mobileMonitorBtn)
+	}
 	if mw.mobileFullscreenBtn != nil {
 		parts = append(parts, mw.mobileFullscreenBtn)
+	}
+	if mw.mobileViewportPanBtn != nil {
+		parts = append(parts, mw.mobileViewportPanBtn)
+	}
+	if mw.mobileFooterGraphDivider != nil {
+		parts = append(parts, mw.mobileFooterGraphDivider)
 	}
 	if mw.mobileNetGraphBtn != nil {
 		parts = append(parts, mw.mobileNetGraphBtn)
@@ -401,8 +439,8 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	if mw.mobileNetGraphSettingsBtn != nil {
 		parts = append(parts, mw.mobileNetGraphSettingsBtn)
 	}
-	if mw.mobileViewportPanBtn != nil {
-		parts = append(parts, mw.mobileViewportPanBtn)
+	if mw.mobileFooterHIDDivider != nil {
+		parts = append(parts, mw.mobileFooterHIDDivider)
 	}
 	if mw.mobileMouseBtn != nil {
 		parts = append(parts, mw.mobileMouseBtn)
@@ -416,7 +454,7 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	case 1:
 		return parts[0]
 	default:
-		return container.New(&view.DeviceRowControlsLayout{Gap: 8}, parts...)
+		return container.New(&view.DeviceRowControlsLayout{Gap: 4}, parts...)
 	}
 }
 
@@ -430,7 +468,7 @@ func (mw *MainWindow) buildTabsFooterStrip(landscape bool) fyne.CanvasObject {
 		if usableConnectedChromeObject(mw.connectedFooterScript) {
 			rightParts = append(rightParts, mw.connectedFooterScript)
 		}
-		if label := connectedVersionLabel(view.AppVersion()); label != nil {
+		if label := connectedVersionLabel(view.AppVersion(), true); label != nil {
 			rightParts = append(rightParts, label)
 		}
 		var right fyne.CanvasObject
@@ -523,12 +561,16 @@ func usableConnectedChromeObject(obj fyne.CanvasObject) bool {
 	return obj != nil
 }
 
-func connectedVersionLabel(version string) fyne.CanvasObject {
+func connectedVersionLabel(version string, digitsVisible bool) fyne.CanvasObject {
 	v := strings.TrimSpace(version)
 	if v == "" {
 		return nil
 	}
-	label := canvas.NewText("v"+v, design.ColorTextMuted)
+	var col color.Color = design.ColorTextMuted
+	if !digitsVisible {
+		col = color.Transparent
+	}
+	label := canvas.NewText("v"+v, col)
 	label.TextSize = 9
 	return label
 }

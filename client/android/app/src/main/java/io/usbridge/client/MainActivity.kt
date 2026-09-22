@@ -14,6 +14,7 @@ import android.util.Log
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.inputmethod.InputMethodManager
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.core.app.ActivityCompat
@@ -132,6 +133,13 @@ class MainActivity : GoNativeActivity() {
     @Volatile
     private var stickyIME: Boolean = false
 
+    // Cached from setupIMEListener so Back can hide a form IME (Add/Edit
+    // connection) before moveTaskToBack. lastImeHeightPx is max(IME, nav);
+    // lastVisibleImeHeightPx is the uncovered strip below the visible frame.
+    @Volatile private var lastImeHeightPx: Int = -1
+    @Volatile private var lastNavBarHeightPx: Int = 0
+    @Volatile private var lastVisibleImeHeightPx: Int = 0
+
     private val gyroSensorManager: GyroSensorManager by lazy { GyroSensorManager(this) }
 
     // Two-finger: mode locked at second-finger down by spacing.
@@ -235,6 +243,14 @@ class MainActivity : GoNativeActivity() {
             return true
         }
         lastSystemBackAt = now
+        // Predictive Back / 3-button nav is consumed here, so the IME never
+        // sees KEYCODE_BACK on some OEMs. Hide the keyboard first; only the
+        // next Back (no IME) may dismiss a popup or background the app.
+        if (isSoftImeVisible()) {
+            Log.i(TAG, "⬅️ System Back: hiding soft IME")
+            hideSoftIme()
+            return true
+        }
         try {
             if (BackBridge.onSystemBack()) {
                 Log.i(TAG, "⬅️ System Back consumed by Go")
@@ -257,6 +273,47 @@ class MainActivity : GoNativeActivity() {
         Log.i(TAG, "⬅️ System Back: moveTaskToBack")
         moveTaskToBack(true)
         return true
+    }
+
+    private fun isSoftImeVisible(): Boolean {
+        if (isNativeKeyboardUp()) {
+            return true
+        }
+        try {
+            val insets = ViewCompat.getRootWindowInsets(window.decorView)
+            if (insets != null && insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                return true
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "⬅️ IME inset check failed: ${e.message}")
+        }
+        // Nav bar is ~20-50dp; a real GBoard/Samsung IME is well above 80px.
+        return lastVisibleImeHeightPx > lastNavBarHeightPx + 80
+    }
+
+    private fun hideSoftIme() {
+        if (stickyIME) {
+            setStickyIME(false)
+        } else {
+            try {
+                org.golang.app.GoNativeActivity.hideKeyboard()
+            } catch (e: Exception) {
+                Log.e(TAG, "⬅️ hideKeyboard failed: ${e.message}")
+            }
+            try {
+                val imm = getSystemService(InputMethodManager::class.java)
+                val token = (currentFocus ?: window.decorView).windowToken
+                imm?.hideSoftInputFromWindow(token, 0)
+            } catch (e: Exception) {
+                Log.e(TAG, "⬅️ IMM hideSoftInput failed: ${e.message}")
+            }
+            currentFocus?.clearFocus()
+        }
+        try {
+            KeyboardBridge.onIMEUserDismissed()
+        } catch (e: Exception) {
+            Log.e(TAG, "⬅️ onIMEUserDismissed failed: ${e.message}")
+        }
     }
 
     private fun reportLanguage() {
@@ -306,7 +363,6 @@ class MainActivity : GoNativeActivity() {
      */
     private fun setupIMEListener() {
         val decorView = window.decorView
-        var lastImeHeightPx = -1
 
         // ViewCompat.getRootWindowInsets(decorView), called fresh from inside the global
         // layout listener below, can transiently return null or a stale/interim insets
@@ -348,6 +404,8 @@ class MainActivity : GoNativeActivity() {
             // Use the max of IME height or nav bar height.
             // This guarantees a correct margin both in normal mode and in fullscreen edge-to-edge mode.
             val imeHeight = maxOf(visibleImeHeight, navBarHeight)
+            lastNavBarHeightPx = navBarHeight
+            lastVisibleImeHeightPx = visibleImeHeight
 
             // Always check the language when the keyboard is open,
             // since switching layouts may not change the window height.

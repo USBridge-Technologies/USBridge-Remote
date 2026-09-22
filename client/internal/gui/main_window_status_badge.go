@@ -51,6 +51,10 @@ type headerStatusBadgeButton struct {
 	selected     bool
 	selectedFill color.Color
 	selectedIcon fyne.Resource
+	idleFill     color.Color
+	idleStroke   color.Color
+	idleStrokeW  float32
+	idleRadius   float32
 
 	bg        *canvas.Rectangle
 	icon      *canvas.Image
@@ -89,6 +93,17 @@ func (b *headerStatusBadgeButton) SetHoverIcon(icon fyne.Resource) {
 func (b *headerStatusBadgeButton) SetSelectedStyle(fill color.Color, icon fyne.Resource) {
 	b.selectedFill = fill
 	b.selectedIcon = icon
+	b.Refresh()
+}
+
+// SetIdleStyle paints a resting fill and outline so the button reads as a
+// chip against the footer, not a bare icon. radius 0 keeps the default
+// RadiusMD corners.
+func (b *headerStatusBadgeButton) SetIdleStyle(fill, stroke color.Color, strokeWidth, radius float32) {
+	b.idleFill = fill
+	b.idleStroke = stroke
+	b.idleStrokeW = strokeWidth
+	b.idleRadius = radius
 	b.Refresh()
 }
 
@@ -243,19 +258,35 @@ func (r *headerStatusBadgeButtonRenderer) MinSize() fyne.Size {
 
 func (r *headerStatusBadgeButtonRenderer) Refresh() {
 	radius := design.RadiusMD
-	if r.button.hoverRadius > 0 {
+	if r.button.idleRadius > 0 {
+		radius = r.button.idleRadius
+	}
+	if r.button.hoverRadius > 0 && (r.button.hovered || r.button.idleRadius == 0) {
 		radius = r.button.hoverRadius
 	}
 	r.button.bg.CornerRadius = radius
 
-	r.button.bg.FillColor = color.Transparent
+	fill := color.Color(color.Transparent)
+	if r.button.idleFill != nil {
+		fill = r.button.idleFill
+	}
 	if r.button.selected && r.button.selectedFill != nil {
-		r.button.bg.FillColor = r.button.selectedFill
+		fill = r.button.selectedFill
 	} else if r.button.hovered {
-		r.button.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
+		fill = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
 		if r.button.hoverColor != nil {
-			r.button.bg.FillColor = r.button.hoverColor
+			fill = r.button.hoverColor
+		} else if r.button.idleFill != nil {
+			fill = design.ColorAlphaWhite15
 		}
+	}
+	r.button.bg.FillColor = fill
+	if r.button.idleStroke != nil && r.button.idleStrokeW > 0 {
+		r.button.bg.StrokeColor = r.button.idleStroke
+		r.button.bg.StrokeWidth = r.button.idleStrokeW
+	} else {
+		r.button.bg.StrokeColor = color.Transparent
+		r.button.bg.StrokeWidth = 0
 	}
 	r.button.bg.Refresh()
 

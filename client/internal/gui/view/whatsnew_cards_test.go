@@ -1,9 +1,14 @@
 package view
 
 import (
+	"image/color"
 	"testing"
 
 	"usbridge-client/internal/gui/i18n"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/test"
 )
 
 func TestWhatsNewCopyPicksLanguage(t *testing.T) {
@@ -23,6 +28,19 @@ func TestWhatsNewCopyPicksLanguage(t *testing.T) {
 	i18n.Init("en")
 }
 
+func TestWhatsNewOverflowPad(t *testing.T) {
+	inner := canvas.NewRectangle(color.Transparent)
+	inner.SetMinSize(fyne.NewSize(200, 100))
+	body := newWhatsNewOverflowBody(inner, 200, 400)
+	if got := body.MinSize(); got.Height != 100 || got.Width < 200 {
+		t.Fatalf("fits without scroll: %+v", got)
+	}
+	inner.SetMinSize(fyne.NewSize(200, 500))
+	if got := body.MinSize(); got.Height != 400 {
+		t.Fatalf("caps at max: %+v", got)
+	}
+}
+
 func TestFormatWhatsNewVersion(t *testing.T) {
 	if got := formatWhatsNewVersion("2.4.48"); got != "v2.4.48" {
 		t.Fatalf("got %q", got)
@@ -38,6 +56,31 @@ func TestWhatsNewKindBeta(t *testing.T) {
 	}
 	if whatsNewKindRank(whatsNewKindBeta) >= whatsNewKindRank(whatsNewKindPro) {
 		t.Fatal("beta should be first")
+	}
+}
+
+func TestWhatsNewKindChrome(t *testing.T) {
+	beta := whatsNewKindChromeFor(whatsNewKindBeta)
+	if beta.Accent.R != 0xde || beta.Fill.R != 0x1f {
+		t.Fatalf("beta chrome: %+v", beta)
+	}
+	free := whatsNewKindChromeFor(whatsNewKindFree)
+	if free.Accent.G != 0xd4 {
+		t.Fatalf("free chrome: %+v", free)
+	}
+	pro := whatsNewKindChromeFor(whatsNewKindPro)
+	if pro.Accent.R != 0xb3 {
+		t.Fatalf("pro chrome: %+v", pro)
+	}
+	gray := whatsNewKindChromeFor(whatsNewKindOther)
+	if gray.Stroke.R != 0x4f {
+		t.Fatalf("gray chrome: %+v", gray)
+	}
+}
+
+func TestWhatsNewKindIncluded(t *testing.T) {
+	if whatsNewKindLabel(whatsNewKindOther) != "Included" {
+		t.Fatal("other label")
 	}
 }
 
@@ -98,5 +141,49 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 	}
 	if !sawBeta || !sawProUSB || !sawPro444 || !sawFree || !sawOther {
 		t.Fatalf("missing plaques: beta=%v pro=%v/%v free=%v other=%v", sawBeta, sawProUSB, sawPro444, sawFree, sawOther)
+	}
+	if cards[0].Date != "September 2026" {
+		t.Fatalf("date %q", cards[0].Date)
+	}
+}
+
+func TestWhatsNewCatalogFingerprintJoinsVersions(t *testing.T) {
+	fp := whatsNewCatalogFingerprint()
+	if fp != "2.4.48" {
+		t.Fatalf("got %q", fp)
+	}
+}
+
+func TestWhatsNewUnseenTracksCatalogFingerprint(t *testing.T) {
+	a := test.NewApp()
+	t.Cleanup(a.Quit)
+
+	if !whatsNewHasUnseen() {
+		t.Fatal("fresh prefs should show the pip")
+	}
+	markWhatsNewCatalogSeen()
+	if whatsNewHasUnseen() {
+		t.Fatal("opening What's new should clear the pip")
+	}
+	a.Preferences().SetString(whatsNewSeenPrefKey, "2.4.47")
+	if !whatsNewHasUnseen() {
+		t.Fatal("a new catalog card should light the pip again")
+	}
+}
+
+func TestWhatsNewDialogMetricsMobileFitsPhone(t *testing.T) {
+	prev := ForceMobileDesign
+	ForceMobileDesign = true
+	t.Cleanup(func() { ForceMobileDesign = prev })
+
+	dialogW, bodyW, scrollMax := whatsNewDialogMetricsFor(fyne.NewSize(360, 640))
+	if dialogW != 336 {
+		t.Fatalf("dialogW=%v want 336 on a 360 canvas", dialogW)
+	}
+	if bodyW != 312 {
+		t.Fatalf("bodyW=%v want 312", bodyW)
+	}
+	if scrollMax < 180 {
+		t.Fatalf("scrollMax=%v", scrollMax)
 	}
 }

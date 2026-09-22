@@ -206,6 +206,23 @@ func localPreferredVideoConfig() (models.VideoDeviceConfig, error) {
 	return cfg, nil
 }
 
+// CurrentCaptureDevice is the saved selected capture path/name, without a
+// bridge round-trip -- Control's monitor chip reads this for its label.
+func (vw *VideoWidget) CurrentCaptureDevice() (path, name string) {
+	if vw == nil {
+		return "", ""
+	}
+	cfg, err := localPreferredVideoConfig()
+	if err != nil {
+		return selectedVideoDevicePath(), ""
+	}
+	name = strings.TrimSpace(cfg.DeviceName)
+	if name == "" {
+		name = filepath.Base(cfg.DevicePath)
+	}
+	return cfg.DevicePath, name
+}
+
 func normalizeCaptureVideoDevices(devices []models.SystemDevice) []models.SystemDevice {
 	merged := make(map[string]models.SystemDevice, len(devices))
 	for _, device := range devices {
@@ -536,6 +553,7 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 
 	saveVideoDeviceConfig(cfg)
 	resetVideoInfoCache()
+	vw.refreshAgentProtocol()
 	vw.rememberHostDesktopFromConfig(cfg)
 
 	if vw.onResolutionChanged != nil {

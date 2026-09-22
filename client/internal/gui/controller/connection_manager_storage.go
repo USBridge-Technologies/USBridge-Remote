@@ -127,41 +127,79 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	logrus.Infof("Saved new connection %q with resolved tailscale host=%s", name, tailscaleHost)
 }
 
-// UpdateConnectionOS stores the host OS (and, when known, the active
-// agent protocol/tariff) after a successful connect.
+// UpdateConnectionOS stores the host OS and the live agent tariff
+// (opensource / free / pro / enterprise) on the matching saved connection.
+// Called on connect, whenever the agent reports a backend switch during
+// the session, and once more on disconnect so the Connections plaque is
+// current when the user returns to the list.
 func (cm *ConnectionManager) UpdateConnectionOS(currentHost, os, protocol string) {
 	if cm == nil {
 		return
 	}
-	os = strings.TrimSpace(os)
-	protocol = strings.TrimSpace(protocol)
-	if os == "" && protocol == "" {
+	idx, changed := applyConnectionAgentInfo(cm.connections, currentHost, os, protocol)
+	if idx < 0 || !changed {
 		return
 	}
-	currentHost = strings.TrimSpace(currentHost)
-	for i := range cm.connections {
-		conn := cm.connections[i]
-		savedInternal, savedTailscale := classifyConnectionHosts(conn)
-		if currentHost != "" && (strings.TrimSpace(conn.Host) == currentHost || savedInternal == currentHost || savedTailscale == currentHost) {
-			changed := false
-			if os != "" && cm.connections[i].RemoteOS != os {
-				cm.connections[i].RemoteOS = os
-				changed = true
-			}
-			if protocol != "" && cm.connections[i].RemoteProtocol != protocol {
-				cm.connections[i].RemoteProtocol = protocol
-				changed = true
-			}
-			if !changed {
-				return
-			}
-			cm.saveConnections()
-			fyne.Do(func() {
-				cm.refreshConnectionsList()
-			})
-			return
-		}
+	if cm.app != nil {
+		cm.saveConnections()
 	}
+	fyne.Do(func() {
+		cm.refreshConnectionsList()
+	})
+}
+
+// applyConnectionAgentInfo writes OS/tariff onto the saved row that matches
+// currentHost (Host, InternalHost, or TailscaleHost). idx is -1 when none match.
+func applyConnectionAgentInfo(conns []SavedConnection, currentHost, os, protocol string) (idx int, changed bool) {
+	os = strings.TrimSpace(os)
+	protocol = strings.TrimSpace(protocol)
+	currentHost = strings.TrimSpace(currentHost)
+	if currentHost == "" || (os == "" && protocol == "") {
+		return -1, false
+	}
+	for i := range conns {
+		conn := conns[i]
+		savedInternal, savedTailscale := classifyConnectionHosts(conn)
+		if strings.TrimSpace(conn.Host) != currentHost && savedInternal != currentHost && savedTailscale != currentHost {
+			continue
+		}
+		if os != "" && conns[i].RemoteOS != os {
+			conns[i].RemoteOS = os
+			changed = true
+		}
+		if protocol != "" && conns[i].RemoteProtocol != protocol {
+			conns[i].RemoteProtocol = protocol
+			changed = true
+		}
+		return i, changed
+	}
+	return -1, false
+}
+
+func lookupConnectionAgentInfo(conns []SavedConnection, currentHost string) (osName, protocol string) {
+	currentHost = strings.TrimSpace(currentHost)
+	if currentHost == "" {
+		return "", ""
+	}
+	for i := range conns {
+		conn := conns[i]
+		savedInternal, savedTailscale := classifyConnectionHosts(conn)
+		if strings.TrimSpace(conn.Host) != currentHost && savedInternal != currentHost && savedTailscale != currentHost {
+			continue
+		}
+		return strings.TrimSpace(conns[i].RemoteOS), strings.TrimSpace(conns[i].RemoteProtocol)
+	}
+	return "", ""
+}
+
+// LookupAgentIdentity returns the last known OS/tariff for this host from
+// connections.json, used to seed Devices/mouse mapping while live
+// /api/device/info is already in hand or still filling a blank field.
+func (cm *ConnectionManager) LookupAgentIdentity(currentHost string) (osName, protocol string) {
+	if cm == nil {
+		return "", ""
+	}
+	return lookupConnectionAgentInfo(cm.connections, currentHost)
 }
 
 // getStorageURI returns the storage URI

@@ -242,10 +242,16 @@ func (mw *MainWindow) recreateContainers() {
 			})
 			mw.diskWidget.SetOnVideoConnect(func(devicePath string) {
 				mw.videoWidget.StartVideoDevice(devicePath)
+				mw.scheduleVideoMonitorChipRefresh()
+			})
+			mw.diskWidget.SetOnVideoDevicesChanged(func(devices []models.SystemDevice) {
+				mw.applyVideoMonitorChip(devices)
 			})
 			mw.diskWidget.SetOnVideoDisconnect(func() {
 				mw.videoWidget.StopVideoAsync()
 			})
+			mw.diskWidget.SetOnAgentProtocol(mw.videoWidget.SetAgentProtocol)
+			mw.videoWidget.SetOnAgentProtocolChanged(mw.persistAgentProtocol)
 			mw.diskWidget.SetOnAudioConnect(func(devicePath string) {
 				if mw.usbClient != nil {
 					if err := mw.usbClient.StartAudio(devicePath); err != nil {
@@ -330,7 +336,7 @@ func (mw *MainWindow) recreateContainers() {
 	}
 	var controlBottom fyne.CanvasObject
 	if !useMobileControl() {
-		controlBottom = view.NewAppFooter(view.AppVersion(), nil, controlConnecting, controlScriptFooter)
+		controlBottom = view.NewAppFooter("", mw.buildDesktopControlFooterActions(), controlConnecting, controlScriptFooter)
 	}
 	controlContent := view.NewEdgeStack(nil, controlBottom, mw.videoWidget.GetContainer())
 	devicesContent := mw.diskWidget.GetDashboardContainer()
@@ -460,6 +466,9 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 			continue
 		}
 		btn.SetSelected(i == activeIndex)
+	}
+	if useMobileControl() && mw.onMainContent {
+		view.SetFooterVersionDigitsVisible(activeIndex != mw.controlTabIndex())
 	}
 	mw.syncMobileKeyboardButton(activeIndex == mw.controlTabIndex())
 }
@@ -609,19 +618,13 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		mw.mainExitBtn,
 	))
 	middleGroup := mw.buildStatusIndicatorBar()
-	// Clip, not Scroll: on a narrow/mobile window this row can genuinely
-	// run out of horizontal space for the SD-progress + status readout,
-	// but they're passive indicators, not something worth navigating to --
-	// an HScroll here used to leave a persistent thin scrollbar sitting
-	// right above the video/Control-tab content whenever that happened
-	// (Fyne's scroll-bar-area renders any time content overflows its
-	// viewport, not just on hover/drag -- see internal/widget/scroller.go's
-	// handleAreaVisibility), which read as a stray UI glitch since nobody
-	// was ever meant to actually scroll this row. Clip keeps
-	// mainHeaderBarLayout.Layout's existing width-capping math (below)
-	// working exactly the same way, it just quietly clips whatever
-	// overflows instead of exposing a scrollbar for it.
-	middleClip := container.NewClip(middleGroup)
+	// Phone: clip the status strip so a narrow frame cannot grow the window.
+	// Desktop: leave it unclipped so showing the monitor chip can widen the
+	// info block instead of chopping it off on the right.
+	middleSlot := fyne.CanvasObject(middleGroup)
+	if useMobileControl() {
+		middleSlot = container.NewClip(middleGroup)
+	}
 	// mw.pcpanelWidget's own container used to sit here (the power/reset
 	// button) -- it's the gear menu's "Power Reset" row now (see
 	// OnPowerReset above), freeing this left zone for the tab selector.
@@ -642,7 +645,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	row := container.New(
 		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
 		left,
-		middleClip,
+		middleSlot,
 		rightGroup,
 	)
 	normal := view.NewHeaderBand("", row)
@@ -982,7 +985,10 @@ func (l *mainHeaderBarLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 // has no natural size of its own.
 func headerCenterContentMinSize(center fyne.CanvasObject) fyne.Size {
 	if cl, ok := center.(*container.Clip); ok && cl.Content != nil {
-		return cl.Content.MinSize()
+		center = cl.Content
+	}
+	if center == nil || !center.Visible() {
+		return fyne.NewSize(0, 0)
 	}
 	return center.MinSize()
 }
@@ -1254,7 +1260,15 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.videoIcon.SetBadgeText("")
 	mw.videoIcon.SetSecondaryBadgeText("")
 	mw.videoIcon.Hide()
-	mw.fullscreenIcon = newHeaderStatusBadgeButton(assets.FullscreenIconStatusBar, func() {
+	mw.footerVideoSettingsIcon = newHeaderStatusBadgeButton(assets.CameraIcon, func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowCurrentVideoSettings(false)
+		}
+	})
+	mw.footerVideoSettingsIcon.SetIconSize(fyne.NewSize(12, 12))
+	mw.footerVideoSettingsIcon.SetBadgeText("")
+	mw.footerVideoSettingsIcon.Hide()
+	mw.fullscreenIcon = newHeaderStatusBadgeButton(assets.FullscreenIconFooter, func() {
 		if mw.videoWidget != nil {
 			mw.videoWidget.ShowFullscreen()
 		}
@@ -1333,39 +1347,30 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.scriptIcon.Importance = widget.LowImportance
 	mw.scriptIcon.Hide()
 
-	// Every button here (headerStatusBadgeButton or a plain
-	// widget.NewButtonWithIcon -- Fyne's own default theme padding puts it
-	// well past statusBarIconBoxSize too) gets GridWrap-forced down to that
-	// size regardless of its own MinSize -- once actually connected and
-	// several of these go from Hidden to Shown, whichever was tallest used
-	// to stretch this whole row, and with it createMainAddressBar's header
-	// band, past the connections screen's own 28px-tall header. Icon *size*
-	// and hover color for the plain widget.Button ones are handled
-	// separately, by wrapping mw.statusPanel itself in a theme override
-	// (see statusBarPeripheralTheme, applied in buildStatusIndicatorBar).
-	// mw.videoIcon is not in this row -- it moved into its own
-	// icon+fps+resolution group inside buildStatusIndicatorBar.
-	mw.statusBarButtonsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
-		container.NewGridWrap(statusBarIconBoxSize, mw.audioIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.keyboardIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.mouseIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.rndisIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.scriptIcon),
-	)
-	mw.statusBarIndicatorsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
-		container.NewGridWrap(statusBarIconBoxSize, mw.backupIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.cdromIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.gamepadIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.snapshotIcon),
-	)
-	mw.statusBarIndicatorsDivider = newStatusBarDivider()
-	mw.statusBarIndicatorsDivider.Hide()
-
-	mw.statusPanel = container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4},
-		mw.statusBarButtonsGroup,
-		mw.statusBarIndicatorsDivider,
-		mw.statusBarIndicatorsGroup,
-	)
+	if useMobileControl() {
+		// Mobile keeps peripherals in the header strip (22px). Desktop
+		// parents the same widgets from buildDesktopControlFooterActions.
+		mw.statusBarButtonsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
+			container.NewGridWrap(statusBarIconBoxSize, mw.audioIcon),
+			container.NewGridWrap(statusBarIconBoxSize, mw.rndisIcon),
+			container.NewGridWrap(statusBarIconBoxSize, mw.scriptIcon),
+		)
+		mw.statusBarIndicatorsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
+			container.NewGridWrap(statusBarIconBoxSize, mw.backupIcon),
+			container.NewGridWrap(statusBarIconBoxSize, mw.cdromIcon),
+			container.NewGridWrap(statusBarIconBoxSize, mw.gamepadIcon),
+			container.NewGridWrap(statusBarIconBoxSize, mw.snapshotIcon),
+		)
+		mw.statusBarIndicatorsDivider = newStatusBarDivider()
+		mw.statusBarIndicatorsDivider.Hide()
+		mw.statusPanel = container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4},
+			mw.statusBarButtonsGroup,
+			mw.statusBarIndicatorsDivider,
+			mw.statusBarIndicatorsGroup,
+		)
+	} else {
+		mw.statusPanel = container.NewHBox()
+	}
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
 	mw.deviceMountBtn = mountBtn
 	mw.deviceUnmountBtn = unmountBtn
@@ -1583,22 +1588,20 @@ func (mw *MainWindow) updateStatusBar() {
 func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming bool) {
 	fyne.Do(func() {
 		if mw.keyboardIcon != nil {
-			if keyboardConnected {
-				mw.keyboardIcon.SetIcon(assets.KeyboardIconStatusBar)
-				mw.keyboardIcon.Show()
+			if useMobileControl() {
+				mw.keyboardIcon.Hide()
 			} else {
 				mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
-				mw.keyboardIcon.Hide()
+				mw.keyboardIcon.Show()
 			}
 			mw.keyboardIcon.Refresh()
 		}
 		if mw.mouseIcon != nil {
-			if mouseConnected {
-				mw.mouseIcon.SetIcon(assets.MouseIconStatusBar)
-				mw.mouseIcon.Show()
+			if useMobileControl() {
+				mw.mouseIcon.Hide()
 			} else {
 				mw.mouseIcon.SetIcon(assets.MouseIcon)
-				mw.mouseIcon.Hide()
+				mw.mouseIcon.Show()
 			}
 			mw.mouseIcon.Refresh()
 		}
@@ -1612,11 +1615,39 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.videoIcon.Refresh()
 		}
+		if mw.footerVideoSettingsIcon != nil {
+			if videoStreaming && !useMobileControl() {
+				mw.footerVideoSettingsIcon.Show()
+			} else {
+				mw.footerVideoSettingsIcon.Hide()
+			}
+			mw.footerVideoSettingsIcon.Refresh()
+		}
 		if mw.videoStatusGroup != nil {
 			if videoStreaming {
 				mw.videoStatusGroup.Show()
 			} else {
 				mw.videoStatusGroup.Hide()
+			}
+		}
+		if videoStreaming {
+			if !mw.videoMonitorChipLoaded {
+				mw.videoMonitorChipLoaded = true
+				mw.scheduleVideoMonitorChipRefresh()
+			}
+		} else {
+			mw.videoMonitorChipLoaded = false
+			if mw.videoMonitorBtn != nil {
+				mw.videoMonitorBtn.Hide()
+			}
+			if mw.videoMonitorDot != nil {
+				mw.videoMonitorDot.Hide()
+			}
+			if mw.videoMonitorText != nil {
+				mw.videoMonitorText.Hide()
+			}
+			if mw.mobileMonitorBtn != nil {
+				mw.mobileMonitorBtn.Hide()
 			}
 		}
 		if mw.fullscreenIcon != nil {
@@ -1659,9 +1690,27 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.mobileNetGraphSettingsBtn.Refresh()
 		}
+		if mw.mobileFooterGraphDivider != nil {
+			if videoStreaming && mw.mobileNetGraphBtn != nil {
+				mw.mobileFooterGraphDivider.Show()
+			} else {
+				mw.mobileFooterGraphDivider.Hide()
+			}
+		}
+		if mw.controlFooterGraphDivider != nil {
+			if videoStreaming && !useMobileControl() {
+				mw.controlFooterGraphDivider.Show()
+			} else {
+				mw.controlFooterGraphDivider.Hide()
+			}
+		}
 		if mw.audioIcon != nil {
 			if audioStreaming {
-				mw.audioIcon.SetIcon(assets.AudioIconStatusBar)
+				if useMobileControl() {
+					mw.audioIcon.SetIcon(assets.AudioIconStatusBar)
+				} else {
+					mw.audioIcon.SetIcon(assets.AudioIcon)
+				}
 				mw.audioIcon.Show()
 			} else {
 				mw.audioIcon.SetIcon(assets.AudioIcon)
@@ -1679,7 +1728,11 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.rndisIcon != nil {
 			if rndisConnected {
-				mw.rndisIcon.SetIcon(assets.NetworkIconStatusBar)
+				if useMobileControl() {
+					mw.rndisIcon.SetIcon(assets.NetworkIconStatusBar)
+				} else {
+					mw.rndisIcon.SetIcon(assets.NetworkIcon)
+				}
 				mw.rndisIcon.Show()
 			} else {
 				mw.rndisIcon.SetIcon(assets.NetworkIcon)
@@ -1715,6 +1768,9 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		mw.syncStatusBarDividers()
 		if mw.statusPanel != nil {
 			mw.statusPanel.Refresh()
+		}
+		if mw.controlFooterActions != nil {
+			mw.controlFooterActions.Refresh()
 		}
 		if mw.mainExitBtn != nil {
 			mw.mainExitBtn.SetText(connectionProtocolLabel(mw.connectedProtocol))
@@ -1817,7 +1873,7 @@ func (mw *MainWindow) showAudioMenu() {
 		},
 	}
 
-	view.ShowStyledMenuTeal(mw.audioIcon, items)
+	view.ShowStyledMenuTealAbove(mw.audioIcon, items)
 }
 
 func (mw *MainWindow) isAudioMuted() bool {
@@ -1936,7 +1992,7 @@ func (mw *MainWindow) showMouseModeMenuAt(anchor fyne.CanvasObject) {
 		view.ShowMobileStyledMenuAbove(anchor, items)
 		return
 	}
-	view.ShowStyledMenuTeal(anchor, items)
+	view.ShowStyledMenuTealAbove(anchor, items)
 }
 
 func (mw *MainWindow) showRNDISModeMenu() {
@@ -1976,7 +2032,7 @@ func (mw *MainWindow) showRNDISModeMenu() {
 		},
 	}
 
-	view.ShowStyledMenuTeal(mw.rndisIcon, items)
+	view.ShowStyledMenuTealAbove(mw.rndisIcon, items)
 }
 
 func (mw *MainWindow) showScriptRunningMenu() {
@@ -2008,7 +2064,7 @@ func (mw *MainWindow) showScriptRunningMenu() {
 		},
 	}
 
-	view.ShowStyledMenu(mw.scriptIcon, items)
+	view.ShowStyledMenuAbove(mw.scriptIcon, items)
 }
 
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {

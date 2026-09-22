@@ -206,8 +206,8 @@ func (dw *DiskWidget) handleDeleteVirtualDisplay(id string) {
 		return
 	}
 
-	view.ShowConfirmYesLeft("Delete Virtual Display", "Are you sure you want to remove this virtual display?", func(b bool) {
-		if !b {
+	view.ShowConfirmToast(i18n.Current.DeleteVirtualDisplayConfirm, func(ok bool) {
+		if !ok {
 			return
 		}
 

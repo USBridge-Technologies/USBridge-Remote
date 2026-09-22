@@ -228,7 +228,13 @@ func newScriptsNewButtons(data ScriptsSectionData) fyne.CanvasObject {
 	}
 	emmc := newScriptsCreateButton(emmcLabel, data.OnNewEMMC, data.NewEnabled)
 	sd := newScriptsCreateButton(sdLabel, data.OnNewSD, data.NewEnabled)
-	row := container.New(&DeviceRowControlsLayout{Gap: 4}, emmc, sd)
+	gap := float32(4)
+	inset := float32(3)
+	if IsMobile() {
+		gap = 3
+		inset = 2
+	}
+	row := container.New(&DeviceRowControlsLayout{Gap: gap}, emmc, sd)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 	bg.CornerRadius = 8
@@ -240,7 +246,7 @@ func newScriptsNewButtons(data ScriptsSectionData) fyne.CanvasObject {
 		bg.FillColor = design.ColorSurfaceLight
 		border.StrokeColor = color.Transparent
 	}
-	return container.NewStack(bg, border, NewInsetExact(row, 3, 3, 3, 3))
+	return container.NewStack(bg, border, NewInsetExact(row, inset, inset, inset, inset))
 }
 
 func newScriptsCreateButton(label string, onTap func(), enabled bool) *iconChromeButton {
@@ -248,18 +254,29 @@ func newScriptsCreateButton(label string, onTap func(), enabled bool) *iconChrom
 	plusIcon := fyne.NewStaticResource("scripts-new-"+label+".svg", []byte(plusSVG))
 	plusIdle := fyne.NewStaticResource("scripts-new-idle-"+label+".svg", []byte(
 		`<svg viewBox="0 0 24 24" fill="#8f9381"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`))
+	labelSize := float32(9)
+	iconSize := fyne.NewSize(12, 12)
+	btnH := float32(24)
+	padX := float32(0)
+	if IsMobile() {
+		labelSize = 9
+		iconSize = fyne.NewSize(12, 12)
+		btnH = 26
+		padX = 6
+	}
 	spec := iconChromeButtonSpec{
 		NormalFill:         design.ColorConnectionAddFill,
 		HoverFill:          design.ColorConnectionAddFillHover,
 		DisabledFill:       connectionActionBlockedFill,
 		Stroke:             color.Transparent,
 		LabelColor:         color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff},
-		LabelSize:          9,
+		LabelSize:          labelSize,
 		LabelBold:          true,
+		LabelPadX:          padX,
 		NormalIcon:         plusIcon,
 		HoverIcon:          plusIcon,
-		IconSize:           fyne.NewSize(12, 12),
-		ButtonSize:         fyne.NewSize(0, 24),
+		IconSize:           iconSize,
+		ButtonSize:         fyne.NewSize(0, btnH),
 		OnTapped:           onTap,
 		MuteDisabledVisual: false,
 		CornerRadius:       6,
