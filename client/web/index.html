@@ -313,7 +313,14 @@
         filters: [
           { usagePage: 0x01, usage: 0x05 }, // Generic Desktop / Gamepad
           { usagePage: 0x01, usage: 0x04 }, // Generic Desktop / Joystick
-          { usagePage: 0x0D, usage: 0x02 }, // Digitizer / Pen (Wacom tablets)
+          // Whole Digitizer page, not just usage 0x02 (Pen): Wacom tablets
+          // vary which specific Digitizer usage (Pen/Light Pen/Touch
+          // Screen/Touch Pad/...) their top-level collection declares, and
+          // pen_capture_wasm.go's own ListPenTablets already matches the
+          // whole page rather than one usage for the same reason -- this
+          // filter narrowing to just 0x02 was stricter than that and hid
+          // devices ListPenTablets would otherwise have found.
+          { usagePage: 0x0D },
         ],
       }).then(function (devices) {
         devices.forEach(function (device) {
