@@ -255,6 +255,12 @@ func (dw *DiskWidget) combineDrives() {
 	oldRNDISMode := "auto"
 	oldGamepadMode := "" // "" = not chosen; resolved per agent by effectiveGamepadMode
 	oldUSBAudioMode := "uac1"
+	// oldPenMounted preserves a locally-captured pen tablet's toggle state
+	// across the rebuild below -- there is no agent-reported "mounted"
+	// signal for this source the way gamepad/keyboard/mouse have (see
+	// disk_widget_pen.go's newPenTabletToggle doc comment), so it has to be
+	// carried over by hand like oldGamepadMode is.
+	oldPenMounted := make(map[string]bool)
 	for i, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
 			oldMouseType = d.MouseType
@@ -264,6 +270,9 @@ func (dw *DiskWidget) combineDrives() {
 		}
 		if d.IsGamepad && d.GamepadMode != "" {
 			oldGamepadMode = d.GamepadMode
+		}
+		if d.IsPenTablet && d.PenTabletID != "" {
+			oldPenMounted[d.PenTabletID] = d.IsMounted
 		}
 		if d.IsUSBAudio && d.USBAudioMode != "" {
 			oldUSBAudioMode = d.USBAudioMode
@@ -467,7 +476,7 @@ func (dw *DiskWidget) combineDrives() {
 			Name:        tab.Name,
 			Size:        "N/A",
 			Source:      "pen",
-			IsMounted:   false,
+			IsMounted:   oldPenMounted[tab.ID],
 			IsPenTablet: true,
 			PenTabletID: tab.ID,
 		}

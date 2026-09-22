@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/platform"
 
 	"github.com/sirupsen/logrus"
@@ -19,21 +20,24 @@ type penCaptureHandle interface {
 	Stop()
 }
 
-// syncPenCaptures compares currently connected Wacom-family pen tablets
-// against the set of active captures and starts/stops captures accordingly.
-// Unlike syncGamepadCaptures, there is no "mount" step here — a pen tablet
-// forwards the instant it's plugged in (and, on the semantic-Moonlight
-// platforms, once a Moonlight session is active), the same way built-in
-// keyboard/mouse capture already works.
+// syncPenCaptures compares the set of currently mounted pen tablet drives
+// (a row's toggle, same as syncGamepadCaptures/keyboard/mouse) against the
+// set of active captures and starts/stops captures accordingly.
 func (dw *DiskWidget) syncPenCaptures() {
 	if dw.activePenCaptures == nil {
 		dw.activePenCaptures = make(map[string]penCaptureHandle)
 	}
 
-	tablets := platform.ListPenTablets()
-	wanted := make(map[string]bool, len(tablets))
-	for _, t := range tablets {
-		wanted[t.ID] = true
+	byID := make(map[string]platform.PenTabletInfo)
+	for _, t := range platform.ListPenTablets() {
+		byID[t.ID] = t
+	}
+
+	wanted := make(map[string]bool)
+	for _, d := range dw.allDrives {
+		if d.IsPenTablet && d.IsMounted && d.PenTabletID != "" {
+			wanted[d.PenTabletID] = true
+		}
 	}
 
 	for id, cap := range dw.activePenCaptures {
@@ -44,9 +48,13 @@ func (dw *DiskWidget) syncPenCaptures() {
 		}
 	}
 
-	for _, t := range tablets {
-		if _, ok := dw.activePenCaptures[t.ID]; ok {
+	for id := range wanted {
+		if _, ok := dw.activePenCaptures[id]; ok {
 			continue
+		}
+		t, ok := byID[id]
+		if !ok {
+			continue // mounted but no longer connected -- next poll will unmount it
 		}
 		logrus.Infof("🖊️ [PEN] starting capture for %s (%s, vid=%04x pid=%04x)", t.ID, t.Name, t.VID, t.PID)
 		cap, err := dw.startPenCaptureRecovered(t)
@@ -56,6 +64,30 @@ func (dw *DiskWidget) syncPenCaptures() {
 		}
 		dw.activePenCaptures[t.ID] = cap
 	}
+}
+
+// newPenTabletToggle is IsPenTablet's own on/off switch -- unlike
+// newDriveToggle (used by every other HID row, keyboard/mouse/gamepad/the
+// real-hardware Wacom passthrough row), it does not go through
+// toggleDriveMount/handleMount's agent RPC dispatch at all: those rows'
+// IsMounted comes back from the agent's own device-status report
+// (mountedDevices, see disk_widget_data.go's combineDrives), which has no
+// equivalent for a tablet this client captures locally itself (macOS's
+// IOKit tap, or a WebHID grant) -- there is nothing for the agent to
+// report, since the agent never chose to start anything. Flipping
+// IsMounted locally and re-running syncPenCaptures directly is the whole
+// mount step for this source.
+func (dw *DiskWidget) newPenTabletToggle(idx int, drive DriveItem, cardHover func(bool)) *view.DeviceToggle {
+	t := view.NewDeviceToggle(drive.IsMounted, func(on bool) {
+		if idx < 0 || idx >= len(dw.allDrives) {
+			return
+		}
+		dw.allDrives[idx].IsMounted = on
+		dw.syncPenCaptures()
+	})
+	t.OnHover = cardHover
+	t.SetEnabled(!dw.controlsLocked())
+	return t
 }
 
 // startPenCaptureRecovered wraps startPenCapture (native OS capture, or a
