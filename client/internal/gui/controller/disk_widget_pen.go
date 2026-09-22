@@ -20,9 +20,28 @@ type penCaptureHandle interface {
 	Stop()
 }
 
+// pendingPenCapture is a placeholder dw.activePenCaptures holds for a
+// tablet whose attach is still in flight on a background goroutine (see
+// syncPenCaptures) -- its only job is to make that tablet id look "already
+// handled" to a second, concurrent syncPenCaptures call (the periodic
+// poll's own combineDrives can run at any time, including while a toggle's
+// own attach is still connecting), so the id never gets attached twice.
+// Stop is a no-op: there is nothing to tear down yet, the real handle
+// replaces this the moment the attach finishes (see the goroutine below).
+type pendingPenCapture struct{}
+
+func (pendingPenCapture) Stop() {}
+
 // syncPenCaptures compares the set of currently mounted pen tablet drives
 // (a row's toggle, same as syncGamepadCaptures/keyboard/mouse) against the
-// set of active captures and starts/stops captures accordingly.
+// set of active captures and starts/stops captures accordingly. Must be
+// called from the Fyne UI goroutine (dw.allDrives/dw.activePenCaptures
+// access has no lock of its own) -- the actual attach, which blocks on real
+// network I/O (AttachBrowserPen's HTTP POST plus two WebSocket dials),
+// always happens on its own background goroutine instead (see below),
+// never here: confirmed live that running it synchronously from a
+// Tapped() handler corrupts Fyne's threading model the moment that I/O
+// parks and later resumes off Fyne's own event loop.
 func (dw *DiskWidget) syncPenCaptures() {
 	if dw.activePenCaptures == nil {
 		dw.activePenCaptures = make(map[string]penCaptureHandle)
@@ -50,20 +69,45 @@ func (dw *DiskWidget) syncPenCaptures() {
 
 	for id := range wanted {
 		if _, ok := dw.activePenCaptures[id]; ok {
-			continue
+			continue // already active, or already connecting (pendingPenCapture)
 		}
 		t, ok := byID[id]
 		if !ok {
 			continue // mounted but no longer connected -- next poll will unmount it
 		}
 		logrus.Infof("🖊️ [PEN] starting capture for %s (%s, vid=%04x pid=%04x)", t.ID, t.Name, t.VID, t.PID)
-		cap, err := dw.startPenCaptureRecovered(t)
+		dw.activePenCaptures[t.ID] = pendingPenCapture{}
+		go dw.attachPenCapture(t)
+	}
+}
+
+// attachPenCapture runs one tablet's attach (startPenCaptureRecovered,
+// which blocks on real network I/O) off the Fyne thread and writes the
+// result back through updateUIAsync/fyne.Do, the only place that touches
+// dw.activePenCaptures again. If the tablet was toggled off (or its
+// pendingPenCapture placeholder is gone for any other reason) by the time
+// the attach finishes, the freshly-opened capture is stopped immediately
+// instead of being adopted -- otherwise it would leak, tracked by nothing.
+func (dw *DiskWidget) attachPenCapture(t platform.PenTabletInfo) {
+	cap, err := dw.startPenCaptureRecovered(t)
+	dw.updateUIAsync(func() {
+		cur, stillPending := dw.activePenCaptures[t.ID]
+		if !stillPending {
+			if err == nil && cap != nil {
+				cap.Stop()
+			}
+			return
+		}
+		if _, isPlaceholder := cur.(pendingPenCapture); !isPlaceholder {
+			return
+		}
 		if err != nil {
 			logrus.Warnf("🖊️ [PEN] capture failed for %s: %v", t.ID, err)
-			continue
+			delete(dw.activePenCaptures, t.ID)
+			return
 		}
 		dw.activePenCaptures[t.ID] = cap
-	}
+	})
 }
 
 // newPenTabletToggle is IsPenTablet's own on/off switch -- unlike
@@ -83,19 +127,15 @@ func (dw *DiskWidget) newPenTabletToggle(idx int, drive DriveItem, cardHover fun
 			return
 		}
 		dw.allDrives[idx].IsMounted = on
-		// syncPenCaptures's own attach (AttachBrowserPen -> an HTTP POST
-		// plus two WebSocket dials) blocks on real network I/O. Confirmed
-		// live: calling it synchronously from here -- Tapped() itself runs
-		// on Fyne's own dispatch thread -- corrupts Fyne's threading model
-		// the moment that I/O parks and later resumes the goroutine from a
-		// JS Promise callback instead of Fyne's own loop ("*** Error in
-		// Fyne call thread, this should have been called in fyne.Do ***",
-		// followed by a "call to released function" panic and the capture
-		// immediately stopping again). A plain background goroutine avoids
-		// ever starting this chain on the Fyne thread at all, same as
-		// every agent-mount path already does via handleMount's own
-		// `go func() {...}()` wrapping (see disk_widget_mount.go).
-		go dw.syncPenCaptures()
+		// syncPenCaptures itself is cheap (no I/O) -- it only ever queues a
+		// pendingPenCapture placeholder and spawns attachPenCapture, which
+		// does the actual blocking network I/O (AttachBrowserPen's HTTP
+		// POST plus two WebSocket dials) off the Fyne thread. Confirmed
+		// live that running that I/O synchronously from here -- Tapped()
+		// itself runs on Fyne's own dispatch thread -- corrupts Fyne's
+		// threading model the moment it parks and later resumes off Fyne's
+		// own event loop, so syncPenCaptures must never do it directly.
+		dw.syncPenCaptures()
 	})
 	t.OnHover = cardHover
 	t.SetEnabled(!dw.controlsLocked())
