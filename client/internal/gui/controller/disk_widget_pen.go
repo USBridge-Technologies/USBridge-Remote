@@ -83,7 +83,19 @@ func (dw *DiskWidget) newPenTabletToggle(idx int, drive DriveItem, cardHover fun
 			return
 		}
 		dw.allDrives[idx].IsMounted = on
-		dw.syncPenCaptures()
+		// syncPenCaptures's own attach (AttachBrowserPen -> an HTTP POST
+		// plus two WebSocket dials) blocks on real network I/O. Confirmed
+		// live: calling it synchronously from here -- Tapped() itself runs
+		// on Fyne's own dispatch thread -- corrupts Fyne's threading model
+		// the moment that I/O parks and later resumes the goroutine from a
+		// JS Promise callback instead of Fyne's own loop ("*** Error in
+		// Fyne call thread, this should have been called in fyne.Do ***",
+		// followed by a "call to released function" panic and the capture
+		// immediately stopping again). A plain background goroutine avoids
+		// ever starting this chain on the Fyne thread at all, same as
+		// every agent-mount path already does via handleMount's own
+		// `go func() {...}()` wrapping (see disk_widget_mount.go).
+		go dw.syncPenCaptures()
 	})
 	t.OnHover = cardHover
 	t.SetEnabled(!dw.controlsLocked())
