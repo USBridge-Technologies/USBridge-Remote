@@ -458,6 +458,22 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, gamepadItem)
 	}
 
+	// Add pen tablets captured locally (macOS: IOKit; web build: a WebHID
+	// grant) -- distinct from a real tablet forwarded raw from the agent's
+	// own machine (drive.IsUSBPassthrough && isWacomTablet, see
+	// disk_widget_dashboard.go).
+	for _, tab := range dw.penTablets {
+		penItem := DriveItem{
+			Name:        tab.Name,
+			Size:        "N/A",
+			Source:      "pen",
+			IsMounted:   false,
+			IsPenTablet: true,
+			PenTabletID: tab.ID,
+		}
+		dw.allDrives = append(dw.allDrives, penItem)
+	}
+
 	// Add audio capture devices
 	for i := range dw.audioDevices {
 		device := dw.audioDevices[i]
@@ -549,6 +565,17 @@ func (dw *DiskWidget) loadGamepadDevices() {
 	logrus.Infof("🎮 gamepads found: %d %v", len(gamepads), ids)
 	dw.updateUIAsync(func() {
 		dw.gamepadDevices = gamepads
+		dw.scheduleCombine()
+	})
+}
+
+// loadPenTabletDevices refreshes the pen tablet list (platform.ListPenTablets --
+// macOS's own IOKit tap, or a WebHID grant on the web build) and rebuilds the
+// device list, same pattern as loadGamepadDevices.
+func (dw *DiskWidget) loadPenTabletDevices() {
+	tablets := platform.ListPenTablets()
+	dw.updateUIAsync(func() {
+		dw.penTablets = tablets
 		dw.scheduleCombine()
 	})
 }

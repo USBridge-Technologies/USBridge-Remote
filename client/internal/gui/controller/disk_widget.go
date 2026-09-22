@@ -153,6 +153,7 @@ type DiskWidget struct {
 	videoDevices   []models.SystemDevice
 	audioDevices   []models.SystemDevice
 	gamepadDevices []platform.GamepadDevice
+	penTablets     []platform.PenTabletInfo
 	usbPassDevices []models.USBPassthroughDevice
 	// usbPassSessions is the latest /api/usb/passthrough/status Sessions
 	// list from the agent (e.g. "24A9:205A 2-3"). Used with
@@ -365,6 +366,14 @@ type DriveItem struct {
 	GamepadMode      string
 	GamepadVendorID  string
 	GamepadProductID string
+	// IsPenTablet/PenTabletID identify a platform.ListPenTablets() row (see
+	// disk_widget_data.go's loadPenTabletDevices) -- distinct from
+	// IsUSBPassthrough's own isWacomTablet case, which is a real tablet
+	// attached to the *agent's* machine and forwarded raw, not one this
+	// client itself captures (macOS IOKit natively, or WebHID on the web
+	// build).
+	IsPenTablet      bool
+	PenTabletID      string
 	IsAudio          bool
 	AudioDevice      *models.SystemDevice
 	IsUSBAudio       bool
@@ -425,9 +434,44 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 	dw.startPeriodicRefresh()
 	go dw.loadGamepadDevices()
 	dw.startBrowserGamepadPolling()
+	go dw.loadPenTabletDevices()
+	dw.startPenTabletPolling()
 	go dw.loadUSBPassthroughDevices()
 
 	return dw
+}
+
+// penTabletPollInterval matches browserGamepadPollInterval's own reasoning:
+// platform.ListPenTablets() (macOS's IOKit enumeration, or the web build's
+// WebHID grant list) can change at any time with no refresh trigger of its
+// own -- a tablet plugged in mid-session, or a WebHID grant completing after
+// the user picks it from the browser's own device chooser -- so this polls
+// instead of only refreshing on an explicit Refresh click or a mount/unmount
+// round-trip.
+const penTabletPollInterval = 1 * time.Second
+
+// startPenTabletPolling runs loadPenTabletDevices on a short ticker for the
+// lifetime of the widget, same shutdown signal (dw.refreshStop) and busy
+// guard (dw.isClosing) startBrowserGamepadPolling's own ticker goroutine
+// uses. Unlike that one, this needs no per-platform stub: ListPenTablets
+// itself is already a no-op returning nil on platforms with no pen support
+// (pen_capture_stub.go), so polling it everywhere is harmless.
+func (dw *DiskWidget) startPenTabletPolling() {
+	go func() {
+		ticker := time.NewTicker(penTabletPollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-dw.refreshStop:
+				return
+			case <-ticker.C:
+				if dw.isClosing.Load() {
+					continue
+				}
+				dw.loadPenTabletDevices()
+			}
+		}
+	}()
 }
 
 // SetWindow sets the window used for dialogs

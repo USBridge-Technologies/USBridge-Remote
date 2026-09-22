@@ -414,7 +414,7 @@ func (dw *DiskWidget) refreshDashboard() {
 				dw.newDashboardConnectSlot(idx, drive, dw.dashboardBackupHover),
 				nil, dw.dashboardBackupChips(drive.Size)...,
 			))
-		case drive.IsUSBPassthrough && isWacomTablet(drive):
+		case drive.IsUSBPassthrough && isWacomTablet(drive), drive.IsPenTablet:
 			hidTablets = append(hidTablets, hidDrive{idx: idx, drive: drive})
 		case drive.IsUSBPassthrough:
 			emulationRows = append(emulationRows, view.NewDeviceDashboardStorageRow(
@@ -480,16 +480,29 @@ func (dw *DiskWidget) refreshDashboard() {
 		))
 	}
 
-	// Pen tablets sit with the other input devices: switching one on exports it
-	// to the host as the original USB tablet (its own driver binds to it).
+	// Pen tablets sit with the other input devices. A real tablet forwarded
+	// raw from the agent's own machine (IsUSBPassthrough) still switches on
+	// with a toggle -- mounting exports it to the host as the original USB
+	// tablet. One this client itself captures locally (IsPenTablet: macOS's
+	// IOKit tap, or a WebHID grant) has no such mount step -- it forwards
+	// the instant it's connected, same as syncPenCaptures's own doc comment
+	// says keyboard/mouse do -- so it gets a plain status row instead of a
+	// toggle wired to a mount RPC that doesn't exist for this source.
 	for _, tab := range hidTablets {
+		name := strings.TrimSpace(dw.deviceRowText(tab.drive))
+		if tab.drive.IsPenTablet {
+			hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
+				driveIconResource(tab.drive), name, true,
+			))
+			continue
+		}
 		toggle := dw.newDriveToggle(tab.idx, tab.drive, dw.dashboardHIDHover)
 		if tab.drive.USBPassthrough != nil && tab.drive.USBPassthrough.Protected && !tab.drive.IsMounted {
 			toggle.SetEnabled(false)
 		}
 		hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
 			driveIconResource(tab.drive),
-			strings.TrimSpace(dw.deviceRowText(tab.drive)),
+			name,
 			tab.drive.IsMounted,
 			toggle,
 		))
