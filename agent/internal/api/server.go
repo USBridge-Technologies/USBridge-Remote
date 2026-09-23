@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"regexp"
 	"strings"
@@ -229,7 +230,20 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/usb/passthrough/browser-gamepad", s.usbPassthroughBrowserGamepad)
 	mux.HandleFunc("/api/usb/passthrough/browser-pen", s.usbPassthroughBrowserPen)
 
+	// Proxy /webrtc/* requests to rustshine's native WebRTC signaling listener (port 8444)
+	mux.HandleFunc("/webrtc/", s.webrtcProxy)
+
 	return s.withCORS(s.withLogging(s.withRecovery(mux)))
+}
+
+func (s *Server) webrtcProxy(w http.ResponseWriter, r *http.Request) {
+	target, err := url.Parse("http://127.0.0.1:8444")
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ServeHTTP(w, r)
 }
 
 // withCORS lets the browser/WASM web client (served from its own origin —

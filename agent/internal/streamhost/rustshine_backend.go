@@ -616,6 +616,9 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	// not "authenticate against an empty secret". Read directly (not via
 	// SetSharedSecret's own locking) -- Start already holds b.mu for its
 	// whole duration, see the top of this function.
+	const rustshineWebRTCPort = 8444
+	args = append(args, "--webrtc-port", strconv.Itoa(rustshineWebRTCPort))
+
 	if len(b.sharedSecret) > 0 {
 		args = append(args, "--webrtc-shared-secret", string(b.sharedSecret))
 	}
