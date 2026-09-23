@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,6 +31,7 @@ import (
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/devicecert"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/input"
@@ -37,6 +40,7 @@ import (
 	"usbridge_agent/internal/sasinput"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
+	"usbridge_agent/internal/tlshost"
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/update"
@@ -65,6 +69,8 @@ type App struct {
 	tsProxy   *tailscale.StreamProxy
 	server    *http.Server
 	tsHTTP    *http.Server
+	tlsServer *http.Server
+	tlsMgr    *tlshost.Manager
 	handler   http.Handler
 	apiServer *api.Server
 	fyneApp   fyne.App
@@ -599,6 +605,14 @@ func New() (*App, error) {
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	instance.tlsMgr = tlshost.NewManager(filepath.Join(cfg.StateDir, "web-tls"))
+	instance.tlsMgr.LoadPersisted()
+	instance.tlsServer = &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.TLSPort),
+		Handler:           handler,
+		TLSConfig:         &tls.Config{GetCertificate: instance.tlsMgr.GetCertificate, MinVersion: tls.VersionTLS12},
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	instance.refreshLocalEntitlementStatus()
 	if cfg.AccountToken != "" {
 		instance.accStatus.LoggedIn = true
@@ -762,6 +776,21 @@ func (a *App) Run(headless, startHidden bool) error {
 	go a.streamerUpdateWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
+	// Self-signed baseline generated synchronously, before the TLS listener
+	// starts accepting -- deviceCertWatchdog's first tick (below) then
+	// upgrades to the shared device wildcard cert once the backend round
+	// trip completes, but a self-signed fallback must already exist so the
+	// very first TLS handshake (offline, or before that tick lands) doesn't
+	// hit tlshost.Manager's "no certificate available yet" error.
+	selfSignedIPs := []net.IP{net.ParseIP("127.0.0.1")}
+	if ip := net.ParseIP(netutil.PreferredIPv4()); ip != nil {
+		selfSignedIPs = append(selfSignedIPs, ip)
+	}
+	if err := a.tlsMgr.EnsureSelfSigned(selfSignedIPs, nil); err != nil {
+		log.Printf("[app] self-signed TLS cert unavailable: %v", err)
+	}
+	go func() { _ = a.tlsServer.ListenAndServeTLS("", "") }()
+	go a.deviceCertWatchdog(ctx)
 	if a.usbBroker != nil {
 		if err := a.usbBroker.Start(); err != nil {
 			log.Printf("[usbpass] broker not started: %v", err)
@@ -2205,6 +2234,82 @@ func (a *App) tickStreamerUpdate(ctx context.Context) {
 		return
 	}
 	a.checkRustShineUpdate(ctx, token)
+}
+
+// deviceCertRegisterInterval is how often deviceCertWatchdog re-registers
+// this machine's current LAN IP with the backend (see internal/devicecert)
+// -- frequent enough that a DHCP lease change is picked up promptly (a
+// stale DNS record just means the browser web client can't reach this
+// agent by its device.usbridge.io hostname until the next tick, nothing
+// more serious), cheap enough (a single Cloudflare-API-backed Worker call)
+// not to matter at this cadence.
+const deviceCertRegisterInterval = 5 * time.Minute
+
+// deviceCertWatchdog keeps this machine's <label>.device.usbridge.io DNS
+// record and shared wildcard TLS cert (see internal/tlshost,
+// internal/devicecert) up to date -- what lets the browser-based web
+// client (client/web, loaded from https://web.usbridge.io) reach this
+// agent's HTTPS listener (a.tlsServer) at all; see tlshost's own module
+// doc comment for why a plain-HTTP or self-signed-HTTPS origin can't work
+// for that caller. Fires once immediately (mirrors streamerUpdateWatchdog)
+// so a freshly started agent gets a real hostname/cert without waiting a
+// full interval.
+func (a *App) deviceCertWatchdog(ctx context.Context) {
+	a.tickDeviceCert(ctx)
+	ticker := time.NewTicker(deviceCertRegisterInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.tickDeviceCert(ctx)
+		}
+	}
+}
+
+// tickDeviceCert registers this machine's current LAN IP, then -- only if
+// the hostname changed or the installed device cert is missing/expiring
+// soon (tlshost.Manager.DeviceCertStatus, a cheap in-memory check) --
+// fetches and installs a fresh cert. The common case is register-only: no
+// cert fetch, since the shared wildcard cert changes far less often than
+// this ticks. Best-effort throughout: any failure here just leaves the
+// self-signed fallback (or whatever device cert is already installed) in
+// place until the next tick, never blocks or crashes the agent.
+func (a *App) tickDeviceCert(ctx context.Context) {
+	hwID, err := hwid.Get()
+	if err != nil {
+		log.Printf("[app] device-cert: hwid unavailable: %v", err)
+		return
+	}
+	ip := netutil.PreferredIPv4()
+	if ip == "" {
+		return // no LAN interface up yet (e.g. still booting) -- next tick retries
+	}
+
+	regCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	hostname, err := devicecert.RegisterIP(regCtx, hwID, ip)
+	cancel()
+	if err != nil {
+		log.Printf("[app] device-cert: register IP failed: %v", err)
+		return
+	}
+
+	currentHostname, needsRefresh := a.tlsMgr.DeviceCertStatus()
+	if currentHostname == hostname && !needsRefresh {
+		return
+	}
+
+	certCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	cert, err := devicecert.FetchCert(certCtx, hwID)
+	cancel()
+	if err != nil {
+		log.Printf("[app] device-cert: fetch cert failed: %v", err)
+		return
+	}
+	if err := a.tlsMgr.InstallDeviceCert(hostname, cert.CertPEM, cert.KeyPEM); err != nil {
+		log.Printf("[app] device-cert: install cert failed: %v", err)
+	}
 }
 
 // recheckEntitlement re-verifies whatever's currently cached in
