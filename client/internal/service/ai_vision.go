@@ -234,6 +234,7 @@ func maybeKickIconDetection(rgba []byte, w, h, stride int) {
 // slowest loop for no reason: detecting *where* text is doesn't need to
 // wait on reading *what* it says.
 func maybeKickOCR(rgba []byte, w, h, stride int) {
+	return // TEMPORARILY DISABLED FOR TESTING
 	now := time.Now().UnixNano()
 	if now-aiVisionOCRLastRun.Load() < int64(aiVisionOCRInterval) {
 		return
