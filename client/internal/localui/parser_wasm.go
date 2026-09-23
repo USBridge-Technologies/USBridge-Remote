@@ -41,7 +41,21 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
+
+	"github.com/sirupsen/logrus"
 )
+
+// trace is temporary, unconditional (no USBRIDGE_LOCALUI_DEBUG env-var
+// gate -- setting env vars isn't practical mid-session in a browser)
+// per-phase profiling for tracking down a live report of the OCR pass
+// freezing the tab solid, hard enough that even F5 didn't recover it --
+// severe enough to need an exact stuck line from real reproduction
+// instead of guessing further. Left in at Info level (matches ai_vision.go's
+// own logging convention/emoji prefix) until that's resolved; trim once
+// it stops earning its keep.
+func trace(format string, args ...interface{}) {
+	logrus.Infof("🔎 [localui-wasm] "+format, args...)
+}
 
 // wasmYield hands control back to the browser's event loop -- Go's wasm
 // scheduler is cooperative with no OS-level preemption (unlike every
@@ -128,13 +142,21 @@ func dimsToJS(dims []int) js.Value {
 // cost) -> awaited promise -> the raw output Float32Array copied back the
 // same way.
 func (p *Parser) runInference(name string, tensor []float32, dims []int) ([]float32, error) {
+	tStart := time.Now()
+	trace("        runInference(%s, dims=%v): packing %d floats", name, dims, len(tensor))
 	bridge := js.Global().Get("usbridgeAIVision")
 	input := float32sToJS(tensor)
+	trace("        runInference(%s): packed in %v, calling into JS", name, time.Since(tStart))
+	tCall := time.Now()
 	result, err := awaitPromise(bridge.Call("runInference", name, input, dimsToJS(dims)))
 	if err != nil {
+		trace("        runInference(%s): JS call FAILED after %v: %v", name, time.Since(tCall), err)
 		return nil, err
 	}
-	return jsToFloat32s(result), nil
+	trace("        runInference(%s): JS call returned in %v, unpacking", name, time.Since(tCall))
+	out := jsToFloat32s(result)
+	trace("        runInference(%s): TOTAL %v (%d floats out)", name, time.Since(tStart), len(out))
+	return out, nil
 }
 
 // float32sToJS packs data as raw little-endian bytes (WASM/JS are always
@@ -263,61 +285,93 @@ func (p *Parser) ParseStaged(imgBytes []byte, onIcons func(icons []Icon)) (resul
 // parse mirrors parser.go's own parse() exactly -- see that function's doc
 // comment for the full phase-by-phase rationale.
 func (p *Parser) parse(imgBytes []byte, drawMarked bool, onIcons func(icons []Icon), textFilter func(icons []Icon, boxes []Box) []Box, onTextBoxes func(boxes []Box)) (markedPNG []byte, result *Result, err error) {
+	t0 := time.Now()
+	trace("parse: START (%d bytes PNG)", len(imgBytes))
+
+	tDecode := time.Now()
 	original, err := decodeToRGB(imgBytes)
 	if err != nil {
+		trace("parse: decodeToRGB FAILED: %v", err)
 		return nil, nil, fmt.Errorf("decode image: %w", err)
 	}
 	if original.W == 0 || original.H == 0 {
+		trace("parse: decodeToRGB produced empty result")
 		return nil, nil, fmt.Errorf("decode image: empty result")
 	}
+	trace("parse: decodeToRGB done (%dx%d) in %v", original.W, original.H, time.Since(tDecode))
 
 	res := &Result{ImageWidth: original.W, ImageHeight: original.H, Backend: "local-onnx-web"}
 
+	tIcon := time.Now()
 	res.Icons, err = p.runIconStage(original)
 	if err != nil {
+		trace("parse: runIconStage FAILED: %v", err)
 		return nil, nil, err
 	}
+	trace("parse: runIconStage done (%d icons) in %v", len(res.Icons), time.Since(tIcon))
 
 	if onIcons != nil {
 		iconsCopy := append([]Icon(nil), res.Icons...)
 		assignMarkIDs(iconsCopy, nil)
 		onIcons(iconsCopy)
+		trace("parse: onIcons callback fired")
 	}
 
 	tiles := tileRects(original.W, original.H, dbnetMapSize, dbnetTileOverlap)
 	if tiles == nil {
 		tiles = []rect{{X1: 0, Y1: 0, X2: original.W, Y2: original.H}}
 	}
+	trace("parse: %d dbnet tile(s): %v", len(tiles), tiles)
 
+	tDBNet := time.Now()
 	var allTextBoxes []Box
-	for _, t := range tiles {
+	for i, t := range tiles {
+		trace("parse: tile %d/%d START %v", i+1, len(tiles), t)
+		tTile := time.Now()
 		boxes, err := p.detectTextInTile(original, t)
 		if err != nil {
+			trace("parse: tile %d/%d FAILED: %v", i+1, len(tiles), err)
 			return nil, nil, err
 		}
+		trace("parse: tile %d/%d done (%d boxes) in %v", i+1, len(tiles), len(boxes), time.Since(tTile))
 		allTextBoxes = append(allTextBoxes, boxes...)
 	}
+	trace("parse: all tiles done (%d raw boxes) in %v", len(allTextBoxes), time.Since(tDBNet))
+
+	tMerge := time.Now()
 	textBoxes := mergeOverlappingBoxes(allTextBoxes, 0.3)
+	trace("parse: mergeOverlappingBoxes %d -> %d in %v", len(allTextBoxes), len(textBoxes), time.Since(tMerge))
 
 	if textFilter != nil {
+		before := len(textBoxes)
+		tFilter := time.Now()
 		textBoxes = textFilter(res.Icons, textBoxes)
+		trace("parse: textFilter %d -> %d in %v", before, len(textBoxes), time.Since(tFilter))
 	}
 
 	if onTextBoxes != nil {
 		boxesCopy := append([]Box(nil), textBoxes...)
 		onTextBoxes(boxesCopy)
+		trace("parse: onTextBoxes callback fired (%d boxes)", len(boxesCopy))
 	}
 
+	tSVTR := time.Now()
 	res.Text = p.recognizeSVTR(original, textBoxes)
+	trace("parse: recognizeSVTR done (%d texts from %d boxes) in %v", len(res.Text), len(textBoxes), time.Since(tSVTR))
 
+	tAssoc := time.Now()
 	associateLabels(res.Icons, res.Text)
 	assignMarkIDs(res.Icons, res.Text)
 	res.ZoomHints = findZoomHints(res.Icons)
+	trace("parse: associate+mark+zoomhints in %v", time.Since(tAssoc))
 
 	if drawMarked {
+		tDraw := time.Now()
 		markedPNG = drawResultWasm(original, res)
+		trace("parse: drawResultWasm (%d bytes) in %v", len(markedPNG), time.Since(tDraw))
 	}
 
+	trace("parse: TOTAL %v", time.Since(t0))
 	return markedPNG, res, nil
 }
 
@@ -326,32 +380,45 @@ func (p *Parser) parse(imgBytes []byte, drawMarked bool, onIcons func(icons []Ic
 // coordinate un-mapping. No IDs assigned, no labels -- callers number/
 // associate as appropriate (see ParseIconsOnly/parse's onIcons handling).
 func (p *Parser) runIconStage(original *rgbImage) ([]Icon, error) {
+	t := time.Now()
 	letterboxed, meta := letterboxRGB(original, iconInputSize)
 	tensor := letterboxed.toNCHWFloat()
+	trace("  runIconStage: prep done in %v", time.Since(t))
 
+	t = time.Now()
 	raw, err := p.runInference("icon", tensor, []int{1, 3, iconInputSize, iconInputSize})
 	if err != nil {
 		return nil, fmt.Errorf("icon_detect inference: %w", err)
 	}
+	trace("  runIconStage: inference done in %v", time.Since(t))
 
+	t = time.Now()
 	var icons []Icon
 	for _, icon := range decodeYOLO(raw) {
 		icon.Bbox = meta.toOriginal(icon.Bbox)
 		icons = append(icons, icon)
 	}
+	trace("  runIconStage: decodeYOLO done (%d icons) in %v", len(icons), time.Since(t))
 	return icons, nil
 }
 
 // detectTextInTile mirrors parser.go's own exactly.
 func (p *Parser) detectTextInTile(original *rgbImage, t rect) ([]Box, error) {
+	tPrep := time.Now()
 	tileImg, dbLBMeta := prepareDBNetTile(original, t, dbnetMapSize)
+	trace("    detectTextInTile: prepareDBNetTile (CLAHE) done in %v", time.Since(tPrep))
+	tNCHW := time.Now()
 	dbInput := tileImg.toNCHWFloat()
+	trace("    detectTextInTile: toNCHWFloat done in %v", time.Since(tNCHW))
 
+	tInfer := time.Now()
 	dbOut, err := p.runInference("dbnet", dbInput, []int{1, 3, dbnetMapSize, dbnetMapSize})
 	if err != nil {
 		return nil, fmt.Errorf("paddle_dbnet inference: %w", err)
 	}
+	trace("    detectTextInTile: inference done in %v", time.Since(tInfer))
 
+	tDecode := time.Now()
 	var boxes []Box
 	for _, boxLocal := range decodeDBNet(dbOut) {
 		boxTile := dbLBMeta.toOriginal(boxLocal)
@@ -362,36 +429,60 @@ func (p *Parser) detectTextInTile(original *rgbImage, t rect) ([]Box, error) {
 			Y2: boxTile.Y2 + float64(t.Y1),
 		})
 	}
+	trace("    detectTextInTile: decodeDBNet done (%d boxes) in %v", len(boxes), time.Since(tDecode))
 	return boxes, nil
 }
 
 func prepareDBNetTile(original *rgbImage, t rect, size int) (*rgbImage, letterboxMeta) {
+	tCrop := time.Now()
 	crop := original.region(t.X1, t.Y1, t.X2, t.Y2)
+	trace("      prepareDBNetTile: region(%v) -> %dx%d in %v", t, crop.W, crop.H, time.Since(tCrop))
 	if crop.W == size && crop.H == size {
-		return applyGrayCLAHE(crop), letterboxMeta{scale: 1}
+		tClahe := time.Now()
+		out := applyGrayCLAHE(crop)
+		trace("      prepareDBNetTile: applyGrayCLAHE (no letterbox) done in %v", time.Since(tClahe))
+		return out, letterboxMeta{scale: 1}
 	}
+	tLB := time.Now()
 	lb, meta := letterboxRGB(crop, size)
-	return applyGrayCLAHE(lb), meta
+	trace("      prepareDBNetTile: letterboxRGB done in %v", time.Since(tLB))
+	tClahe := time.Now()
+	out := applyGrayCLAHE(lb)
+	trace("      prepareDBNetTile: applyGrayCLAHE done in %v", time.Since(tClahe))
+	return out, meta
 }
 
 // recognizeSVTR is parser.go's batchRecognizeSVTR, minus the batching --
 // see this file's top doc comment for why a JS/wasm boundary doesn't need
 // it the same way cgo's per-call overhead does.
 func (p *Parser) recognizeSVTR(original *rgbImage, textBoxes []Box) []TextRegion {
+	tStart := time.Now()
+	trace("    recognizeSVTR: START, %d text boxes", len(textBoxes))
 	var out []TextRegion
-	for _, box := range textBoxes {
+	for bi, box := range textBoxes {
+		tBox := time.Now()
+		crops := planSVTRCrops(box)
+		trace("    recognizeSVTR: box %d/%d %v -> %d crop(s)", bi+1, len(textBoxes), box, len(crops))
 		var texts []string
 		var confSum float64
-		for _, crop := range planSVTRCrops(box) {
+		for ci, crop := range crops {
+			tCrop := time.Now()
 			cropImg, ok := safeCrop(original, crop)
 			if !ok {
+				trace("      recognizeSVTR: box %d crop %d/%d safeCrop rejected %v", bi+1, ci+1, len(crops), crop)
 				continue
 			}
 			tensor := preprocessSVTRCrop(cropImg)
+			trace("      recognizeSVTR: box %d crop %d/%d prep done (%dx%d crop) in %v", bi+1, ci+1, len(crops), cropImg.W, cropImg.H, time.Since(tCrop))
+
+			tInfer := time.Now()
 			logits, err := p.runInference("svtr", tensor, []int{1, 3, svtrHeight, svtrWidth})
 			if err != nil {
+				trace("      recognizeSVTR: box %d crop %d/%d inference FAILED: %v", bi+1, ci+1, len(crops), err)
 				continue
 			}
+			trace("      recognizeSVTR: box %d crop %d/%d inference done in %v", bi+1, ci+1, len(crops), time.Since(tInfer))
+
 			text, conf := ctcGreedyDecodeSVTR(logits, p.dict)
 			if text == "" {
 				continue
@@ -399,11 +490,13 @@ func (p *Parser) recognizeSVTR(original *rgbImage, textBoxes []Box) []TextRegion
 			texts = append(texts, text)
 			confSum += conf
 		}
+		trace("    recognizeSVTR: box %d/%d done in %v -> %q", bi+1, len(textBoxes), time.Since(tBox), strings.Join(texts, "|"))
 		if len(texts) == 0 {
 			continue
 		}
 		out = append(out, TextRegion{Bbox: box, Text: joinChunks(texts), Confidence: confSum / float64(len(texts))})
 	}
+	trace("    recognizeSVTR: TOTAL %v for %d boxes -> %d recognized", time.Since(tStart), len(textBoxes), len(out))
 	return out
 }
 
@@ -672,6 +765,7 @@ func grayToRGB3(gray []uint8, w, h int) *rgbImage {
 // ---- ported from clahe.go ----
 
 func claheGray(gray []uint8, w, h int, clipLimit float64, tilesX, tilesY int) []uint8 {
+	tStart := time.Now()
 	tileW := (w + tilesX - 1) / tilesX
 	tileH := (h + tilesY - 1) / tilesY
 
@@ -731,12 +825,16 @@ func claheGray(gray []uint8, w, h int, clipLimit float64, tilesX, tilesY int) []
 		}
 	}
 
+	trace("        claheGray: tile histograms done in %v", time.Since(tStart))
+	tInterp := time.Now()
+
 	out := make([]uint8, w*h)
 	centerX := func(tx int) float64 { return float64(tx)*float64(tileW) + float64(tileW)/2 }
 	centerY := func(ty int) float64 { return float64(ty)*float64(tileH) + float64(tileH)/2 }
 
 	for y := 0; y < h; y++ {
 		if y%64 == 0 {
+			trace("        claheGray: interp row %d/%d (+%v)", y, h, time.Since(tInterp))
 			wasmYield()
 		}
 		fy := float64(y)
@@ -788,6 +886,7 @@ func claheGray(gray []uint8, w, h int, clipLimit float64, tilesX, tilesY int) []
 			out[y*w+x] = clampU8(top + (bot-top)*wy)
 		}
 	}
+	trace("        claheGray: interp done in %v (total %v)", time.Since(tInterp), time.Since(tStart))
 	return out
 }
 
@@ -991,18 +1090,46 @@ const (
 
 func decodeDBNet(raw []float32) []Box {
 	if len(raw) != dbnetMapSize*dbnetMapSize {
+		trace("      decodeDBNet: wrong length %d, want %d -- bailing", len(raw), dbnetMapSize*dbnetMapSize)
 		return nil
 	}
 	size := dbnetMapSize
 
+	tMask := time.Now()
 	mask := make([]bool, size*size)
+	var maskTrue int
+	var rawMin, rawMax float32 = raw[0], raw[0]
 	for i, v := range raw {
 		mask[i] = v > dbnetThresh
+		if mask[i] {
+			maskTrue++
+		}
+		if v < rawMin {
+			rawMin = v
+		}
+		if v > rawMax {
+			rawMax = v
+		}
 	}
+	trace("      decodeDBNet: mask built in %v -- %d/%d px true (%.1f%%), raw range [%.4f, %.4f]",
+		time.Since(tMask), maskTrue, size*size, 100*float64(maskTrue)/float64(size*size), rawMin, rawMax)
 
+	tDilate := time.Now()
 	dilated := dilateRect(mask, size, size, 21, 3)
-	boxes := connectedComponentBoxes(dilated, size, size)
+	var dilatedTrue int
+	for _, v := range dilated {
+		if v {
+			dilatedTrue++
+		}
+	}
+	trace("      decodeDBNet: dilateRect done in %v -- %d/%d px true (%.1f%%)",
+		time.Since(tDilate), dilatedTrue, size*size, 100*float64(dilatedTrue)/float64(size*size))
 
+	tCCL := time.Now()
+	boxes := connectedComponentBoxes(dilated, size, size)
+	trace("      decodeDBNet: connectedComponentBoxes done (%d raw blobs) in %v", len(boxes), time.Since(tCCL))
+
+	tFilter := time.Now()
 	var out []Box
 	for _, b := range boxes {
 		bw := float64(b.X2 - b.X1)
@@ -1039,6 +1166,7 @@ func decodeDBNet(raw []float32) []Box {
 		}
 		out = append(out, Box{X1: x1, Y1: y1, X2: x2, Y2: y2})
 	}
+	trace("      decodeDBNet: blob filter %d -> %d boxes in %v", len(boxes), len(out), time.Since(tFilter))
 	return out
 }
 
@@ -1062,10 +1190,12 @@ func blobAvgScore(raw []float32, mask []bool, size int, b intBox) float64 {
 }
 
 func dilateRect(mask []bool, w, h, kw, kh int) []bool {
+	tStart := time.Now()
 	halfW, halfH := kw/2, kh/2
 	tmp := make([]bool, w*h)
 	for y := 0; y < h; y++ {
 		if y%64 == 0 {
+			trace("        dilateRect: horiz pass row %d/%d (+%v)", y, h, time.Since(tStart))
 			wasmYield()
 		}
 		row := y * w
@@ -1083,9 +1213,12 @@ func dilateRect(mask []bool, w, h, kw, kh int) []bool {
 			tmp[row+x] = set
 		}
 	}
+	trace("        dilateRect: horiz pass done in %v", time.Since(tStart))
+	tVert := time.Now()
 	out := make([]bool, w*h)
 	for y := 0; y < h; y++ {
 		if y%64 == 0 {
+			trace("        dilateRect: vert pass row %d/%d (+%v)", y, h, time.Since(tVert))
 			wasmYield()
 		}
 		for x := 0; x < w; x++ {
@@ -1102,12 +1235,14 @@ func dilateRect(mask []bool, w, h, kw, kh int) []bool {
 			out[y*w+x] = set
 		}
 	}
+	trace("        dilateRect: vert pass done in %v", time.Since(tVert))
 	return out
 }
 
 type intBox struct{ X1, Y1, X2, Y2 int }
 
 func connectedComponentBoxes(mask []bool, w, h int) []intBox {
+	tStart := time.Now()
 	visited := make([]bool, w*h)
 	var boxes []intBox
 	queue := make([]int, 0, 1024)
@@ -1115,6 +1250,8 @@ func connectedComponentBoxes(mask []bool, w, h int) []intBox {
 
 	for start := 0; start < w*h; start++ {
 		if start%65536 == 0 {
+			trace("        connectedComponentBoxes: scan %d/%d, %d blobs so far, %d total pops (+%v)",
+				start, w*h, len(boxes), popped, time.Since(tStart))
 			wasmYield()
 		}
 		if !mask[start] || visited[start] {
@@ -1129,6 +1266,8 @@ func connectedComponentBoxes(mask []bool, w, h int) []intBox {
 		for len(queue) > 0 {
 			popped++
 			if popped%65536 == 0 {
+				trace("        connectedComponentBoxes: mid-blob, queue=%d, %d pops so far (+%v)",
+					len(queue), popped, time.Since(tStart))
 				wasmYield()
 			}
 			p := queue[len(queue)-1]
@@ -1166,6 +1305,7 @@ func connectedComponentBoxes(mask []bool, w, h int) []intBox {
 		}
 		boxes = append(boxes, intBox{X1: x1, Y1: y1, X2: x2 + 1, Y2: y2 + 1})
 	}
+	trace("        connectedComponentBoxes: done, %d blobs, %d total pops, in %v", len(boxes), popped, time.Since(tStart))
 	return boxes
 }
 
