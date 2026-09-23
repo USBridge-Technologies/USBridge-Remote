@@ -38,8 +38,21 @@ func (dw *DiskWidget) scheduleCombine() {
 			return
 		}
 		fyne.Do(func() {
-			dw.pendingCombine.Store(false)
+			// pendingCombine only clears once combineDrives itself has
+			// finished, not merely once this closure started -- clearing it
+			// first (as this used to) let a second scheduleCombine call
+			// land while combineDrives (150-220ms on real hardware per
+			// this func's own doc comment) was still running, queuing a
+			// second, overlapping combineDrives whose steps interleaved
+			// with the first's. Confirmed live: two locally-driven
+			// dw.allDrives writes with no agent round-trip to
+			// self-correct them (a pen tablet toggle's IsMounted, see
+			// disk_widget_pen.go) raced exactly this way -- one
+			// combineDrives' fresh rebuild was immediately clobbered by
+			// the other's still-in-flight one using pre-click data,
+			// undoing the toggle within about a second, every time.
 			dw.combineDrives()
+			dw.pendingCombine.Store(false)
 		})
 	})
 }

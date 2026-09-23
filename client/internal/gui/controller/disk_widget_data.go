@@ -273,7 +273,6 @@ func (dw *DiskWidget) combineDrives() {
 		}
 		if d.IsPenTablet && d.PenTabletID != "" {
 			oldPenMounted[d.PenTabletID] = d.IsMounted
-			logrus.Infof("🖊️ [PEN] combine: preserving id=%q IsMounted=%v (from allDrives[%d])", d.PenTabletID, d.IsMounted, i)
 		}
 		if d.IsUSBAudio && d.USBAudioMode != "" {
 			oldUSBAudioMode = d.USBAudioMode
@@ -481,7 +480,6 @@ func (dw *DiskWidget) combineDrives() {
 			IsPenTablet: true,
 			PenTabletID: tab.ID,
 		}
-		logrus.Infof("🖊️ [PEN] combine: rebuilt id=%q IsMounted=%v at allDrives[%d]", tab.ID, penItem.IsMounted, len(dw.allDrives))
 		dw.allDrives = append(dw.allDrives, penItem)
 	}
 
