@@ -660,6 +660,18 @@ func (s *Server) mouseWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Last absolute_event seen with buttons still down: Input().AbsoluteEvent
+	// latches buttonState across calls, so a socket dropped mid-press (flaky
+	// reconnect, client killed) would leave that button held on the host
+	// until the next absolute event. Released at the last known position.
+	var heldAbs *MouseRequest
+	defer func() {
+		if heldAbs != nil {
+			log.Printf("[api] mouse_ws closed with buttons held (mask=%d), releasing", ptrUint8(heldAbs.ButtonState))
+			_ = s.app.Input().AbsoluteEvent(0, uint16(ptrInt(heldAbs.X)), uint16(ptrInt(heldAbs.Y)), 0)
+		}
+	}()
+
 	for {
 		var req MouseRequest
 		if err := conn.ReadJSON(&req); err != nil {
@@ -667,6 +679,15 @@ func (s *Server) mouseWS(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[api] mouse_ws read error: %v", err)
 			}
 			return
+		}
+		switch req.Action {
+		case "touch", "touch_position", "absolute_event":
+			if ptrUint8(req.ButtonState) != 0 {
+				held := req
+				heldAbs = &held
+			} else {
+				heldAbs = nil
+			}
 		}
 		if err := s.applyMouse(req); err != nil {
 			log.Printf("[api] mouse_ws failed action=%s: %v", req.Action, err)
