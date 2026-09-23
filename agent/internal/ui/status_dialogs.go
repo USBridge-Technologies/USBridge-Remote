@@ -217,8 +217,10 @@ func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *canvas
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 }
 
-// showEditHTTPAddrDialog changes the agent's HTTP listen host and port.
-// The HTTP server is not hot-reloaded — the user must restart the app.
+// showEditHTTPAddrDialog changes the agent's HTTP listen host/port and its
+// HTTPS listen port/enabled flag (see config.Config's TLSPort/TLSEnabled
+// doc comments) -- both servers hot-restart immediately (App.restartMainHTTP,
+// App.restartTLS), no app restart needed.
 func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Text, warnBadge *canvas.Text) {
 	if parent == nil {
 		return
@@ -229,6 +231,21 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Tex
 
 	portEntry := widget.NewEntry()
 	portEntry.SetText(strconv.Itoa(w.cfg.HTTPPort))
+
+	// HTTPS listener (internal/tlshost, internal/devicecert) -- required for
+	// the browser-based web client (loaded from https://web.usbridge.io) to
+	// reach this agent at all; see config.Config's TLSPort/TLSEnabled doc
+	// comments. Checked by default (TLSEnabledOK's nil-means-true
+	// convention) so existing installs keep it on unless a user explicitly
+	// unchecks it here.
+	tlsPortEntry := widget.NewEntry()
+	tlsPort := w.cfg.TLSPort
+	if tlsPort == 0 {
+		tlsPort = 8443
+	}
+	tlsPortEntry.SetText(strconv.Itoa(tlsPort))
+	tlsCheck := widget.NewCheck("Enable HTTPS", nil)
+	tlsCheck.SetChecked(w.cfg.TLSEnabledOK())
 
 	errLabel := dialogErrorText()
 	var popup *widget.PopUp
@@ -255,6 +272,11 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Tex
 			setDialogError(errLabel, loc().InvalidPort)
 			return
 		}
+		tlsPort, err := strconv.Atoi(strings.TrimSpace(tlsPortEntry.Text))
+		if err != nil || tlsPort < 1 || tlsPort > 65535 {
+			setDialogError(errLabel, loc().InvalidPort)
+			return
+		}
 		setDialogError(errLabel, "")
 		saveBtn.Disable()
 		go func() {
@@ -263,6 +285,9 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Tex
 				return
 			}
 			cfg, err := w.token.UpdateListenAddr(host, port)
+			if err == nil {
+				cfg, err = w.token.UpdateTLSAddr(tlsPort, tlsCheck.Checked)
+			}
 			fyne.Do(func() {
 				if err != nil {
 					setDialogError(errLabel, err.Error())
@@ -285,15 +310,18 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Tex
 	}
 	saveBtn = newDialogCTA(loc().Save, runSave)
 	portEntry.OnSubmitted = func(string) { runSave() }
+	tlsPortEntry.OnSubmitted = func(string) { runSave() }
 
-	labelW := dialogFormLabelWidth("Host", "Port")
+	labelW := dialogFormLabelWidth("HTTPS Port", "Host")
 	body := container.New(&tightVBoxLayout{gap: 8},
 		newDialogFormRow("Host", labelW, hostDrop),
 		newDialogFormRow("Port", labelW, wrapDialogFieldCompact(portEntry)),
+		newDialogFormRow("HTTPS Port", labelW, wrapDialogFieldCompact(tlsPortEntry)),
+		newDialogFormRow("", labelW, tlsCheck),
 		errLabel,
 	)
 	footer := container.NewCenter(saveBtn)
-	panel := newBrandedDialogPanelInsets("HTTP Listen Address", statusDialogWidth, 20, 10, body, footer, closeDialog)
+	panel := newBrandedDialogPanelInsets("HTTP/HTTPS Listen Address", statusDialogWidth, 20, 10, body, footer, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 }
 

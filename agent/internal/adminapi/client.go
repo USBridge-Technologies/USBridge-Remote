@@ -253,6 +253,12 @@ func (c *Client) UpdateListenAddr(host string, port int) (config.Config, error) 
 	return cfg, err
 }
 
+func (c *Client) UpdateTLSAddr(port int, enabled bool) (config.Config, error) {
+	var cfg config.Config
+	err := c.do(http.MethodPost, "/token/tls-addr", tlsAddrBody{Port: port, Enabled: enabled}, &cfg)
+	return cfg, err
+}
+
 func (c *Client) UpdateSunshinePort(port int) (config.Config, error) {
 	var cfg config.Config
 	err := c.do(http.MethodPost, "/token/sunshine-port", sunshinePortBody{Port: port}, &cfg)

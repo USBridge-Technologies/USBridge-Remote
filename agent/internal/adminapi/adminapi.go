@@ -50,6 +50,11 @@ type sunshinePortBody struct {
 	Port int `json:"port"`
 }
 
+type tlsAddrBody struct {
+	Port    int  `json:"port"`
+	Enabled bool `json:"enabled"`
+}
+
 type sunshineStreamAddrBody struct {
 	Host       string `json:"host"`
 	StreamPort int    `json:"stream_port"`

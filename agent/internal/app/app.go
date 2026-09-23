@@ -71,12 +71,22 @@ type App struct {
 	tsHTTP    *http.Server
 	tlsServer *http.Server
 	tlsMgr    *tlshost.Manager
-	handler   http.Handler
-	apiServer *api.Server
-	fyneApp   fyne.App
-	clipboard *clipboard.Manager
-	usbBroker *usbpass.Service
-	adminSrv  *adminapi.Server
+	// runCtx is Run's own signal.NotifyContext, stashed here (rather than
+	// only passed to the watchdogs started synchronously in Run) so
+	// restartTLS can start deviceCertWatchdog on demand if the user enables
+	// HTTPS at runtime after starting with it off -- see
+	// tlsWatchdogOnce's doc comment.
+	runCtx context.Context
+	// tlsWatchdogOnce guards deviceCertWatchdog against starting twice --
+	// once at Run() startup if HTTPS starts enabled, or once from
+	// restartTLS if the user turns it on later; whichever happens first.
+	tlsWatchdogOnce sync.Once
+	handler         http.Handler
+	apiServer       *api.Server
+	fyneApp         fyne.App
+	clipboard       *clipboard.Manager
+	usbBroker       *usbpass.Service
+	adminSrv        *adminapi.Server
 
 	// usbPassBridgeAddr is StartUSBPassBridge's localhost address (see
 	// api.Server.StartUSBPassBridge's doc comment) -- rustshine dials this
@@ -703,6 +713,7 @@ func (a *App) Run(headless, startHidden bool) error {
 	a.headless = headless
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	a.runCtx = ctx
 
 	// Diagnostic-only, additive: signal.Notify fans a delivered signal out to
 	// every channel registered for it, so this doesn't steal anything from
@@ -776,21 +787,28 @@ func (a *App) Run(headless, startHidden bool) error {
 	go a.streamerUpdateWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
-	// Self-signed baseline generated synchronously, before the TLS listener
-	// starts accepting -- deviceCertWatchdog's first tick (below) then
-	// upgrades to the shared device wildcard cert once the backend round
-	// trip completes, but a self-signed fallback must already exist so the
-	// very first TLS handshake (offline, or before that tick lands) doesn't
-	// hit tlshost.Manager's "no certificate available yet" error.
-	selfSignedIPs := []net.IP{net.ParseIP("127.0.0.1")}
-	if ip := net.ParseIP(netutil.PreferredIPv4()); ip != nil {
-		selfSignedIPs = append(selfSignedIPs, ip)
+	// Gated by the "Enable HTTPS" checkbox (see ui's HTTP Listen Address
+	// dialog, UpdateTLSAddr) -- on by default (TLSEnabledOK's nil-means-true
+	// convention), so this runs for every existing install unless a user
+	// explicitly turned it off.
+	if a.cfg.TLSEnabledOK() {
+		// Self-signed baseline generated synchronously, before the TLS
+		// listener starts accepting -- deviceCertWatchdog's first tick
+		// (below) then upgrades to the shared device wildcard cert once the
+		// backend round trip completes, but a self-signed fallback must
+		// already exist so the very first TLS handshake (offline, or before
+		// that tick lands) doesn't hit tlshost.Manager's "no certificate
+		// available yet" error.
+		selfSignedIPs := []net.IP{net.ParseIP("127.0.0.1")}
+		if ip := net.ParseIP(netutil.PreferredIPv4()); ip != nil {
+			selfSignedIPs = append(selfSignedIPs, ip)
+		}
+		if err := a.tlsMgr.EnsureSelfSigned(selfSignedIPs, nil); err != nil {
+			log.Printf("[app] self-signed TLS cert unavailable: %v", err)
+		}
+		go func() { _ = a.tlsServer.ListenAndServeTLS("", "") }()
+		a.startDeviceCertWatchdogOnce()
 	}
-	if err := a.tlsMgr.EnsureSelfSigned(selfSignedIPs, nil); err != nil {
-		log.Printf("[app] self-signed TLS cert unavailable: %v", err)
-	}
-	go func() { _ = a.tlsServer.ListenAndServeTLS("", "") }()
-	go a.deviceCertWatchdog(ctx)
 	if a.usbBroker != nil {
 		if err := a.usbBroker.Start(); err != nil {
 			log.Printf("[usbpass] broker not started: %v", err)
@@ -3067,7 +3085,21 @@ func (a *App) QRLink() (string, string) {
 			}
 		}
 	}
-	link := buildQRLink(internalHost, tailscaleHost, masterKey)
+	// The device's own <label>.device.usbridge.io hostname (see
+	// internal/tlshost, internal/devicecert), if deviceCertWatchdog has
+	// managed to register+fetch one yet -- "" otherwise, e.g. offline or
+	// still within the first tick. Included in the QR link so a browser web
+	// client (which MUST connect by this exact hostname over TLS, not a
+	// bare IP: SNI is never sent for an IP-literal connection, so
+	// tlshost.Manager.GetCertificate can never select the trusted device
+	// wildcard cert -- only ever the untrusted self-signed one -- for an
+	// internal_host-only connection) has something usable. See client's
+	// deeplink_handler.go resolveDeepLinkHost for the other half of this.
+	deviceHost := ""
+	if a.tlsMgr != nil {
+		deviceHost, _ = a.tlsMgr.DeviceCertStatus()
+	}
+	link := buildQRLink(internalHost, tailscaleHost, deviceHost, a.cfg.TLSPort, masterKey)
 	return link, masterKey
 }
 
@@ -3109,7 +3141,7 @@ func applyStreamUSBPassBridgeAddr(stream streamhost.Backend, addr string) {
 	}
 }
 
-func buildQRLink(internalHost, tailscaleHost, masterKey string) string {
+func buildQRLink(internalHost, tailscaleHost, deviceHost string, tlsPort int, masterKey string) string {
 	if masterKey == "" {
 		return ""
 	}
@@ -3122,6 +3154,12 @@ func buildQRLink(internalHost, tailscaleHost, masterKey string) string {
 	}
 	if tailscaleHost != "" {
 		values.Set("tailscale_host", tailscaleHost)
+	}
+	if deviceHost != "" {
+		values.Set("device_host", deviceHost)
+		if tlsPort > 0 {
+			values.Set("device_tls_port", strconv.Itoa(tlsPort))
+		}
 	}
 	values.Set("master_key", masterKey)
 	return "usbridge://connect?" + values.Encode()
@@ -3482,6 +3520,67 @@ func (a *App) restartMainHTTP() {
 	if err := next.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Printf("[app] http server error: %v", err)
 	}
+}
+
+// UpdateTLSAddr updates the agent's HTTPS listen port and "Enable HTTPS"
+// flag, persists the config, and hot-restarts the TLS server so the change
+// takes effect immediately -- mirrors UpdateListenAddr/restartMainHTTP
+// exactly, see restartTLS.
+func (a *App) UpdateTLSAddr(port int, enabled bool) (config.Config, error) {
+	a.cfg.TLSPort = port
+	a.cfg.TLSEnabled = &enabled
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		return a.cfg, err
+	}
+	go a.restartTLS()
+	return a.cfg, nil
+}
+
+// restartTLS shuts down the current TLS server (if one was running) and
+// starts a new one on the host/port currently in a.cfg -- unless
+// TLSEnabledOK is now false, in which case this only tears the old one
+// down (used for both "port changed" and "HTTPS just got turned off").
+// Mirrors restartMainHTTP's shape exactly; see that doc comment.
+func (a *App) restartTLS() {
+	old := a.tlsServer
+	if old != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = old.Shutdown(ctx)
+	}
+	if !a.cfg.TLSEnabledOK() {
+		log.Printf("[app] https disabled, not restarting")
+		return
+	}
+	if a.tlsMgr == nil {
+		return
+	}
+	addr := fmt.Sprintf("%s:%d", a.cfg.EffectiveListenHost(), a.cfg.TLSPort)
+	next := &http.Server{
+		Addr:              addr,
+		Handler:           a.handler,
+		TLSConfig:         &tls.Config{GetCertificate: a.tlsMgr.GetCertificate, MinVersion: tls.VersionTLS12},
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	a.tlsServer = next
+	log.Printf("[app] https restarted on %s", addr)
+	a.startDeviceCertWatchdogOnce()
+	if err := next.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+		log.Printf("[app] https server error: %v", err)
+	}
+}
+
+// startDeviceCertWatchdogOnce starts deviceCertWatchdog the first time
+// HTTPS becomes active during this process's lifetime -- see
+// tlsWatchdogOnce's doc comment. A no-op (not an error) if a.runCtx isn't
+// set yet (restartTLS could theoretically race a UI call in before Run has
+// reached the point that sets it; the initial Run() call site is the
+// common path and always has it set by the time it calls this).
+func (a *App) startDeviceCertWatchdogOnce() {
+	if a.runCtx == nil {
+		return
+	}
+	a.tlsWatchdogOnce.Do(func() { go a.deviceCertWatchdog(a.runCtx) })
 }
 
 // UpdateSunshinePort updates the Sunshine admin API port in agent config and
