@@ -394,3 +394,4 @@ func drawCachedOverlay(rgba []byte, w, h, stride int) {
 		}
 	}
 }
+
