@@ -420,5 +420,17 @@ func (mw *MainWindow) startClipboardSync(client *api.USBClient) {
 	manager := clipboard.NewManager(clipboard.NewBackend(mw.window), mw.config.ClipboardMaxBytes)
 	manager.SetEnabled(enabled)
 	mw.clipboardSync = api.NewClipboardSync(client, manager, mw.config.ClipboardMaxBytes)
+	// Rides the RustShine WebRTC PeerConnection's "clipboard-sync"
+	// DataChannel instead of a direct ws://+wss:// dial when one's
+	// available -- see api.ClipboardSync.dial's doc comment for why a
+	// direct dial can never work from an https-loaded page. Same
+	// optional-interface probe as disk_widget's SetPeerConnection above;
+	// nil (a no-op SetOpenDataChannel) on every platform but wasm, and even
+	// there whenever the active backend has no WebRTC (plain Sunshine).
+	if pc, ok := mw.videoClient.(interface {
+		OpenDataChannel(label string) (net.Conn, error)
+	}); ok {
+		mw.clipboardSync.SetOpenDataChannel(pc.OpenDataChannel)
+	}
 	mw.clipboardSync.Start()
 }

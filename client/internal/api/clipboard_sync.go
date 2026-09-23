@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,6 +21,19 @@ import (
 
 	"usbridge-client/internal/clipboard"
 )
+
+// clipboardWSConn is the minimal shape runOnce needs from its transport --
+// satisfied directly by *websocket.Conn (desktop-native, and the wasm build
+// whenever no WebRTC DataChannel is available) and by dcJSONConn (the wasm
+// build's WebRTC-DataChannel path, see dial/dcJSONConn below). Mirrors the
+// agent's own clipboardJSONConn (clipboard.go's runClipboardDuplex) for the
+// exact same reason: hide two very different transports' framing from the
+// shared duplex loop.
+type clipboardWSConn interface {
+	WriteJSON(v interface{}) error
+	ReadJSON(v interface{}) error
+	Close() error
+}
 
 // ClipboardEvent mirrors the agent's api.ClipboardEvent wire format exactly
 // (same JSON field names) — independently defined since the two modules
@@ -47,15 +62,28 @@ type ClipboardEvent struct {
 }
 
 // ClipboardSync dials the paired agent's /api/clipboard/ws signaling channel
-// and keeps the local system clipboard in sync with it: local changes are
-// pushed out, incoming changes are applied locally.
+// (or, on the wasm build with WebRTC available, its "clipboard-sync"
+// DataChannel counterpart -- see SetOpenDataChannel) and keeps the local
+// system clipboard in sync with it: local changes are pushed out, incoming
+// changes are applied locally.
 type ClipboardSync struct {
 	client   *USBClient
 	manager  *clipboard.Manager
 	maxBytes int64
 
+	// OpenDataChannel, when set, routes the wasm build's connection over the
+	// already-established RustShine WebRTC PeerConnection instead of a
+	// direct ws://+wss:// dial -- see dial's doc comment for why a direct
+	// dial can never work from an https-loaded page at all. Wired from
+	// gui.mainWindow the same optional-interface-probe pattern already used
+	// for browser USB/gamepad/pen passthrough (see
+	// internal/usbpass/usbaes_attach_wasm.go's identical field); nil on
+	// every non-wasm platform and whenever the active backend has no
+	// WebRTC (e.g. plain Sunshine).
+	OpenDataChannel func(label string) (net.Conn, error)
+
 	mu     sync.Mutex
-	conn   *websocket.Conn
+	conn   clipboardWSConn
 	cancel context.CancelFunc
 }
 
@@ -149,6 +177,76 @@ func (cs *ClipboardSync) wsURL() string {
 	return url + "/api/clipboard/ws"
 }
 
+// SetOpenDataChannel wires cs.OpenDataChannel after construction -- see that
+// field's doc comment. Safe to call before Start.
+func (cs *ClipboardSync) SetOpenDataChannel(fn func(label string) (net.Conn, error)) {
+	cs.OpenDataChannel = fn
+}
+
+// clipboardDataChannelLabel is the WebRTC DataChannel label rustshine
+// recognizes for this (see rust-shine's crates/webrtc-video/src/
+// signaling.rs's on_data_channel and usbpass_bridge::attach_clipboard_channel).
+const clipboardDataChannelLabel = "clipboard-sync"
+
+// dial opens the transport runOnce will speak clipboardWSConn over.
+// Prefers cs.OpenDataChannel when set (the wasm build with an active
+// RustShine WebRTC PeerConnection): a direct ws://+wss:// dial from an
+// https-loaded page (e.g. https://web.usbridge.io) either gets blocked
+// outright as mixed content (ws://) or, for wss://, can only ever present
+// the agent's self-signed cert for a bare-IP target (TLS SNI is never sent
+// for an IP literal, so the agent's cert manager can't select its
+// browser-trusted device-wildcard cert there) -- and a browser silently
+// rejects an untrusted cert for a background WebSocket upgrade, with no
+// click-through the way a top-level navigation warning has. The WebRTC
+// DataChannel rides the already-DTLS-encrypted PeerConnection instead and
+// is exempt from both problems entirely. Falls back to the direct dial
+// otherwise (desktop-native always; wasm too, whenever the active backend
+// has no WebRTC, e.g. plain Sunshine -- in which case this whole feature is
+// simply unavailable from an https page, same limitation as before this
+// existed).
+func (cs *ClipboardSync) dial(ctx context.Context, header http.Header) (clipboardWSConn, *http.Response, error) {
+	if cs.OpenDataChannel != nil {
+		conn, err := cs.OpenDataChannel(clipboardDataChannelLabel)
+		if err != nil {
+			return nil, nil, fmt.Errorf("open clipboard-sync data channel: %w", err)
+		}
+		return newDCJSONConn(conn), nil, nil
+	}
+	return cs.dialer().DialContext(ctx, cs.wsURL(), header)
+}
+
+// dcJSONConn adapts a message-oriented net.Conn (webrtcweb.WebRTCClient.
+// OpenDataChannel's return value -- one Write() call is one complete
+// DataChannel message, one logical unit off Read() is likewise one
+// complete received message, see dcconn_wasm.go's doc comment) to
+// clipboardWSConn: one JSON value per message in both directions, exactly
+// matching one WS message per WriteJSON/ReadJSON call on the direct-dial
+// path this replaces.
+type dcJSONConn struct {
+	conn net.Conn
+}
+
+func newDCJSONConn(conn net.Conn) *dcJSONConn {
+	return &dcJSONConn{conn: conn}
+}
+
+func (c *dcJSONConn) WriteJSON(v interface{}) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_, err = c.conn.Write(data)
+	return err
+}
+
+func (c *dcJSONConn) ReadJSON(v interface{}) error {
+	return json.NewDecoder(c.conn).Decode(v)
+}
+
+func (c *dcJSONConn) Close() error {
+	return c.conn.Close()
+}
+
 // signedHeader builds the X-Auth-Signature/X-Auth-Timestamp headers for a
 // request whose body is not included in the signature — used for the WS
 // upgrade (no body) and the blob PUT/GET endpoints (bodies too large to sign
@@ -167,8 +265,12 @@ func (cs *ClipboardSync) signedHeader(method, path string) http.Header {
 
 func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 	header := cs.signedHeader("GET", "/api/clipboard/ws")
-	logrus.Infof("[clipboard-sync] dialing %s", cs.wsURL())
-	conn, resp, err := cs.dialer().DialContext(ctx, cs.wsURL(), header)
+	if cs.OpenDataChannel != nil {
+		logrus.Infof("[clipboard-sync] dialing DataChannel %q", clipboardDataChannelLabel)
+	} else {
+		logrus.Infof("[clipboard-sync] dialing %s", cs.wsURL())
+	}
+	conn, resp, err := cs.dial(ctx, header)
 	if err != nil {
 		status := "n/a"
 		if resp != nil {
