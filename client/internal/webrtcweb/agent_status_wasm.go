@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall/js"
 	"time"
+
+	"usbridge-client/internal/api"
 )
 
 // FetchStreamerName is a preflight probe against the agent's own
@@ -41,7 +43,12 @@ func FetchStreamerName(apiHost string, apiPort int, masterKey string) (string, e
 	opts.Set("method", "GET")
 	opts.Set("headers", headers)
 
-	url := fmt.Sprintf("http://%s:%d%s", apiHost, apiPort, path)
+	scheme := "http"
+	if api.BrowserIsHTTPS() {
+		scheme = "https"
+	}
+
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, apiHost, apiPort, path)
 	fetchPromise := js.Global().Call("fetch", url, opts)
 	respVal, err := awaitPromise(fetchPromise)
 	if err != nil {
