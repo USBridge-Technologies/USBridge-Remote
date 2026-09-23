@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/platform"
@@ -59,7 +60,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	h.lastURI = uri
 
 	// Parse the URI
-	internalHost, tailscaleHost, masterKey, protocol, immediate, err := h.parseDeepLink(uri)
+	internalHost, tailscaleHost, deviceHost, masterKey, protocol, immediate, err := h.parseDeepLink(uri)
 	if err != nil {
 		logrus.Errorf("❌ Failed to parse deep link: %v", err)
 		view.ShowConnectionErrorDialog(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
@@ -68,7 +69,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 
 	if immediate {
 		logrus.Info("🚀 Immediate connection requested via deep link")
-		host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost)
+		host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost, deviceHost)
 		if h.onConnect != nil {
 			h.onConnect(host, masterKey, protocol, false)
 		}
@@ -76,31 +77,37 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	}
 
 	// Show the confirmation dialog
-	h.showConfirmDialog(internalHost, tailscaleHost, masterKey, protocol, parent)
+	h.showConfirmDialog(internalHost, tailscaleHost, deviceHost, masterKey, protocol, parent)
 }
 
-// parseDeepLink parses the deep link URI
-func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, masterKey, protocol string, immediate bool, err error) {
+// parseDeepLink parses the deep link URI. deviceHost is the agent's own
+// <label>.device.usbridge.io hostname (see agent's internal/tlshost,
+// internal/devicecert, and buildQRLink's device_host param) -- "" if the
+// agent hadn't registered one yet when it built this link. See
+// resolveDeepLinkHost for why the browser/wasm build needs this over
+// internalHost/tailscaleHost specifically.
+func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, deviceHost, masterKey, protocol string, immediate bool, err error) {
 	// Parse the URL
 	u, err := url.Parse(uri)
 	if err != nil {
-		return "", "", "", "", false, fmt.Errorf("invalid link format: %v", err)
+		return "", "", "", "", "", false, fmt.Errorf("invalid link format: %v", err)
 	}
 
 	// Check the scheme (only usbridge://)
 	if u.Scheme != "usbridge" {
-		return "", "", "", "", false, fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
+		return "", "", "", "", "", false, fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
 	}
 
 	// Format: usbridge://connect?host=192.168.1.1&master_key=secret
 	if u.Host != "connect" {
-		return "", "", "", "", false, fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
+		return "", "", "", "", "", false, fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
 	}
 
 	// Get the parameters
 	query := u.Query()
 	internalHost = query.Get("internal_host")
 	tailscaleHost = query.Get("tailscale_host")
+	deviceHost = query.Get("device_host")
 	host := query.Get("host")
 	if internalHost == "" && tailscaleHost == "" {
 		if isLikelyTailnetHost(host) {
@@ -118,21 +125,21 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost
 
 	// Check the required parameters
 	if internalHost == "" && tailscaleHost == "" {
-		return "", "", "", "", false, fmt.Errorf("missing host parameter")
+		return "", "", "", "", "", false, fmt.Errorf("missing host parameter")
 	}
 
 	if masterKey == "" {
-		return "", "", "", "", false, fmt.Errorf("missing master_key parameter")
+		return "", "", "", "", "", false, fmt.Errorf("missing master_key parameter")
 	}
 
-	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s masterKey=%s protocol=%s immediate=%v", internalHost, tailscaleHost, maskSensitiveToken(masterKey), protocol, immediate)
-	return internalHost, tailscaleHost, masterKey, protocol, immediate, nil
+	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s device=%s masterKey=%s protocol=%s immediate=%v", internalHost, tailscaleHost, deviceHost, maskSensitiveToken(masterKey), protocol, immediate)
+	return internalHost, tailscaleHost, deviceHost, masterKey, protocol, immediate, nil
 }
 
 // showConfirmDialog shows the connection confirmation dialog with an option to save
 // IMPORTANT: must be called from the UI thread (inside fyne.Do)
-func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, masterKey, protocol string, parent fyne.Window) {
-	host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost)
+func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, deviceHost, masterKey, protocol string, parent fyne.Window) {
+	host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost, deviceHost)
 	// Create a preview with the data
 	titleLabel := widget.NewLabelWithStyle(
 		"🔗 "+i18n.Current.ConnectViaLink,
@@ -242,7 +249,23 @@ func disabledDeepLinkEntry(value string) *widget.Entry {
 	return entry
 }
 
-func resolveDeepLinkHost(protocol, internalHost, tailscaleHost string) string {
+// resolveDeepLinkHost picks which host string to actually connect to.
+// deviceHost -- the agent's <label>.device.usbridge.io hostname -- wins
+// over everything else whenever this is the browser/wasm build AND the
+// page itself was loaded over https (api.BrowserIsHTTPS, always false on
+// desktop-native): a bare IP (internalHost) or Tailscale address can never
+// work there, because TLS SNI is only sent for an actual hostname, never
+// for an IP-literal connection -- so the agent's tlshost.Manager.
+// GetCertificate can never select the browser-trusted device wildcard cert
+// for a bare-IP connection, only the self-signed one, which a browser
+// silently rejects for a background fetch()/WebSocket (no click-through
+// the way a top-level navigation cert warning has). Desktop-native keeps
+// using internalHost/tailscaleHost as before -- no browser sandbox to trip
+// there, and no reason to add an external DNS dependency.
+func resolveDeepLinkHost(protocol, internalHost, tailscaleHost, deviceHost string) string {
+	if deviceHost != "" && api.BrowserIsHTTPS() {
+		return deviceHost
+	}
 	if protocol == "tailscale" && tailscaleHost != "" {
 		return tailscaleHost
 	}
