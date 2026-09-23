@@ -53,11 +53,17 @@ func (dw *DiskWidget) syncPenCaptures() {
 	}
 
 	wanted := make(map[string]bool)
+	penRowsSeen := 0
 	for _, d := range dw.allDrives {
+		if d.IsPenTablet {
+			penRowsSeen++
+			logrus.Infof("🖊️ [PEN] sync: row id=%q IsMounted=%v", d.PenTabletID, d.IsMounted)
+		}
 		if d.IsPenTablet && d.IsMounted && d.PenTabletID != "" {
 			wanted[d.PenTabletID] = true
 		}
 	}
+	logrus.Infof("🖊️ [PEN] sync: %d pen row(s) in allDrives, %d wanted, %d active", penRowsSeen, len(wanted), len(dw.activePenCaptures))
 
 	for id, cap := range dw.activePenCaptures {
 		if !wanted[id] {
@@ -137,12 +143,15 @@ func (dw *DiskWidget) attachPenCapture(t platform.PenTabletInfo) {
 func (dw *DiskWidget) newPenTabletToggle(drive DriveItem, cardHover func(bool)) *view.DeviceToggle {
 	tabletID := drive.PenTabletID
 	t := view.NewDeviceToggle(drive.IsMounted, func(on bool) {
+		found := false
 		for i := range dw.allDrives {
 			if dw.allDrives[i].IsPenTablet && dw.allDrives[i].PenTabletID == tabletID {
 				dw.allDrives[i].IsMounted = on
+				found = true
 				break
 			}
 		}
+		logrus.Infof("🖊️ [PEN] toggle id=%q on=%v found=%v (len(allDrives)=%d)", tabletID, on, found, len(dw.allDrives))
 		// syncPenCaptures itself is cheap (no I/O) -- it only ever queues a
 		// pendingPenCapture placeholder and spawns attachPenCapture, which
 		// does the actual blocking network I/O (AttachBrowserPen's HTTP
