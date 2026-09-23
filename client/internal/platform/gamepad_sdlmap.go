@@ -1,4 +1,4 @@
-//go:build windows || (linux && !android)
+//go:build windows || (linux && !android) || (js && wasm)
 
 package platform
 
@@ -51,23 +51,26 @@ type sdlMapping struct {
 	src  map[string]sdlSource
 }
 
-// Moonlight (XInput) button flags for the SDL button names.
+// Moonlight (XInput) button flags for the SDL button names -- see
+// gamepad_protocol.go's MoonlightButton* constants, which this project's
+// other gamepad sources (gamepad_capture_windows.go, x360_backend.go,
+// gamepad_capture_wasm.go) share instead of each hardcoding these numbers.
 var sdlButtonFlags = map[string]uint16{
-	"dpup":          0x0001,
-	"dpdown":        0x0002,
-	"dpleft":        0x0004,
-	"dpright":       0x0008,
-	"start":         0x0010,
-	"back":          0x0020,
-	"leftstick":     0x0040,
-	"rightstick":    0x0080,
-	"leftshoulder":  0x0100,
-	"rightshoulder": 0x0200,
-	"guide":         0x0400,
-	"a":        0x1000,
-	"b":        0x2000,
-	"x":        0x4000,
-	"y":        0x8000,
+	"dpup":          MoonlightButtonDPadUp,
+	"dpdown":        MoonlightButtonDPadDown,
+	"dpleft":        MoonlightButtonDPadLeft,
+	"dpright":       MoonlightButtonDPadRight,
+	"start":         MoonlightButtonStart,
+	"back":          MoonlightButtonBack,
+	"leftstick":     MoonlightButtonLeftStick,
+	"rightstick":    MoonlightButtonRightStick,
+	"leftshoulder":  MoonlightButtonLeftShoulder,
+	"rightshoulder": MoonlightButtonRightShoulder,
+	"guide":         MoonlightButtonGuide,
+	"a":             MoonlightButtonA,
+	"b":             MoonlightButtonB,
+	"x":             MoonlightButtonX,
+	"y":             MoonlightButtonY,
 }
 
 // parseSDLSource parses "b1", "a3", "+a3", "-a3", "a3~" or "h0.4".

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"regexp"
 	"strings"
@@ -206,8 +207,50 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/usb/passthrough/status", sec.LimitPolling(s.usbPassthroughStatus))
 	mux.HandleFunc("/api/usb/passthrough/install", sec.LimitPolling(s.usbPassthroughInstall))
 	mux.HandleFunc("/api/usb/passthrough/session", sec.LimitPolling(s.usbPassthroughSession))
+	mux.HandleFunc("/api/usb/passthrough/browser-session", sec.LimitPolling(s.usbPassthroughBrowserSession))
+	mux.HandleFunc("/api/usb/passthrough/browser-pen-session", sec.LimitPolling(s.usbPassthroughBrowserPenSession))
+	// browser-attach/browser-gamepad/browser-pen: LEGACY plain-WebSocket
+	// transport for browser USB/IP passthrough, opened directly by browser
+	// JS (`new WebSocket(url)`), which cannot set the custom
+	// X-Auth-Signature/X-Auth-Timestamp headers sec.LimitRealtime/
+	// LimitPolling verify -- these check the same HMAC via ?ts=&sig= query
+	// params themselves (see verifyWSAuth in usb_passthrough_browser.go)
+	// instead of going through the shared header-based middleware.
+	// browser-attach is shared by both the gamepad and pen paths (it's a
+	// plain, device-agnostic relay to the broker's AES port -- see its own
+	// doc comment).
+	//
+	// Superseded by StartUSBPassBridge (usb_passthrough_browser.go), which
+	// carries the same traffic over a WebRTC DataChannel on the
+	// video/control PeerConnection instead of a separate ws:// connection --
+	// see that function's doc comment for why. Kept registered until the
+	// DataChannel path is confirmed working end to end live; remove these
+	// three lines (and their handlers/verifyWSAuth) once it is.
+	mux.HandleFunc("/api/usb/passthrough/browser-attach", s.usbPassthroughBrowserAttach)
+	mux.HandleFunc("/api/usb/passthrough/browser-gamepad", s.usbPassthroughBrowserGamepad)
+	mux.HandleFunc("/api/usb/passthrough/browser-pen", s.usbPassthroughBrowserPen)
+
+	// Proxy /webrtc/* requests to rustshine's native WebRTC signaling listener (port 8444)
+	mux.HandleFunc("/webrtc/", s.webrtcProxy)
 
 	return s.withCORS(s.withLogging(s.withRecovery(mux)))
+}
+
+func (s *Server) webrtcProxy(w http.ResponseWriter, r *http.Request) {
+	target, err := url.Parse("http://127.0.0.1:8444")
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		resp.Header.Del("Access-Control-Allow-Origin")
+		resp.Header.Del("Access-Control-Allow-Methods")
+		resp.Header.Del("Access-Control-Allow-Headers")
+		resp.Header.Del("Access-Control-Max-Age")
+		return nil
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 // withCORS lets the browser/WASM web client (served from its own origin —

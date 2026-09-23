@@ -13,6 +13,7 @@ package service
 import (
 	"fmt"
 	"image"
+	"net"
 	"os"
 	"strconv"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"syscall/js"
 	"time"
 
+	"usbridge-client/internal/api"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/webrtcweb"
 
@@ -46,6 +48,11 @@ type WebRTCVideoClient struct {
 	connected      atomic.Bool
 	stopFrameWatch func()
 	stopStatsLog   func()
+	stopNetGraph   func()
+	// bitrateKbps: see SetBitrate's own doc comment -- 0 means "use the
+	// server's own --webrtc-bitrate-kbps ceiling", same as never calling
+	// SetBitrate at all.
+	bitrateKbps int
 
 	onFrame        func(image.Image)
 	onStateChanged func(string)
@@ -69,6 +76,27 @@ func (c *WebRTCVideoClient) VideoElement() js.Value {
 		return js.Value{}
 	}
 	return client.VideoElement()
+}
+
+// OpenDataChannel creates a new labeled DataChannel on the already-connected
+// WebRTC PeerConnection this video/control session is using, returning it as
+// a net.Conn. Used by client/internal/usbpass' browser-sourced USB/IP
+// passthrough (gamepad/pen) to ride the same PeerConnection instead of a
+// separate ws:// WebSocket to the agent -- see
+// client/internal/gui/controller/disk_widget.go's SetPeerConnection, wired
+// from main_window.go via an optional-interface probe on VideoClient (same
+// pattern VideoElement above already uses for lazily reading c.client).
+// Fails with a clear error before ConnectToMoonlight has succeeded (or after
+// Disconnect), which is a hard precondition now that browser USB passthrough
+// has no other transport to fall back to.
+func (c *WebRTCVideoClient) OpenDataChannel(label string) (net.Conn, error) {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return nil, fmt.Errorf("webrtc video: not connected -- connect video/control before attaching a browser USB device")
+	}
+	return client.OpenDataChannel(label)
 }
 
 // NewWebRTCVideoClient mirrors NewMoonlightService(cfg)'s shape.
@@ -107,6 +135,7 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	c.mu.Lock()
 	host := c.host
 	secret := c.apiSecret
+	bitrateKbps := c.bitrateKbps
 	c.mu.Unlock()
 	if host == "" {
 		return fmt.Errorf("webrtc video: no host set")
@@ -127,8 +156,22 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	// tracked as a follow-up once rustshine's webrtc port becomes
 	// something the agent reports rather than a fixed default both sides
 	// happen to agree on.
-	const rustshineWebRTCPort = 8443
-	baseURL := "http://" + host + ":" + strconv.Itoa(rustshineWebRTCPort)
+	scheme := "http"
+	port := c.config.USBPort
+	if port == 0 {
+		port = 8080
+	}
+
+	if api.BrowserIsHTTPS() {
+		scheme = "https"
+		if c.config.USBTLSPort > 0 {
+			port = c.config.USBTLSPort
+		} else {
+			port = 8443
+		}
+	}
+
+	baseURL := scheme + "://" + host + ":" + strconv.Itoa(port)
 
 	// Preflight against the agent's ordinary REST API (a route every
 	// backend answers, Sunshine included) before ever touching rustshine's
@@ -140,11 +183,12 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	// /api/status's streamer field, whatever), fall through to the normal
 	// WebRTC attempt below rather than blocking on it -- this is purely an
 	// early, friendlier error path, not a hard gate.
-	if streamer, err := webrtcweb.FetchStreamerName(host, c.config.USBPort, secret); err == nil && streamer != "" && !webrtcweb.StreamerSupportsWebRTC(streamer) {
+	if streamer, err := webrtcweb.FetchStreamerName(host, port, secret); err == nil && streamer != "" && !webrtcweb.StreamerSupportsWebRTC(streamer) {
 		return fmt.Errorf("%s: %w", streamer, ErrStreamerUnsupportedWebRTC)
 	}
 
 	client := webrtcweb.NewWebRTCClient(baseURL, secret)
+	client.SetBitrateKbps(bitrateKbps)
 	sessionID := uuid.NewString()
 
 	client.OnStateChange(func(state string) {
@@ -197,9 +241,15 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 		stopStats := client.StartStatsLogging(2*time.Second, func(msg string) {
 			logrus.Info("[webrtc-video] " + msg)
 		})
+		// Feeds service.NetGraph's netGraphNetworkStatsFn hook
+		// (net_graph_wasm.go) -- separate from stopStats above since the
+		// HUD wants a much tighter poll interval than the diagnostic
+		// stall logger does (see StartNetGraphStatsPolling's doc comment).
+		stopNetGraph := client.StartNetGraphStatsPolling()
 		c.mu.Lock()
 		c.stopFrameWatch = stop
 		c.stopStatsLog = stopStats
+		c.stopNetGraph = stopNetGraph
 		c.mu.Unlock()
 	})
 
@@ -226,12 +276,17 @@ func (c *WebRTCVideoClient) Disconnect() error {
 	c.stopFrameWatch = nil
 	stopStats := c.stopStatsLog
 	c.stopStatsLog = nil
+	stopNetGraph := c.stopNetGraph
+	c.stopNetGraph = nil
 	c.mu.Unlock()
 	if stop != nil {
 		stop()
 	}
 	if stopStats != nil {
 		stopStats()
+	}
+	if stopNetGraph != nil {
+		stopNetGraph()
 	}
 	if client != nil {
 		client.Close()
@@ -297,16 +352,34 @@ func (c *WebRTCVideoClient) UpdateHost(host string) {
 func (c *WebRTCVideoClient) UpdateVideoPort(port int)    {}
 func (c *WebRTCVideoClient) UpdateVideoUDPPort(port int) {}
 
-// SetVideoMode/SetExpectedVideoSize/SetFPS/SetBitrate: real Moonlight
-// stream-parameter negotiation (LiInitializeVideoCallbacks etc.) has no
-// WebRTC equivalent yet in this client -- Sunshine's own configured
-// defaults apply for now. Wiring these into the SDP offer (bandwidth
-// hints) or a control-channel message to the agent is a reasonable
-// follow-up, not required for a first working video path.
+// SetVideoMode/SetExpectedVideoSize/SetFPS: real Moonlight stream-parameter
+// negotiation (LiInitializeVideoCallbacks etc.) has no WebRTC equivalent
+// yet in this client -- Sunshine's own configured defaults apply for now.
+// Wiring these into the SDP offer (bandwidth hints) or a control-channel
+// message to the agent is a reasonable follow-up, not required for a
+// first working video path.
 func (c *WebRTCVideoClient) SetVideoMode(mode string)               {}
 func (c *WebRTCVideoClient) SetExpectedVideoSize(width, height int) {}
 func (c *WebRTCVideoClient) SetFPS(fps int)                         {}
-func (c *WebRTCVideoClient) SetBitrate(kbps int)                    {}
+
+// SetBitrate stores the video-settings dialog's bitrate request for the
+// *next* ConnectToMoonlight call -- previously a no-op here (only the
+// classic Moonlight/GameStream path's real ANNOUNCE negotiation honored
+// it). Takes effect via webrtcweb.WebRTCClient.SetBitrateKbps, sent as
+// OfferRequest.bitrate_kbps in the /webrtc/offer POST body; rustshine
+// clamps it to its own --webrtc-bitrate-kbps ceiling server-side (see
+// rust-shine's signaling.rs, resolve_session_bitrate_bps) -- this can only
+// ever lower the session's ceiling, never raise it past what the operator
+// configured. Does NOT affect an already-connected session (there's no
+// mid-session renegotiation path here yet, same limitation
+// SetVideoMode/SetFPS/SetExpectedVideoSize above already have) -- call
+// before Connect, e.g. before the user hits "Apply" mid-session expects a
+// reconnect anyway, same as every other setting in that dialog today.
+func (c *WebRTCVideoClient) SetBitrate(kbps int) {
+	c.mu.Lock()
+	c.bitrateKbps = kbps
+	c.mu.Unlock()
+}
 
 // SetColor444: the RustShine Pro color upgrade is HEVC/VAAPI-specific
 // (moonlight-common-c ANNOUNCE negotiation) -- no WebRTC equivalent, same

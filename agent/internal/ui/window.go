@@ -63,6 +63,7 @@ type TokenProvider interface {
 	UnpairSunshineClient(uniqueID string) error
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
+	UpdateTLSAddr(port int, enabled bool) (config.Config, error)
 	UpdateSunshinePort(port int) (config.Config, error)
 	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
 	SunshineStreamHost() string

@@ -836,6 +836,20 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 	if port == 0 {
 		port = 8080
 	}
+	// See usbapi.BrowserIsHTTPS's doc comment: the wasm/browser build must
+	// use the agent's HTTPS listener when this page itself was loaded over
+	// https, or the pairing POST below gets silently blocked as mixed
+	// content (never reaches the network at all, not even a failed
+	// request). Always false on desktop-native builds -- port/scheme are
+	// unchanged there.
+	scheme := "http"
+	if usbapi.BrowserIsHTTPS() {
+		scheme = "https"
+		port = m.config.USBTLSPort
+		if port == 0 {
+			port = 8443
+		}
+	}
 
 	body, _ := json.Marshal(map[string]string{"pin": pin})
 
@@ -854,7 +868,7 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 	// Use a plain HTTP client when we have no API secret (pre-pair state).
 	// Once paired the secret is set via SetAPISecret and we use HMAC signing.
 	if len(m.apiSecret) == 0 {
-		url := fmt.Sprintf("http://%s:%d/api/moonlight/pin", host, port)
+		url := fmt.Sprintf("%s://%s:%d/api/moonlight/pin", scheme, host, port)
 		client := &http.Client{Timeout: 10 * time.Second}
 		if tsHTTPClient != nil {
 			client.Transport = tsHTTPClient.Transport
@@ -879,7 +893,7 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 	if tsHTTPClient != nil {
 		usbClient = usbapi.NewUSBClientWithHTTPClient(host, port, 10, tsHTTPClient)
 	} else {
-		usbClient = usbapi.NewUSBClient(host, port, 10)
+		usbClient = usbapi.NewUSBClientWithScheme(scheme, host, port, 10, nil)
 	}
 	usbClient.SetAPISecretV2(m.apiSecret)
 	_, err := usbClient.PostRaw("/api/moonlight/pin", body)

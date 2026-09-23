@@ -1,65 +1,62 @@
 package controller
 
 import (
-	"sync/atomic"
+	"fmt"
 
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/platform"
-	"usbridge-client/internal/service"
 
 	"github.com/sirupsen/logrus"
 )
 
-// LI_TOOL_TYPE_*, LI_PEN_BUTTON_*, LI_TOUCH_EVENT_*, LI_TILT_UNKNOWN,
-// LI_ROT_UNKNOWN -- mirrors Limelight.h exactly (LiSendPenEvent's own
-// parameter contract), duplicated here rather than imported since these are
-// C #defines with no cgo-free Go binding.
-const (
-	liToolTypePen    = 0x01
-	liToolTypeEraser = 0x02
-
-	liPenButtonSecondary = 0x02 // mapped from the tablet's lower barrel button
-	liPenButtonTertiary  = 0x04 // mapped from the tablet's upper barrel button
-
-	liTouchEventHover     = 0x00
-	liTouchEventDown      = 0x01
-	liTouchEventUp        = 0x02
-	liTouchEventMove      = 0x03
-	liTouchEventCancelAll = 0x07
-
-	liTiltUnknown = 0xFF
-	liRotUnknown  = 0xFFFF
-)
-
-// penCaptureTracker holds the per-device state needed to turn a stream of
-// absolute PenCaptureState samples into the edge-triggered DOWN/UP/HOVER/MOVE
-// sequence LiSendPenEvent expects (see forwardPenState). maxX/maxY/
-// maxPressure are resolved once per device via platform.PenRangeFor at
-// capture start -- different Wacom models sharing the same byte layout
-// still report very different logical-max ranges (see PenRangeFor's doc
-// comment), so this can't be the package-level PenMaxX/Y/Pressure
-// constants shared across every device.
-type penCaptureTracker struct {
-	inRange bool
-	tipDown bool
-
-	maxX, maxY  uint32
-	maxPressure uint16
+// penCaptureHandle is whatever startPenCapture returned for one connected
+// tablet -- a native OS-level capture (*platform.PenCapture) forwarding
+// semantic Moonlight pen events on macOS, or a browser-sourced USB/IP
+// synthetic tablet export on the web build (see
+// disk_widget_pen_start_wasm.go). syncPenCaptures only ever calls Stop() on
+// it, so the two can share dw.activePenCaptures without a build tag of
+// their own -- same pattern as gamepadCaptureHandle.
+type penCaptureHandle interface {
+	Stop()
 }
 
-// syncPenCaptures compares currently connected Wacom-family pen tablets
-// against the set of active captures and starts/stops captures accordingly.
-// Unlike syncGamepadCaptures, there is no "mount" step here — a pen tablet
-// forwards the instant it's plugged in and a Moonlight session is active,
-// the same way built-in keyboard/mouse capture already works.
+// pendingPenCapture is a placeholder dw.activePenCaptures holds for a
+// tablet whose attach is still in flight on a background goroutine (see
+// syncPenCaptures) -- its only job is to make that tablet id look "already
+// handled" to a second, concurrent syncPenCaptures call (the periodic
+// poll's own combineDrives can run at any time, including while a toggle's
+// own attach is still connecting), so the id never gets attached twice.
+// Stop is a no-op: there is nothing to tear down yet, the real handle
+// replaces this the moment the attach finishes (see the goroutine below).
+type pendingPenCapture struct{}
+
+func (pendingPenCapture) Stop() {}
+
+// syncPenCaptures compares the set of currently mounted pen tablet drives
+// (a row's toggle, same as syncGamepadCaptures/keyboard/mouse) against the
+// set of active captures and starts/stops captures accordingly. Must be
+// called from the Fyne UI goroutine (dw.allDrives/dw.activePenCaptures
+// access has no lock of its own) -- the actual attach, which blocks on real
+// network I/O (AttachBrowserPen's HTTP POST plus two WebSocket dials),
+// always happens on its own background goroutine instead (see below),
+// never here: confirmed live that running it synchronously from a
+// Tapped() handler corrupts Fyne's threading model the moment that I/O
+// parks and later resumes off Fyne's own event loop.
 func (dw *DiskWidget) syncPenCaptures() {
 	if dw.activePenCaptures == nil {
-		dw.activePenCaptures = make(map[string]*platform.PenCapture)
+		dw.activePenCaptures = make(map[string]penCaptureHandle)
 	}
 
-	tablets := platform.ListPenTablets()
-	wanted := make(map[string]bool, len(tablets))
-	for _, t := range tablets {
-		wanted[t.ID] = true
+	byID := make(map[string]platform.PenTabletInfo)
+	for _, t := range platform.ListPenTablets() {
+		byID[t.ID] = t
+	}
+
+	wanted := make(map[string]bool)
+	for _, d := range dw.allDrives {
+		if d.IsPenTablet && d.IsMounted && d.PenTabletID != "" {
+			wanted[d.PenTabletID] = true
+		}
 	}
 
 	for id, cap := range dw.activePenCaptures {
@@ -70,127 +67,113 @@ func (dw *DiskWidget) syncPenCaptures() {
 		}
 	}
 
-	for _, t := range tablets {
-		if _, ok := dw.activePenCaptures[t.ID]; ok {
-			continue
+	for id := range wanted {
+		if _, ok := dw.activePenCaptures[id]; ok {
+			continue // already active, or already connecting (pendingPenCapture)
+		}
+		t, ok := byID[id]
+		if !ok {
+			continue // mounted but no longer connected -- next poll will unmount it
 		}
 		logrus.Infof("🖊️ [PEN] starting capture for %s (%s, vid=%04x pid=%04x)", t.ID, t.Name, t.VID, t.PID)
-		maxX, maxY, maxPressure := platform.PenRangeFor(t.PID)
-		tracker := &penCaptureTracker{maxX: maxX, maxY: maxY, maxPressure: maxPressure}
-		capturedID := t.ID
-		cap, err := platform.StartPenCapture(t.ID, func(state platform.PenCaptureState) {
-			dw.forwardPenState(capturedID, tracker, state)
-		})
+		dw.activePenCaptures[t.ID] = pendingPenCapture{}
+		go dw.attachPenCapture(t)
+	}
+}
+
+// attachPenCapture runs one tablet's attach (startPenCaptureRecovered,
+// which blocks on real network I/O) off the Fyne thread and writes the
+// result back through updateUIAsync/fyne.Do, the only place that touches
+// dw.activePenCaptures again. If the tablet was toggled off (or its
+// pendingPenCapture placeholder is gone for any other reason) by the time
+// the attach finishes, the freshly-opened capture is stopped immediately
+// instead of being adopted -- otherwise it would leak, tracked by nothing.
+func (dw *DiskWidget) attachPenCapture(t platform.PenTabletInfo) {
+	cap, err := dw.startPenCaptureRecovered(t)
+	dw.updateUIAsync(func() {
+		cur, stillPending := dw.activePenCaptures[t.ID]
+		if !stillPending {
+			if err == nil && cap != nil {
+				cap.Stop()
+			}
+			return
+		}
+		if _, isPlaceholder := cur.(pendingPenCapture); !isPlaceholder {
+			return
+		}
 		if err != nil {
 			logrus.Warnf("🖊️ [PEN] capture failed for %s: %v", t.ID, err)
-			continue
+			delete(dw.activePenCaptures, t.ID)
+			return
 		}
 		dw.activePenCaptures[t.ID] = cap
-	}
+	})
 }
 
-var penLogSeq atomic.Uint64
-
-// forwardPenState converts one absolute PenCaptureState sample into a
-// LiSendPenEvent call, deriving the DOWN/MOVE/UP/HOVER event type from the
-// previous sample's contact/proximity state (tracker). Called from the
-// capture's own goroutine, not the Fyne UI thread.
-func (dw *DiskWidget) forwardPenState(id string, tracker *penCaptureTracker, state platform.PenCaptureState) {
-	sender := dw.moonlightSender()
-	if sender == nil || !sender.IsInputActive() {
-		if seq := penLogSeq.Add(1); seq%300 == 1 {
-			logrus.Warnf("🖊️ [PEN] Moonlight not active — pen input dropped id=%s", id)
+// newPenTabletToggle is IsPenTablet's own on/off switch -- unlike
+// newDriveToggle (used by every other HID row, keyboard/mouse/gamepad/the
+// real-hardware Wacom passthrough row), it does not go through
+// toggleDriveMount/handleMount's agent RPC dispatch at all: those rows'
+// IsMounted comes back from the agent's own device-status report
+// (mountedDevices, see disk_widget_data.go's combineDrives), which has no
+// equivalent for a tablet this client captures locally itself (macOS's
+// IOKit tap, or a WebHID grant) -- there is nothing for the agent to
+// report, since the agent never chose to start anything. Flipping
+// IsMounted locally and re-running syncPenCaptures directly is the whole
+// mount step for this source.
+//
+// Looks the row up by drive.PenTabletID at click time rather than trusting
+// the idx this closure was built with: combineDrives rebuilds dw.allDrives
+// (and therefore every row's index) on its own periodic cadence
+// (startPenTabletPolling's 1-second tick, same as gamepad's own poller),
+// independently of refreshDashboard's own rebuild of the widgets holding
+// this closure -- a combine landing in between left idx pointing at
+// whatever drive happened to end up there in the freshly rebuilt slice,
+// silently flipping the wrong row's IsMounted while the tablet's own
+// (correct-index-but-still-false) entry made syncPenCaptures immediately
+// undo the toggle. Confirmed live as the toggle appearing to work (the
+// attach starts) and then the capture stopping again within about a
+// second, every time.
+func (dw *DiskWidget) newPenTabletToggle(drive DriveItem, cardHover func(bool)) *view.DeviceToggle {
+	tabletID := drive.PenTabletID
+	t := view.NewDeviceToggle(drive.IsMounted, func(on bool) {
+		for i := range dw.allDrives {
+			if dw.allDrives[i].IsPenTablet && dw.allDrives[i].PenTabletID == tabletID {
+				dw.allDrives[i].IsMounted = on
+				break
+			}
 		}
-		return
-	}
+		// syncPenCaptures itself is cheap (no I/O) -- it only ever queues a
+		// pendingPenCapture placeholder and spawns attachPenCapture, which
+		// does the actual blocking network I/O (AttachBrowserPen's HTTP
+		// POST plus two WebSocket dials) off the Fyne thread. Confirmed
+		// live that running that I/O synchronously from here -- Tapped()
+		// itself runs on Fyne's own dispatch thread -- corrupts Fyne's
+		// threading model the moment it parks and later resumes off Fyne's
+		// own event loop, so syncPenCaptures must never do it directly.
+		dw.syncPenCaptures()
+	})
+	t.OnHover = cardHover
+	t.SetEnabled(!dw.controlsLocked())
+	return t
+}
 
-	var eventType uint8
-	switch {
-	case tracker.inRange && !state.InRange:
-		eventType = liTouchEventCancelAll
-	case state.TipSwitch && !tracker.tipDown:
-		eventType = liTouchEventDown
-	case !state.TipSwitch && tracker.tipDown:
-		eventType = liTouchEventUp
-	case state.TipSwitch:
-		eventType = liTouchEventMove
-	default:
-		eventType = liTouchEventHover
-	}
-	tracker.inRange = state.InRange
-	tracker.tipDown = state.TipSwitch
-
-	toolType := uint8(liToolTypePen)
-	if state.Eraser {
-		toolType = liToolTypeEraser
-	}
-
-	var penButtons uint8
-	if state.Button1 {
-		penButtons |= liPenButtonSecondary
-	}
-	if state.Button2 {
-		penButtons |= liPenButtonTertiary
-	}
-
-	x := float32(state.X) / float32(tracker.maxX)
-	y := float32(state.Y) / float32(tracker.maxY)
-	pressure := float32(state.Pressure) / float32(tracker.maxPressure)
-
-	tilt := uint8(liTiltUnknown)
-	if state.TiltX != 0 || state.TiltY != 0 {
-		mag := combinedTiltDegrees(state.TiltX, state.TiltY)
-		if mag > 90 {
-			mag = 90
+// startPenCaptureRecovered wraps startPenCapture (native OS capture, or a
+// browser-sourced USB/IP attach on the web build -- see
+// disk_widget_pen_start_wasm.go) so a panic anywhere in that one attempt --
+// a malformed device shape, a JS interop edge case, anything -- surfaces as
+// an ordinary error for this one tablet instead of taking the whole
+// process down: on wasm specifically, an uncaught panic in any goroutine
+// kills the entire Go runtime (confirmed live as "Go program has already
+// exited" on every subsequent browser callback after one such panic), not
+// just this attach attempt.
+func (dw *DiskWidget) startPenCaptureRecovered(t platform.PenTabletInfo) (cap penCaptureHandle, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			cap, err = nil, fmt.Errorf("panic: %v", r)
 		}
-		tilt = mag
-	}
-
-	rotation := uint16(liRotUnknown)
-	if state.Rotation != 0 {
-		rotation = uint16(state.Rotation)
-	}
-
-	sender.SendMoonlightPenEvent(eventType, toolType, penButtons, x, y, pressure, rotation, tilt)
-}
-
-// combinedTiltDegrees combines Wacom's separate TiltX/TiltY (each already in
-// degrees off vertical) into the single 0..90 magnitude LiSendPenEvent's
-// `tilt` parameter carries — Moonlight's wire protocol has no separate X/Y
-// tilt axes, only the barrel-rotation-independent overall lean angle a real
-// Sunshine host would get from a Wintab-style API.
-func combinedTiltDegrees(tiltX, tiltY int8) uint8 {
-	x := float64(tiltX)
-	y := float64(tiltY)
-	mag := x*x + y*y
-	// Integer sqrt via a small loop would be overkill; degrees are small
-	// enough (<=90) that float64 math.Sqrt precision is a non-issue.
-	root := isqrt(mag)
-	if root > 90 {
-		root = 90
-	}
-	return uint8(root)
-}
-
-func isqrt(v float64) float64 {
-	if v <= 0 {
-		return 0
-	}
-	// Newton's method, a handful of iterations is plenty for our <=180^2 range.
-	x := v
-	for i := 0; i < 8; i++ {
-		x = 0.5 * (x + v/x)
-	}
-	return x
-}
-
-// moonlightSender returns the active MoonlightInputSender, or nil if no
-// stream is connected. Shared with gamepad forwarding's inline check.
-func (dw *DiskWidget) moonlightSender() service.MoonlightInputSender {
-	if dw.moonlightProvider == nil {
-		return nil
-	}
-	return dw.moonlightProvider()
+	}()
+	return dw.startPenCapture(t)
 }
 
 // stopAllPenCaptures stops every active pen capture; called on disconnect.

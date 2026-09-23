@@ -45,6 +45,7 @@ type TokenBackend interface {
 	UnpairSunshineClient(uniqueID string) error
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
+	UpdateTLSAddr(port int, enabled bool) (config.Config, error)
 	UpdateSunshinePort(port int) (config.Config, error)
 	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
 	AdminUser() string
@@ -214,6 +215,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/pin", s.handlePIN)
 	mux.HandleFunc("POST /engine/relinquish", s.handleRelinquishEngine)
 	mux.HandleFunc("POST /token/listen-addr", s.handleListenAddr)
+	mux.HandleFunc("POST /token/tls-addr", s.handleTLSAddr)
 	mux.HandleFunc("POST /token/sunshine-port", s.handleSunshinePort)
 	mux.HandleFunc("POST /token/sunshine-stream-addr", s.handleSunshineStreamAddr)
 	mux.HandleFunc("GET /token/admin-credentials", s.handleAdminCredentials)
@@ -471,6 +473,20 @@ func (s *Server) handleListenAddr(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg, err := s.token.UpdateListenAddr(body.Host, body.Port)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) handleTLSAddr(w http.ResponseWriter, r *http.Request) {
+	var body tlsAddrBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	cfg, err := s.token.UpdateTLSAddr(body.Port, body.Enabled)
 	if err != nil {
 		writeError(w, err)
 		return

@@ -1,3 +1,5 @@
+//go:build !(js && wasm)
+
 // Package localui is the client-side ("heavy hardware") mirror of the
 // device's modules/ui_parser Go package: the same Set-of-Mark UI-parsing
 // pipeline (YOLOv8 icon/element detector + PaddleOCR-style DBNet text

@@ -13,9 +13,25 @@ import (
 )
 
 type Config struct {
-	AppName            string `yaml:"app_name"`
-	ListenHost         string `yaml:"listen_host"`
-	HTTPPort           int    `yaml:"http_port"`
+	AppName    string `yaml:"app_name"`
+	ListenHost string `yaml:"listen_host"`
+	HTTPPort   int    `yaml:"http_port"`
+	// TLSPort is the second HTTPS listener (see internal/tlshost,
+	// internal/devicecert) serving the SAME handler as HTTPPort's plain-HTTP
+	// one -- exists so the browser-based web client (client/web, loaded from
+	// https://web.usbridge.io) can reach this agent at all: a page served
+	// over https can't fetch()/WebSocket to a plain-http origin (mixed
+	// content) or an untrusted-cert https origin (no click-through for a
+	// background request).
+	TLSPort int `yaml:"tls_port"`
+	// TLSEnabled is the General Settings "Enable HTTPS" checkbox (see
+	// ui.Window's HTTP Listen Address dialog). Nil (omitted in YAML) means
+	// on -- the product default, matching StreamerAutoUpdate's identical
+	// nil-means-default-true pattern -- so existing configs keep the HTTPS
+	// listener without needing a config migration. A pointer is required so
+	// an explicit false (the user turned it off) round-trips instead of
+	// collapsing back to the default.
+	TLSEnabled         *bool  `yaml:"tls_enabled,omitempty"`
 	UsbPassthroughPort int    `yaml:"usb_passthrough_port"`
 	TailscaleEnabled   bool   `yaml:"tailscale_enabled"`
 	NBDMountCommand    string `yaml:"nbd_mount_command"`
@@ -111,6 +127,7 @@ func Default() Config {
 		AppName:            "USBridge Agent",
 		ListenHost:         "0.0.0.0",
 		HTTPPort:           8080,
+		TLSPort:            8443,
 		UsbPassthroughPort: 8090,
 		TailscaleEnabled:   true,
 		NBDMountCommand:    "",
@@ -136,6 +153,13 @@ func (c Config) EffectiveListenHost() string {
 // default.
 func (c Config) StreamerAutoUpdateEnabled() bool {
 	return c.StreamerAutoUpdate == nil || *c.StreamerAutoUpdate
+}
+
+// TLSEnabledOK is true unless the user turned the "Enable HTTPS" checkbox
+// off (see the HTTP Listen Address dialog). Omitted YAML (nil) is on,
+// matching StreamerAutoUpdateEnabled's identical pattern.
+func (c Config) TLSEnabledOK() bool {
+	return c.TLSEnabled == nil || *c.TLSEnabled
 }
 
 // RemoteWindowLockEnabled is true only when the user turned the General

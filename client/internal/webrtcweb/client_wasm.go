@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall/js"
 	"time"
 )
@@ -40,6 +41,13 @@ type WebRTCClient struct {
 	// produces headers, they just won't match anything rustshine expects,
 	// same as any other wrong/missing key.
 	masterKey string
+
+	// bitrateKbps: this session's requested bitrate ceiling, sent as
+	// OfferRequest.bitrate_kbps in postOffer's body -- see
+	// SetBitrateKbps's own doc comment. 0 (the zero value, and this
+	// struct's default before anyone calls SetBitrateKbps) means "don't
+	// send one", same as never having sent the field at all.
+	bitrateKbps int
 
 	pc      *js.Value
 	dc      *js.Value
@@ -81,6 +89,20 @@ func (c *WebRTCClient) signHMAC(method, path, body string) (ts, sig string) {
 	sig = hex.EncodeToString(mac.Sum(nil))
 	return
 }
+
+// SetBitrateKbps sets the bitrate ceiling this session will request from
+// rustshine in its /webrtc/offer body -- previously a no-op on this path
+// (WebRTCVideoClient.SetBitrate was an empty stub; only the classic
+// Moonlight/GameStream path's real ANNOUNCE negotiation honored the
+// video-settings bitrate slider). rustshine treats this as a request, not
+// a command: it's clamped to the operator's own --webrtc-bitrate-kbps
+// ceiling server-side (see rust-shine's signaling.rs,
+// resolve_session_bitrate_bps) -- a client can only ever ask for *less*
+// than what the server permits, never more. Must be called before
+// Connect(); 0 (never called, or called with 0) sends no bitrate_kbps
+// field at all, falling back to today's behavior (the server's own
+// ceiling, unchanged).
+func (c *WebRTCClient) SetBitrateKbps(kbps int) { c.mu.Lock(); c.bitrateKbps = kbps; c.mu.Unlock() }
 
 // OnOpen registers a callback fired when the "input" DataChannel opens.
 func (c *WebRTCClient) OnOpen(fn func()) { c.mu.Lock(); c.onOpen = fn; c.mu.Unlock() }
@@ -350,9 +372,19 @@ func (c *WebRTCClient) waitForICEGatheringComplete(pc js.Value) {
 // rejected offer) once the client was pointed at rustshine directly.
 func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	_ = sessionID // rustshine's endpoint doesn't take a session id -- one PeerConnection per POST, matching its own signaling.rs
-	reqBody, err := json.Marshal(map[string]string{
-		"sdp": offerSDP,
-	})
+	c.mu.Lock()
+	bitrateKbps := c.bitrateKbps
+	c.mu.Unlock()
+	// bitrate_kbps omitted entirely (not sent as 0) when unset -- matches
+	// rust-shine's OfferRequest.bitrate_kbps, an Option<u32> on the wire
+	// (#[serde(default)]), and its own "0 means absent" fallback in
+	// resolve_session_bitrate_bps; sending a literal 0 would ask the
+	// server to freeze the picture rather than just "use your ceiling".
+	reqFields := map[string]any{"sdp": offerSDP}
+	if bitrateKbps > 0 {
+		reqFields["bitrate_kbps"] = bitrateKbps
+	}
+	reqBody, err := json.Marshal(reqFields)
 	if err != nil {
 		return "", err
 	}
@@ -473,6 +505,133 @@ func (c *WebRTCClient) StartStatsLogging(interval time.Duration, logFn func(msg 
 		stopped = true
 		stopMu.Unlock()
 	}
+}
+
+// NetGraphSnapshot is a point-in-time read of this session's WebRTC video
+// stats -- all counters cumulative (session lifetime), mirroring getStats()'s
+// own RTCStats convention. Consumed by service.NetGraph's
+// netGraphNetworkStatsFn hook (net_graph_wasm.go), which diffs consecutive
+// snapshots into per-tick deltas exactly like it already does for
+// moonlight-common-c's own cumulative RTPVideoStats on every other
+// platform -- see that file's doc comment for why this is cumulative, not
+// pre-diffed, here too.
+type NetGraphSnapshot struct {
+	Valid             bool
+	PacketsReceived   uint32
+	FramesDecoded     uint32
+	FramesDropped     uint32
+	PacketsLost       uint32
+	JitterMs          float64
+	TotalDecodeTimeMs float64
+	RTTMs             float64
+	RTTValid          bool
+}
+
+var netGraphSnapshotAtomic atomic.Pointer[NetGraphSnapshot]
+
+// LatestNetGraphSnapshot returns the most recently polled stats snapshot
+// from StartNetGraphStatsPolling, or ok=false before the first poll lands
+// (or with no session ever connected).
+func LatestNetGraphSnapshot() (NetGraphSnapshot, bool) {
+	p := netGraphSnapshotAtomic.Load()
+	if p == nil {
+		return NetGraphSnapshot{}, false
+	}
+	return *p, true
+}
+
+// netGraphStatsPollInterval is deliberately much tighter than
+// StartStatsLogging's own 2s diagnostic cadence -- net_graph.go's HUD ticks
+// at 10Hz (netGraphInterval) and wants reasonably fresh counters to plot a
+// live-looking graph, not just an occasional stall warning. getStats() at
+// 4Hz is the same order of magnitude browsers themselves poll it at
+// (chrome://webrtc-internals), cheap enough to run for a whole session.
+const netGraphStatsPollInterval = 250 * time.Millisecond
+
+// StartNetGraphStatsPolling polls getStats() at netGraphStatsPollInterval
+// and stores a NetGraphSnapshot for LatestNetGraphSnapshot to read --
+// decoupled from net_graph.go's own 100ms HUD tick so that loop never blocks
+// on a JS promise itself (see netGraphNetworkStatsFn's doc comment). Safe to
+// call once per session alongside StartStatsLogging; returns a stop func.
+func (c *WebRTCClient) StartNetGraphStatsPolling() func() {
+	if c.pc == nil {
+		return func() {}
+	}
+	pc := *c.pc
+	stopped := false
+	var stopMu sync.Mutex
+	isStopped := func() bool {
+		stopMu.Lock()
+		defer stopMu.Unlock()
+		return stopped
+	}
+
+	go func() {
+		ticker := time.NewTicker(netGraphStatsPollInterval)
+		defer ticker.Stop()
+		for !isStopped() {
+			<-ticker.C
+			if isStopped() {
+				return
+			}
+			statsVal, err := awaitPromise(pc.Call("getStats"))
+			if err != nil {
+				continue
+			}
+			var snap NetGraphSnapshot
+			forEach := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+				report := args[0]
+				switch report.Get("type").String() {
+				case "inbound-rtp":
+					if report.Get("kind").String() != "video" {
+						return nil
+					}
+					snap.Valid = true
+					snap.PacketsReceived = uint32(report.Get("packetsReceived").Float())
+					snap.FramesDecoded = uint32(report.Get("framesDecoded").Float())
+					snap.FramesDropped = uint32(report.Get("framesDropped").Float())
+					snap.PacketsLost = uint32(jsFloatOr(report, "packetsLost", 0))
+					snap.JitterMs = jsFloatOr(report, "jitter", 0) * 1000
+					snap.TotalDecodeTimeMs = jsFloatOr(report, "totalDecodeTime", 0) * 1000
+				case "candidate-pair":
+					rtt := report.Get("currentRoundTripTime")
+					if rtt.IsUndefined() || rtt.IsNull() {
+						return nil
+					}
+					// Prefer the nominated (actually selected) pair if this
+					// session reports more than one candidate-pair --
+					// harmless to overwrite with a non-nominated one first
+					// and let a later nominated report win.
+					if !snap.RTTValid || report.Get("nominated").Truthy() {
+						snap.RTTMs = rtt.Float() * 1000
+						snap.RTTValid = true
+					}
+				}
+				return nil
+			})
+			statsVal.Call("forEach", forEach)
+			forEach.Release()
+			netGraphSnapshotAtomic.Store(&snap)
+		}
+	}()
+
+	return func() {
+		stopMu.Lock()
+		stopped = true
+		stopMu.Unlock()
+	}
+}
+
+// jsFloatOr reads a numeric field that isn't guaranteed present on every
+// browser's RTCStats report (e.g. totalDecodeTime, packetsLost on some
+// report types) -- returns fallback instead of panicking/NaN-ing on an
+// undefined property.
+func jsFloatOr(v js.Value, key string, fallback float64) float64 {
+	f := v.Get(key)
+	if f.IsUndefined() || f.IsNull() {
+		return fallback
+	}
+	return f.Float()
 }
 
 // VideoElement returns the underlying <video> DOM element, so the gui

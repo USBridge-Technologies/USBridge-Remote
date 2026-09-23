@@ -255,6 +255,12 @@ func (dw *DiskWidget) combineDrives() {
 	oldRNDISMode := "auto"
 	oldGamepadMode := "" // "" = not chosen; resolved per agent by effectiveGamepadMode
 	oldUSBAudioMode := "uac1"
+	// oldPenMounted preserves a locally-captured pen tablet's toggle state
+	// across the rebuild below -- there is no agent-reported "mounted"
+	// signal for this source the way gamepad/keyboard/mouse have (see
+	// disk_widget_pen.go's newPenTabletToggle doc comment), so it has to be
+	// carried over by hand like oldGamepadMode is.
+	oldPenMounted := make(map[string]bool)
 	for i, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
 			oldMouseType = d.MouseType
@@ -264,6 +270,9 @@ func (dw *DiskWidget) combineDrives() {
 		}
 		if d.IsGamepad && d.GamepadMode != "" {
 			oldGamepadMode = d.GamepadMode
+		}
+		if d.IsPenTablet && d.PenTabletID != "" {
+			oldPenMounted[d.PenTabletID] = d.IsMounted
 		}
 		if d.IsUSBAudio && d.USBAudioMode != "" {
 			oldUSBAudioMode = d.USBAudioMode
@@ -457,6 +466,22 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, gamepadItem)
 	}
 
+	// Add pen tablets captured locally (macOS: IOKit; web build: a WebHID
+	// grant) -- distinct from a real tablet forwarded raw from the agent's
+	// own machine (drive.IsUSBPassthrough && isWacomTablet, see
+	// disk_widget_dashboard.go).
+	for _, tab := range dw.penTablets {
+		penItem := DriveItem{
+			Name:        tab.Name,
+			Size:        "N/A",
+			Source:      "pen",
+			IsMounted:   oldPenMounted[tab.ID],
+			IsPenTablet: true,
+			PenTabletID: tab.ID,
+		}
+		dw.allDrives = append(dw.allDrives, penItem)
+	}
+
 	// Add audio capture devices
 	for i := range dw.audioDevices {
 		device := dw.audioDevices[i]
@@ -548,6 +573,17 @@ func (dw *DiskWidget) loadGamepadDevices() {
 	logrus.Infof("🎮 gamepads found: %d %v", len(gamepads), ids)
 	dw.updateUIAsync(func() {
 		dw.gamepadDevices = gamepads
+		dw.scheduleCombine()
+	})
+}
+
+// loadPenTabletDevices refreshes the pen tablet list (platform.ListPenTablets --
+// macOS's own IOKit tap, or a WebHID grant on the web build) and rebuilds the
+// device list, same pattern as loadGamepadDevices.
+func (dw *DiskWidget) loadPenTabletDevices() {
+	tablets := platform.ListPenTablets()
+	dw.updateUIAsync(func() {
+		dw.penTablets = tablets
 		dw.scheduleCombine()
 	})
 }
@@ -689,6 +725,22 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			}
 			drive.IsMounted = isMounted
 			logrus.Debugf("🔊 %s (%s): %v -> %v", drive.Name, drive.Source, oldStatus, drive.IsMounted)
+			continue
+		}
+
+		// A locally-captured pen tablet (IsPenTablet) has no agent-reported
+		// mountedDevices entry at all -- its IsMounted is purely the
+		// newPenTabletToggle click already applied during the rebuild above
+		// (disk_widget_pen.go), and this whole per-drive loop only exists to
+		// reconcile *that* signal, which doesn't apply here. Leaving
+		// isMounted (the local var, defaulted to false above) in charge past
+		// this point -- as every kind below IsPenTablet in this loop except
+		// the ones with their own early continue does -- would silently
+		// reset the toggle back off on every single combine cycle: confirmed
+		// live as the toggle appearing to take effect (capture starts) and
+		// then getting torn down again within a few hundred ms, every time,
+		// since combineDrives calls syncPenCaptures at its own tail.
+		if drive.IsPenTablet {
 			continue
 		}
 

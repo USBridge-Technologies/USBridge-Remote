@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall/js"
 	"time"
+
+	"usbridge-client/internal/api"
 )
 
 // FetchStreamerName is a preflight probe against the agent's own
@@ -41,7 +43,12 @@ func FetchStreamerName(apiHost string, apiPort int, masterKey string) (string, e
 	opts.Set("method", "GET")
 	opts.Set("headers", headers)
 
-	url := fmt.Sprintf("http://%s:%d%s", apiHost, apiPort, path)
+	scheme := "http"
+	if api.BrowserIsHTTPS() {
+		scheme = "https"
+	}
+
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, apiHost, apiPort, path)
 	fetchPromise := js.Global().Call("fetch", url, opts)
 	respVal, err := awaitPromise(fetchPromise)
 	if err != nil {
@@ -68,11 +75,15 @@ func FetchStreamerName(apiHost string, apiPort int, masterKey string) (string, e
 }
 
 // StreamerSupportsWebRTC reports whether name (as returned by
-// FetchStreamerName, e.g. "RustShine (Proprietary)" or "Sunshine (Open
-// Source)") is a backend that implements the WebRTC signaling endpoint
-// this package's Connect/postOffer target. Only rustshine does -- upstream
-// Sunshine has no WebRTC support at all, classic GameStream/Moonlight
-// protocol only.
+// FetchStreamerName, e.g. "USBridge Streamer (Proprietary)" or "Sunshine
+// (Open Source)") is a backend that implements the WebRTC signaling
+// endpoint this package's Connect/postOffer target. Only the proprietary
+// backend does -- upstream Sunshine has no WebRTC support at all, classic
+// GameStream/Moonlight protocol only. Matches both the current
+// rustshineBackend.DisplayName() ("USBridge Streamer") and its pre-rename
+// "RustShine" name, since an agent that hasn't updated yet may still
+// report the old one (see streamhost/rustshine_backend.go's DisplayName).
 func StreamerSupportsWebRTC(name string) bool {
-	return strings.Contains(strings.ToLower(name), "rustshine")
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "rustshine") || strings.Contains(lower, "usbridge streamer")
 }

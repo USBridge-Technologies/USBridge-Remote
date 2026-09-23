@@ -92,10 +92,24 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardBackupCard = dashboardBackupCard
 	dw.dashboardBackupCard.Hide() // only shown once the MTP backup flash exists -- see refreshDashboard
 
+	dw.dashboardHIDConnectBtn = dw.newDashboardHIDConnectButton()
+	dw.startHIDConnectOverlaySync()
+	// A typed-nil *view.DeviceDashboardHeaderButton (the native-platform
+	// case) boxed straight into the fyne.CanvasObject parameter below would
+	// compare non-nil there (interface holding a nil pointer is not a nil
+	// interface) and crash the card's own headerRight != nil branch --
+	// this explicit interface variable is what keeps it a real nil on
+	// every platform where there is no button.
+	var hidHeaderRight fyne.CanvasObject
+	if dw.dashboardHIDConnectBtn != nil {
+		dw.dashboardHIDConnectBtn.OnHover = dw.dashboardHIDHover
+		hidHeaderRight = dw.dashboardHIDConnectBtn
+	}
+
 	dw.dashboardAudioGap = view.NewDeviceDashboardCardGap()
 	dw.dashboardAudioCard = view.NewDeviceDashboardCard(view.DeviceDashboardAudioIconSVG, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind)
 	narrowColumn := container.NewVBox(
-		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", nil, dw.dashboardHID, hidBind),
+		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", hidHeaderRight, dw.dashboardHID, hidBind),
 		view.NewDeviceDashboardCardGap(),
 		view.NewDeviceDashboardCard(view.DeviceDashboardVideoIconSVG, "Video Pipe & EDID", "", dw.dashboardAddVirtualDisplayBtn, dw.dashboardVideo, videoBind),
 		dw.dashboardAudioGap,
@@ -400,7 +414,7 @@ func (dw *DiskWidget) refreshDashboard() {
 				dw.newDashboardConnectSlot(idx, drive, dw.dashboardBackupHover),
 				nil, dw.dashboardBackupChips(drive.Size)...,
 			))
-		case drive.IsUSBPassthrough && isWacomTablet(drive):
+		case drive.IsUSBPassthrough && isWacomTablet(drive), drive.IsPenTablet:
 			hidTablets = append(hidTablets, hidDrive{idx: idx, drive: drive})
 		case drive.IsUSBPassthrough:
 			emulationRows = append(emulationRows, view.NewDeviceDashboardStorageRow(
@@ -466,16 +480,30 @@ func (dw *DiskWidget) refreshDashboard() {
 		))
 	}
 
-	// Pen tablets sit with the other input devices: switching one on exports it
-	// to the host as the original USB tablet (its own driver binds to it).
+	// Pen tablets sit with the other input devices. A real tablet forwarded
+	// raw from the agent's own machine (IsUSBPassthrough) switches on with
+	// newDriveToggle like every other agent-mounted row -- mounting exports
+	// it to the host as the original USB tablet. One this client itself
+	// captures locally (IsPenTablet: macOS's IOKit tap, or a WebHID grant)
+	// gets its own local-only toggle instead (newPenTabletToggle) since
+	// there is no agent-side mount step to round-trip through for this
+	// source.
 	for _, tab := range hidTablets {
+		name := strings.TrimSpace(dw.deviceRowText(tab.drive))
+		if tab.drive.IsPenTablet {
+			hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
+				driveIconResource(tab.drive), name, tab.drive.IsMounted,
+				dw.newPenTabletToggle(tab.drive, dw.dashboardHIDHover),
+			))
+			continue
+		}
 		toggle := dw.newDriveToggle(tab.idx, tab.drive, dw.dashboardHIDHover)
 		if tab.drive.USBPassthrough != nil && tab.drive.USBPassthrough.Protected && !tab.drive.IsMounted {
 			toggle.SetEnabled(false)
 		}
 		hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
 			driveIconResource(tab.drive),
-			strings.TrimSpace(dw.deviceRowText(tab.drive)),
+			name,
 			tab.drive.IsMounted,
 			toggle,
 		))

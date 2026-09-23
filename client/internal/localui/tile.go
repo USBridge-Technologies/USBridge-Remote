@@ -1,3 +1,5 @@
+//go:build !(js && wasm)
+
 package localui
 
 // Ported verbatim (pure math, no OpenCV involved) from

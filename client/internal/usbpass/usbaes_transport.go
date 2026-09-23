@@ -1,4 +1,4 @@
-//go:build linux || windows || darwin
+//go:build linux || windows || darwin || (js && wasm)
 
 package usbpass
 
@@ -11,6 +11,13 @@ package usbpass
 // exchange with the agent is identical either way, so all three platforms
 // link this file. Only a platform with neither (hardware KVM, etc.) gets
 // the stub in usbaes_attach_stub.go.
+//
+// wasm also links this: it's typed against net.Conn (an interface, not a
+// concrete OS socket), and wasm's browser-sourced devices (usbaes_attach_wasm.go)
+// speak this exact same AES-GCM framing to the agent, just over a
+// platform.DialWebSocket-backed net.Conn instead of a raw net.Dialer.Dial
+// one -- see wsconn_wasm.go's doc comment for why the transport has to
+// differ there.
 
 import (
 	"crypto/aes"

@@ -1,13 +1,16 @@
-//go:build !darwin || ios
+//go:build (!darwin || ios) && !(js && wasm)
 
 package platform
 
 import "fmt"
 
 // PenTabletInfo describes a Wacom-protocol pen tablet currently connected to
-// the system. Pen tablet capture is macOS-only for now (see
+// the system. Native OS-level pen tablet capture (opening the device and
+// tapping its own input reports) is macOS-only for now (see
 // pen_capture_darwin.go) -- other platforms already have full raw USB
-// passthrough (client/internal/usbpass) available for this use case.
+// passthrough (client/internal/usbpass) available for this use case, and
+// (via WebHID) the browser/wasm client can also decode the same reports
+// this package's pen_protocol.go parses, regardless of host OS.
 type PenTabletInfo struct {
 	ID   string
 	Name string
@@ -17,32 +20,6 @@ type PenTabletInfo struct {
 
 // ListPenTablets is not supported on this platform.
 func ListPenTablets() []PenTabletInfo { return nil }
-
-// PenCaptureState mirrors pen_capture_darwin.go's decoded sample shape.
-type PenCaptureState struct {
-	X, Y         uint32
-	Pressure     uint16
-	TiltX, TiltY int8
-	Rotation     int16
-	InRange      bool
-	TipSwitch    bool
-	Button1      bool
-	Button2      bool
-	Eraser       bool
-}
-
-const (
-	PenMaxX        = 15200
-	PenMaxY        = 9500
-	PenMaxPressure = 4095
-)
-
-// PenRangeFor mirrors pen_capture_darwin.go's per-model lookup; always the
-// default on this platform since ListPenTablets never returns anything to
-// look up a model for.
-func PenRangeFor(_ uint16) (maxX, maxY uint32, maxPressure uint16) {
-	return PenMaxX, PenMaxY, PenMaxPressure
-}
 
 // PenCapture is a no-op placeholder on this platform.
 type PenCapture struct{}

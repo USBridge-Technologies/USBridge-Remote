@@ -25,9 +25,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// usbAesProtoVersion matches usb_passthrough::protocol::VERSION in rust-shine.
-const usbAesProtoVersion byte = 1
-
 type aesAttachSession struct {
 	conn   net.Conn
 	stream *aeadStream

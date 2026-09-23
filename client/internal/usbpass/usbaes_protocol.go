@@ -1,4 +1,4 @@
-//go:build linux || windows || darwin
+//go:build linux || windows || darwin || (js && wasm)
 
 package usbpass
 
@@ -6,6 +6,10 @@ package usbpass
 // Only the subset the client role speaks is implemented: Hello, HelloAck,
 // Attach, Detach, Reset. UrbSubmit/UrbComplete/Unlink never cross this
 // connection — Go owns the USB/IP export on :3240 directly.
+//
+// Pure encoding/binary + fmt, no OS dependency, so wasm links this too (see
+// usbaes_attach_wasm.go) even though it doesn't build usbaes_attach.go
+// itself (that file's net.Dialer.Dial doesn't work under wasm).
 
 import (
 	"encoding/binary"
@@ -14,6 +18,9 @@ import (
 
 const usbpMagic = "USBP"
 const usbpVersion byte = 1
+
+// usbAesProtoVersion matches usb_passthrough::protocol::VERSION in rust-shine.
+const usbAesProtoVersion byte = 1
 
 const (
 	msgHello    byte = 1

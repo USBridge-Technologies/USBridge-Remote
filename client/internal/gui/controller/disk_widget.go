@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net"
 	"net/url"
 	"path/filepath"
 	"runtime"
@@ -71,9 +72,9 @@ type DiskWidget struct {
 	// the same card's hover-border logic (see NewDeviceDashboardCard's own
 	// doc comment for why a stable cell is needed instead of wiring hover
 	// directly).
-	dashboardHIDHover     func(bool)
-	dashboardVideoHover   func(bool)
-	dashboardAudioHover   func(bool)
+	dashboardHIDHover       func(bool)
+	dashboardVideoHover     func(bool)
+	dashboardAudioHover     func(bool)
 	dashboardStorageHover   func(bool)
 	dashboardEmulationHover func(bool)
 	dashboardNetworkHover   func(bool)
@@ -91,6 +92,18 @@ type DiskWidget struct {
 
 	// dashboardAddVirtualDisplayBtn is the dynamic header action for Video.
 	dashboardAddVirtualDisplayBtn *view.DeviceDashboardHeaderButton
+
+	// dashboardHIDConnectBtn is the "Connect USB" header action on the HID &
+	// Input Hub card -- wasm-only (see disk_widget_hid_connect_wasm.go/
+	// _other.go), nil on every native platform. Its Tapped is a no-op: the
+	// real navigator.hid.requestDevice() call has to run from a genuine DOM
+	// click, not a Go callback (see index.html's own doc comment on that
+	// restriction), so a plain HTML button is overlaid exactly on top of
+	// this widget's on-screen rect (disk_widget_hid_overlay_wasm.go) and is
+	// what actually receives the click; this Fyne widget exists to draw the
+	// label/pill in the app's own style and to give that overlay something
+	// to track the position of.
+	dashboardHIDConnectBtn *view.DeviceDashboardHeaderButton
 
 	// dashboardFooterDisconnect is Devices' own footer "Disconnect All"
 	// text action -- shown only while something is actually mounted.
@@ -141,6 +154,7 @@ type DiskWidget struct {
 	videoDevices   []models.SystemDevice
 	audioDevices   []models.SystemDevice
 	gamepadDevices []platform.GamepadDevice
+	penTablets     []platform.PenTabletInfo
 	usbPassDevices []models.USBPassthroughDevice
 	// usbPassSessions is the latest /api/usb/passthrough/status Sessions
 	// list from the agent (e.g. "24A9:205A 2-3"). Used with
@@ -149,18 +163,18 @@ type DiskWidget struct {
 	sdSpaceInfo     *models.ISOSpaceInfo
 
 	// Gamepad capture
-	activeCaptures    map[string]*platform.GamepadCapture
+	activeCaptures map[string]gamepadCaptureHandle
 	// activeTouchpads are the touchpad-as-mouse readers of the captured pads that have one.
 	activeTouchpads map[string]*platform.TouchpadCapture
 	// padSlots gives every captured pad its Moonlight controller number; it is
 	// safe from the Moonlight rumble callback thread, which must not touch
 	// activeCaptures (UI-goroutine only).
-	padSlots   gamepadSlots
-	rumbleOnce sync.Once
+	padSlots          gamepadSlots
+	rumbleOnce        sync.Once
 	moonlightProvider moonlightProvider
 
-	// Pen/tablet capture (macOS only for now — see platform.ListPenTablets)
-	activePenCaptures map[string]*platform.PenCapture
+	// Pen/tablet capture (macOS and the web build -- see platform.ListPenTablets)
+	activePenCaptures map[string]penCaptureHandle
 
 	onStorageInfoUpdate   func(usedPct float64, available, total int64)
 	userImages            []*models.DiskInfo
@@ -176,20 +190,20 @@ type DiskWidget struct {
 	preferredDisplayIndex int // 0-based display index for absolute mouse (0 = first)
 	preferredDisplayCount int // total display count for absolute mouse (0/1 = single)
 
-	loadingLocalDrives    atomic.Bool
-	loadingLocalFiles     atomic.Bool
-	loadingVideoDevices   atomic.Bool
-	loadingAudioDevices   atomic.Bool
-	loadingMountedInfo    atomic.Bool
-	devicesRefreshPending atomic.Bool
-	devicesRefreshQueued  atomic.Bool
-	userOperationInFlight atomic.Bool
-	apiMountInProgress    atomic.Bool
-	audioAutoStarted      atomic.Bool
-	audioConnectGen       atomic.Uint64 // incremented on every manual audio connect to cancel in-flight auto-start
-	pendingAudioPath      atomic.Value  // string: effective audio path while switch is in-flight; cleared after onAudioConnect returns
-	imagePickerInFlight   atomic.Bool
-	virtualDisplaySupported atomic.Bool
+	loadingLocalDrives         atomic.Bool
+	loadingLocalFiles          atomic.Bool
+	loadingVideoDevices        atomic.Bool
+	loadingAudioDevices        atomic.Bool
+	loadingMountedInfo         atomic.Bool
+	devicesRefreshPending      atomic.Bool
+	devicesRefreshQueued       atomic.Bool
+	userOperationInFlight      atomic.Bool
+	apiMountInProgress         atomic.Bool
+	audioAutoStarted           atomic.Bool
+	audioConnectGen            atomic.Uint64 // incremented on every manual audio connect to cancel in-flight auto-start
+	pendingAudioPath           atomic.Value  // string: effective audio path while switch is in-flight; cleared after onAudioConnect returns
+	imagePickerInFlight        atomic.Bool
+	virtualDisplaySupported    atomic.Bool
 	videoCardHadVirtualDisplay bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
@@ -213,6 +227,19 @@ type DiskWidget struct {
 	nbdServers   map[string]service.NBDRunner
 	usbClient    *api.USBClient
 	updateStatus func()
+
+	// peerConn opens a labeled DataChannel on the video/control WebRTC
+	// PeerConnection (client/internal/webrtcweb.WebRTCClient.OpenDataChannel,
+	// reached via WebRTCVideoClient's same-shaped wrapper) -- browser USB/IP
+	// passthrough (gamepad/pen, see disk_widget_gamepad_start_wasm.go /
+	// disk_widget_pen_start_wasm.go) rides this instead of a separate
+	// ws://+ WebSocket, so that traffic is DTLS-encrypted end to end and
+	// never subject to the browser's mixed-content blocking. nil on
+	// platforms with no WebRTC video client, or before one has connected --
+	// see SetPeerConnection.
+	peerConn interface {
+		OpenDataChannel(label string) (net.Conn, error)
+	}
 
 	// Configuration
 	config         *models.AppConfig
@@ -374,6 +401,14 @@ type DriveItem struct {
 	GamepadMode      string
 	GamepadVendorID  string
 	GamepadProductID string
+	// IsPenTablet/PenTabletID identify a platform.ListPenTablets() row (see
+	// disk_widget_data.go's loadPenTabletDevices) -- distinct from
+	// IsUSBPassthrough's own isWacomTablet case, which is a real tablet
+	// attached to the *agent's* machine and forwarded raw, not one this
+	// client itself captures (macOS IOKit natively, or WebHID on the web
+	// build).
+	IsPenTablet      bool
+	PenTabletID      string
 	IsAudio          bool
 	AudioDevice      *models.SystemDevice
 	IsUSBAudio       bool
@@ -433,9 +468,45 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 	dw.createInterface()
 	dw.startPeriodicRefresh()
 	go dw.loadGamepadDevices()
+	dw.startBrowserGamepadPolling()
+	go dw.loadPenTabletDevices()
+	dw.startPenTabletPolling()
 	go dw.loadUSBPassthroughDevices()
 
 	return dw
+}
+
+// penTabletPollInterval matches browserGamepadPollInterval's own reasoning:
+// platform.ListPenTablets() (macOS's IOKit enumeration, or the web build's
+// WebHID grant list) can change at any time with no refresh trigger of its
+// own -- a tablet plugged in mid-session, or a WebHID grant completing after
+// the user picks it from the browser's own device chooser -- so this polls
+// instead of only refreshing on an explicit Refresh click or a mount/unmount
+// round-trip.
+const penTabletPollInterval = 1 * time.Second
+
+// startPenTabletPolling runs loadPenTabletDevices on a short ticker for the
+// lifetime of the widget, same shutdown signal (dw.refreshStop) and busy
+// guard (dw.isClosing) startBrowserGamepadPolling's own ticker goroutine
+// uses. Unlike that one, this needs no per-platform stub: ListPenTablets
+// itself is already a no-op returning nil on platforms with no pen support
+// (pen_capture_stub.go), so polling it everywhere is harmless.
+func (dw *DiskWidget) startPenTabletPolling() {
+	go func() {
+		ticker := time.NewTicker(penTabletPollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-dw.refreshStop:
+				return
+			case <-ticker.C:
+				if dw.isClosing.Load() {
+					continue
+				}
+				dw.loadPenTabletDevices()
+			}
+		}
+	}()
 }
 
 // SetWindow sets the window used for dialogs
@@ -1157,6 +1228,19 @@ func (dw *DiskWidget) showWarningAsync(title, message string) {
 			view.ShowInfoDialog(title, message, dw.window)
 		}
 	})
+}
+
+// SetPeerConnection wires the video/control WebRTC PeerConnection's
+// DataChannel opener into this widget -- called once from main_window.go via
+// an optional-interface probe on the platform's VideoClient (same pattern as
+// SetAPISecret/SetTailscaleService), since not every platform has a WebRTC
+// video client at all (nil pc is fine: browser USB passthrough attach then
+// fails with a clear "connect video/control first" error instead of the old
+// direct-WebSocket path it used to have as a fallback).
+func (dw *DiskWidget) SetPeerConnection(pc interface {
+	OpenDataChannel(label string) (net.Conn, error)
+}) {
+	dw.peerConn = pc
 }
 
 // UpdateClient updates the USB client. On disconnect — immediately clears the data;

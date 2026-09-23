@@ -806,9 +806,19 @@ void metal_video_set_hidden(int hidden) {
 // runtime rather than picking one gets both "works everywhere this ships"
 // and "no deprecated-API warning/behavior on the OS that already moved on".
 static void apply_dynamic_range(CALayer *layer, BOOL hdr) {
+    // @available only guards the runtime branch -- the compiler still needs
+    // preferredDynamicRange/CADynamicRangeHigh/CADynamicRangeStandard
+    // *declared* by the SDK doing the compiling, regardless of which OS
+    // this ends up running on. A build machine on an Xcode/SDK that
+    // predates macOS 26 doesn't have those declarations at all, so the
+    // whole branch has to be compiled out (not just skipped at runtime) or
+    // it fails with "undeclared identifier" there -- confirmed live.
+#if defined(MAC_OS_VERSION_26_0) && __MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_26_0
     if (@available(macOS 26.0, *)) {
         layer.preferredDynamicRange = hdr ? CADynamicRangeHigh : CADynamicRangeStandard;
-    } else {
+    } else
+#endif
+    {
         // Deliberate: this is the guarded pre-26 fallback for a property
         // deprecated exactly at 26 -- there is no other API to use here on
         // an OS this old, so the deprecation warning is expected noise, not

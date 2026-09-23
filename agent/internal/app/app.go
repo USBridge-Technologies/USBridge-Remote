@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,6 +31,7 @@ import (
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/devicecert"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/input"
@@ -37,6 +40,7 @@ import (
 	"usbridge_agent/internal/sasinput"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
+	"usbridge_agent/internal/tlshost"
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/update"
@@ -65,12 +69,33 @@ type App struct {
 	tsProxy   *tailscale.StreamProxy
 	server    *http.Server
 	tsHTTP    *http.Server
-	handler   http.Handler
-	apiServer *api.Server
-	fyneApp   fyne.App
-	clipboard *clipboard.Manager
-	usbBroker *usbpass.Service
-	adminSrv  *adminapi.Server
+	tlsServer *http.Server
+	tlsMgr    *tlshost.Manager
+	// runCtx is Run's own signal.NotifyContext, stashed here (rather than
+	// only passed to the watchdogs started synchronously in Run) so
+	// restartTLS can start deviceCertWatchdog on demand if the user enables
+	// HTTPS at runtime after starting with it off -- see
+	// tlsWatchdogOnce's doc comment.
+	runCtx context.Context
+	// tlsWatchdogOnce guards deviceCertWatchdog against starting twice --
+	// once at Run() startup if HTTPS starts enabled, or once from
+	// restartTLS if the user turns it on later; whichever happens first.
+	tlsWatchdogOnce sync.Once
+	handler         http.Handler
+	apiServer       *api.Server
+	fyneApp         fyne.App
+	clipboard       *clipboard.Manager
+	usbBroker       *usbpass.Service
+	adminSrv        *adminapi.Server
+
+	// usbPassBridgeAddr is StartUSBPassBridge's localhost address (see
+	// api.Server.StartUSBPassBridge's doc comment) -- rustshine dials this
+	// to relay browser-sourced USB/IP passthrough DataChannel bytes into
+	// this agent process. Re-applied to each new streamhost.Backend by
+	// applyStreamUSBPassBridgeAddr (SetStreamBackend switches backends at
+	// runtime; the bridge listener itself is started once and outlives any
+	// individual backend).
+	usbPassBridgeAddr string
 
 	// gpuClockArmed records whether applyGPUClockLock has already launched
 	// the elevated lock daemon for this agent process, so repeated calls
@@ -572,6 +597,12 @@ func New() (*App, error) {
 	}
 	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort, usbBridgeAddr)
 	apiServer.SetUSBPassthrough(instance.usbBroker)
+	if addr, err := apiServer.StartUSBPassBridge(); err != nil {
+		log.Printf("[app] usbpass webrtc bridge: %v (browser gamepad/pen passthrough over WebRTC will not work; legacy WebSocket path unaffected)", err)
+	} else {
+		instance.usbPassBridgeAddr = addr
+		applyStreamUSBPassBridgeAddr(instance.stream, addr)
+	}
 	instance.apiServer = apiServer
 	handler := apiServer.Routes()
 	instance.handler = handler
@@ -582,6 +613,14 @@ func New() (*App, error) {
 	}
 	instance.tsHTTP = &http.Server{
 		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	instance.tlsMgr = tlshost.NewManager(filepath.Join(cfg.StateDir, "web-tls"))
+	instance.tlsMgr.LoadPersisted()
+	instance.tlsServer = &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.TLSPort),
+		Handler:           handler,
+		TLSConfig:         &tls.Config{GetCertificate: instance.tlsMgr.GetCertificate, MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	instance.refreshLocalEntitlementStatus()
@@ -674,6 +713,7 @@ func (a *App) Run(headless, startHidden bool) error {
 	a.headless = headless
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	a.runCtx = ctx
 
 	// Diagnostic-only, additive: signal.Notify fans a delivered signal out to
 	// every channel registered for it, so this doesn't steal anything from
@@ -747,6 +787,28 @@ func (a *App) Run(headless, startHidden bool) error {
 	go a.streamerUpdateWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
+	// Gated by the "Enable HTTPS" checkbox (see ui's HTTP Listen Address
+	// dialog, UpdateTLSAddr) -- on by default (TLSEnabledOK's nil-means-true
+	// convention), so this runs for every existing install unless a user
+	// explicitly turned it off.
+	if a.cfg.TLSEnabledOK() {
+		// Self-signed baseline generated synchronously, before the TLS
+		// listener starts accepting -- deviceCertWatchdog's first tick
+		// (below) then upgrades to the shared device wildcard cert once the
+		// backend round trip completes, but a self-signed fallback must
+		// already exist so the very first TLS handshake (offline, or before
+		// that tick lands) doesn't hit tlshost.Manager's "no certificate
+		// available yet" error.
+		selfSignedIPs := []net.IP{net.ParseIP("127.0.0.1")}
+		if ip := net.ParseIP(netutil.PreferredIPv4()); ip != nil {
+			selfSignedIPs = append(selfSignedIPs, ip)
+		}
+		if err := a.tlsMgr.EnsureSelfSigned(selfSignedIPs, nil); err != nil {
+			log.Printf("[app] self-signed TLS cert unavailable: %v", err)
+		}
+		go func() { _ = a.tlsServer.ListenAndServeTLS("", "") }()
+		a.startDeviceCertWatchdogOnce()
+	}
 	if a.usbBroker != nil {
 		if err := a.usbBroker.Start(); err != nil {
 			log.Printf("[usbpass] broker not started: %v", err)
@@ -1362,6 +1424,7 @@ func (a *App) SetStreamBackend(kind string) error {
 		next = streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath)
 		applyStreamSharedSecret(next, []byte(a.cfg.MasterKey))
 		applyStreamWebRTCEnabled(next, !a.cfg.RustShineWebRTCDisabled)
+		applyStreamUSBPassBridgeAddr(next, a.usbPassBridgeAddr)
 	} else {
 		next = streamhost.NewSunshine(a.exeDir, a.cfg.StateDir, a.logPath)
 	}
@@ -2191,6 +2254,82 @@ func (a *App) tickStreamerUpdate(ctx context.Context) {
 	a.checkRustShineUpdate(ctx, token)
 }
 
+// deviceCertRegisterInterval is how often deviceCertWatchdog re-registers
+// this machine's current LAN IP with the backend (see internal/devicecert)
+// -- frequent enough that a DHCP lease change is picked up promptly (a
+// stale DNS record just means the browser web client can't reach this
+// agent by its device.usbridge.io hostname until the next tick, nothing
+// more serious), cheap enough (a single Cloudflare-API-backed Worker call)
+// not to matter at this cadence.
+const deviceCertRegisterInterval = 5 * time.Minute
+
+// deviceCertWatchdog keeps this machine's <label>.device.usbridge.io DNS
+// record and shared wildcard TLS cert (see internal/tlshost,
+// internal/devicecert) up to date -- what lets the browser-based web
+// client (client/web, loaded from https://web.usbridge.io) reach this
+// agent's HTTPS listener (a.tlsServer) at all; see tlshost's own module
+// doc comment for why a plain-HTTP or self-signed-HTTPS origin can't work
+// for that caller. Fires once immediately (mirrors streamerUpdateWatchdog)
+// so a freshly started agent gets a real hostname/cert without waiting a
+// full interval.
+func (a *App) deviceCertWatchdog(ctx context.Context) {
+	a.tickDeviceCert(ctx)
+	ticker := time.NewTicker(deviceCertRegisterInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.tickDeviceCert(ctx)
+		}
+	}
+}
+
+// tickDeviceCert registers this machine's current LAN IP, then -- only if
+// the hostname changed or the installed device cert is missing/expiring
+// soon (tlshost.Manager.DeviceCertStatus, a cheap in-memory check) --
+// fetches and installs a fresh cert. The common case is register-only: no
+// cert fetch, since the shared wildcard cert changes far less often than
+// this ticks. Best-effort throughout: any failure here just leaves the
+// self-signed fallback (or whatever device cert is already installed) in
+// place until the next tick, never blocks or crashes the agent.
+func (a *App) tickDeviceCert(ctx context.Context) {
+	hwID, err := hwid.Get()
+	if err != nil {
+		log.Printf("[app] device-cert: hwid unavailable: %v", err)
+		return
+	}
+	ip := netutil.PreferredIPv4()
+	if ip == "" {
+		return // no LAN interface up yet (e.g. still booting) -- next tick retries
+	}
+
+	regCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	hostname, err := devicecert.RegisterIP(regCtx, hwID, ip)
+	cancel()
+	if err != nil {
+		log.Printf("[app] device-cert: register IP failed: %v", err)
+		return
+	}
+
+	currentHostname, needsRefresh := a.tlsMgr.DeviceCertStatus()
+	if currentHostname == hostname && !needsRefresh {
+		return
+	}
+
+	certCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	cert, err := devicecert.FetchCert(certCtx, hwID)
+	cancel()
+	if err != nil {
+		log.Printf("[app] device-cert: fetch cert failed: %v", err)
+		return
+	}
+	if err := a.tlsMgr.InstallDeviceCert(hostname, cert.CertPEM, cert.KeyPEM); err != nil {
+		log.Printf("[app] device-cert: install cert failed: %v", err)
+	}
+}
+
 // recheckEntitlement re-verifies whatever's currently cached in
 // cfg.EntitlementToken and downgrades to Sunshine if it no longer holds up.
 // Returns true if this tick is "settled" (nothing more to usefully retry
@@ -2946,7 +3085,21 @@ func (a *App) QRLink() (string, string) {
 			}
 		}
 	}
-	link := buildQRLink(internalHost, tailscaleHost, masterKey)
+	// The device's own <label>.device.usbridge.io hostname (see
+	// internal/tlshost, internal/devicecert), if deviceCertWatchdog has
+	// managed to register+fetch one yet -- "" otherwise, e.g. offline or
+	// still within the first tick. Included in the QR link so a browser web
+	// client (which MUST connect by this exact hostname over TLS, not a
+	// bare IP: SNI is never sent for an IP-literal connection, so
+	// tlshost.Manager.GetCertificate can never select the trusted device
+	// wildcard cert -- only ever the untrusted self-signed one -- for an
+	// internal_host-only connection) has something usable. See client's
+	// deeplink_handler.go resolveDeepLinkHost for the other half of this.
+	deviceHost := ""
+	if a.tlsMgr != nil {
+		deviceHost, _ = a.tlsMgr.DeviceCertStatus()
+	}
+	link := buildQRLink(internalHost, tailscaleHost, deviceHost, a.cfg.TLSPort, masterKey)
 	return link, masterKey
 }
 
@@ -2973,7 +3126,22 @@ func applyStreamWebRTCEnabled(stream streamhost.Backend, enabled bool) {
 	}
 }
 
-func buildQRLink(internalHost, tailscaleHost, masterKey string) string {
+// applyStreamUSBPassBridgeAddr hands addr to stream if it implements the
+// optional interface{ SetUSBPassBridgeAddr(string) } -- only rustshineBackend
+// does today, same optional-interface probe pattern as
+// applyStreamSharedSecret above; a no-op for sunshineBackend, which has no
+// browser USB passthrough / WebRTC DataChannel path to bridge into. addr is
+// api.Server.StartUSBPassBridge's own localhost listener address, started
+// once at boot (see the app.New call site) and re-applied here every time
+// SetStreamBackend swaps in a new rustshineBackend instance, since the
+// bridge listener itself outlives any individual backend.
+func applyStreamUSBPassBridgeAddr(stream streamhost.Backend, addr string) {
+	if setter, ok := stream.(interface{ SetUSBPassBridgeAddr(string) }); ok {
+		setter.SetUSBPassBridgeAddr(addr)
+	}
+}
+
+func buildQRLink(internalHost, tailscaleHost, deviceHost string, tlsPort int, masterKey string) string {
 	if masterKey == "" {
 		return ""
 	}
@@ -2986,6 +3154,12 @@ func buildQRLink(internalHost, tailscaleHost, masterKey string) string {
 	}
 	if tailscaleHost != "" {
 		values.Set("tailscale_host", tailscaleHost)
+	}
+	if deviceHost != "" {
+		values.Set("device_host", deviceHost)
+		if tlsPort > 0 {
+			values.Set("device_tls_port", strconv.Itoa(tlsPort))
+		}
 	}
 	values.Set("master_key", masterKey)
 	return "usbridge://connect?" + values.Encode()
@@ -3346,6 +3520,67 @@ func (a *App) restartMainHTTP() {
 	if err := next.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Printf("[app] http server error: %v", err)
 	}
+}
+
+// UpdateTLSAddr updates the agent's HTTPS listen port and "Enable HTTPS"
+// flag, persists the config, and hot-restarts the TLS server so the change
+// takes effect immediately -- mirrors UpdateListenAddr/restartMainHTTP
+// exactly, see restartTLS.
+func (a *App) UpdateTLSAddr(port int, enabled bool) (config.Config, error) {
+	a.cfg.TLSPort = port
+	a.cfg.TLSEnabled = &enabled
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		return a.cfg, err
+	}
+	go a.restartTLS()
+	return a.cfg, nil
+}
+
+// restartTLS shuts down the current TLS server (if one was running) and
+// starts a new one on the host/port currently in a.cfg -- unless
+// TLSEnabledOK is now false, in which case this only tears the old one
+// down (used for both "port changed" and "HTTPS just got turned off").
+// Mirrors restartMainHTTP's shape exactly; see that doc comment.
+func (a *App) restartTLS() {
+	old := a.tlsServer
+	if old != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = old.Shutdown(ctx)
+	}
+	if !a.cfg.TLSEnabledOK() {
+		log.Printf("[app] https disabled, not restarting")
+		return
+	}
+	if a.tlsMgr == nil {
+		return
+	}
+	addr := fmt.Sprintf("%s:%d", a.cfg.EffectiveListenHost(), a.cfg.TLSPort)
+	next := &http.Server{
+		Addr:              addr,
+		Handler:           a.handler,
+		TLSConfig:         &tls.Config{GetCertificate: a.tlsMgr.GetCertificate, MinVersion: tls.VersionTLS12},
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	a.tlsServer = next
+	log.Printf("[app] https restarted on %s", addr)
+	a.startDeviceCertWatchdogOnce()
+	if err := next.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+		log.Printf("[app] https server error: %v", err)
+	}
+}
+
+// startDeviceCertWatchdogOnce starts deviceCertWatchdog the first time
+// HTTPS becomes active during this process's lifetime -- see
+// tlsWatchdogOnce's doc comment. A no-op (not an error) if a.runCtx isn't
+// set yet (restartTLS could theoretically race a UI call in before Run has
+// reached the point that sets it; the initial Run() call site is the
+// common path and always has it set by the time it calls this).
+func (a *App) startDeviceCertWatchdogOnce() {
+	if a.runCtx == nil {
+		return
+	}
+	a.tlsWatchdogOnce.Do(func() { go a.deviceCertWatchdog(a.runCtx) })
 }
 
 // UpdateSunshinePort updates the Sunshine admin API port in agent config and

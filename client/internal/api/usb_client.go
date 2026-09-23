@@ -161,6 +161,19 @@ func findLANSourceIP(destHost string) net.IP {
 }
 
 func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *http.Client) *USBClient {
+	return NewUSBClientWithScheme("http", host, port, timeout, httpClient)
+}
+
+// NewUSBClientWithScheme is NewUSBClientWithHTTPClient with an explicit
+// scheme -- the browser (wasm) build needs "https" (see
+// usb_client_direct_wasm.go's NewDirectUSBClient) when the page itself was
+// loaded over https: a plain http:// baseURL there gets silently blocked
+// as mixed content (no click-through the way a top-level https:// cert
+// warning has). Desktop-native builds never call this with anything but
+// "http" -- there is no browser sandbox to trip mixed-content blocking,
+// and no code here trusts a self-signed/device-wildcard cert for "https"
+// to even be meaningful outside the wasm build.
+func NewUSBClientWithScheme(scheme, host string, port int, timeout int, httpClient *http.Client) *USBClient {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
@@ -173,7 +186,7 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 		httpClient.Timeout = time.Duration(timeout) * time.Second
 	}
 	return &USBClient{
-		baseURL:    fmt.Sprintf("http://%s:%d", host, port),
+		baseURL:    fmt.Sprintf("%s://%s:%d", scheme, host, port),
 		httpClient: httpClient,
 	}
 }
@@ -202,12 +215,21 @@ func (c *USBClient) shouldNotifyTransportError(err error) bool {
 	defer c.transportErrorMu.Unlock()
 
 	now := time.Now()
+
+	// Ignore duplicate error notifications that land in the same concurrent batch (within 500ms).
+	if !c.lastTransportErrorAt.IsZero() && now.Sub(c.lastTransportErrorAt) < 500*time.Millisecond {
+		logrus.Debugf("⚠️ [TRANSPORT-ERR] Suppressing duplicate batch error (%v) within 500ms window of previous error", err)
+		return false
+	}
+
 	if !c.lastTransportErrorAt.IsZero() && now.Sub(c.lastTransportErrorAt) > 4*time.Second {
 		c.transportErrorCount = 0
 	}
 
 	c.transportErrorCount++
 	c.lastTransportErrorAt = now
+
+	logrus.Warnf("⚠️ [TRANSPORT-ERR] Error count (%d/3) within 4s window: %v", c.transportErrorCount, err)
 
 	// Do not break active connection due to a single background HTTP failure.
 	return c.transportErrorCount >= 3
@@ -976,15 +998,23 @@ func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint
 		req.Header.Set(key, value)
 	}
 
+	start := time.Now()
+	logrus.Infof("🌐 [HTTP-TRACE] -> %s %s", method, endpoint)
+
 	resp, err := c.httpClient.Do(req)
+	duration := time.Since(start)
 	if err != nil {
+		logrus.Errorf("❌ [HTTP-TRACE] <- FAIL %s %s after %v: %v", method, endpoint, duration, err)
 		wrappedErr := fmt.Errorf("request failed: %v", err)
 		if c.transportErrorHandler != nil && c.shouldNotifyTransportError(wrappedErr) {
+			logrus.Errorf("💥 [TRANSPORT-ERR] Triggering connection lost handler for %s %s due to: %v", method, endpoint, wrappedErr)
 			go c.transportErrorHandler(wrappedErr)
 		}
 		return nil, wrappedErr
 	}
 	defer resp.Body.Close()
+
+	logrus.Infof("✅ [HTTP-TRACE] <- OK %s %s (%d) in %v", method, endpoint, resp.StatusCode, duration)
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
