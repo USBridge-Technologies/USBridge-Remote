@@ -83,6 +83,26 @@ func newScriptsMCPCardWebBridge(data ScriptsMCPData) fyne.CanvasObject {
 	configBg.StrokeWidth = 1
 	configBox := container.NewStack(configBg, NewInset(configInner, 12, 12, 8, 8))
 
+	// Independent of BridgeConnected: this toggle is what actually lazily
+	// loads the onnxruntime-web icon_detect session (api.LazyInitLocalUIParse,
+	// see applyLocalUIParseSetting) for the MCP bridge's own ui.parse
+	// interception (MCPBrowserBridge.handle's tryLocalUIParse call, mirroring
+	// desktop's MCPProxy.handle) -- same toggle/meaning as desktop's card,
+	// just dropped by oversight when this platform-specific card was first
+	// split out. Left off: ui.parse just keeps forwarding to the paired
+	// device/agent, the same "optional accelerator, never a hard dependency"
+	// fallback every platform already has.
+	localLabel := canvas.NewText("USE LOCAL MODELS", color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
+	localLabel.TextSize = 10
+	localLabel.TextStyle.Monospace = true
+	localToggle := NewDeviceToggle(data.LocalUI, func(on bool) {
+		if data.OnLocalUI != nil {
+			data.OnLocalUI(on)
+		}
+	})
+	localToggle.ActiveFill = design.ColorConnectionBadgeText
+	localRow := container.New(&DeviceRowControlsLayout{Gap: 8}, localToggle, localLabel)
+
 	toggleLabel := "Connect"
 	if data.BridgeConnected {
 		toggleLabel = "Disconnect"
@@ -96,6 +116,7 @@ func newScriptsMCPCardWebBridge(data ScriptsMCPData) fyne.CanvasObject {
 		downloadBtn,
 		configBox,
 		pathHint,
+		localRow,
 		toggleBtn,
 	)
 	content := NewInset(inner, 14, 14, 12, 12)
