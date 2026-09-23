@@ -222,6 +222,8 @@ func (c *USBClient) shouldNotifyTransportError(err error) bool {
 	c.transportErrorCount++
 	c.lastTransportErrorAt = now
 
+	logrus.Warnf("⚠️ [TRANSPORT-ERR] Error count (%d/3) within 4s window: %v", c.transportErrorCount, err)
+
 	// Do not break active connection due to a single background HTTP failure.
 	return c.transportErrorCount >= 3
 }
@@ -989,15 +991,23 @@ func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint
 		req.Header.Set(key, value)
 	}
 
+	start := time.Now()
+	logrus.Infof("🌐 [HTTP-TRACE] -> %s %s", method, endpoint)
+
 	resp, err := c.httpClient.Do(req)
+	duration := time.Since(start)
 	if err != nil {
+		logrus.Errorf("❌ [HTTP-TRACE] <- FAIL %s %s after %v: %v", method, endpoint, duration, err)
 		wrappedErr := fmt.Errorf("request failed: %v", err)
 		if c.transportErrorHandler != nil && c.shouldNotifyTransportError(wrappedErr) {
+			logrus.Errorf("💥 [TRANSPORT-ERR] Triggering connection lost handler for %s %s due to: %v", method, endpoint, wrappedErr)
 			go c.transportErrorHandler(wrappedErr)
 		}
 		return nil, wrappedErr
 	}
 	defer resp.Body.Close()
+
+	logrus.Infof("✅ [HTTP-TRACE] <- OK %s %s (%d) in %v", method, endpoint, resp.StatusCode, duration)
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -71,8 +71,12 @@ func getVideoInfoDataForDevice(usbClient *api.USBClient, devicePath string) (*mo
 		videoInfoCacheMu.Unlock()
 	}
 
+	logrus.Infof("🎯 [VIDEO-INFO-TRACE] Fetching video info for device=%q...", devicePath)
+	start := time.Now()
 	resp, err := usbClient.GetVideoInfoForDevice(devicePath)
+	duration := time.Since(start)
 	if err != nil {
+		logrus.Errorf("❌ [VIDEO-INFO-TRACE] GetVideoInfoForDevice failed after %v for device=%q: %v", duration, devicePath, err)
 		if strings.TrimSpace(devicePath) == "" {
 			videoInfoCacheMu.Lock()
 			videoInfoCachedAt = time.Now()
@@ -82,6 +86,7 @@ func getVideoInfoDataForDevice(usbClient *api.USBClient, devicePath string) (*mo
 		}
 		return nil, err
 	}
+	logrus.Infof("✅ [VIDEO-INFO-TRACE] GetVideoInfoForDevice succeeded in %v for device=%q", duration, devicePath)
 	if resp == nil || !resp.Success || resp.Data == nil {
 		err := fmt.Errorf("%s", i18n.Current.VideoInfoUnavailable)
 		if strings.TrimSpace(devicePath) == "" {
