@@ -33,14 +33,43 @@ var accountCardBg = color.NRGBA{R: 0x18, G: 0x1c, B: 0x1f, A: 0xff}
 // "authenticated user" and "connections sync" sections use -- same
 // RadiusMD/border treatment as the dialog's own outer panel, one size down.
 func newAccountCard(content fyne.CanvasObject) fyne.CanvasObject {
+	l, r, t, b := accountDialogCardInset()
+	return newAccountCardInset(content, l, r, t, b)
+}
+
+func newAccountCardInset(content fyne.CanvasObject, left, right, top, bottom float32) fyne.CanvasObject {
 	bg := canvas.NewRectangle(accountCardBg)
 	bg.CornerRadius = design.RadiusMD
 	border := canvas.NewRectangle(color.Transparent)
 	border.CornerRadius = design.RadiusMD
 	border.StrokeColor = design.ColorConnectionBadgeBorder
 	border.StrokeWidth = 1
-	l, r, t, b := accountDialogCardInset()
-	return container.NewStack(bg, view.NewInset(content, l, r, t, b), border)
+	return container.NewStack(bg, view.NewInset(content, left, right, top, bottom), border)
+}
+
+// newAccountLoginLicenseRow is the logged-out Account dialog's License
+// Manager strip: a muted one-line hint plus an outlined (not lime) chip
+// opening billing.usbridge.io, sitting above the Google login block so
+// rebind/status is reachable without signing in.
+func newAccountLoginLicenseRow() fyne.CanvasObject {
+	hint := widget.NewLabel(i18n.Current.AccountLicenseManagerHint)
+	hint.Wrapping = fyne.TextWrapWord
+	hint.Alignment = fyne.TextAlignLeading
+	styledHint := wrapAccountField(hint, 11, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
+
+	btn := newAccountDialogDarkButton(i18n.Current.AccountLicenseManager, nil, nil, openLicenseManager)
+	btnCentered := container.NewCenter(btn)
+
+	var inner fyne.CanvasObject
+	if accountDialogMobile() {
+		hint.Alignment = fyne.TextAlignCenter
+		inner = container.NewVBox(styledHint, view.NewInset(btnCentered, 0, 0, 6, 0))
+		return newAccountCardInset(inner, 12, 12, 6, 6)
+	}
+	inner = container.NewBorder(nil, nil, nil, btnCentered, styledHint)
+	// Tighter top/bottom than identity/sync cards -- this strip is one
+	// line + chip; the taller default inset forced a login-dialog scroll.
+	return newAccountCardInset(inner, 14, 14, 6, 6)
 }
 
 // newAccountDivider is the thin low-contrast rule between a card's header
@@ -226,6 +255,7 @@ type accountDialogDarkButton struct {
 	text     string
 	onTapped func()
 	hovered  bool
+	lime     bool
 
 	iconNormal fyne.Resource
 	iconHover  fyne.Resource
@@ -247,16 +277,23 @@ func newAccountDialogDarkButton(text string, iconNormal, iconHover fyne.Resource
 	return b
 }
 
+func newAccountDialogLimeButton(text string, onTapped func()) *accountDialogDarkButton {
+	b := newAccountDialogDarkButton(text, nil, nil, onTapped)
+	b.lime = true
+	return b
+}
+
 func (b *accountDialogDarkButton) CreateRenderer() fyne.WidgetRenderer {
-	b.bg = canvas.NewRectangle(color.NRGBA{R: 0x23, G: 0x27, B: 0x2a, A: 0xff})
+	fill, border, label := accountDialogDarkButtonColors(b.lime, false)
+	b.bg = canvas.NewRectangle(fill)
 	b.bg.CornerRadius = 6
 
 	b.bdr = canvas.NewRectangle(color.Transparent)
 	b.bdr.StrokeWidth = 1
-	b.bdr.StrokeColor = color.NRGBA{R: 0x44, G: 0x48, B: 0x39, A: 0xff}
+	b.bdr.StrokeColor = border
 	b.bdr.CornerRadius = 6
 
-	b.lbl = canvas.NewText(b.text, color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff})
+	b.lbl = canvas.NewText(b.text, label)
 	b.lbl.TextSize = 11
 	b.lbl.TextStyle = fyne.TextStyle{Bold: true}
 
@@ -302,22 +339,39 @@ func (b *accountDialogDarkButton) MouseOut() {
 	b.refreshVisuals()
 }
 
+func accountDialogDarkButtonColors(lime, hovered bool) (fill, border, label color.Color) {
+	if lime {
+		fill = design.ColorConnectionAddFill
+		border = design.ColorConnectionAddFill
+		label = color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff}
+		if hovered {
+			fill = design.ColorConnectionAddFillHover
+			border = design.ColorConnectionAddFillHover
+		}
+		return fill, border, label
+	}
+	if hovered {
+		return color.NRGBA{R: 0x1d, G: 0x13, B: 0x1b, A: 0xff},
+			color.NRGBA{R: 0x4e, G: 0x13, B: 0x28, A: 0xff},
+			color.NRGBA{R: 0xed, G: 0x6b, B: 0x7f, A: 0xff}
+	}
+	return color.NRGBA{R: 0x23, G: 0x27, B: 0x2a, A: 0xff},
+		color.NRGBA{R: 0x44, G: 0x48, B: 0x39, A: 0xff},
+		color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff}
+}
+
 func (b *accountDialogDarkButton) refreshVisuals() {
 	if b.bg == nil {
 		return
 	}
-	if b.hovered {
-		b.bg.FillColor = color.NRGBA{R: 0x1d, G: 0x13, B: 0x1b, A: 0xff}
-		b.bdr.StrokeColor = color.NRGBA{R: 0x4e, G: 0x13, B: 0x28, A: 0xff}
-		b.lbl.Color = color.NRGBA{R: 0xed, G: 0x6b, B: 0x7f, A: 0xff}
-		if b.icon != nil && b.iconHover != nil {
+	fill, border, label := accountDialogDarkButtonColors(b.lime, b.hovered)
+	b.bg.FillColor = fill
+	b.bdr.StrokeColor = border
+	b.lbl.Color = label
+	if b.icon != nil {
+		if b.hovered && b.iconHover != nil {
 			b.icon.Resource = b.iconHover
-		}
-	} else {
-		b.bg.FillColor = color.NRGBA{R: 0x23, G: 0x27, B: 0x2a, A: 0xff}
-		b.bdr.StrokeColor = color.NRGBA{R: 0x44, G: 0x48, B: 0x39, A: 0xff}
-		b.lbl.Color = color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff}
-		if b.icon != nil && b.iconNormal != nil {
+		} else if b.iconNormal != nil {
 			b.icon.Resource = b.iconNormal
 		}
 	}

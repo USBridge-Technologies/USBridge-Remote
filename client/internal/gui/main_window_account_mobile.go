@@ -56,10 +56,13 @@ func accountDialogScrollMetrics(loggedIn, hasSyncKey, loginProgress bool) (left,
 			minH = 96
 		}
 	default:
-		left, right, top, bottom, minH = 21, 21, 2, 12, 110
+		// Floor only: License Manager strip + intro + Google login need
+		// more than the old 110px chrome. Real height comes from content
+		// below (applyAccountDialogScroll grows to inset.MinSize).
+		left, right, top, bottom, minH = 21, 21, 2, 12, 180
 		if accountDialogMobile() {
 			left, right = 14, 14
-			minH = 96
+			minH = 160
 		}
 	}
 	return
@@ -72,12 +75,11 @@ func applyAccountDialogScroll(scroll *container.Scroll, body fyne.CanvasObject, 
 	l, r, t, b, minH := accountDialogScrollMetrics(loggedIn, hasSyncKey, loginProgress)
 	inset := view.NewInset(body, l, r, t, b)
 	scroll.Content = inset
-	// Grow with the body so wrapped content cannot leave a 2px inner
-	// scrollbar; cap still happens in accountDialogPanelSize.
-	if accountDialogMobile() || loggedIn {
-		if h := inset.MinSize().Height; h > minH {
-			minH = h
-		}
+	// Grow with the body so wrapped content (login License Manager row,
+	// wrap-word intro, Google CTA) does not leave an inner scrollbar.
+	// Cap still happens in accountDialogPanelSize against the canvas.
+	if h := inset.MinSize().Height; h > minH {
+		minH = h
 	}
 	scroll.SetMinSize(fyne.NewSize(0, minH))
 	scroll.Refresh()

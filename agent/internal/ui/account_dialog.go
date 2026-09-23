@@ -20,6 +20,16 @@ import (
 	"usbridge_agent/internal/ui/design"
 )
 
+const licenseManagerURL = "https://billing.usbridge.io/"
+
+func (w *Window) openLicenseManager() {
+	parsed, err := url.Parse(licenseManagerURL)
+	if err != nil || w.app == nil {
+		return
+	}
+	_ = w.app.OpenURL(parsed)
+}
+
 // openAccount is the header avatar (and Protocol Login) entry: logged-out
 // opens the Google login overlay; logged-in opens the account menu.
 func (w *Window) openAccount(parent fyne.Window, anchor fyne.CanvasObject) {
@@ -65,7 +75,7 @@ func (w *Window) showAccountLoginDialog(parent fyne.Window) {
 			return
 		}
 
-		body.Add(w.newAccountLicenseField(parent, 358))
+		body.Add(w.newAccountLicenseField(parent, 358, true))
 		body.Add(spacerSize(1, 16))
 
 		switch {
@@ -250,7 +260,7 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 	// (see internal/account's doc comment) -- only rendered when there's
 	// actually another license on the account to offer, so the common
 	// single-device case doesn't grow a menu row it'll never use.
-	width := float32(280)
+	width := float32(300)
 	licensesBody := container.NewVBox()
 	var popup *tealMenuPopup
 	var content fyne.CanvasObject
@@ -301,16 +311,25 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 	logout.logout = true
 	logout.blockChromeHover = true
 
+	licenseMgr := newCardHeaderButton(loc().LicenseManager, headerLicenseMgrIcon, func() {
+		if popup != nil {
+			popup.Hide()
+		}
+		w.openLicenseManager()
+	})
+	licenseMgr.blockChromeHover = true
+	licenseMgr.SetLime(true)
+
 	inner := container.New(&tightVBoxLayout{gap: 6},
 		signed,
 		email,
 		sep1,
 		container.New(&flushEndsLayout{}, subLabel, subValue),
 		container.New(&flushEndsLayout{}, planLabel, planValue),
-		w.newAccountLicenseField(w.guiWin, width-20),
+		w.newAccountLicenseField(w.guiWin, width-20, false),
 		licensesBody,
 		sep2,
-		container.New(&centerHLayout{}, logout),
+		container.New(&centerHLayout{}, container.New(&tightHBoxLayout{gap: 8}, licenseMgr, logout)),
 	)
 	bg := canvas.NewRectangle(design.ColorGray950)
 	bg.CornerRadius = design.RadiusMD
@@ -556,8 +575,10 @@ func (w *Window) copyAccountText(parent fyne.Window, s string) {
 // newAccountLicenseField is the Account Hardware ID well: this machine's
 // hardware id in a bordered container, wrapped, with a Copy icon. Shown
 // whether or not Google login has completed -- web checkout needs the id
-// from a logged-out agent too.
-func (w *Window) newAccountLicenseField(parent fyne.Window, contentWidth float32) fyne.CanvasObject {
+// from a logged-out agent too. showLicenseManager puts a lime License
+// Manager chip on the same header row as Copy (logged-out Account only;
+// the signed-in menu already has that button next to Log out).
+func (w *Window) newAccountLicenseField(parent fyne.Window, contentWidth float32, showLicenseManager bool) fyne.CanvasObject {
 	id := thisMachineHardwareID()
 	shown := id
 	if shown == "" {
@@ -580,7 +601,17 @@ func (w *Window) newAccountLicenseField(parent fyne.Window, contentWidth float32
 		w.copyAccountText(parent, id)
 	})
 	copyBtn.blockChromeHover = true
-	header := container.New(&flushEndsLayout{}, title, copyBtn)
+	var headerRight fyne.CanvasObject = copyBtn
+	if showLicenseManager {
+		mgr := newIconActionButton(loc().LicenseManager, nil, func() {
+			w.openLicenseManager()
+		})
+		mgr.Tiny = true
+		mgr.CTA = true
+		mgr.blockChromeHover = true
+		headerRight = container.New(&tightHBoxLayout{gap: 6}, mgr, copyBtn)
+	}
+	header := container.New(&flushEndsLayout{}, title, headerRight)
 
 	lines := wrapLicenseIDLines(shown, idSize, innerW)
 	lineObjs := make([]fyne.CanvasObject, 0, len(lines))

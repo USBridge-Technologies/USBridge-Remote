@@ -746,11 +746,19 @@ func (l *cardGridLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	botH := fyne.Max(objects[2].MinSize().Height, objects[3].MinSize().Height)
 	need := topH + botH + gap
 	if size.Height > 0 && need > size.Height {
-		scale := size.Height / need
-		topH *= scale
-		botH = size.Height - gap - topH
-		if botH < 0 {
+		avail := size.Height - gap
+		if avail < 0 {
+			avail = 0
+		}
+		// Prefer keeping Tailscale|Permissions at their natural shared
+		// height (Linux Permissions is the tall driver). Squeeze
+		// Protocol|Status first; only shrink the top row if even that
+		// is not enough.
+		if topH <= avail {
+			botH = avail - topH
+		} else {
 			botH = 0
+			topH = avail
 		}
 	}
 	topW := size.Width - l.topInset*2
@@ -774,8 +782,9 @@ func (l *cardGridLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 		obj.Resize(fyne.NewSize(w, h))
 	}
 	// Top row (Tailscale | Permissions) shares one height so the cards
-	// line up; extra space inside Permissions is the gap above Moonlight,
-	// not padding between every row.
+	// line up; Permissions growth pulls Tailscale with it via topH =
+	// max(mins). Extra space inside a shorter card sits below its last
+	// row (viewportFillLayout), not as padding between every row.
 	place(objects[0], l.topInset, 0, topCol, topH)
 	place(objects[1], l.topInset+topCol+gap, 0, topCol, topH)
 	place(objects[2], l.bottomInset, topH+gap, botCol, fyne.Min(objects[2].MinSize().Height, botH))

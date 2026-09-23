@@ -82,17 +82,18 @@ type LocalizedStrings struct {
 	StreamerUpdateAsk   string
 
 	// Common
-	Yes      string
-	No       string
-	OK       string
-	Cancel   string
-	Save     string
-	Update   string
-	NotNow   string
-	Download string
-	LogOut   string
-	Copy     string
-	Submit   string
+	Yes            string
+	No             string
+	OK             string
+	Cancel         string
+	Save           string
+	Update         string
+	NotNow         string
+	Download       string
+	LogOut         string
+	LicenseManager string
+	Copy           string
+	Submit         string
 
 	// Token dialog
 	TokenTitle       string
@@ -329,17 +330,18 @@ func EN() *LocalizedStrings {
 		UpdateAvailableHint: "Update available",
 		StreamerUpdateAsk:   "A USBridge-streamer update is available. Install now?",
 
-		Yes:      "Yes",
-		No:       "No",
-		OK:       "OK",
-		Cancel:   "Cancel",
-		Save:     "Save",
-		Update:   "Update",
-		NotNow:   "Not Now",
-		Download: "Download",
-		LogOut:   "Log out",
-		Copy:     "Copy",
-		Submit:   "Submit",
+		Yes:            "Yes",
+		No:             "No",
+		OK:             "OK",
+		Cancel:         "Cancel",
+		Save:           "Save",
+		Update:         "Update",
+		NotNow:         "Not Now",
+		Download:       "Download",
+		LogOut:         "Log out",
+		LicenseManager: "License Manager",
+		Copy:           "Copy",
+		Submit:         "Submit",
 
 		TokenTitle:       "Token",
 		CopyLink:         "Copy Link",
@@ -538,6 +540,7 @@ func ES() *LocalizedStrings {
 	locale.NotNow = "Ahora no"
 	locale.Download = "Descargar"
 	locale.LogOut = "Salir"
+	locale.LicenseManager = "Gestor de licencias"
 	locale.Copy = "Copiar"
 	locale.Submit = "Enviar"
 
@@ -734,6 +737,7 @@ func UK() *LocalizedStrings {
 	locale.NotNow = "Не зараз"
 	locale.Download = "Завантажити"
 	locale.LogOut = "Вийти"
+	locale.LicenseManager = "Менеджер ліцензій"
 	locale.Copy = "Копіювати"
 	locale.Submit = "Надіслати"
 

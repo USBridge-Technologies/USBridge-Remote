@@ -42,7 +42,6 @@ import "C"
 
 import (
 	"fmt"
-	"net"
 
 	"image"
 	"os"
@@ -838,8 +837,4 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 		}
 	}
 	cb(img)
-}
-
-func (ms *MoonlightService) OpenDataChannel(label string) (net.Conn, error) {
-	return nil, fmt.Errorf("DataChannel not supported on MoonlightService")
 }

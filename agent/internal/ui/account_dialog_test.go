@@ -1,10 +1,21 @@
 package ui
 
 import (
+	"net/url"
 	"testing"
 
 	"fyne.io/fyne/v2/test"
 )
+
+func TestLicenseManagerURLIsBillingHost(t *testing.T) {
+	u, err := url.Parse(licenseManagerURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Scheme != "https" || u.Host != "billing.usbridge.io" {
+		t.Fatalf("license manager must open https://billing.usbridge.io/, got %q", licenseManagerURL)
+	}
+}
 
 func TestWrapBreakBlockHeightSplitsLongHardwareID(t *testing.T) {
 	test.NewApp()

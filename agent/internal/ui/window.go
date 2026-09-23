@@ -756,7 +756,14 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	raiseMain.Store(&raise)
 	win.SetPadded(false)
-	win.Resize(fyne.NewSize(640, 460))
+	// Linux Permissions has more rows (USB/virtual display/KMS/…); start
+	// taller so the top cards can take their natural height instead of
+	// scrolling over Grant buttons. Other platforms keep the compact size.
+	winH := float32(460)
+	if runtime.GOOS == "linux" {
+		winH = 580
+	}
+	win.Resize(fyne.NewSize(640, winH))
 	win.CenterOnScreen()
 	w.loadChromePin()
 
@@ -3158,13 +3165,17 @@ func newPanelHeader(icon fyne.Resource, title string, afterTitle, headerRight fy
 	sep.SetMinSize(fyne.NewSize(0, 1))
 
 	denseContent := container.NewThemeOverride(content, &compactPanelTheme{Theme: design.NewBrandTheme()})
-	fillLay := &viewportFillLayout{inner: denseContent}
-	fill := container.New(fillLay, denseContent)
+	// Right gutter keeps Grant / action chips clear of Fyne's overlay
+	// scrollbar (same idea as whatsNewScrollGutter).
+	const panelScrollGutter float32 = 12
+	scrollBody := newExactInset(denseContent, 0, panelScrollGutter, 0, 0)
+	fillLay := &viewportFillLayout{inner: scrollBody}
+	fill := container.New(fillLay, scrollBody)
 	scrolled := container.NewVScroll(fill)
 	body := container.NewBorder(
 		container.New(&tightVBoxLayout{gap: 0}, header, sep),
 		nil, nil, nil,
-		newExactInset(container.New(&contentMinScrollLayout{content: denseContent, fill: fillLay}, scrolled), 14, 14, 3, 12),
+		newExactInset(container.New(&contentMinScrollLayout{content: scrollBody, fill: fillLay}, scrolled), 14, 8, 3, 12),
 	)
 
 	bg := canvas.NewRectangle(design.ColorGray900)
@@ -3216,6 +3227,8 @@ var (
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#c3c6b4" d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>`))
 	headerLogoutIconHover = fyne.NewStaticResource("header-logout-hover.svg", []byte(
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fda4af" d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>`))
+	headerLicenseMgrIcon = fyne.NewStaticResource("header-license-mgr.svg", []byte(
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#4C6803" d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>`))
 	headerLoginIcon = fyne.NewStaticResource("header-login.svg", []byte(
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#c3c6b4" d="M11 7L9.59 8.41 12.17 11H2v2h10.17l-2.58 2.59L11 17l5-5zM20 19h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z"/></svg>`))
 	headerLoginIconWaiting = fyne.NewStaticResource("header-login-waiting.svg", []byte(
@@ -3798,11 +3811,11 @@ func newDangerGlyphButton(tapped func()) fyne.CanvasObject {
 
 type iconActionButton struct {
 	widget.DisableableWidget
-	Text     string
-	Icon     fyne.Resource
-	OnTapped func()
-	Compact  bool
-	Tiny     bool
+	Text             string
+	Icon             fyne.Resource
+	OnTapped         func()
+	Compact          bool
+	Tiny             bool
 	Accent           bool
 	CTA              bool
 	Danger           bool
@@ -4384,12 +4397,13 @@ func (r *subscriptionBadgeRenderer) Refresh() {
 
 type cardHeaderButton struct {
 	widget.DisableableWidget
-	Text     string
-	Icon     fyne.Resource
-	OnTapped func()
+	Text             string
+	Icon             fyne.Resource
+	OnTapped         func()
 	hovered          bool
 	logout           bool
 	accent           bool
+	lime             bool
 	blockChromeHover bool
 }
 
@@ -4411,6 +4425,14 @@ func (b *cardHeaderButton) SetAccent(on bool) {
 		return
 	}
 	b.accent = on
+	b.Refresh()
+}
+
+func (b *cardHeaderButton) SetLime(on bool) {
+	if b.lime == on {
+		return
+	}
+	b.lime = on
 	b.Refresh()
 }
 
@@ -4503,6 +4525,14 @@ func (r *cardHeaderButtonRenderer) Refresh() {
 		stroke = design.ColorLogoutHoverStroke
 		label = design.ColorLogoutHoverLabel
 		icon = headerLogoutIconHover
+	} else if r.btn.lime {
+		fill = design.ColorCTA
+		stroke = design.ColorCTA
+		label = design.ColorCTALabel
+		if r.btn.hovered {
+			fill = design.ColorCTAHover
+			stroke = design.ColorCTAHover
+		}
 	} else if r.btn.accent {
 		ch := currentChrome()
 		fill = ch.Accent

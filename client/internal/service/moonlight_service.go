@@ -1153,6 +1153,15 @@ func (m *MoonlightService) SetAutoReconnect(enabled bool) {
 func (m *MoonlightService) SetMaxReconnectAttempts(max int) {
 }
 
+// OpenDataChannel satisfies VideoClient. Moonlight/Sunshine has no SCTP
+// DataChannel; wasm uses webrtc_video_client_wasm.go instead. Kept on this
+// always-built file so Windows (and every other desktop target) implements
+// the interface — the previous copies lived only under darwin/linux/!cgo
+// build tags and left Windows failing the VideoClient type assertion.
+func (m *MoonlightService) OpenDataChannel(label string) (net.Conn, error) {
+	return nil, fmt.Errorf("DataChannel not supported on MoonlightService")
+}
+
 // isLikelyTailnetHost reports whether host is a Tailscale address (100.64.0.0/10
 // CGNAT range or a *.ts.net MagicDNS name), mirroring the same check the deep
 // link handler uses to pick internal_host vs tailscale_host.

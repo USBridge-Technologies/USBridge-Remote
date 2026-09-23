@@ -487,12 +487,15 @@ func (dw *DiskWidget) refreshDashboard() {
 	// captures locally (IsPenTablet: macOS's IOKit tap, or a WebHID grant)
 	// gets its own local-only toggle instead (newPenTabletToggle) since
 	// there is no agent-side mount step to round-trip through for this
-	// source.
+	// source. Pro outline badge rides the name for every tablet row --
+	// gamepads stay in hidGamepads above and never get it (identity is
+	// IsPenTablet / isWacomTablet, not the device display name).
 	for _, tab := range hidTablets {
 		name := strings.TrimSpace(dw.deviceRowText(tab.drive))
+		proBadge := view.NewDeviceDashboardOutlinedBadge(i18n.Current.Color444Badge, design.ColorProSoft)
 		if tab.drive.IsPenTablet {
-			hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
-				driveIconResource(tab.drive), name, tab.drive.IsMounted,
+			hidRows = append(hidRows, view.NewDeviceDashboardTealRowWithBadge(
+				driveIconResource(tab.drive), name, tab.drive.IsMounted, proBadge,
 				dw.newPenTabletToggle(tab.drive, dw.dashboardHIDHover),
 			))
 			continue
@@ -501,10 +504,11 @@ func (dw *DiskWidget) refreshDashboard() {
 		if tab.drive.USBPassthrough != nil && tab.drive.USBPassthrough.Protected && !tab.drive.IsMounted {
 			toggle.SetEnabled(false)
 		}
-		hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
+		hidRows = append(hidRows, view.NewDeviceDashboardTealRowWithBadge(
 			driveIconResource(tab.drive),
 			name,
 			tab.drive.IsMounted,
+			proBadge,
 			toggle,
 		))
 	}

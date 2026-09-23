@@ -424,7 +424,18 @@ func NewDeviceDashboardRow(icon fyne.Resource, name string, active bool, connect
 // (#41e0c3, design.ColorConnectionBadgeText) as the mounted name color --
 // extras (a mode picker, then the on/off toggle) trail on the right.
 func NewDeviceDashboardTealRow(icon fyne.Resource, name string, active bool, extras ...fyne.CanvasObject) fyne.CanvasObject {
-	left := newDeviceDashboardRowLeftColored(icon, name, rowNameColor(active, design.ColorConnectionBadgeText))
+	return NewDeviceDashboardTealRowWithBadge(icon, name, active, nil, extras...)
+}
+
+// NewDeviceDashboardTealRowWithBadge is NewDeviceDashboardTealRow with an
+// optional pill immediately after the device name (pen tablet's Pro marker).
+// badge nil falls back to the plain teal row.
+func NewDeviceDashboardTealRowWithBadge(icon fyne.Resource, name string, active bool, badge fyne.CanvasObject, extras ...fyne.CanvasObject) fyne.CanvasObject {
+	nameColor := rowNameColor(active, design.ColorConnectionBadgeText)
+	left := newDeviceDashboardRowLeftColored(icon, name, nameColor)
+	if badge != nil {
+		left = newDeviceDashboardRowLeftColoredWithBadge(icon, name, nameColor, badge)
+	}
 	var parts []fyne.CanvasObject
 	for _, extra := range extras {
 		if extra != nil {
@@ -798,6 +809,39 @@ func newDeviceDashboardRowLeftColored(icon fyne.Resource, name string, nameColor
 	iconImg.SetMinSize(fyne.NewSize(14, 14))
 
 	return container.New(&DeviceRowControlsLayout{Gap: 8}, iconImg, nameText)
+}
+
+// newDeviceDashboardRowLeftColoredWithBadge is icon + name + an inline
+// trailing pill (pen tablet Pro) on one line -- not the under-name chip
+// column Storage/Video use.
+func newDeviceDashboardRowLeftColoredWithBadge(icon fyne.Resource, name string, nameColor color.Color, badge fyne.CanvasObject) fyne.CanvasObject {
+	nameText := canvas.NewText(name, nameColor)
+	nameText.TextSize = 11
+	nameGroup := container.New(&DeviceRowControlsLayout{Gap: 6}, nameText, badge)
+	if icon == nil {
+		return nameGroup
+	}
+	iconImg := canvas.NewImageFromResource(icon)
+	iconImg.FillMode = canvas.ImageFillContain
+	iconImg.SetMinSize(fyne.NewSize(14, 14))
+	return container.New(&DeviceRowControlsLayout{Gap: 8}, iconImg, nameGroup)
+}
+
+// NewDeviceDashboardOutlinedBadge is a small uppercase pill with a
+// transparent fill and colored stroke/label -- the pen tablet row's Pro
+// marker (design.ColorProSoft), distinct from DeviceDashboardHeaderBadge's
+// filled dark chip.
+func NewDeviceDashboardOutlinedBadge(text string, accent color.Color) fyne.CanvasObject {
+	bg := canvas.NewRectangle(color.Transparent)
+	bg.CornerRadius = 4
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = 4
+	border.StrokeColor = accent
+	border.StrokeWidth = 1
+	label := canvas.NewText(strings.ToUpper(text), accent)
+	label.TextSize = 7
+	label.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	return container.NewStack(bg, border, NewInsetExact(label, 6, 6, 1, 1))
 }
 
 // newDeviceDashboardRowLeftSized is a Storage row's own icon+name -- with an

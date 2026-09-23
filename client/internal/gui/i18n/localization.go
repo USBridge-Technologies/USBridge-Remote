@@ -81,6 +81,8 @@ type LocalizedStrings struct {
 	AccountForgotPassphrase           string
 	AccountResetIt                    string
 	AccountLogOut                     string
+	AccountLicenseManager             string
+	AccountLicenseManagerHint         string
 	AccountLoginIntro                 string
 	AccountLoginGoogle                string
 	AccountConnectionsSync            string
@@ -669,6 +671,8 @@ func EN() *LocalizedStrings {
 		AccountForgotPassphrase:           "Forgot passphrase? ",
 		AccountResetIt:                    "Reset it",
 		AccountLogOut:                     "Log out",
+		AccountLicenseManager:             "License Manager",
+		AccountLicenseManagerHint:         "Rebind a license or check payment dates.",
 		AccountLoginIntro:                 "Log in to sync your saved connections across devices.",
 		AccountLoginGoogle:                "Log in with Google",
 		AccountConnectionsSync:            "Connections sync",
@@ -1352,6 +1356,8 @@ func ES() *LocalizedStrings {
 	locale.AccountForgotPassphrase = "Olvidaste passphrase? "
 	locale.AccountResetIt = "Resetear"
 	locale.AccountLogOut = "Salir"
+	locale.AccountLicenseManager = "Gestor de licencias"
+	locale.AccountLicenseManagerHint = "Reasigna una licencia o consulta las fechas de pago."
 	locale.AccountLoginIntro = "Entra para sincronizar tus conexiones guardadas entre dispositivos."
 	locale.AccountLoginGoogle = "Entrar con Google"
 	locale.AccountConnectionsSync = "Sync de conexiones"
@@ -1684,6 +1690,8 @@ func UKProper() *LocalizedStrings {
 	locale.AccountForgotPassphrase = "Забули passphrase? "
 	locale.AccountResetIt = "Скинути"
 	locale.AccountLogOut = "Вийти"
+	locale.AccountLicenseManager = "Менеджер ліцензій"
+	locale.AccountLicenseManagerHint = "Переприв’яжіть ліцензію або перевірте дати оплати."
 	locale.AccountLoginIntro = "Увійдіть, щоб синхронізувати збережені з’єднання між пристроями."
 	locale.AccountLoginGoogle = "Увійти з Google"
 	locale.AccountConnectionsSync = "Синк з'єднань"

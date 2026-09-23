@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"net/url"
 	"strings"
 	"time"
 
@@ -268,18 +269,19 @@ func (mw *MainWindow) showAccountDialog() {
 				resettingSyncPassphrase = false
 				render()
 			})
+			licenseMgrBtn := newAccountDialogLimeButton(i18n.Current.AccountLicenseManager, openLicenseManager)
+			licenseMgrCentered := container.NewCenter(licenseMgrBtn)
 
 			var footerLeftCentered fyne.CanvasObject
 			if footerLeft != nil {
 				footerLeftCentered = container.NewCenter(footerLeft)
 			}
 
-			footerBar := container.NewBorder(nil, nil, footerLeftCentered, logoutBtn)
+			footerBar := container.NewBorder(nil, nil, footerLeftCentered, logoutBtn, licenseMgrCentered)
 			if !am.HasSyncKey() && !resettingSyncPassphrase {
-				// Password-entry footer: Log out left, Set passphrase right.
-				// The other way around put the primary action on the left
-				// and made the row read backwards.
-				footerBar = container.NewBorder(nil, nil, logoutBtn, footerLeftCentered)
+				// Password-entry footer: Log out left, License Manager
+				// between, Set passphrase right.
+				footerBar = container.NewBorder(nil, nil, logoutBtn, footerLeftCentered, licenseMgrCentered)
 			}
 			fl, fr, ft, fb := accountDialogFooterInset()
 			footerArea := container.NewVBox(
@@ -289,6 +291,8 @@ func (mw *MainWindow) showAccountDialog() {
 			footerContainer.Objects = []fyne.CanvasObject{footerArea}
 
 		default:
+			body.Add(view.NewInset(newAccountLoginLicenseRow(), 0, 0, 0, 8))
+
 			intro := widget.NewLabel(i18n.Current.AccountLoginIntro)
 			intro.Wrapping = fyne.TextWrapWord
 			intro.Alignment = fyne.TextAlignCenter
@@ -401,6 +405,18 @@ func (mw *MainWindow) showAccountDialog() {
 			fyne.Do(render)
 		}
 	}()
+}
+
+const licenseManagerURL = "https://billing.usbridge.io/"
+
+func openLicenseManager() {
+	u, err := url.Parse(licenseManagerURL)
+	if err != nil {
+		return
+	}
+	if app := fyne.CurrentApp(); app != nil {
+		_ = app.OpenURL(u)
+	}
 }
 
 // accountDialogCloseIcon is the same muted-olive X glyph the Add Connection
