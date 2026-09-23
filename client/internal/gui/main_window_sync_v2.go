@@ -48,7 +48,7 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 	if bootstrapClient == nil {
 		// Use the LAN-bound client for direct (non-Tailscale) hosts so that
 		// socket binding bypasses any VPN routing table interference.
-		bootstrapClient = api.NewDirectUSBClient(bootstrapHost, mw.config.USBPort, mw.config.APITimeout)
+		bootstrapClient = api.NewDirectUSBClient(bootstrapHost, mw.config.USBPort, mw.config.USBTLSPort, mw.config.APITimeout)
 	}
 	bootstrapClient.SetAPISecretV2(mw.activeAPISecret)
 

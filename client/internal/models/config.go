@@ -21,7 +21,14 @@ const (
 // AppConfig application configuration
 type AppConfig struct {
 	// USBridge 2 connection (as client)
-	USBPort            int `json:"usb_port" mapstructure:"usb_port"`
+	USBPort int `json:"usb_port" mapstructure:"usb_port"`
+	// USBTLSPort is the agent's HTTPS listener (see USBridge-Remote/agent's
+	// internal/tlshost) -- only the wasm/browser build ever uses this (see
+	// internal/api/usb_client_direct_wasm.go's NewDirectUSBClient); the
+	// desktop-native client always talks plain http on USBPort, no browser
+	// sandbox to trip mixed-content blocking. Matches the agent's own
+	// config.Default() TLSPort.
+	USBTLSPort         int `json:"usb_tls_port" mapstructure:"usb_tls_port"`
 	USBPassthroughPort int `json:"usb_passthrough_port" mapstructure:"usb_passthrough_port"`
 	APITimeout         int `json:"api_timeout" mapstructure:"api_timeout"` // API request timeout
 
@@ -92,6 +99,7 @@ func DefaultConfig() *AppConfig {
 	return &AppConfig{
 		// USBridge 2
 		USBPort:            8080,
+		USBTLSPort:         8443,
 		USBPassthroughPort: 8090,
 		APITimeout:         15,
 

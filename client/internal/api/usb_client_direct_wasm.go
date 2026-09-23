@@ -2,6 +2,8 @@
 
 package api
 
+import "syscall/js"
+
 // NewDirectUSBClient on wasm is just NewUSBClient: the physical-interface
 // pinning the native implementation does (see usb_client_direct_default.go)
 // exists to route around VPN/Tailscale interception on a real OS network
@@ -22,6 +24,37 @@ package api
 // the same address. Confirmed live: this was the actual root cause of the
 // web client showing "Connection refused" against a server that answered
 // curl/fetch() from the same device without any trouble.
-func NewDirectUSBClient(host string, port int, timeout int) *USBClient {
+//
+// tlsPort selects the agent's HTTPS listener (see USBridge-Remote/agent's
+// internal/tlshost, internal/devicecert) when this page itself was loaded
+// over https: browsers block a fetch()/WebSocket from an https:// page to
+// a plain-http origin outright (mixed content), and there's no way for a
+// background request to click through an untrusted-cert warning the way
+// top-level navigation can -- so self-signed https:// wouldn't help either
+// unless host happens to be the agent's real, browser-trusted
+// <label>.device.usbridge.io hostname (only the wildcard cert covers
+// that). When this page is plain http (e.g. served directly by an agent on
+// the LAN, or a local dev build), host:port behaves exactly as before.
+func NewDirectUSBClient(host string, port, tlsPort int, timeout int) *USBClient {
+	if BrowserIsHTTPS() {
+		return NewUSBClientWithScheme("https", host, tlsPort, timeout, nil)
+	}
 	return NewUSBClient(host, port, timeout)
+}
+
+// BrowserIsHTTPS reports whether this wasm module's own page was loaded
+// over https -- window.location.protocol, the only reliable way to detect
+// this from inside the module itself. Exported (not just used by
+// NewDirectUSBClient above) so other packages with their own direct
+// http://<agent>/... calls -- e.g. service.MoonlightService's pairing PIN
+// submission -- can make the same http-vs-https decision without each
+// reimplementing this check; see usb_client_direct_default.go's
+// counterpart (always false -- no browser sandbox on desktop-native
+// builds) for why this symbol exists unconditionally on every platform.
+func BrowserIsHTTPS() bool {
+	loc := js.Global().Get("location")
+	if loc.IsUndefined() || loc.IsNull() {
+		return false
+	}
+	return loc.Get("protocol").String() == "https:"
 }

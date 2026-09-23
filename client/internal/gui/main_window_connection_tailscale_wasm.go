@@ -20,7 +20,7 @@ import (
 // "direct"/LAN path does: a plain HTTP request, no tsnet status/login
 // checks, no WarmUpPeer.
 func (mw *MainWindow) dialTailscaleTarget(ctx context.Context, target string) (*api.USBClient, error) {
-	tempClient := api.NewDirectUSBClient(target, mw.config.USBPort, mw.config.APITimeout)
+	tempClient := api.NewDirectUSBClient(target, mw.config.USBPort, mw.config.USBTLSPort, mw.config.APITimeout)
 	if err := testConnectionWithRetry(ctx, tempClient, target); err != nil {
 		return nil, err
 	}

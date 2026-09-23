@@ -161,6 +161,19 @@ func findLANSourceIP(destHost string) net.IP {
 }
 
 func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *http.Client) *USBClient {
+	return NewUSBClientWithScheme("http", host, port, timeout, httpClient)
+}
+
+// NewUSBClientWithScheme is NewUSBClientWithHTTPClient with an explicit
+// scheme -- the browser (wasm) build needs "https" (see
+// usb_client_direct_wasm.go's NewDirectUSBClient) when the page itself was
+// loaded over https: a plain http:// baseURL there gets silently blocked
+// as mixed content (no click-through the way a top-level https:// cert
+// warning has). Desktop-native builds never call this with anything but
+// "http" -- there is no browser sandbox to trip mixed-content blocking,
+// and no code here trusts a self-signed/device-wildcard cert for "https"
+// to even be meaningful outside the wasm build.
+func NewUSBClientWithScheme(scheme, host string, port int, timeout int, httpClient *http.Client) *USBClient {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
@@ -173,7 +186,7 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 		httpClient.Timeout = time.Duration(timeout) * time.Second
 	}
 	return &USBClient{
-		baseURL:    fmt.Sprintf("http://%s:%d", host, port),
+		baseURL:    fmt.Sprintf("%s://%s:%d", scheme, host, port),
 		httpClient: httpClient,
 	}
 }

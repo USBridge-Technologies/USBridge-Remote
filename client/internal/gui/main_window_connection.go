@@ -931,7 +931,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 				return errConnectAborted
 			}
 			logrus.Warnf("⚠️ Tailscale auto-connect failed, falling back to direct: %v", err)
-			tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
+			tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.USBTLSPort, mw.config.APITimeout)
 			if err2 := testConnectionWithRetry(ctx, tempClient, host); err2 != nil {
 				if mw.connectAborted(ctx, gen) {
 					return errConnectAborted
@@ -944,7 +944,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 			mw.videoWidget.SetTailscaleVideoEnabled(false)
 		}
 	case models.ConnectionProtocolDirect:
-		tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
+		tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.USBTLSPort, mw.config.APITimeout)
 		if err := testConnectionWithRetry(ctx, tempClient, host); err != nil {
 			if mw.connectAborted(ctx, gen) {
 				return errConnectAborted
