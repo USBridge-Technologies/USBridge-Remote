@@ -48,6 +48,15 @@ type WebRTCClient struct {
 	// struct's default before anyone calls SetBitrateKbps) means "don't
 	// send one", same as never having sent the field at all.
 	bitrateKbps int
+	// videoCodec: the codec picked in the client's video settings
+	// (models.VideoModeH264/H265), sent as OfferRequest.codec -- rustshine
+	// streams exactly that when the browser and host can both do it, H.264
+	// otherwise (see signaling.rs's resolve_use_h265). "" sends nothing,
+	// which rustshine treats as H.264.
+	videoCodec string
+	// negotiatedCodec: what rustshine's answer actually put on the video
+	// m-line ("h264"/"h265"), "" until an answer arrives.
+	negotiatedCodec string
 
 	pc      *js.Value
 	dc      *js.Value
@@ -103,6 +112,18 @@ func (c *WebRTCClient) signHMAC(method, path, body string) (ts, sig string) {
 // field at all, falling back to today's behavior (the server's own
 // ceiling, unchanged).
 func (c *WebRTCClient) SetBitrateKbps(kbps int) { c.mu.Lock(); c.bitrateKbps = kbps; c.mu.Unlock() }
+
+// SetVideoCodec stores the codec to request in the next Connect's offer --
+// see the videoCodec field.
+func (c *WebRTCClient) SetVideoCodec(codec string) { c.mu.Lock(); c.videoCodec = codec; c.mu.Unlock() }
+
+// NegotiatedVideoCodec reports the codec rustshine's answer selected, and
+// whether an answer has arrived yet.
+func (c *WebRTCClient) NegotiatedVideoCodec() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.negotiatedCodec, c.negotiatedCodec != ""
+}
 
 // OnOpen registers a callback fired when the "input" DataChannel opens.
 func (c *WebRTCClient) OnOpen(fn func()) { c.mu.Lock(); c.onOpen = fn; c.mu.Unlock() }
@@ -299,6 +320,10 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 		return err
 	}
 
+	c.mu.Lock()
+	c.negotiatedCodec = answerVideoCodec(answerSDP)
+	c.mu.Unlock()
+
 	answerDesc := js.Global().Get("Object").New()
 	answerDesc.Set("type", "answer")
 	answerDesc.Set("sdp", answerSDP)
@@ -374,6 +399,7 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	_ = sessionID // rustshine's endpoint doesn't take a session id -- one PeerConnection per POST, matching its own signaling.rs
 	c.mu.Lock()
 	bitrateKbps := c.bitrateKbps
+	videoCodec := c.videoCodec
 	c.mu.Unlock()
 	// bitrate_kbps omitted entirely (not sent as 0) when unset -- matches
 	// rust-shine's OfferRequest.bitrate_kbps, an Option<u32> on the wire
@@ -383,6 +409,9 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	reqFields := map[string]any{"sdp": offerSDP}
 	if bitrateKbps > 0 {
 		reqFields["bitrate_kbps"] = bitrateKbps
+	}
+	if videoCodec != "" {
+		reqFields["codec"] = videoCodec
 	}
 	reqBody, err := json.Marshal(reqFields)
 	if err != nil {
