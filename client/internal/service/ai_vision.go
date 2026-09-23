@@ -77,12 +77,11 @@ var (
 	aiVisionMetalClear func()
 )
 
-// SetAIVisionEnabled turns the live detection overlay on or off. Wired to
-// the "AI Vision" checkbox in the video settings popup (see
-// gui/view/video_start_dialog.go) -- takes effect immediately, independent
-// of the Start/Apply button, since it only affects local rendering and
-// touches nothing on the device. Disabling drops the cached result right
-// away so a stale overlay never lingers after the checkbox is unticked.
+// SetAIVisionEnabled turns the live detection overlay on or off. The video
+// settings dialog applies this from Apply/Start (see
+// gui/view/video_start_dialog.go); Cancel/close leaves the previous state.
+// Disabling drops the cached result right away so a stale overlay never
+// lingers after the setting is turned off.
 func SetAIVisionEnabled(enabled bool) {
 	wasEnabled := aiVisionEnabled.Swap(enabled)
 	if !enabled {

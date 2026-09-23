@@ -182,12 +182,9 @@ var frameSmoothingEnabled atomic.Bool
 // the other platform hooks in this codebase.
 var frameSmoothingSetEnabledHook func(enabled bool)
 
-// SetFrameSmoothingEnabled turns the concealment fallback on or off. Wired
-// to a checkbox in the video settings popup, next to AI Vision/Net Graph
-// (see gui/view/video_start_dialog.go) -- takes effect immediately, default
-// off (opt-in beta): unlike AI Vision there's no cached state to drop here,
-// since a synthesized frame is only ever displayed transiently and the next
-// real frame (or the disabled check itself) immediately supersedes it.
+// SetFrameSmoothingEnabled turns the concealment fallback on or off. The
+// video settings dialog applies this from Apply/Start (see
+// gui/view/video_start_dialog.go); Cancel/close leaves the previous state.
 func SetFrameSmoothingEnabled(enabled bool) {
 	frameSmoothingEnabled.Store(enabled)
 	if hook := frameSmoothingSetEnabledHook; hook != nil {

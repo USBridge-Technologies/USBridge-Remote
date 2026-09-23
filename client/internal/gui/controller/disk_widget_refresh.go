@@ -24,24 +24,37 @@ import (
 // benchmark caught a stall logged by [Metal]'s own "AppKit/DisplayLink
 // stalled" profiler at the exact same timestamp as this widget's periodic
 // 10s refresh, repeating every 10s for the whole run). The Devices tab
-// isn't even visible then, so skipping the rebuild is free: pendingCombine
-// still clears so the next scheduleCombine call (from the next periodic
-// loader tick, at most 10s later) tries again, and it actually runs the
-// moment the user leaves Control.
+// isn't even visible then, so the rebuild is deferred: combineDeferred
+// stays set until FlushPendingCombine (Devices tab select) or the next
+// scheduleCombine that runs off Control.
 func (dw *DiskWidget) scheduleCombine() {
 	if dw.pendingCombine.Swap(true) {
 		return // already scheduled
 	}
 	time.AfterFunc(80*time.Millisecond, func() {
 		if !view.NavVideoHidden() {
+			dw.combineDeferred.Store(true)
 			dw.pendingCombine.Store(false)
 			return
 		}
 		fyne.Do(func() {
 			dw.pendingCombine.Store(false)
+			dw.combineDeferred.Store(false)
 			dw.combineDrives()
 		})
 	})
+}
+
+// FlushPendingCombine rebuilds Devices immediately from the current seed
+// and any loaders that already finished. Call on the Fyne thread when the
+// Devices tab is selected so a reconnect does not wait for the 10s poll.
+func (dw *DiskWidget) FlushPendingCombine() {
+	if dw == nil {
+		return
+	}
+	dw.pendingCombine.Store(false)
+	dw.combineDeferred.Store(false)
+	dw.combineDrives()
 }
 
 func (dw *DiskWidget) requestDevicesRefresh() {

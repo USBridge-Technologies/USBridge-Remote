@@ -199,12 +199,11 @@ var (
 // treatment.
 const netGraphHudMargin = 24
 
-// SetNetGraphEnabled turns the HUD on or off. Wired to the "Net Graph"
-// checkbox in the video settings popup (see gui/view/video_start_dialog.go)
-// -- takes effect immediately, independent of Start/Apply, since it only
-// affects local rendering. Disabling clears the cached samples and the
-// on-screen HUD image right away so a stale readout never lingers after the
-// checkbox is unticked.
+// SetNetGraphEnabled turns the HUD on or off. The video settings dialog
+// applies this from Apply/Start; the Control footer toggle still applies
+// immediately. Disabling clears the cached samples and the on-screen HUD
+// image right away so a stale readout never lingers after the setting is
+// turned off.
 func SetNetGraphEnabled(enabled bool) {
 	wasEnabled := netGraphEnabled.Swap(enabled)
 	if enabled {

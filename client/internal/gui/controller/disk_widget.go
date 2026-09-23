@@ -193,7 +193,10 @@ type DiskWidget struct {
 	videoCardHadVirtualDisplay bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
-	isClosing      atomic.Bool
+	// combineDeferred is set when Control skipped a combine so Devices can
+	// flush it on tab select instead of waiting for the 10s poll.
+	combineDeferred atomic.Bool
+	isClosing       atomic.Bool
 
 	refreshStop     chan struct{}
 	stopRefreshOnce sync.Once
@@ -242,8 +245,26 @@ func (dw *DiskWidget) SetAgentIdentity(osName, protocol string) {
 	if dw == nil {
 		return
 	}
-	dw.agentOS = strings.TrimSpace(osName)
-	dw.agentProtocol = strings.TrimSpace(protocol)
+	osName = strings.TrimSpace(osName)
+	protocol = strings.TrimSpace(protocol)
+	changed := false
+	if osName != "" && dw.agentOS != osName {
+		dw.agentOS = osName
+		changed = true
+	}
+	if protocol != "" && dw.agentProtocol != protocol {
+		dw.agentProtocol = protocol
+		changed = true
+	}
+	if changed {
+		dw.combineDeferred.Store(true)
+	}
+}
+
+// applyLiveAgentIdentity updates OS/tariff from /api/device/info without
+// wiping a reconnect seed when the live payload still has empty fields.
+func (dw *DiskWidget) applyLiveAgentIdentity(osName, protocol string) {
+	dw.SetAgentIdentity(osName, protocol)
 }
 
 // MaxDevicesToMount maximum number of devices that can be selected at once
@@ -1011,6 +1032,7 @@ func (dw *DiskWidget) Refresh() {
 	dw.loadAudioDevices()
 	dw.loadMountedDevices()
 	go dw.loadGamepadDevices()
+	go dw.loadUSBPassthroughDevices()
 }
 
 // GetContainer returns the widget's container

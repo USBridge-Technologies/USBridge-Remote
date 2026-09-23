@@ -323,7 +323,7 @@ func (dw *DiskWidget) refreshDashboard() {
 		return
 	}
 
-	softwareAgent := !isUSBridgeAgentOS(dw.agentOS)
+	softwareAgent := !knownUSBridgeHardware(dw.agentOS)
 	dw.syncStorageHardwareChrome(softwareAgent)
 
 	// "Mount New ISO" darkens while its own file picker is open -- and

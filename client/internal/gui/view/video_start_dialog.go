@@ -77,16 +77,14 @@ type VideoStartDialog struct {
 	hdrTitleText *canvas.Text
 	hdrAvailable bool
 	// netGraphCheck/netGraphHint: the TF2 net_graph-style live HUD
-	// (client/internal/service/net_graph.go) -- same "immediate effect, no
-	// restart" contract as aiVisionCheck (pure local rendering, touches
-	// nothing on the device), only ever built/shown when
-	// service.NetGraphSupported() is true (macOS today).
+	// (client/internal/service/net_graph.go) -- draft until Apply/Start,
+	// same as AI Vision. Only built/shown when service.NetGraphSupported()
+	// is true.
 	netGraphCheck *videoDialogCheckbox
 	netGraphHint  *videoDialogWrapText
 	// frameSmoothingCheck/frameSmoothingHint: motion-extrapolated stall
-	// concealment (client/internal/service/frame_smoothing.go) -- same
-	// "immediate effect, no restart, pure local rendering fallback"
-	// contract as aiVisionCheck/netGraphCheck, only ever built/shown when
+	// concealment (client/internal/service/frame_smoothing.go) -- draft until
+	// Apply/Start, same as AI Vision/Net Graph. Only built/shown when
 	// service.FrameSmoothingSupported() is true (Windows today).
 	frameSmoothingCheck *videoDialogCheckbox
 	frameSmoothingHint  *videoDialogWrapText
@@ -1581,12 +1579,9 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.fsrHint,
 	)
 
-	// AI Vision: off by default, takes effect immediately (not gated behind
-	// Start/Apply) since it's a pure local-rendering overlay -- see
-	// service.SetAIVisionEnabled's doc comment.
-	vsd.aiVisionCheck = newVideoDialogCheckbox(service.AIVisionEnabled(), func(checked bool) {
-		service.SetAIVisionEnabled(checked)
-	})
+	// AI Vision: draft until Apply/Start. Closing or Cancel leaves the
+	// live overlay unchanged -- see applyLocalOverlaySettings.
+	vsd.aiVisionCheck = newVideoDialogCheckbox(service.AIVisionEnabled(), nil)
 	vsd.aiVisionHint = newVideoDialogHighlightDescription(i18n.Current.AIVisionHint, "ui.parse()", videoDialogToggleDescWidthFor(hintPanelW))
 	aiVisionRow := newVideoDialogToggleRow(
 		vsd.aiVisionCheck,
@@ -1648,19 +1643,11 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.hdrHint,
 	)
 
-	// Net Graph: off by default, takes effect immediately (like AI Vision)
-	// since it's a pure local-rendering HUD -- see
-	// service.SetNetGraphEnabled's doc comment. Only built/shown on
-	// platforms with a working push path (desktop + Android); on the rest
-	// the row simply doesn't exist, rather than a checkbox that silently
-	// does nothing. On mobile the header chips are hidden (IsMobile);
-	// this dialog checkbox is the Android toggle.
+	// Net Graph: draft until Apply/Start, same as AI Vision. The Control
+	// footer toggle still applies immediately on its own.
 	var netGraphRow fyne.CanvasObject
 	if service.NetGraphSupported() {
-		vsd.netGraphCheck = newVideoDialogCheckbox(service.NetGraphEnabled(), func(checked bool) {
-			service.SetNetGraphEnabled(checked)
-			applyNetGraphEnabledUI(checked)
-		})
+		vsd.netGraphCheck = newVideoDialogCheckbox(service.NetGraphEnabled(), nil)
 		registerNetGraphDialogCheck(vsd.netGraphCheck)
 		vsd.netGraphHint = newVideoDialogDescription(i18n.Current.NetGraphHint, videoDialogToggleDescWidthFor(hintPanelW))
 		netGraphRow = newVideoDialogToggleRow(
@@ -1671,15 +1658,10 @@ func (vsd *VideoStartDialog) createInterface() {
 		)
 	}
 
-	// Frame Smoothing: off by default, takes effect immediately (like AI
-	// Vision/Net Graph) since it's a pure local-rendering fallback -- see
-	// service.SetFrameSmoothingEnabled's doc comment. Only built/shown on
-	// platforms with a working render path (Windows today).
+	// Frame Smoothing: draft until Apply/Start, same as AI Vision/Net Graph.
 	var frameSmoothingRow fyne.CanvasObject
 	if service.FrameSmoothingSupported() {
-		vsd.frameSmoothingCheck = newVideoDialogCheckbox(service.FrameSmoothingEnabled(), func(checked bool) {
-			service.SetFrameSmoothingEnabled(checked)
-		})
+		vsd.frameSmoothingCheck = newVideoDialogCheckbox(service.FrameSmoothingEnabled(), nil)
 		vsd.frameSmoothingHint = newVideoDialogDescription(i18n.Current.FrameSmoothingHint, videoDialogToggleDescWidthFor(hintPanelW))
 		frameSmoothingRow = newVideoDialogToggleRow(
 			vsd.frameSmoothingCheck,
@@ -2471,14 +2453,41 @@ func (vsd *VideoStartDialog) handleStart() {
 	logrus.Infof("🎯 [CODEC-TRACE] dialog Apply/OK pressed: currentModeID=%q -> VideoStartRequest.VideoMode=%q",
 		vsd.currentModeID, request.VideoMode)
 
+	vsd.applyLocalOverlaySettings()
 	vsd.Hide()
 	if vsd.onApply != nil {
 		go vsd.onApply(request)
 	}
 }
 
+func (vsd *VideoStartDialog) applyLocalOverlaySettings() {
+	if vsd.aiVisionCheck != nil {
+		service.SetAIVisionEnabled(vsd.aiVisionCheck.Checked)
+	}
+	if vsd.netGraphCheck != nil {
+		service.SetNetGraphEnabled(vsd.netGraphCheck.Checked)
+		applyNetGraphEnabledUI(vsd.netGraphCheck.Checked)
+	}
+	if vsd.frameSmoothingCheck != nil {
+		service.SetFrameSmoothingEnabled(vsd.frameSmoothingCheck.Checked)
+	}
+}
+
+func (vsd *VideoStartDialog) revertLocalOverlayDrafts() {
+	if vsd.aiVisionCheck != nil {
+		vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
+	}
+	if vsd.netGraphCheck != nil {
+		vsd.netGraphCheck.SetChecked(service.NetGraphEnabled())
+	}
+	if vsd.frameSmoothingCheck != nil {
+		vsd.frameSmoothingCheck.SetChecked(service.FrameSmoothingEnabled())
+	}
+}
+
 func (vsd *VideoStartDialog) handleCancel() {
 	logrus.Info("❌ Video start cancelled")
+	vsd.revertLocalOverlayDrafts()
 	vsd.Hide()
 }
 

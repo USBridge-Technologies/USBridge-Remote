@@ -134,8 +134,7 @@ func (dw *DiskWidget) endOperation() {
 	fyne.Do(func() {
 		if newMounted != nil {
 			dw.mountedDevices = newMounted
-			dw.agentOS = newAgentOS
-			dw.agentProtocol = newAgentProtocol
+			dw.applyLiveAgentIdentity(newAgentOS, newAgentProtocol)
 			dw.syncEmulationProBadge()
 			if dw.onAgentProtocol != nil && dw.agentProtocol != "" {
 				dw.onAgentProtocol(dw.agentProtocol)

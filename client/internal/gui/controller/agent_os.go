@@ -21,6 +21,14 @@ func IsSoftwareAgentOS(agentOS string) bool {
 	return !isUSBridgeAgentOS(agentOS)
 }
 
+// knownUSBridgeHardware is true only when agentOS positively identifies
+// USBridge KVM. Empty/unknown stays off so Devices can keep software-agent
+// cards on a first connect, then switch to KVM chrome once the saved or
+// live identity lands.
+func knownUSBridgeHardware(agentOS string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(agentOS)), "usbridge")
+}
+
 // MergeAgentIdentity prefers the live /api/device/info values and fills
 // blanks from the last saved connection row. Used at connect so Devices and
 // mouse mapping can render correctly without a second round-trip.

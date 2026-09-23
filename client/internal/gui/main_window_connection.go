@@ -916,6 +916,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 	}
 
 	logrus.Infof("🔗 [CONNECT] protocol=%s host=%s", protocol, host)
+	mw.seedAgentIdentityFromSaved(host)
 
 	switch protocol {
 	case models.ConnectionProtocolTailscale:
@@ -1086,25 +1087,44 @@ func (mw *MainWindow) applyConnectedAgentIdentity(info *models.DeviceInfoRespons
 		savedOS, savedProtocol = mw.connectionManager.LookupAgentIdentity(host)
 	}
 	osName, protocol := controller.MergeAgentIdentity(liveOS, liveProtocol, savedOS, savedProtocol)
-	logrus.Infof("🪪 [CONNECT] agent identity os=%q protocol=%q (live os=%q protocol=%q)", osName, protocol, liveOS, liveProtocol)
+	logrus.Infof("🪪 [CONNECT] agent identity os=%q protocol=%q (live os=%q protocol=%q saved os=%q)", osName, protocol, liveOS, liveProtocol, savedOS)
 
+	mw.applyAgentIdentityToWidgets(osName, protocol, liveDisplay, true)
+}
+
+func (mw *MainWindow) seedAgentIdentityFromSaved(host string) {
+	if mw.connectionManager == nil {
+		return
+	}
+	savedOS, savedProtocol := mw.connectionManager.LookupAgentIdentity(host)
+	if strings.TrimSpace(savedOS) == "" && strings.TrimSpace(savedProtocol) == "" {
+		return
+	}
+	mw.applyConnectedAgentIdentity(nil, host)
+}
+
+func (mw *MainWindow) applyAgentIdentityToWidgets(osName, protocol, liveDisplay string, applyEnv bool) {
 	if mw.diskWidget != nil {
 		mw.diskWidget.SetAgentIdentity(osName, protocol)
 	}
 	if mw.videoWidget != nil {
-		mw.videoWidget.SetAgentEnvironment(osName, liveDisplay)
+		if applyEnv {
+			mw.videoWidget.SetAgentEnvironment(osName, liveDisplay)
+		}
 		if protocol != "" {
 			mw.videoWidget.SetAgentProtocol(protocol)
 		}
 	}
-	if mw.backupWidget != nil {
-		mw.backupWidget.SetAgentOS(osName)
-	}
-	if mw.pcpanelWidget != nil {
-		mw.pcpanelWidget.SetAgentOS(osName)
-	}
-	if mw.scriptsWidget != nil {
-		mw.scriptsWidget.SetAgentOS(osName)
+	if osName != "" {
+		if mw.backupWidget != nil {
+			mw.backupWidget.SetAgentOS(osName)
+		}
+		if mw.pcpanelWidget != nil {
+			mw.pcpanelWidget.SetAgentOS(osName)
+		}
+		if mw.scriptsWidget != nil {
+			mw.scriptsWidget.SetAgentOS(osName)
+		}
 	}
 }
 
@@ -1129,9 +1149,12 @@ func (mw *MainWindow) refreshConnectionAgentIdentity(ctx context.Context, client
 			return
 		}
 		connMgr.UpdateConnectionOS(host, osName, protocol)
-		if protocol != "" && mw.videoWidget != nil {
-			mw.videoWidget.SetAgentProtocol(protocol)
-		}
+		fyne.Do(func() {
+			mw.applyAgentIdentityToWidgets(osName, protocol, "", false)
+			if mw.diskWidget != nil && view.NavVideoHidden() {
+				mw.diskWidget.FlushPendingCombine()
+			}
+		})
 	}
 	probe := func() (osName, protocol string) {
 		if ctx != nil && ctx.Err() != nil {

@@ -428,9 +428,8 @@ func (dw *DiskWidget) combineDrives() {
 	}
 	dw.allDrives = append(dw.allDrives, mouseItem)
 
-	// Add the network card (RNDIS) - only if the host OS is "usbridge"
-	osName := strings.ToLower(dw.agentOS)
-	if strings.Contains(osName, "usbridge") {
+	// Add the network card (RNDIS) - only on known USBridge KVM hardware
+	if knownUSBridgeHardware(dw.agentOS) {
 		rndisItem := DriveItem{
 			Name:      i18n.Current.DeviceNetworkCard,
 			Size:      "N/A",
@@ -472,8 +471,8 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, audioItem)
 	}
 
-	// USB Audio Gadget (UAC) — only if the host OS is "usbridge"
-	if strings.Contains(osName, "usbridge") {
+	// USB Audio Gadget (UAC) — only on known USBridge KVM hardware
+	if knownUSBridgeHardware(dw.agentOS) {
 		usbAudioItem := DriveItem{
 			Name:         i18n.Current.DeviceUSBAudio,
 			Size:         "N/A",
@@ -536,7 +535,7 @@ func (dw *DiskWidget) combineDrives() {
 	dw.rebuildListItems()
 
 	logrus.Debugf("Combined %d items (API: %d, local: %d, user: %d, video: %d, keyboard: 1, mouse: 1, RNDIS: %v), agentOS: %q",
-		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), strings.Contains(osName, "usbridge"), dw.agentOS)
+		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), knownUSBridgeHardware(dw.agentOS), dw.agentOS)
 }
 
 // loadGamepadDevices refreshes the gamepad list from the OS and rebuilds the device list.
@@ -598,8 +597,7 @@ func (dw *DiskWidget) loadMountedDevices() {
 			for i := range deviceInfo.Devices {
 				dw.mountedDevices[i] = &deviceInfo.Devices[i]
 			}
-			dw.agentOS = deviceInfo.AgentOS
-			dw.agentProtocol = strings.TrimSpace(deviceInfo.AgentProtocol)
+			dw.applyLiveAgentIdentity(deviceInfo.AgentOS, deviceInfo.AgentProtocol)
 			dw.usbPassSessions = passSessions
 			dw.syncEmulationProBadge()
 			if dw.onAgentProtocol != nil && dw.agentProtocol != "" {

@@ -30,3 +30,15 @@ func TestIsSoftwareAgentOSEmptyIsHardware(t *testing.T) {
 		t.Fatal("usbridge OS is hardware")
 	}
 }
+
+func TestKnownUSBridgeHardwareIgnoresEmpty(t *testing.T) {
+	if knownUSBridgeHardware("") {
+		t.Fatal("empty OS must not paint KVM Devices cards on first connect")
+	}
+	if knownUSBridgeHardware("Windows") {
+		t.Fatal("Windows is not KVM hardware")
+	}
+	if !knownUSBridgeHardware("USBridge KVM") {
+		t.Fatal("usbridge OS is KVM hardware")
+	}
+}

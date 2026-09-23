@@ -379,6 +379,11 @@ func (mw *MainWindow) recreateContainers() {
 				time.AfterFunc(150*time.Millisecond, mw.videoWidget.RefreshViewportGeometry)
 			}
 		}
+		if tab != nil && tab.Text == devicesTabTitle {
+			if mw.diskWidget != nil {
+				mw.diskWidget.FlushPendingCombine()
+			}
+		}
 		if tab != nil && tab.Text == snapshotsTabTitle {
 			// Snapshots otherwise only update via BackupWidget's 30s background
 			// ticker -- opening this tab right after a new snapshot lands on
