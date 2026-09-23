@@ -43,7 +43,6 @@ async function loadSession(modelUrl, warmupDims) {
   // where it's deployed.
   const vendorDir = new URL("./vendor/ort/", import.meta.url).href;
   ort.env.wasm.wasmPaths = vendorDir;
-  ort.env.wasm.proxy = true;
 
   const session = await ort.InferenceSession.create(modelUrl, {
     // webgpu first, wasm (plain CPU) as the automatic fallback if WebGPU

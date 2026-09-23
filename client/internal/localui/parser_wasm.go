@@ -35,6 +35,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"syscall/js"
 	"time"
 
@@ -91,7 +92,8 @@ const (
 // across every Parser (there's only ever one, see api.SetLocalUIParser)
 // and every Parse* call.
 type Parser struct {
-	dict []string
+	dict    []string
+	inferMu sync.Mutex
 }
 
 // NewParser resolves window.usbridgeAIVision (defined by client/web/
@@ -144,6 +146,9 @@ func dimsToJS(dims []int) js.Value {
 // cost) -> awaited promise -> the raw output Float32Array copied back the
 // same way.
 func (p *Parser) runInference(name string, tensor []float32, dims []int) ([]float32, error) {
+	p.inferMu.Lock()
+	defer p.inferMu.Unlock()
+
 	tStart := time.Now()
 	trace("        runInference(%s, dims=%v): packing %d floats", name, dims, len(tensor))
 	bridge := js.Global().Get("usbridgeAIVision")
