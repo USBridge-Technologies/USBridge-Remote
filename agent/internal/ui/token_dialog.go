@@ -18,6 +18,13 @@ import (
 
 const tokenDialogWidth float32 = 380
 
+func (w *Window) deviceHostname() string {
+	if w.token == nil {
+		return ""
+	}
+	return w.token.DeviceHostname()
+}
+
 func (w *Window) showTokenDialog(parent fyne.Window) {
 	if parent == nil {
 		return
@@ -37,7 +44,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	copyLinkBtn := newIconActionButton(loc().CopyLink, theme.ContentCopyIcon(), func() {
 		masterKey := strings.TrimSpace(w.cfg.MasterKey)
 		internalHost, tailscaleHost, protocol := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol)
+		link := buildQuickConnectLink(internalHost, tailscaleHost, w.deviceHostname(), w.cfg.TLSPort, masterKey, protocol)
 		if link != "" {
 			parent.Clipboard().SetContent(link)
 		}
@@ -61,7 +68,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 			masterKey = "unavailable"
 		}
 		internalHost, tailscaleHost, protocol := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol)
+		link := buildQuickConnectLink(internalHost, tailscaleHost, w.deviceHostname(), w.cfg.TLSPort, masterKey, protocol)
 
 		linkEntry.SetFrozen(link)
 		if link == "" {

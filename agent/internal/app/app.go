@@ -3095,10 +3095,7 @@ func (a *App) QRLink() (string, string) {
 	// wildcard cert -- only ever the untrusted self-signed one -- for an
 	// internal_host-only connection) has something usable. See client's
 	// deeplink_handler.go resolveDeepLinkHost for the other half of this.
-	deviceHost := ""
-	if a.tlsMgr != nil {
-		deviceHost, _ = a.tlsMgr.DeviceCertStatus()
-	}
+	deviceHost := a.DeviceHostname()
 	link := buildQRLink(internalHost, tailscaleHost, deviceHost, a.cfg.TLSPort, masterKey)
 	return link, masterKey
 }
@@ -3139,6 +3136,20 @@ func applyStreamUSBPassBridgeAddr(stream streamhost.Backend, addr string) {
 	if setter, ok := stream.(interface{ SetUSBPassBridgeAddr(string) }); ok {
 		setter.SetUSBPassBridgeAddr(addr)
 	}
+}
+
+// DeviceHostname returns this machine's <label>.device.usbridge.io
+// hostname (see internal/tlshost, internal/devicecert) once
+// deviceCertWatchdog has registered one, "" otherwise or when the HTTPS
+// listener is disabled -- nothing answers on that name without it. Shared
+// by QRLink and the GUI's token dialog (ui.TokenProvider) so both hand out
+// the same link.
+func (a *App) DeviceHostname() string {
+	if a.tlsMgr == nil || !a.cfg.TLSEnabledOK() {
+		return ""
+	}
+	hostname, _ := a.tlsMgr.DeviceCertStatus()
+	return hostname
 }
 
 func buildQRLink(internalHost, tailscaleHost, deviceHost string, tlsPort int, masterKey string) string {

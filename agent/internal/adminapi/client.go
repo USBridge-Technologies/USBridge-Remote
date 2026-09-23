@@ -296,6 +296,12 @@ func (c *Client) StreamerName() string {
 	return body.Value
 }
 
+func (c *Client) DeviceHostname() string {
+	var body stringBody
+	_ = c.do(http.MethodGet, "/token/device-hostname", nil, &body)
+	return body.Value
+}
+
 func (c *Client) StreamerRunning() bool {
 	var body boolBody
 	_ = c.do(http.MethodGet, "/token/streamer-running", nil, &body)

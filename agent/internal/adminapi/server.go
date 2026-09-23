@@ -52,6 +52,7 @@ type TokenBackend interface {
 	AdminPass() string
 	SunshineStreamHost() string
 	StreamerName() string
+	DeviceHostname() string
 	StreamerRunning() bool
 
 	// Hardware-bound RustShine entitlement (see internal/entitlement,
@@ -221,6 +222,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/admin-credentials", s.handleAdminCredentials)
 	mux.HandleFunc("GET /token/sunshine-stream-host", s.handleSunshineStreamHost)
 	mux.HandleFunc("GET /token/streamer-name", s.handleStreamerName)
+	mux.HandleFunc("GET /token/device-hostname", s.handleDeviceHostname)
 	mux.HandleFunc("GET /token/streamer-running", s.handleStreamerRunning)
 	mux.HandleFunc("GET /token/entitlement-status", s.handleEntitlementStatus)
 	mux.HandleFunc("POST /token/start-trial", s.handleStartTrial)
@@ -532,6 +534,10 @@ func (s *Server) handleSunshineStreamHost(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleStreamerName(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stringBody{Value: s.token.StreamerName()})
+}
+
+func (s *Server) handleDeviceHostname(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, stringBody{Value: s.token.DeviceHostname()})
 }
 
 func (s *Server) handleStreamerRunning(w http.ResponseWriter, r *http.Request) {

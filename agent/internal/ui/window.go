@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -70,6 +71,11 @@ type TokenProvider interface {
 	AdminUser() string
 	AdminPass() string
 	StreamerName() string
+	// DeviceHostname is this machine's <label>.device.usbridge.io name (see
+	// app.App.DeviceHostname), "" until one is registered -- put in the
+	// token dialog's quick-connect link so the browser web client connects
+	// by that trusted-cert hostname instead of the bare LAN IP.
+	DeviceHostname() string
 	// StreamerRunning reports whether the active streaming host's own child
 	// process is alive right now -- for the status traffic light next to
 	// streamerNameLabel, distinct from whether it's staged/entitled at all.
@@ -2758,7 +2764,7 @@ func isActiveTailscalePeer(p tailscale.Peer) bool {
 	return false
 }
 
-func buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol string) string {
+func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, tlsPort int, masterKey, protocol string) string {
 	masterKey = strings.TrimSpace(masterKey)
 	if masterKey == "" || masterKey == "unavailable" {
 		return ""
@@ -2773,6 +2779,12 @@ func buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol stri
 	}
 	if strings.TrimSpace(tailscaleHost) != "" {
 		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
+	}
+	if strings.TrimSpace(deviceHost) != "" {
+		values.Set("device_host", strings.TrimSpace(deviceHost))
+		if tlsPort > 0 {
+			values.Set("device_tls_port", strconv.Itoa(tlsPort))
+		}
 	}
 	values.Set("master_key", masterKey)
 	if strings.TrimSpace(protocol) != "" {
