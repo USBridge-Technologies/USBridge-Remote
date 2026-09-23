@@ -229,6 +229,7 @@ func overlayBlockingChrome() bool {
 
 func noteChromeHoverIn(abs fyne.Position) {
 	if overlayBlockingChrome() {
+		clearCardHovers()
 		return
 	}
 	chromeMu.Lock()
@@ -238,6 +239,19 @@ func noteChromeHoverIn(abs fyne.Position) {
 	}
 	chromeMu.Unlock()
 	applyCardHovers(abs)
+}
+
+// noteButtonChromeHover is MouseIn/Moved for chrome buttons. Overlay
+// widgets (Account Copy / Logout, menus) must not highlight cards sitting
+// under the same absolute point.
+func noteButtonChromeHover(block bool, ev *desktop.MouseEvent) {
+	if block || overlayBlockingChrome() {
+		clearCardHovers()
+		return
+	}
+	if ev != nil {
+		noteChromeHoverIn(ev.AbsolutePosition)
+	}
 }
 
 func noteChromeHoverOut() {

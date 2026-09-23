@@ -16,6 +16,7 @@ import (
 
 	"usbridge_agent/assets"
 	"usbridge_agent/internal/account"
+	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/ui/design"
 )
 
@@ -63,6 +64,9 @@ func (w *Window) showAccountLoginDialog(parent fyne.Window) {
 			closeDialog()
 			return
 		}
+
+		body.Add(w.newAccountLicenseField(parent, 358))
+		body.Add(spacerSize(1, 16))
 
 		switch {
 		case acc.LoginInProgress:
@@ -167,6 +171,8 @@ func (w *Window) showAccountLoginDialog(parent fyne.Window) {
 
 	popup = widget.NewModalPopUp(container.NewCenter(panel), parent.Canvas())
 	popup.Resize(parent.Canvas().Size())
+	beginOverlay()
+	watchOverlayPopup(parent, popup)
 	popup.Show()
 
 	go func() {
@@ -293,6 +299,7 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 		}()
 	})
 	logout.logout = true
+	logout.blockChromeHover = true
 
 	inner := container.New(&tightVBoxLayout{gap: 6},
 		signed,
@@ -300,6 +307,7 @@ func (w *Window) showAccountMenu(anchor fyne.CanvasObject) {
 		sep1,
 		container.New(&flushEndsLayout{}, subLabel, subValue),
 		container.New(&flushEndsLayout{}, planLabel, planValue),
+		w.newAccountLicenseField(w.guiWin, width-20),
 		licensesBody,
 		sep2,
 		container.New(&centerHLayout{}, logout),
@@ -473,6 +481,125 @@ func wrapTextBlockHeight(msg string, textSize, maxWidth float32) float32 {
 		}
 	}
 	return float32(lines)*line + 4
+}
+
+func wrapBreakBlockHeight(text string, textSize, maxWidth float32) float32 {
+	style := fyne.TextStyle{Monospace: true}
+	line := fyne.MeasureText("Ag", textSize, style).Height
+	if line < 1 {
+		line = 12
+	}
+	n := len(wrapLicenseIDLines(text, textSize, maxWidth))
+	if n < 1 {
+		n = 1
+	}
+	return float32(n)*line + 4
+}
+
+// wrapLicenseIDLines splits a hardware id for the License well. A 64-char
+// hex id wraps as two even 32-char rows when they fit; otherwise it
+// character-wraps to maxWidth (hex has no spaces, so word wrap won't).
+func wrapLicenseIDLines(id string, textSize, maxWidth float32) []string {
+	style := fyne.TextStyle{Monospace: true}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return []string{"—"}
+	}
+	if maxWidth < 40 {
+		maxWidth = 40
+	}
+	if len(id) == 64 {
+		half := id[:32]
+		if fyne.MeasureText(half, textSize, style).Width <= maxWidth {
+			return []string{half, id[32:]}
+		}
+	}
+	var lines []string
+	var cur string
+	for _, r := range id {
+		trial := cur + string(r)
+		if cur != "" && fyne.MeasureText(trial, textSize, style).Width > maxWidth {
+			lines = append(lines, cur)
+			cur = string(r)
+			continue
+		}
+		cur = trial
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
+func thisMachineHardwareID() string {
+	id, err := hwid.Get()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(id)
+}
+
+func (w *Window) copyAccountText(parent fyne.Window, s string) {
+	if strings.TrimSpace(s) == "" {
+		return
+	}
+	win := parent
+	if win == nil {
+		win = w.guiWin
+	}
+	if win == nil || win.Clipboard() == nil {
+		return
+	}
+	win.Clipboard().SetContent(s)
+}
+
+// newAccountLicenseField is the Account Hardware ID well: this machine's
+// hardware id in a bordered container, wrapped, with a Copy icon. Shown
+// whether or not Google login has completed -- web checkout needs the id
+// from a logged-out agent too.
+func (w *Window) newAccountLicenseField(parent fyne.Window, contentWidth float32) fyne.CanvasObject {
+	id := thisMachineHardwareID()
+	shown := id
+	if shown == "" {
+		shown = "—"
+	}
+	if contentWidth < 160 {
+		contentWidth = 160
+	}
+
+	const pad float32 = 12
+	const idSize float32 = 11
+	innerW := contentWidth - pad*2
+	if innerW < 80 {
+		innerW = 80
+	}
+
+	title := canvas.NewText(loc().AccountLicense, design.ColorMutedOlive)
+	title.TextSize = 10
+	copyBtn := newTinyGlyphButtonColored(theme.ContentCopyIcon(), design.ColorNameMutedOlive, func() {
+		w.copyAccountText(parent, id)
+	})
+	copyBtn.blockChromeHover = true
+	header := container.New(&flushEndsLayout{}, title, copyBtn)
+
+	lines := wrapLicenseIDLines(shown, idSize, innerW)
+	lineObjs := make([]fyne.CanvasObject, 0, len(lines))
+	for _, line := range lines {
+		t := canvas.NewText(line, design.ColorTextLight)
+		t.TextSize = idSize
+		t.TextStyle.Monospace = true
+		lineObjs = append(lineObjs, t)
+	}
+	idCol := container.New(&tightVBoxLayout{gap: 2}, lineObjs...)
+	inner := container.New(&tightVBoxLayout{gap: 8}, header, idCol)
+
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bg.CornerRadius = 8
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = 8
+	border.StrokeColor = design.ColorTailscaleChipBorder
+	border.StrokeWidth = 1
+	return container.NewStack(bg, newExactInset(inner, pad, pad, pad, pad), border)
 }
 
 func fitAccountMenuPopup(popup *tealMenuPopup, content fyne.CanvasObject, width float32, canvasSize fyne.Size) {

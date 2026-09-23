@@ -84,6 +84,7 @@ type LocalizedStrings struct {
 	// Common
 	Yes      string
 	No       string
+	OK       string
 	Cancel   string
 	Save     string
 	Update   string
@@ -109,6 +110,7 @@ type LocalizedStrings struct {
 	SignedInAs              string
 	Subscription            string
 	Plan                    string
+	AccountLicense          string // Account window field: this machine's Hardware ID
 	YourLicenses            string
 	Moving                  string
 	LogInWithGoogle         string
@@ -329,6 +331,7 @@ func EN() *LocalizedStrings {
 
 		Yes:      "Yes",
 		No:       "No",
+		OK:       "OK",
 		Cancel:   "Cancel",
 		Save:     "Save",
 		Update:   "Update",
@@ -352,6 +355,7 @@ func EN() *LocalizedStrings {
 		SignedInAs:              "Signed in as",
 		Subscription:            "Subscription",
 		Plan:                    "Plan",
+		AccountLicense:          "Hardware ID",
 		YourLicenses:            "Your licenses",
 		Moving:                  "Moving…",
 		LogInWithGoogle:         "Log in with Google",
@@ -527,6 +531,7 @@ func ES() *LocalizedStrings {
 
 	locale.Yes = "Si"
 	locale.No = "No"
+	locale.OK = "Aceptar"
 	locale.Cancel = "Cancelar"
 	locale.Save = "Guardar"
 	locale.Update = "Actualizar"
@@ -548,6 +553,7 @@ func ES() *LocalizedStrings {
 	locale.SignedInAs = "Sesion iniciada como"
 	locale.Subscription = "Suscripcion"
 	locale.Plan = "Plan"
+	locale.AccountLicense = "Hardware ID"
 	locale.YourLicenses = "Tus licencias"
 	locale.Moving = "Moviendo…"
 	locale.LogInWithGoogle = "Entrar con Google"
@@ -721,6 +727,7 @@ func UK() *LocalizedStrings {
 
 	locale.Yes = "Так"
 	locale.No = "Ні"
+	locale.OK = "OK"
 	locale.Cancel = "Скасувати"
 	locale.Save = "Зберегти"
 	locale.Update = "Оновити"
@@ -742,6 +749,7 @@ func UK() *LocalizedStrings {
 	locale.SignedInAs = "Увійшли як"
 	locale.Subscription = "Підписка"
 	locale.Plan = "План"
+	locale.AccountLicense = "Hardware ID"
 	locale.YourLicenses = "Ваші ліцензії"
 	locale.Moving = "Перенесення…"
 	locale.LogInWithGoogle = "Увійти з Google"

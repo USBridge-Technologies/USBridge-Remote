@@ -154,6 +154,7 @@ func (p *tealMenuPopup) ShowAtPosition(pos fyne.Position) {
 	if !p.shown {
 		p.canvas.Overlays().Add(p)
 		p.shown = true
+		beginOverlay()
 	}
 	p.BaseWidget.Resize(p.canvas.Size())
 	p.Show()
@@ -181,9 +182,19 @@ func (p *tealMenuPopup) Hide() {
 	if p.shown {
 		p.canvas.Overlays().Remove(p)
 		p.shown = false
+		endOverlay()
 	}
 	p.BaseWidget.Hide()
 }
+
+func (p *tealMenuPopup) MouseIn(*desktop.MouseEvent) { clearCardHovers() }
+func (p *tealMenuPopup) MouseMoved(*desktop.MouseEvent) {}
+func (p *tealMenuPopup) MouseOut()                     {}
+
+var (
+	_ fyne.Tappable     = (*tealMenuPopup)(nil)
+	_ desktop.Hoverable = (*tealMenuPopup)(nil)
+)
 
 func (p *tealMenuPopup) isInside(pos fyne.Position) bool {
 	return pos.X >= p.pos.X &&

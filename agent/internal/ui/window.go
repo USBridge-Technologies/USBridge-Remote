@@ -3802,10 +3802,11 @@ type iconActionButton struct {
 	OnTapped func()
 	Compact  bool
 	Tiny     bool
-	Accent   bool
-	CTA      bool
-	Danger   bool
-	hovered  bool
+	Accent           bool
+	CTA              bool
+	Danger           bool
+	hovered          bool
+	blockChromeHover bool
 }
 
 func newIconActionButton(label string, icon fyne.Resource, tapped func()) *iconActionButton {
@@ -3860,9 +3861,7 @@ func (b *iconActionButton) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (b *iconActionButton) MouseIn(ev *desktop.MouseEvent) {
-	if ev != nil {
-		noteChromeHoverIn(ev.AbsolutePosition)
-	}
+	noteButtonChromeHover(b.blockChromeHover, ev)
 	b.hovered = true
 	b.Refresh()
 }
@@ -3874,9 +3873,7 @@ func (b *iconActionButton) MouseOut() {
 }
 
 func (b *iconActionButton) MouseMoved(ev *desktop.MouseEvent) {
-	if ev != nil {
-		noteChromeHoverIn(ev.AbsolutePosition)
-	}
+	noteButtonChromeHover(b.blockChromeHover, ev)
 }
 
 func (b *iconActionButton) Tapped(*fyne.PointEvent) {
@@ -4389,9 +4386,10 @@ type cardHeaderButton struct {
 	Text     string
 	Icon     fyne.Resource
 	OnTapped func()
-	hovered  bool
-	logout   bool
-	accent   bool
+	hovered          bool
+	logout           bool
+	accent           bool
+	blockChromeHover bool
 }
 
 func newCardHeaderButton(label string, icon fyne.Resource, tapped func()) *cardHeaderButton {
@@ -4429,9 +4427,7 @@ func (b *cardHeaderButton) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (b *cardHeaderButton) MouseIn(ev *desktop.MouseEvent) {
-	if ev != nil {
-		noteChromeHoverIn(ev.AbsolutePosition)
-	}
+	noteButtonChromeHover(b.blockChromeHover, ev)
 	if b.Disabled() {
 		return
 	}
@@ -4444,9 +4440,7 @@ func (b *cardHeaderButton) MouseOut() {
 	b.Refresh()
 }
 func (b *cardHeaderButton) MouseMoved(ev *desktop.MouseEvent) {
-	if ev != nil {
-		noteChromeHoverIn(ev.AbsolutePosition)
-	}
+	noteButtonChromeHover(b.blockChromeHover, ev)
 }
 func (b *cardHeaderButton) Cursor() desktop.Cursor { return desktop.PointerCursor }
 
@@ -4625,6 +4619,31 @@ type autostartRow struct {
 	inner *fyne.Container
 }
 
+func showAutostartInfoDialog(parent fyne.Window) {
+	if parent == nil {
+		return
+	}
+	path := autostart.Location()
+	if strings.TrimSpace(path) == "" {
+		path = "—"
+	}
+
+	var popup *widget.PopUp
+	closeDialog := func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	}
+
+	msg := widget.NewLabel(path)
+	msg.Wrapping = fyne.TextWrapBreak
+	msg.Alignment = fyne.TextAlignLeading
+	body := wrapDialogValueBox(wrapDialogLabel(msg, 11, design.ColorTextLight))
+	footer := container.NewCenter(newDialogCTA(loc().OK, closeDialog))
+	panel := newBrandedDialogPanelInsets(loc().AutostartInfo, statusDialogWidth, 20, 10, body, footer, closeDialog)
+	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
+}
+
 func newAutostartRow(label string, check *styledCheck, win fyne.Window) *autostartRow {
 	t := canvas.NewText(label, design.ColorSectionTitle)
 	t.TextSize = 11
@@ -4633,11 +4652,7 @@ func newAutostartRow(label string, check *styledCheck, win fyne.Window) *autosta
 	hint.Hide()
 	mark := newCheckImage(crossGlyphRed)
 	info := newIconActionButton("", theme.InfoIcon(), func() {
-		path := autostart.Location()
-		if path == "" {
-			path = "—"
-		}
-		dialog.ShowInformation(loc().AutostartInfo, path, win)
+		showAutostartInfoDialog(win)
 	})
 	info.Tiny = true
 	r := &autostartRow{mark: mark, label: t, hint: hint, check: check}
