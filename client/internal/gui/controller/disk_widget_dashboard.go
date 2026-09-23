@@ -493,7 +493,7 @@ func (dw *DiskWidget) refreshDashboard() {
 		if tab.drive.IsPenTablet {
 			hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
 				driveIconResource(tab.drive), name, tab.drive.IsMounted,
-				dw.newPenTabletToggle(tab.idx, tab.drive, dw.dashboardHIDHover),
+				dw.newPenTabletToggle(tab.drive, dw.dashboardHIDHover),
 			))
 			continue
 		}

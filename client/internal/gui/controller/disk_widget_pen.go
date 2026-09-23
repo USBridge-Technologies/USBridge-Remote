@@ -121,12 +121,28 @@ func (dw *DiskWidget) attachPenCapture(t platform.PenTabletInfo) {
 // report, since the agent never chose to start anything. Flipping
 // IsMounted locally and re-running syncPenCaptures directly is the whole
 // mount step for this source.
-func (dw *DiskWidget) newPenTabletToggle(idx int, drive DriveItem, cardHover func(bool)) *view.DeviceToggle {
+//
+// Looks the row up by drive.PenTabletID at click time rather than trusting
+// the idx this closure was built with: combineDrives rebuilds dw.allDrives
+// (and therefore every row's index) on its own periodic cadence
+// (startPenTabletPolling's 1-second tick, same as gamepad's own poller),
+// independently of refreshDashboard's own rebuild of the widgets holding
+// this closure -- a combine landing in between left idx pointing at
+// whatever drive happened to end up there in the freshly rebuilt slice,
+// silently flipping the wrong row's IsMounted while the tablet's own
+// (correct-index-but-still-false) entry made syncPenCaptures immediately
+// undo the toggle. Confirmed live as the toggle appearing to work (the
+// attach starts) and then the capture stopping again within about a
+// second, every time.
+func (dw *DiskWidget) newPenTabletToggle(drive DriveItem, cardHover func(bool)) *view.DeviceToggle {
+	tabletID := drive.PenTabletID
 	t := view.NewDeviceToggle(drive.IsMounted, func(on bool) {
-		if idx < 0 || idx >= len(dw.allDrives) {
-			return
+		for i := range dw.allDrives {
+			if dw.allDrives[i].IsPenTablet && dw.allDrives[i].PenTabletID == tabletID {
+				dw.allDrives[i].IsMounted = on
+				break
+			}
 		}
-		dw.allDrives[idx].IsMounted = on
 		// syncPenCaptures itself is cheap (no I/O) -- it only ever queues a
 		// pendingPenCapture placeholder and spawns attachPenCapture, which
 		// does the actual blocking network I/O (AttachBrowserPen's HTTP
