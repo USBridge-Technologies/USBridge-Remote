@@ -36,11 +36,33 @@ import (
 	"sort"
 	"strings"
 	"syscall/js"
+	"time"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
 )
+
+// wasmYield hands control back to the browser's event loop -- Go's wasm
+// scheduler is cooperative with no OS-level preemption (unlike every
+// native platform, where this same CLAHE/dilate/connected-components work
+// runs on an OS thread and never touches the UI thread at all), so a tight
+// pure-Go loop over a ~1 megapixel DBNet mask with no yield point froze
+// the entire tab -- not just this goroutine -- for however long the loop
+// took. Confirmed live: the app hung solid right after "AI Vision
+// enabled", once the (2s-interval) OCR pass first ran.
+//
+// A 1ms sleep, not time.Sleep(0): the stdlib explicitly documents zero/
+// negative durations as returning immediately with no actual yield ("A
+// negative or zero duration causes Sleep to return immediately") -- that
+// would have compiled fine and done nothing. Not runtime.Gosched() either
+// -- that only reschedules among Go goroutines, which under wasm are all
+// still running on the one JS thread regardless; time.Sleep is what's
+// actually implemented via the wasm runtime's JS setTimeout-based timer,
+// which is what hands control back to the browser's event loop.
+func wasmYield() {
+	time.Sleep(time.Millisecond)
+}
 
 const (
 	iconInputSize = 640
@@ -714,6 +736,9 @@ func claheGray(gray []uint8, w, h int, clipLimit float64, tilesX, tilesY int) []
 	centerY := func(ty int) float64 { return float64(ty)*float64(tileH) + float64(tileH)/2 }
 
 	for y := 0; y < h; y++ {
+		if y%64 == 0 {
+			wasmYield()
+		}
 		fy := float64(y)
 		ty0 := int((fy - float64(tileH)/2) / float64(tileH))
 		if ty0 < 0 {
@@ -1040,6 +1065,9 @@ func dilateRect(mask []bool, w, h, kw, kh int) []bool {
 	halfW, halfH := kw/2, kh/2
 	tmp := make([]bool, w*h)
 	for y := 0; y < h; y++ {
+		if y%64 == 0 {
+			wasmYield()
+		}
 		row := y * w
 		for x := 0; x < w; x++ {
 			set := false
@@ -1057,6 +1085,9 @@ func dilateRect(mask []bool, w, h, kw, kh int) []bool {
 	}
 	out := make([]bool, w*h)
 	for y := 0; y < h; y++ {
+		if y%64 == 0 {
+			wasmYield()
+		}
 		for x := 0; x < w; x++ {
 			set := false
 			for dy := -halfH; dy <= halfH && !set; dy++ {
@@ -1080,8 +1111,12 @@ func connectedComponentBoxes(mask []bool, w, h int) []intBox {
 	visited := make([]bool, w*h)
 	var boxes []intBox
 	queue := make([]int, 0, 1024)
+	popped := 0
 
 	for start := 0; start < w*h; start++ {
+		if start%65536 == 0 {
+			wasmYield()
+		}
 		if !mask[start] || visited[start] {
 			continue
 		}
@@ -1092,6 +1127,10 @@ func connectedComponentBoxes(mask []bool, w, h int) []intBox {
 		x2, y2 := x1, y1
 
 		for len(queue) > 0 {
+			popped++
+			if popped%65536 == 0 {
+				wasmYield()
+			}
 			p := queue[len(queue)-1]
 			queue = queue[:len(queue)-1]
 			px, py := p%w, p/w
