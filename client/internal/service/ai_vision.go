@@ -208,13 +208,8 @@ func maybeKickIconDetection(rgba []byte, w, h, stride int) {
 
 	go func() {
 		defer aiVisionIconBusy.Store(false)
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, frame); err != nil {
-			logrus.Warnf("🔎 [AI Vision] icon frame encode failed: %v", err)
-			return
-		}
 		tIcon := time.Now()
-		icons, err := parser.ParseIconsOnly(buf.Bytes())
+		icons, err := parser.ParseIconsOnlyRGBA(frame)
 		if err != nil {
 			logrus.Warnf("🔎 [AI Vision] icon detection failed: %v", err)
 			return
@@ -259,13 +254,8 @@ func maybeKickOCR(rgba []byte, w, h, stride int) {
 
 	go func() {
 		defer aiVisionOCRBusy.Store(false)
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, frame); err != nil {
-			logrus.Warnf("🔎 [AI Vision] OCR frame encode failed: %v", err)
-			return
-		}
 		b := frame.Bounds()
-		result, err := parser.ParseFastNearIconsStaged(buf.Bytes(), func(boxes []localui.Box) {
+		result, err := parser.ParseFastNearIconsStagedRGBA(frame, func(boxes []localui.Box) {
 			// Fires as soon as dbnet (+ the near-icons filter) is done --
 			// well before svtr recognizes any of these boxes' text. No ID,
 			// no recognized string yet (see ParseFastNearIconsStaged's doc

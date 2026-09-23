@@ -54,7 +54,9 @@ import (
 // own logging convention/emoji prefix) until that's resolved; trim once
 // it stops earning its keep.
 func trace(format string, args ...interface{}) {
-	logrus.Infof("🔎 [localui-wasm] "+format, args...)
+	msg := fmt.Sprintf("🔎 [localui-wasm] "+format, args...)
+	logrus.Info(msg)
+	js.Global().Get("console").Call("log", msg)
 }
 
 // wasmYield hands control back to the browser's event loop -- Go's wasm
@@ -156,6 +158,7 @@ func (p *Parser) runInference(name string, tensor []float32, dims []int) ([]floa
 	trace("        runInference(%s): JS call returned in %v, unpacking", name, time.Since(tCall))
 	out := jsToFloat32s(result)
 	trace("        runInference(%s): TOTAL %v (%d floats out)", name, time.Since(tStart), len(out))
+	wasmYield()
 	return out, nil
 }
 
@@ -247,7 +250,18 @@ func (p *Parser) ParseIconsOnly(imgBytes []byte) (icons []Icon, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)
 	}
-	if original.W == 0 || original.H == 0 {
+	return p.parseIconsOnlyRGB(original)
+}
+
+func (p *Parser) ParseIconsOnlyRGBA(img *image.RGBA) (icons []Icon, err error) {
+	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		return nil, fmt.Errorf("empty image")
+	}
+	return p.parseIconsOnlyRGB(rgbFromRGBA(img))
+}
+
+func (p *Parser) parseIconsOnlyRGB(original *rgbImage) (icons []Icon, err error) {
+	if original == nil || original.W == 0 || original.H == 0 {
 		return nil, fmt.Errorf("decode image: empty result")
 	}
 	icons, err = p.runIconStage(original)
@@ -277,6 +291,15 @@ func (p *Parser) ParseFastNearIconsStaged(imgBytes []byte, onTextBoxes func(boxe
 	return result, err
 }
 
+func (p *Parser) ParseFastNearIconsStagedRGBA(img *image.RGBA, onTextBoxes func(boxes []Box)) (result *Result, err error) {
+	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		return nil, fmt.Errorf("empty image")
+	}
+	original := rgbFromRGBA(img)
+	_, result, err = p.parseRGB(original, false, nil, filterBoxesNearIcons, onTextBoxes)
+	return result, err
+}
+
 func (p *Parser) ParseStaged(imgBytes []byte, onIcons func(icons []Icon)) (result *Result, err error) {
 	_, result, err = p.parse(imgBytes, false, onIcons, nil, nil)
 	return result, err
@@ -285,20 +308,23 @@ func (p *Parser) ParseStaged(imgBytes []byte, onIcons func(icons []Icon)) (resul
 // parse mirrors parser.go's own parse() exactly -- see that function's doc
 // comment for the full phase-by-phase rationale.
 func (p *Parser) parse(imgBytes []byte, drawMarked bool, onIcons func(icons []Icon), textFilter func(icons []Icon, boxes []Box) []Box, onTextBoxes func(boxes []Box)) (markedPNG []byte, result *Result, err error) {
-	t0 := time.Now()
 	trace("parse: START (%d bytes PNG)", len(imgBytes))
-
 	tDecode := time.Now()
 	original, err := decodeToRGB(imgBytes)
 	if err != nil {
 		trace("parse: decodeToRGB FAILED: %v", err)
 		return nil, nil, fmt.Errorf("decode image: %w", err)
 	}
-	if original.W == 0 || original.H == 0 {
-		trace("parse: decodeToRGB produced empty result")
+	trace("parse: decodeToRGB done (%dx%d) in %v", original.W, original.H, time.Since(tDecode))
+	return p.parseRGB(original, drawMarked, onIcons, textFilter, onTextBoxes)
+}
+
+func (p *Parser) parseRGB(original *rgbImage, drawMarked bool, onIcons func(icons []Icon), textFilter func(icons []Icon, boxes []Box) []Box, onTextBoxes func(boxes []Box)) (markedPNG []byte, result *Result, err error) {
+	t0 := time.Now()
+	if original == nil || original.W == 0 || original.H == 0 {
+		trace("parse: empty image result")
 		return nil, nil, fmt.Errorf("decode image: empty result")
 	}
-	trace("parse: decodeToRGB done (%dx%d) in %v", original.W, original.H, time.Since(tDecode))
 
 	res := &Result{ImageWidth: original.W, ImageHeight: original.H, Backend: "local-onnx-web"}
 
@@ -458,14 +484,21 @@ func prepareDBNetTile(original *rgbImage, t rect, size int) (*rgbImage, letterbo
 func (p *Parser) recognizeSVTR(original *rgbImage, textBoxes []Box) []TextRegion {
 	tStart := time.Now()
 	trace("    recognizeSVTR: START, %d text boxes", len(textBoxes))
+	const maxWasmTextRegions = 16
+	if len(textBoxes) > maxWasmTextRegions {
+		trace("    recognizeSVTR: capping %d text boxes to %d for live WASM responsiveness", len(textBoxes), maxWasmTextRegions)
+		textBoxes = textBoxes[:maxWasmTextRegions]
+	}
 	var out []TextRegion
 	for bi, box := range textBoxes {
+		wasmYield()
 		tBox := time.Now()
 		crops := planSVTRCrops(box)
 		trace("    recognizeSVTR: box %d/%d %v -> %d crop(s)", bi+1, len(textBoxes), box, len(crops))
 		var texts []string
 		var confSum float64
 		for ci, crop := range crops {
+			wasmYield()
 			tCrop := time.Now()
 			cropImg, ok := safeCrop(original, crop)
 			if !ok {
@@ -562,10 +595,34 @@ func newRGBImage(w, h int) *rgbImage {
 	return &rgbImage{W: w, H: h, Pix: make([]uint8, w*h*3)}
 }
 
+func rgbFromRGBA(img *image.RGBA) *rgbImage {
+	if img == nil {
+		return &rgbImage{}
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	out := newRGBImage(w, h)
+	for y := 0; y < h; y++ {
+		srcOff := img.PixOffset(b.Min.X, b.Min.Y+y)
+		dstOff := y * w * 3
+		for x := 0; x < w; x++ {
+			out.Pix[dstOff] = img.Pix[srcOff]
+			out.Pix[dstOff+1] = img.Pix[srcOff+1]
+			out.Pix[dstOff+2] = img.Pix[srcOff+2]
+			srcOff += 4
+			dstOff += 3
+		}
+	}
+	return out
+}
+
 func decodeToRGB(data []byte) (*rgbImage, error) {
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
+	}
+	if rgba, ok := img.(*image.RGBA); ok {
+		return rgbFromRGBA(rgba), nil
 	}
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
@@ -1497,6 +1554,9 @@ func hCenterDist(a, b Box) float64 {
 
 func filterBoxesNearIcons(icons []Icon, boxes []Box) []Box {
 	if len(icons) == 0 {
+		if len(boxes) > 8 {
+			return boxes[:8]
+		}
 		return boxes
 	}
 	var out []Box

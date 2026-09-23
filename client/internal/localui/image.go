@@ -21,6 +21,27 @@ func newRGBImage(w, h int) *rgbImage {
 	return &rgbImage{W: w, H: h, Pix: make([]uint8, w*h*3)}
 }
 
+func rgbFromRGBA(img *image.RGBA) *rgbImage {
+	if img == nil {
+		return &rgbImage{}
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	out := newRGBImage(w, h)
+	for y := 0; y < h; y++ {
+		srcOff := img.PixOffset(b.Min.X, b.Min.Y+y)
+		dstOff := y * w * 3
+		for x := 0; x < w; x++ {
+			out.Pix[dstOff] = img.Pix[srcOff]
+			out.Pix[dstOff+1] = img.Pix[srcOff+1]
+			out.Pix[dstOff+2] = img.Pix[srcOff+2]
+			srcOff += 4
+			dstOff += 3
+		}
+	}
+	return out
+}
+
 func decodeToRGB(data []byte) (*rgbImage, error) {
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
