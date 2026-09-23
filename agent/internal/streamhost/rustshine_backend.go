@@ -159,6 +159,15 @@ type rustshineBackend struct {
 	// startup-only CLI flag).
 	webrtcDisabled bool
 
+	// usbPassBridgeAddr is the agent's api.Server.StartUSBPassBridge
+	// listener address, handed to gamestream-server as
+	// --usbpass-bridge-addr so it knows where to relay a browser-sourced
+	// USB/IP passthrough DataChannel's bytes (labels "usbpass-attach-*"/
+	// "usbpass-gamepad-*"/"usbpass-pen-*" -- see SetUSBPassBridgeAddr's doc
+	// comment). Empty omits the flag entirely, same "absent means disabled"
+	// convention as sharedSecret above.
+	usbPassBridgeAddr string
+
 	supportedCodecsCache struct {
 		mu        sync.Mutex
 		codecs    []string
@@ -193,6 +202,24 @@ func (b *rustshineBackend) DisplayName() string { return "USBridge Streamer (Pro
 func (b *rustshineBackend) SetSharedSecret(secret []byte) {
 	b.mu.Lock()
 	b.sharedSecret = secret
+	b.mu.Unlock()
+}
+
+// SetWebRTCEnabled sets whether Start passes --webrtc-disable. Called via
+// the same optional-interface probe pattern as SetSharedSecret (see
+// app.applyStreamWebRTCEnabled) -- a no-op for sunshineBackend, which has
+// no WebRTC endpoint to disable.
+// SetUSBPassBridgeAddr sets the address Start() passes to gamestream-server
+// as --usbpass-bridge-addr -- see app.applyStreamUSBPassBridgeAddr for the
+// same optional-interface probe pattern SetSharedSecret/SetWebRTCEnabled
+// above already use, called from app.go right after api.Server.
+// StartUSBPassBridge starts that listener (once, at boot) and again from
+// SetStreamBackend whenever a fresh rustshineBackend instance replaces the
+// running one. A no-op for sunshineBackend, which has no WebRTC DataChannel
+// to relay browser USB passthrough over at all.
+func (b *rustshineBackend) SetUSBPassBridgeAddr(addr string) {
+	b.mu.Lock()
+	b.usbPassBridgeAddr = addr
 	b.mu.Unlock()
 }
 
@@ -594,6 +621,12 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	}
 	if b.webrtcDisabled {
 		args = append(args, "--webrtc-disable")
+	}
+	// See SetUSBPassBridgeAddr's doc comment. Read directly (not via its own
+	// locking) -- Start already holds b.mu for its whole duration, same as
+	// b.sharedSecret above.
+	if b.usbPassBridgeAddr != "" {
+		args = append(args, "--usbpass-bridge-addr", b.usbPassBridgeAddr)
 	}
 	// Reed-Solomon FEC redundancy for the video stream. Left unset before
 	// this, gamestream-server just used its own --fec-percentage default

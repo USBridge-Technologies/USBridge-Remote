@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net"
 	"net/url"
 	"path/filepath"
 	"runtime"
@@ -223,6 +224,19 @@ type DiskWidget struct {
 	nbdServers   map[string]service.NBDRunner
 	usbClient    *api.USBClient
 	updateStatus func()
+
+	// peerConn opens a labeled DataChannel on the video/control WebRTC
+	// PeerConnection (client/internal/webrtcweb.WebRTCClient.OpenDataChannel,
+	// reached via WebRTCVideoClient's same-shaped wrapper) -- browser USB/IP
+	// passthrough (gamepad/pen, see disk_widget_gamepad_start_wasm.go /
+	// disk_widget_pen_start_wasm.go) rides this instead of a separate
+	// ws://+ WebSocket, so that traffic is DTLS-encrypted end to end and
+	// never subject to the browser's mixed-content blocking. nil on
+	// platforms with no WebRTC video client, or before one has connected --
+	// see SetPeerConnection.
+	peerConn interface {
+		OpenDataChannel(label string) (net.Conn, error)
+	}
 
 	// Configuration
 	config         *models.AppConfig
@@ -1192,6 +1206,19 @@ func (dw *DiskWidget) showWarningAsync(title, message string) {
 			view.ShowInfoDialog(title, message, dw.window)
 		}
 	})
+}
+
+// SetPeerConnection wires the video/control WebRTC PeerConnection's
+// DataChannel opener into this widget -- called once from main_window.go via
+// an optional-interface probe on the platform's VideoClient (same pattern as
+// SetAPISecret/SetTailscaleService), since not every platform has a WebRTC
+// video client at all (nil pc is fine: browser USB passthrough attach then
+// fails with a clear "connect video/control first" error instead of the old
+// direct-WebSocket path it used to have as a fallback).
+func (dw *DiskWidget) SetPeerConnection(pc interface {
+	OpenDataChannel(label string) (net.Conn, error)
+}) {
+	dw.peerConn = pc
 }
 
 // UpdateClient updates the USB client. On disconnect — immediately clears the data;

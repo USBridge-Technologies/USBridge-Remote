@@ -72,6 +72,15 @@ type App struct {
 	usbBroker *usbpass.Service
 	adminSrv  *adminapi.Server
 
+	// usbPassBridgeAddr is StartUSBPassBridge's localhost address (see
+	// api.Server.StartUSBPassBridge's doc comment) -- rustshine dials this
+	// to relay browser-sourced USB/IP passthrough DataChannel bytes into
+	// this agent process. Re-applied to each new streamhost.Backend by
+	// applyStreamUSBPassBridgeAddr (SetStreamBackend switches backends at
+	// runtime; the bridge listener itself is started once and outlives any
+	// individual backend).
+	usbPassBridgeAddr string
+
 	// gpuClockArmed records whether applyGPUClockLock has already launched
 	// the elevated lock daemon for this agent process, so repeated calls
 	// (the sunshineWatchdog re-invokes startSunshine every 15s, and every
@@ -572,6 +581,12 @@ func New() (*App, error) {
 	}
 	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort, usbBridgeAddr)
 	apiServer.SetUSBPassthrough(instance.usbBroker)
+	if addr, err := apiServer.StartUSBPassBridge(); err != nil {
+		log.Printf("[app] usbpass webrtc bridge: %v (browser gamepad/pen passthrough over WebRTC will not work; legacy WebSocket path unaffected)", err)
+	} else {
+		instance.usbPassBridgeAddr = addr
+		applyStreamUSBPassBridgeAddr(instance.stream, addr)
+	}
 	instance.apiServer = apiServer
 	handler := apiServer.Routes()
 	instance.handler = handler
@@ -1362,6 +1377,7 @@ func (a *App) SetStreamBackend(kind string) error {
 		next = streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath)
 		applyStreamSharedSecret(next, []byte(a.cfg.MasterKey))
 		applyStreamWebRTCEnabled(next, !a.cfg.RustShineWebRTCDisabled)
+		applyStreamUSBPassBridgeAddr(next, a.usbPassBridgeAddr)
 	} else {
 		next = streamhost.NewSunshine(a.exeDir, a.cfg.StateDir, a.logPath)
 	}
@@ -2970,6 +2986,21 @@ func applyStreamSharedSecret(stream streamhost.Backend, secret []byte) {
 func applyStreamWebRTCEnabled(stream streamhost.Backend, enabled bool) {
 	if setter, ok := stream.(interface{ SetWebRTCEnabled(bool) }); ok {
 		setter.SetWebRTCEnabled(enabled)
+	}
+}
+
+// applyStreamUSBPassBridgeAddr hands addr to stream if it implements the
+// optional interface{ SetUSBPassBridgeAddr(string) } -- only rustshineBackend
+// does today, same optional-interface probe pattern as
+// applyStreamSharedSecret above; a no-op for sunshineBackend, which has no
+// browser USB passthrough / WebRTC DataChannel path to bridge into. addr is
+// api.Server.StartUSBPassBridge's own localhost listener address, started
+// once at boot (see the app.New call site) and re-applied here every time
+// SetStreamBackend swaps in a new rustshineBackend instance, since the
+// bridge listener itself outlives any individual backend.
+func applyStreamUSBPassBridgeAddr(stream streamhost.Backend, addr string) {
+	if setter, ok := stream.(interface{ SetUSBPassBridgeAddr(string) }); ok {
+		setter.SetUSBPassBridgeAddr(addr)
 	}
 }
 

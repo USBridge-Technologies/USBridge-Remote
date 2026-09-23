@@ -3,6 +3,8 @@
 package controller
 
 import (
+	"fmt"
+
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/usbpass"
 )
@@ -37,9 +39,13 @@ func (h *browserPenCapture) Stop() {
 // same way the browser gamepad path and the native passthrough client's
 // real devices both already do.
 func (dw *DiskWidget) startPenCapture(t platform.PenTabletInfo) (penCaptureHandle, error) {
+	if dw.peerConn == nil {
+		return nil, fmt.Errorf("pen tablet passthrough: connect video/control first")
+	}
 	send, stopAttach, err := usbpass.AttachBrowserPen(t.VID, t.PID, t.Name, usbpass.BrowserGamepadAttachOptions{
-		AgentBaseURL: dw.usbClient.GetBaseURL(),
-		Secret:       dw.usbClient.APISecret(),
+		AgentBaseURL:    dw.usbClient.GetBaseURL(),
+		Secret:          dw.usbClient.APISecret(),
+		OpenDataChannel: dw.peerConn.OpenDataChannel,
 	})
 	if err != nil {
 		return nil, err

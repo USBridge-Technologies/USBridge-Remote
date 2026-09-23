@@ -3,11 +3,9 @@
 package usbpass
 
 // Browser-sourced USB/IP attach: the wasm counterpart of usbaes_attach.go's
-// Attach(), for a synthetic gamepad whose input comes from the browser's
-// Gamepad API instead of a real local device. Two things differ from the
-// native flow, both because a browser tab can never accept an inbound TCP
-// connection (no listen()/accept() in any web platform API) and has no
-// working net.Dial either (see wsconn_wasm.go's doc comment):
+// Attach(), for a synthetic gamepad/pen tablet whose input comes from the
+// browser instead of a real local device. Two things differ from the native
+// flow:
 //
 //  1. There's no local device to describe or export -- the agent hosts the
 //     loopback USB/IP Server itself (agent/internal/browserusb) and hands
@@ -16,21 +14,26 @@ package usbpass
 //  2. The AES Hello/Attach handshake below is byte-for-byte the same
 //     protocol usbaes_attach.go speaks (same attachPayload/encodeAttachFrame/
 //     aeadStream, all pure Go -- see usbaes_protocol.go/usbaes_transport.go's
-//     widened build tags), just carried over a platform.DialWebSocket
-//     connection to the agent's own relay endpoint
-//     (agent/internal/api/usb_passthrough_browser.go), which is what
-//     actually reaches the usbridge-usb-broker's AES port on the agent's
-//     behalf.
+//     widened build tags), carried over a labeled WebRTC DataChannel on the
+//     browser's already-established video/control RTCPeerConnection
+//     (opts.OpenDataChannel, wired from
+//     client/internal/webrtcweb.WebRTCClient.OpenDataChannel via
+//     client/internal/gui/controller/disk_widget.go's SetPeerConnection)
+//     instead of a separate WebSocket to the agent's own HTTP server. This
+//     traffic is DTLS-encrypted end to end and never subject to the
+//     browser's mixed-content blocking the way a plain ws:// connection
+//     from an https page would be -- see
+//     agent/internal/api/usb_passthrough_browser.go's bridge listener for
+//     the other end of this channel (relayed into the Go agent by
+//     rustshine, the process that actually terminates the PeerConnection).
 //
 // Unlike native Attach(), the TunnelNonce here is *not* generated locally:
 // the agent already generated one (and armed its own TunnelListener with the
 // key derived from it) by the time postBrowserSession returns, since the
 // agent -- not this browser tab -- is the one hosting the tunnel listener
-// that protects the loopback exporter (see agent/internal/browserusb's doc
-// comment for why a production agent's --tsnet-bridge makes that tunnel
-// mandatory here, unlike the plain-loopback case native Attach() gets away
-// with). This code just has to echo the same nonce back in its Attach frame
-// so the broker derives the identical key agent already did.
+// that protects the loopback exporter. This code just has to echo the same
+// nonce back in its Attach frame so the broker derives the identical key
+// agent already did.
 
 import (
 	"bytes"
@@ -42,11 +45,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
-
-	"usbridge-client/internal/platform"
 
 	"github.com/sirupsen/logrus"
 )
@@ -60,7 +60,9 @@ import (
 // already independently reimplemented on the agent side too
 // (agent/internal/api/security.go's CalculateHMAC) -- a third small,
 // self-contained copy here follows that existing pattern rather than
-// fighting it.
+// fighting it. Only postBrowserSession's header signing needs this now --
+// the attach/gamepad/pen data paths ride an authenticated DataChannel
+// instead of a signed WebSocket URL (see attachBrowserDevice).
 func calculateHMACV2(method, path, timestamp, body string, key []byte) string {
 	h := sha256.Sum256(key)
 	mac := hmac.New(sha256.New, h[:])
@@ -71,9 +73,22 @@ func calculateHMACV2(method, path, timestamp, body string, key []byte) string {
 // BrowserGamepadAttachOptions is the wasm-side counterpart of AttachOptions.
 type BrowserGamepadAttachOptions struct {
 	// AgentBaseURL is the same base URL the rest of the web client's HTTP
-	// API calls already use, e.g. "https://192.168.1.20:47990".
+	// API calls already use, e.g. "https://192.168.1.20:47990" -- only
+	// needed here for the one-shot session-setup POST (postBrowserSession);
+	// the attach/data channels themselves go over OpenDataChannel below.
 	AgentBaseURL string
 	Secret       []byte
+
+	// OpenDataChannel creates a new labeled DataChannel on the client's
+	// already-connected video/control WebRTC PeerConnection, blocking until
+	// it's open. Wired from client/internal/webrtcweb.WebRTCClient via
+	// DiskWidget.SetPeerConnection -- see disk_widget_gamepad_start_wasm.go
+	// / disk_widget_pen_start_wasm.go. nil (no peer connection yet, e.g.
+	// video/control never connected) is a hard precondition failure for
+	// browser USB passthrough now that it rides the same PeerConnection --
+	// attachBrowserDevice fails immediately with a clear error instead of
+	// falling back to anything else.
+	OpenDataChannel func(label string) (net.Conn, error)
 }
 
 type browserSessionData struct {
@@ -129,40 +144,15 @@ func postBrowserSession(opts BrowserGamepadAttachOptions, path string, body []by
 	return env.Data, nil
 }
 
-// browserRelayWSURL builds an authenticated ws(s):// URL for one of the
-// agent's browser-relay endpoints -- signed via query params, not the usual
-// X-Auth-Signature/X-Auth-Timestamp headers, because the browser's
-// WebSocket constructor cannot set custom request headers at all (see
-// agent/internal/api/usb_passthrough_browser.go's verifyWSAuth doc comment).
-func browserRelayWSURL(agentBaseURL, path string, secret []byte) (string, error) {
-	u, err := url.Parse(agentBaseURL)
-	if err != nil {
-		return "", err
-	}
-	if u.Scheme == "https" {
-		u.Scheme = "wss"
-	} else {
-		u.Scheme = "ws"
-	}
-	u.Path = path
-	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig := calculateHMACV2(http.MethodGet, path, ts, "", secret)
-	q := url.Values{}
-	q.Set("ts", ts)
-	q.Set("sig", sig)
-	u.RawQuery = q.Encode()
-	return u.String(), nil
-}
-
 // AttachBrowserGamepad asks the agent for a loopback USB/IP export of a
 // synthetic Xbox 360 controller, performs the AES Hello/Attach handshake
 // against it, and returns send (push one browserGamepadFrameLen-shaped
-// state frame) and stop (detach and close both relay connections).
+// state frame) and stop (detach and close both DataChannels).
 func AttachBrowserGamepad(opts BrowserGamepadAttachOptions) (send func([]byte), stop func(), err error) {
 	dataConn, stop, err := attachBrowserDevice(opts,
 		"/api/usb/passthrough/browser-session", nil,
 		x360VID, x360PID, x360DeviceDesc(), x360ConfigDesc(),
-		"/api/usb/passthrough/browser-gamepad")
+		"usbpass-gamepad")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -186,8 +176,8 @@ type browserPenSessionRequest struct {
 // productId/productName give them -- see pen_capture_wasm.go), performs the
 // AES Hello/Attach handshake against it, and returns send (push one raw
 // HID input report, verbatim from device.oninputreport) and stop (detach
-// and close both relay connections). The device/config descriptor bytes in
-// the Attach frame come from the exact same model resolution
+// and close both DataChannels). The device/config descriptor bytes in the
+// Attach frame come from the exact same model resolution
 // usbpasscore.NewWacomExportedDevice does agent-side (wacom_model.go has no
 // build tag, so this package already has it) -- building a throwaway
 // backend here just for its ExportedDevice fields is wasted work, but
@@ -205,7 +195,7 @@ func AttachBrowserPen(vid, pid uint16, productName string, opts BrowserGamepadAt
 	dataConn, stop, err := attachBrowserDevice(opts,
 		"/api/usb/passthrough/browser-pen-session", body,
 		dev.VID, dev.PID, dev.DeviceDesc, dev.ConfigDesc,
-		"/api/usb/passthrough/browser-pen")
+		"usbpass-pen")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -216,29 +206,29 @@ func AttachBrowserPen(vid, pid uint16, productName string, opts BrowserGamepadAt
 // attachBrowserDevice is the device-agnostic half of AttachBrowserGamepad/
 // AttachBrowserPen: request a loopback export (sessionPath/sessionBody),
 // speak the AES Hello/Attach handshake describing it as vid:pid with the
-// given descriptors, hold the attach session open in the background, then
-// open the second WebSocket (dataWSPath, with the session's bus id in its
-// query string the same way browserRelayWSURL signs everything else) the
-// caller streams its own device-specific frames over. dataConn is that
-// second connection; stop tears down both.
+// given descriptors over a DataChannel labeled "usbpass-attach-<bus_id>",
+// hold the attach session open in the background, then open a second
+// DataChannel labeled "<dataChannelPrefix>-<bus_id>" the caller streams its
+// own device-specific frames over. dataConn is that second connection; stop
+// tears down both.
 func attachBrowserDevice(
 	opts BrowserGamepadAttachOptions,
 	sessionPath string, sessionBody []byte,
 	vid, pid uint16, deviceDesc, configDesc []byte,
-	dataWSPath string,
+	dataChannelPrefix string,
 ) (dataConn net.Conn, stop func(), err error) {
+	if opts.OpenDataChannel == nil {
+		return nil, nil, fmt.Errorf("browser attach: no WebRTC peer connection available (connect video/control first)")
+	}
+
 	session, err := postBrowserSession(opts, sessionPath, sessionBody)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	attachURL, err := browserRelayWSURL(opts.AgentBaseURL, "/api/usb/passthrough/browser-attach", opts.Secret)
+	conn, err := opts.OpenDataChannel("usbpass-attach-" + session.BusID)
 	if err != nil {
-		return nil, nil, err
-	}
-	conn, err := platform.DialWebSocket(attachURL)
-	if err != nil {
-		return nil, nil, fmt.Errorf("browser attach relay: %w", err)
+		return nil, nil, fmt.Errorf("browser attach channel: %w", err)
 	}
 
 	key := deriveSessionKey(opts.Secret)
@@ -321,20 +311,10 @@ func attachBrowserDevice(
 		}
 	}()
 
-	dataURL, err := browserRelayWSURL(opts.AgentBaseURL, dataWSPath, opts.Secret)
+	dataConn, err = opts.OpenDataChannel(dataChannelPrefix + "-" + session.BusID)
 	if err != nil {
 		conn.Close()
-		return nil, nil, err
-	}
-	// bus_id rides the query string here too (unlike the attach relay,
-	// where it's already inside the AES-encrypted Attach frame) since this
-	// second, independent WebSocket is how the agent maps a data stream
-	// back to the right loopback session.
-	dataURL += "&bus_id=" + url.QueryEscape(session.BusID)
-	dataConn, err = platform.DialWebSocket(dataURL)
-	if err != nil {
-		conn.Close()
-		return nil, nil, fmt.Errorf("browser data relay: %w", err)
+		return nil, nil, fmt.Errorf("browser data channel: %w", err)
 	}
 
 	stop = func() {

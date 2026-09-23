@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -183,7 +184,7 @@ type MainWindow struct {
 	// Status icons
 	connectionIcon *widget.Button
 	nbdIcon        *widget.Button
-	videoIcon *headerStatusBadgeButton
+	videoIcon      *headerStatusBadgeButton
 	// footerVideoSettingsIcon is the Control footer duplicate of mw.videoIcon
 	// (header keeps the original, in front of fps).
 	footerVideoSettingsIcon *headerStatusBadgeButton
@@ -198,10 +199,10 @@ type MainWindow struct {
 	// videoMonitorText/Dot are the capture-device name after fps/resolution
 	// in the Control header. videoMonitorToggle/Btn are the desktop footer
 	// picker (after fullscreen), hidden when the agent only has one monitor.
-	videoMonitorText    *canvas.Text
-	videoMonitorDot     fyne.CanvasObject
-	videoMonitorToggle  *headerStatusBadgeButton
-	videoMonitorBtn     fyne.CanvasObject
+	videoMonitorText   *canvas.Text
+	videoMonitorDot    fyne.CanvasObject
+	videoMonitorToggle *headerStatusBadgeButton
+	videoMonitorBtn    fyne.CanvasObject
 	// videoMonitorChipLoaded is true after the first device-list fetch for
 	// this stream so updateStatusBarUI does not hammer GetVideoDevices.
 	videoMonitorChipLoaded bool
@@ -311,6 +312,17 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	// Initialize widgets
 	mw.diskWidget = controller.NewDiskWidget(nil, mw.updateStatus, a, cfg)
 	mw.diskWidget.SetWindow(w)
+	// Browser USB/IP passthrough (gamepad/pen, see disk_widget_gamepad_start_wasm.go
+	// / disk_widget_pen_start_wasm.go) rides a DataChannel on this same
+	// video/control PeerConnection instead of a separate ws:// WebSocket --
+	// only WebRTCVideoClient (wasm build) implements this; nil on every
+	// other platform, same optional-interface-probe pattern as
+	// SetTailscaleService above.
+	if pc, ok := mw.videoClient.(interface {
+		OpenDataChannel(label string) (net.Conn, error)
+	}); ok {
+		mw.diskWidget.SetPeerConnection(pc)
+	}
 	mw.videoWidget = controller.NewVideoWidget(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)

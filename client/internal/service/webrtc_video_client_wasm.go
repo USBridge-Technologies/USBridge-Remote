@@ -13,6 +13,7 @@ package service
 import (
 	"fmt"
 	"image"
+	"net"
 	"os"
 	"strconv"
 	"sync"
@@ -74,6 +75,27 @@ func (c *WebRTCVideoClient) VideoElement() js.Value {
 		return js.Value{}
 	}
 	return client.VideoElement()
+}
+
+// OpenDataChannel creates a new labeled DataChannel on the already-connected
+// WebRTC PeerConnection this video/control session is using, returning it as
+// a net.Conn. Used by client/internal/usbpass' browser-sourced USB/IP
+// passthrough (gamepad/pen) to ride the same PeerConnection instead of a
+// separate ws:// WebSocket to the agent -- see
+// client/internal/gui/controller/disk_widget.go's SetPeerConnection, wired
+// from main_window.go via an optional-interface probe on VideoClient (same
+// pattern VideoElement above already uses for lazily reading c.client).
+// Fails with a clear error before ConnectToMoonlight has succeeded (or after
+// Disconnect), which is a hard precondition now that browser USB passthrough
+// has no other transport to fall back to.
+func (c *WebRTCVideoClient) OpenDataChannel(label string) (net.Conn, error) {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return nil, fmt.Errorf("webrtc video: not connected -- connect video/control before attaching a browser USB device")
+	}
+	return client.OpenDataChannel(label)
 }
 
 // NewWebRTCVideoClient mirrors NewMoonlightService(cfg)'s shape.

@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"fmt"
 	"strings"
 
 	"usbridge-client/internal/platform"
@@ -44,9 +45,13 @@ func (h *browserGamepadCapture) Stop() {
 // mismaps unrecognized pads) when the row came from a granted HID device,
 // the Gamepad API poller otherwise.
 func (dw *DiskWidget) startPadCapture(id string) (gamepadCaptureHandle, error) {
+	if dw.peerConn == nil {
+		return nil, fmt.Errorf("gamepad passthrough: connect video/control first")
+	}
 	send, stopAttach, err := usbpass.AttachBrowserGamepad(usbpass.BrowserGamepadAttachOptions{
-		AgentBaseURL: dw.usbClient.GetBaseURL(),
-		Secret:       dw.usbClient.APISecret(),
+		AgentBaseURL:    dw.usbClient.GetBaseURL(),
+		Secret:          dw.usbClient.APISecret(),
+		OpenDataChannel: dw.peerConn.OpenDataChannel,
 	})
 	if err != nil {
 		return nil, err
