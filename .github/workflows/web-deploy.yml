@@ -34,21 +34,27 @@ jobs:
         working-directory: client
         run: ./scripts/build_web.sh
 
-      - name: Upload app.wasm to R2
-        # app.wasm bypasses wrangler/the Worker's static assets entirely
-        # (over Cloudflare's per-file size limit there) -- uploaded directly
-        # via the R2 API instead; worker.js streams it back out on request.
+      - name: Upload oversized files to R2
+        # Anything over Cloudflare's 25MiB static-asset limit bypasses
+        # wrangler/the Worker's ASSETS binding entirely -- uploaded directly
+        # via the R2 API instead; worker.js's r2Routes streams each back out
+        # on request. Keys here MUST match worker.js's r2Routes exactly.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_R2_BUCKET: ${{ secrets.CLOUDFLARE_R2_BUCKET }}
         run: |
           set -euo pipefail
-          curl -sf -X PUT \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$CF_R2_BUCKET/objects/app.wasm" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/wasm" \
-            --data-binary @client/web/app.wasm
+          put() {
+            curl -sf -X PUT \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$CF_R2_BUCKET/objects/$1" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: $2" \
+              --data-binary @"$3"
+          }
+          put "app.wasm" "application/wasm" "client/web/app.wasm"
+          put "models/icon_detect.onnx" "application/octet-stream" "client/web/models/icon_detect.onnx"
+          put "vendor/ort/ort-wasm-simd-threaded.jsep.wasm" "application/wasm" "client/web/vendor/ort/ort-wasm-simd-threaded.jsep.wasm"
 
       - name: Deploy Worker (static assets + custom domain)
         env:
@@ -59,8 +65,21 @@ jobs:
         run: |
           set -euo pipefail
           cd client/deploy/cloudflare-web
-          mkdir -p public
-          cp ../../web/index.html ../../web/gui.html ../../web/wasm_exec.js public/
+          mkdir -p public/vendor/ort
+          cp ../../web/index.html ../../web/gui.html ../../web/wasm_exec.js ../../web/ai_vision.js public/
+          # Every vendor/ort/* file except the oversized jsep.wasm uploaded
+          # to R2 above -- the small *.mjs loaders and the plain (non-jsep)
+          # CPU-fallback wasm, both under the 25MiB limit, served as normal
+          # static assets like everything else in public/.
+          find ../../web/vendor/ort -maxdepth 1 -type f ! -name 'ort-wasm-simd-threaded.jsep.wasm' \
+            -exec cp {} public/vendor/ort/ \;
+          # The MCP bridge's prebuilt single-file bundle (see
+          # web/mcp-bridge/README.md) -- the Scripts & AI tab links straight
+          # to /mcp-bridge/bin/bridge.cjs for its "download the bridge"
+          # step. Path preserved as-is (not flattened) so it's identical to
+          # how build_web.sh --serve serves the same file locally.
+          mkdir -p public/mcp-bridge/bin
+          cp ../../web/mcp-bridge/bin/bridge.cjs public/mcp-bridge/bin/bridge.cjs
           sed -e "s/__R2_BUCKET__/$CF_R2_BUCKET/" -e "s/__WEB_DOMAIN__/$CF_WEB_DOMAIN/" \
             wrangler.toml.template > wrangler.toml
           npx --yes wrangler@3 deploy

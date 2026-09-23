@@ -23,6 +23,17 @@
 #                          same way. Two filenames exist so either can be
 #                          used as the served entry point without one
 #                          clobbering the other.
+#   web/models/icon_detect.onnx -- NOT committed (build artifact, gitignored):
+#                          copied from internal/localui/models/ on every run
+#                          so the in-browser AI Vision overlay
+#                          (client/web/ai_vision.js) has the same YOLO
+#                          weights every other platform's cgo/onnxruntime_go
+#                          build already ships, without a second 77MiB copy
+#                          living in this repo -- see that directory's own
+#                          README for provenance.
+#   web/vendor/ort/*     -- committed (onnxruntime-web runtime, see that
+#                          directory's own README) -- untouched by this
+#                          script, same as index.html.
 #
 # wasm_exec.js MUST come from the exact Go toolchain that built app.wasm --
 # the wire format between the two changes across Go versions, and a
@@ -54,7 +65,18 @@ echo -e "${YELLOW}==> Building app.wasm (GOOS=js GOARCH=wasm, version=$CLIENT_VE
 # client/cmd/main.go's own doc comment on it) -- without this the version
 # corner label falls back to cmd/wasm/main.go's literal "web" placeholder,
 # rendering as the nonsensical "vweb".
-GOOS=js GOARCH=wasm go build -ldflags "-X main.version=$CLIENT_VERSION" -o "$WEB_DIR/app.wasm" ./cmd/wasm
+#
+# CGO_ENABLED=0 is NOT optional here even though js/wasm can't use cgo
+# anyway: `go env CGO_ENABLED` defaults to 1 whenever a C compiler is on
+# PATH (true on most dev machines, e.g. Xcode's cc on macOS), and that
+# default leaking into this cross-build makes the package loader refuse
+# internal/service's plain .c files (h264_nal.c/h264_sei.c/h264_stream.c --
+# no cgo build tag needed on every OS-suffixed platform file, since GOOS
+# alone already excludes those) outright ("C source files not allowed when
+# not using cgo or SWIG") instead of quietly excluding them the way it does
+# when CGO_ENABLED=0 is explicit. Confirmed live: this build broke on a
+# machine with a C toolchain installed and silently worked on one without.
+CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -ldflags "-X main.version=$CLIENT_VERSION" -o "$WEB_DIR/app.wasm" ./cmd/wasm
 ls -lh "$WEB_DIR/app.wasm"
 
 # Resolve wasm_exec.js from whatever toolchain `go build` above actually
@@ -80,6 +102,10 @@ echo -e "${GREEN}✓${NC} wasm_exec.js <- $WASM_EXEC_SRC"
 # this project's own dev-server testing.
 cp "$WEB_DIR/index.html" "$WEB_DIR/gui.html"
 echo -e "${GREEN}✓${NC} gui.html <- index.html"
+
+mkdir -p "$WEB_DIR/models"
+cp "$CLIENT_DIR/internal/localui/models/icon_detect.onnx" "$WEB_DIR/models/icon_detect.onnx"
+echo -e "${GREEN}✓${NC} models/icon_detect.onnx <- internal/localui/models/icon_detect.onnx"
 
 echo -e "${GREEN}✓${NC} Web client built: $WEB_DIR"
 echo "  Serve $WEB_DIR with any static file server and open index.html (or gui.html)."
@@ -108,6 +134,22 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
+        # Cross-origin isolation, required for onnxruntime-web's WASM
+        # backend to work at all in this dependency version (see
+        # web/vendor/ort/README.md) -- every wasm-simd binary it ships is
+        # thread-based, and browsers only grant SharedArrayBuffer on a
+        # crossOriginIsolated page. "credentialless" (not "require-corp")
+        # and "same-origin-allow-popups" (not plain "same-origin")
+        # deliberately: neither requires this app's own cross-origin
+        # WebRTC signaling/device requests or the MCP bridge download's
+        # window.open() to carry a Cross-Origin-Resource-Policy header of
+        # their own -- COEP doesn't gate WebSocket/RTCPeerConnection
+        # traffic at all, and credentialless only strips credentials from
+        # cross-origin subresource loads rather than blocking them
+        # outright. Mirrored in deploy/cloudflare-web/worker.js for
+        # production.
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+        self.send_header("Cross-Origin-Embedder-Policy", "credentialless")
         super().end_headers()
 
 handler = lambda *args, **kwargs: NoCacheHandler(*args, directory=directory, **kwargs)

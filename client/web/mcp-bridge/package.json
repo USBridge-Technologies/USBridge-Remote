@@ -1,0 +1,12 @@
+{
+  "name": "usbridge-mcp-bridge",
+  "private": true,
+  "type": "module",
+  "description": "Source for bridge.mjs's bundled dist/bridge.mjs -- see this directory's README.",
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

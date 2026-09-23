@@ -15,6 +15,15 @@ import (
 
 const DefaultMCPProxyPort = 8765
 
+// DefaultMCPBridgePort is the port client/web/mcp-bridge/bridge.mjs listens
+// on by default -- the local WebSocket server MCPBrowserBridge (wasm-only,
+// mcp_browser_wasm.go) dials out to, since a browser tab can't run
+// MCPProxy's kind of listener at all. Just a default; scripts_tab_wasm's
+// config JSON and bridge.mjs's own --port flag can both be pointed
+// elsewhere if 9001 is already taken by something else on the user's
+// machine.
+const DefaultMCPBridgePort = 9001
+
 // mcpProxyTimeout is how long a forwarded MCP call is allowed to run,
 // independent of AppConfig.APITimeout (15s default) -- that shorter budget
 // is tuned to fail fast on a genuinely offline device for the app's own

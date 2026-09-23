@@ -85,6 +85,18 @@ var (
 // away so a stale overlay never lingers after the checkbox is unticked.
 func SetAIVisionEnabled(enabled bool) {
 	wasEnabled := aiVisionEnabled.Swap(enabled)
+	// Lazily load the same ONNX models "Local ui.parse offload" uses (see
+	// api.LazyInitLocalUIParse's doc comment) the moment this checkbox is
+	// actually turned on, rather than requiring the user to separately
+	// flip the Scripts&AI tab's toggle first -- ticking this box IS the
+	// "I want local inference now" signal. No-op if a parser is already
+	// loaded/loading. Runs in InitLocalUIParseFromConfig's own background
+	// goroutine, so this returns immediately either way; maybeKickIconDetection
+	// just keeps seeing GetLocalUIParser() == nil (and logs once, see
+	// maybeKickOCR) until it's ready.
+	if enabled {
+		usbapi.LazyInitLocalUIParse()
+	}
 	if !enabled {
 		aiVisionMu.Lock()
 		aiVisionResult = nil

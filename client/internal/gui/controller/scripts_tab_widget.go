@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"image/color"
 	"net/url"
@@ -35,6 +37,14 @@ type ScriptsTabWidget struct {
 	mcpProxy  api.MCPProxy
 	mcpPort   int
 	agentOS   string // OS reported by the connected agent (empty/"usbridge" = real hardware)
+
+	// wasm-build-only MCP setup -- see platform_web.go's isWebBuild and
+	// view.ScriptsMCPData's doc comment. mcpBridge/mcpBridgePort are still
+	// declared unconditionally (not behind a build tag) so this struct
+	// doesn't need a second definition per platform, same reason mcpProxy
+	// above compiles (and simply never succeeds) on wasm too.
+	mcpBridge     api.MCPBrowserBridge
+	mcpBridgePort int
 
 	outerContainer *fyne.Container
 	body           *fyne.Container
@@ -79,6 +89,7 @@ func NewScriptsTabWidget(window fyne.Window) *ScriptsTabWidget {
 	w := &ScriptsTabWidget{
 		window:              window,
 		mcpPort:             api.DefaultMCPProxyPort,
+		mcpBridgePort:       api.DefaultMCPBridgePort,
 		rowUpdaters:         make(map[string]func(bool, string)),
 		lastStatus:          make(map[string]models.ScriptRunStatus),
 		ignoreErrorUntilRun: make(map[string]bool),
@@ -128,6 +139,7 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 	// started -- surviving reconnects and even a key change in the
 	// connection manager.
 	w.mcpProxy.UpdateClient(c)
+	w.mcpBridge.UpdateClient(c)
 
 	if w.isClosing.Load() {
 		return
@@ -487,7 +499,7 @@ func (w *ScriptsTabWidget) sectionData() view.ScriptsSectionData {
 			},
 			OnCopy: func() {
 				if w.window != nil && w.window.Clipboard() != nil {
-					w.window.Clipboard().SetContent(url)
+					w.window.Clipboard().SetContent(view.MCPConfigJSON(url))
 				}
 			},
 			OnLocalUI: func(on bool) {
@@ -497,6 +509,17 @@ func (w *ScriptsTabWidget) sectionData() view.ScriptsSectionData {
 				w.applyLocalUIParseSetting(on)
 				w.rebuildSoon()
 			},
+
+			WebBridge:        isWebBuild,
+			BridgeConnected:  w.mcpBridge.Running(),
+			BridgeConfigJSON: view.MCPBridgeConfigJSON(w.mcpBridgeToken(), w.mcpBridgePort),
+			OnToggleBridge:   func() { w.toggleMCPBridge() },
+			OnCopyBridgeConfig: func() {
+				if w.window != nil && w.window.Clipboard() != nil {
+					w.window.Clipboard().SetContent(view.MCPBridgeConfigJSON(w.mcpBridgeToken(), w.mcpBridgePort))
+				}
+			},
+			OnDownloadBridge: func() { openBridgeDownload() },
 		},
 		ScriptCount:   len(scripts),
 		NewEnabled:    newEnabled,
@@ -634,9 +657,7 @@ func (w *ScriptsTabWidget) applyLocalUIParseSetting(enabled bool) {
 		api.SetLocalUIParser(nil)
 		return
 	}
-	cfg := models.DefaultConfig()
-	cfg.LocalUIParseEnabled = true
-	api.InitLocalUIParseFromConfig(cfg)
+	api.LazyInitLocalUIParse()
 }
 
 func (w *ScriptsTabWidget) toggleMCPProxy() {
@@ -651,6 +672,62 @@ func (w *ScriptsTabWidget) toggleMCPProxy() {
 			return
 		}
 		if err := w.mcpProxy.Start(w.mcpPort, client); err != nil {
+			view.ShowErrorDialog(err, w.window)
+			return
+		}
+	}
+	w.rebuildSoon()
+}
+
+// mcpBridgeTokenPrefKey persists the wasm MCP bridge's pairing token
+// (mcpBridgeToken below) across sessions -- generated once, then reused,
+// so a config the user already pasted into Claude Desktop keeps working
+// instead of silently breaking on the next visit.
+const mcpBridgeTokenPrefKey = "mcp_bridge_token"
+
+// mcpBridgeToken returns this install's MCP bridge pairing token,
+// generating and persisting a fresh one on first use. bridge.mjs refuses
+// to start without a --token (see that file's own doc comment on why an
+// unauthenticated local listener is a real local-privilege risk, not just
+// a theoretical one) -- this is the value both the config JSON and
+// bridge.mjs's --token flag need to agree on.
+func (w *ScriptsTabWidget) mcpBridgeToken() string {
+	app := fyne.CurrentApp()
+	if app == nil {
+		return ""
+	}
+	if tok := app.Preferences().String(mcpBridgeTokenPrefKey); tok != "" {
+		return tok
+	}
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		logrus.Warnf("mcp bridge: token generation failed: %v", err)
+		return ""
+	}
+	tok := hex.EncodeToString(buf)
+	app.Preferences().SetString(mcpBridgeTokenPrefKey, tok)
+	return tok
+}
+
+// toggleMCPBridge is toggleMCPProxy's wasm-build counterpart: dials/closes
+// MCPBrowserBridge's outbound WebSocket connection to bridge.mjs instead
+// of starting/stopping a local listener -- see view.ScriptsMCPData's doc
+// comment for why the two platforms need entirely different mechanisms
+// here.
+func (w *ScriptsTabWidget) toggleMCPBridge() {
+	w.mu.Lock()
+	client := w.usbClient
+	w.mu.Unlock()
+
+	if w.mcpBridge.Running() {
+		w.mcpBridge.Stop()
+	} else {
+		if client == nil {
+			return
+		}
+		token := w.mcpBridgeToken()
+		wsURL := fmt.Sprintf("ws://127.0.0.1:%d?token=%s", w.mcpBridgePort, token)
+		if err := w.mcpBridge.Start(wsURL, client); err != nil {
 			view.ShowErrorDialog(err, w.window)
 			return
 		}
@@ -796,6 +873,8 @@ func (w *ScriptsTabWidget) Shutdown() {
 	w.mu.Unlock()
 	w.mcpProxy.UpdateClient(nil)
 	w.mcpProxy.Stop()
+	w.mcpBridge.UpdateClient(nil)
+	w.mcpBridge.Stop()
 	api.SetLocalUIParser(nil)
 }
 
