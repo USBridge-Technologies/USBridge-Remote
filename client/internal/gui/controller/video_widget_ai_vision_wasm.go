@@ -5,6 +5,7 @@ package controller
 import (
 	"syscall/js"
 
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
@@ -52,6 +53,18 @@ func syncAIVisionOverlay(vw *VideoWidget) {
 		return
 	}
 	style := overlay.Get("style")
+
+	// Same first check syncVideoOverlay makes for the real <video> element,
+	// and for the same reason: vw.IsStreaming() alone stays true even after
+	// the user navigates off the Control tab (the WebRTC session keeps
+	// running in the background, it isn't tied to which tab is visible),
+	// so without this the overlay canvas kept floating on top of other
+	// screens (Connections, Scripts & AI, ...) using whatever content rect
+	// was last computed while the Control tab was showing. Confirmed live.
+	if view.NavVideoHidden() {
+		style.Set("visibility", "hidden")
+		return
+	}
 
 	if vw == nil || !vw.IsStreaming() {
 		style.Set("visibility", "hidden")
