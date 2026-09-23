@@ -411,6 +411,13 @@ const usbPassBridgePreambleMaxLen = 256
 //	                        doc comment for why).
 //	PEN <bus_id>\n       -- same shape as GAMEPAD, one raw HID input report
 //	                        per length-prefixed message.
+//	CLIPBOARD\n          -- no bus_id (there's only one clipboard). Each
+//	                        subsequent message is one JSON-encoded
+//	                        ClipboardEvent, length-prefixed the same way as
+//	                        GAMEPAD/PEN in both directions -- see
+//	                        framedJSONConn and clipboard.go's
+//	                        runClipboardDuplex, which this shares with the
+//	                        browser's own direct /api/clipboard/ws path.
 //
 // Unauthenticated by design: this listener only ever binds 127.0.0.1, on a
 // port never handed to the browser or advertised outside this machine --
@@ -442,7 +449,18 @@ func (s *Server) handleUSBPassBridgeConn(conn net.Conn) {
 		log.Printf("[api] usbpass bridge: reading preamble: %v", err)
 		return
 	}
-	verb, busID, ok := strings.Cut(strings.TrimSuffix(line, "\n"), " ")
+	trimmed := strings.TrimSuffix(line, "\n")
+
+	// CLIPBOARD carries no bus_id (there's only ever one clipboard, not one
+	// per browser-sourced device) -- checked before the ATTACH/GAMEPAD/PEN
+	// "verb bus_id" split below, which would otherwise reject it as
+	// malformed for having no space.
+	if trimmed == "CLIPBOARD" {
+		s.usbPassBridgeClipboard(conn, reader)
+		return
+	}
+
+	verb, busID, ok := strings.Cut(trimmed, " ")
 	if !ok || busID == "" {
 		log.Printf("[api] usbpass bridge: malformed preamble %q", line)
 		return
@@ -511,6 +529,71 @@ func readUSBPassBridgeFrame(reader *bufio.Reader) ([]byte, error) {
 		return nil, err
 	}
 	return buf, nil
+}
+
+// writeUSBPassBridgeFrame is readUSBPassBridgeFrame's write-side
+// counterpart -- GAMEPAD/PEN never need it (rustshine only ever sends them
+// TO the agent), but CLIPBOARD is bidirectional (see usbPassBridgeClipboard).
+func writeUSBPassBridgeFrame(conn net.Conn, data []byte) error {
+	if len(data) > 0xFFFF {
+		return fmt.Errorf("usbpass bridge: frame too large (%d bytes)", len(data))
+	}
+	var lenBuf [2]byte
+	binary.BigEndian.PutUint16(lenBuf[:], uint16(len(data)))
+	if _, err := conn.Write(lenBuf[:]); err != nil {
+		return err
+	}
+	_, err := conn.Write(data)
+	return err
+}
+
+// framedJSONConn adapts a length-prefixed bridge connection (see
+// readUSBPassBridgeFrame/writeUSBPassBridgeFrame) to clipboardJSONConn, so
+// runClipboardDuplex (clipboard.go) can run unmodified over it -- the exact
+// same core logic clipboardWS uses for a real WebSocket, just with framing
+// swapped out. One JSON value per frame in both directions, matching one
+// WS message per ReadJSON/WriteJSON call exactly.
+type framedJSONConn struct {
+	conn   net.Conn
+	reader *bufio.Reader
+}
+
+func (c framedJSONConn) WriteJSON(v interface{}) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return writeUSBPassBridgeFrame(c.conn, data)
+}
+
+func (c framedJSONConn) ReadJSON(v interface{}) error {
+	data, err := readUSBPassBridgeFrame(c.reader)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
+}
+
+// usbPassBridgeClipboard is CLIPBOARD's handler (see
+// handleUSBPassBridgeConn) -- the WebRTC-DataChannel path clipboard sync
+// takes when the browser web client's page was loaded over https (see
+// clipboard.go's clipboardWS doc comment for why a direct ws:///wss://
+// connection can't work there at all). rustshine terminates the
+// "clipboard-sync" DataChannel itself (see rust-shine's
+// crates/webrtc-video/src/usbpass_bridge.rs) and relays it into this
+// connection, one length-prefixed JSON frame per DataChannel message in
+// both directions -- everything past that (pushing local changes, applying
+// incoming ones) is runClipboardDuplex, shared verbatim with the direct
+// WebSocket path.
+func (s *Server) usbPassBridgeClipboard(conn net.Conn, reader *bufio.Reader) {
+	mgr := s.app.Clipboard()
+	if mgr == nil {
+		return
+	}
+	var writeMu sync.Mutex
+	s.runClipboardDuplex(mgr, framedJSONConn{conn: conn, reader: reader}, &writeMu, func(err error) {
+		log.Printf("[api] usbpass bridge clipboard: closing: %v", err)
+	})
 }
 
 func (s *Server) usbPassBridgeGamepad(conn net.Conn, reader *bufio.Reader, busID string) {

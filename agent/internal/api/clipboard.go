@@ -176,10 +176,30 @@ func (s *Server) clipboardBlobGet(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, f)
 }
 
+// clipboardJSONConn is the minimal shape runClipboardDuplex needs from its
+// transport -- satisfied directly by *websocket.Conn (the browser-to-agent
+// path, clipboardWS below) and by framedJSONConn (the WebRTC-DataChannel
+// bridge path, usbPassBridgeClipboard in usb_passthrough_browser.go). Kept
+// deliberately tiny so both transports' very different framing (real
+// WebSocket frames vs. length-prefixed messages over a plain loopback TCP
+// relay -- see readUSBPassBridgeFrame's doc comment) stays fully hidden
+// from the shared duplex logic.
+type clipboardJSONConn interface {
+	WriteJSON(v interface{}) error
+	ReadJSON(v interface{}) error
+}
+
 // clipboardWS is the persistent duplex JSON signaling channel: local
 // clipboard changes are pushed out as they happen, and incoming events are
 // applied to the local clipboard. It carries no payload bytes itself — see
 // clipboardBlobPut/Get for the actual transfer.
+//
+// This is the desktop-native / same-origin-HTTP path -- a browser page
+// loaded over https cannot open a ws://+plain or wss://+untrusted-cert
+// connection here at all (mixed content / no click-through for a
+// background upgrade); see usbPassBridgeClipboard's doc comment for that
+// path's WebRTC-DataChannel alternative, which shares this file's
+// runClipboardDuplex for everything past the transport itself.
 func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[api] clipboard_ws incoming request from %s", r.RemoteAddr)
 	conn, err := s.upgrader.Upgrade(w, r, nil)
@@ -202,11 +222,6 @@ func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 	})
 
 	var writeMu sync.Mutex
-	safeWriteJSON := func(v interface{}) error {
-		writeMu.Lock()
-		defer writeMu.Unlock()
-		return conn.WriteJSON(v)
-	}
 
 	stopPush := make(chan struct{})
 	defer close(stopPush)
@@ -229,6 +244,31 @@ func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
+
+	s.runClipboardDuplex(mgr, conn, &writeMu, func(err error) {
+		if err != nil && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			log.Printf("[api] clipboard_ws read error: %v", err)
+		}
+	})
+}
+
+// runClipboardDuplex is clipboardWS/usbPassBridgeClipboard's shared core:
+// pushes local clipboard changes out over conn as they happen, and applies
+// whatever comes back in. writeMu additionally guards conn against a
+// concurrent write from clipboardWS's own ping goroutine (usbPassBridgeClipboard
+// has no equivalent -- WebRTC DataChannels have their own keepalive at the
+// SCTP/ICE layer -- but sharing one mutex-guarded write path costs nothing
+// there and keeps this signature uniform). onDone receives ReadJSON's final
+// error -- always non-nil, since the only way this loop ever ends is a
+// failed read (peer closed, transport error, ...) -- for the caller's own
+// logging/filtering (clipboardWS silences an ordinary WS close code, for
+// instance).
+func (s *Server) runClipboardDuplex(mgr *clipboard.Manager, conn clipboardJSONConn, writeMu *sync.Mutex, onDone func(error)) {
+	safeWriteJSON := func(v interface{}) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteJSON(v)
+	}
 
 	pushLocal := func(content clipboard.Content) {
 		event := ClipboardEvent{Kind: string(content.Kind), Hash: content.Hash()}
@@ -295,9 +335,7 @@ func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 	for {
 		var event ClipboardEvent
 		if err := conn.ReadJSON(&event); err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				log.Printf("[api] clipboard_ws read error: %v", err)
-			}
+			onDone(err)
 			return
 		}
 		if event.Pending {
