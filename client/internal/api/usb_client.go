@@ -215,6 +215,13 @@ func (c *USBClient) shouldNotifyTransportError(err error) bool {
 	defer c.transportErrorMu.Unlock()
 
 	now := time.Now()
+
+	// Ignore duplicate error notifications that land in the same concurrent batch (within 500ms).
+	if !c.lastTransportErrorAt.IsZero() && now.Sub(c.lastTransportErrorAt) < 500*time.Millisecond {
+		logrus.Debugf("⚠️ [TRANSPORT-ERR] Suppressing duplicate batch error (%v) within 500ms window of previous error", err)
+		return false
+	}
+
 	if !c.lastTransportErrorAt.IsZero() && now.Sub(c.lastTransportErrorAt) > 4*time.Second {
 		c.transportErrorCount = 0
 	}
