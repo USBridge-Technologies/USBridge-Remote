@@ -11,6 +11,16 @@ compatibility_date = "2025-01-01"
 [assets]
 directory = "./public"
 binding = "ASSETS"
+# Without this, a request matching a static asset (index.html, gui.html,
+# everything under vendor/ort/, ...) is served straight from Cloudflare's
+# assets edge cache and NEVER reaches worker.js's fetch() handler at all --
+# confirmed live: the Cross-Origin-Opener-Policy/Cross-Origin-Embedder-Policy
+# headers addCrossOriginIsolationHeaders adds (required for onnxruntime-web's
+# WASM backend to work at all, see web/vendor/ort/README.md) never showed up
+# on a deployed index.html until this was added. true (not a route-pattern
+# array) since every asset on this site needs those two headers, not just a
+# subset.
+run_worker_first = true
 
 [[r2_buckets]]
 binding = "WASM_BUCKET"
