@@ -2,7 +2,6 @@ package gui
 
 import (
 	"context"
-	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -318,11 +317,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	// only WebRTCVideoClient (wasm build) implements this; nil on every
 	// other platform, same optional-interface-probe pattern as
 	// SetTailscaleService above.
-	if pc, ok := mw.videoClient.(interface {
-		OpenDataChannel(label string) (net.Conn, error)
-	}); ok {
-		mw.diskWidget.SetPeerConnection(pc)
-	}
+	mw.diskWidget.SetPeerConnection(mw.videoClient)
 	mw.videoWidget = controller.NewVideoWidget(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
@@ -427,10 +422,6 @@ func (mw *MainWindow) startClipboardSync(client *api.USBClient) {
 	// optional-interface probe as disk_widget's SetPeerConnection above;
 	// nil (a no-op SetOpenDataChannel) on every platform but wasm, and even
 	// there whenever the active backend has no WebRTC (plain Sunshine).
-	if pc, ok := mw.videoClient.(interface {
-		OpenDataChannel(label string) (net.Conn, error)
-	}); ok {
-		mw.clipboardSync.SetOpenDataChannel(pc.OpenDataChannel)
-	}
+	mw.clipboardSync.SetOpenDataChannel(mw.videoClient.OpenDataChannel)
 	mw.clipboardSync.Start()
 }

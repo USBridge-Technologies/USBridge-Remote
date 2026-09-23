@@ -4,6 +4,8 @@ import (
 	"errors"
 	"image"
 	"os"
+	"net"
+
 
 	"usbridge-client/internal/models"
 )
@@ -77,6 +79,8 @@ type VideoClient interface {
 	ResetRuntimeDecoderFallback()
 	SetAutoReconnect(enabled bool)
 	SetMaxReconnectAttempts(max int)
+	OpenDataChannel(label string) (net.Conn, error)
+
 }
 
 // MoonlightInputSender is implemented by MoonlightService when a Moonlight stream is
