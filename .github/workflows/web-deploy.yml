@@ -55,6 +55,7 @@ jobs:
           put "app.wasm" "application/wasm" "client/web/app.wasm"
           put "models/icon_detect.onnx" "application/octet-stream" "client/web/models/icon_detect.onnx"
           put "vendor/ort/ort-wasm-simd-threaded.jsep.wasm" "application/wasm" "client/web/vendor/ort/ort-wasm-simd-threaded.jsep.wasm"
+          put "vendor/ort/ort-wasm-simd-threaded.asyncify.wasm" "application/wasm" "client/web/vendor/ort/ort-wasm-simd-threaded.asyncify.wasm"
 
       - name: Deploy Worker (static assets + custom domain)
         env:
@@ -67,11 +68,14 @@ jobs:
           cd client/deploy/cloudflare-web
           mkdir -p public/vendor/ort
           cp ../../web/index.html ../../web/gui.html ../../web/wasm_exec.js ../../web/ai_vision.js public/
-          # Every vendor/ort/* file except the oversized jsep.wasm uploaded
-          # to R2 above -- the small *.mjs loaders and the plain (non-jsep)
-          # CPU-fallback wasm, both under the 25MiB limit, served as normal
-          # static assets like everything else in public/.
-          find ../../web/vendor/ort -maxdepth 1 -type f ! -name 'ort-wasm-simd-threaded.jsep.wasm' \
+          # Every vendor/ort/* file except the two oversized wasm binaries
+          # uploaded to R2 above -- the small *.mjs loaders and the plain
+          # (non-jsep, non-asyncify) CPU-fallback wasm, all under the 25MiB
+          # limit, served as normal static assets like everything else in
+          # public/.
+          find ../../web/vendor/ort -maxdepth 1 -type f \
+            ! -name 'ort-wasm-simd-threaded.jsep.wasm' \
+            ! -name 'ort-wasm-simd-threaded.asyncify.wasm' \
             -exec cp {} public/vendor/ort/ \;
           # The MCP bridge's prebuilt single-file bundle (see
           # web/mcp-bridge/README.md) -- the Scripts & AI tab links straight

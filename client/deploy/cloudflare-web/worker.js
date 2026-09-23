@@ -30,6 +30,14 @@ const r2Routes = {
     contentType: "application/wasm",
     cacheControl: "public, max-age=31536000, immutable",
   },
+  // asyncify is the fallback ai_vision.js's webgpu-first executionProviders
+  // list falls through to when webgpu itself isn't available -- also over
+  // the 25MiB limit (25.5MiB).
+  "/vendor/ort/ort-wasm-simd-threaded.asyncify.wasm": {
+    key: "vendor/ort/ort-wasm-simd-threaded.asyncify.wasm",
+    contentType: "application/wasm",
+    cacheControl: "public, max-age=31536000, immutable",
+  },
 };
 
 // addCrossOriginIsolationHeaders is required for onnxruntime-web's WASM
