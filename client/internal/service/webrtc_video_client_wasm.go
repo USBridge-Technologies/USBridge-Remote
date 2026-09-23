@@ -156,20 +156,22 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	// tracked as a follow-up once rustshine's webrtc port becomes
 	// something the agent reports rather than a fixed default both sides
 	// happen to agree on.
-	const rustshineWebRTCPort = 8443
 	scheme := "http"
-	apiPort := c.config.USBPort
-	webrtcPort := rustshineWebRTCPort
+	port := c.config.USBPort
+	if port == 0 {
+		port = 8080
+	}
 
 	if api.BrowserIsHTTPS() {
 		scheme = "https"
 		if c.config.USBTLSPort > 0 {
-			webrtcPort = c.config.USBTLSPort
-			apiPort = c.config.USBTLSPort
+			port = c.config.USBTLSPort
+		} else {
+			port = 8443
 		}
 	}
 
-	baseURL := scheme + "://" + host + ":" + strconv.Itoa(webrtcPort)
+	baseURL := scheme + "://" + host + ":" + strconv.Itoa(port)
 
 	// Preflight against the agent's ordinary REST API (a route every
 	// backend answers, Sunshine included) before ever touching rustshine's
@@ -181,7 +183,7 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	// /api/status's streamer field, whatever), fall through to the normal
 	// WebRTC attempt below rather than blocking on it -- this is purely an
 	// early, friendlier error path, not a hard gate.
-	if streamer, err := webrtcweb.FetchStreamerName(host, apiPort, secret); err == nil && streamer != "" && !webrtcweb.StreamerSupportsWebRTC(streamer) {
+	if streamer, err := webrtcweb.FetchStreamerName(host, port, secret); err == nil && streamer != "" && !webrtcweb.StreamerSupportsWebRTC(streamer) {
 		return fmt.Errorf("%s: %w", streamer, ErrStreamerUnsupportedWebRTC)
 	}
 
