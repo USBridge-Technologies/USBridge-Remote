@@ -730,6 +730,22 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			continue
 		}
 
+		// A locally-captured pen tablet (IsPenTablet) has no agent-reported
+		// mountedDevices entry at all -- its IsMounted is purely the
+		// newPenTabletToggle click already applied during the rebuild above
+		// (disk_widget_pen.go), and this whole per-drive loop only exists to
+		// reconcile *that* signal, which doesn't apply here. Leaving
+		// isMounted (the local var, defaulted to false above) in charge past
+		// this point -- as every kind below IsPenTablet in this loop except
+		// the ones with their own early continue does -- would silently
+		// reset the toggle back off on every single combine cycle: confirmed
+		// live as the toggle appearing to take effect (capture starts) and
+		// then getting torn down again within a few hundred ms, every time,
+		// since combineDrives calls syncPenCaptures at its own tail.
+		if drive.IsPenTablet {
+			continue
+		}
+
 		// USB passthrough green = this client's local export is active.
 		// Do NOT use agent /status sessions alone: the broker historically
 		// left stale entries after detach, so disconnect looked still mounted.
