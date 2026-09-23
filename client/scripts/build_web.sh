@@ -23,14 +23,15 @@
 #                          same way. Two filenames exist so either can be
 #                          used as the served entry point without one
 #                          clobbering the other.
-#   web/models/icon_detect.onnx -- NOT committed (build artifact, gitignored):
-#                          copied from internal/localui/models/ on every run
-#                          so the in-browser AI Vision overlay
-#                          (client/web/ai_vision.js) has the same YOLO
+#   web/models/*.onnx   -- NOT committed (build artifact, gitignored):
+#                          icon_detect.onnx/dbnet.onnx/svtr.onnx copied from
+#                          internal/localui/models/ on every run so the
+#                          in-browser AI Vision overlay + local ui.parse
+#                          offload (client/web/ai_vision.js) have the same
 #                          weights every other platform's cgo/onnxruntime_go
-#                          build already ships, without a second 77MiB copy
-#                          living in this repo -- see that directory's own
-#                          README for provenance.
+#                          build already ships, without a second copy of
+#                          ~90MiB of models living in this repo -- see that
+#                          directory's own README for provenance.
 #   web/vendor/ort/*     -- committed (onnxruntime-web runtime, see that
 #                          directory's own README) -- untouched by this
 #                          script, same as index.html.
@@ -104,8 +105,10 @@ cp "$WEB_DIR/index.html" "$WEB_DIR/gui.html"
 echo -e "${GREEN}✓${NC} gui.html <- index.html"
 
 mkdir -p "$WEB_DIR/models"
-cp "$CLIENT_DIR/internal/localui/models/icon_detect.onnx" "$WEB_DIR/models/icon_detect.onnx"
-echo -e "${GREEN}✓${NC} models/icon_detect.onnx <- internal/localui/models/icon_detect.onnx"
+for model in icon_detect dbnet svtr; do
+    cp "$CLIENT_DIR/internal/localui/models/$model.onnx" "$WEB_DIR/models/$model.onnx"
+    echo -e "${GREEN}✓${NC} models/$model.onnx <- internal/localui/models/$model.onnx"
+done
 
 echo -e "${GREEN}✓${NC} Web client built: $WEB_DIR"
 echo "  Serve $WEB_DIR with any static file server and open index.html (or gui.html)."

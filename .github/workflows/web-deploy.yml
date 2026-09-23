@@ -84,6 +84,14 @@ jobs:
           # how build_web.sh --serve serves the same file locally.
           mkdir -p public/mcp-bridge/bin
           cp ../../web/mcp-bridge/bin/bridge.cjs public/mcp-bridge/bin/bridge.cjs
+          # dbnet.onnx (2.3MiB) and svtr.onnx (8.6MiB) -- the OCR stage's
+          # weights, see internal/localui/parser_wasm.go -- both comfortably
+          # under the 25MiB limit, unlike icon_detect.onnx (77MiB, R2-routed
+          # above), so served as plain static assets under Wrangler's own
+          # default asset caching rather than r2Routes' explicit
+          # Cache-Control.
+          mkdir -p public/models
+          cp ../../web/models/dbnet.onnx ../../web/models/svtr.onnx public/models/
           sed -e "s/__R2_BUCKET__/$CF_R2_BUCKET/" -e "s/__WEB_DOMAIN__/$CF_WEB_DOMAIN/" \
             wrangler.toml.template > wrangler.toml
           npx --yes wrangler@3 deploy
