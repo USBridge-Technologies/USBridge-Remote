@@ -61,6 +61,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -216,11 +217,62 @@ func setGrab(devs []*grabbedDev, on bool) {
 	}
 }
 
+// evdevKeyBytes is the size of the EVIOCGKEY bitmap we read: 768 bits
+// covers every KEY_*/BTN_* code (0..0x2ff), i.e. all keys and mouse buttons.
+const evdevKeyBytes = 96
+
+// eviocgkey = EVIOCGKEY(evdevKeyBytes) = _IOC(_IOC_READ, 'E', 0x18, 96).
+const eviocgkey = 0x80000000 | evdevKeyBytes<<16 | 'E'<<8 | 0x18
+
+// Indirection points so tests can drive grab()/ungrab() without a real
+// evdev node.
+var (
+	grabIoctl = func(fd int, on bool) error {
+		v := 0
+		if on {
+			v = 1
+		}
+		return unix.IoctlSetInt(fd, eviocgrab, v)
+	}
+	keysDownFn = keysDown
+)
+
+// keysDown reports whether any key or button is currently held on the
+// evdev device behind fd. On error it reports true: when in doubt, don't grab.
+func keysDown(fd int) bool {
+	var buf [evdevKeyBytes]byte
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(eviocgkey), uintptr(unsafe.Pointer(&buf[0])))
+	if errno != 0 {
+		return true
+	}
+	return anyBitSet(buf[:])
+}
+
+func anyBitSet(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// grab takes EVIOCGRAB on d, but never while a key or button is held.
+//
+// Why: the compositor has already seen the press. Once we grab, the
+// matching release goes only to us (we never read it), so the compositor
+// keeps the button "down" forever -- a stuck mouse button/key that nothing
+// but restarting the device clears (the kernel's own key state is clean, so
+// it is invisible from evdev). Deferring is safe: setGrab retries every
+// tick, so the grab lands as soon as the button is released.
 func grab(d *grabbedDev) {
 	if d.grabbed {
 		return
 	}
-	if err := unix.IoctlSetInt(d.fd, eviocgrab, 1); err != nil {
+	if keysDownFn(d.fd) {
+		return
+	}
+	if err := grabIoctl(d.fd, true); err != nil {
 		return
 	}
 	d.grabbed = true
@@ -230,7 +282,7 @@ func ungrab(d *grabbedDev) {
 	if !d.grabbed {
 		return
 	}
-	_ = unix.IoctlSetInt(d.fd, eviocgrab, 0)
+	_ = grabIoctl(d.fd, false)
 	d.grabbed = false
 }
 
