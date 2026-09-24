@@ -165,7 +165,7 @@ func (c *Client) RequestKMSCapture() bool {
 	return body.Value
 }
 
-func (c *Client) SunshineCapExecPath() string {
+func (c *Client) KMSCaptureTargetPath() string {
 	var body stringBody
 	_ = c.do(http.MethodGet, "/token/kms-capexec-path", nil, &body)
 	return body.Value

@@ -29,7 +29,7 @@ type TokenBackend interface {
 	SetSunshineCaptureMode(mode string) error
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
-	SunshineCapExecPath() string
+	KMSCaptureTargetPath() string
 	RecheckKMSCapture() bool
 	GPUClockLockSupported() bool
 	LockGPUClocksEnabled() bool
@@ -322,12 +322,14 @@ func (s *Server) handleRequestKMS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, boolBody{Value: s.token.RequestKMSCapture()})
 }
 
-// handleKMSCapExecPath exposes the sunshine_capexec launcher path so a GUI
+// handleKMSCapExecPath exposes the file the KMS grant targets for the
+// active backend (sunshine_capexec, or RustShine's root-owned launcher
+// install path -- see App.kmsCaptureTarget) so a GUI
 // thin client can run the pkexec setcap grant itself, in its own session,
 // instead of asking this (headless, session-less) instance to do it — see
 // RecheckKMSCapture and cmd/usbridge_agent's runThinClientGUI.
 func (s *Server) handleKMSCapExecPath(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, stringBody{Value: s.token.SunshineCapExecPath()})
+	writeJSON(w, http.StatusOK, stringBody{Value: s.token.KMSCaptureTargetPath()})
 }
 
 // handleKMSRecheck re-syncs the capexec launcher's capability from its

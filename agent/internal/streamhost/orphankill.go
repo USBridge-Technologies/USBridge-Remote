@@ -45,4 +45,7 @@ func killOrphanStreamerProcesses() {
 			log.Printf("[streamhost] killed orphaned %s before starting fresh", name)
 		}
 	}
+	if runtime.GOOS != "windows" {
+		killOrphansByArgv0(names)
+	}
 }

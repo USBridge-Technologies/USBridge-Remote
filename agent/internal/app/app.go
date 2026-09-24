@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -38,6 +39,7 @@ import (
 	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/sasinput"
+	"usbridge_agent/internal/streamerlaunch"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/tlshost"
@@ -395,11 +397,11 @@ type thinClientToken struct {
 }
 
 func (t *thinClientToken) KMSCaptureGranted() bool {
-	return t.perms.KMSCaptureGranted(t.Client.SunshineCapExecPath())
+	return t.perms.KMSCaptureGranted(t.Client.KMSCaptureTargetPath())
 }
 
 func (t *thinClientToken) RequestKMSCapture() bool {
-	path := t.Client.SunshineCapExecPath()
+	path := t.Client.KMSCaptureTargetPath()
 	if path == "" {
 		return false
 	}
@@ -578,6 +580,7 @@ func New() (*App, error) {
 	}
 	instance.screen = capture.New(instance.stream)
 	instance.syncSunshineCaptureMode()
+	instance.removeLegacyKMSGrants()
 	instance.syncSunshineCapExec()
 	apiServer := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort)
 	// Started unconditionally (like ts itself, which doesn't actually spin up
@@ -1198,8 +1201,8 @@ func (a *App) SunshineBinaryPath() string {
 	return path
 }
 
-// SunshineCapExecPath returns the path to the bundled sunshine_capexec
-// launcher (Linux KMS capture only), or "" if not present.
+// SunshineCapExecPath returns the active backend's KMS grant target (see
+// kmsCaptureTarget) if it exists on disk, or "".
 func (a *App) SunshineCapExecPath() string {
 	if a.stream == nil {
 		return ""
@@ -1249,11 +1252,11 @@ func (a *App) syncSunshineCaptureMode() {
 	}
 }
 
-// syncSunshineCapExec sets or clears the backend's sunshine_capexec launcher
-// so Start launches Sunshine with CAP_SYS_ADMIN exactly when the capture
-// mode is "kms" AND the capability is actually granted on that launcher —
-// never based on mode alone, since sunshine_capexec exits with an error if
-// asked to raise a capability it doesn't have, which would stop Sunshine
+// syncSunshineCapExec sets or clears the backend's usbridge-streamer-launch
+// path so Start launches the streamer with CAP_SYS_ADMIN exactly when the
+// capture mode is "kms" AND the launcher can actually run it right now --
+// never based on mode alone, since the launcher exits with an error when it
+// can't (not installed, bundle not verifying), which would stop the stream
 // from starting at all instead of gracefully running without KMS.
 func (a *App) syncSunshineCapExec() {
 	a.syncSunshineCapExecFor(a.currentStreamKind())
@@ -1272,17 +1275,20 @@ func (a *App) syncSunshineCapExecFor(kind string) {
 	if a.stream == nil {
 		return
 	}
-	// RustShine never launches through the capexec indirection (see
-	// kmsCaptureTarget's doc comment for why it doesn't need to) -- its
-	// capability, if any, lives directly on its own binary, picked up
-	// automatically by a plain exec with no launcher wrapper involved.
+	// RustShine goes through the root-owned usbridge-streamer-launch
+	// instead (see kmsCaptureTarget), and only once that launcher itself
+	// verified the staged signed bundle -- otherwise a plain exec, which
+	// still honors a legacy setcap directly on the streamer binary.
 	if kind == "rustshine" {
-		a.stream.SetCapExecPath("")
+		a.stream.SetCapExecPath(a.rustshineLauncherPath())
 		return
 	}
-	capexecPath := a.SunshineCapExecPath()
-	if a.SunshineCaptureMode() == "kms" && a.perms != nil && a.perms.KMSCaptureGranted(capexecPath) {
-		a.stream.SetCapExecPath(capexecPath)
+	// Sunshine: launch through the launcher whenever the root-owned tree is
+	// installed, even if it's older than the bundled Sunshine (then
+	// KMSCaptureGranted reports false so the UI offers a refresh) -- an
+	// agent update must not cost KMS capture on a remote session.
+	if a.SunshineCaptureMode() == "kms" && a.perms != nil && a.perms.SunshineLaunchReady() {
+		a.stream.SetCapExecPath(streamerlaunch.InstallPath)
 	} else {
 		a.stream.SetCapExecPath("")
 	}
@@ -2057,7 +2063,7 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 		}
 	}
 
-	if err := entitlement.StageRustShine(context.Background(), a.cfg.StateDir, token, combined); err != nil {
+	if err := a.stageRustShine(context.Background(), token, combined); err != nil {
 		a.setEntError(fmt.Sprintf("download failed: %v", err))
 		return err
 	}
@@ -2509,7 +2515,7 @@ func (a *App) ensureRustShineFresh(ctx context.Context, entitlementToken string)
 	}
 	if !a.rustshineStaged() {
 		log.Printf("[app] entitlement linked — downloading rustshine")
-		if err := entitlement.StageRustShine(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
+		if err := a.stageRustShine(ctx, entitlementToken, nil); err != nil {
 			// Non-fatal -- retried at the next watchdog interval (offline,
 			// transient backend error, ...). Until it succeeds, this install
 			// simply keeps running Sunshine.
@@ -2589,7 +2595,7 @@ func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string)
 func (a *App) applyRustShineUpdate(ctx context.Context, entitlementToken, version string) error {
 	log.Printf("[app] rustshine update available (%s) — downloading", version)
 	stopped := a.stopRustShineForUpdate()
-	if err := entitlement.StageRustShine(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
+	if err := a.stageRustShine(ctx, entitlementToken, nil); err != nil {
 		if stopped {
 			a.startSunshineNow()
 		}
@@ -2707,6 +2713,23 @@ func processRunning(imageName string) bool {
 	return strings.Contains(strings.ToLower(string(out)), strings.ToLower(imageName))
 }
 
+// stageRustShine downloads and stages RustShine. With the KMS launcher
+// installed (Linux), the new build must pass that launcher's own
+// verification before it replaces the current one -- so an update can
+// never leave the next restart without CAP_SYS_ADMIN (and the remote user
+// staring at a portal prompt they can't click). Without the launcher it's
+// plain entitlement.StageRustShine.
+func (a *App) stageRustShine(ctx context.Context, token string, onProgress entitlement.ProgressFunc) error {
+	var verify entitlement.BundleVerifier
+	if runtime.GOOS == "linux" && a.perms != nil && a.perms.KMSCaptureGranted(streamerlaunch.InstallPath) {
+		verify = func(bundleDir string) error {
+			_, err := a.perms.StreamerLauncherVerify(bundleDir)
+			return err
+		}
+	}
+	return entitlement.StageRustShineVerified(ctx, a.cfg.StateDir, token, onProgress, verify)
+}
+
 // restartRustShineIfActive re-execs the running RustShine subprocess (via
 // the same generic RestartSunshine plumbing every other capability/config
 // change already uses -- see that method's doc comment on why the name is
@@ -2728,6 +2751,9 @@ func (a *App) restartRustShineIfActive() {
 	if a.currentStreamKind() != "rustshine" {
 		return
 	}
+	// Re-check the launcher against the freshly staged bundle before the
+	// restart rather than trusting the decision made for the old build.
+	a.syncSunshineCapExec()
 	log.Printf("[app] rustshine is the active backend — restarting it to pick up the update")
 	if err := a.RestartSunshine(); err != nil {
 		// Non-fatal: the newer binary is already staged and will be used
@@ -2874,35 +2900,131 @@ func (a *App) waitForMonitorCorrelation() {
 	}
 }
 
-// kmsCaptureTarget returns the file that needs CAP_SYS_ADMIN for KMS
-// capture on the currently active backend.
+// kmsCaptureTarget returns what the Linux KMS-capture grant targets for
+// the active backend -- a key permissions.KMSCaptureGranted/
+// RequestKMSCapture understand, never a file that itself gets a setcap:
 //
-// Sunshine needs the indirection through sunshine_capexec (see this
-// function's callers' own doc comments): setting the capability directly
-// on Sunshine itself would break its RPATH-based bundled-library
-// resolution. RustShine has no such constraint -- it's a single, mostly
-// self-contained binary -- so this targets usbridge-streamer itself
-// directly instead. Routing RustShine through the capexec indirection too
-// (as rustshineBackend's own capExecPathFor staging still assumes, from
-// when this was first wired up to mirror Sunshine's path unconditionally)
-// turned out to never actually get exercised in practice: confirmed live
-// that SetCapExecPath's effect never took across 74 consecutive real
-// RustShine launches in one session, all of which fell back to a plain
-// exec with no capability at all -- which only ever worked because
-// ordinary desktop-composited KMS capture apparently doesn't need
-// CAP_SYS_ADMIN on this kernel, and silently broke the moment the
-// captured content became a fullscreen game's direct-scanout buffer
-// instead (confirmed live: `setcap cap_sys_admin=eip` directly on
-// usbridge-streamer fixed that exact capture failure immediately, no
-// capexec involved at all).
+//   - RustShine: streamerlaunch.InstallPath. Granting installs the
+//     root-owned usbridge-streamer-launch once; it runs only builds signed
+//     by rust-shine's release key, so streamer updates no longer drop the
+//     grant (a setcap directly on usbridge-streamer did, on every update,
+//     since each update writes a new inode).
+//   - Sunshine: the bundled Sunshine install-tree root. Granting copies it
+//     into the root-owned streamerlaunch.SunshineDir, which the same
+//     launcher execs. This replaced a user-writable sunshine_capexec that
+//     gave CAP_SYS_ADMIN to any binary it was pointed at.
+//
+// Both need CAP_SYS_ADMIN in the first place for fullscreen games'
+// direct-scanout buffers (confirmed live: plain KMS capture of the
+// composited desktop worked without it, a fullscreen game didn't).
 func (a *App) kmsCaptureTarget() string {
 	if a.currentStreamKind() == "rustshine" {
 		if a.stream != nil {
-			return a.stream.BinaryPath()
+			return a.stream.CapExecPath()
 		}
 		return ""
 	}
 	return a.SunshineCapExecPath()
+}
+
+// removeLegacyKMSGrants deletes the capability-carrying files earlier
+// builds left in the user-writable state dir:
+//
+//   - capexec-runtime/sunshine-capexec: cap_sys_admin on a launcher that
+//     exec'd any path it was given -- CAP_SYS_ADMIN for any process of this
+//     user. Removed unconditionally; nothing launches it anymore.
+//   - a setcap directly on the staged usbridge-streamer, once the
+//     root-owned launcher is installed and has taken over. A user can't
+//     drop a file capability in place (that needs CAP_SETFCAP), but
+//     rewriting the file does: the kernel never copies security.capability
+//     to a new inode.
+func (a *App) removeLegacyKMSGrants() {
+	if runtime.GOOS != "linux" || a.cfg.StateDir == "" {
+		return
+	}
+	legacyCapexec := filepath.Join(a.cfg.StateDir, "capexec-runtime")
+	if _, err := os.Stat(legacyCapexec); err == nil {
+		if err := os.RemoveAll(legacyCapexec); err != nil {
+			log.Printf("[app] could not remove legacy %s: %v", legacyCapexec, err)
+		} else {
+			log.Printf("[app] removed legacy capability launcher %s", legacyCapexec)
+		}
+	}
+	if a.perms == nil || !a.perms.KMSCaptureGranted(streamerlaunch.InstallPath) {
+		return
+	}
+	bin := entitlement.StagePath(a.cfg.StateDir)
+	if !permissions.HasFileCapability(bin) {
+		return
+	}
+	if err := rewriteWithoutXattrs(bin); err != nil {
+		log.Printf("[app] could not drop legacy setcap on %s: %v", bin, err)
+		return
+	}
+	log.Printf("[app] dropped legacy setcap on %s (launcher %s is installed)", bin, streamerlaunch.InstallPath)
+}
+
+// rewriteWithoutXattrs replaces p with a fresh copy of its bytes and mode.
+func rewriteWithoutXattrs(p string) error {
+	st, err := os.Stat(p)
+	if err != nil {
+		return err
+	}
+	src, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".rewrite-*")
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(tmp, src); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Chmod(st.Mode().Perm()); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return os.Rename(tmp.Name(), p)
+}
+
+// KMSCaptureTargetPath exposes kmsCaptureTarget to a GUI thin client (see
+// runThinClientGUI), which runs the pkexec grant itself in its own session.
+func (a *App) KMSCaptureTargetPath() string { return a.kmsCaptureTarget() }
+
+// rustshineStagedDir is the directory holding the staged usbridge-streamer
+// (and its signed release bundle, streamerlaunch.BundleDirName).
+func (a *App) rustshineStagedDir() string {
+	return filepath.Dir(entitlement.StagePath(a.cfg.StateDir))
+}
+
+// rustshineLauncherPath returns streamerlaunch.InstallPath when RustShine
+// should launch through it: KMS capture mode, launcher installed, and the
+// launcher accepts the staged bundle with its capability effective. Any
+// failure falls back to "" (plain exec) and is logged -- never a hard
+// failure that would take the stream down.
+func (a *App) rustshineLauncherPath() string {
+	if runtime.GOOS != "linux" || a.perms == nil || a.SunshineCaptureMode() != "kms" {
+		return ""
+	}
+	if !a.perms.KMSCaptureGranted(streamerlaunch.InstallPath) {
+		return ""
+	}
+	version, err := a.perms.StreamerLauncherVerify(streamerlaunch.BundleDir(a.rustshineStagedDir()))
+	if err != nil {
+		log.Printf("[app] rustshine: launcher installed but staged bundle not usable, plain exec: %v", err)
+		return ""
+	}
+	log.Printf("[app] rustshine: launching %s via %s", version, streamerlaunch.InstallPath)
+	return streamerlaunch.InstallPath
 }
 
 // KMSCaptureGranted reports whether the file KMS capture actually needs

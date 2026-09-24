@@ -72,7 +72,7 @@ That's the whole setup. See the [top-level README](../README.md#-quick-start) fo
 
 ### Platform Notes (from the top-level README)
 
-* **Wayland (Linux):** full screen capture and input injection with no permission-prompt spam — KMS capture needs one `pkexec` grant, which persists across reboots.
+* **Wayland (Linux):** full screen capture and input injection with no permission-prompt spam — KMS capture needs one `pkexec` grant, which persists across reboots and streamer updates (see [KMS_CAPTURE_LINUX.md](KMS_CAPTURE_LINUX.md)).
 * **System Tray:** closing the window minimizes to a tray icon (status-aware, with Open/Restart Streaming/Autostart/Quit) instead of quitting; falls back to actually quitting on a Linux session with no reachable tray host (e.g. GNOME without the AppIndicator extension). Stays visible even when the engine runs headless — see [Launch at Login](../README.md#-launch-at-login-autostart) for how each platform gets a tray icon onto an otherwise-invisible background instance.
 * **Launch at Login:** reflects your OS's actual autostart state live (no separate on/off flag of its own); always launches with `--headless` so the engine comes up silently and a later normal launch just attaches a GUI to it.
 * **GPU Clock Lock (Windows + NVIDIA):** holds an NVML max-clock lock for the streaming session so the encoder doesn't stall waiting on a GPU that idled down between frames.

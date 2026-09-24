@@ -116,6 +116,13 @@ type DownloadInfo struct {
 	SHA256    string `json:"sha256"`
 	Version   string `json:"version"`
 	SizeBytes int64  `json:"size_bytes"`
+	// Manifest/ManifestSig are rust-shine's signed release manifest.json
+	// (base64 of its exact bytes) and manifest.json.sig, passed through by
+	// the backend so the agent can keep them next to the archive for
+	// usbridge-streamer-launch to verify offline (see
+	// internal/streamerlaunch). Empty from a backend that predates them.
+	Manifest    string `json:"manifest_b64,omitempty"`
+	ManifestSig string `json:"manifest_sig,omitempty"`
 }
 
 // ResolveDownload asks the backend for a short-lived signed URL to the
