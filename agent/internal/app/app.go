@@ -2933,28 +2933,43 @@ func (a *App) kmsCaptureTarget() string {
 //   - capexec-runtime/sunshine-capexec: cap_sys_admin on a launcher that
 //     exec'd any path it was given -- CAP_SYS_ADMIN for any process of this
 //     user. Removed unconditionally; nothing launches it anymore.
-//   - a setcap directly on the staged usbridge-streamer, once the
-//     root-owned launcher is installed and has taken over. A user can't
-//     drop a file capability in place (that needs CAP_SETFCAP), but
-//     rewriting the file does: the kernel never copies security.capability
-//     to a new inode.
+//   - a setcap directly on the staged usbridge-streamer, but only once the
+//     root-owned launcher can actually take over -- installed AND
+//     accepting the staged signed bundle (see shouldDropLegacySetcap). A
+//     user can't drop a file capability in place (that needs
+//     CAP_SETFCAP), but rewriting the file does: the kernel never copies
+//     security.capability to a new inode.
 func (a *App) removeLegacyKMSGrants() {
 	if runtime.GOOS != "linux" || a.cfg.StateDir == "" {
 		return
 	}
-	legacyCapexec := filepath.Join(a.cfg.StateDir, "capexec-runtime")
-	if _, err := os.Stat(legacyCapexec); err == nil {
+	for _, name := range []string{"capexec-runtime", "rustshine-capexec-runtime"} {
+		legacyCapexec := filepath.Join(a.cfg.StateDir, name)
+		if _, err := os.Stat(legacyCapexec); err != nil {
+			continue
+		}
 		if err := os.RemoveAll(legacyCapexec); err != nil {
 			log.Printf("[app] could not remove legacy %s: %v", legacyCapexec, err)
 		} else {
 			log.Printf("[app] removed legacy capability launcher %s", legacyCapexec)
 		}
 	}
-	if a.perms == nil || !a.perms.KMSCaptureGranted(streamerlaunch.InstallPath) {
+	if a.perms == nil {
 		return
 	}
 	bin := entitlement.StagePath(a.cfg.StateDir)
 	if !permissions.HasFileCapability(bin) {
+		return
+	}
+	installed := a.perms.KMSCaptureGranted(streamerlaunch.InstallPath)
+	var verifyErr error
+	if installed {
+		_, verifyErr = a.perms.StreamerLauncherVerify(streamerlaunch.BundleDir(a.rustshineStagedDir()))
+	}
+	if !shouldDropLegacySetcap(installed, verifyErr) {
+		if installed {
+			log.Printf("[app] keeping legacy setcap on %s until the launcher accepts a staged bundle: %v", bin, verifyErr)
+		}
 		return
 	}
 	if err := rewriteWithoutXattrs(bin); err != nil {
@@ -2962,6 +2977,16 @@ func (a *App) removeLegacyKMSGrants() {
 		return
 	}
 	log.Printf("[app] dropped legacy setcap on %s (launcher %s is installed)", bin, streamerlaunch.InstallPath)
+}
+
+// shouldDropLegacySetcap: the per-binary setcap may only go once the
+// launcher can run the staged build itself. Dropping it on "launcher
+// installed" alone -- before any signed bundle had been staged (the
+// backend didn't pass the manifest through yet) -- left RustShine with no
+// CAP_SYS_ADMIN at all: confirmed live, KMS capture failed with
+// "framebuffer has no exportable plane-0 handle" and clients got no video.
+func shouldDropLegacySetcap(launcherInstalled bool, bundleVerifyErr error) bool {
+	return launcherInstalled && bundleVerifyErr == nil
 }
 
 // rewriteWithoutXattrs replaces p with a fresh copy of its bytes and mode.

@@ -144,9 +144,13 @@ runs one `pkexec /bin/sh -c …` that:
 2. adds your uid to `allowed-uids`;
 3. for Sunshine, also installs the root-owned tree (see above).
 
-Once the launcher is installed, the agent drops any legacy `setcap` on the
-staged `usbridge-streamer` on startup by rewriting the file (a new inode
-never inherits `security.capability`).
+Once the launcher is installed **and accepts the staged signed bundle**,
+the agent drops any legacy `setcap` on the staged `usbridge-streamer` on
+startup by rewriting the file (a new inode never inherits
+`security.capability`). Until then the legacy setcap stays, so KMS keeps
+working. Dropping it on "installed" alone, before the backend supplied a
+bundle, left RustShine with no capability at all (no video,
+`framebuffer has no exportable plane-0 handle`).
 
 A new agent release re-prompts only if it needs a newer launcher protocol
 (`streamerlaunch.MinProtocol`). Ordinary launcher changes don't re-prompt;
