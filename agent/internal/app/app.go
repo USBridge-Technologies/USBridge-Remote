@@ -3126,6 +3126,20 @@ func (a *App) QRLink() (string, string) {
 		return "", ""
 	}
 	internalHost := localIPv4()
+	// Prefer the device's own <label>.device.usbridge.io hostname (see
+	// internal/tlshost, internal/devicecert) over the bare LAN IP once
+	// deviceCertWatchdog has registered+fetched one -- it re-resolves via
+	// DNS on every connect instead of pinning a LAN IP that goes stale the
+	// moment this machine's address changes (DHCP renewal, different
+	// network), and a browser web client needs this exact hostname anyway
+	// (SNI is never sent for an IP-literal connection, so
+	// tlshost.Manager.GetCertificate can never select the trusted device
+	// wildcard cert -- only the untrusted self-signed one -- for a bare-IP
+	// connection). Falls back to the bare IP when no hostname is registered
+	// yet, e.g. offline or still within the first tick.
+	if deviceHost := a.DeviceHostname(); deviceHost != "" {
+		internalHost = deviceHost
+	}
 	tailscaleHost := ""
 	if a.ts != nil {
 		if status, err := a.ts.Status(context.Background()); err == nil && status != nil && status.LoggedIn {
@@ -3137,18 +3151,7 @@ func (a *App) QRLink() (string, string) {
 			}
 		}
 	}
-	// The device's own <label>.device.usbridge.io hostname (see
-	// internal/tlshost, internal/devicecert), if deviceCertWatchdog has
-	// managed to register+fetch one yet -- "" otherwise, e.g. offline or
-	// still within the first tick. Included in the QR link so a browser web
-	// client (which MUST connect by this exact hostname over TLS, not a
-	// bare IP: SNI is never sent for an IP-literal connection, so
-	// tlshost.Manager.GetCertificate can never select the trusted device
-	// wildcard cert -- only ever the untrusted self-signed one -- for an
-	// internal_host-only connection) has something usable. See client's
-	// deeplink_handler.go resolveDeepLinkHost for the other half of this.
-	deviceHost := a.DeviceHostname()
-	link := buildQRLink(internalHost, tailscaleHost, deviceHost, a.cfg.TLSPort, masterKey)
+	link := buildQRLink(internalHost, tailscaleHost, masterKey)
 	return link, masterKey
 }
 
@@ -3204,7 +3207,7 @@ func (a *App) DeviceHostname() string {
 	return hostname
 }
 
-func buildQRLink(internalHost, tailscaleHost, deviceHost string, tlsPort int, masterKey string) string {
+func buildQRLink(internalHost, tailscaleHost, masterKey string) string {
 	if masterKey == "" {
 		return ""
 	}
@@ -3217,12 +3220,6 @@ func buildQRLink(internalHost, tailscaleHost, deviceHost string, tlsPort int, ma
 	}
 	if tailscaleHost != "" {
 		values.Set("tailscale_host", tailscaleHost)
-	}
-	if deviceHost != "" {
-		values.Set("device_host", deviceHost)
-		if tlsPort > 0 {
-			values.Set("device_tls_port", strconv.Itoa(tlsPort))
-		}
 	}
 	values.Set("master_key", masterKey)
 	return "usbridge://connect?" + values.Encode()

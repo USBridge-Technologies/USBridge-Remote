@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/url"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -2810,7 +2809,7 @@ func isActiveTailscalePeer(p tailscale.Peer) bool {
 	return false
 }
 
-func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, tlsPort int, masterKey, protocol string) string {
+func buildQuickConnectLink(internalHost, tailscaleHost string, masterKey, protocol string) string {
 	masterKey = strings.TrimSpace(masterKey)
 	if masterKey == "" || masterKey == "unavailable" {
 		return ""
@@ -2826,12 +2825,6 @@ func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, tlsPo
 	if strings.TrimSpace(tailscaleHost) != "" {
 		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
 	}
-	if strings.TrimSpace(deviceHost) != "" {
-		values.Set("device_host", strings.TrimSpace(deviceHost))
-		if tlsPort > 0 {
-			values.Set("device_tls_port", strconv.Itoa(tlsPort))
-		}
-	}
 	values.Set("master_key", masterKey)
 	if strings.TrimSpace(protocol) != "" {
 		values.Set("protocol", strings.TrimSpace(protocol))
@@ -2839,8 +2832,20 @@ func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, tlsPo
 	return fmt.Sprintf("usbridge://connect?%s", values.Encode())
 }
 
+// quickConnectTargets returns this machine's internal_host/tailscale_host
+// for the QR/copy-link quick-connect flow. internalHost prefers the
+// device's own <label>.device.usbridge.io hostname (see
+// app.App.DeviceHostname) over the bare LAN IP once one is registered -- it
+// re-resolves via DNS on every connect instead of pinning a LAN IP that
+// goes stale the moment this machine's address changes, and it's what lets
+// a browser web client select the trusted device wildcard cert via SNI
+// (never sent for a bare-IP connection). Falls back to the bare LAN IP
+// when no hostname is registered yet.
 func (w *Window) quickConnectTargets() (internalHost string, tailscaleHost string, protocol string) {
 	internalHost = localQuickConnectIPv4()
+	if deviceHost := w.deviceHostname(); deviceHost != "" {
+		internalHost = deviceHost
+	}
 	if w.ts != nil {
 		if status, err := w.ts.Status(context.Background()); err == nil && status != nil && status.LoggedIn {
 			switch {
