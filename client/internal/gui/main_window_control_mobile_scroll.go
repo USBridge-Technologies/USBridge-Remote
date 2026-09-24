@@ -111,22 +111,32 @@ func (r *mobileFooterActionScrollerRenderer) Layout(size fyne.Size) {
 	s := r.s
 	arrowW := float32(18)
 	contentW := float32(0)
+	contentH := float32(32)
 	if s.content != nil {
-		contentW = s.content.MinSize().Width
+		ms := s.content.MinSize()
+		contentW = ms.Width
+		if ms.Height > 0 {
+			contentH = ms.Height
+		}
+	}
+	y := (size.Height - contentH) / 2
+	if y < 0 {
+		y = 0
 	}
 	if contentW > 0 && contentW <= size.Width {
-		// Fits: pin the cluster to the right (same as the old footer pack).
+		// Fits: pin the cluster to the right (same as the old footer pack),
+		// vertically centered with the Tabs / burger baseline.
 		s.scroll.Offset = fyne.NewPos(0, 0)
-		s.scroll.Move(fyne.NewPos(size.Width-contentW, 0))
-		s.scroll.Resize(fyne.NewSize(contentW, size.Height))
+		s.scroll.Move(fyne.NewPos(size.Width-contentW, y))
+		s.scroll.Resize(fyne.NewSize(contentW, contentH))
 	} else {
-		s.scroll.Move(fyne.NewPos(0, 0))
-		s.scroll.Resize(size)
+		s.scroll.Move(fyne.NewPos(0, y))
+		s.scroll.Resize(fyne.NewSize(size.Width, contentH))
 	}
-	s.leftArrow.Resize(fyne.NewSize(arrowW, size.Height))
-	s.leftArrow.Move(fyne.NewPos(0, 0))
-	s.rightArrow.Resize(fyne.NewSize(arrowW, size.Height))
-	s.rightArrow.Move(fyne.NewPos(size.Width-arrowW, 0))
+	s.leftArrow.Resize(fyne.NewSize(arrowW, contentH))
+	s.leftArrow.Move(fyne.NewPos(0, y))
+	s.rightArrow.Resize(fyne.NewSize(arrowW, contentH))
+	s.rightArrow.Move(fyne.NewPos(size.Width-arrowW, y))
 	s.refreshArrows()
 }
 

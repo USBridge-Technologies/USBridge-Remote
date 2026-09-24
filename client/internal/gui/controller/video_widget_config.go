@@ -152,6 +152,37 @@ func rememberCaptureModes(devicePath string, info *models.VideoInfoData) {
 	captureModesCacheMu.Unlock()
 }
 
+// patchCaptureModesCacheStatus writes the just-applied stream settings into
+// the capture-modes snapshot so Video Parameters / header menus show the new
+// resolution/FPS immediately, without waiting for the next /api/video/info.
+func patchCaptureModesCacheStatus(cfg models.VideoDeviceConfig) {
+	captureModesCacheMu.Lock()
+	defer captureModesCacheMu.Unlock()
+	if captureModesCacheInfo == nil {
+		return
+	}
+	key := strings.TrimSpace(cfg.DevicePath)
+	if key != "" && captureModesCacheDevice != "" && captureModesCacheDevice != key {
+		return
+	}
+	if cfg.VideoWidth > 0 {
+		captureModesCacheInfo.Width = cfg.VideoWidth
+	}
+	if cfg.VideoHeight > 0 {
+		captureModesCacheInfo.Height = cfg.VideoHeight
+	}
+	if cfg.VideoFPS > 0 {
+		captureModesCacheInfo.FPS = cfg.VideoFPS
+	}
+	if strings.TrimSpace(cfg.VideoBitrate) != "" {
+		captureModesCacheInfo.Bitrate = cfg.VideoBitrate
+	}
+	if enc := strings.TrimSpace(cfg.VideoMode); enc != "" {
+		captureModesCacheInfo.Encoding = enc
+	}
+	captureModesCacheAt = time.Now()
+}
+
 func cachedCaptureInfo(devicePath string) (*models.VideoInfoData, bool) {
 	key := strings.TrimSpace(devicePath)
 	captureModesCacheMu.Lock()
@@ -555,8 +586,12 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 
 	saveVideoDeviceConfig(cfg)
 	resetVideoInfoCache()
+	patchCaptureModesCacheStatus(cfg)
 	vw.refreshAgentProtocol()
 	vw.rememberHostDesktopFromConfig(cfg)
+	// Keep the modes list current in the background; status fields above are
+	// already patched so open dialogs/menus do not wait on this round-trip.
+	vw.PrefetchCaptureModesAsync()
 
 	if vw.onResolutionChanged != nil {
 		vw.onResolutionChanged(cfg.VideoWidth, cfg.VideoHeight)
@@ -743,6 +778,14 @@ func (vw *VideoWidget) refreshCaptureModesAsync(devicePath string) {
 }
 
 func (vw *VideoWidget) PrefetchCaptureModesAsync() {
+	// Seed the header resolution label from saved prefs immediately so the
+	// first connect does not sit on a stale mw.config default until reconcile.
+	if cfg, err := localPreferredVideoConfig(); err == nil && cfg.VideoWidth > 0 && cfg.VideoHeight > 0 {
+		if vw.onResolutionChanged != nil {
+			w, h := cfg.VideoWidth, cfg.VideoHeight
+			fyne.Do(func() { vw.onResolutionChanged(w, h) })
+		}
+	}
 	path := selectedVideoDevicePath()
 	vw.refreshCaptureModesAsync(path)
 }
@@ -896,6 +939,15 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 			rememberCaptureModes(device.Path, info)
 		}
 		if shownFromCache {
+			// Cache opened the dialog instantly; still re-apply when the
+			// bridge returns so stale Width/FPS/modes update in place.
+			freshCfg := cfg
+			fyne.Do(func() {
+				if vw.startDialog == nil {
+					return
+				}
+				present(info, freshCfg)
+			})
 			return
 		}
 		freshCfg := cfg
@@ -906,7 +958,28 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 func prepareVideoStartDialogInfo(device models.SystemDevice, info *models.VideoInfoData, cfg models.VideoDeviceConfig) (*models.VideoInfoData, models.VideoDeviceConfig) {
 	isDisplayDevice := strings.HasPrefix(device.Path, "display:") || strings.HasPrefix(device.Path, "drm:")
 	if info != nil && info.Streaming && (info.Device == device.Path || isDisplayDevice) {
+		saved := cfg
 		cfg = mergeVideoConfigWithInfo(cfg, info)
+		// Saved prefs win for resolution/FPS/codec after the user applied
+		// a change — live /api/video/info can lag until the restart settles,
+		// and the capture-modes cache used to keep showing those old values.
+		if hasSavedVideoDeviceConfig(device.Path) {
+			if saved.VideoWidth > 0 {
+				cfg.VideoWidth = saved.VideoWidth
+			}
+			if saved.VideoHeight > 0 {
+				cfg.VideoHeight = saved.VideoHeight
+			}
+			if saved.VideoFPS > 0 {
+				cfg.VideoFPS = saved.VideoFPS
+			}
+			if strings.TrimSpace(saved.VideoBitrate) != "" {
+				cfg.VideoBitrate = saved.VideoBitrate
+			}
+			if strings.TrimSpace(saved.VideoMode) != "" {
+				cfg.VideoMode = saved.VideoMode
+			}
+		}
 	}
 	if isDisplayDevice {
 		if cfg.VideoWidth <= 0 || cfg.VideoHeight <= 0 {

@@ -371,11 +371,29 @@ func (d *HeaderDropdown) openPopup() {
 	menuHeight := menu.MinSize().Height
 	belowSpace := canvasSize.Height - (pos.Y + d.Size().Height + gap)
 	aboveSpace := pos.Y - gap
-	openAbove := menuHeight > belowSpace && aboveSpace > belowSpace
+	// Phones reserve space for the system gesture/nav bar; Fyne's canvas
+	// height often still includes that band, so a menu that "fits" below
+	// still draws under the OS buttons. Prefer opening upward near the
+	// bottom edge (protocol AUTO/TS/LAN on connection cards, etc.).
+	bottomReserve := float32(4)
+	if IsMobile() {
+		bottomReserve = 56
+	}
+	usableBelow := belowSpace - (bottomReserve - 4)
+	if usableBelow < 0 {
+		usableBelow = 0
+	}
+	openAbove := menuHeight > usableBelow && aboveSpace > usableBelow
+	if IsMobile() && !openAbove && aboveSpace >= menuHeight {
+		nearBottom := pos.Y+d.Size().Height > canvasSize.Height*0.55
+		if nearBottom || usableBelow < menuHeight {
+			openAbove = true
+		}
+	}
 
 	popupContent := fyne.CanvasObject(menu)
 	popupHeight := menuHeight
-	chosenSpace := belowSpace
+	chosenSpace := usableBelow
 	if openAbove {
 		chosenSpace = aboveSpace
 	}
@@ -410,8 +428,18 @@ func (d *HeaderDropdown) openPopup() {
 	if popupY < 4 {
 		popupY = 4
 	}
-	if popupY+popupHeight > canvasSize.Height-4 {
-		popupY = canvasSize.Height - popupHeight - 4
+	bottomEdge := canvasSize.Height - 4
+	if IsMobile() {
+		bottomEdge = canvasSize.Height - 56
+		if bottomEdge < popupHeight+4 {
+			bottomEdge = canvasSize.Height - 4
+		}
+	}
+	if popupY+popupHeight > bottomEdge {
+		popupY = bottomEdge - popupHeight
+		if popupY < 4 {
+			popupY = 4
+		}
 	}
 
 	d.popup = newDropdownPopup(
@@ -1154,6 +1182,15 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		if popupPos.Y < 0 {
 			popupPos.Y = 0
 		}
+	} else if IsMobile() {
+		// Flip upward when the menu would sit under the system nav/gesture bar.
+		bottomReserve := float32(56)
+		if popupPos.Y+height > canvasSize.Height-bottomReserve {
+			aboveY := pos.Y - height - 6
+			if aboveY >= 8 {
+				popupPos.Y = aboveY
+			}
+		}
 	}
 	if popupPos.X < 8 {
 		popupPos.X = 8
@@ -1284,8 +1321,20 @@ func showStyledPanel(anchor fyne.CanvasObject, content fyne.CanvasObject, minWid
 	if popupPos.X+width > canvasSize.Width-8 {
 		popupPos.X = canvasSize.Width - width - 8
 	}
-	if !openAbove && popupPos.Y+height > canvasSize.Height-8 {
-		popupPos.Y = canvasSize.Height - height - 8
+	bottomPad := float32(8)
+	if IsMobile() {
+		bottomPad = 56
+	}
+	if !openAbove && popupPos.Y+height > canvasSize.Height-bottomPad {
+		aboveY := pos.Y - height - 6
+		if aboveY >= 8 {
+			popupPos.Y = aboveY
+		} else {
+			popupPos.Y = canvasSize.Height - height - bottomPad
+			if popupPos.Y < 8 {
+				popupPos.Y = 8
+			}
+		}
 	}
 	if popupPos.Y < 8 {
 		popupPos.Y = 8

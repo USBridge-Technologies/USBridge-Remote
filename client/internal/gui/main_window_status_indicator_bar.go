@@ -755,7 +755,9 @@ func (mw *MainWindow) showVideoFPSMenu(anchor fyne.CanvasObject) {
 	}
 	if modes, cfg, ok := mw.videoWidget.PeekCaptureModes(); ok {
 		mw.openVideoFPSMenu(anchor, modes, cfg)
-		mw.videoWidget.RefreshCaptureModesIfStaleAsync()
+		// Always verify against the bridge; patch + reopen path is handled
+		// by Prefetch seeding prefs and rememberCaptureModes updating cache.
+		mw.videoWidget.PrefetchCaptureModesAsync()
 		return
 	}
 	mw.videoWidget.PrefetchCaptureModesAsync()
@@ -827,7 +829,7 @@ func (mw *MainWindow) showVideoResolutionMenu(anchor fyne.CanvasObject) {
 	}
 	if modes, cfg, ok := mw.videoWidget.PeekCaptureModes(); ok {
 		mw.openVideoResolutionMenu(anchor, modes, cfg)
-		mw.videoWidget.RefreshCaptureModesIfStaleAsync()
+		mw.videoWidget.PrefetchCaptureModesAsync()
 		return
 	}
 	mw.videoWidget.PrefetchCaptureModesAsync()

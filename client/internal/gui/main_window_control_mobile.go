@@ -417,8 +417,16 @@ func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject 
 	if scroller != nil {
 		center = view.NewInsetExact(scroller, 8, 0, 0, 0)
 	}
-	row := container.NewBorder(nil, nil, left, trailing, center)
+	var leading fyne.CanvasObject = left
+	if left != nil {
+		// Match Tabs footer vertical centering — Border alone top-aligns
+		// the burger while the action scroller had drifted lower.
+		leading = container.NewCenter(left)
+	}
+	row := container.NewBorder(nil, nil, leading, trailing, center)
 	minH := float32(52)
+	// Match buildTabsFooterStrip padding so Control actions sit on the same
+	// baseline as the Tabs button row.
 	padT, padB := float32(6), float32(10)
 	if landscape {
 		minH = 36
