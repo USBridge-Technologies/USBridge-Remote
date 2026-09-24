@@ -7,6 +7,7 @@ import (
 
 	"usbridge-client/internal/gui/graphics"
 
+	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,6 +41,22 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 		vw.InvalidateOverlayGeometry()
 		vw.forceCanvasRefresh.Store(true)
 		logrus.Info("⌨️ System IME sticky ON (iOS native UITextField)")
+		// Insets clear asynchronously via updateConfig — re-measure the
+		// special-keys band and Metal clip after Fyne applies zero top pad.
+		time.AfterFunc(80*time.Millisecond, func() {
+			fyne.Do(func() {
+				if !vw.systemIMESticky.Load() {
+					return
+				}
+				if vw.onKeyboardChromeSync != nil {
+					vw.onKeyboardChromeSync()
+				} else if vw.onKeyboardStackChanged != nil {
+					vw.onKeyboardStackChanged()
+				}
+				vw.InvalidateOverlayGeometry()
+				vw.forceCanvasRefresh.Store(true)
+			})
+		})
 		return
 	}
 	graphics.SetIMETextHandler(nil)

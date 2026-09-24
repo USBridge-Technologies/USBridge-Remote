@@ -162,27 +162,52 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	topOffset := videoTopOffsetFromCanvas(szMain.Height, canvasH)
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f,ch=%.0f", canvasH, szMain.Height, topOffset, videoChromeBelow()))
 
-	if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
-		// Clip = area above the system IME. Special-keys take a top inset so
-		// the Fyne strip stays visible above the Metal overlay.
-		//
-		// On iOS Fyne already shrinks the canvas for the soft keyboard — do
-		// not subtract `ime` again (that made Metal thrash: video over the
-		// keys, then under them, as the IME height flickered).
-		keysH := vw.specialKeysOverlayHeightDp()
+	// Mobile keyboard stack: keys live in mainHeaderHost. Overlay-height is
+	// 0 in that mode — without specialKeysHeaderReserve Metal starts at Y=0
+	// and covers the special-keys band.
+	keysH := vw.specialKeysTopInsetDp()
+	// Metal is on UIWindow (absolute). Fyne canvas Y is InteractiveArea-
+	// relative; add safe-top so we do not paint under the notch / over keys.
+	safeTop := canvasInteractiveOrigin(vw.parentWindow.Canvas()).Y
+
+	szVideo := vw.touchpadWrapper.Size()
+	width := szVideo.Width
+	if width <= 0 {
+		width = szMain.Width
+	}
+
+	if keysH > 0 {
+		videoTop := safeTop + keysH
+		// Remaining height inside the Fyne content area below the keys.
 		videoH := canvasH - keysH
+		if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
+			// Canvas already shrinks for the soft keyboard on iOS — do not
+			// subtract ime again.
+		} else {
+			clipH := videoClipHeightFromCanvas(topOffset, szVideo.Height, canvasH)
+			// Keep footer chrome when IME is closed: clip to chrome-aware height.
+			avail := clipH - (videoTop - topOffset)
+			if safeTop < 1 {
+				avail = clipH - keysH
+			}
+			if avail > 0 && avail < videoH {
+				videoH = avail
+			}
+		}
 		if videoH > 0 {
-			return 0, keysH, szMain.Width, videoH
+			return 0, videoTop, width, videoH
 		}
 	}
 
-	szVideo := vw.touchpadWrapper.Size()
-	keysH := vw.specialKeysOverlayHeightDp()
-	clipH := videoClipHeightFromCanvas(topOffset, szVideo.Height, canvasH)
-	if keysH > 0 && clipH > keysH {
-		return 0, topOffset + keysH, szVideo.Width, clipH - keysH
+	if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
+		videoH := canvasH - keysH
+		if videoH > 0 {
+			return 0, safeTop + keysH, width, videoH
+		}
 	}
-	return 0, topOffset, szVideo.Width, clipH
+
+	clipH := videoClipHeightFromCanvas(topOffset, szVideo.Height, canvasH)
+	return 0, topOffset, width, clipH
 }
 
 // updateMetalVideoFrame repositions the Metal overlay:

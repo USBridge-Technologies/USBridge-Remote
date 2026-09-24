@@ -124,8 +124,7 @@ func (vw *VideoWidget) layoutSpecialKeysOverlay() {
 }
 
 // specialKeysOverlayHeightDp is the top inset reserved when special keys
-// float over the video (desktop/web). On mobile the keys replace the main
-// header, so the native surface needs no keys inset.
+// float over the video (desktop/web overlay mode).
 func (vw *VideoWidget) specialKeysOverlayHeightDp() float32 {
 	if vw == nil || vw.specialKeysInMainHeader() || !vw.IsVirtualKeyboardVisible() || vw.virtualKeyboard == nil {
 		return 0
@@ -143,6 +142,20 @@ func (vw *VideoWidget) specialKeysOverlayHeightDp() float32 {
 		return minKeysBand
 	}
 	return h
+}
+
+// specialKeysTopInsetDp is the Metal/Vulkan top inset for the open keyboard
+// stack. Mobile puts special keys in the main header (specialKeysHeaderReserve);
+// specialKeysOverlayHeightDp alone is 0 in that mode and would let the native
+// surface cover the keys.
+func (vw *VideoWidget) specialKeysTopInsetDp() float32 {
+	if vw == nil {
+		return 0
+	}
+	if r := vw.specialKeysHeaderReserve; r > 0 {
+		return r
+	}
+	return vw.specialKeysOverlayHeightDp()
 }
 
 func (vw *VideoWidget) initKeyboardCollapseFAB() {
