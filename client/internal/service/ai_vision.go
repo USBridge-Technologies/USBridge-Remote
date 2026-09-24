@@ -84,6 +84,18 @@ var (
 // lingers after the setting is turned off.
 func SetAIVisionEnabled(enabled bool) {
 	wasEnabled := aiVisionEnabled.Swap(enabled)
+	// Lazily load the same ONNX models "Local ui.parse offload" uses (see
+	// api.LazyInitLocalUIParse's doc comment) the moment this checkbox is
+	// actually turned on, rather than requiring the user to separately
+	// flip the Scripts&AI tab's toggle first -- ticking this box IS the
+	// "I want local inference now" signal. No-op if a parser is already
+	// loaded/loading. Runs in InitLocalUIParseFromConfig's own background
+	// goroutine, so this returns immediately either way; maybeKickIconDetection
+	// just keeps seeing GetLocalUIParser() == nil (and logs once, see
+	// maybeKickOCR) until it's ready.
+	if enabled {
+		usbapi.LazyInitLocalUIParse()
+	}
 	if !enabled {
 		aiVisionMu.Lock()
 		aiVisionResult = nil
@@ -195,13 +207,8 @@ func maybeKickIconDetection(rgba []byte, w, h, stride int) {
 
 	go func() {
 		defer aiVisionIconBusy.Store(false)
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, frame); err != nil {
-			logrus.Warnf("🔎 [AI Vision] icon frame encode failed: %v", err)
-			return
-		}
 		tIcon := time.Now()
-		icons, err := parser.ParseIconsOnly(buf.Bytes())
+		icons, err := parser.ParseIconsOnlyRGBA(frame)
 		if err != nil {
 			logrus.Warnf("🔎 [AI Vision] icon detection failed: %v", err)
 			return
@@ -246,13 +253,8 @@ func maybeKickOCR(rgba []byte, w, h, stride int) {
 
 	go func() {
 		defer aiVisionOCRBusy.Store(false)
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, frame); err != nil {
-			logrus.Warnf("🔎 [AI Vision] OCR frame encode failed: %v", err)
-			return
-		}
 		b := frame.Bounds()
-		result, err := parser.ParseFastNearIconsStaged(buf.Bytes(), func(boxes []localui.Box) {
+		result, err := parser.ParseFastNearIconsStagedRGBA(frame, func(boxes []localui.Box) {
 			// Fires as soon as dbnet (+ the near-icons filter) is done --
 			// well before svtr recognizes any of these boxes' text. No ID,
 			// no recognized string yet (see ParseFastNearIconsStaged's doc
@@ -391,3 +393,4 @@ func drawCachedOverlay(rgba []byte, w, h, stride int) {
 		}
 	}
 }
+

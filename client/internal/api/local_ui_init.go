@@ -10,14 +10,23 @@ import (
 )
 
 // InitLocalUIParseFromConfig builds and installs the local ui.parse backend
-// (see local_ui_intercept.go) if cfg.LocalUIParseEnabled -- called once at
-// startup. Loading the ONNX models is relatively expensive (hundreds of ms
-// to a few seconds), so this runs in the background and installs itself
-// via SetLocalUIParser only once ready; until then, ui.parse calls forward
-// to the device as normal. A failure here (models/runtime lib missing,
-// bad path, etc.) is logged and otherwise harmless -- ui.parse just keeps
-// going to the device, matching the "optional accelerator, never a hard
-// dependency" pattern used throughout this feature.
+// (see local_ui_intercept.go) if cfg.LocalUIParseEnabled. Callers: only
+// LazyInitLocalUIParse below, itself only called the moment a feature that
+// actually needs local inference turns on this session (AI Vision's
+// checkbox -- service.SetAIVisionEnabled -- or the Scripts&AI tab's "Local
+// models" toggle, scripts_tab_widget.go's applyLocalUIParseSetting) --
+// deliberately NOT called unconditionally at app boot just because
+// LocalUIParseEnabled was left persisted true from a previous session.
+// Loading the ONNX models is relatively expensive (hundreds of ms to a few
+// seconds on desktop; under wasm it's a ~100MB+ network fetch, not a disk
+// read -- see internal/localui/stub_wasm.go), so paying that cost at every
+// launch whether or not the user ends up using either feature this session
+// wasted real bandwidth/CPU for nothing. This runs in the background and
+// installs itself via SetLocalUIParser only once ready; until then, ui.parse
+// calls forward to the device as normal. A failure here (models/runtime lib
+// missing, bad path, etc.) is logged and otherwise harmless -- ui.parse just
+// keeps going to the device, matching the "optional accelerator, never a
+// hard dependency" pattern used throughout this feature.
 func InitLocalUIParseFromConfig(cfg *models.AppConfig) {
 	if cfg == nil || !cfg.LocalUIParseEnabled {
 		return
@@ -25,11 +34,7 @@ func InitLocalUIParseFromConfig(cfg *models.AppConfig) {
 	go func() {
 		modelDir := cfg.LocalUIParseModelDir
 		if modelDir == "" {
-			modelDir = resolveLocalUIPath(
-				filepath.Join("..", "Resources", "localui", "models"), // macOS .app: Contents/MacOS/../Resources/localui/models
-				filepath.Join("localui", "models"),                    // flat layout: next to the executable
-				defaultLocalUIDir("models"),
-			)
+			modelDir = localUIDefaultModelDir()
 		}
 		ortLib := cfg.LocalUIParseORTLib
 		if ortLib == "" {
@@ -56,6 +61,42 @@ func InitLocalUIParseFromConfig(cfg *models.AppConfig) {
 		SetLocalUIParser(parser)
 		log.Printf("✅ local ui.parse offload active (models=%s, gpu=%v)", modelDir, cfg.LocalUIParseGPU)
 	}()
+}
+
+// LazyInitLocalUIParse triggers InitLocalUIParseFromConfig on demand,
+// no-op if a parser is already loaded (or already loading -- NewParser's
+// own initOnce/session setup makes a second concurrent call harmless, but
+// this check skips the redundant work entirely). Call this from the exact
+// moment a feature that actually needs local inference turns on, not from
+// app startup -- see InitLocalUIParseFromConfig's doc comment for why.
+// Uses models.DefaultConfig() rather than the app's persisted config: the
+// only thing that matters here is LocalUIParseEnabled=true to make
+// InitLocalUIParseFromConfig proceed; model dir/runtime lib path resolution
+// (resolveLocalUIPath) already has its own sensible defaults independent of
+// anything else in AppConfig.
+func LazyInitLocalUIParse() {
+	if GetLocalUIParser() != nil {
+		return
+	}
+	cfg := models.DefaultConfig()
+	cfg.LocalUIParseEnabled = true
+	InitLocalUIParseFromConfig(cfg)
+}
+
+// localUIDefaultModelDir resolves the model directory when
+// cfg.LocalUIParseModelDir is left unset. Native platforms use
+// resolveLocalUIPath's executable-relative/~/.usbridge fallback chain
+// below; wasm overrides this var (local_ui_init_wasm.go's init) to a plain
+// relative "models" web path instead, since os.Executable()/os.Stat-based
+// filesystem resolution means nothing in a browser -- same swappable-var
+// pattern ai_vision.go's aiVisionMetalPush uses for its own
+// platform-specific override.
+var localUIDefaultModelDir = func() string {
+	return resolveLocalUIPath(
+		filepath.Join("..", "Resources", "localui", "models"), // macOS .app: Contents/MacOS/../Resources/localui/models
+		filepath.Join("localui", "models"),                    // flat layout: next to the executable
+		defaultLocalUIDir("models"),
+	)
 }
 
 // defaultLocalUIDir returns ~/.usbridge/localui/<sub>, falling back to

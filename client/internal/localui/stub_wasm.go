@@ -2,25 +2,16 @@
 
 // Package localui's real implementation (every other file in this package)
 // is built around github.com/yalue/onnxruntime_go, a cgo binding with no
-// wasm build at all ("build constraints exclude all Go files") -- and a
-// local ONNX inference accelerator makes no sense for a browser tab anyway
-// (there is no local screen-capture/heavy-hardware story to accelerate
-// here; ui.parse just keeps forwarding to the device, same as any other
-// platform where local ui.parse isn't set up, and the AI-Vision live
-// overlay in internal/service/ai_vision.go stays permanently disabled since
-// GetLocalUIParser() never has anything to return). This stub mirrors the
-// real package's exported surface field-for-field/signature-for-signature
-// (verified against types.go/parser.go/draw.go/onnx.go) so every consumer
-// across internal/api and internal/service compiles unchanged under wasm,
-// with NewParser always failing so InitLocalUIParseFromConfig's existing
-// "optional accelerator, never a hard dependency" fallback (log and keep
-// forwarding) kicks in automatically.
+// wasm build at all ("build constraints exclude all Go files"). This file
+// mirrors that real package's exported surface field-for-field/
+// signature-for-signature (verified against types.go/parser.go/draw.go/
+// onnx.go) so every consumer across internal/api and internal/service
+// compiles unchanged under wasm -- just the plain data types Parser,
+// NewParser, and every Parse* method (including the OCR/dbnet+svtr stage)
+// all have real bodies here too, in parser_wasm.go, backed by
+// onnxruntime-web running in the browser tab itself (client/web/
+// ai_vision.js) instead of onnxruntime_go's cgo binding.
 package localui
-
-import (
-	"fmt"
-	"image"
-)
 
 // Box mirrors the real package's Box exactly.
 type Box struct {
@@ -55,6 +46,7 @@ type Result struct {
 	ImageWidth  int          `json:"image_width"`
 	ImageHeight int          `json:"image_height"`
 	Backend     string       `json:"_backend,omitempty"`
+	ZoomHints   []Box        `json:"zoom_hints,omitempty"`
 }
 
 // Config mirrors the real package's Config -- same field names so
@@ -67,58 +59,18 @@ type Config struct {
 	UseGPU        bool
 }
 
-// Parser mirrors the real package's Parser opaquely; NewParser never
-// actually produces one on this platform, so none of its methods are ever
-// reached at runtime -- they only need to type-check.
-type Parser struct{}
-
 // DefaultRuntimeLibName returns "" -- there is no ONNX Runtime shared
-// library to resolve a name for under wasm.
+// library to resolve a name for under wasm (onnxruntime-web ships its own
+// WASM/WebGPU runtime, fetched by client/web/ai_vision.js, not loaded as a
+// named shared library the way onnxruntime_go's cgo binding does).
 func DefaultRuntimeLibName() string { return "" }
 
-// errNotSupported is returned by every entry point that would otherwise
-// touch ONNX Runtime.
-var errNotSupported = fmt.Errorf("local ui.parse is not supported in the browser build")
-
-// NewParser always fails: local ui.parse acceleration is not available in
-// the browser build.
-func NewParser(cfg Config) (*Parser, error) { return nil, errNotSupported }
-
-// Close is a no-op; Parser is never actually constructed on this platform.
+// Close releases nothing -- there's no session handle/native resource on
+// this platform to release; the underlying onnxruntime-web sessions
+// (ai_vision.js) are process-lifetime for as long as the tab is open.
 func (p *Parser) Close() {}
 
-// Parse/ParseFast/ParseFastNearIcons/ParseFastNearIconsStaged/ParseStaged/
-// ParseIconsOnly are all unreachable (NewParser always errors first) but
-// must exist, with the real package's exact signatures, for
-// internal/api/local_ui_intercept.go and internal/service/ai_vision.go's
-// call sites to compile.
-func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err error) {
-	return nil, nil, errNotSupported
-}
-
-func (p *Parser) ParseFast(imgBytes []byte) (result *Result, err error) {
-	return nil, errNotSupported
-}
-
-func (p *Parser) ParseFastNearIcons(imgBytes []byte) (result *Result, err error) {
-	return nil, errNotSupported
-}
-
-func (p *Parser) ParseFastNearIconsStaged(imgBytes []byte, onTextBoxes func(boxes []Box)) (result *Result, err error) {
-	return nil, errNotSupported
-}
-
-func (p *Parser) ParseStaged(imgBytes []byte, onIcons func(icons []Icon)) (result *Result, err error) {
-	return nil, errNotSupported
-}
-
-func (p *Parser) ParseIconsOnly(imgBytes []byte) (icons []Icon, err error) {
-	return nil, errNotSupported
-}
-
-// DrawDetectionBox/DrawDetectionTag are unreachable under wasm (nothing
-// ever produces a non-nil *Result to draw), but ai_vision.go's
-// buildAIVisionOverlayImage/drawCachedOverlay call them unconditionally, so
-// they need real (no-op) bodies rather than not existing at all.
-func DrawDetectionBox(img *image.RGBA, box Box, isText bool) {}
-func DrawDetectionTag(img *image.RGBA, id string, box Box)   {}
+// Parser, NewParser, every Parse* method, and DrawDetectionBox/
+// DrawDetectionTag (real bodies -- ai_vision.go's buildAIVisionOverlayImage/
+// drawCachedOverlay call these unconditionally regardless of platform) all
+// live in parser_wasm.go.

@@ -48,6 +48,15 @@ type WebRTCClient struct {
 	// struct's default before anyone calls SetBitrateKbps) means "don't
 	// send one", same as never having sent the field at all.
 	bitrateKbps int
+	// videoCodec: the codec picked in the client's video settings
+	// (models.VideoModeH264/H265), sent as OfferRequest.codec -- rustshine
+	// streams exactly that when the browser and host can both do it, H.264
+	// otherwise (see signaling.rs's resolve_use_h265). "" sends nothing,
+	// which rustshine treats as H.264.
+	videoCodec string
+	// negotiatedCodec: what rustshine's answer actually put on the video
+	// m-line ("h264"/"h265"), "" until an answer arrives.
+	negotiatedCodec string
 
 	pc      *js.Value
 	dc      *js.Value
@@ -103,6 +112,18 @@ func (c *WebRTCClient) signHMAC(method, path, body string) (ts, sig string) {
 // field at all, falling back to today's behavior (the server's own
 // ceiling, unchanged).
 func (c *WebRTCClient) SetBitrateKbps(kbps int) { c.mu.Lock(); c.bitrateKbps = kbps; c.mu.Unlock() }
+
+// SetVideoCodec stores the codec to request in the next Connect's offer --
+// see the videoCodec field.
+func (c *WebRTCClient) SetVideoCodec(codec string) { c.mu.Lock(); c.videoCodec = codec; c.mu.Unlock() }
+
+// NegotiatedVideoCodec reports the codec rustshine's answer selected, and
+// whether an answer has arrived yet.
+func (c *WebRTCClient) NegotiatedVideoCodec() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.negotiatedCodec, c.negotiatedCodec != ""
+}
 
 // OnOpen registers a callback fired when the "input" DataChannel opens.
 func (c *WebRTCClient) OnOpen(fn func()) { c.mu.Lock(); c.onOpen = fn; c.mu.Unlock() }
@@ -299,6 +320,10 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 		return err
 	}
 
+	c.mu.Lock()
+	c.negotiatedCodec = answerVideoCodec(answerSDP)
+	c.mu.Unlock()
+
 	answerDesc := js.Global().Get("Object").New()
 	answerDesc.Set("type", "answer")
 	answerDesc.Set("sdp", answerSDP)
@@ -374,6 +399,7 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	_ = sessionID // rustshine's endpoint doesn't take a session id -- one PeerConnection per POST, matching its own signaling.rs
 	c.mu.Lock()
 	bitrateKbps := c.bitrateKbps
+	videoCodec := c.videoCodec
 	c.mu.Unlock()
 	// bitrate_kbps omitted entirely (not sent as 0) when unset -- matches
 	// rust-shine's OfferRequest.bitrate_kbps, an Option<u32> on the wire
@@ -383,6 +409,9 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	reqFields := map[string]any{"sdp": offerSDP}
 	if bitrateKbps > 0 {
 		reqFields["bitrate_kbps"] = bitrateKbps
+	}
+	if videoCodec != "" {
+		reqFields["codec"] = videoCodec
 	}
 	reqBody, err := json.Marshal(reqFields)
 	if err != nil {
@@ -525,6 +554,10 @@ type NetGraphSnapshot struct {
 	TotalDecodeTimeMs float64
 	RTTMs             float64
 	RTTValid          bool
+	// At is when this snapshot's getStats() resolved. Consumers sampling
+	// faster than netGraphStatsPollInterval use it to tell a fresh snapshot
+	// from the one they already saw.
+	At time.Time
 }
 
 var netGraphSnapshotAtomic atomic.Pointer[NetGraphSnapshot]
@@ -611,6 +644,7 @@ func (c *WebRTCClient) StartNetGraphStatsPolling() func() {
 			})
 			statsVal.Call("forEach", forEach)
 			forEach.Release()
+			snap.At = time.Now()
 			netGraphSnapshotAtomic.Store(&snap)
 		}
 	}()
@@ -676,55 +710,74 @@ func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
 	// DevTools with nothing else involved and it fired zero times over
 	// 6+ seconds on a video that was demonstrably still playing
 	// (currentTime advancing, visibly rendering).
+	// Both paths go through reportIfAdvanced, so a frame is counted once
+	// no matter which of them notices it first. Calling onFrame() from both
+	// independently counted every frame twice wherever rVFC works (desktop
+	// Chrome): a 30 fps stream showed as 50-60 fps in VideoWidget.
+	//
+	// Neither path may call onFrame() blindly on a schedule -- confirmed live
+	// that doing so masks a genuinely stalled stream from VideoWidget's
+	// mid-stream-silence watchdog: an interval poll firing onFrame() every
+	// 33ms regardless of whether the video was still receiving frames meant
+	// a real freeze (currentTime provably stuck across repeated checks,
+	// confirmed via CDP) never tripped the watchdog and the client sat on a
+	// frozen frame forever instead of reconnecting. A frame is reported only
+	// when getVideoPlaybackQuality().totalVideoFrames has genuinely increased
+	// -- a real signal of decoded output, independent of whether rVFC itself
+	// ever fires. Falls back to comparing currentTime if
+	// getVideoPlaybackQuality isn't available at all (older engines) --
+	// coarser (misses a same-frame currentTime tick), but still tied to real
+	// playback progress rather than a blind timer.
+	lastFrameCount := -1.0
+	lastCurrentTime := -1.0
+	hasPlaybackQuality := !c.videoEl.Get("getVideoPlaybackQuality").IsUndefined()
+	reportIfAdvanced := func() {
+		if hasPlaybackQuality {
+			total := c.videoEl.Call("getVideoPlaybackQuality").Get("totalVideoFrames").Float()
+			if total <= lastFrameCount {
+				return
+			}
+			// One onFrame per new frame, not per call: at 60 fps two frames
+			// often land between 33ms polls (or rVFC ticks), and reporting
+			// one per call capped the counter at 30. The first reading and
+			// a long gap (hidden tab) count as one frame / at most 8.
+			n := 1
+			if lastFrameCount >= 0 {
+				n = min(int(total-lastFrameCount), 8)
+			}
+			lastFrameCount = total
+			for i := 0; i < n; i++ {
+				onFrame()
+			}
+			return
+		} else {
+			ct := c.videoEl.Get("currentTime").Float()
+			if ct <= lastCurrentTime {
+				return
+			}
+			lastCurrentTime = ct
+		}
+		onFrame()
+	}
+
 	if rvfc := c.videoEl.Get("requestVideoFrameCallback"); !rvfc.IsUndefined() {
 		var tick js.Func
 		tick = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 			if isStopped() {
 				return nil
 			}
-			onFrame()
+			reportIfAdvanced()
 			c.videoEl.Call("requestVideoFrameCallback", tick)
 			return nil
 		})
 		c.videoEl.Call("requestVideoFrameCallback", tick)
 	}
 
-	// The interval fallback must NOT call onFrame() blindly on a fixed
-	// schedule -- confirmed live that doing so masks a genuinely stalled
-	// stream from VideoWidget's mid-stream-silence watchdog: the poll kept
-	// firing onFrame() every 33ms regardless of whether the video was
-	// actually still receiving frames, so a real freeze (currentTime
-	// provably stuck across repeated checks, confirmed via CDP) never
-	// tripped the watchdog and the client just sat on a frozen frame
-	// forever instead of reconnecting. Only report a frame when
-	// getVideoPlaybackQuality().totalVideoFrames has genuinely increased
-	// since the last tick -- a real signal of decoded output, independent
-	// of whether rVFC itself ever fires. Falls back to comparing
-	// currentTime if getVideoPlaybackQuality isn't available at all
-	// (older engines) -- coarser (misses a same-frame currentTime tick),
-	// but still tied to real playback progress rather than a blind timer.
-	lastFrameCount := -1.0
-	lastCurrentTime := -1.0
-	hasPlaybackQuality := !c.videoEl.Get("getVideoPlaybackQuality").IsUndefined()
 	handle := js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		if isStopped() {
 			return nil
 		}
-		if hasPlaybackQuality {
-			quality := c.videoEl.Call("getVideoPlaybackQuality")
-			total := quality.Get("totalVideoFrames").Float()
-			if total <= lastFrameCount {
-				return nil
-			}
-			lastFrameCount = total
-		} else {
-			ct := c.videoEl.Get("currentTime").Float()
-			if ct <= lastCurrentTime {
-				return nil
-			}
-			lastCurrentTime = ct
-		}
-		onFrame()
+		reportIfAdvanced()
 		return nil
 	}), 1000/30)
 	return func() {

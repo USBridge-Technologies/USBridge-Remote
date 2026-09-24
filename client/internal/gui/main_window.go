@@ -211,7 +211,11 @@ type MainWindow struct {
 	captureIcon    *widget.Button
 	keyboardIcon   *headerStatusBadgeButton
 	mouseIcon      *headerStatusBadgeButton
-	rndisIcon      *headerStatusBadgeButton
+	// clipboardIcon/inputModeIcon are desktop-only Control footer menus:
+	// clipboard send/get/auto-sync and keyboard keys/characters mode.
+	clipboardIcon *headerStatusBadgeButton
+	inputModeIcon *headerStatusBadgeButton
+	rndisIcon     *headerStatusBadgeButton
 	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are that strip's own
 	// *passive* indicators (main_window_status_indicator_bar.go's
 	// "indicators" sub-group) -- bare newHeaderPassiveIndicator images, not
@@ -320,6 +324,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.diskWidget.SetPeerConnection(mw.videoClient)
 	mw.videoWidget = controller.NewVideoWidget(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
+	mw.videoWidget.SetKeyboardInputMode(a.Preferences().StringWithFallback(keyboardInputModePref, controller.KeyboardInputModeText))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 	mw.wireMobileKeyboardStackCallbacks()
 	mw.wireMobileViewportPanCallbacks()

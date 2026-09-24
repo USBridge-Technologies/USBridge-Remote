@@ -9,3 +9,5 @@ client/web/app.wasm
 client/web/wasm_exec.js
 client/web/gui.html
 client/web/gamepad-test.wasm
+client/web/models/
+client/web/mcp-bridge/node_modules/

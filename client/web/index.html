@@ -48,6 +48,20 @@
     background: transparent;
     cursor: pointer;
   }
+  /* Positioned every 150ms tick by video_widget_ai_vision_wasm.go's
+     syncAIVisionOverlay to exactly cover the <video> element's own content
+     rect (see that function's doc comment) -- pixel content (the actual
+     detection boxes) comes separately from
+     internal/service/ai_vision_wasm.go's pushAIVisionOverlayToCanvas via
+     putImageData. pointer-events:none so it never intercepts touch/mouse
+     input meant for the video underneath; hidden until the first real
+     content rect arrives, same as #hidConnectBtn above. */
+  #aiVisionCanvas {
+    position: fixed;
+    z-index: 900;
+    visibility: hidden;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -67,6 +81,11 @@
      below on browsers with no WebHID (Firefox, Safari), where the Gamepad
      API poller is the only option anyway. -->
 <button id="hidConnectBtn" aria-label="Connect USB"></button>
+<!-- AI Vision's live overlay canvas -- see the #aiVisionCanvas style rule
+     above and internal/service/ai_vision_wasm.go/
+     internal/gui/controller/video_widget_ai_vision_wasm.go for how it's
+     driven. Empty/transparent until AI Vision is actually turned on. -->
+<canvas id="aiVisionCanvas"></canvas>
 <!-- Fyne's wasm/js driver looks up #dummyEntry by ID (see
      internal/driver/glfw/device_wasm.go) and uses it as a real, native
      <input> element to host IME composition, on-screen-keyboard triggering,
@@ -86,6 +105,12 @@
      text-relay input. -->
 <input id="dummyEntry" type="text" name="usbridge-remote-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="position: absolute; left: 0; top: -100pt; z-index: -10; font-size: 32pt;" />
 <script src="wasm_exec.js"></script>
+<!-- Defines window.usbridgeAIVision only -- no fetch happens just from
+     loading this module (see ai_vision.js's own top doc comment): the
+     model/WebGPU runtime are only fetched once Go actually calls
+     loadModel(), the moment the AI Vision checkbox or "Local models"
+     toggle is turned on this session. -->
+<script type="module" src="ai_vision.js"></script>
 <script>
   // Keeps the Fyne canvas (and therefore the whole app's layout -- video,
   // the on-screen keyboard panel, everything) sized to the *visual*

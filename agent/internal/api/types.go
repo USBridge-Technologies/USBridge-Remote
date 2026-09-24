@@ -166,7 +166,7 @@ type ScreenSnapshot struct {
 // ("receiving N files...") instead of appearing to hang until the transfer
 // finishes.
 type ClipboardEvent struct {
-	Kind      string `json:"kind"` // "text" | "image" | "file"
+	Kind      string `json:"kind"` // "text" | "image" | "file" | ClipboardRequestKind
 	Text      string `json:"text,omitempty"`
 	Hash      string `json:"hash"`
 	Size      int64  `json:"size,omitempty"`
@@ -176,3 +176,8 @@ type ClipboardEvent struct {
 	Pending   bool   `json:"pending,omitempty"`
 	FileCount int    `json:"file_count,omitempty"`
 }
+
+// ClipboardRequestKind is a client-to-agent ClipboardEvent kind carrying no
+// content: "send me your current clipboard" (the client's manual pull). The
+// agent answers with an ordinary event built from its clipboard Snapshot.
+const ClipboardRequestKind = "request"

@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -47,6 +48,109 @@ type sunshineExecCmdProcess struct{ cmd *exec.Cmd }
 func (p sunshineExecCmdProcess) Pid() int    { return p.cmd.Process.Pid }
 func (p sunshineExecCmdProcess) Kill() error { return p.cmd.Process.Kill() }
 func (p sunshineExecCmdProcess) Wait() error { return p.cmd.Wait() }
+
+// trackedSunshineProc wraps a sunshineProcess with a channel closed once
+// Wait() has returned, so Start()/Stop() can tell "the kernel finished
+// reaping this process" apart from "Kill() was sent but the process is
+// still stuck" without blocking on Wait() themselves.
+type trackedSunshineProc struct {
+	sunshineProcess
+	done chan struct{}
+	once sync.Once
+}
+
+func newTrackedSunshineProc(p sunshineProcess) *trackedSunshineProc {
+	return &trackedSunshineProc{sunshineProcess: p, done: make(chan struct{})}
+}
+
+func (t *trackedSunshineProc) Wait() error {
+	err := t.sunshineProcess.Wait()
+	t.once.Do(func() { close(t.done) })
+	return err
+}
+
+// terminate asks the process to exit cleanly (SIGTERM) when the underlying
+// process supports it. Errors are ignored: callers escalate to Kill().
+func (t *trackedSunshineProc) terminate() {
+	if p, ok := t.sunshineProcess.(sunshineExecCmdProcess); ok {
+		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	}
+}
+
+func (t *trackedSunshineProc) exited(d time.Duration) bool {
+	select {
+	case <-t.done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+var (
+	// sunshineHangGrace is how long the admin port may stay unreachable
+	// while the process is still "running" before Start() declares it hung.
+	// Generous: a legitimate cold start (encoder probing, KMS setup) can
+	// take a while and must never be mistaken for a hang.
+	sunshineHangGrace = 60 * time.Second
+	// sunshineStopGrace is how long Stop()/hang recovery waits after
+	// SIGTERM (and again after SIGKILL) before giving up on the process.
+	sunshineStopGrace = 3 * time.Second
+)
+
+// errSunshineStuck means the old Sunshine process survived SIGKILL (its
+// threads are in uninterruptible kernel sleep, e.g. a uinput gamepad
+// teardown deadlocked against a game holding force-feedback state). It
+// cannot be killed from userspace, and launching a second instance would
+// only fight the first over its ports, so Start() reports this and retries
+// on the next watchdog tick instead.
+var errSunshineStuck = errors.New("sunshine: previous process is stuck in the kernel and cannot be killed (reboot may be required)")
+
+// recoverHungLocked is called by Start() with b.mu held while b.proc != nil.
+// It returns (true, nil) when the process looks healthy (or is still within
+// its grace period) and Start() should no-op, (false, nil) when the hung
+// process was killed and reaped and Start() should launch a fresh one, and
+// (true, err) when the process could not be killed.
+func (b *sunshineBackend) recoverHungLocked(adminPort int) (bool, error) {
+	if adminPort <= 0 || portReachable(adminPort, 300*time.Millisecond) {
+		b.unhealthySince = time.Time{}
+		return true, nil
+	}
+	now := time.Now()
+	if b.unhealthySince.IsZero() {
+		b.unhealthySince = now
+		return true, nil
+	}
+	if now.Sub(b.unhealthySince) < sunshineHangGrace {
+		return true, nil
+	}
+	tp, ok := b.proc.(*trackedSunshineProc)
+	if !ok {
+		return true, nil
+	}
+	log.Printf("[sunshine] pid=%d alive but admin port %d unreachable for %s -- treating as hung, killing it",
+		tp.Pid(), adminPort, now.Sub(b.unhealthySince).Round(time.Second))
+	_ = tp.Kill()
+	if !tp.exited(sunshineStopGrace) {
+		return true, errSunshineStuck
+	}
+	b.proc = nil
+	b.unhealthySince = time.Time{}
+	return false, nil
+}
+
+// stopProcLocked stops proc gracefully (SIGTERM, bounded wait) before
+// falling back to SIGKILL, so Sunshine gets to tear down its virtual
+// uinput devices itself instead of being killed mid-teardown.
+func stopProcLocked(proc sunshineProcess) error {
+	if tp, ok := proc.(*trackedSunshineProc); ok {
+		tp.terminate()
+		if tp.exited(sunshineStopGrace) {
+			return nil
+		}
+		log.Printf("[sunshine] pid=%d ignored SIGTERM for %s, sending SIGKILL", tp.Pid(), sunshineStopGrace)
+	}
+	return proc.Kill()
+}
 
 // useSunshineSessionBroker reports whether Start should launch Sunshine via
 // sunshineSessionBrokerLaunch (re-homing it into the active console
@@ -99,6 +203,9 @@ type sunshineBackend struct {
 	// (Pdeathsig / a Job Object) enforces the same guarantee.
 	watchdog *exec.Cmd
 	onExit   func() // see SetOnExit
+	// unhealthySince is when the admin port was first seen unreachable
+	// while proc was still tracked; zero while healthy. See recoverHungLocked.
+	unhealthySince time.Time
 
 	// activeAdminPassword holds the per-session randomly generated admin
 	// password. Set in Start() via --creds before Sunshine launches.
@@ -472,7 +579,9 @@ func (b *sunshineBackend) Start(adminPort int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.proc != nil {
-		return nil
+		if handled, err := b.recoverHungLocked(adminPort); handled {
+			return err
+		}
 	}
 	if b.launchPath == "" {
 		return nil
@@ -646,8 +755,10 @@ func (b *sunshineBackend) Start(adminPort int) error {
 		proc = sunshineExecCmdProcess{cmd}
 	}
 
-	b.proc = proc
-	go b.watchProcessExit(proc)
+	tracked := newTrackedSunshineProc(proc)
+	b.proc = tracked
+	b.unhealthySince = time.Time{}
+	go b.watchProcessExit(tracked)
 
 	return nil
 }
@@ -713,7 +824,7 @@ func (b *sunshineBackend) Stop() error {
 	var err error
 	if b.proc != nil {
 		log.Printf("[sunshine] stopping pid=%d", b.proc.Pid())
-		err = b.proc.Kill()
+		err = stopProcLocked(b.proc)
 		if err != nil && isAccessDenied(err) {
 			// See rustshine_backend.go's Stop() for why: our handle lacks
 			// PROCESS_TERMINATE, most likely because sunshine.exe is

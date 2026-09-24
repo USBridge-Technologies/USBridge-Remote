@@ -234,6 +234,12 @@ func InitTouchGestureBridge() {
 		// gesture has happened yet to trigger updateNativeViewportAndCursor's
 		// own immediate sync.
 		syncVideoOverlay(vw)
+		// Keeps #aiVisionCanvas positioned over the same content rect and
+		// drives the in-browser detection loop while the AI Vision
+		// checkbox is on -- see video_widget_ai_vision_wasm.go's own doc
+		// comment for why this shares syncVideoOverlay's cadence instead
+		// of a dedicated timer.
+		syncAIVisionOverlay(vw)
 		// Self-healing window-content invariant for the keyboard panel --
 		// see syncKeyboardWindowContent's own doc comment
 		// (video_widget_web.go) for why this can't just be a one-shot

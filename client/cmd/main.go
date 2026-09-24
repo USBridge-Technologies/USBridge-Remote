@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -131,10 +130,14 @@ func main() {
 	logrus.Infof("Configuration loaded")
 	logrus.Infof("NBD port: %d", config.NBDPort)
 
-	// Opt-in local ui.parse offload (ONNX Runtime on this machine's CPU/
-	// Intel iGPU instead of the device's NPU) -- no-op unless
-	// LocalUIParseEnabled is set, see internal/api/local_ui_init.go.
-	api.InitLocalUIParseFromConfig(config)
+	// Local ui.parse offload (ONNX Runtime on this machine's CPU/Intel iGPU
+	// instead of the device's NPU) and the AI Vision live overlay share the
+	// same ONNX models -- deliberately NOT loaded here at boot even if
+	// LocalUIParseEnabled was left persisted true from a previous session;
+	// see api.LazyInitLocalUIParse's doc comment for why. Loading is
+	// triggered on demand instead, from the AI Vision checkbox
+	// (service.SetAIVisionEnabled) or the Scripts&AI tab's "Local models"
+	// toggle (scripts_tab_widget.go's applyLocalUIParseSetting).
 
 	gui.SetAppVersion(version)
 	view.SetAppVersion(version)

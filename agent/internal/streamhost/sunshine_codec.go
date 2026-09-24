@@ -229,11 +229,15 @@ func (b *sunshineBackend) SupportedVideoCodecs(adminPort int) []string {
 	flags, ok := fetchServerCodecFlags(adminPort)
 	codecs := codecsFromFlags(flags, ok)
 
-	b.supportedCodecsCache.mu.Lock()
-	b.supportedCodecsCache.codecs = codecs
-	b.supportedCodecsCache.flags = flags
-	b.supportedCodecsCache.fetchedAt = time.Now()
-	b.supportedCodecsCache.mu.Unlock()
+	// Never cache the h264-only fallback of a failed query -- see
+	// rustshineBackend.SupportedVideoCodecs.
+	if ok {
+		b.supportedCodecsCache.mu.Lock()
+		b.supportedCodecsCache.codecs = codecs
+		b.supportedCodecsCache.flags = flags
+		b.supportedCodecsCache.fetchedAt = time.Now()
+		b.supportedCodecsCache.mu.Unlock()
+	}
 	return codecs
 }
 

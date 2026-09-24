@@ -5,6 +5,7 @@ package view
 // and the shared app footer (busy spinner + version).
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"strings"
@@ -50,7 +51,13 @@ var (
 	scriptsCopyIconSVG      = fyne.NewStaticResource("scripts-copy.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`))
 )
 
-// ScriptsMCPData is the left-column MCP proxy card.
+// ScriptsMCPData is the left-column MCP proxy card. WebBridge selects
+// between two entirely different cards, not just different copy: desktop
+// (WebBridge==false) can run a local HTTP listener an MCP client dials
+// directly (MCPProxy, URL/Running/OnToggle below); the wasm/browser build
+// (WebBridge==true) never can (see newScriptsMCPCardWebBridge's doc
+// comment), so it shows a download-the-bridge-script + copy-able launcher
+// config flow instead, using the WebBridge* fields below.
 type ScriptsMCPData struct {
 	URL       string
 	Running   bool
@@ -59,6 +66,15 @@ type ScriptsMCPData struct {
 	OnToggle  func()
 	OnCopy    func()
 	OnLocalUI func(bool)
+
+	// WebBridge fields -- see the type doc comment. Unused/zero-valued
+	// whenever WebBridge is false.
+	WebBridge          bool
+	BridgeConnected    bool
+	BridgeConfigJSON   string
+	OnToggleBridge     func()
+	OnCopyBridgeConfig func()
+	OnDownloadBridge   func()
 }
 
 // ScriptTableRow is one automation-script row.
@@ -300,6 +316,9 @@ func newScriptsCreateButton(label string, onTap func(), enabled bool) *iconChrom
 // NewScriptsMCPCard is a Connections-grid card: status + badge, endpoint
 // stats box, local-models toggle, Start/Stop.
 func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
+	if data.WebBridge {
+		return newScriptsMCPCardWebBridge(data)
+	}
 	running := data.Running
 	statusDot := canvas.NewCircle(design.ColorBorder)
 	if running {
@@ -315,17 +334,7 @@ func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
 	chips := NewInset(newConnectionCardChipsRow(i18n.Current.ScriptsLocalEndpoint, "", design.ColorConnectionBadgeText), 0, 0, 4, 8)
 
 	url := strings.TrimSpace(data.URL)
-	if url == "" {
-		url = "none"
-	}
-	if IsMobile() && url != "none" && len(url) > 28 {
-		url = url[:14] + "..." + url[len(url)-10:]
-	}
-	urlColor := color.Color(scriptsMCPURLColor)
-	if url == "none" {
-		urlColor = design.ColorTextMuted
-	}
-	statsBox := newScriptsMCPStatsBox(url, urlColor, data.OnCopy)
+	statsBox := newScriptsMCPStatsBox(url, data.OnCopy)
 
 	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
 	dividerLine := canvas.NewRectangle(dividerColor)
@@ -404,14 +413,83 @@ func newScriptsMCPStateBadge(running bool) fyne.CanvasObject {
 	return container.NewCenter(chip)
 }
 
-func newScriptsMCPStatsBox(url string, urlColor color.Color, onCopy func()) fyne.CanvasObject {
-	labelText := canvas.NewText("ENDPOINT", color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
+// MCPConfigJSON returns the ready-to-paste MCP client config block for
+// this proxy's endpoint. mcp_proxy.go's /api/mcp already answers a plain
+// synchronous POST per call (Streamable HTTP transport, no SSE stream), so
+// any MCP client that supports a "url" server entry can point straight at
+// it -- no bridge process needed on desktop, unlike the wasm build, which
+// can't run a listener at all (see MCPBridgeConfigJSON/
+// newScriptsMCPCardWebBridge for that platform's own instructions).
+func MCPConfigJSON(url string) string {
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"usbridge": map[string]any{
+				"url": url,
+			},
+		},
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"mcpServers":{"usbridge":{"url":%q}}}`, url)
+	}
+	return string(b)
+}
+
+// MCPBridgeConfigJSON returns the Claude-Desktop-style config block for the
+// wasm build's MCP setup: a "command"+"args" entry that spawns bridge.cjs
+// over stdio (the transport every MCP client already supports, no "url"
+// support needed) with the local WS port/pairing token it needs to relay
+// through -- see newScriptsMCPCardWebBridge's doc comment for the full
+// picture. bridgePath is left as an obvious placeholder: this page has no
+// way to know where the user actually saved the file they just downloaded
+// (see OnDownloadBridge), so the card's own copy tells them to fill it in.
+func MCPBridgeConfigJSON(token string, port int) string {
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"usbridge-browser": map[string]any{
+				"command": "node",
+				"args": []string{
+					"/path/to/bridge.cjs",
+					"--port", fmt.Sprintf("%d", port),
+					"--token", token,
+				},
+			},
+		},
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"mcpServers":{"usbridge-browser":{"command":"node","args":["/path/to/bridge.cjs","--port","%d","--token",%q]}}}`, port, token)
+	}
+	return string(b)
+}
+
+// newScriptsMCPStatsBox renders the copy-able MCP client config block --
+// the JSON a user pastes straight into Claude Desktop's (or any other MCP
+// client's) config file -- instead of the bare endpoint URL this used to
+// show on its own, which worked but left the user to hand-wrap it into the
+// right JSON shape themselves. url=="" (proxy never started, or no device
+// connected -- see ScriptsMCPData.URL's callers) shows a muted placeholder
+// line instead of a JSON block with an empty url in it.
+func newScriptsMCPStatsBox(url string, onCopy func()) fyne.CanvasObject {
+	labelText := canvas.NewText("MCP CONFIG", color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
 	labelText.TextSize = 10
 	labelText.TextStyle.Monospace = true
 
-	valueText := canvas.NewText(url, urlColor)
-	valueText.TextSize = 9
-	valueText.TextStyle.Monospace = true
+	var valueRows []fyne.CanvasObject
+	if url == "" {
+		placeholder := canvas.NewText("(start the proxy to get a config)", design.ColorTextMuted)
+		placeholder.TextSize = 9
+		placeholder.TextStyle.Monospace = true
+		valueRows = append(valueRows, placeholder)
+	} else {
+		for _, line := range strings.Split(MCPConfigJSON(url), "\n") {
+			t := canvas.NewText(line, scriptsMCPURLColor)
+			t.TextSize = 9
+			t.TextStyle.Monospace = true
+			valueRows = append(valueRows, t)
+		}
+	}
+	valueBlock := container.New(&tightStatsVBoxLayout{Gap: 1}, valueRows...)
 
 	copyBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
@@ -425,8 +503,8 @@ func newScriptsMCPStatsBox(url string, urlColor color.Color, onCopy func()) fyne
 		CornerRadius: 6,
 	})
 
-	valueRow := container.NewBorder(nil, nil, nil, copyBtn, valueText)
-	rows := container.New(&tightStatsVBoxLayout{Gap: 4}, labelText, valueRow)
+	labelRow := container.NewBorder(nil, nil, nil, copyBtn, labelText)
+	rows := container.New(&tightStatsVBoxLayout{Gap: 4}, labelRow, valueBlock)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 	bg.CornerRadius = 6

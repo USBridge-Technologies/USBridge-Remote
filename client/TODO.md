@@ -26,3 +26,22 @@ See [docs/GAMEPADS.md](docs/GAMEPADS.md) for what is supported today.
   (`razer_raiju_..._(interface_3)`, `oem*.inf`) hides the pad from HID/WinMM/XInput
   and is not rolled back when the device is released. Passthrough should restore the
   original binding itself.
+
+## Keyboard input modes
+
+The Control footer has a keyboard input mode menu: **Keys** (raw keys by physical
+position, the host layout decides) and **Characters** (the client layout decides,
+the character is typed on the host). Done and tested for a Windows host; the rest:
+
+- **Characters mode for Linux and macOS hosts through the clipboard.** Today ASCII
+  goes as VK+Shift (right only while the host layout is Latin) and anything else
+  through Sunshine `unicode()` (on Linux the IBus Ctrl+Shift+U trick, which most
+  non-GTK apps don't understand). Type through the host clipboard instead: send
+  the text over the clipboard channel, press Ctrl+V (Cmd+V on macOS), put the
+  previous host clipboard back. Batch fast typing into one paste.
+- **Check on a real macOS client:** the double-typed `0`/`8`/`A`/`S`/`E`/`R` fix
+  (`input.NormalizeScanCode`, kVK table) and Keys mode. Only unit-tested.
+- **Check on a real Linux client:** Keys mode and the xkb navigation-cluster table.
+- **Web (wasm) client and mobile hardware keyboards** have no Keys mode yet.
+- **Clipboard menu on mobile.** Send/Get are in the desktop footer only; mobile
+  keeps just the auto-sync toggle in the mouse menu.

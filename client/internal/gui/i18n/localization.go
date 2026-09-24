@@ -505,6 +505,13 @@ type LocalizedStrings struct {
 	BackupFlashDisconnectSnapshotConfirm string // toast: mounting backup flash will unmount the snapshot
 	ShowMouseCursor                      string // "Show Mouse" (show cursor in captured video)
 	ClipboardSyncEnabled                 string // "Shared Clipboard" (toggle clipboard sync with the agent)
+	ClipboardSend                        string // clipboard menu: push the local clipboard to the host now
+	ClipboardReceive                     string // clipboard menu: pull the host clipboard to this device now
+	ClipboardAutoSync                    string // clipboard menu: automatic two-way sync toggle
+	ClipboardNotConnected                string // clipboard menu error: sync channel not connected
+	ClipboardEmpty                       string // clipboard menu error: nothing to transfer
+	KeyboardInputKeys                    string // keyboard input mode: raw keys, host layout decides
+	KeyboardInputText                    string // keyboard input mode: characters typed with the client layout
 	EnableVSync                          string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
 	EnableVSyncHint                      string // description shown under the VSync checkbox
 	EnableVSyncBadge                     string // small badge next to the VSync title, e.g. "RECOMMENDED"
@@ -1092,6 +1099,13 @@ func EN() *LocalizedStrings {
 		BackupFlashDisconnectSnapshotConfirm: "A snapshot is mounted. Mounting the backup flash will unmount it.",
 		ShowMouseCursor:                      "Show Mouse",
 		ClipboardSyncEnabled:                 "Shared Clipboard",
+		ClipboardSend:                        "Send Clipboard",
+		ClipboardReceive:                     "Get Clipboard",
+		ClipboardAutoSync:                    "Auto Sync (Both Ways)",
+		ClipboardNotConnected:                "Clipboard sync is not connected",
+		ClipboardEmpty:                       "Clipboard is empty",
+		KeyboardInputKeys:                    "Keys (Host Layout)",
+		KeyboardInputText:                    "Characters (Local Layout)",
 		EnableVSync:                          "VSync (Vertical Sync)",
 		EnableVSyncHint:                      "Synchronizes frame delivery with the host display's refresh rate to eliminate tearing during fast motion.",
 		EnableVSyncBadge:                     "Recommended",
@@ -1323,6 +1337,13 @@ func ES() *LocalizedStrings {
 	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
 	locale.ShowMouseCursor = "Mostrar ratón"
 	locale.ClipboardSyncEnabled = "Portapapeles compartido"
+	locale.ClipboardSend = "Enviar portapapeles"
+	locale.ClipboardReceive = "Obtener portapapeles"
+	locale.ClipboardAutoSync = "Sincronización automática"
+	locale.ClipboardNotConnected = "El portapapeles no está conectado"
+	locale.ClipboardEmpty = "El portapapeles está vacío"
+	locale.KeyboardInputKeys = "Teclas (distribución del host)"
+	locale.KeyboardInputText = "Caracteres (distribución local)"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
 	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Deseas conectarte a este servidor?\n\nElige una accion:"
@@ -1657,6 +1678,13 @@ func UKProper() *LocalizedStrings {
 	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
 	locale.ShowMouseCursor = "Показувати курсор"
 	locale.ClipboardSyncEnabled = "Спільний буфер обміну"
+	locale.ClipboardSend = "Передати буфер"
+	locale.ClipboardReceive = "Отримати буфер"
+	locale.ClipboardAutoSync = "Автосинхронізація (в обидва боки)"
+	locale.ClipboardNotConnected = "Буфер обміну не підключено"
+	locale.ClipboardEmpty = "Буфер обміну порожній"
+	locale.KeyboardInputKeys = "Клавіші (розкладка хоста)"
+	locale.KeyboardInputText = "Символи (локальна розкладка)"
 	locale.DeepLinkServerAddress = "Адреса сервера:"
 	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Хочете підключитися до цього сервера?\n\nВиберіть дію:"

@@ -4,6 +4,7 @@ package service
 
 import (
 	"image"
+	"math"
 	"strconv"
 	"sync"
 	"syscall/js"
@@ -20,96 +21,107 @@ func init() {
 	netGraphMetalClear = clearNetGraphWasmOverlay
 }
 
+// The HUD ticks at 10Hz (netGraphInterval) but getStats() is only polled at
+// 4Hz (webrtcweb's netGraphStatsPollInterval), so most ticks see the same
+// snapshot as the tick before. Diffing "since my last call" then read 0 on
+// those ticks and a burst on the next -- every counter on the WebRTC HUD
+// jumped between its real value and zero. Everything below works off the
+// last two *distinct* snapshots instead.
+var (
+	netGraphWasmMu   sync.Mutex
+	netGraphWasmPrev webrtcweb.NetGraphSnapshot
+	netGraphWasmCur  webrtcweb.NetGraphSnapshot
+)
+
+// netGraphWasmPair returns the two most recent distinct snapshots
+// (prev.At < cur.At), ok=false until two have arrived.
+func netGraphWasmPair() (prev, cur webrtcweb.NetGraphSnapshot, ok bool) {
+	snap, have := webrtcweb.LatestNetGraphSnapshot()
+	netGraphWasmMu.Lock()
+	defer netGraphWasmMu.Unlock()
+	if !have || !snap.Valid {
+		netGraphWasmPrev, netGraphWasmCur = webrtcweb.NetGraphSnapshot{}, webrtcweb.NetGraphSnapshot{}
+		return prev, cur, false
+	}
+	if snap.At.After(netGraphWasmCur.At) {
+		netGraphWasmPrev, netGraphWasmCur = netGraphWasmCur, snap
+	}
+	prev, cur = netGraphWasmPrev, netGraphWasmCur
+	return prev, cur, prev.Valid && cur.At.After(prev.At)
+}
+
+// netGraphWasmLerpU32 interpolates a cumulative counter between two
+// snapshots. Clamped at cur (never ahead of what was actually measured),
+// and restarting from cur when the next snapshot arrives keeps it
+// monotonic.
+func netGraphWasmLerpU32(prev, cur uint32, frac float64) uint32 {
+	if cur <= prev {
+		return cur
+	}
+	return prev + uint32(float64(cur-prev)*frac)
+}
+
 // netGraphWasmNetworkStats adapts webrtcweb's cumulative getStats()
-// snapshot (see WebRTCClient.StartNetGraphStatsPolling) into net_graph.go's
-// own cumulative-counter shape -- collectNetGraphSample diffs it into
-// per-tick deltas exactly like it already does for moonlight-common-c's
-// RTPVideoStats on every other platform. WebRTC has no FEC concept of its
-// own (loss recovery happens transparently via NACK/RTX inside the
-// RTCPeerConnection, never surfaced as separate "recovered" vs "failed"
-// counters) -- PacketCountFecFailed carries packetsLost instead, so the
-// HUD's loss% and FEC-row color severity still reflect real loss, just
-// without the recovered/failed split moonlight's own FEC gives on other
-// platforms. Called from net_graph.go's 100ms HUD tick, so this must never
-// block -- it only reads an atomically-stored snapshot, the actual
-// getStats() promise await happens on StartNetGraphStatsPolling's own
-// slower-interval goroutine.
+// snapshots into net_graph.go's own cumulative-counter shape --
+// collectNetGraphSample diffs it into per-tick deltas exactly like it
+// already does for moonlight-common-c's RTPVideoStats on every other
+// platform. The counters are replayed one poll interval late, linearly
+// interpolated from the previous snapshot to the latest, so each 100ms
+// tick gets its share of packets instead of 0-0-burst.
+//
+// WebRTC has no FEC concept of its own (loss recovery happens
+// transparently via NACK/RTX inside the RTCPeerConnection, never surfaced
+// as separate "recovered" vs "failed" counters) -- PacketCountFecFailed
+// carries packetsLost instead, so the HUD's loss% and FEC-row color
+// severity still reflect real loss, just without the recovered/failed split
+// moonlight's own FEC gives on other platforms. Called from net_graph.go's
+// 100ms HUD tick, so this must never block -- it only reads an
+// atomically-stored snapshot, the actual getStats() promise await happens
+// on StartNetGraphStatsPolling's own goroutine.
 func netGraphWasmNetworkStats() netGraphRawNetworkStats {
-	snap, ok := webrtcweb.LatestNetGraphSnapshot()
-	if !ok || !snap.Valid {
+	prev, cur, ok := netGraphWasmPair()
+	if !ok {
 		return netGraphRawNetworkStats{}
 	}
+	frac := float64(time.Since(cur.At)) / float64(cur.At.Sub(prev.At))
+	frac = math.Max(0, math.Min(1, frac))
 	return netGraphRawNetworkStats{
-		PacketCountVideo:     snap.PacketsReceived,
-		PacketCountFecFailed: snap.PacketsLost,
-		JitterMs:             snap.JitterMs,
-		RTTMs:                snap.RTTMs,
-		RTTValid:             snap.RTTValid,
+		PacketCountVideo:     netGraphWasmLerpU32(prev.PacketsReceived, cur.PacketsReceived, frac),
+		PacketCountFecFailed: netGraphWasmLerpU32(prev.PacketsLost, cur.PacketsLost, frac),
+		JitterMs:             cur.JitterMs,
+		RTTMs:                cur.RTTMs,
+		RTTValid:             cur.RTTValid,
 	}
 }
 
-// netGraphWasmRateMu guards the two rate trackers below -- separate
-// previous-sample state per hook since net_graph.go calls
-// netGraphRenderFPS and netGraphDecodeMs independently each tick, each
-// expected to return "the rate since MY last call", not a shared cursor.
-var (
-	netGraphWasmRateMu sync.Mutex
-
-	netGraphWasmPrevFrames   uint32
-	netGraphWasmPrevFramesAt time.Time
-
-	netGraphWasmPrevDecodeFrames uint32
-	netGraphWasmPrevDecodeMs     float64
-)
-
 // netGraphWasmRenderFPS derives a render-fps proxy from framesDecoded's
-// growth since the last call -- the DOM `<video>` overlay path
+// growth between the last two snapshots -- the DOM `<video>` overlay path
 // (video_widget_dom_overlay_wasm.go) never hands decoded frames through Go,
 // so framesDecoded (from getStats(), not a local frame counter) is the only
 // signal available here, same as every count this file reports.
 func netGraphWasmRenderFPS() float64 {
-	snap, ok := webrtcweb.LatestNetGraphSnapshot()
-	if !ok || !snap.Valid {
+	prev, cur, ok := netGraphWasmPair()
+	if !ok || cur.FramesDecoded < prev.FramesDecoded {
 		return 0
 	}
-	netGraphWasmRateMu.Lock()
-	defer netGraphWasmRateMu.Unlock()
-	now := time.Now()
-	prevFrames, prevAt := netGraphWasmPrevFrames, netGraphWasmPrevFramesAt
-	netGraphWasmPrevFrames, netGraphWasmPrevFramesAt = snap.FramesDecoded, now
-	if prevAt.IsZero() || snap.FramesDecoded < prevFrames {
-		return 0
-	}
-	dt := now.Sub(prevAt).Seconds()
-	if dt <= 0 {
-		return 0
-	}
-	return float64(snap.FramesDecoded-prevFrames) / dt
+	return float64(cur.FramesDecoded-prev.FramesDecoded) / cur.At.Sub(prev.At).Seconds()
 }
 
 // netGraphWasmDecodeMs derives average per-frame decode time from
 // totalDecodeTime's growth (a standard RTCInboundRtpStreamStats field, the
 // browser's own accumulated decode-time counter) divided by how many frames
-// decoded in that span -- the closest web equivalent to the native
-// platforms' own per-frame decode timer.
+// decoded between the last two snapshots -- the closest web equivalent to
+// the native platforms' own per-frame decode timer.
 func netGraphWasmDecodeMs() float64 {
-	snap, ok := webrtcweb.LatestNetGraphSnapshot()
-	if !ok || !snap.Valid {
+	prev, cur, ok := netGraphWasmPair()
+	if !ok || cur.FramesDecoded <= prev.FramesDecoded {
 		return 0
 	}
-	netGraphWasmRateMu.Lock()
-	defer netGraphWasmRateMu.Unlock()
-	prevFrames, prevMs := netGraphWasmPrevDecodeFrames, netGraphWasmPrevDecodeMs
-	netGraphWasmPrevDecodeFrames, netGraphWasmPrevDecodeMs = snap.FramesDecoded, snap.TotalDecodeTimeMs
-	if snap.FramesDecoded <= prevFrames {
-		return 0
-	}
-	frames := snap.FramesDecoded - prevFrames
-	dt := snap.TotalDecodeTimeMs - prevMs
+	dt := cur.TotalDecodeTimeMs - prev.TotalDecodeTimeMs
 	if dt < 0 {
 		return 0
 	}
-	return dt / float64(frames)
+	return dt / float64(cur.FramesDecoded-prev.FramesDecoded)
 }
 
 // ─────────────────────────────────────────────────────────────────────────

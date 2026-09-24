@@ -4,6 +4,7 @@ package localui
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"runtime"
 	"sync"
@@ -264,7 +265,18 @@ func (p *Parser) ParseIconsOnly(imgBytes []byte) (icons []Icon, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)
 	}
-	if original.W == 0 || original.H == 0 {
+	return p.parseIconsOnlyRGB(original)
+}
+
+func (p *Parser) ParseIconsOnlyRGBA(img *image.RGBA) (icons []Icon, err error) {
+	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		return nil, fmt.Errorf("empty image")
+	}
+	return p.parseIconsOnlyRGB(rgbFromRGBA(img))
+}
+
+func (p *Parser) parseIconsOnlyRGB(original *rgbImage) (icons []Icon, err error) {
+	if original == nil || original.W == 0 || original.H == 0 {
 		return nil, fmt.Errorf("decode image: empty result")
 	}
 	icons, err = p.runIconStage(original)
@@ -273,6 +285,15 @@ func (p *Parser) ParseIconsOnly(imgBytes []byte) (icons []Icon, err error) {
 	}
 	assignMarkIDs(icons, nil)
 	return icons, nil
+}
+
+func (p *Parser) ParseFastNearIconsStagedRGBA(img *image.RGBA, onTextBoxes func(boxes []Box)) (result *Result, err error) {
+	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		return nil, fmt.Errorf("empty image")
+	}
+	original := rgbFromRGBA(img)
+	_, result, err = p.parseRGB(original, false, nil, filterBoxesNearIcons, onTextBoxes)
+	return result, err
 }
 
 // runIconStage runs icon_detect (CLAHE+letterbox prep, inference, YOLO
@@ -307,17 +328,20 @@ func (p *Parser) runIconStage(original *rgbImage) ([]Icon, error) {
 }
 
 func (p *Parser) parse(imgBytes []byte, drawMarked bool, onIcons func(icons []Icon), textFilter func(icons []Icon, boxes []Box) []Box, onTextBoxes func(boxes []Box)) (markedPNG []byte, result *Result, err error) {
-	t0 := time.Now()
-
 	tDecode := time.Now()
 	original, err := decodeToRGB(imgBytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode image: %w", err)
 	}
-	if original.W == 0 || original.H == 0 {
+	debugf("decode PNG (%dx%d, %d bytes): %v", original.W, original.H, len(imgBytes), time.Since(tDecode))
+	return p.parseRGB(original, drawMarked, onIcons, textFilter, onTextBoxes)
+}
+
+func (p *Parser) parseRGB(original *rgbImage, drawMarked bool, onIcons func(icons []Icon), textFilter func(icons []Icon, boxes []Box) []Box, onTextBoxes func(boxes []Box)) (markedPNG []byte, result *Result, err error) {
+	t0 := time.Now()
+	if original == nil || original.W == 0 || original.H == 0 {
 		return nil, nil, fmt.Errorf("decode image: empty result")
 	}
-	debugf("decode PNG (%dx%d, %d bytes): %v", original.W, original.H, len(imgBytes), time.Since(tDecode))
 
 	res := &Result{ImageWidth: original.W, ImageHeight: original.H, Backend: backendLabel(p.accel)}
 

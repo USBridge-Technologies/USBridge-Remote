@@ -53,6 +53,9 @@ type WebRTCVideoClient struct {
 	// server's own --webrtc-bitrate-kbps ceiling", same as never calling
 	// SetBitrate at all.
 	bitrateKbps int
+	// videoMode: the codec picked in the video settings dialog -- see
+	// SetVideoMode.
+	videoMode string
 
 	onFrame        func(image.Image)
 	onStateChanged func(string)
@@ -136,6 +139,7 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	host := c.host
 	secret := c.apiSecret
 	bitrateKbps := c.bitrateKbps
+	videoMode := c.videoMode
 	c.mu.Unlock()
 	if host == "" {
 		return fmt.Errorf("webrtc video: no host set")
@@ -189,6 +193,7 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 
 	client := webrtcweb.NewWebRTCClient(baseURL, secret)
 	client.SetBitrateKbps(bitrateKbps)
+	client.SetVideoCodec(videoMode)
 	sessionID := uuid.NewString()
 
 	client.OnStateChange(func(state string) {
@@ -352,13 +357,12 @@ func (c *WebRTCVideoClient) UpdateHost(host string) {
 func (c *WebRTCVideoClient) UpdateVideoPort(port int)    {}
 func (c *WebRTCVideoClient) UpdateVideoUDPPort(port int) {}
 
-// SetVideoMode/SetExpectedVideoSize/SetFPS: real Moonlight stream-parameter
+// SetExpectedVideoSize/SetFPS: real Moonlight stream-parameter
 // negotiation (LiInitializeVideoCallbacks etc.) has no WebRTC equivalent
 // yet in this client -- Sunshine's own configured defaults apply for now.
 // Wiring these into the SDP offer (bandwidth hints) or a control-channel
 // message to the agent is a reasonable follow-up, not required for a
 // first working video path.
-func (c *WebRTCVideoClient) SetVideoMode(mode string)               {}
 func (c *WebRTCVideoClient) SetExpectedVideoSize(width, height int) {}
 func (c *WebRTCVideoClient) SetFPS(fps int)                         {}
 
@@ -390,12 +394,31 @@ func (c *WebRTCVideoClient) SetColor444(enabled bool) {}
 // also moonlight-common-c ANNOUNCE-specific, no WebRTC equivalent.
 func (c *WebRTCVideoClient) SetHdr(enabled bool) {}
 
-// NegotiatedVideoCodecName: the browser's RTCPeerConnection negotiates
-// this internally (via the SDP answer's codec preference order); exposing
-// which one it actually picked would need reading back
-// RTCRtpReceiver.getParameters() or getStats() from JS -- not implemented
-// yet, so this reports "unknown" rather than a guess.
-func (c *WebRTCVideoClient) NegotiatedVideoCodecName() (string, bool) { return "", false }
+// SetVideoMode stores the codec picked in the video settings dialog
+// (models.VideoModeH264/H265) for the next ConnectToMoonlight, sent as the
+// /webrtc/offer request's codec field -- rustshine streams that codec when
+// the browser and host both support it, the same way the classic path
+// honors the RTSP video format. Other modes (jpeg_rtp, raw_yuyv) have no
+// WebRTC meaning and are sent as-is; rustshine treats anything but h265 as
+// H.264.
+func (c *WebRTCVideoClient) SetVideoMode(mode string) {
+	c.mu.Lock()
+	c.videoMode = mode
+	c.mu.Unlock()
+}
+
+// NegotiatedVideoCodecName reports the codec rustshine's SDP answer actually
+// selected for this session (see webrtcweb.answerVideoCodec) -- the
+// equivalent of the classic path's dr_setup NegotiatedVideoFormat.
+func (c *WebRTCVideoClient) NegotiatedVideoCodecName() (string, bool) {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil || !c.connected.Load() {
+		return "", false
+	}
+	return client.NegotiatedVideoCodec()
+}
 
 // SupportsNativeFullscreen/native-fullscreen controls: the browser build
 // has no OS-level fullscreen window of its own the way desktop/mobile
