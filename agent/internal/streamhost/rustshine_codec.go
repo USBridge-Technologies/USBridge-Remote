@@ -116,7 +116,7 @@ func (b *rustshineBackend) HdrStatus() (active bool, available bool) {
 }
 
 // VirtualDisplaySupported reports whether this backend supports native
-// virtual displays: Windows (SudoVDA), macOS (CGVirtualDisplay), and Linux
+// virtual displays: Windows (MttVDD, or SudoVDA), macOS (CGVirtualDisplay), and Linux
 // desktop builds (the in-tree vkms kernel module -- see rust-shine's
 // virtual_display::linux doc comment). The desktop Linux AppImage/deb this
 // agent ever stages is always built with the "desktop" feature (KMS

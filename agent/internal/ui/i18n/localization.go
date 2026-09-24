@@ -33,6 +33,7 @@ type LocalizedStrings struct {
 	GrantSuffix          string
 	PermGrant            string
 	PermGranted          string
+	PermDownload         string
 	AutostartInfo        string
 	AutostartAtBoot      string
 	AutostartRebootHint  string
@@ -293,6 +294,7 @@ func EN() *LocalizedStrings {
 		GrantSuffix:          " · Grant",
 		PermGrant:            "Grant",
 		PermGranted:          "Granted",
+		PermDownload:         "Download",
 		AutostartInfo:        "Autostart entry",
 		AutostartAtBoot:      "Autostart at Boot",
 		AutostartRebootHint:  "(Windows restart required)",
@@ -504,6 +506,7 @@ func ES() *LocalizedStrings {
 	locale.GrantSuffix = " · Conceder"
 	locale.PermGrant = "Conceder"
 	locale.PermGranted = "Concedido"
+	locale.PermDownload = "Descargar"
 	locale.AutostartInfo = "Entrada de inicio automatico"
 	locale.AutostartAtBoot = "Inicio automatico"
 	locale.AutostartRebootHint = "(se requiere reinicio de Windows)"
@@ -701,6 +704,7 @@ func UK() *LocalizedStrings {
 	locale.GrantSuffix = " · Надати"
 	locale.PermGrant = "Надати"
 	locale.PermGranted = "Надано"
+	locale.PermDownload = "Завантажити"
 	locale.AutostartInfo = "Запис автозапуску"
 	locale.AutostartAtBoot = "Автозапуск"
 	locale.AutostartRebootHint = "(потрібен перезапуск Windows)"

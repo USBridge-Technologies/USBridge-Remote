@@ -718,16 +718,17 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 // next tick, no separate "installed" signal needed.
 func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Status) {
 	if w.usbAccessCheck != nil {
-		// Always listed on Linux (not license-hidden): tick when the polkit
-		// grant is in place, active Grant button otherwise.
+		// Always listed on Linux/Windows (not license-hidden): tick when
+		// the grant/driver is in place, active Grant/Download button
+		// otherwise.
 		w.usbAccessCheck.Show()
-		w.usbAccessCheck.SetChecked(usb.AttachGranted)
+		w.usbAccessCheck.SetChecked(usbPermGranted(runtime.GOOS, usb, usbpass.USBIPDriverInstalled))
 	}
 	if w.vdisplayAccessCheck != nil {
 		w.vdisplayAccessCheck.SetChecked(vdisplay.AccessGranted())
 	}
 	if w.usbDriverRow != nil {
-		if usb.ConsentGiven && usb.Available && !usb.VhciDriver {
+		if showUSBDriverRow(runtime.GOOS, usb) {
 			w.usbDriverRow.Show()
 		} else {
 			w.usbDriverRow.Hide()
@@ -1065,9 +1066,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	w.usbDriverBtn = newIconActionButton(usbDriverLabel, assets.GitHubIcon, func() {
 		if runtime.GOOS == "windows" {
-			if parsed, err := url.Parse("https://github.com/vadimgrn/usbip-win2/releases/latest"); err == nil {
-				_ = w.app.OpenURL(parsed)
-			}
+			w.openUSBIPDriverDownload()
 			return
 		}
 		if w.token == nil {
@@ -1093,10 +1092,19 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.usbDriverRow = newStatusRow(usbDriverTitle, w.usbDriverBtn)
 	w.usbDriverRow.Hide()
 
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
 		// Same chip as Input Control / Screen Capture: green check when
-		// granted, "· Grant" tap target otherwise.
+		// granted, "· Grant" tap target otherwise. On Windows what's missing
+		// is a driver, not a permission, so the button reads "Download":
+		// USB opens usbip-win2's release page (it ships its own signed
+		// installer and UAC flow), Virtual Display runs the MttVDD install
+		// (vdisplay.GrantAccess, one UAC prompt).
 		w.usbAccessCheck = newPermStatusChip(loc().USBAccess, func() {
+			if runtime.GOOS == "windows" {
+				w.openUSBIPDriverDownload()
+				w.usbAccessCheck.requestDone()
+				return
+			}
 			if w.token == nil {
 				w.usbAccessCheck.requestDone()
 				return
@@ -1128,6 +1136,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 		})
 		w.vdisplayAccessCheck.SetChecked(vdisplay.AccessGranted())
 		permStatusRow.Add(w.vdisplayAccessCheck)
+		w.usbAccessCheck.SetChecked(usbPermGranted(runtime.GOOS, usbpass.Status{}, usbpass.USBIPDriverInstalled))
+		w.refreshPermRequestLabels()
 	}
 
 	permRule := canvas.NewRectangle(design.ColorDivider)
@@ -1764,6 +1774,7 @@ func (w *Window) applyLanguage() {
 	if w.vdisplayAccessCheck != nil {
 		w.vdisplayAccessCheck.SetBaseLabel(c.VirtualDisplayAccess)
 	}
+	w.refreshPermRequestLabels()
 	w.refreshAutostartChrome()
 
 	if w.gpuClockLang != nil {
