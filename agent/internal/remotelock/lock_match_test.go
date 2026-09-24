@@ -35,4 +35,7 @@ func TestIsVirtualInput_UsbridgeNames(t *testing.T) {
 	if isVirtualInput("AT Translated Set 2 keyboard", 0x1, 0x1) {
 		t.Fatal("real laptop keyboard must not be grabbed")
 	}
+	if isVirtualInput("usbridge-remotelock-relay", 0x1234, 0x10c4) {
+		t.Fatal("motion relay must not be grabbed (feedback loop)")
+	}
 }

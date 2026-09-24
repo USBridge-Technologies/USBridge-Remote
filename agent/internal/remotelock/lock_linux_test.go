@@ -4,6 +4,35 @@ package remotelock
 
 import "testing"
 
+func TestDropFilteredEvent_MatchesWinMacPolicy(t *testing.T) {
+	// Buttons / keys always drop.
+	if !dropFilteredEvent(evKey, 0x110) { // BTN_LEFT
+		t.Fatal("BTN_LEFT must drop")
+	}
+	if !dropFilteredEvent(evKey, 30) { // KEY_A
+		t.Fatal("KEY_A must drop")
+	}
+	// Wheel drops; pointer motion must pass (otherwise the cursor sticks).
+	if !dropFilteredEvent(evRel, relWheel) {
+		t.Fatal("REL_WHEEL must drop")
+	}
+	if !dropFilteredEvent(evRel, relHWheel) {
+		t.Fatal("REL_HWHEEL must drop")
+	}
+	if dropFilteredEvent(evRel, 0) { // REL_X
+		t.Fatal("REL_X must pass")
+	}
+	if dropFilteredEvent(evRel, 1) { // REL_Y
+		t.Fatal("REL_Y must pass")
+	}
+	if dropFilteredEvent(evAbs, absX) {
+		t.Fatal("ABS_X must pass")
+	}
+	if dropFilteredEvent(evSyn, 0) {
+		t.Fatal("SYN_REPORT must pass")
+	}
+}
+
 func withFakes(t *testing.T, down *bool) (grabs *[]bool) {
 	t.Helper()
 	var calls []bool

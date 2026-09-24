@@ -60,6 +60,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -68,6 +69,34 @@ import (
 
 // EVIOCGRAB = _IOW('E', 0x90, int) on linux/amd64.
 const eviocgrab = 0x40044590
+
+// input_event / uinput bits matching agent/internal/input on linux/{amd64,arm64}.
+const (
+	evSyn = 0x00
+	evKey = 0x01
+	evRel = 0x02
+	evAbs = 0x03
+
+	relWheel       = 0x08
+	relHWheel      = 0x06
+	relWheelHiRes  = 0x0b
+	relHWheelHiRes = 0x0c
+
+	absX = 0x00
+	absY = 0x01
+
+	uiDevCreate = 0x5501
+	uiSetEvbit  = 0x40045564
+	uiSetRelbit = 0x40045566
+	uiSetAbsbit = 0x40045567
+	uiDevSetup  = 0x405c5503
+	uiAbsSetup  = 0x401c5504
+
+	busUsb = 0x03
+
+	// Must not match isVirtualInput name patterns or we grab our own relay.
+	relayDeviceName = "usbridge-remotelock-relay"
+)
 
 var x11Window atomic.Uintptr
 
@@ -79,6 +108,43 @@ type grabbedDev struct {
 	path    string
 	fd      int
 	grabbed bool
+}
+
+// inputEvent matches struct input_event on 64-bit Linux (24 bytes).
+type inputEvent struct {
+	Sec   uint64
+	Usec  uint64
+	Type  uint16
+	Code  uint16
+	Value int32
+}
+
+type inputID struct {
+	Bustype uint16
+	Vendor  uint16
+	Product uint16
+	Version uint16
+}
+
+type uinputSetup struct {
+	ID           inputID
+	Name         [80]byte
+	FfEffectsMax uint32
+}
+
+type inputAbsinfo struct {
+	Value      int32
+	Minimum    int32
+	Maximum    int32
+	Fuzz       int32
+	Flat       int32
+	Resolution int32
+}
+
+type uinputAbsSetup struct {
+	Code    uint16
+	_       [2]byte
+	Absinfo inputAbsinfo
 }
 
 var (
@@ -111,7 +177,7 @@ func startLinuxLocked() {
 	linuxActive = true
 	stop := linuxStop
 	go linuxLoop(stop)
-	log.Printf("[remotelock] grabbing virtual evdev devices while the pointer is over this window")
+	log.Printf("[remotelock] filtering virtual evdev buttons/keys over this window (motion still passes)")
 }
 
 func stopLinuxLocked() {
@@ -133,22 +199,34 @@ func linuxLoop(stop <-chan struct{}) {
 	}
 	defer C.XCloseDisplay(dpy)
 
+	relay, err := openMotionRelay()
+	if err != nil {
+		// Grabbing without a relay freezes the remote pointer (EVIOCGRAB
+		// swallows REL/ABS). Fail open: leave remote input alone.
+		log.Printf("[remotelock] motion relay uinput unavailable (%v) — lock disabled this session", err)
+		<-stop
+		return
+	}
+	defer relay.Close()
+
 	var devs []*grabbedDev
 	defer func() { closeDevs(devs) }()
 	lastScan := time.Time{}
 	loggedOpenFail := map[string]bool{}
 
-	ticker := time.NewTicker(40 * time.Millisecond)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-stop:
 			ungrabAll(devs)
 			return
-		case <-ticker.C:
+		default:
 		}
 		if !isArmed() {
 			ungrabAll(devs)
+			if !sleepOrStop(stop, 40*time.Millisecond) {
+				ungrabAll(devs)
+				return
+			}
 			continue
 		}
 		if time.Since(lastScan) > 2*time.Second {
@@ -158,6 +236,37 @@ func linuxLoop(stop <-chan struct{}) {
 		xid := x11Window.Load()
 		over := xid != 0 && C.usbridgePointerOverWindow(dpy, C.ulong(xid)) != 0
 		setGrab(devs, over)
+		if !over {
+			if !sleepOrStop(stop, 40*time.Millisecond) {
+				ungrabAll(devs)
+				return
+			}
+			continue
+		}
+		// Cursor is over the agent window: grab is exclusive, so drain often
+		// and re-inject motion or the remote pointer cannot leave the window.
+		until := time.Now().Add(40 * time.Millisecond)
+		for time.Now().Before(until) {
+			select {
+			case <-stop:
+				ungrabAll(devs)
+				return
+			default:
+			}
+			drainAndFilter(devs, relay)
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
+func sleepOrStop(stop <-chan struct{}, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-stop:
+		return false
+	case <-t.C:
+		return true
 	}
 }
 
@@ -217,15 +326,12 @@ func setGrab(devs []*grabbedDev, on bool) {
 	}
 }
 
-// evdevKeyBytes is the size of the EVIOCGKEY bitmap we read: 768 bits
-// covers every KEY_*/BTN_* code (0..0x2ff), i.e. all keys and mouse buttons.
+// EVIOCGKEY bitmap: 768 bits covers KEY_*/BTN_* 0..0x2ff.
 const evdevKeyBytes = 96
 
 // eviocgkey = EVIOCGKEY(evdevKeyBytes) = _IOC(_IOC_READ, 'E', 0x18, 96).
 const eviocgkey = 0x80000000 | evdevKeyBytes<<16 | 'E'<<8 | 0x18
 
-// Indirection points so tests can drive grab()/ungrab() without a real
-// evdev node.
 var (
 	grabIoctl = func(fd int, on bool) error {
 		v := 0
@@ -237,8 +343,6 @@ var (
 	keysDownFn = keysDown
 )
 
-// keysDown reports whether any key or button is currently held on the
-// evdev device behind fd. On error it reports true: when in doubt, don't grab.
 func keysDown(fd int) bool {
 	var buf [evdevKeyBytes]byte
 	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(eviocgkey), uintptr(unsafe.Pointer(&buf[0])))
@@ -260,11 +364,9 @@ func anyBitSet(b []byte) bool {
 // grab takes EVIOCGRAB on d, but never while a key or button is held.
 //
 // Why: the compositor has already seen the press. Once we grab, the
-// matching release goes only to us (we never read it), so the compositor
-// keeps the button "down" forever -- a stuck mouse button/key that nothing
-// but restarting the device clears (the kernel's own key state is clean, so
-// it is invisible from evdev). Deferring is safe: setGrab retries every
-// tick, so the grab lands as soon as the button is released.
+// matching release goes only to us (we never re-inject KEY), so the
+// compositor keeps the button "down" forever. Deferring is safe: setGrab
+// retries every tick.
 func grab(d *grabbedDev) {
 	if d.grabbed {
 		return
@@ -292,4 +394,116 @@ func virtualEventPaths() []string {
 		return nil
 	}
 	return eventPathsFromDevices(string(data))
+}
+
+// dropFilteredEvent is true for the same class Windows/macOS drop: buttons,
+// keys, and wheel — not pointer motion. EVIOCGRAB alone would swallow REL/ABS
+// too and pin the remote cursor on the agent window.
+func dropFilteredEvent(evType, code uint16) bool {
+	switch evType {
+	case evKey:
+		return true
+	case evRel:
+		switch code {
+		case relWheel, relHWheel, relWheelHiRes, relHWheelHiRes:
+			return true
+		}
+	}
+	return false
+}
+
+func drainAndFilter(devs []*grabbedDev, relay *os.File) {
+	var buf [unsafe.Sizeof(inputEvent{})]byte
+	for _, d := range devs {
+		if !d.grabbed {
+			continue
+		}
+		for {
+			n, err := unix.Read(d.fd, buf[:])
+			if n == 0 && err == nil {
+				break
+			}
+			if err != nil {
+				if err == unix.EAGAIN || err == unix.EWOULDBLOCK {
+					break
+				}
+				break
+			}
+			if n != len(buf) {
+				continue
+			}
+			ev := *(*inputEvent)(unsafe.Pointer(&buf[0]))
+			if dropFilteredEvent(ev.Type, ev.Code) {
+				continue
+			}
+			if _, err := relay.Write(buf[:]); err != nil {
+				log.Printf("[remotelock] motion relay write failed: %v — releasing grabs", err)
+				ungrabAll(devs)
+				return
+			}
+		}
+	}
+}
+
+func openMotionRelay() (*os.File, error) {
+	f, err := os.OpenFile("/dev/uinput", os.O_WRONLY|os.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	fd := f.Fd()
+	for _, bit := range []int{evRel, evAbs} {
+		if err := ioctlInt(fd, uiSetEvbit, bit); err != nil {
+			f.Close()
+			return nil, err
+		}
+	}
+	for code := 0; code < 16; code++ {
+		_ = ioctlInt(fd, uiSetRelbit, code)
+	}
+	for _, abs := range []int{absX, absY} {
+		if err := ioctlInt(fd, uiSetAbsbit, abs); err != nil {
+			f.Close()
+			return nil, err
+		}
+	}
+	setup := uinputSetup{
+		// Distinct from Sunshine's 0xbeef/0xdead so isVirtualInput skips us.
+		ID: inputID{Bustype: busUsb, Vendor: 0x1234, Product: 0x10c4, Version: 1},
+	}
+	copy(setup.Name[:], relayDeviceName)
+	if err := ioctlPtr(fd, uiDevSetup, unsafe.Pointer(&setup)); err != nil {
+		f.Close()
+		return nil, err
+	}
+	for _, axis := range []uinputAbsSetup{
+		{Code: absX, Absinfo: inputAbsinfo{Maximum: 65535}},
+		{Code: absY, Absinfo: inputAbsinfo{Maximum: 65535}},
+	} {
+		if err := ioctlPtr(fd, uiAbsSetup, unsafe.Pointer(&axis)); err != nil {
+			f.Close()
+			return nil, err
+		}
+	}
+	if err := ioctlInt(fd, uiDevCreate, 0); err != nil {
+		f.Close()
+		return nil, err
+	}
+	time.Sleep(50 * time.Millisecond)
+	return f, nil
+}
+
+func ioctlInt(fd uintptr, req uintptr, val int) error {
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(val))
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func ioctlPtr(fd uintptr, req uintptr, ptr unsafe.Pointer) error {
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(ptr))
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }

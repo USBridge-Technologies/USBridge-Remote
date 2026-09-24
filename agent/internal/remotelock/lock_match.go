@@ -55,10 +55,14 @@ func parseHexField(line, key string) uint16 {
 }
 
 func isVirtualInput(name string, vendor, product uint16) bool {
+	n := strings.ToLower(name)
+	// Our own motion-relay device must never be grabbed (feedback loop).
+	if strings.Contains(n, "usbridge-remotelock-relay") {
+		return false
+	}
 	if vendor == 0xbeef && product == 0xdead {
 		return true
 	}
-	n := strings.ToLower(name)
 	for _, p := range []string{
 		"mouse passthrough",
 		"keyboard passthrough",

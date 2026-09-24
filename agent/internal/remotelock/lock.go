@@ -13,8 +13,10 @@
 // no such flag — uinput looks like hardware to X11/Wayland — so we EVIOCGRAB
 // the streamer's virtual evdev nodes (Sunshine "Mouse passthrough" /
 // "Keyboard passthrough", plus this agent's own usbridge-* devices) while
-// the pointer is over our window. No session detector is required: with
-// nobody connected those devices are idle or absent.
+// the pointer is over our window, drop buttons/keys/wheel, and re-inject
+// motion through a short-lived uinput relay so the remote cursor can still
+// leave the window. No session detector is required: with nobody connected
+// those devices are idle or absent.
 package remotelock
 
 import "sync/atomic"
