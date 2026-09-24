@@ -155,11 +155,12 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	}
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	// AbsolutePositionForObject is unreliable on iOS (may return wrong positive values
-	// before layout settles). Use canvasH - szMain.Height directly — it equals the
-	// combined height of the tab bar + safe area and is always correct.
-	topOffset := canvasH - szMain.Height
-	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
+	// AbsolutePositionForObject is unreliable on iOS (may return wrong positive
+	// values before layout settles). Derive Y from canvas/container sizes, but
+	// subtract Control chrome — canvasH−szMain alone is header+footer and the
+	// overlay would cover the bottom bar after Metal starts.
+	topOffset := videoTopOffsetFromCanvas(szMain.Height, canvasH)
+	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f,ch=%.0f", canvasH, szMain.Height, topOffset, videoChromeBelow()))
 
 	if ime := getImeExpandHeightDp(); ime > 0 {
 		// Clip = area above the system IME. Special-keys take a top inset so
@@ -173,10 +174,11 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 
 	szVideo := vw.touchpadWrapper.Size()
 	keysH := vw.specialKeysOverlayHeightDp()
-	if keysH > 0 && szVideo.Height > keysH {
-		return 0, topOffset + keysH, szVideo.Width, szVideo.Height - keysH
+	clipH := videoClipHeightFromCanvas(topOffset, szVideo.Height, canvasH)
+	if keysH > 0 && clipH > keysH {
+		return 0, topOffset + keysH, szVideo.Width, clipH - keysH
 	}
-	return 0, topOffset, szVideo.Width, szVideo.Height
+	return 0, topOffset, szVideo.Width, clipH
 }
 
 // updateMetalVideoFrame repositions the Metal overlay:
@@ -386,7 +388,7 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	}
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - szMain.Height
+	topOffset := videoTopOffsetFromCanvas(szMain.Height, canvasH)
 	// When the keyboard is open, Fyne shrinks szMain by ~keyboardHeight, so topOffset
 	// grows to tabBarH + keyboardH. Subtract the IME height to recover the real tab bar Y.
 	if ime := getImeExpandHeightDp(); ime > 0 {
@@ -395,7 +397,7 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 			topOffset = 0
 		}
 	}
-	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,ime=%.0f,tO=%.0f", canvasH, szMain.Height, getImeExpandHeightDp(), topOffset))
+	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,ime=%.0f,tO=%.0f,ch=%.0f", canvasH, szMain.Height, getImeExpandHeightDp(), topOffset, videoChromeBelow()))
 
 	// Apply zoom and pan coordinates directly to the native overlay frame!
 	// This naturally zooms and crops the CALayer.
@@ -406,7 +408,8 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	// The video container (touchpadWrapper) size dynamically shrinks when the virtual
 	// keyboard panel appears at the bottom.
 	szVideo := vw.touchpadWrapper.Size()
-	return 0, topOffset, szVideo.Width, szVideo.Height
+	clipH := videoClipHeightFromCanvas(topOffset, szVideo.Height, canvasH)
+	return 0, topOffset, szVideo.Width, clipH
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

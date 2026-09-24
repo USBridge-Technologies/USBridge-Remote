@@ -147,7 +147,7 @@ func mobileConnectionPlatformLabel(data ConnectionCardData) string {
 
 func newMobileConnectionCardStatsBox(lanAddress, tailscaleAddress string) fyne.CanvasObject {
 	tsValueColor := color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
-	lanRow := newConnectionStatRow("LAN", connectionCardAddressOrNone(lanAddress), design.ColorTextLight)
+	lanRow := newConnectionStatRow("LAN", connectionCardLANAddressOrNone(lanAddress), design.ColorTextLight)
 	tsRow := newConnectionStatRow("TS", connectionCardAddressOrNone(tailscaleAddress), tsValueColor)
 
 	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}

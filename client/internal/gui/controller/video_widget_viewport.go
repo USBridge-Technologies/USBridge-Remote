@@ -25,6 +25,35 @@ func videoChromeBelow() float32 {
 	return mobileControlPortraitStrip + view.AppFooterOuterHeight()
 }
 
+// videoTopOffsetFromCanvas is the native overlay Y when AbsolutePosition is
+// unusable (iOS Metal). canvasH − containerH alone equals header+footer;
+// without subtracting chrome the overlay covers the Control bottom bar
+// once the first video frame activates Metal (~1s after connect).
+func videoTopOffsetFromCanvas(containerH, canvasH float32) float32 {
+	if canvasH <= 0 || containerH <= 0 {
+		return 0
+	}
+	top := canvasH - containerH - videoChromeBelow()
+	if top < 0 {
+		return 0
+	}
+	return top
+}
+
+// videoClipHeightFromCanvas caps overlay height so its bottom stays above
+// the Control chrome (same intent as Android videoCanvasFrame's
+// videoBottom := pos.Y + sz.Height).
+func videoClipHeightFromCanvas(topOffset, preferredH, canvasH float32) float32 {
+	maxH := canvasH - topOffset - videoChromeBelow()
+	if maxH < 0 {
+		maxH = 0
+	}
+	if preferredH > 0 && preferredH < maxH {
+		return preferredH
+	}
+	return maxH
+}
+
 // overlayWindowPos maps Fyne mobile AbsolutePosition (InteractiveArea-relative)
 // to window-canvas dp. Native overlays sit on the Activity decorView, whose
 // (0,0) is the physical screen origin — the same space as Canvas.Size(), not

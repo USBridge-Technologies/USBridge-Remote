@@ -821,11 +821,11 @@ func (cm *ConnectionManager) updateConnectionOrigin(idx int, origin string) {
 }
 
 func formatConnectionAddressSummary(internalHost, tailscaleHost string) string {
-	internalHost = strings.TrimSpace(internalHost)
-	tailscaleHost = strings.TrimSpace(tailscaleHost)
+	internalHost = view.CompactLANHostForDisplay(internalHost)
 	if internalHost == "" {
 		internalHost = "none"
 	}
+	tailscaleHost = strings.TrimSpace(tailscaleHost)
 	if tailscaleHost == "" {
 		tailscaleHost = "none"
 	}

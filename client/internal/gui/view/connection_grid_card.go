@@ -527,7 +527,7 @@ func newConnectionPlatformChipColored(text string, textSize float32, textColor, 
 // newConnectionCardStatsBox is the dark LAN/TS readout.
 func newConnectionCardStatsBox(lanAddress, tailscaleAddress string) fyne.CanvasObject {
 	tsValueColor := color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
-	lanRow := newConnectionStatRow("LAN", connectionCardAddressOrNone(lanAddress), design.ColorTextLight)
+	lanRow := newConnectionStatRow("LAN", connectionCardLANAddressOrNone(lanAddress), design.ColorTextLight)
 	tsRow := newConnectionStatRow("TS", connectionCardAddressOrNone(tailscaleAddress), tsValueColor)
 
 	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
@@ -877,6 +877,30 @@ func connectionCardAddressOrNone(address string) string {
 		return "none"
 	}
 	return address
+}
+
+// deviceUsbridgeIOSuffix is the shared TLS hostname suffix for LAN device
+// hosts (see agent tlshost / deeplink device_host). Stripped in list/card
+// readouts so LAN looks about as short as a Tailscale address; edit UIs
+// keep the full hostname.
+const deviceUsbridgeIOSuffix = ".device.usbridge.io"
+
+// CompactLANHostForDisplay shortens a LAN/device host for connection list
+// and card readouts. Edit panels and dialogs must keep the full value.
+func CompactLANHostForDisplay(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	lower := strings.ToLower(host)
+	if strings.HasSuffix(lower, deviceUsbridgeIOSuffix) {
+		return host[:len(host)-len(deviceUsbridgeIOSuffix)]
+	}
+	return host
+}
+
+func connectionCardLANAddressOrNone(address string) string {
+	return connectionCardAddressOrNone(CompactLANHostForDisplay(address))
 }
 
 type gridBottomRowLayout struct{}

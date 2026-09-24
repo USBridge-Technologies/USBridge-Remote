@@ -131,7 +131,7 @@ func newMobileConnectionListRow(item ConnectionListItem, highlighted bool) fyne.
 func newMobileListInfoLine(lanAddress, tailscaleAddress string) fyne.CanvasObject {
 	muted := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
 	tsColor := color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
-	lan := canvas.NewText("LAN "+connectionCardAddressOrNone(lanAddress), muted)
+	lan := canvas.NewText("LAN "+connectionCardLANAddressOrNone(lanAddress), muted)
 	lan.TextSize = 7
 	lan.TextStyle.Monospace = true
 	ts := canvas.NewText("TS "+connectionCardAddressOrNone(tailscaleAddress), tsColor)
