@@ -737,7 +737,19 @@ func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
 			if total <= lastFrameCount {
 				return
 			}
+			// One onFrame per new frame, not per call: at 60 fps two frames
+			// often land between 33ms polls (or rVFC ticks), and reporting
+			// one per call capped the counter at 30. The first reading and
+			// a long gap (hidden tab) count as one frame / at most 8.
+			n := 1
+			if lastFrameCount >= 0 {
+				n = min(int(total-lastFrameCount), 8)
+			}
 			lastFrameCount = total
+			for i := 0; i < n; i++ {
+				onFrame()
+			}
+			return
 		} else {
 			ct := c.videoEl.Get("currentTime").Float()
 			if ct <= lastCurrentTime {
