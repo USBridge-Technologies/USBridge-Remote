@@ -480,15 +480,6 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	if mw.mobileViewportPanBtn != nil {
 		parts = append(parts, mw.mobileViewportPanBtn)
 	}
-	if mw.mobileFooterGraphDivider != nil {
-		parts = append(parts, mw.mobileFooterGraphDivider)
-	}
-	if mw.mobileNetGraphBtn != nil {
-		parts = append(parts, mw.mobileNetGraphBtn)
-	}
-	if mw.mobileNetGraphSettingsBtn != nil {
-		parts = append(parts, mw.mobileNetGraphSettingsBtn)
-	}
 	if mw.mobileFooterHIDDivider != nil {
 		parts = append(parts, mw.mobileFooterHIDDivider)
 	}
@@ -498,9 +489,18 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	if mw.mobileKeyboardBtn != nil {
 		parts = append(parts, mw.mobileKeyboardBtn)
 	}
-	// Clipboard sits rightmost next to mouse/keyboard (HID cluster).
+	// Clipboard sits next to mouse/keyboard (HID cluster).
 	if mw.mobileClipboardBtn != nil {
 		parts = append(parts, mw.mobileClipboardBtn)
+	}
+	if mw.mobileFooterGraphDivider != nil {
+		parts = append(parts, mw.mobileFooterGraphDivider)
+	}
+	if mw.mobileNetGraphBtn != nil {
+		parts = append(parts, mw.mobileNetGraphBtn)
+	}
+	if mw.mobileNetGraphSettingsBtn != nil {
+		parts = append(parts, mw.mobileNetGraphSettingsBtn)
 	}
 	switch len(parts) {
 	case 0:
