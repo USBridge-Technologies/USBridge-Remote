@@ -872,6 +872,10 @@ type StyledMenuOptions struct {
 	Centered  bool
 	Width     float32
 	MaxHeight float32
+	// MinTop, when > 0, clamps the popup's top edge so menus opened from
+	// header chips (FPS/resolution) cannot cover the Control header /
+	// status bar. Footer menus leave this at 0.
+	MinTop float32
 	// TextColor/TextSize override each row's default (design.ColorTextLight,
 	// 14) -- nil/0 keeps the default. Used to make a menu read like a
 	// HeaderDropdown's own popup (e.g. the header's language menu wants the
@@ -939,10 +943,35 @@ func ShowMobileLanguageMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
 	showStyledMenu(anchor, items, mobileStyledMenuOptions(false))
 }
 
+// ShowMobileStyledMenu is ShowMobileLanguageMenu opening downward —
+// Control header FPS/resolution chips sit in the status bar, so the menu
+// must drop into the video area instead of climbing into the header.
+func ShowMobileStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, mobileStyledMenuOptions(false))
+}
+
+// ShowMobileStyledMenuBelowHeader is ShowMobileStyledMenu with an explicit
+// floor under the Control header so the popup never covers chrome.
+func ShowMobileStyledMenuBelowHeader(anchor fyne.CanvasObject, items []StyledMenuItem, minTop float32) {
+	opts := mobileStyledMenuOptions(false)
+	opts.MinTop = minTop
+	showStyledMenu(anchor, items, opts)
+}
+
 // ShowMobileStyledMenuAbove is ShowMobileLanguageMenu opening upward —
 // Control footer mouse/keyboard anchors would clip below the window.
 func ShowMobileStyledMenuAbove(anchor fyne.CanvasObject, items []StyledMenuItem) {
 	showStyledMenu(anchor, items, mobileStyledMenuOptions(true))
+}
+
+// ShowMobileDisplayMenuAbove is the Control Displays picker: shorter
+// monitor names need a smaller typeface so long EDID strings stay on-screen,
+// while the row height matches other mobile menus for touch targets.
+func ShowMobileDisplayMenuAbove(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	opts := mobileStyledMenuOptions(true)
+	opts.TextSize = 11
+	opts.IgnoreAnchorWidth = true
+	showStyledMenu(anchor, items, opts)
 }
 
 func mobileStyledMenuOptions(openAbove bool) StyledMenuOptions {
@@ -1034,6 +1063,14 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 
 	canvasForObj := fyne.CurrentApp().Driver().CanvasForObject(anchor)
 	if canvasForObj == nil {
+		// Mobile/Metal: CanvasForObject can briefly return nil while the
+		// native overlay relocates; falling back to the app window keeps
+		// FPS/resolution/monitor menus from silently no-op'ing.
+		if wins := fyne.CurrentApp().Driver().AllWindows(); len(wins) > 0 && wins[0] != nil {
+			canvasForObj = wins[0].Canvas()
+		}
+	}
+	if canvasForObj == nil {
 		return
 	}
 
@@ -1061,11 +1098,15 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 	if options.Width > width {
 		width = options.Width
 	}
+	canvasSize := canvasForObj.Size()
+	if maxW := canvasSize.Width - 16; maxW > 80 && width > maxW {
+		width = maxW
+	}
 
 	height := menuMin.Height
 	maxHeight := options.MaxHeight
 	if maxHeight <= 0 {
-		maxHeight = canvasForObj.Size().Height - 16
+		maxHeight = canvasSize.Height - 16
 	}
 	if maxHeight < 80 {
 		maxHeight = 80
@@ -1098,7 +1139,6 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		pos.Y+anchor.Size().Height+6,
 	)
 	if options.Centered {
-		canvasSize := canvasForObj.Size()
 		popupPos = fyne.NewPos(
 			maxFloat32(8, (canvasSize.Width-width)/2),
 			maxFloat32(8, pos.Y),
@@ -1115,18 +1155,24 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 			popupPos.Y = 0
 		}
 	}
-	canvasSize := canvasForObj.Size()
 	if popupPos.X < 8 {
 		popupPos.X = 8
 	}
 	if popupPos.X+width > canvasSize.Width-8 {
 		popupPos.X = canvasSize.Width - width - 8
+		if popupPos.X < 8 {
+			popupPos.X = 8
+		}
 	}
 	if popupPos.Y+height > canvasSize.Height-8 && !options.OpenAbove && !options.Centered {
 		popupPos.Y = canvasSize.Height - height - 8
 	}
-	if popupPos.Y < 8 {
-		popupPos.Y = 8
+	floor := float32(8)
+	if options.MinTop > floor {
+		floor = options.MinTop
+	}
+	if popupPos.Y < floor {
+		popupPos.Y = floor
 	}
 	popup.ShowAtPosition(popupPos)
 

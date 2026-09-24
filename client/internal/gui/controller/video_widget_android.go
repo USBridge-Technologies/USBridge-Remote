@@ -570,6 +570,11 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	logrus.Info("⌨️ System IME sticky OFF")
 }
 
+func (vw *VideoWidget) refocusStickySystemIME() bool {
+	// Android sticky IME is Activity-owned; keep Fyne focus on the touchpad.
+	return false
+}
+
 // handleNativeIMEText applies sticky soft-IME diffs from KeyboardBridge.
 func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
 	mi := vw.moonlightInput()

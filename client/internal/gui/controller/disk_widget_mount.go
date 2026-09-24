@@ -99,11 +99,12 @@ func (dw *DiskWidget) endOperation() {
 	var newAgentProtocol string
 	var newPassSessions []string
 
-	if dw.usbClient != nil {
+	client := dw.usbClient
+	if client != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		if deviceInfo, err := dw.usbClient.GetDeviceInfoWithContext(ctx); err == nil {
+		if deviceInfo, err := client.GetDeviceInfoWithContext(ctx); err == nil {
 			newMounted = make([]*models.DeviceInfo, len(deviceInfo.Devices))
 			for i := range deviceInfo.Devices {
 				newMounted[i] = &deviceInfo.Devices[i]
@@ -114,7 +115,7 @@ func (dw *DiskWidget) endOperation() {
 			logrus.Errorf("endOperation: GetDeviceInfo: %v", err)
 		}
 
-		if localDrives, err := dw.usbClient.GetLocalDrives(); err == nil {
+		if localDrives, err := client.GetLocalDrives(); err == nil {
 			newLocalDrives = make([]*models.LocalDrive, len(localDrives.Drives))
 			for i := range localDrives.Drives {
 				newLocalDrives[i] = &localDrives.Drives[i]
@@ -123,7 +124,7 @@ func (dw *DiskWidget) endOperation() {
 			logrus.Errorf("endOperation: GetLocalDrives: %v", err)
 		}
 
-		if st, err := dw.usbClient.GetUSBPassthroughStatus(); err == nil && st != nil {
+		if st, err := client.GetUSBPassthroughStatus(); err == nil && st != nil {
 			newPassSessions = append([]string(nil), st.Sessions...)
 		}
 	}

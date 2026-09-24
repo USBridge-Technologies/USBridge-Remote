@@ -98,13 +98,23 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	vw.ensureVirtualKeyboard()
 	if on {
 		if vw.virtualKeyboard != nil {
+			vw.virtualKeyboard.SetKeepIMEFocus(true)
 			vw.virtualKeyboard.FocusInput()
 		}
 		return
 	}
 	if vw.virtualKeyboard != nil {
+		vw.virtualKeyboard.SetKeepIMEFocus(false)
 		vw.virtualKeyboard.BlurInput()
 	}
+}
+
+func (vw *VideoWidget) refocusStickySystemIME() bool {
+	if vw == nil || vw.virtualKeyboard == nil {
+		return false
+	}
+	vw.virtualKeyboard.FocusInput()
+	return true
 }
 
 func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {}

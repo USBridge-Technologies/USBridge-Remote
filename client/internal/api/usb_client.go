@@ -969,6 +969,9 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 }
 
 func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint string, body []byte, headers map[string]string) ([]byte, error) {
+	if c == nil {
+		return nil, fmt.Errorf("usb client is nil")
+	}
 	url := c.baseURL + endpoint
 
 	var bodyReader io.Reader

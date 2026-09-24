@@ -478,6 +478,9 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 		view.SetFooterVersionDigitsVisible(activeIndex != mw.controlTabIndex())
 	}
 	mw.syncMobileKeyboardButton(activeIndex == mw.controlTabIndex())
+	if activeIndex == mw.controlTabIndex() && mw.videoWidget != nil {
+		mw.videoWidget.PrefetchCaptureModesAsync()
+	}
 }
 
 // createConnectionAddressBar creates the connection screen's header bar (see
@@ -1696,6 +1699,14 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.mobileVideoSettingsBtn.Refresh()
 		}
+		if mw.mobileClipboardBtn != nil {
+			if videoStreaming {
+				mw.mobileClipboardBtn.Show()
+			} else {
+				mw.mobileClipboardBtn.Hide()
+			}
+			mw.mobileClipboardBtn.Refresh()
+		}
 		if mw.mobileFullscreenBtn != nil {
 			if videoStreaming {
 				mw.mobileFullscreenBtn.Show()
@@ -2007,8 +2018,6 @@ func (mw *MainWindow) showMouseModeMenuAt(anchor fyne.CanvasObject) {
 		},
 	})
 	if view.IsMobile() {
-		// Mobile has no clipboard footer icon; keep the auto-sync toggle here.
-		items = append(items, mw.clipboardAutoSyncMenuItem(i18n.Current.ClipboardSyncEnabled))
 		view.ShowMobileStyledMenuAbove(anchor, items)
 		return
 	}
@@ -2040,7 +2049,11 @@ func (mw *MainWindow) clipboardAutoSyncMenuItem(label string) view.StyledMenuIte
 // clipboard to the host, get the host clipboard, and the automatic two-way
 // sync toggle. Send/Get work whether or not auto sync is on.
 func (mw *MainWindow) showClipboardMenu() {
-	if mw.clipboardIcon == nil {
+	anchor := fyne.CanvasObject(mw.clipboardIcon)
+	if useMobileControl() && mw.mobileClipboardToggle != nil {
+		anchor = mw.mobileClipboardToggle
+	}
+	if anchor == nil {
 		return
 	}
 	run := func(op func() error) {
@@ -2082,7 +2095,11 @@ func (mw *MainWindow) showClipboardMenu() {
 		},
 		mw.clipboardAutoSyncMenuItem(i18n.Current.ClipboardAutoSync),
 	}
-	view.ShowStyledMenuTealAbove(mw.clipboardIcon, items)
+	if useMobileControl() {
+		view.ShowMobileStyledMenuAbove(anchor, items)
+		return
+	}
+	view.ShowStyledMenuTealAbove(anchor, items)
 }
 
 // showKeyboardInputModeMenu picks how the physical keyboard reaches the
