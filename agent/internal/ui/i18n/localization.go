@@ -90,6 +90,7 @@ type LocalizedStrings struct {
 	StreamerUpdateAsk   string
 
 	// Common
+	ErrorTitle     string
 	Yes            string
 	No             string
 	OK             string
@@ -343,6 +344,7 @@ func EN() *LocalizedStrings {
 		UpdateAvailableHint: "Update available",
 		StreamerUpdateAsk:   "A USBridge-streamer update is available. Install now?",
 
+		ErrorTitle:     "Error",
 		Yes:            "Yes",
 		No:             "No",
 		OK:             "OK",
@@ -545,6 +547,7 @@ func ES() *LocalizedStrings {
 	locale.UpdateAvailableHint = "Actualizacion disponible"
 	locale.StreamerUpdateAsk = "Hay una actualizacion de USBridge-streamer. Instalar ahora?"
 
+	locale.ErrorTitle = "Error"
 	locale.Yes = "Si"
 	locale.No = "No"
 	locale.OK = "Aceptar"
@@ -743,6 +746,7 @@ func UK() *LocalizedStrings {
 	locale.UpdateAvailableHint = "Доступне оновлення"
 	locale.StreamerUpdateAsk = "Доступне оновлення USBridge-streamer. Встановити зараз?"
 
+	locale.ErrorTitle = "Помилка"
 	locale.Yes = "Так"
 	locale.No = "Ні"
 	locale.OK = "OK"

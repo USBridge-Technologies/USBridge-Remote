@@ -15,7 +15,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -863,7 +862,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 				if !granted {
 					if e, ok := w.perms.(interface{ LastAccessibilityError() string }); ok {
 						if msg := e.LastAccessibilityError(); msg != "" {
-							fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg), win) })
+							showErrorDialog(fmt.Errorf("%s", msg), win)
 						}
 					}
 				}
@@ -935,7 +934,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 				if err != nil {
 					logrus.Errorf("[ui] autostart toggle failed: %v", err)
 					w.autostartCheck.SetChecked(!checked)
-					dialog.ShowError(err, win)
+					showErrorDialog(err, win)
 				}
 				w.refreshAutostartChrome()
 			})
@@ -975,7 +974,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 				if err != nil {
 					logrus.Errorf("[ui] lock GPU clocks toggle failed: %v", err)
 					w.gpuClockCheck.SetChecked(!checked)
-					dialog.ShowError(err, win)
+					showErrorDialog(err, win)
 				}
 			})
 		}()
@@ -1005,7 +1004,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			if !granted {
 				if e, ok := w.perms.(interface{ LastAccessibilityError() string }); ok {
 					if msg := e.LastAccessibilityError(); msg != "" {
-						fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg), win) })
+						showErrorDialog(fmt.Errorf("%s", msg), win)
 					}
 				}
 			}
@@ -1026,7 +1025,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		if preview == "" {
 			preview = loc().ClipboardNoPkgMgr
 		}
-		dialog.ShowInformation(loc().ClipboardInstall, preview, win)
+		showInfoDialog(loc().ClipboardInstall, preview, win)
 	})
 	clipLabel := widget.NewLabel(loc().ClipboardTool)
 	w.clipboardLang = clipLabel
@@ -1080,7 +1079,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 					w.usbDriverBtn.Enable()
 				}
 				if err != nil {
-					dialog.ShowError(err, win)
+					showErrorDialog(err, win)
 				}
 			})
 		}()
@@ -1114,7 +1113,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 				fyne.Do(func() {
 					w.usbAccessCheck.requestDone()
 					if err != nil {
-						dialog.ShowError(err, win)
+						showErrorDialog(err, win)
 					}
 				})
 				w.performRefresh()
@@ -1128,7 +1127,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 				fyne.Do(func() {
 					w.vdisplayAccessCheck.requestDone()
 					if err != nil {
-						dialog.ShowError(err, win)
+						showErrorDialog(err, win)
 					}
 				})
 				w.performRefresh()
@@ -1256,7 +1255,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 						w.usbBrokerConsentBtn.Enable()
 					}
 					if err != nil {
-						dialog.ShowError(err, win)
+						showErrorDialog(err, win)
 					}
 				})
 				w.performRefresh()
@@ -1514,7 +1513,7 @@ func (w *Window) promptForUpdate(parent fyne.Window) {
 				progress.Close()
 				if err != nil {
 					logrus.WithField("component", "update").WithError(err).Error("failed to apply update")
-					fyne.Do(func() { dialog.ShowError(err, parent) })
+					showErrorDialog(err, parent)
 				}
 			}()
 		})
@@ -2137,7 +2136,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 					switchToRustShine()
 					return
 				}
-				d := dialog.NewConfirm(
+				showConfirmDialog(
 					fmt.Sprintf(loc().SubscribeTitle, tierDisplayName(tier)),
 					fmt.Sprintf(loc().SubscribeBody, tierDisplayName(tier)),
 					func(confirmed bool) {
@@ -2170,9 +2169,6 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 					},
 					parent,
 				)
-				d.SetConfirmText(loc().Yes)
-				d.SetDismissText(loc().No)
-				d.Show()
 			}
 
 			radio := widget.NewRadioGroup(options, nil)
@@ -2209,7 +2205,7 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			}
 
 			clearBtn := widget.NewButton(loc().ForgetLicenseLocally, func() {
-				d := dialog.NewConfirm(
+				showConfirmDialog(
 					loc().ForgetLicenseTitle,
 					loc().ForgetLicenseBody,
 					func(confirmed bool) {
@@ -2223,9 +2219,6 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 					},
 					parent,
 				)
-				d.SetConfirmText(loc().Yes)
-				d.SetDismissText(loc().No)
-				d.Show()
 			})
 			clearBtn.Importance = widget.LowImportance
 			body.Add(container.NewCenter(clearBtn))

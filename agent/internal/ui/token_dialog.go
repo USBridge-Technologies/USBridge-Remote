@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	qrcode "github.com/skip2/go-qrcode"
@@ -108,7 +107,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		}
 		cfg, err := w.token.RegenerateMasterKey()
 		if err != nil {
-			dialog.ShowError(err, parent)
+			showErrorDialog(err, parent)
 			return
 		}
 		w.cfg = cfg

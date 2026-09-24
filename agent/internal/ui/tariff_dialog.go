@@ -7,7 +7,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 
@@ -315,10 +314,8 @@ func (w *Window) openTariffCheckout(parent fyne.Window, tier string) {
 			openErr = w.app.OpenURL(parsed)
 		}
 		if openErr != nil && parent != nil {
-			fyne.Do(func() {
-				dialog.ShowInformation(loc().CheckoutTitle,
-					loc().CouldntOpenBrowserBuy+"\n"+checkoutURL, parent)
-			})
+			showInfoDialog(loc().CheckoutTitle,
+				loc().CouldntOpenBrowserBuy+"\n"+checkoutURL, parent)
 		}
 	}()
 }
