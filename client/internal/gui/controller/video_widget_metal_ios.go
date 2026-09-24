@@ -165,8 +165,12 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
 		// Clip = area above the system IME. Special-keys take a top inset so
 		// the Fyne strip stays visible above the Metal overlay.
+		//
+		// On iOS Fyne already shrinks the canvas for the soft keyboard — do
+		// not subtract `ime` again (that made Metal thrash: video over the
+		// keys, then under them, as the IME height flickered).
 		keysH := vw.specialKeysOverlayHeightDp()
-		videoH := canvasH - ime - keysH
+		videoH := canvasH - keysH
 		if videoH > 0 {
 			return 0, keysH, szMain.Width, videoH
 		}
@@ -434,7 +438,10 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	} else {
 		setImeExpandHeightDp(0)
 	}
-	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
+	// Fyne already shrinks the iOS canvas for the soft keyboard — do not also
+	// inflate bottomInset (that double-counted the IME and made pan/zoom jump).
+	vw.bottomInset = 0
+	vw.keyboardViewportLift = false
 	lastMetalClipH = 0 // force cache miss → immediate layout update
 	vw.forceCanvasRefresh.Store(true)
 	if imeOpen && imeCropsVideoOverlay() && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {

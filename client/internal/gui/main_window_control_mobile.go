@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -180,17 +181,33 @@ func (mw *MainWindow) wireMobileKeyboardStackCallbacks() {
 // keys while the keyboard stack is open (Vulkan cannot be drawn over; the
 // header sits above the native surface). Dismiss lives after → in the keys.
 // Native sticky IME zeros the top safe inset so this band rises into the
-// former status-bar / cutout space.
+// former status-bar / cutout space. The Control footer is hidden — it is not
+// usable over the soft keyboard and was painting on top of the IME band.
 func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
 	if !useMobileControl() || mw.mainHeaderHost == nil || mw.mainHeaderNormal == nil {
 		return
 	}
-	open := mw.videoWidget != nil && mw.videoWidget.IsVirtualKeyboardVisible()
+	open := mw.videoWidget != nil &&
+		(mw.videoWidget.IsVirtualKeyboardVisible() || mw.videoWidget.IsSystemIMESticky())
 	if open {
 		mw.showSpecialKeysInMainHeader()
+		if mw.connectedChromeHost != nil {
+			mw.connectedChromeHost.Hide()
+		}
+		controller.SetControlChromeHiddenForKeyboard(true)
+		if mw.videoWidget != nil {
+			mw.videoWidget.InvalidateOverlayGeometry()
+		}
 		return
 	}
+	if mw.connectedChromeHost != nil {
+		mw.connectedChromeHost.Show()
+	}
+	controller.SetControlChromeHiddenForKeyboard(false)
 	mw.restoreMainHeader()
+	if mw.videoWidget != nil {
+		mw.videoWidget.InvalidateOverlayGeometry()
+	}
 }
 
 func (mw *MainWindow) showSpecialKeysInMainHeader() {
