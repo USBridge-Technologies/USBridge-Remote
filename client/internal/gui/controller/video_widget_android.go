@@ -395,18 +395,15 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 		extraDown := float32(0)
 		if vw.keyboardViewportLift {
 			focusY = keyboardFocusYFrac
-			extraUp = availH * keyboardFocusExtraLiftFrac
-			if extraUp < keyboardFocusExtraLiftMinDp {
-				extraUp = keyboardFocusExtraLiftMinDp
-			}
-			extraDown = extraUp
+			extraUp = float32(0)
 		}
 		idealPanY := availH*(focusY-0.5) + ch*(0.5-v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
 		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY-extraUp, maxPanY+extraDown, zoneY)
+	} else {
+		vw.panOffsetY = 0
 	}
-	// If height still fits, leave panOffsetY alone (do not force 0).
 
 	vw.recalculateViewport()
 }

@@ -346,15 +346,12 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 		extraUp := float32(0)
 		if vw.keyboardViewportLift {
 			focusY = keyboardFocusYFrac
-			extraUp = availH * keyboardFocusExtraLiftFrac
-			if extraUp < keyboardFocusExtraLiftMinDp {
-				extraUp = keyboardFocusExtraLiftMinDp
-			}
+			extraUp = float32(0)
 		}
 		idealPanY := availH*(focusY-0.5) + ch*(0.5-v)
 		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
-		extraDown := extraUp
+		extraDown := float32(0)
 		vw.panOffsetY = iosSoftClamp(idealPanY, -maxPanY-extraUp, maxPanY+extraDown, zoneY)
 	} else {
 		vw.panOffsetY = 0
