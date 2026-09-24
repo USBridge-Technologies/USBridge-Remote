@@ -1761,13 +1761,15 @@ func (vw *VideoWidget) recalculateViewport() {
 	extraUp := float32(0)
 	extraDown := float32(0)
 	if vw.keyboardViewportLift {
-		extraUp = availableH * keyboardFocusExtraLiftFrac
-		if extraUp < keyboardFocusExtraLiftMinDp {
-			extraUp = keyboardFocusExtraLiftMinDp
-		}
-		// Symmetric to extraUp: black above the picture so the top of the remote
-		// screen can be panned down into view, same as the gap above the IME.
-		extraDown = extraUp
+		// Do not add extraUp lift. The user complained that this creates a
+		// huge black gap at the bottom of the screen when zooming/panning
+		// near the edge. The picture should stop exactly at the keyboard edge.
+		extraUp = float32(0)
+		// Do not add symmetric extraDown. The top of the remote screen can be
+		// clicked even if it stops at the physical top edge. Adding extraDown
+		// causes the picture to scroll down to the center, creating a huge black
+		// gap above it which feels broken (picture does not stop at edge).
+		extraDown = float32(0)
 		if r := vw.specialKeysHeaderReserve; r > extraDown {
 			extraDown = r
 		}
@@ -2111,11 +2113,8 @@ func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 	idealPanX := cw * (0.5 - u)
 	idealPanY := availH*(keyboardFocusYFrac-0.5) + ch*(0.5-v)
 
-	extraUp := availH * keyboardFocusExtraLiftFrac
-	if extraUp < keyboardFocusExtraLiftMinDp {
-		extraUp = keyboardFocusExtraLiftMinDp
-	}
-	extraDown := extraUp
+	extraUp := float32(0)
+	extraDown := float32(0)
 	if r := vw.specialKeysHeaderReserve; r > extraDown {
 		extraDown = r
 	}
