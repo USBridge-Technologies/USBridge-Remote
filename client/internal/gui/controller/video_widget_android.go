@@ -190,13 +190,22 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	if cur > minRealIMEDp && delta < imeHeightSnapDp {
 		return
 	}
+	if !imeCropsVideoOverlay() {
+		// Landscape floating IME: still track height for dismiss, but do not
+		// shrink the SurfaceView under the keyboard widget.
+		setImeExpandHeightDp(0)
+		vw.bottomInset = 0
+		vw.keyboardViewportLift = false
+		vw.applyImmediateKeyboardViewport()
+		return
+	}
 	setImeExpandHeightDp(imeHeightDp)
 	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
 	vw.applyImmediateKeyboardViewport()
 }
 
 func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {
-	imeOpen := getImeExpandHeightDp() > 100
+	imeOpen := getImeExpandHeightDp() > 100 && imeCropsVideoOverlay()
 	if imeOpen {
 		// Same as the IME-only path: sit the picture on the keyboard and
 		// leave letterbox under the special-keys header. AlignTop used to
@@ -494,7 +503,7 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if videoBottom < videoTop {
 		videoBottom = videoTop
 	}
-	if imeH := getImeExpandHeightDp(); imeH > 0 {
+	if imeH := getImeExpandHeightDp(); imeH > 0 && imeCropsVideoOverlay() {
 		imeTop := cs.Height - imeH
 		if imeTop < videoBottom {
 			videoBottom = imeTop

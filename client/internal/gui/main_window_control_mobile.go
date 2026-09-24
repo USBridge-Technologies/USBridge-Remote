@@ -318,6 +318,12 @@ func (mw *MainWindow) applyConnectedChromeLayout(force bool) {
 	mw.refreshVirtualKeyboardCompactLayout()
 
 	if mw.videoWidget != nil {
+		// Portrait↔landscape changes whether the system IME crops Vulkan;
+		// re-apply while the keyboard stack is open so landscape stops
+		// shrinking under a floating IME.
+		if mw.videoWidget.IsVirtualKeyboardVisible() || mw.videoWidget.IsSystemIMESticky() {
+			mw.videoWidget.RefreshKeyboardViewportLayout()
+		}
 		mw.videoWidget.InvalidateOverlayGeometry()
 		time.AfterFunc(120*time.Millisecond, func() {
 			fyne.Do(func() {

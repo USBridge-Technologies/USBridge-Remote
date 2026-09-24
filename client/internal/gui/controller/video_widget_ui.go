@@ -1090,6 +1090,15 @@ func (vw *VideoWidget) IsSystemIMESticky() bool {
 	return vw.systemIMESticky.Load()
 }
 
+// RefreshKeyboardViewportLayout re-applies IME/footer crop after orientation
+// changes (landscape must not shrink under a floating system keyboard).
+func (vw *VideoWidget) RefreshKeyboardViewportLayout() {
+	if vw == nil {
+		return
+	}
+	vw.applyImmediateKeyboardViewport()
+}
+
 // SetSpecialKeysHeaderReserve records the mobile special-keys header height
 // so the Vulkan SurfaceView never starts under that band.
 func (vw *VideoWidget) SetSpecialKeysHeaderReserve(h float32) {

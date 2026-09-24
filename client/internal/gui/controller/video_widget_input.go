@@ -2023,10 +2023,14 @@ const (
 // syncKeyboardBottomInsetFromIME sets bottomInset to the overlap between the
 // video container and the system IME so pan/zoom math uses the visible area
 // above the keyboard (not the full touchpad, which still extends under the IME).
+// Landscape skips this: the soft keyboard is a floating widget and must not
+// shrink the Vulkan/Metal band — only the Control footer does.
 func (vw *VideoWidget) syncKeyboardBottomInsetFromIME(imeHeightDp float32) {
 	const minRealIMEDp = 100
-	if vw == nil || imeHeightDp < minRealIMEDp {
-		vw.bottomInset = 0
+	if vw == nil || imeHeightDp < minRealIMEDp || !imeCropsVideoOverlay() {
+		if vw != nil {
+			vw.bottomInset = 0
+		}
 		return
 	}
 	overlap := imeHeightDp
