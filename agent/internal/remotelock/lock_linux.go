@@ -446,7 +446,7 @@ func drainAndFilter(devs []*grabbedDev, relay *os.File) {
 }
 
 func openMotionRelay() (*os.File, error) {
-	f, err := os.OpenFile("/dev/uinput", os.O_WRONLY|os.O_CLOEXEC, 0)
+	f, err := os.OpenFile("/dev/uinput", os.O_WRONLY, 0)
 	if err != nil {
 		return nil, err
 	}
