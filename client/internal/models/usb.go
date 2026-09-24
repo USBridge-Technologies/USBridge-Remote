@@ -65,6 +65,17 @@ type USBPassthroughDevice struct {
 	Description   string `json:"description"`
 	Protected     bool   `json:"protected"`
 	PreferredTest bool   `json:"preferred_test"`
+	// Interfaces is this device's real (bInterfaceClass, bInterfaceSubClass,
+	// bInterfaceProtocol) triples, from the same local sysfs/SetupAPI
+	// enumeration isProtectedSysfsDevice/hasUSBInterfaceClass already read
+	// (see list_sysfs_linux.go / list_setupapi_windows.go). Display-only:
+	// used by the dashboard to show a "Pro" badge on devices the connected
+	// agent's rust-shine broker would reject on a free tier
+	// (usbpass.RequiresProLicense mirrors rust-shine's license_class.go
+	// classification) -- the actual enforcement decision is made only in
+	// rust-shine, from its own live OP_REQ_DEVLIST probe, never from this
+	// field or anything else this open-source client reports.
+	Interfaces [][3]uint8 `json:"interfaces,omitempty"`
 }
 type USBDeviceInfo struct {
 	Connected       bool   `json:"connected"`

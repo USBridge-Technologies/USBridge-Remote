@@ -24,6 +24,37 @@ The rule of thumb: the Agent gives you everything a **software remote-desktop to
 
 ---
 
+## USB Capture & Host-Side Emulation
+
+There are two independent things going on under "USB support," and they don't follow the same rules:
+
+- **Standard input** (keyboard, mouse, gamepad) travels over the normal Moonlight streaming protocol — no physical device capture involved, works between any Client/Agent OS pair, and is **always free**.
+- **USB passthrough** captures a *real, specific* physical device plugged into the Client machine and makes it appear on the Agent machine. This needs the Client to actually hold that device and the Agent to import it — capability differs by OS on both ends, and which *devices* are free vs. paid depends on the device's own USB class, not on the OS or the mechanism used to move it.
+
+**Client-side capture — how a physical device plugged into the Client is captured, by OS:**
+
+| Client OS | Boot keyboard / mouse | Physical gamepad (Xbox-class) | Any other USB device (drives, tablets, audio, vendor…) |
+| :--- | :--- | :--- | :--- |
+| Windows | HID report descriptor reconstruction (Windows holds the real device exclusively, so raw claim isn't possible) | Real pad state read and re-sent as clean XInput/GIP | Raw `libusb` passthrough |
+| Linux | Raw `libusb` passthrough | Real pad state read and re-sent as clean XInput/GIP | Raw `libusb` passthrough |
+| macOS | HID report descriptor reconstruction | Not captured as a physical device — use the Moonlight controller input path instead | Not supported (HID-class devices only) |
+| Android | Best-effort via the Android USB host API (per-device permission grant) | — | Best-effort via the Android USB host API |
+
+**Host-side (Agent) emulation — what actually appears on the Agent machine, and what it costs:**
+
+| What reaches the Agent | How it's presented on the Agent | Agent OS | License |
+| :--- | :--- | :--- | :--- |
+| Keyboard / mouse (Moonlight input) | Native injection — `SendInput` / `CGEvent` / direct | Windows, macOS, Linux | **Free** |
+| Gamepad (Moonlight input) | Synthetic XInput pad over the local USB stack (Windows) / `uinput` virtual pad (Linux) — no ViGEmBus needed | Windows, Linux | **Free** |
+| Gamepad (Moonlight input) | Not implemented yet | macOS | — |
+| Boot keyboard / mouse **passed through physically** | Real device imported over the USB passthrough stack | Windows, Linux Agent | **Free** |
+| Physical gamepad (Xbox-class interface) **passed through physically** | Real device imported over the USB passthrough stack | Windows, Linux Agent | **Free** |
+| Any other physical device (drives, tablets, audio, vendor devices…) | Real device imported over the USB passthrough stack | Windows, Linux Agent | **Pro / Enterprise** |
+
+The Agent's USB passthrough component is a separate, closed-source binary from the rest of this (open-source) Agent — it never downloads or runs on its own; it only starts after you explicitly enable it from the USB status row in the main window. Which specific device classes are free is decided by that component itself at connect time, from the device's own real USB descriptors — never by anything this Agent reports about itself.
+
+---
+
 ## Quick Start
 
 1. Run the Agent on the machine you want to access. It displays a Master QR pairing token plus its LAN and Tailscale addresses.
@@ -41,7 +72,7 @@ That's the whole setup. See the [top-level README](../README.md#-quick-start) fo
 
 ### Platform Notes (from the top-level README)
 
-* **Wayland (Linux):** full screen capture and input injection with no permission-prompt spam — KMS capture needs one `pkexec` grant, which persists across reboots.
+* **Wayland (Linux):** full screen capture and input injection with no permission-prompt spam — KMS capture needs one `pkexec` grant, which persists across reboots and streamer updates (see [KMS_CAPTURE_LINUX.md](KMS_CAPTURE_LINUX.md)).
 * **System Tray:** closing the window minimizes to a tray icon (status-aware, with Open/Restart Streaming/Autostart/Quit) instead of quitting; falls back to actually quitting on a Linux session with no reachable tray host (e.g. GNOME without the AppIndicator extension). Stays visible even when the engine runs headless — see [Launch at Login](../README.md#-launch-at-login-autostart) for how each platform gets a tray icon onto an otherwise-invisible background instance.
 * **Launch at Login:** reflects your OS's actual autostart state live (no separate on/off flag of its own); always launches with `--headless` so the engine comes up silently and a later normal launch just attaches a GUI to it.
 * **GPU Clock Lock (Windows + NVIDIA):** holds an NVML max-clock lock for the streaming session so the encoder doesn't stall waiting on a GPU that idled down between frames.

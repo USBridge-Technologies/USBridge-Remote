@@ -319,17 +319,21 @@ const clipboardDataChannelLabel = "clipboard-sync"
 // click-through the way a top-level navigation warning has. The WebRTC
 // DataChannel rides the already-DTLS-encrypted PeerConnection instead and
 // is exempt from both problems entirely. Falls back to the direct dial
-// otherwise (desktop-native always; wasm too, whenever the active backend
-// has no WebRTC, e.g. plain Sunshine -- in which case this whole feature is
-// simply unavailable from an https page, same limitation as before this
-// existed).
+// whenever OpenDataChannel itself fails -- not just when it's nil: on
+// desktop-native mw.videoClient is always *service.MoonlightService (no
+// WebRTC outside the wasm build), whose OpenDataChannel method is a real,
+// non-nil func that unconditionally errors (see moonlight_datachannel.go),
+// so a bare nil-check here would never reach this fallback at all and
+// clipboard sync would be permanently broken on every desktop client. Also
+// covers wasm with no active WebRTC PeerConnection (e.g. plain Sunshine),
+// same as before this existed.
 func (cs *ClipboardSync) dial(ctx context.Context, header http.Header) (clipboardWSConn, *http.Response, error) {
 	if cs.OpenDataChannel != nil {
 		conn, err := cs.OpenDataChannel(clipboardDataChannelLabel)
-		if err != nil {
-			return nil, nil, fmt.Errorf("open clipboard-sync data channel: %w", err)
+		if err == nil {
+			return newDCJSONConn(conn), nil, nil
 		}
-		return newDCJSONConn(conn), nil, nil
+		logrus.Warnf("[clipboard-sync] DataChannel unavailable (%v), falling back to direct dial", err)
 	}
 	return cs.dialer().DialContext(ctx, cs.wsURL(), header)
 }

@@ -427,10 +427,12 @@ func (mw *MainWindow) startClipboardSync(client *api.USBClient) {
 	// Rides the RustShine WebRTC PeerConnection's "clipboard-sync"
 	// DataChannel instead of a direct ws://+wss:// dial when one's
 	// available -- see api.ClipboardSync.dial's doc comment for why a
-	// direct dial can never work from an https-loaded page. Same
-	// optional-interface probe as disk_widget's SetPeerConnection above;
-	// nil (a no-op SetOpenDataChannel) on every platform but wasm, and even
-	// there whenever the active backend has no WebRTC (plain Sunshine).
+	// direct dial can never work from an https-loaded page, and for why
+	// dial falls back to the direct dial on any OpenDataChannel error, not
+	// just when this is nil: on desktop-native mw.videoClient is always
+	// *service.MoonlightService, whose OpenDataChannel is a real method
+	// that always errors (see moonlight_datachannel.go) -- a bound Go
+	// method value is never nil regardless of what its body does.
 	mw.clipboardSync.SetOpenDataChannel(mw.videoClient.OpenDataChannel)
 	mw.clipboardSync.Start()
 }

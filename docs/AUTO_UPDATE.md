@@ -151,6 +151,17 @@ never touches it.
   Client/Agent update keys above and the Patreon entitlement-token key —
   compromising any one of the three can't be used to forge either of the
   others.
+- **Linux KMS capture across updates**: the backend also passes the signed
+  `manifest.json` + `.sig` through (`manifest_b64`/`manifest_sig`), and the
+  agent keeps them next to the archive as a release bundle. The new build
+  is extracted into `usbridge-streamer.next/` while the old one keeps
+  running. If the root-owned `usbridge-streamer-launch` is installed, that
+  launcher must accept the new bundle before anything is swapped in;
+  otherwise the update is refused and retried later, so an update can never
+  cost the remote session its KMS capture. See
+  `agent/docs/KMS_CAPTURE_LINUX.md`. This makes the backend deploy a
+  prerequisite for the agent release: without the manifest fields,
+  installed launchers refuse every update.
 - **Known failure mode on Windows**: if RustShine is the currently-running
   active backend, Windows won't let its `.exe` be replaced out from under
   the running process — `StageRustShine` fails, logs

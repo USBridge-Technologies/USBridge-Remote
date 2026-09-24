@@ -93,6 +93,14 @@ INFO_PLIST="$APP_BUNDLE/Info.plist"
 if [ -f "$INFO_PLIST" ]; then
     /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST" 2>/dev/null || \
     /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST"
+
+    # fyne.io/tools hardcodes IPHONEOS_DEPLOYMENT_TARGET=9.0 in the Xcode
+    # project it generates (cmd/fyne/internal/mobile/build_iosapp.go), which
+    # xcodebuild bakes into MinimumOSVersion here. App Store Connect now
+    # rejects anything below iOS 13 ("Invalid deployment target"), so force
+    # it up to match the 16.0 baseline already used for actool below.
+    /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string 16.0" "$INFO_PLIST" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 16.0" "$INFO_PLIST"
 fi
 
 # 4b. Rebuild Assets.car via actool with all required icon sizes including 167x167 (iPad Pro)

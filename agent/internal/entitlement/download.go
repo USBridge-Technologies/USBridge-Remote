@@ -15,6 +15,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"usbridge_agent/internal/streamerlaunch"
 )
 
 // ProgressFunc reports cumulative bytes downloaded (not extracted) so far
@@ -132,10 +134,34 @@ func CheckRustShineUpdate(ctx context.Context, stateDir, entitlementToken string
 		return false, "", nil
 	}
 	if info.Version == StagedVersion(stateDir) {
+		// Same version, but staged before the backend passed the signed
+		// manifest through: re-stage once so usbridge-streamer-launch has
+		// a bundle to verify (otherwise KMS capture would stay on the
+		// legacy per-binary setcap that the next update drops again).
+		if runtime.GOOS == "linux" && info.Manifest != "" && !BundlePresent(stateDir) {
+			return true, info.Version, nil
+		}
 		return false, info.Version, nil
 	}
 	return true, info.Version, nil
 }
+
+// BundlePresent reports whether the signed release bundle
+// usbridge-streamer-launch verifies (streamerlaunch.BundleDir) is staged.
+func BundlePresent(stateDir string) bool {
+	dir := streamerlaunch.BundleDir(filepath.Dir(StagePath(stateDir)))
+	for _, name := range []string{streamerlaunch.ArchiveName, streamerlaunch.ManifestName, streamerlaunch.SigName} {
+		if !fileExists(filepath.Join(dir, name)) {
+			return false
+		}
+	}
+	return true
+}
+
+// BundleVerifier is StageRustShineVerified's pre-commit check, called with
+// the not-yet-live bundle directory. Returning an error aborts the update
+// and leaves the running/staged build untouched.
+type BundleVerifier func(bundleDir string) error
 
 // StageRustShine resolves, downloads, verifies, and extracts the RustShine
 // build for this platform, atomically replacing whatever's already staged
@@ -145,6 +171,18 @@ func CheckRustShineUpdate(ctx context.Context, stateDir, entitlementToken string
 // well-formed and unexpired but the backend may still refuse to serve a
 // download for other reasons).
 func StageRustShine(ctx context.Context, stateDir, entitlementToken string, onProgress ProgressFunc) error {
+	return StageRustShineVerified(ctx, stateDir, entitlementToken, onProgress, nil)
+}
+
+// StageRustShineVerified is StageRustShine with an optional pre-commit
+// check. On Linux the new build is extracted into a sibling ".next"
+// directory first -- the live binary keeps running untouched while that
+// happens -- and verify (if non-nil and a signed bundle came with the
+// download) must accept it before anything is moved into place. That's
+// what keeps an update from ever swapping in a build the installed
+// usbridge-streamer-launch would refuse, which would cost KMS capture
+// (and with it the remote session) on the next restart.
+func StageRustShineVerified(ctx context.Context, stateDir, entitlementToken string, onProgress ProgressFunc, verify BundleVerifier) error {
 	platform := Platform()
 	if platform == "" {
 		return fmt.Errorf("entitlement: no RustShine build for this platform (%s/%s)", runtime.GOOS, runtime.GOARCH)
@@ -167,7 +205,11 @@ func StageRustShine(ctx context.Context, stateDir, entitlementToken string, onPr
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("entitlement: create rustshine dir: %w", err)
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "linux" {
+		if err := stageLinux(archivePath, info, filepath.Dir(dest), platform, verify); err != nil {
+			return err
+		}
+	} else if runtime.GOOS == "windows" {
 		err = extractFromZip(archivePath, binaryName(), dest)
 	} else {
 		err = extractFromTarGz(archivePath, binaryName(), dest)

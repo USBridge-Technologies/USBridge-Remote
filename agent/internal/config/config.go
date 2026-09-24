@@ -108,6 +108,18 @@ type Config struct {
 	// real local hardware input is not touched.
 	RemoteWindowLock *bool `yaml:"remote_window_lock,omitempty"`
 
+	// USBBrokerConsent is the one-time, explicit "enable USB passthrough"
+	// consent from the USB status row's button (see ui.Window's
+	// usbBrokerRow). Nil (omitted) and false both mean the closed
+	// usb-broker binary must never be downloaded or started, even for a
+	// free-tier device (mouse/keyboard/gamepad) and even once entitled --
+	// opt-in, same nil-means-false shape as RemoteWindowLock above, because
+	// by default this agent must run only the open-source Go code. See
+	// App.EnableUSBBroker (the only place this ever flips true) and
+	// App.ensureUSBBroker (the only place it gates staging/starting the
+	// binary).
+	USBBrokerConsent *bool `yaml:"usb_broker_consent,omitempty"`
+
 	// Account login (see agent/internal/account) -- a SEPARATE identity
 	// from EntitlementToken above: this is "which USBridge account (Google
 	// login) is the human running this agent signed into", used only to
@@ -166,6 +178,14 @@ func (c Config) TLSEnabledOK() bool {
 // Settings checkbox on. Omitted YAML (nil) is off.
 func (c Config) RemoteWindowLockEnabled() bool {
 	return c.RemoteWindowLock != nil && *c.RemoteWindowLock
+}
+
+// USBBrokerConsentGiven is true only once the user has explicitly clicked
+// the USB status row's enable button (App.EnableUSBBroker). Omitted YAML
+// (nil) is false -- the closed usb-broker binary stays un-downloaded and
+// un-started until this flips, regardless of license tier.
+func (c Config) USBBrokerConsentGiven() bool {
+	return c.USBBrokerConsent != nil && *c.USBBrokerConsent
 }
 
 func Load(path string) (Config, error) {

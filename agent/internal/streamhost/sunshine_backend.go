@@ -346,47 +346,6 @@ func (b *sunshineBackend) binaryPath() string {
 	}
 }
 
-// capExecPathFor returns the path to the bundled sunshine_capexec launcher
-// (cmd/sunshine_capexec), or "" if not bundled (non-Linux, or a dev build
-// without the AppImage layout). This is what actually carries the
-// CAP_SYS_ADMIN file capability for KMS screen capture — never sunshine
-// itself, since a file capability on sunshine would break its RPATH-based
-// dependency resolution. See RequestKMSCapture in internal/permissions.
-func (b *sunshineBackend) capExecPathFor() string {
-	if runtime.GOOS != "linux" {
-		return ""
-	}
-	p := filepath.Join(b.exeDir, "sunshine-capexec")
-	if info, err := os.Stat(p); err == nil && !info.IsDir() {
-		return p
-	}
-	return ""
-}
-
-// runtimeCapExecPath returns the path sunshine_capexec should actually be
-// setcap'd and launched from: inside an AppImage the bundled copy lives on
-// the read-only squashfs mount, so pkexec setcap needs a writable staged
-// copy instead. Staged via the same sharedCapExecRuntimeDir rustshineBackend
-// uses (not stageSunshineRuntime's own tree) — see
-// rustshineBackend.runtimeCapExecPath's doc comment for why a capability
-// grant has to land on one file both backends agree to check, not a
-// per-backend copy.
-func (b *sunshineBackend) runtimeCapExecPath() string {
-	capexecSrc := b.capExecPathFor()
-	if runtime.GOOS != "linux" || capexecSrc == "" || b.stateDir == "" {
-		return capexecSrc
-	}
-	if os.Getenv("APPIMAGE") == "" {
-		return capexecSrc
-	}
-	staged, err := stageCapExecBinary(capexecSrc, filepath.Join(b.stateDir, sharedCapExecRuntimeDir))
-	if err != nil {
-		log.Printf("[sunshine] failed to stage writable copy for KMS setcap: %v", err)
-		return capexecSrc
-	}
-	return staged
-}
-
 // runtimeBinaryPath returns the path Sunshine should actually be launched
 // from, and the path `setcap` should target for KMS capture. On Linux, when
 // running from inside an AppImage, the bundled binary lives on the
@@ -478,9 +437,6 @@ func stageSunshineRuntime(src, stateDir string) (string, error) {
 		}
 	}
 
-	// sunshine_capexec is staged separately, into sharedCapExecRuntimeDir
-	// (see runtimeCapExecPath) — not copied into this tree.
-
 	// Swap the fully-built tree into place. os.Rename is atomic when both
 	// paths are on the same filesystem (guaranteed: both under stateDir),
 	// but can't replace a non-empty directory, so the old tree has to be
@@ -540,15 +496,29 @@ func (b *sunshineBackend) DisplayName() string { return "Sunshine (Open Source)"
 // BinaryPath returns the (staged-if-needed) path Sunshine is launched from.
 func (b *sunshineBackend) BinaryPath() string { return b.launchPath }
 
-// CapExecPath returns the (staged-if-needed) path to the bundled
-// sunshine_capexec launcher, or "" if not present.
-func (b *sunshineBackend) CapExecPath() string { return b.runtimeCapExecPath() }
+// CapExecPath returns what the Linux KMS grant targets for Sunshine: the
+// root of the bundled (staged-if-needed) Sunshine install tree, which
+// permissions copies into the root-owned streamerlaunch.SunshineDir. ""
+// off Linux or when no bundled Sunshine is found.
+//
+// This used to be a user-writable sunshine_capexec with cap_sys_admin that
+// exec'd whatever path it was given -- i.e. CAP_SYS_ADMIN for any process
+// running as this user, no password needed. See internal/streamerlaunch.
+func (b *sunshineBackend) CapExecPath() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	bin := b.runtimeBinaryPath()
+	if bin == "" || filepath.Base(filepath.Dir(bin)) != "bin" {
+		return ""
+	}
+	return filepath.Dir(filepath.Dir(filepath.Dir(bin)))
+}
 
-// SetCapExecPath sets the sunshine_capexec launcher path (see
-// runtimeCapExecPath) that Start uses to launch Sunshine with CAP_SYS_ADMIN
-// when the configured capture mode is "kms". A no-op path (empty, or the
-// launcher lacking the capability) just means Start launches Sunshine
-// directly, same as before KMS capture was requested/granted.
+// SetCapExecPath sets the installed usbridge-streamer-launch path Start
+// uses (`<launcher> --run-sunshine -- <args>`, which execs the root-owned
+// Sunshine tree with CAP_SYS_ADMIN) when the capture mode is "kms". ""
+// means Start launches the bundled Sunshine directly.
 func (b *sunshineBackend) SetCapExecPath(capExecPath string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -676,18 +646,16 @@ func (b *sunshineBackend) Start(adminPort int) error {
 		log.Printf("[sunshine] admin password set (user=%s)", sunshineAdminUser)
 	}
 
-	// If a capability-granted sunshine_capexec launcher is set (Linux KMS
-	// capture only — see SetCapExecPath), launch Sunshine through it so it
-	// inherits CAP_SYS_ADMIN via ambient capabilities instead of carrying a
-	// file capability itself, which would break its RPATH-based library
-	// resolution. b.capExecPath is only ever set once the capability has
-	// actually been granted (internal/app), so this exec is expected to
-	// succeed whenever it's used.
+	// With the launcher set (Linux KMS capture only — see SetCapExecPath),
+	// run the root-owned Sunshine tree through it: CAP_SYS_ADMIN arrives
+	// via the ambient set, so Sunshine never carries a file capability
+	// (which would break its RPATH-based library resolution). The launcher
+	// chdirs into that tree itself.
 	var launchExe string
 	var launchArgs []string
 	if b.capExecPath != "" {
 		launchExe = b.capExecPath
-		launchArgs = append([]string{b.launchPath}, b.sunshineConfigArgs()...)
+		launchArgs = append([]string{"--run-sunshine", "--"}, b.sunshineConfigArgs()...)
 	} else {
 		launchExe = b.launchPath
 		launchArgs = b.sunshineConfigArgs()

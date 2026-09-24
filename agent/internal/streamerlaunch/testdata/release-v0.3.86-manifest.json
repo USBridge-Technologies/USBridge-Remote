@@ -1,0 +1,28 @@
+{
+  "app": "usbridge-streamer",
+  "version": "usbridge-streamer-v0.3.86",
+  "platforms": {
+    "linux-x86_64": {
+      "asset": "usbridge-streamer-linux-x86_64.tar.gz",
+      "sha256": "38e810af81ec2b06d4b2a9fd5b708a3b335dfcc79bbbfdfe38e9f7142042ff0f"
+    },
+    "macos-arm64": {
+      "asset": "usbridge-streamer-macos-arm64.tar.gz",
+      "sha256": "798768c421dece3108fb9dd1c26966dd960c51b5c7cd343e296250a8ec88ece1"
+    },
+    "windows-x86_64": {
+      "asset": "usbridge-streamer-windows-x86_64.zip",
+      "sha256": "d9a1a592556718d259032f7d5ea3ff469e48e0cd142550eeb0ee551c2d6b6128"
+    }
+  },
+  "broker": {
+    "linux-x86_64": {
+      "asset": "usbridge-usb-broker-linux-x86_64.tar.gz",
+      "sha256": "278e8e36ba3dc5eaa906b424ce143c786826193abdc5886cc320016de95d0651"
+    },
+    "windows-x86_64": {
+      "asset": "usbridge-usb-broker-windows-x86_64.zip",
+      "sha256": "4e675664269d877c34b2dac14737d0de6ad9141d11402511c7f3b0aea326f898"
+    }
+  }
+}

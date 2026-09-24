@@ -18,8 +18,8 @@ import (
 
 // unitName/unitPath: a system-wide (not --user) systemd unit. This is
 // deliberate: KMS screen capture already requires one-time root elevation
-// via pkexec (see internal/permissions.RequestKMSCapture) to grant
-// CAP_SYS_ADMIN to sunshine_capexec, so the user has already agreed to a
+// via pkexec (see internal/permissions.RequestKMSCapture) to install the
+// root-owned CAP_SYS_ADMIN launcher, so the user has already agreed to a
 // polkit prompt for this app — reusing that same pkexec path to install a
 // system unit costs nothing extra, and unlike a `systemd --user` unit (which
 // only starts once systemd's user instance for that UID is running —

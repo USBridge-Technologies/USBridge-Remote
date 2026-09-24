@@ -62,6 +62,7 @@ func listSetupAPI() ([]models.USBPassthroughDevice, error) {
 			desc = vid + ":" + pid
 		}
 
+		interfaces := parseInterfaceClasses(compatIDs)
 		devices = append(devices, models.USBPassthroughDevice{
 			BusID:       StableUSBIPBusID(instanceID),
 			InstanceID:  instanceID,
@@ -70,9 +71,10 @@ func listSetupAPI() ([]models.USBPassthroughDevice, error) {
 			Description: desc,
 			// Boot HID keyboards/mice stay local so the user cannot detach
 			// the only input device driving the client UI -- matches
-			// listSysfs's isProtectedSysfsDevice and the Windows broker's
+			// listSysfs's isProtectedInterfaces and the Windows broker's
 			// own "protected" flag.
-			Protected: hasUSBInterfaceClass(compatIDs, "03&SubClass_01&Prot_01") || hasUSBInterfaceClass(compatIDs, "03&SubClass_01&Prot_02"),
+			Protected:  hasUSBInterfaceClass(compatIDs, "03&SubClass_01&Prot_01") || hasUSBInterfaceClass(compatIDs, "03&SubClass_01&Prot_02"),
+			Interfaces: interfaces,
 		})
 	}
 	return devices, nil
@@ -91,6 +93,13 @@ func parseUSBInstanceVIDPID(instanceID string) (vid, pid string, ok bool) {
 }
 
 func extractHexField(s, prefix string) (string, bool) {
+	return extractHexFieldN(s, prefix, 4)
+}
+
+// extractHexFieldN is extractHexField generalized to a caller-chosen digit
+// count -- VID_/PID_ are 4 hex digits, but the Class_/SubClass_/Prot_
+// fields parseInterfaceClasses reads are 2.
+func extractHexFieldN(s, prefix string, n int) (string, bool) {
 	idx := strings.Index(s, prefix)
 	if idx < 0 {
 		return "", false
@@ -100,10 +109,34 @@ func extractHexField(s, prefix string) (string, bool) {
 	for end < len(s) && isHexDigit(s[end]) {
 		end++
 	}
-	if end-start != 4 {
+	if end-start != n {
 		return "", false
 	}
 	return s[start:end], true
+}
+
+// parseInterfaceClasses extracts every real (bInterfaceClass,
+// bInterfaceSubClass, bInterfaceProtocol) triple SetupAPI exposes as
+// "USB\Class_xx&SubClass_yy&Prot_zz" compatible ID strings -- the SetupAPI
+// equivalent of readInterfaceClasses (sysfs, Linux; see that function's doc
+// comment for what this feeds: models.USBPassthroughDevice.Interfaces,
+// display-only). Malformed/partial entries are skipped rather than guessed
+// at.
+func parseInterfaceClasses(compatIDs []string) [][3]uint8 {
+	var out [][3]uint8
+	for _, id := range compatIDs {
+		upper := strings.ToUpper(id)
+		class, ok1 := extractHexFieldN(upper, "CLASS_", 2)
+		sub, ok2 := extractHexFieldN(upper, "SUBCLASS_", 2)
+		proto, ok3 := extractHexFieldN(upper, "PROT_", 2)
+		if !ok1 || !ok2 || !ok3 {
+			continue
+		}
+		if triple, ok := parseHexTriple(class, sub, proto); ok {
+			out = append(out, triple)
+		}
+	}
+	return out
 }
 
 func isHexDigit(c byte) bool {

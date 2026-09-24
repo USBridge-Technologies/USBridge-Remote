@@ -60,6 +60,13 @@ type LocalizedStrings struct {
 	NotRunning string
 	NotStaged  string
 
+	// USB broker consent (see ui.Window's usbBrokerRow / EnableUSBBroker) --
+	// the proprietary usb-broker binary must never run without this
+	// explicit, one-time opt-in.
+	EnableUSBBroker       string
+	USBBrokerConsentTitle string
+	USBBrokerConsentBody  string
+
 	// Tailscale
 	SignIn              string
 	SignOut             string
@@ -311,6 +318,10 @@ func EN() *LocalizedStrings {
 		Web:        "Web",
 		NotRunning: "Not running",
 		NotStaged:  "Not staged",
+
+		EnableUSBBroker:       "Enable",
+		USBBrokerConsentTitle: "Enable USB passthrough?",
+		USBBrokerConsentBody:  "USB passthrough is powered by a separate, closed-source component (not open-source like the rest of this agent). It stays off until you enable it here. Once enabled, keyboard, mouse, and gamepad passthrough is free; other USB devices (drives, audio, tablets, etc.) require a Pro or Enterprise subscription.",
 
 		SignIn:              "Sign In",
 		SignOut:             "Sign Out",

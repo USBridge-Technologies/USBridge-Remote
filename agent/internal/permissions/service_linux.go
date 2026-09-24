@@ -13,6 +13,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"usbridge_agent/internal/capture"
+	"usbridge_agent/internal/streamerlaunch"
 )
 
 const uinputRulePath = "/etc/udev/rules.d/99-usbridge-input.rules"
@@ -555,15 +556,21 @@ func findCapTool(name string) string {
 	return name
 }
 
-// KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
-// has the CAP_SYS_ADMIN capability needed for Sunshine's direct KMS screen
-// capture (root-level, no compositor/portal involved).
-//
-// capexecPath is the path to sunshine_capexec, NOT to sunshine itself — see
-// RequestKMSCapture for why the capability lives on a separate launcher.
+// KMSCaptureGranted reports whether KMS screen capture (CAP_SYS_ADMIN, no
+// compositor/portal involved) is granted for target, the key
+// App.kmsCaptureTarget returns: streamerlaunch.InstallPath for RustShine
+// (the root-owned launcher is installed), or a Sunshine install-tree root
+// (launcher installed AND the root-owned copy matches that tree's build).
+// Any other path falls back to a plain getcap check.
 func (s *Service) KMSCaptureGranted(capexecPath string) bool {
 	if strings.TrimSpace(capexecPath) == "" {
 		return false
+	}
+	if capexecPath == streamerlaunch.InstallPath {
+		return s.StreamerLauncherInstalled()
+	}
+	if isSunshineTree(capexecPath) {
+		return s.sunshineKMSGranted(capexecPath)
 	}
 	out, err := exec.Command(findCapTool("getcap"), capexecPath).CombinedOutput()
 	if err != nil {
@@ -572,27 +579,23 @@ func (s *Service) KMSCaptureGranted(capexecPath string) bool {
 	return strings.Contains(string(out), "cap_sys_admin")
 }
 
-// RequestKMSCapture grants CAP_SYS_ADMIN to the bundled sunshine_capexec
-// launcher via pkexec setcap, so Sunshine can use its KMS capture backend
-// without running as root outright.
-//
-// This deliberately targets sunshine_capexec, a tiny statically-linked
-// (zero dynamic deps) launcher — never the sunshine binary itself. Setting a
-// file capability puts the dynamic linker into "secure execution" mode for
-// that binary (same as setuid): glibc ignores RPATH/RUNPATH and
-// LD_LIBRARY_PATH entirely, the same protection that stops a setuid binary
-// from being tricked into loading an attacker-controlled library. Since
-// Sunshine resolves its bundled dependencies (e.g. libminiupnpc.so.17) via
-// RPATH=$ORIGIN/../lib, setting the capability directly on it would break
-// that resolution the moment it's granted. sunshine_capexec instead raises
-// CAP_SYS_ADMIN into its own ambient capability set and execs the real,
-// perfectly ordinary (no file capability of its own) sunshine binary —
-// ambient capabilities are preserved across exec of a non-privileged binary
-// without ever placing it into secure-execution mode, so its RPATH keeps
-// resolving normally. See cmd/sunshine_capexec.
+// RequestKMSCapture performs the one-time, pkexec-prompted grant for
+// target (see KMSCaptureGranted): installing the root-owned
+// usbridge-streamer-launch, plus for Sunshine a root-owned copy of its
+// install tree. Nothing user-writable ever carries the capability. The
+// launcher raises CAP_SYS_ADMIN into the ambient set, which survives exec
+// into a binary with no file capability -- so neither streamer is put in
+// glibc's secure-execution mode, and Sunshine's RPATH=$ORIGIN/../lib keeps
+// resolving. See internal/streamerlaunch.
 func (s *Service) RequestKMSCapture(capexecPath string) bool {
 	if strings.TrimSpace(capexecPath) == "" {
 		return false
+	}
+	if capexecPath == streamerlaunch.InstallPath {
+		return s.InstallStreamerLauncher()
+	}
+	if isSunshineTree(capexecPath) {
+		return s.installSunshineKMS(capexecPath)
 	}
 	if s.KMSCaptureGranted(capexecPath) {
 		return true

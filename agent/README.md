@@ -29,7 +29,7 @@ One lightweight binary for Windows, macOS, and Linux. It shares the exact same c
 - **Built-in Tailscale**: Whether system-wide or userspace, the agent registers itself on your Tailnet on boot. Connect directly on your LAN or securely over Tailscale—nothing else in between.
 - **Bank-Grade Security**: API requests are HMAC-SHA256 signed over the master key with a ±60s replay window. The pairing handshake is AES-256-GCM encrypted, using the same robust scheme as the client and the hardware unit.
 - **Native Input Injection**: Uses `SendInput` on Windows, `CGEvent`/Quartz on macOS, and direct injection on Linux for 1:1 precise, latency-free mouse and keyboard emulation.
-- **Wayland Native**: On Linux, switching Sunshine to KMS capture only needs a single `pkexec` grant. It sets `CAP_SYS_ADMIN` on the binary and persists across reboots—meaning the annoying portal permission dialog never comes back.
+- **Wayland Native**: On Linux, KMS capture (Sunshine or RustShine) needs a single `pkexec` grant. It installs a small root-owned launcher that gives the streamer `CAP_SYS_ADMIN`, and it survives reboots **and streamer updates**, so the portal permission dialog never comes back, even on a remote session. The launcher runs only RustShine builds signed by the release key and only a root-owned copy of Sunshine. See [docs/KMS_CAPTURE_LINUX.md](docs/KMS_CAPTURE_LINUX.md).
 - **One-Click Clipboard Setup on Linux**: If neither `xclip` nor `wl-clipboard` is present, the Permissions column offers a one-click, distro-aware install (a "?" button previews the exact `pkexec` command first). On Wayland, both tools get installed and written to together, since desktop compositors don't always mirror the clipboard between native Wayland apps and XWayland ones.
 - **Unified Dashboard**: The control window neatly displays your LAN/Tailscale addresses, streaming backend status (including copy-to-clipboard, quick launch, and informational tooltips for WebRTC client links), permission statuses, and Tailscale sign-in all in one place.
 - **System Tray**: Closing the window minimizes to a tray icon instead of quitting — the icon itself reflects live status (idle/streaming/needs attention), and its menu gives one-click access to reopening the window, restarting streaming, toggling autostart, and quitting for real. A tray icon stays visible even when the engine is running headless in the background (see [Launch at Login](#-launch-at-login-autostart) below).
@@ -110,13 +110,13 @@ The `USBridgeAgent` service always runs as `LocalSystem` — deliberately, so it
 
 This is a Windows-only feature, shown in the **Permissions** panel exclusively on supported machines. When checked, the agent launches an elevated helper (`gamestream-server.exe --gpu-clock-lock-daemon --watch-pid <PID>`) that holds an NVML max-clock lock for the entire duration of the streaming session. This prevents the GPU from idling into a lower power state between frames, ensuring the encoder doesn't stall on the next frame.
 
-Unlike Linux's permanent `CAP_SYS_ADMIN` setcap, there is no persistent one-time grant for this on Windows. NVML's clock-lock call requires the *calling process itself* to be elevated, which means a fresh UAC prompt is required every time a streaming session actually (re)starts.
+Unlike Linux's one-time KMS launcher install, there is no persistent one-time grant for this on Windows. NVML's clock-lock call requires the *calling process itself* to be elevated, which means a fresh UAC prompt is required every time a streaming session actually (re)starts.
 
 Checking the box arms the lock immediately (if a session is already running) and re-arms it automatically for all future sessions. There's no separate "Request" button because the checkbox itself triggers the UAC request. Unchecking it only stops *future* sessions from spawning the helper; it won't kill an already-running helper to avoid dropping clocks mid-session (the helper exits on its own once the streaming process it's watching exits).
 
 ## 📚 Documentation
 
-**[docs/README.md](docs/README.md)** — full reference, including exactly what the Agent can and can't do compared to the physical [USBridge-KVM 2.0](https://github.com/USBridge-Technologies/USBridge-KVM-2.0) hardware.
+**[docs/README.md](docs/README.md)** — full reference, including exactly what the Agent can and can't do compared to the physical [USBridge-KVM 2.0](https://github.com/USBridge-Technologies/USBridge-KVM-2.0) hardware, and a [USB capture/emulation table](docs/README.md#usb-capture--host-side-emulation) covering what's free vs. Pro/Enterprise per device type and OS.
 
 ## 📜 License
 
