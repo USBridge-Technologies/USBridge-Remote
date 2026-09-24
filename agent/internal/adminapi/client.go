@@ -368,6 +368,15 @@ func (c *Client) USBPassthroughStatus() usbpass.Status {
 	return st
 }
 
+// EnableUSBBroker mirrors DownloadRustShine's own thin-client shape
+// (fire-and-forget; the GUI polls USBPassthroughStatus for ConsentGiven/
+// BrokerAlive instead of waiting on this response) -- see
+// handleEnableUSBBroker's doc comment. onProgress is ignored over this path
+// for the same reason DownloadRustShine's is.
+func (c *Client) EnableUSBBroker(onProgress entitlement.ProgressFunc) error {
+	return c.do(http.MethodPost, "/token/enable-usb-broker", nil, nil)
+}
+
 // InstallUSBDriver mirrors DownloadRustShine's own thin-client shape
 // (fire-and-forget; the GUI polls USBPassthroughStatus for VhciDriver
 // instead of waiting on this response) -- see

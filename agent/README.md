@@ -116,7 +116,7 @@ Checking the box arms the lock immediately (if a session is already running) and
 
 ## 📚 Documentation
 
-**[docs/README.md](docs/README.md)** — full reference, including exactly what the Agent can and can't do compared to the physical [USBridge-KVM 2.0](https://github.com/USBridge-Technologies/USBridge-KVM-2.0) hardware.
+**[docs/README.md](docs/README.md)** — full reference, including exactly what the Agent can and can't do compared to the physical [USBridge-KVM 2.0](https://github.com/USBridge-Technologies/USBridge-KVM-2.0) hardware, and a [USB capture/emulation table](docs/README.md#usb-capture--host-side-emulation) covering what's free vs. Pro/Enterprise per device type and OS.
 
 ## 📜 License
 

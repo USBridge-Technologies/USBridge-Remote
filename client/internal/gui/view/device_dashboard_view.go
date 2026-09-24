@@ -1699,12 +1699,27 @@ func DisableDashboardAction(obj fyne.CanvasObject, disabled bool) {
 // count, …) -- see newDeviceDashboardRowLeftChips -- empty for drives
 // whose size isn't known.
 func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, modePicker, deleteBtn, uploadBtn, connectBtn, uploadProgress fyne.CanvasObject, chips ...string) fyne.CanvasObject {
+	return NewDeviceDashboardStorageRowWithBadge(icon, name, active, nil, modePicker, deleteBtn, uploadBtn, connectBtn, uploadProgress, chips...)
+}
+
+// NewDeviceDashboardStorageRowWithBadge is NewDeviceDashboardStorageRow with
+// an optional badge (see NewDeviceDashboardOutlinedBadge, used the same way
+// NewDeviceDashboardTealRowWithBadge uses one for the pen-tablet rows) shown
+// among the row's right-side controls -- nil omits it exactly like every
+// other right-side param here. Used by the Raw USB / passthrough rows to
+// flag a device that requires a Pro/Enterprise license on the connected
+// agent (see controller.RequiresProLicense's own doc comment: display-only,
+// never the actual enforcement decision).
+func NewDeviceDashboardStorageRowWithBadge(icon fyne.Resource, name string, active bool, badge, modePicker, deleteBtn, uploadBtn, connectBtn, uploadProgress fyne.CanvasObject, chips ...string) fyne.CanvasObject {
 	left := newDeviceDashboardRowLeftChips(icon, name, active, chips...)
 
 	var rightParts []fyne.CanvasObject
 	if uploadProgress != nil {
 		rightParts = append(rightParts, uploadProgress)
 	} else {
+		if badge != nil {
+			rightParts = append(rightParts, badge)
+		}
 		if modePicker != nil {
 			rightParts = append(rightParts, modePicker)
 		}

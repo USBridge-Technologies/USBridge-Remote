@@ -20,6 +20,26 @@ import (
 	"usbridge-client/internal/models"
 )
 
+// parseHexTriple parses three 2-digit hex strings (a device's
+// bInterfaceClass/SubClass/Protocol, however the platform's enumeration API
+// happened to surface them -- sysfs text files on Linux, "Class_xx&
+// SubClass_yy&Prot_zz" compatible-ID substrings on Windows) into one
+// interface-class triple. ok is false if any of the three fails to parse,
+// so callers skip the whole interface rather than recording a partial/wrong
+// one -- shared by list_sysfs_linux.go's readInterfaceClasses and
+// list_setupapi_windows.go's parseInterfaceClasses, the only two real
+// differences between those two being how class/sub/proto strings are
+// obtained in the first place.
+func parseHexTriple(class, sub, proto string) (triple [3]uint8, ok bool) {
+	c, err1 := strconv.ParseUint(class, 16, 8)
+	s, err2 := strconv.ParseUint(sub, 16, 8)
+	p, err3 := strconv.ParseUint(proto, 16, 8)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return [3]uint8{}, false
+	}
+	return [3]uint8{uint8(c), uint8(s), uint8(p)}, true
+}
+
 func brokerName() string {
 	if runtime.GOOS == "windows" {
 		return "usbridge-usb-broker.exe"

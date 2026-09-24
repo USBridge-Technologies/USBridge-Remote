@@ -91,11 +91,17 @@ type TokenProvider interface {
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
 
-	// USB passthrough (see internal/usbpass) -- gated by the same
-	// entitlement token as RustShine, staged on the same DownloadRustShine
-	// click. USBPassthroughStatus is polled for driver-install UI; see
-	// refreshRustShineUI.
+	// USB passthrough (see internal/usbpass) -- a separate closed-source
+	// component from RustShine, gated by its own one-time consent, never
+	// downloaded/started as a side effect of DownloadRustShine (see
+	// App.EnableUSBBroker/ensureUSBBroker's doc comments). USBPassthroughStatus
+	// is polled for both the consent-button and driver-install UI; see
+	// refreshUSBPassthroughUI.
 	USBPassthroughStatus() usbpass.Status
+	// EnableUSBBroker records the user's explicit, one-time consent to run
+	// the proprietary usb-broker binary and stages/starts it (see the USB
+	// status row's button).
+	EnableUSBBroker(onProgress entitlement.ProgressFunc) error
 	InstallUSBDriver() error
 	// GrantUSBAttach: Linux one-time polkit grant so usbip attach/detach
 	// stop prompting for a password (see usbpass/access_linux.go).
@@ -217,17 +223,22 @@ type Window struct {
 	usbDriverRow *fyne.Container
 	usbDriverBtn *iconActionButton
 
-	// usbBrokerRow: a status-only row (no button) shown whenever RustShine
-	// is active, next to streamerLabel -- separate from usbDriverRow (which
-	// is about the *driver*, not the broker process). usbBrokerStatusDot is
-	// green while usbpass.Status.BrokerAlive (the broker process answered
-	// its own control-socket "status" query moments ago), red otherwise --
+	// usbBrokerRow: shown whenever this platform supports USB passthrough
+	// at all (usb.Available), independent of license tier -- separate from
+	// usbDriverRow (which is about the *driver*, not the broker process).
+	// Two mutually exclusive states, switched by ConsentGiven
+	// (refreshUSBPassthroughUI): before consent, usbBrokerConsentBtn is the
+	// only thing shown (the proprietary binary must never run without an
+	// explicit, one-time opt-in -- see App.EnableUSBBroker); after, the
+	// usual status dot/label take over. usbBrokerStatusDot is green while
+	// usbpass.Status.BrokerAlive (the broker process answered its own
+	// control-socket "status" query moments ago), red otherwise --
 	// staged-but-not-running and not-staged-at-all both read as red here,
-	// distinguished only by usbBrokerStatusLabel's text (see
-	// refreshUSBPassthroughUI).
+	// distinguished only by usbBrokerStatusLabel's text.
 	usbBrokerRow         *fyne.Container
 	usbBrokerStatusDot   *canvas.Circle
 	usbBrokerStatusLabel *canvas.Text
+	usbBrokerConsentBtn  *iconActionButton
 
 	// sunWebSunshineRow/sunWebRustshineRow are mutually exclusive: the
 	// Status panel's "web UI" row shows Sunshine's local admin UI address
@@ -695,16 +706,18 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 	w.showFooterIdle(loc().AlreadyUpToDate, footerIdleMessageDuration)
 }
 
-// refreshUSBPassthroughUI keeps usbDriverRow in sync -- shown only with a
-// Pro/Enterprise license (any stream backend) and this platform's driver isn't
-// present yet (st.VhciDriver false). Disappears once the driver install
-// actually takes -- InstallUSBDriver's pkexec call updates the real
-// vhci-hcd state that usbStatus is read from on the very next tick, no
-// separate "installed" signal needed.
+// refreshUSBPassthroughUI keeps usbDriverRow/usbBrokerRow in sync.
+// Deliberately NOT gated on license tier any more: which specific devices a
+// free-tier session may attach is decided per attach, deep inside the
+// closed broker itself (rust-shine's license_class/devlist_probe), so
+// there's nothing left for this UI layer to gate on tier -- only on whether
+// this platform supports USB passthrough at all (usb.Available) and,
+// separately, on the user's own one-time consent to run the proprietary
+// broker binary (usb.ConsentGiven, see App.EnableUSBBroker). Disappears
+// once the driver install actually takes -- InstallUSBDriver's pkexec call
+// updates the real vhci-hcd state that usbStatus is read from on the very
+// next tick, no separate "installed" signal needed.
 func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Status) {
-	// USB passthrough is licensed (Pro/Enterprise), not tied to the stream
-	// backend: the broker is its own process, so it works under Sunshine too.
-	active := st.Tier == "pro" || st.Tier == "enterprise"
 	if w.usbAccessCheck != nil {
 		// Always listed on Linux (not license-hidden): tick when the polkit
 		// grant is in place, active Grant button otherwise.
@@ -715,7 +728,7 @@ func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Stat
 		w.vdisplayAccessCheck.SetChecked(vdisplay.AccessGranted())
 	}
 	if w.usbDriverRow != nil {
-		if active && usb.Available && !usb.VhciDriver {
+		if usb.ConsentGiven && usb.Available && !usb.VhciDriver {
 			w.usbDriverRow.Show()
 		} else {
 			w.usbDriverRow.Hide()
@@ -724,11 +737,29 @@ func (w *Window) refreshUSBPassthroughUI(st entitlement.Status, usb usbpass.Stat
 	if w.usbBrokerRow == nil {
 		return
 	}
-	if !active || !usb.Available {
+	if !usb.Available {
 		w.usbBrokerRow.Hide()
 		return
 	}
 	w.usbBrokerRow.Show()
+
+	if !usb.ConsentGiven {
+		// Proprietary binary not opted into yet -- the consent button is
+		// the only thing this row shows; no status dot/label to mislead
+		// with (nothing is staged or running).
+		setStatusDot(w.usbBrokerStatusDot, false)
+		if w.usbBrokerStatusLabel != nil {
+			w.usbBrokerStatusLabel.Text = ""
+			w.usbBrokerStatusLabel.Refresh()
+		}
+		if w.usbBrokerConsentBtn != nil {
+			w.usbBrokerConsentBtn.Show()
+		}
+		return
+	}
+	if w.usbBrokerConsentBtn != nil {
+		w.usbBrokerConsentBtn.Hide()
+	}
 	setStatusDot(w.usbBrokerStatusDot, usb.BrokerAlive)
 	if w.usbBrokerStatusLabel != nil {
 		// usb.BrokerError is always non-empty whenever BrokerAlive is false
@@ -1199,14 +1230,41 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	// usbBrokerRow -- see its field doc comment. Built unconditionally (like
 	// rustshineWebRTCRow/usbDriverRow); refreshUSBPassthroughUI is what
-	// actually decides visibility and the dot/label text on every tick.
+	// actually decides visibility, which of consentBtn/status-dot+label is
+	// shown, and the dot/label text on every tick.
 	w.usbBrokerStatusDot = newStatusDot()
 	w.usbBrokerStatusLabel = makeStatusValue("")
+	w.usbBrokerConsentBtn = newIconActionButton(loc().EnableUSBBroker, theme.WarningIcon(), func() {
+		dialog.NewConfirm(
+			loc().USBBrokerConsentTitle,
+			loc().USBBrokerConsentBody,
+			func(confirmed bool) {
+				if !confirmed || w.token == nil {
+					return
+				}
+				w.usbBrokerConsentBtn.Disable()
+				go func() {
+					err := w.token.EnableUSBBroker(nil)
+					fyne.Do(func() {
+						if w.usbBrokerConsentBtn != nil {
+							w.usbBrokerConsentBtn.Enable()
+						}
+						if err != nil {
+							dialog.ShowError(err, win)
+						}
+					})
+					w.performRefresh()
+				}()
+			},
+			win,
+		).Show()
+	})
+	w.usbBrokerConsentBtn.Tiny = true
 	w.usbBrokerRow = newStatusRow(
 		container.New(&tightHBoxLayout{gap: 6},
 			makeStatusLabel(loc().USBBroker), statusDotBox(w.usbBrokerStatusDot),
 			w.usbBrokerStatusLabel),
-		nil,
+		w.usbBrokerConsentBtn,
 	)
 	w.usbBrokerRow.Hide()
 

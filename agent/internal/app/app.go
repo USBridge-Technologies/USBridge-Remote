@@ -2062,14 +2062,13 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 		return err
 	}
 
-	// USB passthrough (usbridge-usb-broker) ships in the same release as
-	// RustShine and is gated by the same entitlement token, so it stages
-	// on the same click. Non-fatal: not every platform/release has a
-	// broker build yet (see StageUSBBroker's doc comment), and RustShine
-	// itself must keep working even when USB passthrough isn't available.
-	if err := entitlement.StageUSBBroker(context.Background(), a.cfg.StateDir, token, nil); err != nil {
-		log.Printf("[app] usb-broker not staged (USB passthrough unavailable): %v", err)
-	}
+	// USB passthrough (usbridge-usb-broker) is a SEPARATE, closed-source
+	// component from RustShine and must never be downloaded as a side
+	// effect of picking a video backend -- it needs its own explicit,
+	// one-time user consent first (see App.EnableUSBBroker, wired to the
+	// USB status row's button in ui.Window). Staging it here, unconditional
+	// on nothing but "the user clicked Download RustShine", was exactly the
+	// silent-proprietary-download this product must not do by default.
 	return nil
 }
 
@@ -2081,9 +2080,11 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 // stays true.
 func (a *App) USBPassthroughStatus() usbpass.Status {
 	if a.usbBroker == nil {
-		return usbpass.Status{Available: false, Platform: "disabled"}
+		return usbpass.Status{Available: false, Platform: "disabled", ConsentGiven: a.cfg.USBBrokerConsentGiven()}
 	}
-	return a.usbBroker.Status()
+	st := a.usbBroker.Status()
+	st.ConsentGiven = a.cfg.USBBrokerConsentGiven()
+	return st
 }
 
 // InstallUSBDriver installs this platform's USB passthrough driver
@@ -2422,28 +2423,73 @@ func (a *App) recheckEntitlement(ctx context.Context) bool {
 	}
 	a.refreshLocalEntitlementStatus()
 	a.ensureRustShineFresh(ctx, res.Token)
-	a.ensureUSBBroker(ctx, res.Token, claims.Tier)
+	a.ensureUSBBroker(ctx, res.Token)
 	return true
 }
 
-// ensureUSBBroker stages and starts the usb-broker for paid tiers regardless
-// of which stream backend is active: the broker is a separate process from
-// RustShine (it only needs the entitlement token file, see usbpass.Start), so
-// a Pro/Enterprise customer running Sunshine gets USB passthrough too, without
-// having to switch backends or download RustShine's streamer first. No-op for
-// free tiers or once the broker is already on disk.
-func (a *App) ensureUSBBroker(ctx context.Context, token, tier string) {
-	if a.usbBroker == nil || (tier != "pro" && tier != "enterprise") || a.usbBroker.Staged() {
+// ensureUSBBroker stages and starts the usb-broker regardless of which
+// stream backend is active or which license tier is current: the broker is
+// a separate process from RustShine (it only needs the entitlement token
+// file, see usbpass.Start), and which specific *devices* a free-tier
+// session may attach is decided per attach inside the closed broker itself
+// (rust-shine's license_class/devlist_probe, see docs/USB_PASSTHROUGH.md in
+// that repo) -- there is nothing left for Go to gate on tier here.
+//
+// What Go DOES still gate on is USBBrokerConsentGiven: this agent must run
+// only open-source code until the user explicitly opts in (see the USB
+// status row's button, ui.Window's usbBrokerRow, and App.EnableUSBBroker,
+// the only place that flips the consent flag). No-op without that consent,
+// or once the broker is already on disk.
+func (a *App) ensureUSBBroker(ctx context.Context, token string) {
+	if a.usbBroker == nil || !a.cfg.USBBrokerConsentGiven() || a.usbBroker.Staged() {
 		return
 	}
-	log.Printf("[app] %s license — staging usb-broker", tier)
-	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, token, nil); err != nil {
-		log.Printf("[app] usb-broker not staged (will retry next interval): %v", err)
-		return
+	log.Printf("[app] USB broker consent on record — staging usb-broker")
+	if err := a.stageAndStartUSBBroker(ctx, token, nil); err != nil {
+		log.Printf("[app] usb-broker not staged/started (will retry next interval): %v", err)
 	}
-	if err := a.usbBroker.Start(); err != nil {
-		log.Printf("[usbpass] broker not started: %v", err)
+}
+
+// EnableUSBBroker records the user's one-time, explicit consent to run the
+// closed usb-broker binary (see the USB status row's button in ui.Window)
+// and immediately stages+starts it if entitled — the same staging path
+// ensureUSBBroker's watchdog would otherwise only reach on its next tick.
+// onProgress mirrors DownloadRustShine's identical threading contract.
+func (a *App) EnableUSBBroker(onProgress entitlement.ProgressFunc) error {
+	consent := true
+	next := a.cfg
+	next.USBBrokerConsent = &consent
+	if err := a.SaveConfig(next); err != nil {
+		return err
 	}
+
+	token := strings.TrimSpace(a.cfg.EntitlementToken)
+	if token == "" {
+		// Consent alone doesn't require entitlement -- ensureUSBBroker's own
+		// next watchdog tick (or a subsequent EnableUSBBroker retry) picks
+		// this up the moment a token exists. Not an error: recording "yes,
+		// I want the proprietary broker enabled" is a valid, standalone
+		// action even before/without ever linking a license.
+		return nil
+	}
+	return a.stageAndStartUSBBroker(context.Background(), token, onProgress)
+}
+
+// stageAndStartUSBBroker is the "download the release, then launch it" pair
+// both ensureUSBBroker's watchdog path and EnableUSBBroker's immediate path
+// need -- factored out purely to keep that pairing in one place; callers
+// still decide for themselves whether a failure here is fire-and-forget
+// (logged, retried on the next tick) or something the caller should
+// propagate to the user (EnableUSBBroker's return value, surfaced by the
+// consent button).
+func (a *App) stageAndStartUSBBroker(ctx context.Context, token string, onProgress entitlement.ProgressFunc) error {
+	if a.usbBroker == nil {
+		return fmt.Errorf("usb passthrough not available on this platform")
+	}
+	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, token, onProgress); err != nil {
+		return err
+	}
+	return a.usbBroker.Start()
 }
 
 // ensureRustShineFresh makes sure a licensed/trialing customer always has
@@ -2550,8 +2596,14 @@ func (a *App) applyRustShineUpdate(ctx context.Context, entitlementToken, versio
 		return err
 	}
 	log.Printf("[app] rustshine updated to %s", version)
-	if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
-		log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
+	// Only re-stage if the user already consented to running the broker at
+	// all (see App.EnableUSBBroker/ensureUSBBroker's doc comments) -- an
+	// update to RustShine must never be what silently pulls the closed
+	// usb-broker binary down for the first time.
+	if a.cfg.USBBrokerConsentGiven() {
+		if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
+			log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
+		}
 	}
 	a.entMu.Lock()
 	a.entStatus.RustShineStaged = a.rustshineStaged()

@@ -10,12 +10,34 @@ import (
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/usbpass"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"github.com/sirupsen/logrus"
 )
+
+// dashboardProBadge returns the same outlined "Pro" badge the tablet/444
+// rows already use (view.NewDeviceDashboardOutlinedBadge) if drive's real
+// USB interfaces would require a Pro/Enterprise license and the connected
+// agent is currently on the free tier -- nil otherwise (device is already
+// free, or the agent already has a license that covers it, so nothing to
+// warn about). Display-only: usbpass.RequiresProLicense mirrors
+// rust-shine's own classifier by hand, but the actual accept/refuse
+// decision is made only in rust-shine, from its own live probe against the
+// real device -- see that function's doc comment. dw.agentProtocol comes
+// from the connected agent's own EntitlementStatus().Protocol() (already
+// threaded through GetDeviceInfo/status polling, see disk_widget.go).
+func (dw *DiskWidget) dashboardProBadge(drive DriveItem) fyne.CanvasObject {
+	if dw.agentProtocol != "free" || drive.USBPassthrough == nil {
+		return nil
+	}
+	if !usbpass.RequiresProLicense(drive.USBPassthrough.Interfaces) {
+		return nil
+	}
+	return view.NewDeviceDashboardOutlinedBadge(i18n.Current.Color444Badge, design.ColorProSoft)
+}
 
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
 // column (HID & Input Hub, Video Pipe & EDID, Audio Pipeline) stacked above
@@ -417,8 +439,8 @@ func (dw *DiskWidget) refreshDashboard() {
 		case drive.IsUSBPassthrough && isWacomTablet(drive), drive.IsPenTablet:
 			hidTablets = append(hidTablets, hidDrive{idx: idx, drive: drive})
 		case drive.IsUSBPassthrough:
-			emulationRows = append(emulationRows, view.NewDeviceDashboardStorageRow(
-				icon, name, drive.IsMounted, nil, nil, nil,
+			emulationRows = append(emulationRows, view.NewDeviceDashboardStorageRowWithBadge(
+				icon, name, drive.IsMounted, dw.dashboardProBadge(drive), nil, nil, nil,
 				dw.newDashboardConnectSlot(idx, drive, dw.dashboardEmulationHover),
 				nil, drive.Size,
 			))
@@ -471,10 +493,11 @@ func (dw *DiskWidget) refreshDashboard() {
 		if len(hidGamepads) > 1 {
 			name = fmt.Sprintf("%s (%d)", name, i+1)
 		}
-		hidRows = append(hidRows, view.NewDeviceDashboardTealRow(
+		hidRows = append(hidRows, view.NewDeviceDashboardTealRowWithBadge(
 			driveIconResource(pad.drive),
 			name,
 			pad.drive.IsMounted,
+			dw.dashboardProBadge(pad.drive),
 			dw.newDashboardGamepadModePicker(pad.idx, pad.drive),
 			dw.newDriveToggle(pad.idx, pad.drive, dw.dashboardHIDHover),
 		))

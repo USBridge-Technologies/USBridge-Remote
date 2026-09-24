@@ -37,6 +37,14 @@ type Status struct {
 	// AttachGranted is false on Linux until the one-time polkit grant (see
 	// access_linux.go) is in place; without it every attach/detach prompts.
 	AttachGranted bool `json:"attach_granted"`
+	// ConsentGiven is the user's one-time, explicit consent to run this
+	// closed binary at all (see config.Config.USBBrokerConsentGiven,
+	// App.EnableUSBBroker) -- set by App.USBPassthroughStatus, not by this
+	// package itself (Service has no access to Config). false means the
+	// binary must never be staged/started, regardless of license tier; the
+	// UI shows the consent button instead of the usual status row while
+	// this is false.
+	ConsentGiven bool `json:"consent_given"`
 }
 
 type Device struct {

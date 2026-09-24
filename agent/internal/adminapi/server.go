@@ -76,6 +76,7 @@ type TokenBackend interface {
 	// USB passthrough (see internal/usbpass) -- see
 	// internal/ui.TokenProvider's own copy of this same doc comment.
 	USBPassthroughStatus() usbpass.Status
+	EnableUSBBroker(onProgress entitlement.ProgressFunc) error
 	InstallUSBDriver() error
 	GrantUSBAttach() error
 
@@ -234,6 +235,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
 	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
 	mux.HandleFunc("GET /token/usb-driver-status", s.handleUSBPassthroughStatus)
+	mux.HandleFunc("POST /token/enable-usb-broker", s.handleEnableUSBBroker)
 	mux.HandleFunc("POST /token/install-usb-driver", s.handleInstallUSBDriver)
 	mux.HandleFunc("POST /token/grant-usb-attach", s.handleGrantUSBAttach)
 	mux.HandleFunc("GET /token/account-status", s.handleAccountStatus)
@@ -661,6 +663,19 @@ func (s *Server) handleCheckRustShineUpdateNow(w http.ResponseWriter, r *http.Re
 
 func (s *Server) handleUSBPassthroughStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.token.USBPassthroughStatus())
+}
+
+// handleEnableUSBBroker mirrors handleDownloadRustShine's own fire-and-forget
+// shape -- the GUI polls /token/usb-driver-status for ConsentGiven/
+// BrokerAlive instead of waiting on this response, since staging the
+// broker's release archive can take a while.
+func (s *Server) handleEnableUSBBroker(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		if err := s.token.EnableUSBBroker(nil); err != nil {
+			logrus.WithError(err).Warn("usb broker enable failed")
+		}
+	}()
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 // handleInstallUSBDriver mirrors handleDownloadRustShine's own
