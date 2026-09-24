@@ -3,9 +3,99 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
 extern void deliverIMEHeightFromObjC(int imeHeightPx, int screenHeightPx);
 extern void deliverIMETextFromObjC(int deleteCount, char* text);
+// Fyne mobile driver export — push a size.Event so InteractiveArea re-reads padding.
+// Weak: older Fyne builds may omit the symbol; sticky still works without a refresh.
+extern void updateConfig(int width, int height, int orientation) __attribute__((weak));
+
+static BOOL g_ignoreTopSafeArea = NO;
+
+static UIEdgeInsets (*usbridge_orig_safeAreaInsets)(id, SEL) = NULL;
+
+static UIEdgeInsets usbridge_swizzled_safeAreaInsets(id self, SEL _cmd) {
+    UIEdgeInsets inset = usbridge_orig_safeAreaInsets
+        ? usbridge_orig_safeAreaInsets(self, _cmd)
+        : UIEdgeInsetsZero;
+    if (g_ignoreTopSafeArea) {
+        // Match Android keyboardIgnoresTopSafeArea: special keys own the
+        // status-bar / notch band.
+        inset.top = 0;
+        inset.left = 0;
+        inset.right = 0;
+    }
+    return inset;
+}
+
+static void usbridge_installSafeAreaSwizzle(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Method m = class_getInstanceMethod([UIWindow class], @selector(safeAreaInsets));
+        if (m == NULL) {
+            return;
+        }
+        usbridge_orig_safeAreaInsets = (UIEdgeInsets (*)(id, SEL))method_getImplementation(m);
+        method_setImplementation(m, (IMP)usbridge_swizzled_safeAreaInsets);
+    });
+}
+
+static void usbridge_pushFyneInsetRefresh(void) {
+    usbridge_installSafeAreaSwizzle();
+    CGSize size = [UIScreen mainScreen].nativeBounds.size;
+    UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
+    if (@available(iOS 13.0, *)) {
+        UIWindow *win = nil;
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) {
+                continue;
+            }
+            UIWindowScene *ws = (UIWindowScene *)scene;
+            orientation = ws.interfaceOrientation;
+            for (UIWindow *w in ws.windows) {
+                if (w.isKeyWindow) {
+                    win = w;
+                    break;
+                }
+            }
+            if (win != nil) {
+                break;
+            }
+        }
+    } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        orientation = [[UIApplication sharedApplication] statusBarOrientation];
+#pragma clang diagnostic pop
+    }
+    // updateConfig expects pixel size in the same convention Fyne's AppDelegate uses.
+    if (updateConfig != NULL) {
+        updateConfig((int)size.width, (int)size.height, (int)orientation);
+    }
+}
+
+void setKeyboardIgnoresTopSafeArea(int enabled) {
+    BOOL on = enabled != 0;
+    dispatch_block_t blk = ^{
+        usbridge_installSafeAreaSwizzle();
+        if (g_ignoreTopSafeArea == on) {
+            usbridge_pushFyneInsetRefresh();
+            return;
+        }
+        g_ignoreTopSafeArea = on;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [UIApplication sharedApplication].statusBarHidden = on;
+#pragma clang diagnostic pop
+        usbridge_pushFyneInsetRefresh();
+    };
+    if ([NSThread isMainThread]) {
+        blk();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), blk);
+    }
+}
 
 @interface USBridgeStickyIMEField : UITextField
 @end
@@ -218,6 +308,9 @@ void initKeyboardObserver(void) {
 }
 
 void setStickyIMEEnabled(int enabled) {
+    // Drop top safe pad first so special keys can rise into the notch band
+    // (Android setKeyboardIgnoresTopSafeArea parity).
+    setKeyboardIgnoresTopSafeArea(enabled);
     [[USBridgeKeyboardObserver sharedInstance] setStickyEnabled:enabled != 0];
 }
 
