@@ -593,17 +593,20 @@ func usableConnectedChromeObject(obj fyne.CanvasObject) bool {
 }
 
 func connectedVersionLabel(version string, digitsVisible bool) fyne.CanvasObject {
-	v := strings.TrimSpace(version)
-	if v == "" {
-		return nil
-	}
-	var col color.Color = design.ColorTextMuted
 	if !digitsVisible {
-		col = color.Transparent
+		// Control landscape: keep layout slot, no pip / no What's-new tap.
+		v := strings.TrimSpace(version)
+		if v == "" {
+			return nil
+		}
+		if !strings.HasPrefix(strings.ToLower(v), "v") {
+			v = "v" + v
+		}
+		label := canvas.NewText(v, color.Transparent)
+		label.TextSize = 9
+		return label
 	}
-	label := canvas.NewText("v"+v, col)
-	label.TextSize = 9
-	return label
+	return view.NewFooterVersionButton(version)
 }
 
 func (mw *MainWindow) syncMobileKeyboardButton(controlActive bool) {

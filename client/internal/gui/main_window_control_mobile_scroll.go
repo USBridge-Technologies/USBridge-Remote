@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -19,6 +20,7 @@ import (
 type mobileFooterActionScroller struct {
 	widget.BaseWidget
 	scroll      *container.Scroll
+	scrollHost  fyne.CanvasObject // ThemeOverride wrapping scroll (no bar)
 	leftArrow   *mobileFooterScrollArrow
 	rightArrow  *mobileFooterScrollArrow
 	content     fyne.CanvasObject
@@ -30,6 +32,8 @@ func newMobileFooterActionScroller(content fyne.CanvasObject) *mobileFooterActio
 	s.ExtendBaseWidget(s)
 	s.scroll = container.NewHScroll(content)
 	s.scroll.Direction = container.ScrollHorizontalOnly
+	// Hide Fyne's scrollbar thumb/track — swipe + chevrons are enough on phones.
+	s.scrollHost = container.NewThemeOverride(s.scroll, &footerHideScrollBarTheme{Theme: design.NewBrandTheme()})
 	s.leftArrow = newMobileFooterScrollArrow(true, func() {
 		s.nudge(-s.step)
 	})
@@ -40,6 +44,28 @@ func newMobileFooterActionScroller(content fyne.CanvasObject) *mobileFooterActio
 		s.refreshArrows()
 	}
 	return s
+}
+
+// footerHideScrollBarTheme collapses the HScroll chrome so only the icon
+// row (and optional chevrons) remains visible.
+type footerHideScrollBarTheme struct {
+	fyne.Theme
+}
+
+func (t *footerHideScrollBarTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNameScrollBar, theme.SizeNameScrollBarSmall:
+		return 0
+	}
+	return t.Theme.Size(name)
+}
+
+func (t *footerHideScrollBarTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	switch name {
+	case theme.ColorNameScrollBar, theme.ColorNameScrollBarBackground:
+		return color.Transparent
+	}
+	return t.Theme.Color(name, variant)
 }
 
 func (s *mobileFooterActionScroller) nudge(delta float32) {
@@ -123,15 +149,19 @@ func (r *mobileFooterActionScrollerRenderer) Layout(size fyne.Size) {
 	if y < 0 {
 		y = 0
 	}
+	host := s.scrollHost
+	if host == nil {
+		host = s.scroll
+	}
 	if contentW > 0 && contentW <= size.Width {
 		// Fits: pin the cluster to the right (same as the old footer pack),
 		// vertically centered with the Tabs / burger baseline.
 		s.scroll.Offset = fyne.NewPos(0, 0)
-		s.scroll.Move(fyne.NewPos(size.Width-contentW, y))
-		s.scroll.Resize(fyne.NewSize(contentW, contentH))
+		host.Move(fyne.NewPos(size.Width-contentW, y))
+		host.Resize(fyne.NewSize(contentW, contentH))
 	} else {
-		s.scroll.Move(fyne.NewPos(0, y))
-		s.scroll.Resize(fyne.NewSize(size.Width, contentH))
+		host.Move(fyne.NewPos(0, y))
+		host.Resize(fyne.NewSize(size.Width, contentH))
 	}
 	s.leftArrow.Resize(fyne.NewSize(arrowW, contentH))
 	s.leftArrow.Move(fyne.NewPos(0, y))
@@ -150,7 +180,11 @@ func (r *mobileFooterActionScrollerRenderer) Refresh() {
 }
 
 func (r *mobileFooterActionScrollerRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.s.scroll, r.s.leftArrow, r.s.rightArrow}
+	host := r.s.scrollHost
+	if host == nil {
+		host = r.s.scroll
+	}
+	return []fyne.CanvasObject{host, r.s.leftArrow, r.s.rightArrow}
 }
 
 func (r *mobileFooterActionScrollerRenderer) Destroy() {}
