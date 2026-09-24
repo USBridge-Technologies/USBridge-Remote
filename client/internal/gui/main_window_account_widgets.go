@@ -47,30 +47,47 @@ func newAccountCardInset(content fyne.CanvasObject, left, right, top, bottom flo
 	return container.NewStack(bg, view.NewInset(content, left, right, top, bottom), border)
 }
 
+// newAccountLicenseManagerStrip is hint + outlined License Manager chip
+// (no card chrome). Used standalone inside the logged-in identity card on
+// mobile, and wrapped by newAccountLoginLicenseRow for the logged-out panel.
+func newAccountLicenseManagerStrip() fyne.CanvasObject {
+	muted := color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
+	var styledHint fyne.CanvasObject
+	if accountDialogMobile() {
+		hint := widget.NewLabel(i18n.Current.AccountLicenseManagerHint)
+		hint.Wrapping = fyne.TextWrapWord
+		hint.Alignment = fyne.TextAlignLeading
+		styledHint = wrapAccountField(hint, 11, muted)
+	} else {
+		// Single-line canvas text reports real height (unlike wrap Label),
+		// so the desktop Account panel can grow instead of scrolling.
+		t := canvas.NewText(i18n.Current.AccountLicenseManagerHint, muted)
+		t.TextSize = 11
+		styledHint = t
+	}
+
+	btnText := i18n.Current.AccountLicenseManager
+	if accountDialogMobile() {
+		// Compact chip so the Account dialog stays short on phones.
+		if short := strings.TrimSpace(i18n.Current.AccountLicenseManagerShort); short != "" {
+			btnText = short
+		}
+	}
+	btn := newAccountDialogDarkButton(btnText, nil, nil, openLicenseManager)
+	btnCentered := container.NewCenter(btn)
+	return container.NewBorder(nil, nil, nil, btnCentered, styledHint)
+}
+
 // newAccountLoginLicenseRow is the logged-out Account dialog's License
 // Manager strip: a muted one-line hint plus an outlined (not lime) chip
 // opening billing.usbridge.io, sitting above the Google login block so
 // rebind/status is reachable without signing in.
 func newAccountLoginLicenseRow() fyne.CanvasObject {
-	hint := widget.NewLabel(i18n.Current.AccountLicenseManagerHint)
-	hint.Wrapping = fyne.TextWrapWord
-	hint.Alignment = fyne.TextAlignLeading
-	styledHint := wrapAccountField(hint, 11, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
-
-	btnText := i18n.Current.AccountLicenseManager
 	inset := float32(14)
 	if accountDialogMobile() {
-		// Compact chip + one horizontal strip so the login dialog stays
-		// short enough that Fyne does not grow an inner scrollbar.
-		if short := strings.TrimSpace(i18n.Current.AccountLicenseManagerShort); short != "" {
-			btnText = short
-		}
 		inset = 12
 	}
-	btn := newAccountDialogDarkButton(btnText, nil, nil, openLicenseManager)
-	btnCentered := container.NewCenter(btn)
-	inner := container.NewBorder(nil, nil, nil, btnCentered, styledHint)
-	return newAccountCardInset(inner, inset, inset, 6, 6)
+	return newAccountCardInset(newAccountLicenseManagerStrip(), inset, inset, 6, 6)
 }
 
 // newAccountDivider is the thin low-contrast rule between a card's header

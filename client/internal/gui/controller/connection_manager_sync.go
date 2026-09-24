@@ -31,6 +31,13 @@ const (
 // see this file's own doc comment on why requests need to stay cheap.
 const syncPushDebounce = 3 * time.Second
 
+// syncPullPollInterval is how often a logged-in device checks the account
+// blob for connections pushed from elsewhere. Without this, new/updated
+// cloud rows only appear after app restart or an account-state change
+// (login / passphrase / logout). Meta is cheap; a full Pull runs only when
+// the remote version advanced.
+const syncPullPollInterval = 15 * time.Second
+
 // connectionSyncKey identifies "the same saved connection" across devices.
 // The QR master key is the stable identity (LAN vs Tailscale host often
 // differs between the local file and the account blob). Without a master
@@ -579,6 +586,57 @@ func (cm *ConnectionManager) scheduleSyncPush() {
 		cm.syncPushTimer.Stop()
 	}
 	cm.syncPushTimer = time.AfterFunc(syncPushDebounce, cm.doSyncPush)
+}
+
+// startConnectionsSyncPolling periodically checks whether another device
+// updated the account connections blob and pulls when the version advances.
+// Complements the one-shot pull at startup / on account-state change.
+func (cm *ConnectionManager) startConnectionsSyncPolling() {
+	if cm.syncPollStop != nil {
+		close(cm.syncPollStop)
+	}
+	cm.syncPollStop = make(chan struct{})
+	stop := cm.syncPollStop
+	go func() {
+		ticker := time.NewTicker(syncPullPollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				cm.pollConnectionsSync()
+			}
+		}
+	}()
+}
+
+// pollConnectionsSync is the ticker body: Meta first, Pull only when remote
+// is ahead of this device's last known version.
+func (cm *ConnectionManager) pollConnectionsSync() {
+	if cm.Account == nil {
+		return
+	}
+	token, _, ok := cm.Account.SyncCredentials()
+	if !ok {
+		return
+	}
+	cm.syncMu.Lock()
+	known := cm.syncVersion
+	cm.syncMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	version, _, err := syncconn.Meta(ctx, token, connectionsSyncKind)
+	if err != nil {
+		logrus.Debugf("connection sync: poll meta failed: %v", err)
+		return
+	}
+	if version <= known {
+		return
+	}
+	logrus.Infof("connection sync: remote version %d > local %d -- pulling", version, known)
+	cm.trySyncPullAndMerge()
 }
 
 // flushSyncPush sends any pending connections blob immediately -- used

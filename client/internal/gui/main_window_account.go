@@ -248,6 +248,14 @@ func (mw *MainWindow) showAccountDialog() {
 			identityBody.Add(newAccountDivider())
 			syncContent, syncFooter := accountSyncPassphraseSection(cm, am, &resettingSyncPassphrase, render)
 			identityBody.Add(syncContent)
+			// License Manager lives inside the card (same strip as the
+			// logged-out Google-login panel) on mobile and desktop.
+			if !resettingSyncPassphrase {
+				identityBody.Add(newAccountDivider())
+				// Tight vertical inset: License strip used to inflate the
+				// card enough that desktop opened with a pointless scrollbar.
+				identityBody.Add(view.NewInset(newAccountLicenseManagerStrip(), 0, 0, 2, 2))
+			}
 
 			body.Add(newAccountCard(identityBody))
 
@@ -269,19 +277,18 @@ func (mw *MainWindow) showAccountDialog() {
 				resettingSyncPassphrase = false
 				render()
 			})
-			licenseMgrBtn := newAccountDialogLimeButton(i18n.Current.AccountLicenseManager, openLicenseManager)
-			licenseMgrCentered := container.NewCenter(licenseMgrBtn)
 
 			var footerLeftCentered fyne.CanvasObject
 			if footerLeft != nil {
 				footerLeftCentered = container.NewCenter(footerLeft)
 			}
 
-			footerBar := container.NewBorder(nil, nil, footerLeftCentered, logoutBtn, licenseMgrCentered)
+			// Footer: Log out + Set passphrase / Forgot link only.
+			var footerBar fyne.CanvasObject
 			if !am.HasSyncKey() && !resettingSyncPassphrase {
-				// Password-entry footer: Log out left, License Manager
-				// between, Set passphrase right.
-				footerBar = container.NewBorder(nil, nil, logoutBtn, footerLeftCentered, licenseMgrCentered)
+				footerBar = container.NewBorder(nil, nil, logoutBtn, footerLeftCentered)
+			} else {
+				footerBar = container.NewBorder(nil, nil, footerLeftCentered, logoutBtn)
 			}
 			fl, fr, ft, fb := accountDialogFooterInset()
 			footerArea := container.NewVBox(
