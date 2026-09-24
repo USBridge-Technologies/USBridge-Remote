@@ -554,6 +554,10 @@ type NetGraphSnapshot struct {
 	TotalDecodeTimeMs float64
 	RTTMs             float64
 	RTTValid          bool
+	// At is when this snapshot's getStats() resolved. Consumers sampling
+	// faster than netGraphStatsPollInterval use it to tell a fresh snapshot
+	// from the one they already saw.
+	At time.Time
 }
 
 var netGraphSnapshotAtomic atomic.Pointer[NetGraphSnapshot]
@@ -640,6 +644,7 @@ func (c *WebRTCClient) StartNetGraphStatsPolling() func() {
 			})
 			statsVal.Call("forEach", forEach)
 			forEach.Release()
+			snap.At = time.Now()
 			netGraphSnapshotAtomic.Store(&snap)
 		}
 	}()
@@ -705,55 +710,62 @@ func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
 	// DevTools with nothing else involved and it fired zero times over
 	// 6+ seconds on a video that was demonstrably still playing
 	// (currentTime advancing, visibly rendering).
+	// Both paths go through reportIfAdvanced, so a frame is counted once
+	// no matter which of them notices it first. Calling onFrame() from both
+	// independently counted every frame twice wherever rVFC works (desktop
+	// Chrome): a 30 fps stream showed as 50-60 fps in VideoWidget.
+	//
+	// Neither path may call onFrame() blindly on a schedule -- confirmed live
+	// that doing so masks a genuinely stalled stream from VideoWidget's
+	// mid-stream-silence watchdog: an interval poll firing onFrame() every
+	// 33ms regardless of whether the video was still receiving frames meant
+	// a real freeze (currentTime provably stuck across repeated checks,
+	// confirmed via CDP) never tripped the watchdog and the client sat on a
+	// frozen frame forever instead of reconnecting. A frame is reported only
+	// when getVideoPlaybackQuality().totalVideoFrames has genuinely increased
+	// -- a real signal of decoded output, independent of whether rVFC itself
+	// ever fires. Falls back to comparing currentTime if
+	// getVideoPlaybackQuality isn't available at all (older engines) --
+	// coarser (misses a same-frame currentTime tick), but still tied to real
+	// playback progress rather than a blind timer.
+	lastFrameCount := -1.0
+	lastCurrentTime := -1.0
+	hasPlaybackQuality := !c.videoEl.Get("getVideoPlaybackQuality").IsUndefined()
+	reportIfAdvanced := func() {
+		if hasPlaybackQuality {
+			total := c.videoEl.Call("getVideoPlaybackQuality").Get("totalVideoFrames").Float()
+			if total <= lastFrameCount {
+				return
+			}
+			lastFrameCount = total
+		} else {
+			ct := c.videoEl.Get("currentTime").Float()
+			if ct <= lastCurrentTime {
+				return
+			}
+			lastCurrentTime = ct
+		}
+		onFrame()
+	}
+
 	if rvfc := c.videoEl.Get("requestVideoFrameCallback"); !rvfc.IsUndefined() {
 		var tick js.Func
 		tick = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 			if isStopped() {
 				return nil
 			}
-			onFrame()
+			reportIfAdvanced()
 			c.videoEl.Call("requestVideoFrameCallback", tick)
 			return nil
 		})
 		c.videoEl.Call("requestVideoFrameCallback", tick)
 	}
 
-	// The interval fallback must NOT call onFrame() blindly on a fixed
-	// schedule -- confirmed live that doing so masks a genuinely stalled
-	// stream from VideoWidget's mid-stream-silence watchdog: the poll kept
-	// firing onFrame() every 33ms regardless of whether the video was
-	// actually still receiving frames, so a real freeze (currentTime
-	// provably stuck across repeated checks, confirmed via CDP) never
-	// tripped the watchdog and the client just sat on a frozen frame
-	// forever instead of reconnecting. Only report a frame when
-	// getVideoPlaybackQuality().totalVideoFrames has genuinely increased
-	// since the last tick -- a real signal of decoded output, independent
-	// of whether rVFC itself ever fires. Falls back to comparing
-	// currentTime if getVideoPlaybackQuality isn't available at all
-	// (older engines) -- coarser (misses a same-frame currentTime tick),
-	// but still tied to real playback progress rather than a blind timer.
-	lastFrameCount := -1.0
-	lastCurrentTime := -1.0
-	hasPlaybackQuality := !c.videoEl.Get("getVideoPlaybackQuality").IsUndefined()
 	handle := js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		if isStopped() {
 			return nil
 		}
-		if hasPlaybackQuality {
-			quality := c.videoEl.Call("getVideoPlaybackQuality")
-			total := quality.Get("totalVideoFrames").Float()
-			if total <= lastFrameCount {
-				return nil
-			}
-			lastFrameCount = total
-		} else {
-			ct := c.videoEl.Get("currentTime").Float()
-			if ct <= lastCurrentTime {
-				return nil
-			}
-			lastCurrentTime = ct
-		}
-		onFrame()
+		reportIfAdvanced()
 		return nil
 	}), 1000/30)
 	return func() {
