@@ -1234,35 +1234,40 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.usbBrokerStatusDot = newStatusDot()
 	w.usbBrokerStatusLabel = makeStatusValue("")
 	w.usbBrokerConsentBtn = newIconActionButton(loc().EnableUSBBroker, theme.WarningIcon(), func() {
-		dialog.NewConfirm(
-			loc().USBBrokerConsentTitle,
-			loc().USBBrokerConsentBody,
-			func(confirmed bool) {
-				if !confirmed || w.token == nil {
-					return
-				}
-				w.usbBrokerConsentBtn.Disable()
-				go func() {
-					err := w.token.EnableUSBBroker(nil)
-					fyne.Do(func() {
-						if w.usbBrokerConsentBtn != nil {
-							w.usbBrokerConsentBtn.Enable()
-						}
-						if err != nil {
-							dialog.ShowError(err, win)
-						}
-					})
-					w.performRefresh()
-				}()
-			},
-			win,
-		).Show()
+		w.showUSBBrokerDialog(win, func(confirmed bool) {
+			if !confirmed || w.token == nil {
+				return
+			}
+			w.usbBrokerConsentBtn.Disable()
+			go func() {
+				err := w.token.EnableUSBBroker(nil)
+				fyne.Do(func() {
+					if w.usbBrokerConsentBtn != nil {
+						w.usbBrokerConsentBtn.Enable()
+					}
+					if err != nil {
+						dialog.ShowError(err, win)
+					}
+				})
+				w.performRefresh()
+			}()
+		})
 	})
 	w.usbBrokerConsentBtn.Tiny = true
+	usbBrokerLeft := container.New(&tightHBoxLayout{gap: 6},
+		makeStatusLabel(loc().USBBroker), statusDotBox(w.usbBrokerStatusDot),
+		w.usbBrokerStatusLabel)
+	tappableBroker := newTappableBox(usbBrokerLeft, func() {
+		if w.usbBrokerConsentBtn != nil && w.usbBrokerConsentBtn.Visible() && !w.usbBrokerConsentBtn.Disabled() {
+			if w.usbBrokerConsentBtn.OnTapped != nil {
+				w.usbBrokerConsentBtn.OnTapped()
+			}
+		} else {
+			w.showUSBBrokerDialog(win, nil)
+		}
+	})
 	w.usbBrokerRow = newStatusRow(
-		container.New(&tightHBoxLayout{gap: 6},
-			makeStatusLabel(loc().USBBroker), statusDotBox(w.usbBrokerStatusDot),
-			w.usbBrokerStatusLabel),
+		tappableBroker,
 		w.usbBrokerConsentBtn,
 	)
 	w.usbBrokerRow.Hide()
