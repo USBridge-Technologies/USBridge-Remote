@@ -7,7 +7,6 @@ import (
 
 	"usbridge-client/internal/gui/graphics"
 
-	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
