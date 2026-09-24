@@ -140,11 +140,19 @@ func (b *rustshineBackend) SupportedVideoCodecs(adminPort int) []string {
 	}
 	b.supportedCodecsCache.mu.Unlock()
 
-	codecs := fetchSupportedVideoCodecs(adminPort)
-
-	b.supportedCodecsCache.mu.Lock()
-	b.supportedCodecsCache.codecs = codecs
-	b.supportedCodecsCache.fetchedAt = time.Now()
-	b.supportedCodecsCache.mu.Unlock()
+	flags, ok := fetchServerCodecFlags(adminPort)
+	codecs := codecsFromFlags(flags, ok)
+	// A failed query (the streamer restarting -- an update, a config
+	// change -- and not listening yet) yields the h264-only fallback. Caching
+	// that pinned the client to H.264 for the whole TTL: confirmed live, an
+	// update restart at 01:53:30 was queried 0.8s later, got "connection
+	// refused", and H.265 vanished from the client's codec list for 30
+	// minutes. Only a real answer is cached; the next call retries.
+	if ok {
+		b.supportedCodecsCache.mu.Lock()
+		b.supportedCodecsCache.codecs = codecs
+		b.supportedCodecsCache.fetchedAt = time.Now()
+		b.supportedCodecsCache.mu.Unlock()
+	}
 	return codecs
 }
