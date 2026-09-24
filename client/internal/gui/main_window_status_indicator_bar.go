@@ -680,7 +680,7 @@ func (mw *MainWindow) showVideoMonitorMenu(anchor fyne.CanvasObject) {
 		items := make([]view.StyledMenuItem, 0, len(devices))
 		for _, device := range devices {
 			device := device
-			label := strings.TrimSpace(device.Name)
+			label := compactMonitorMenuLabel(strings.TrimSpace(device.Name))
 			if label == "" {
 				label = filepath.Base(device.Path)
 			}
@@ -700,12 +700,47 @@ func (mw *MainWindow) showVideoMonitorMenu(anchor fyne.CanvasObject) {
 		fyne.Do(func() {
 			mw.applyVideoMonitorChip(devices)
 			if useMobileControl() {
-				view.ShowMobileStyledMenuAbove(anchor, items)
+				view.ShowMobileDisplayMenuAbove(anchor, items)
 				return
 			}
 			view.ShowStyledMenuTeal(anchor, items)
 		})
 	}()
+}
+
+// compactMonitorMenuLabel drops a leading "Display 1" / "Monitor 2 -" style
+// prefix so the Control Displays menu can show the adapter/product name
+// alone (e.g. "AMD Radeon…") without overflowing a phone width.
+func compactMonitorMenuLabel(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	lower := strings.ToLower(name)
+	for _, prefix := range []string{"display", "monitor", "screen"} {
+		if !strings.HasPrefix(lower, prefix) {
+			continue
+		}
+		rest := strings.TrimSpace(name[len(prefix):])
+		if rest == "" {
+			break
+		}
+		// Require a following index ("1", "01") before stripping.
+		i := 0
+		for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+			i++
+		}
+		if i == 0 {
+			break
+		}
+		rest = strings.TrimSpace(rest[i:])
+		rest = strings.TrimLeft(rest, "-–—:.)] ")
+		if rest != "" {
+			return rest
+		}
+		break
+	}
+	return name
 }
 
 // showVideoFPSMenu opens a teal dropdown (view.ShowStyledMenuTeal, the same
@@ -720,9 +755,12 @@ func (mw *MainWindow) showVideoFPSMenu(anchor fyne.CanvasObject) {
 	}
 	if modes, cfg, ok := mw.videoWidget.PeekCaptureModes(); ok {
 		mw.openVideoFPSMenu(anchor, modes, cfg)
-		mw.videoWidget.RefreshCaptureModesIfStaleAsync()
+		// Always verify against the bridge; patch + reopen path is handled
+		// by Prefetch seeding prefs and rememberCaptureModes updating cache.
+		mw.videoWidget.PrefetchCaptureModesAsync()
 		return
 	}
+	mw.videoWidget.PrefetchCaptureModesAsync()
 	go func() {
 		modes, cfg, err := mw.videoWidget.AvailableCaptureModes()
 		if err != nil {
@@ -755,7 +793,31 @@ func (mw *MainWindow) openVideoFPSMenu(anchor fyne.CanvasObject, modes []models.
 			},
 		})
 	}
+	mw.presentControlStyledMenu(anchor, items)
+}
+
+func (mw *MainWindow) presentControlStyledMenu(anchor fyne.CanvasObject, items []view.StyledMenuItem) {
+	if useMobileControl() {
+		// FPS/resolution live in the header — open below and stay clear of chrome.
+		view.ShowMobileStyledMenuBelowHeader(anchor, items, mw.controlMenuMinTop())
+		return
+	}
 	view.ShowStyledMenuTeal(anchor, items)
+}
+
+// controlMenuMinTop is just under the Control header / status indicator so
+// mobile FPS and resolution menus never paint over the top chrome.
+func (mw *MainWindow) controlMenuMinTop() float32 {
+	drv := fyne.CurrentApp().Driver()
+	if mw.statusIndicatorBar != nil && mw.statusIndicatorBar.Visible() {
+		pos := drv.AbsolutePositionForObject(mw.statusIndicatorBar)
+		return pos.Y + mw.statusIndicatorBar.Size().Height + 4
+	}
+	if mw.mainHeaderHost != nil && mw.mainHeaderHost.Visible() {
+		pos := drv.AbsolutePositionForObject(mw.mainHeaderHost)
+		return pos.Y + mw.mainHeaderHost.Size().Height + 4
+	}
+	return 8
 }
 
 // showVideoResolutionMenu is showVideoFPSMenu's own counterpart for
@@ -767,9 +829,10 @@ func (mw *MainWindow) showVideoResolutionMenu(anchor fyne.CanvasObject) {
 	}
 	if modes, cfg, ok := mw.videoWidget.PeekCaptureModes(); ok {
 		mw.openVideoResolutionMenu(anchor, modes, cfg)
-		mw.videoWidget.RefreshCaptureModesIfStaleAsync()
+		mw.videoWidget.PrefetchCaptureModesAsync()
 		return
 	}
+	mw.videoWidget.PrefetchCaptureModesAsync()
 	go func() {
 		modes, cfg, err := mw.videoWidget.AvailableCaptureModes()
 		if err != nil {
@@ -802,7 +865,7 @@ func (mw *MainWindow) openVideoResolutionMenu(anchor fyne.CanvasObject, modes []
 			},
 		})
 	}
-	view.ShowStyledMenuTeal(anchor, items)
+	mw.presentControlStyledMenu(anchor, items)
 }
 
 // maxSelectableFPS mirrors video_start_dialog.go's own refreshFPSOptions:

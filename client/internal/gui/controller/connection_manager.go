@@ -156,6 +156,7 @@ type ConnectionManager struct {
 	syncVersion   int // last version this device knows the backend to be at; 0 = never successfully synced
 	syncPushTimer *time.Timer
 	syncLastError string
+	syncPollStop  chan struct{}
 }
 
 func (cm *ConnectionManager) ResolveMasterKey(host, currentMasterKey string) string {
@@ -299,6 +300,7 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 	})
 	cm.Account.SetBeforeLogout(cm.flushSyncPush)
 	go cm.trySyncPullAndMerge()
+	cm.startConnectionsSyncPolling()
 	return cm
 }
 

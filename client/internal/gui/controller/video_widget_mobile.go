@@ -45,17 +45,26 @@ func (vw *VideoWidget) applyImmediateKeyboardViewport() {
 	}
 	open := vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()
 	if open {
-		var canvasH float32
-		if vw.parentWindow != nil {
-			canvasH = vw.parentWindow.Canvas().Size().Height
+		if !imeCropsVideoOverlay() {
+			// Landscape: system IME floats as a widget; keep video down to
+			// the footer only (no IME bottom crop / viewport lift).
+			setImeExpandHeightDp(0)
+			vw.bottomInset = 0
+			vw.keyboardViewportLift = false
+			vw.recalculateViewport()
+		} else {
+			var canvasH float32
+			if vw.parentWindow != nil {
+				canvasH = vw.parentWindow.Canvas().Size().Height
+			}
+			h := predictedImeHeightDp(canvasH)
+			if cur := getImeExpandHeightDp(); cur > 100 {
+				h = cur
+			}
+			setImeExpandHeightDp(h)
+			vw.syncKeyboardBottomInsetFromIME(h)
+			vw.focusViewportOnVirtualCursorForKeyboard()
 		}
-		h := predictedImeHeightDp(canvasH)
-		if cur := getImeExpandHeightDp(); cur > 100 {
-			h = cur
-		}
-		setImeExpandHeightDp(h)
-		vw.syncKeyboardBottomInsetFromIME(h)
-		vw.focusViewportOnVirtualCursorForKeyboard()
 	} else {
 		setImeExpandHeightDp(0)
 		vw.bottomInset = 0

@@ -55,6 +55,8 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	vw.systemIMESticky.Store(on)
 }
 
+func (vw *VideoWidget) refocusStickySystemIME() bool { return false }
+
 func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {}
 
 func (vw *VideoWidget) applyImmediateKeyboardViewport() {

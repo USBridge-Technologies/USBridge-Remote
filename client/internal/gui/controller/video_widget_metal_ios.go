@@ -162,7 +162,7 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	topOffset := videoTopOffsetFromCanvas(szMain.Height, canvasH)
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f,ch=%.0f", canvasH, szMain.Height, topOffset, videoChromeBelow()))
 
-	if ime := getImeExpandHeightDp(); ime > 0 {
+	if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
 		// Clip = area above the system IME. Special-keys take a top inset so
 		// the Fyne strip stays visible above the Metal overlay.
 		keysH := vw.specialKeysOverlayHeightDp()
@@ -391,7 +391,8 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	topOffset := videoTopOffsetFromCanvas(szMain.Height, canvasH)
 	// When the keyboard is open, Fyne shrinks szMain by ~keyboardHeight, so topOffset
 	// grows to tabBarH + keyboardH. Subtract the IME height to recover the real tab bar Y.
-	if ime := getImeExpandHeightDp(); ime > 0 {
+	// Landscape floating IME does not shrink the canvas — skip this adjustment.
+	if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
 		topOffset -= ime
 		if topOffset < 0 {
 			topOffset = 0
@@ -428,7 +429,7 @@ func triggerRmbHaptic()                              {}
 func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	const minRealIMEDp = 100
 	imeOpen := imeHeightDp > minRealIMEDp
-	if imeOpen {
+	if imeOpen && imeCropsVideoOverlay() {
 		setImeExpandHeightDp(imeHeightDp)
 	} else {
 		setImeExpandHeightDp(0)
@@ -436,7 +437,7 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
 	lastMetalClipH = 0 // force cache miss → immediate layout update
 	vw.forceCanvasRefresh.Store(true)
-	if imeOpen && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
+	if imeOpen && imeCropsVideoOverlay() && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
 		vw.focusViewportOnVirtualCursorForKeyboard()
 	}
 }

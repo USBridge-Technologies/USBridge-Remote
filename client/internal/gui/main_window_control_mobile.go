@@ -54,6 +54,9 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 
 	vid := newHeaderStatusBadgeButton(assets.CameraIcon, func() {
 		if mw.videoWidget != nil {
+			// Warm the capture-modes cache so FPS/resolution/settings open
+			// on the next tap without waiting on the bridge.
+			mw.videoWidget.PrefetchCaptureModesAsync()
 			mw.videoWidget.ShowCurrentVideoSettings(false)
 		}
 	})
@@ -74,6 +77,17 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileMonitorToggle = mon
 	mw.mobileMonitorBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), mon)
 	mw.mobileMonitorBtn.Hide()
+
+	clip := newHeaderStatusBadgeButton(assets.ClipboardIcon, func() {
+		mw.showClipboardMenu()
+	})
+	clip.SetIconSize(fyne.NewSize(16, 16))
+	clip.SetBadgeText("")
+	clip.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	clip.SetHoverIcon(assets.ClipboardIconFooterHover)
+	mw.mobileClipboardToggle = clip
+	mw.mobileClipboardBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), clip)
+	mw.mobileClipboardBtn.Hide()
 
 	fs := newHeaderStatusBadgeButton(assets.FullscreenIconFooter, func() {
 		if mw.videoWidget != nil {
@@ -132,6 +146,7 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	view.AddMenuSwapTargets(
 		mw.mobileMonitorToggle,
 		mw.mobileVideoSettingsToggle,
+		mw.mobileClipboardToggle,
 		mw.mobileFullscreenToggle,
 		mw.mobileMouseToggle,
 		mw.mobileKeyboardToggle,
@@ -303,6 +318,12 @@ func (mw *MainWindow) applyConnectedChromeLayout(force bool) {
 	mw.refreshVirtualKeyboardCompactLayout()
 
 	if mw.videoWidget != nil {
+		// Portrait↔landscape changes whether the system IME crops Vulkan;
+		// re-apply while the keyboard stack is open so landscape stops
+		// shrinking under a floating IME.
+		if mw.videoWidget.IsVirtualKeyboardVisible() || mw.videoWidget.IsSystemIMESticky() {
+			mw.videoWidget.RefreshKeyboardViewportLayout()
+		}
 		mw.videoWidget.InvalidateOverlayGeometry()
 		time.AfterFunc(120*time.Millisecond, func() {
 			fyne.Do(func() {
@@ -363,43 +384,55 @@ func (mw *MainWindow) buildLandscapeConnectedChrome() fyne.CanvasObject {
 	return mw.buildTabsFooterStrip(true)
 }
 
-// buildControlFooterStrip is Control-only: burger left, video / fullscreen /
-// net graph / pan / mouse / keyboard right.
+// buildControlFooterStrip is Control-only: burger left (fixed), scrollable
+// video / fullscreen / net graph / pan / mouse / keyboard / clipboard right.
 func (mw *MainWindow) buildControlFooterStrip(landscape bool) fyne.CanvasObject {
 	var left fyne.CanvasObject
 	if mw.mobileControlBurgerWrap != nil {
 		left = mw.mobileControlBurgerWrap
 	}
-	right := mw.mobileControlRightActions()
+	actions := mw.mobileControlRightActions()
+	var scroller fyne.CanvasObject
+	if actions != nil {
+		mw.mobileFooterActionsScroll = newMobileFooterActionScroller(actions)
+		scroller = mw.mobileFooterActionsScroll
+	}
+	var trailing fyne.CanvasObject
 	if landscape {
-		var rightParts []fyne.CanvasObject
+		var trailParts []fyne.CanvasObject
 		if usableConnectedChromeObject(mw.connectedFooterBusy) {
-			rightParts = append(rightParts, mw.connectedFooterBusy)
+			trailParts = append(trailParts, mw.connectedFooterBusy)
 		}
 		if usableConnectedChromeObject(mw.connectedFooterScript) {
-			rightParts = append(rightParts, mw.connectedFooterScript)
+			trailParts = append(trailParts, mw.connectedFooterScript)
 		}
 		if label := connectedVersionLabel(view.AppVersion(), false); label != nil {
-			rightParts = append(rightParts, label)
+			trailParts = append(trailParts, label)
 		}
-		if actions := mw.mobileControlRightActions(); actions != nil {
-			rightParts = append(rightParts, actions)
-		}
-		if len(rightParts) == 1 {
-			right = rightParts[0]
-		} else if len(rightParts) > 1 {
-			right = container.New(&view.DeviceRowControlsLayout{Gap: 12}, rightParts...)
-		} else {
-			right = nil
+		switch len(trailParts) {
+		case 1:
+			trailing = trailParts[0]
+		case 0:
+		default:
+			trailing = container.New(&view.DeviceRowControlsLayout{Gap: 12}, trailParts...)
 		}
 	}
-	var row fyne.CanvasObject
-	if left != nil && right != nil {
-		row = container.New(&mobileControlFooterAlignLayout{gap: 8}, left, right)
-	} else {
-		row = container.NewBorder(nil, nil, left, right, nil)
+	// Border: burger fixed left, optional version/busy fixed right, scroller
+	// fills the middle so icons never draw under the menu button.
+	var center fyne.CanvasObject = scroller
+	if scroller != nil {
+		center = view.NewInsetExact(scroller, 8, 0, 0, 0)
 	}
+	var leading fyne.CanvasObject = left
+	if left != nil {
+		// Match Tabs footer vertical centering — Border alone top-aligns
+		// the burger while the action scroller had drifted lower.
+		leading = container.NewCenter(left)
+	}
+	row := container.NewBorder(nil, nil, leading, trailing, center)
 	minH := float32(52)
+	// Match buildTabsFooterStrip padding so Control actions sit on the same
+	// baseline as the Tabs button row.
 	padT, padB := float32(6), float32(10)
 	if landscape {
 		minH = 36
@@ -447,6 +480,10 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	}
 	if mw.mobileKeyboardBtn != nil {
 		parts = append(parts, mw.mobileKeyboardBtn)
+	}
+	// Clipboard sits rightmost next to mouse/keyboard (HID cluster).
+	if mw.mobileClipboardBtn != nil {
+		parts = append(parts, mw.mobileClipboardBtn)
 	}
 	switch len(parts) {
 	case 0:
@@ -562,17 +599,20 @@ func usableConnectedChromeObject(obj fyne.CanvasObject) bool {
 }
 
 func connectedVersionLabel(version string, digitsVisible bool) fyne.CanvasObject {
-	v := strings.TrimSpace(version)
-	if v == "" {
-		return nil
-	}
-	var col color.Color = design.ColorTextMuted
 	if !digitsVisible {
-		col = color.Transparent
+		// Control landscape: keep layout slot, no pip / no What's-new tap.
+		v := strings.TrimSpace(version)
+		if v == "" {
+			return nil
+		}
+		if !strings.HasPrefix(strings.ToLower(v), "v") {
+			v = "v" + v
+		}
+		label := canvas.NewText(v, color.Transparent)
+		label.TextSize = 9
+		return label
 	}
-	label := canvas.NewText("v"+v, col)
-	label.TextSize = 9
-	return label
+	return view.NewFooterVersionButton(version)
 }
 
 func (mw *MainWindow) syncMobileKeyboardButton(controlActive bool) {

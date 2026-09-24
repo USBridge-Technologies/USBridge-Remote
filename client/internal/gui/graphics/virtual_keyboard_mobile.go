@@ -325,7 +325,21 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint.onFocused = func() {
 		vk.RegisterAsIMETarget()
 	}
-	textHint.onUnfocused = func() {}
+	textHint.onUnfocused = func() {
+		// iOS/wasm: video touches steal Fyne focus and would collapse the
+		// system IME. Re-assert Entry focus while sticky until the special-
+		// keys dismiss button clears keepIMEFocus.
+		if !vk.keepIMEFocus.Load() {
+			return
+		}
+		time.AfterFunc(16*time.Millisecond, func() {
+			fyne.Do(func() {
+				if vk.keepIMEFocus.Load() {
+					vk.FocusInput()
+				}
+			})
+		})
+	}
 
 	background := canvas.NewRectangle(design.ColorGray900)
 	return container.NewMax(container.NewThemeOverride(
@@ -349,6 +363,15 @@ func (vk *VirtualKeyboard) BlurInput() {
 		return
 	}
 	vk.parentWindow.Canvas().Focus(nil)
+}
+
+// SetKeepIMEFocus toggles re-focus-on-blur for the soft IME entry (iOS/wasm
+// sticky keyboard). Must be cleared before BlurInput when dismissing.
+func (vk *VirtualKeyboard) SetKeepIMEFocus(on bool) {
+	if vk == nil {
+		return
+	}
+	vk.keepIMEFocus.Store(on)
 }
 
 // SetOnIMEChanged sets the callback

@@ -116,7 +116,9 @@ func newMobileConnectionListRow(item ConnectionListItem, highlighted bool) fyne.
 	connectBtn.SetLoading(item.State.Loading)
 
 	actions := container.New(&DeviceRowControlsLayout{Gap: 6}, editBtn, syncBtn, route, connectBtn)
-	row := container.New(&mobileListRowLayout{gap: 8}, left, actions)
+	// vCenter: LAN+TS stack is taller than one line; keep action buttons
+	// vertically centered on the full row.
+	row := container.New(&mobileListRowLayout{gap: 8, vCenter: true}, left, actions)
 	if !highlighted {
 		return row
 	}
@@ -137,12 +139,15 @@ func newMobileListInfoLine(lanAddress, tailscaleAddress string) fyne.CanvasObjec
 	ts := canvas.NewText("TS "+connectionCardAddressOrNone(tailscaleAddress), tsColor)
 	ts.TextSize = 7
 	ts.TextStyle.Monospace = true
-	return container.New(&DeviceRowControlsLayout{Gap: 8}, lan, ts)
+	// Stack vertically — side-by-side LAN+TS overflowed the narrow phone
+	// Name/Info column in List mode.
+	return container.New(&tightStatsVBoxLayout{Gap: 0}, lan, ts)
 }
 
 // mobileListRowLayout is a two-column table row: left fills, right keeps
-// its natural width. Connections/Scripts pin actions to the name line
-// (top); Snapshots centers them on the two-line date+size block.
+// its natural width. Header/Scripts pin actions to the name line (top);
+// Connections List and Snapshots set vCenter so actions sit mid-row when
+// the left column is two+ lines (LAN under name + TS under LAN, etc.).
 type mobileListRowLayout struct {
 	gap     float32
 	vCenter bool

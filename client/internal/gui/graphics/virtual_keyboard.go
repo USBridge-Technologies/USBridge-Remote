@@ -1,6 +1,7 @@
 package graphics
 
 import (
+	"sync/atomic"
 	"time"
 
 	"usbridge-client/internal/gui/i18n"
@@ -63,6 +64,11 @@ type VirtualKeyboard struct {
 	compactFnOn        bool
 	// onDismiss closes the special-keys + system IME stack (mobile header).
 	onDismiss func()
+
+	// keepIMEFocus, when set, re-focuses mobileInput after FocusLost so the
+	// iOS/wasm soft keyboard stays up while the user moves the remote mouse
+	// (Android uses native sticky IME and leaves this false).
+	keepIMEFocus atomic.Bool
 
 	// Compact-styled keys used by the desktop floating window (and optional
 	// extra copies of Shift/Ctrl/etc. on the right half of the board).

@@ -142,6 +142,19 @@ func newFooterVersionButton(version string) fyne.CanvasObject {
 	return b
 }
 
+// NewFooterVersionButton is the shared tappable "vX.Y.Z" chip used in
+// Connections / connected chrome footers (opens What's new).
+func NewFooterVersionButton(version string) fyne.CanvasObject {
+	v := strings.TrimSpace(version)
+	if v == "" {
+		return nil
+	}
+	if !strings.HasPrefix(strings.ToLower(v), "v") {
+		v = "v" + v
+	}
+	return newFooterVersionButton(v)
+}
+
 // footerVersionDigitsVisible hides the version numerals without changing
 // MinSize -- Control tab keeps the same footer height as Devices/Snapshots
 // /Scripts, it just does not paint the digits (or the What's-new pip).
@@ -151,6 +164,7 @@ var footerVersionDigitsVisible = true
 // chip. Hidden digits still occupy their layout slot.
 func SetFooterVersionDigitsVisible(visible bool) {
 	if footerVersionDigitsVisible == visible {
+		refreshWhatsNewFooterUnseen()
 		return
 	}
 	footerVersionDigitsVisible = visible
@@ -197,12 +211,20 @@ type whatsNewFooterVersion struct {
 }
 
 func (b *whatsNewFooterVersion) Tapped(*fyne.PointEvent) {
+	if !footerVersionDigitsVisible {
+		return
+	}
 	ShowWhatsNewDialog(whatsNewParentWindow())
 }
 
 func (b *whatsNewFooterVersion) TappedSecondary(*fyne.PointEvent) {}
 
-func (b *whatsNewFooterVersion) Cursor() desktop.Cursor { return desktop.PointerCursor }
+func (b *whatsNewFooterVersion) Cursor() desktop.Cursor {
+	if !footerVersionDigitsVisible {
+		return desktop.DefaultCursor
+	}
+	return desktop.PointerCursor
+}
 
 func (b *whatsNewFooterVersion) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -231,6 +253,11 @@ func (b *whatsNewFooterVersion) refreshLabel() {
 }
 
 func (b *whatsNewFooterVersion) syncUnseen() {
+	b.applyUnseenDot()
+	b.Refresh()
+}
+
+func (b *whatsNewFooterVersion) applyUnseenDot() {
 	if b.dot == nil {
 		return
 	}
@@ -239,7 +266,6 @@ func (b *whatsNewFooterVersion) syncUnseen() {
 	} else {
 		b.dot.Hide()
 	}
-	b.Refresh()
 }
 
 func (b *whatsNewFooterVersion) CreateRenderer() fyne.WidgetRenderer {
@@ -247,9 +273,7 @@ func (b *whatsNewFooterVersion) CreateRenderer() fyne.WidgetRenderer {
 	b.lbl.TextSize = 9
 	b.refreshLabel()
 	b.dot = canvas.NewCircle(design.ColorConnectionBadgeText)
-	if !whatsNewHasUnseen() {
-		b.dot.Hide()
-	}
+	b.applyUnseenDot()
 	registerWhatsNewFooterVersion(b)
 	return &whatsNewFooterVersionRenderer{w: b, objects: []fyne.CanvasObject{b.lbl, b.dot}}
 }
@@ -270,8 +294,17 @@ func (r *whatsNewFooterVersionRenderer) MinSize() fyne.Size {
 		return fyne.NewSize(0, 0)
 	}
 	m := r.w.lbl.MinSize()
-	if r.w.dot != nil && r.w.dot.Visible() {
-		m.Width += whatsNewUnseenDotHang
+	// Always reserve the unseen-pip hang so showing/hiding the dot does not
+	// reflow footer width. Height must stay within AppFooterRowHeight —
+	// videoChromeBelow() and the footer's heightLock assume a 14dp row;
+	// inflating MinSize (e.g. for a phone tap target) made the real strip
+	// taller than the overlay chrome budget and video covered the footer.
+	m.Width += whatsNewUnseenDotHang
+	if IsMobile() && m.Width < 40 {
+		m.Width = 40
+	}
+	if m.Height > AppFooterRowHeight {
+		m.Height = AppFooterRowHeight
 	}
 	return m
 }
@@ -300,6 +333,7 @@ func (r *whatsNewFooterVersionRenderer) Layout(size fyne.Size) {
 
 func (r *whatsNewFooterVersionRenderer) Refresh() {
 	r.w.refreshLabel()
+	r.w.applyUnseenDot()
 	if r.w.dot != nil {
 		r.w.dot.FillColor = design.ColorConnectionBadgeText
 		r.w.dot.Refresh()

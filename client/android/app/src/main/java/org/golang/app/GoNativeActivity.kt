@@ -271,6 +271,12 @@ open class GoNativeActivity : NativeActivity() {
             val edit = EditText(goNativeActivity)
             edit.visibility = View.GONE
             edit.inputType = DEFAULT_INPUT_TYPE
+            // Hidden IME bridge only — never a real form field. Autofill
+            // dumping a saved password into this EditText on focus was
+            // forwarding those chars into Fyne PasswordEntry via
+            // keyboardTyped ("starts typing by itself" on Account sync
+            // passphrase and other mobile entries).
+            edit.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
             defaultKeyListener = edit.keyListener
 
             val layoutParams = FrameLayout.LayoutParams(
@@ -388,8 +394,10 @@ open class GoNativeActivity : NativeActivity() {
                 }
                 PASSWORD_KEYBOARD_CODE -> {
                     imeOptions = EditorInfo.IME_ACTION_DONE
+                    // Password + no-suggestions; avoid autofill/composition
+                    // dumping into the Fyne Entry on focus (Account passphrase).
                     inputType = InputType.TYPE_CLASS_TEXT or
-                        InputType.TYPE_TEXT_VARIATION_PASSWORD or
+                        InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
                         InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
                 }
                 else -> Log.e(TAG, "unknown keyboard type, use default")

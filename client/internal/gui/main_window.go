@@ -62,8 +62,11 @@ type MainWindow struct {
 	mobileNetGraphSettingsBtn fyne.CanvasObject
 	mobileMonitorBtn          fyne.CanvasObject
 	mobileMonitorToggle       *headerStatusBadgeButton
+	mobileClipboardBtn        fyne.CanvasObject
+	mobileClipboardToggle     *headerStatusBadgeButton
 	mobileFooterGraphDivider  fyne.CanvasObject
 	mobileFooterHIDDivider    fyne.CanvasObject
+	mobileFooterActionsScroll *mobileFooterActionScroller
 	// connectedChromeHost holds portrait (tab bar + version) or landscape
 	// (single row) chrome under the connected tabs; swapped by
 	// applyConnectedChromeLayout without a full reloadUI.
@@ -211,8 +214,9 @@ type MainWindow struct {
 	captureIcon    *widget.Button
 	keyboardIcon   *headerStatusBadgeButton
 	mouseIcon      *headerStatusBadgeButton
-	// clipboardIcon/inputModeIcon are desktop-only Control footer menus:
-	// clipboard send/get/auto-sync and keyboard keys/characters mode.
+	// clipboardIcon/inputModeIcon are Control footer menus: clipboard
+	// send/get/auto-sync and keyboard keys/characters mode. Clipboard also
+	// appears on the mobile Control footer (mobileClipboardToggle).
 	clipboardIcon *headerStatusBadgeButton
 	inputModeIcon *headerStatusBadgeButton
 	rndisIcon     *headerStatusBadgeButton

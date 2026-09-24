@@ -38,12 +38,13 @@ func (dw *DiskWidget) loadLocalDrives() {
 	}
 	go func() {
 		defer dw.loadingLocalDrives.Store(false)
-		if dw.usbClient == nil {
+		client := dw.usbClient
+		if client == nil {
 			logrus.Debug("USB client not initialized, skipping local device load")
 			return
 		}
 
-		localDrives, err := dw.usbClient.GetLocalDrives()
+		localDrives, err := client.GetLocalDrives()
 		if err != nil {
 			logrus.Errorf("Error loading local devices: %v", err)
 			return
@@ -67,10 +68,11 @@ func (dw *DiskWidget) loadLocalDrives() {
 
 // loadISOSpace loads info about SD card space
 func (dw *DiskWidget) loadISOSpace() {
-	if dw.usbClient == nil {
+	client := dw.usbClient
+	if client == nil {
 		return
 	}
-	spaceInfo, err := dw.usbClient.GetISOSpace()
+	spaceInfo, err := client.GetISOSpace()
 	if err != nil {
 		logrus.Debugf("SD card space info unavailable: %v", err)
 		dw.updateUIAsync(func() {
@@ -610,19 +612,23 @@ func (dw *DiskWidget) loadMountedDevices() {
 	}
 	go func() {
 		defer dw.loadingMountedInfo.Store(false)
-		if dw.usbClient == nil {
+		// Capture once: UpdateClient(nil) on disconnect races with this
+		// goroutine (seen on Windows as a nil deref in GetUSBPassthroughStatus
+		// after GetDeviceInfo already succeeded).
+		client := dw.usbClient
+		if client == nil {
 			logrus.Debug("USB client not initialized, skipping device load")
 			return
 		}
 
-		deviceInfo, err := dw.usbClient.GetDeviceInfo()
+		deviceInfo, err := client.GetDeviceInfo()
 		if err != nil {
 			logrus.Errorf("Error loading device info: %v", err)
 			return
 		}
 
 		var passSessions []string
-		if st, err := dw.usbClient.GetUSBPassthroughStatus(); err == nil && st != nil {
+		if st, err := client.GetUSBPassthroughStatus(); err == nil && st != nil {
 			passSessions = append([]string(nil), st.Sessions...)
 		}
 

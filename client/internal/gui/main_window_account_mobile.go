@@ -84,9 +84,11 @@ func applyAccountDialogScroll(scroll *container.Scroll, body fyne.CanvasObject, 
 		minH = h
 	}
 	scroll.SetMinSize(fyne.NewSize(0, minH))
-	// Logged-out / login-progress UIs are short on phones; keep ScrollNone
-	// so Fyne does not paint a thumb when content already fits.
-	if accountDialogMobile() && !loggedIn {
+	// Desktop (and short mobile login): expand the panel with content —
+	// ScrollVerticalOnly painted a thumb even when everything fit after
+	// License Manager moved into the card. Mobile logged-in keeps scroll
+	// as a fallback for tall passphrase/reset flows on small screens.
+	if !accountDialogMobile() || !loggedIn {
 		scroll.Direction = container.ScrollNone
 	} else {
 		scroll.Direction = container.ScrollVerticalOnly
