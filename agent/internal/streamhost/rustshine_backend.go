@@ -114,6 +114,13 @@ type rustshineBackend struct {
 	watchdog    *exec.Cmd        // macOS only, see rustshine_process_other.go
 	onExit      func()           // see SetOnExit
 
+	// launchedWithVirtualDisplay records whether the running instance was
+	// started with a `virtual_display` config key, captured at Start() --
+	// not re-read at Stop(), since switching back to a physical output
+	// clears the key *before* the restart's Stop() runs. See
+	// virtualDisplayTeardownNeeded.
+	launchedWithVirtualDisplay bool
+
 	activeAdminPassword string
 	adminPort           int // set by Start; CurrentVideoCodec needs it despite taking no args itself
 
@@ -699,6 +706,7 @@ func (b *rustshineBackend) Start(adminPort int) error {
 
 	b.launchPath = launchPath
 	b.proc = proc
+	b.launchedWithVirtualDisplay = b.ConfigKey("virtual_display") != ""
 	b.lastLaunchAt = time.Now()
 	go b.watchProcessExit(proc)
 
@@ -865,6 +873,12 @@ func (b *rustshineBackend) Stop() error {
 			_ = exec.Command("killall", "usbridge-streamer").Run()
 		}
 	}
+	if virtualDisplayTeardownNeeded(runtime.GOOS, b.launchedWithVirtualDisplay, b.launchPath) {
+		if tdErr := runVirtualDisplayTeardown(b.launchPath); tdErr != nil {
+			log.Printf("[rustshine] virtual display teardown after stop: %v", tdErr)
+		}
+	}
+	b.launchedWithVirtualDisplay = false
 	// Drop the cached path so the next Start() re-resolves BinaryPath
 	// (it may now point at a Windows sidecar written while dest was locked).
 	b.launchPath = ""

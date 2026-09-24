@@ -190,9 +190,13 @@ type permStatusChip struct {
 	labelT    *canvas.Text
 	btn       *iconActionButton
 	baseLabel string
-	onRequest func()
-	granted   bool
-	busy      bool
+	// requestLabel replaces the not-granted button's "Grant" text when set
+	// -- e.g. "Download" on Windows, where the missing piece is a driver
+	// to install rather than an OS permission. See SetRequestLabel.
+	requestLabel string
+	onRequest    func()
+	granted      bool
+	busy         bool
 }
 
 // newPermStatusChip builds one Permissions line: [✓/✗] Label ...... [button].
@@ -242,6 +246,16 @@ func (c *permStatusChip) SetBaseLabel(label string) {
 	c.refreshVisuals()
 }
 
+// SetRequestLabel sets the not-granted button's text ("" restores the
+// default "Grant"). Called again on language changes.
+func (c *permStatusChip) SetRequestLabel(label string) {
+	if c == nil {
+		return
+	}
+	c.requestLabel = label
+	c.refreshVisuals()
+}
+
 func (c *permStatusChip) SetChecked(on bool) {
 	if c == nil {
 		return
@@ -270,7 +284,11 @@ func (c *permStatusChip) refreshVisuals() {
 		} else {
 			c.btn.Accent = true
 			c.btn.Enable()
-			c.btn.SetText(loc().PermGrant)
+			if c.requestLabel != "" {
+				c.btn.SetText(c.requestLabel)
+			} else {
+				c.btn.SetText(loc().PermGrant)
+			}
 		}
 	}
 }
