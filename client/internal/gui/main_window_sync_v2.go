@@ -55,7 +55,15 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 	logrus.Infof("🔄 [SYNC] Performing master sync with bridge (host=%s)...", bootstrapHost)
 
 	// Include Tailscale auth key if stored — server registers Tailscale internally.
-	_, tailscaleAuthKey := mw.resolveBridgeAuthInputs(bootstrapHost, secret)
+	// Only when registration was actually requested: the bridge treats a
+	// non-empty TailscaleKey as "register me" regardless of TailscaleRegister
+	// (see agent/internal/api/sync.go's switch — a present key wins over the
+	// flag), so sending it unconditionally here would silently register the
+	// bridge even after the user unchecked "Register in Tailscale".
+	tailscaleAuthKey := ""
+	if doRegister {
+		_, tailscaleAuthKey = mw.resolveBridgeAuthInputs(bootstrapHost, secret)
+	}
 
 	syncPayload := api.MasterSyncPayloadV2{
 		TailscaleKey:      tailscaleAuthKey,
