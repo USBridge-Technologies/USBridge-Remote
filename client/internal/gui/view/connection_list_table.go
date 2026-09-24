@@ -439,7 +439,7 @@ func newConnectionListStateCell(isAgent, isKVM bool) fyne.CanvasObject {
 
 func newConnectionListNetworkCell(lanAddress, tailscaleAddress string) fyne.CanvasObject {
 	tsValueColor := color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
-	lanRow := newConnectionListNetworkLine("LAN", connectionCardAddressOrNone(lanAddress), design.ColorTextLight)
+	lanRow := newConnectionListNetworkLine("LAN", connectionCardLANAddressOrNone(lanAddress), design.ColorTextLight)
 	tsRow := newConnectionListNetworkLine("TS", connectionCardAddressOrNone(tailscaleAddress), tsValueColor)
 	return container.New(&tightStatsVBoxLayout{Gap: 2}, lanRow, tsRow)
 }

@@ -57,19 +57,20 @@ func newAccountLoginLicenseRow() fyne.CanvasObject {
 	hint.Alignment = fyne.TextAlignLeading
 	styledHint := wrapAccountField(hint, 11, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
 
-	btn := newAccountDialogDarkButton(i18n.Current.AccountLicenseManager, nil, nil, openLicenseManager)
-	btnCentered := container.NewCenter(btn)
-
-	var inner fyne.CanvasObject
+	btnText := i18n.Current.AccountLicenseManager
+	inset := float32(14)
 	if accountDialogMobile() {
-		hint.Alignment = fyne.TextAlignCenter
-		inner = container.NewVBox(styledHint, view.NewInset(btnCentered, 0, 0, 6, 0))
-		return newAccountCardInset(inner, 12, 12, 6, 6)
+		// Compact chip + one horizontal strip so the login dialog stays
+		// short enough that Fyne does not grow an inner scrollbar.
+		if short := strings.TrimSpace(i18n.Current.AccountLicenseManagerShort); short != "" {
+			btnText = short
+		}
+		inset = 12
 	}
-	inner = container.NewBorder(nil, nil, nil, btnCentered, styledHint)
-	// Tighter top/bottom than identity/sync cards -- this strip is one
-	// line + chip; the taller default inset forced a login-dialog scroll.
-	return newAccountCardInset(inner, 14, 14, 6, 6)
+	btn := newAccountDialogDarkButton(btnText, nil, nil, openLicenseManager)
+	btnCentered := container.NewCenter(btn)
+	inner := container.NewBorder(nil, nil, nil, btnCentered, styledHint)
+	return newAccountCardInset(inner, inset, inset, 6, 6)
 }
 
 // newAccountDivider is the thin low-contrast rule between a card's header

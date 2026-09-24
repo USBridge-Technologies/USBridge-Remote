@@ -305,6 +305,29 @@ func TestOverlayWindowPosAddsSafeAreaInset(t *testing.T) {
 	}
 }
 
+func TestVideoTopOffsetFromCanvasSubtractsChrome(t *testing.T) {
+	// iPhone Metal used canvasH−containerH for Y; that equals header+footer,
+	// so the clip bottom sat on the canvas edge and covered the Control bar.
+	const canvasH, containerH float32 = 800, 600
+	chrome := videoChromeBelow()
+	got := videoTopOffsetFromCanvas(containerH, canvasH)
+	want := canvasH - containerH - chrome
+	if want < 0 {
+		want = 0
+	}
+	if got != want {
+		t.Errorf("videoTopOffsetFromCanvas = %v, want %v (chrome=%v)", got, want, chrome)
+	}
+	oldBug := canvasH - containerH
+	if chrome > 0 && got >= oldBug {
+		t.Errorf("topOffset %v did not subtract chrome (old iOS bug used %v)", got, oldBug)
+	}
+	clipH := videoClipHeightFromCanvas(got, containerH+50, canvasH)
+	if bottom := got + clipH; bottom > canvasH-chrome+0.5 {
+		t.Errorf("clip bottom %.1f covers chrome (canvasH=%.0f chrome=%.0f)", bottom, canvasH, chrome)
+	}
+}
+
 func TestOverlayWindowPosNoopWithoutInset(t *testing.T) {
 	abs := fyne.NewPos(12, 40)
 	got := overlayWindowPos(abs, fyne.NewPos(0, 0))

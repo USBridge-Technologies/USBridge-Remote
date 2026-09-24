@@ -62,7 +62,9 @@ func accountDialogScrollMetrics(loggedIn, hasSyncKey, loginProgress bool) (left,
 		left, right, top, bottom, minH = 21, 21, 2, 12, 180
 		if accountDialogMobile() {
 			left, right = 14, 14
-			minH = 160
+			// Compact license row keeps login short; a high floor left
+			// empty space and an unnecessary scrollbar.
+			minH = 0
 		}
 	}
 	return
@@ -82,6 +84,13 @@ func applyAccountDialogScroll(scroll *container.Scroll, body fyne.CanvasObject, 
 		minH = h
 	}
 	scroll.SetMinSize(fyne.NewSize(0, minH))
+	// Logged-out / login-progress UIs are short on phones; keep ScrollNone
+	// so Fyne does not paint a thumb when content already fits.
+	if accountDialogMobile() && !loggedIn {
+		scroll.Direction = container.ScrollNone
+	} else {
+		scroll.Direction = container.ScrollVerticalOnly
+	}
 	scroll.Refresh()
 }
 

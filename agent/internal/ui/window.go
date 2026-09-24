@@ -17,7 +17,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/driver"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -31,7 +30,6 @@ import (
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/netutil"
-	"usbridge_agent/internal/remotelock"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
@@ -1414,24 +1412,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	} else {
 		win.Show()
 	}
-	if w.token != nil {
-		bindRemoteLockWindow(win)
-		remotelock.SetEnabled(w.token.RemoteWindowLockEnabled())
-		defer remotelock.SetEnabled(false)
-	}
 	w.app.Run()
-}
-
-func bindRemoteLockWindow(win fyne.Window) {
-	nw, ok := win.(driver.NativeWindow)
-	if !ok {
-		return
-	}
-	nw.RunNative(func(ctx any) {
-		if x, ok := ctx.(driver.X11WindowContext); ok && x.WindowHandle != 0 {
-			remotelock.SetX11Window(x.WindowHandle)
-		}
-	})
 }
 
 // promptForUpdate runs the mandatory startup update check and, if a newer
