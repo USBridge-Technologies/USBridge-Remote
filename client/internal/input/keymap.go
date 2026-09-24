@@ -99,12 +99,18 @@ func GetKeyCodeFromPhysical(physical fyne.HardwareKey) int {
 	return 0
 }
 
-// GetVKCodeFromScanCode maps a Windows PS/2 scan code (as reported by GLFW) to a
-// Windows Virtual Key code. Used as a fallback when the Fyne key name is KeyUnknown
-// (e.g. letter keys on non-Latin keyboard layouts like Russian or Ukrainian).
-// Scan codes are layout-independent physical positions, so this correctly maps
-// JCUKEN → QWERTY, WASD positions, etc. regardless of the active IME layout.
+// GetVKCodeFromScanCode maps a GLFW scan code (in the client OS's own number
+// space, see NormalizeScanCode) to a Windows Virtual Key code. Used as a
+// fallback when the Fyne key name is KeyUnknown (e.g. letter keys on non-Latin
+// keyboard layouts like Russian or Ukrainian), and as the primary lookup for
+// character keys in keys mode. Scan codes are layout-independent physical
+// positions, so this correctly maps JCUKEN → QWERTY, WASD positions, etc.
+// regardless of the active IME layout.
 func GetVKCodeFromScanCode(scanCode int) int16 {
+	return getVKCodeFromPS2ScanCode(NormalizeScanCode(scanCode))
+}
+
+func getVKCodeFromPS2ScanCode(scanCode int) int16 {
 	// Standard PS/2 Set-1 scan codes for US QWERTY.
 	// Extended keys (arrow keys, ins/del/home/end, pg-up/dn, right-ctrl/alt, numpad-/)
 	// have bit 8 set by GLFW: extended scan code = base + 0x100.
@@ -207,6 +213,8 @@ func GetVKCodeFromScanCode(scanCode int) int16 {
 		return 0xBE // . (VK_OEM_PERIOD)
 	case 0x35:
 		return 0xBF // / (VK_OEM_2)
+	case 0x56:
+		return 0xE2 // ISO key between left Shift and Z (VK_OEM_102)
 	case 0x1C, 0x11C:
 		return 0x0D // Enter / Return (VK_RETURN)
 	// Extended: navigation cluster (scan + 0x100)
@@ -275,23 +283,23 @@ func GetVKCode(keyName fyne.KeyName) int16 {
 		fyne.Key0: 0x30, fyne.Key1: 0x31, fyne.Key2: 0x32, fyne.Key3: 0x33, fyne.Key4: 0x34,
 		fyne.Key5: 0x35, fyne.Key6: 0x36, fyne.Key7: 0x37, fyne.Key8: 0x38, fyne.Key9: 0x39,
 
-		fyne.KeyReturn:    0x0D,
-		fyne.KeyName("Enter"): 0x0D,
+		fyne.KeyReturn:           0x0D,
+		fyne.KeyName("Enter"):    0x0D,
 		fyne.KeyName("KeyEnter"): 0x0D,
-		fyne.KeyEscape:    0x1B,
-		fyne.KeyBackspace: 0x08,
-		fyne.KeyTab:       0x09,
-		fyne.KeySpace:     0x20,
-		fyne.KeyDelete:    0x2E,
-		fyne.KeyInsert:    0x2D,
-		fyne.KeyHome:      0x24,
-		fyne.KeyEnd:       0x23,
-		fyne.KeyPageUp:    0x21,
-		fyne.KeyPageDown:  0x22,
-		fyne.KeyLeft:      0x25,
-		fyne.KeyUp:        0x26,
-		fyne.KeyRight:     0x27,
-		fyne.KeyDown:      0x28,
+		fyne.KeyEscape:           0x1B,
+		fyne.KeyBackspace:        0x08,
+		fyne.KeyTab:              0x09,
+		fyne.KeySpace:            0x20,
+		fyne.KeyDelete:           0x2E,
+		fyne.KeyInsert:           0x2D,
+		fyne.KeyHome:             0x24,
+		fyne.KeyEnd:              0x23,
+		fyne.KeyPageUp:           0x21,
+		fyne.KeyPageDown:         0x22,
+		fyne.KeyLeft:             0x25,
+		fyne.KeyUp:               0x26,
+		fyne.KeyRight:            0x27,
+		fyne.KeyDown:             0x28,
 
 		fyne.KeyF1: 0x70, fyne.KeyF2: 0x71, fyne.KeyF3: 0x72, fyne.KeyF4: 0x73,
 		fyne.KeyF5: 0x74, fyne.KeyF6: 0x75, fyne.KeyF7: 0x76, fyne.KeyF8: 0x77,

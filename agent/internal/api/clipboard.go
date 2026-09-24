@@ -345,6 +345,14 @@ func (s *Server) runClipboardDuplex(mgr *clipboard.Manager, conn clipboardJSONCo
 			log.Printf("[api] clipboard_ws remote is preparing %s change (count=%d, approx_size=%d)", event.Kind, event.FileCount, event.Size)
 			continue
 		}
+		if event.Kind == ClipboardRequestKind {
+			// The client's manual "get clipboard": answer with whatever is
+			// on this host's clipboard right now, changed or not.
+			if content, ok := mgr.Snapshot(); ok {
+				pushLocal(content)
+			}
+			continue
+		}
 		if err := s.applyClipboardEvent(mgr, event); err != nil {
 			log.Printf("[api] clipboard_ws apply failed kind=%s: %v", event.Kind, err)
 		}

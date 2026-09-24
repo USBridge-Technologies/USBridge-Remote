@@ -160,14 +160,14 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 			}
 		}
 	}
-	if isTextRoutedKeystroke(event, vw.currentHIDModifiers()) {
+	if vw.routesKeystrokeAsText(event) {
 		// Fyne's TypedRune (handlePhysicalRunePress) will deliver this
 		// keystroke's actual character; sending the raw VK here too would
 		// double it up (once garbled through a layout guess, once correct).
 		return
 	}
 	if mi := vw.moonlightInput(); mi != nil {
-		if vkCode := moonlightVKCode(event); vkCode != 0 {
+		if vkCode := vw.keystrokeVKCode(event); vkCode != 0 {
 			if vkCode == 0x0D {
 				logrus.Infof("⌨️ [INPUT][ENTER] sending VK_RETURN (0x0D) to Moonlight (key=%q, scan=%d)", event.Name, event.Physical.ScanCode)
 			}
@@ -207,7 +207,7 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 			}
 		}
 	}
-	if isTextRoutedKeystroke(event, vw.currentHIDModifiers()) {
+	if vw.routesKeystrokeAsText(event) {
 		return
 	}
 	mi := vw.moonlightInput()
@@ -215,7 +215,7 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 		logrus.Warnf("⌨️ [INPUT][UP] MoonlightInputSender is nil! Not sending key.")
 		return
 	}
-	vkCode := moonlightVKCode(event)
+	vkCode := vw.keystrokeVKCode(event)
 	if vkCode == 0 {
 		logrus.Warnf("⌨️ [INPUT][UP] vkCode resolved to 0 for key=%q! Not sending.", event.Name)
 		return
@@ -226,6 +226,70 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 
 	vw.moonlightTrackKeyUp(vkCode)
 	vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods) })
+}
+
+// Keyboard input modes for the physical keyboard (desktop only; soft IMEs
+// and the virtual keyboard keep their own paths):
+//
+//   - KeyboardInputModeText ("Characters"): printable keys are resolved to a
+//     character with the CLIENT's layout (Fyne TypedRune) and typed on the
+//     host as that character, whatever the host's layout is. Default.
+//   - KeyboardInputModeKeys ("Keys"): every key goes as a raw key press by
+//     physical position; the HOST's active layout decides the character,
+//     like a USB keyboard plugged into it. Needed for games, hotkeys and
+//     anything reading key state rather than text.
+const (
+	KeyboardInputModeText = "text"
+	KeyboardInputModeKeys = "keys"
+)
+
+// SetKeyboardInputMode switches between KeyboardInputModeText and
+// KeyboardInputModeKeys. Keys held across the switch would otherwise be
+// released through the other path (or not at all), so they are released
+// first.
+func (vw *VideoWidget) SetKeyboardInputMode(mode string) {
+	keys := mode == KeyboardInputModeKeys
+	if vw.keyboardKeysMode.Swap(keys) != keys {
+		logrus.Infof("⌨️ [INPUT] keyboard input mode -> %s", mode)
+		vw.releaseAllMoonlightKeys()
+	}
+}
+
+// GetKeyboardInputMode returns the current keyboard input mode.
+func (vw *VideoWidget) GetKeyboardInputMode() string {
+	if vw.keyboardKeysMode.Load() {
+		return KeyboardInputModeKeys
+	}
+	return KeyboardInputModeText
+}
+
+// keysModeActive reports whether physical keystrokes go as raw keys. Only on
+// desktop: mobile hardware keyboards share Fyne paths with soft IMEs.
+func (vw *VideoWidget) keysModeActive() bool {
+	return vw.keyboardKeysMode.Load() && isDesktopPrintableKeyFallbackEnabled()
+}
+
+// routesKeystrokeAsText reports whether KeyDown/KeyUp must leave this
+// keystroke to TypedRune. Never in keys mode: there TypedRune is dropped
+// and the key itself is sent.
+func (vw *VideoWidget) routesKeystrokeAsText(event *fyne.KeyEvent) bool {
+	if vw.keysModeActive() {
+		return false
+	}
+	return isTextRoutedKeystroke(event, vw.currentHIDModifiers())
+}
+
+// keystrokeVKCode resolves the VK to send for a physical key. In keys mode a
+// character key is looked up by scan code (physical position) first, so an
+// AZERTY or JCUKEN client layout still presses the same key position on the
+// host; event.Name follows the client layout and would move keys around.
+func (vw *VideoWidget) keystrokeVKCode(event *fyne.KeyEvent) int16 {
+	if vw.keysModeActive() && isCharacterScanCode(event.Physical.ScanCode) {
+		if vk := input.GetVKCodeFromScanCode(event.Physical.ScanCode); vk != 0 {
+			return vk
+		}
+	}
+	return moonlightVKCode(event)
 }
 
 // isTextRoutedKeystroke reports whether this keystroke should be left to
@@ -256,44 +320,25 @@ func isTextRoutedKeystroke(event *fyne.KeyEvent, hidModifiers int) bool {
 // correctly by GLFW for the physical key position pressed. Mirrors the same
 // scan-code rows input.GetVKCodeFromScanCode maps.
 //
-// GLFW's scan code is NOT a single universal number space: on Windows it's
-// the raw hardware (PS/2 Set-1) scancode from the WM_KEYDOWN message; on
-// Linux (X11 and Wayland alike) it's the platform keycode, which is the
-// evdev keycode + 8. The two disagree for exactly the letters this function
-// cares about -- e.g. T is 0x14 on Windows but 0x1C on Linux, which
-// coincides with the *Windows* PS/2 code for Enter, so treating Linux
-// scancodes with the Windows ranges silently reclassified T (and Y/U/I/O/P)
-// as non-character keys. Confirmed live: physical T on a Linux client sent
-// VK_RETURN to the remote host instead of the letter t (see moonlightVKCode's
-// scanCode==0x1C special case below, which then took over).
+// GLFW's scan code is NOT a single universal number space (Windows PS/2,
+// Linux xkb = evdev+8, macOS kVK_*), so it goes through
+// input.NormalizeScanCode first. Reading Linux codes as PS/2 once turned
+// physical T into VK_RETURN; reading macOS codes as PS/2 made 0/8/A/S/E/R
+// fall outside these ranges, so each was sent twice (raw VK + TypedRune).
 func isCharacterScanCode(scanCode int) bool {
-	if runtime.GOOS == "linux" {
-		switch {
-		case scanCode >= 0x0A && scanCode <= 0x15: // number row + - =
-			return true
-		case scanCode >= 0x18 && scanCode <= 0x23: // Q..P [ ]
-			return true
-		case scanCode >= 0x26 && scanCode <= 0x33: // A..L ; ' ` \
-			return true
-		case scanCode >= 0x34 && scanCode <= 0x3D: // Z..M , . /
-			return true
-		case scanCode == 0x41: // Space
-			return true
-		default:
-			return false
-		}
-	}
-	// Windows (and, as before, everything else -- unconfirmed but unchanged).
+	ps2 := input.NormalizeScanCode(scanCode)
 	switch {
-	case scanCode >= 0x02 && scanCode <= 0x0D: // number row + - =
+	case ps2 >= 0x02 && ps2 <= 0x0D: // number row + - =
 		return true
-	case scanCode >= 0x10 && scanCode <= 0x1B: // Q..P [ ]
+	case ps2 >= 0x10 && ps2 <= 0x1B: // Q..P [ ]
 		return true
-	case scanCode >= 0x1E && scanCode <= 0x2B: // A..L ; ' ` \
+	case ps2 >= 0x1E && ps2 <= 0x29: // A..L ; ' `
 		return true
-	case scanCode >= 0x2C && scanCode <= 0x35: // Z..M , . /
+	case ps2 >= 0x2B && ps2 <= 0x35: // \ Z..M , . /
 		return true
-	case scanCode == 0x39: // Space
+	case ps2 == 0x39: // Space
+		return true
+	case ps2 == 0x56: // ISO key between left Shift and Z
 		return true
 	default:
 		return false
@@ -301,16 +346,13 @@ func isCharacterScanCode(scanCode int) bool {
 }
 
 // isEnterScanCode reports whether a scan code is the physical Return/Enter
-// key position, in whichever scan-code space GLFW reports for the current
-// OS (see isCharacterScanCode's doc comment). Used only as a fallback for
-// when event.Name fails to resolve to "Return"/"Enter" -- e.g. numpad Enter
-// on some layouts. Must stay platform-gated: the Windows PS/2 code for
-// Enter (0x1C) is the Linux X11/xkb keycode for the letter T.
+// key position (main or numpad). Used only as a fallback for when event.Name
+// fails to resolve to "Return"/"Enter" -- e.g. numpad Enter on some layouts.
+// Normalized first: the Windows PS/2 code for Enter (0x1C) is the Linux xkb
+// keycode for T and the macOS keycode for 8.
 func isEnterScanCode(scanCode int) bool {
-	if runtime.GOOS == "linux" {
-		return scanCode == 0x24 || scanCode == 0x68 // Return / KP_Enter (X11 keycodes)
-	}
-	return scanCode == 0x1C || scanCode == 0x11C // Windows PS/2 Return / extended (numpad) Return
+	ps2 := input.NormalizeScanCode(scanCode)
+	return ps2 == 0x1C || ps2 == 0x11C
 }
 
 // moonlightVKCode resolves the Windows Virtual Key code for a physical key event.
@@ -384,6 +426,10 @@ func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
 	// Sticky soft IME is owned by KeyboardBridge.onIMETextInput — ignore
 	// Fyne keyboardTyped runes (Press/Release doubles + composition junk).
 	if vw.IsSystemIMESticky() {
+		return
+	}
+	// Keys mode: KeyDown/KeyUp already sent this keystroke as a raw key.
+	if vw.keysModeActive() {
 		return
 	}
 	if r > 127 {

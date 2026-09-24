@@ -4,8 +4,6 @@ package service
 
 import (
 	"fmt"
-	"net"
-
 	"os"
 )
 
@@ -51,6 +49,3 @@ func (w *MoonlightCgoWrapper) SendMoonlightPenEvent(
 ) {
 }
 
-func (ms *MoonlightService) OpenDataChannel(label string) (net.Conn, error) {
-	return nil, fmt.Errorf("DataChannel not supported on MoonlightService")
-}

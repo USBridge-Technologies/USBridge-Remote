@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"math"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/design"
@@ -1318,6 +1320,18 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.mouseIcon.SetIconSize(fyne.NewSize(14, 14))
 	mw.mouseIcon.SetBadgeText("")
 	mw.mouseIcon.Hide()
+	mw.clipboardIcon = newHeaderStatusBadgeButton(assets.ClipboardIcon, func() {
+		mw.showClipboardMenu()
+	})
+	mw.clipboardIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.clipboardIcon.SetBadgeText("")
+	mw.clipboardIcon.Hide()
+	mw.inputModeIcon = newHeaderStatusBadgeButton(assets.KeyboardInputModeIcon, func() {
+		mw.showKeyboardInputModeMenu()
+	})
+	mw.inputModeIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.inputModeIcon.SetBadgeText("")
+	mw.inputModeIcon.Hide()
 	mw.rndisIcon = newHeaderStatusBadgeButton(assets.NetworkIcon, func() {
 		mw.showRNDISModeMenu()
 	})
@@ -1604,6 +1618,17 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 				mw.mouseIcon.Show()
 			}
 			mw.mouseIcon.Refresh()
+		}
+		for _, icon := range []*headerStatusBadgeButton{mw.inputModeIcon, mw.clipboardIcon} {
+			if icon == nil {
+				continue
+			}
+			if useMobileControl() {
+				icon.Hide()
+			} else {
+				icon.Show()
+			}
+			icon.Refresh()
 		}
 		if mw.videoIcon != nil {
 			if videoStreaming {
@@ -1976,23 +2001,111 @@ func (mw *MainWindow) showMouseModeMenuAt(anchor fyne.CanvasObject) {
 			}
 		},
 	})
-	items = append(items, view.StyledMenuItem{
-		Label:    i18n.Current.ClipboardSyncEnabled,
-		Selected: mw.app.Preferences().BoolWithFallback("clipboard_sync_enabled", true),
-		OnTap: func() {
-			next := !mw.app.Preferences().BoolWithFallback("clipboard_sync_enabled", true)
-			mw.app.Preferences().SetBool("clipboard_sync_enabled", next)
-			if mw.clipboardSync != nil {
-				mw.clipboardSync.SetEnabled(next)
-			}
-		},
-	})
-
 	if view.IsMobile() {
+		// Mobile has no clipboard footer icon; keep the auto-sync toggle here.
+		items = append(items, mw.clipboardAutoSyncMenuItem(i18n.Current.ClipboardSyncEnabled))
 		view.ShowMobileStyledMenuAbove(anchor, items)
 		return
 	}
 	view.ShowStyledMenuTealAbove(anchor, items)
+}
+
+// clipboardAutoSyncPref is the stored automatic two-way clipboard sync
+// toggle; off is manual mode (Send/Get from the clipboard menu).
+const clipboardAutoSyncPref = "clipboard_sync_enabled"
+
+// keyboardInputModePref stores controller.KeyboardInputModeText/Keys.
+const keyboardInputModePref = "keyboard_input_mode"
+
+func (mw *MainWindow) clipboardAutoSyncMenuItem(label string) view.StyledMenuItem {
+	return view.StyledMenuItem{
+		Label:    label,
+		Selected: mw.app.Preferences().BoolWithFallback(clipboardAutoSyncPref, true),
+		OnTap: func() {
+			next := !mw.app.Preferences().BoolWithFallback(clipboardAutoSyncPref, true)
+			mw.app.Preferences().SetBool(clipboardAutoSyncPref, next)
+			if mw.clipboardSync != nil {
+				mw.clipboardSync.SetEnabled(next)
+			}
+		},
+	}
+}
+
+// showClipboardMenu is the Radmin-style clipboard menu: send the local
+// clipboard to the host, get the host clipboard, and the automatic two-way
+// sync toggle. Send/Get work whether or not auto sync is on.
+func (mw *MainWindow) showClipboardMenu() {
+	if mw.clipboardIcon == nil {
+		return
+	}
+	run := func(op func() error) {
+		cs := mw.clipboardSync
+		if cs == nil {
+			view.ShowInfoDialog(i18n.Current.ClipboardSyncEnabled, i18n.Current.ClipboardNotConnected, mw.window)
+			return
+		}
+		go func() {
+			err := op()
+			if err == nil {
+				return
+			}
+			logrus.Warnf("[clipboard-sync] manual transfer failed: %v", err)
+			msg := err.Error()
+			switch {
+			case errors.Is(err, api.ErrClipboardNotConnected):
+				msg = i18n.Current.ClipboardNotConnected
+			case errors.Is(err, api.ErrClipboardEmpty):
+				msg = i18n.Current.ClipboardEmpty
+			}
+			fyne.Do(func() {
+				view.ShowInfoDialog(i18n.Current.ClipboardSyncEnabled, msg, mw.window)
+			})
+		}()
+	}
+	items := []view.StyledMenuItem{
+		{
+			Label: i18n.Current.ClipboardSend,
+			OnTap: func() {
+				run(func() error { return mw.clipboardSync.PushNow() })
+			},
+		},
+		{
+			Label: i18n.Current.ClipboardReceive,
+			OnTap: func() {
+				run(func() error { return mw.clipboardSync.PullNow() })
+			},
+		},
+		mw.clipboardAutoSyncMenuItem(i18n.Current.ClipboardAutoSync),
+	}
+	view.ShowStyledMenuTealAbove(mw.clipboardIcon, items)
+}
+
+// showKeyboardInputModeMenu picks how the physical keyboard reaches the
+// host: raw keys (host layout decides) or characters (local layout decides).
+func (mw *MainWindow) showKeyboardInputModeMenu() {
+	if mw.inputModeIcon == nil || mw.videoWidget == nil {
+		return
+	}
+	current := mw.videoWidget.GetKeyboardInputMode()
+	set := func(mode string) {
+		mw.app.Preferences().SetString(keyboardInputModePref, mode)
+		if mw.videoWidget != nil {
+			mw.videoWidget.SetKeyboardInputMode(mode)
+		}
+	}
+	items := []view.StyledMenuItem{
+		{
+			Label:    i18n.Current.KeyboardInputKeys,
+			Selected: current == controller.KeyboardInputModeKeys,
+			OnTap:    func() { set(controller.KeyboardInputModeKeys) },
+		},
+		{
+			Label:    i18n.Current.KeyboardInputText,
+			Selected: current == controller.KeyboardInputModeText,
+			OnTap:    func() { set(controller.KeyboardInputModeText) },
+		},
+	}
+	view.ShowStyledMenuTealAbove(mw.inputModeIcon, items)
 }
 
 func (mw *MainWindow) showRNDISModeMenu() {

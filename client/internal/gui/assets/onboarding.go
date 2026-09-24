@@ -50,6 +50,10 @@ var (
 	keyboardIcon []byte
 	//go:embed mouse-svgrepo-com.svg
 	mouseIcon []byte
+	//go:embed clipboard-sync.svg
+	clipboardSyncIcon []byte
+	//go:embed keyboard-input-mode.svg
+	keyboardInputModeIcon []byte
 	//go:embed cursor-pointer.svg
 	cursorPointerIcon []byte
 	//go:embed gamepad-svgrepo-com.svg
@@ -215,12 +219,19 @@ var (
 	// *IconFooterHover are the desktop Control footer glyphs on hover —
 	// same #C9C9C9 rest color as CameraIcon/KeyboardIcon/etc., just
 	// lighter (#e0e3e7). No chip behind them (see applyControlFooterIconHover).
-	CameraIconFooterHover     = fyne.NewStaticResource("cam-svgrepo-com-footer-hover.svg", recolorStrokeIcon(cameraIcon, "#e0e3e7", "1.8"))
-	KeyboardIconFooterHover   = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-footer-hover.svg", recolorStrokeIcon(keyboardIcon, "#e0e3e7", "1.8"))
-	MouseIconFooterHover      = fyne.NewStaticResource("mouse-svgrepo-com-footer-hover.svg", recolorFillIcon(mouseIcon, "#e0e3e7"))
-	FullscreenIconFooterHover = fyne.NewStaticResource("fullscreen-svgrepo-com-footer-hover.svg", recolorFillIcon(fullscreenIcon, "#e0e3e7"))
-	AudioIconFooterHover      = fyne.NewStaticResource("audio-svgrepo-com-footer-hover.svg", recolorFillIcon(audioIcon, "#e0e3e7"))
-	NetworkIconFooterHover    = fyne.NewStaticResource("network-backup-svgrepo-com-footer-hover.svg", recolorFillIcon(networkIcon, "#e0e3e7"))
+	CameraIconFooterHover   = fyne.NewStaticResource("cam-svgrepo-com-footer-hover.svg", recolorStrokeIcon(cameraIcon, "#e0e3e7", "1.8"))
+	KeyboardIconFooterHover = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-footer-hover.svg", recolorStrokeIcon(keyboardIcon, "#e0e3e7", "1.8"))
+	MouseIconFooterHover    = fyne.NewStaticResource("mouse-svgrepo-com-footer-hover.svg", recolorFillIcon(mouseIcon, "#e0e3e7"))
+	// ClipboardIcon/KeyboardInputModeIcon are the desktop Control footer's
+	// clipboard (send/get/auto) and keyboard input mode (keys/characters)
+	// menus, same #C9C9C9 rest / #e0e3e7 hover as the keyboard icon.
+	ClipboardIcon                    = fyne.NewStaticResource("clipboard-sync.svg", recolorStrokeIcon(clipboardSyncIcon, "#C9C9C9", "1.8"))
+	ClipboardIconFooterHover         = fyne.NewStaticResource("clipboard-sync-footer-hover.svg", recolorStrokeIcon(clipboardSyncIcon, "#e0e3e7", "1.8"))
+	KeyboardInputModeIcon            = fyne.NewStaticResource("keyboard-input-mode.svg", recolorStrokeIcon(keyboardInputModeIcon, "#C9C9C9", "1.8"))
+	KeyboardInputModeIconFooterHover = fyne.NewStaticResource("keyboard-input-mode-footer-hover.svg", recolorStrokeIcon(keyboardInputModeIcon, "#e0e3e7", "1.8"))
+	FullscreenIconFooterHover        = fyne.NewStaticResource("fullscreen-svgrepo-com-footer-hover.svg", recolorFillIcon(fullscreenIcon, "#e0e3e7"))
+	AudioIconFooterHover             = fyne.NewStaticResource("audio-svgrepo-com-footer-hover.svg", recolorFillIcon(audioIcon, "#e0e3e7"))
+	NetworkIconFooterHover           = fyne.NewStaticResource("network-backup-svgrepo-com-footer-hover.svg", recolorFillIcon(networkIcon, "#e0e3e7"))
 	// PencilIconLime -- the same edit-pencil glyph List/Grid's own edit
 	// pencil uses (connection-edit-title.svg's path, muted gray there),
 	// tinted the same lime as LinkIconLime -- the Add Connection dialog's

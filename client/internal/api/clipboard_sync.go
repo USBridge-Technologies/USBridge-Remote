@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -85,19 +86,137 @@ type ClipboardSync struct {
 	mu     sync.Mutex
 	conn   clipboardWSConn
 	cancel context.CancelFunc
+	// push sends local content over the live connection and send writes a
+	// raw event over it; both nil while disconnected. Set by runOnce, used
+	// by PushNow/PullNow.
+	push func(clipboard.Content) error
+	send func(ClipboardEvent) error
+
+	// autoSync applies incoming remote changes as they arrive (the local
+	// side is gated by manager.SetEnabled). Off is manual mode: remote
+	// changes are only remembered in lastRemote until PullNow.
+	autoSync atomic.Bool
+
+	pullMu     sync.Mutex
+	lastRemote *ClipboardEvent // newest non-pending remote event
+	pullWaiter chan struct{}   // non-nil while a PullNow waits for a reply
 }
+
+// clipboardRequestKind asks the agent to push its current clipboard back
+// (runClipboardDuplex answers with its Snapshot). Older agents ignore
+// unknown kinds, so PullNow falls back to lastRemote.
+const clipboardRequestKind = "request"
+
+// pullReplyTimeout bounds how long PullNow waits for the agent's reply
+// before falling back to the last remote change it already received. A var
+// so tests can shorten it.
+var pullReplyTimeout = 2 * time.Second
+
+var (
+	// ErrClipboardNotConnected is returned by PushNow/PullNow with no live
+	// connection to the agent.
+	ErrClipboardNotConnected = errors.New("clipboard-sync: not connected")
+	// ErrClipboardEmpty is returned by PushNow/PullNow when there is
+	// nothing to transfer.
+	ErrClipboardEmpty = errors.New("clipboard-sync: clipboard is empty")
+)
 
 // NewClipboardSync wraps manager with a connection to client's paired agent.
 // Call Start to begin syncing and Stop to tear it down.
 func NewClipboardSync(client *USBClient, manager *clipboard.Manager, maxBytes int64) *ClipboardSync {
-	return &ClipboardSync{client: client, manager: manager, maxBytes: maxBytes}
+	cs := &ClipboardSync{client: client, manager: manager, maxBytes: maxBytes}
+	cs.autoSync.Store(true)
+	return cs
 }
 
-// SetEnabled pauses/resumes sync without tearing down the connection.
+// SetEnabled switches automatic two-way sync on or off without tearing down
+// the connection. Off is manual mode: nothing moves in either direction
+// until PushNow or PullNow.
 func (cs *ClipboardSync) SetEnabled(enabled bool) {
+	cs.autoSync.Store(enabled)
 	if cs.manager != nil {
 		cs.manager.SetEnabled(enabled)
 	}
+}
+
+// PushNow sends whatever is on the local clipboard to the agent right away,
+// regardless of automatic sync. Blocks for the upload of an image or files.
+func (cs *ClipboardSync) PushNow() error {
+	cs.mu.Lock()
+	push := cs.push
+	cs.mu.Unlock()
+	if push == nil {
+		return ErrClipboardNotConnected
+	}
+	content, ok := cs.manager.Snapshot()
+	if !ok {
+		return ErrClipboardEmpty
+	}
+	return push(content)
+}
+
+// PullNow replaces the local clipboard with the agent's current one,
+// regardless of automatic sync. It asks the agent for a fresh copy and waits
+// up to pullReplyTimeout; if the agent does not answer (older agents ignore
+// the request), the newest change it already announced on this connection
+// is applied instead.
+func (cs *ClipboardSync) PullNow() error {
+	cs.mu.Lock()
+	send := cs.send
+	cs.mu.Unlock()
+	if send == nil {
+		return ErrClipboardNotConnected
+	}
+
+	waiter := make(chan struct{})
+	cs.pullMu.Lock()
+	cs.pullWaiter = waiter
+	cs.pullMu.Unlock()
+
+	if err := send(ClipboardEvent{Kind: clipboardRequestKind}); err != nil {
+		cs.pullMu.Lock()
+		if cs.pullWaiter == waiter {
+			cs.pullWaiter = nil
+		}
+		cs.pullMu.Unlock()
+		return err
+	}
+	select {
+	case <-waiter:
+		return nil
+	case <-time.After(pullReplyTimeout):
+	}
+
+	cs.pullMu.Lock()
+	if cs.pullWaiter != waiter {
+		// The reply raced the timeout; the read loop is applying it.
+		cs.pullMu.Unlock()
+		return nil
+	}
+	cs.pullWaiter = nil
+	last := cs.lastRemote
+	cs.pullMu.Unlock()
+	if last == nil {
+		return ErrClipboardEmpty
+	}
+	logrus.Infof("[clipboard-sync] no reply to pull request, applying last remote %s change", last.Kind)
+	return cs.applyIncomingEvent(context.Background(), *last)
+}
+
+// takeIncoming records event as the newest remote clipboard and reports
+// whether to apply it now: always in automatic mode, and in manual mode only
+// as the answer to a pending PullNow. done releases that PullNow; call it
+// once the event is applied.
+func (cs *ClipboardSync) takeIncoming(event ClipboardEvent) (apply bool, done func()) {
+	cs.pullMu.Lock()
+	defer cs.pullMu.Unlock()
+	ev := event
+	cs.lastRemote = &ev
+	if waiter := cs.pullWaiter; waiter != nil {
+		cs.pullWaiter = nil
+		return true, func() { close(waiter) }
+	}
+	return cs.autoSync.Load(), func() {}
 }
 
 // Start connects and begins the duplex sync loop in the background,
@@ -306,22 +425,34 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 	}
 
 	var closed atomic.Bool
-	pushLocal := func(content clipboard.Content) {
+	sendLocal := func(content clipboard.Content) error {
 		if closed.Load() {
-			return
+			return ErrClipboardNotConnected
 		}
 		event, err := cs.buildOutgoingEvent(ctx, content)
 		if err != nil {
 			logrus.Errorf("[clipboard-sync] failed to prepare outgoing event: %v", err)
-			return
+			return err
 		}
 		if err := safeWriteJSON(event); err != nil {
 			logrus.Errorf("[clipboard-sync] push failed: %v", err)
-			return
+			return err
 		}
 		logrus.Infof("[clipboard-sync] sent local %s change (size=%d)", event.Kind, event.Size)
+		return nil
 	}
+	pushLocal := func(content clipboard.Content) { _ = sendLocal(content) }
 	cs.manager.SetOnLocalChange(pushLocal)
+
+	cs.mu.Lock()
+	cs.push = sendLocal
+	cs.send = func(event ClipboardEvent) error {
+		if closed.Load() {
+			return ErrClipboardNotConnected
+		}
+		return safeWriteJSON(event)
+	}
+	cs.mu.Unlock()
 
 	pushPending := func(info clipboard.PendingInfo) {
 		if closed.Load() {
@@ -340,6 +471,10 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 		closed.Store(true)
 		cs.manager.SetOnLocalChange(nil)
 		cs.manager.SetOnLocalChangePending(nil)
+		cs.mu.Lock()
+		cs.push = nil
+		cs.send = nil
+		cs.mu.Unlock()
 	}()
 
 	// Run's poll loop only fires on the *edge* of a detected clipboard
@@ -347,8 +482,11 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 	// this connection was down would otherwise never be retried. Resync once
 	// up front on every fresh connection so the peer always converges to
 	// whatever is currently on the clipboard, not just future changes.
-	if content, ok := cs.manager.Snapshot(); ok {
-		pushLocal(content)
+	// Manual mode sends nothing on its own.
+	if cs.autoSync.Load() {
+		if content, ok := cs.manager.Snapshot(); ok {
+			pushLocal(content)
+		}
 	}
 
 	for {
@@ -364,10 +502,16 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 			logrus.Infof("[clipboard-sync] remote is preparing %s change (count=%d, approx_size=%d)", event.Kind, event.FileCount, event.Size)
 			continue
 		}
+		apply, done := cs.takeIncoming(event)
+		if !apply {
+			logrus.Infof("[clipboard-sync] received remote %s change (size=%d), kept for manual pull", event.Kind, event.Size)
+			continue
+		}
 		logrus.Infof("[clipboard-sync] received remote %s change (size=%d)", event.Kind, event.Size)
 		if err := cs.applyIncomingEvent(ctx, event); err != nil {
 			logrus.Errorf("[clipboard-sync] apply failed kind=%s: %v", event.Kind, err)
 		}
+		done()
 	}
 }
 

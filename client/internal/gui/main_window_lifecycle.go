@@ -322,6 +322,7 @@ func (mw *MainWindow) reloadUI() {
 	mw.diskWidget = controller.NewDiskWidget(mw.usbClient, mw.updateStatus, mw.app, mw.config)
 	mw.videoWidget = controller.NewVideoWidget(mw.window, mw.usbClient, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(mw.app.Preferences().BoolWithFallback("show_mouse_cursor", false))
+	mw.videoWidget.SetKeyboardInputMode(mw.app.Preferences().StringWithFallback(keyboardInputModePref, controller.KeyboardInputModeText))
 	mw.wireMobileKeyboardStackCallbacks()
 	mw.wireMobileViewportPanCallbacks()
 	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, mw.hostEntry, mw.updateStatus)

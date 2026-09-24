@@ -356,7 +356,9 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		mw.fullscreenIcon,
 		mw.audioIcon,
 		mw.keyboardIcon,
+		mw.inputModeIcon,
 		mw.mouseIcon,
+		mw.clipboardIcon,
 		mw.rndisIcon,
 		mw.sdStorageProgress,
 	}
@@ -422,6 +424,8 @@ func (mw *MainWindow) applyControlFooterIconHover() {
 	style(mw.videoMonitorToggle, assets.MonitorTabIconHover)
 	style(mw.keyboardIcon, assets.KeyboardIconFooterHover)
 	style(mw.mouseIcon, assets.MouseIconFooterHover)
+	style(mw.inputModeIcon, assets.KeyboardInputModeIconFooterHover)
+	style(mw.clipboardIcon, assets.ClipboardIconFooterHover)
 	style(mw.audioIcon, assets.AudioIconFooterHover)
 	style(mw.rndisIcon, assets.NetworkIconFooterHover)
 }
@@ -452,7 +456,9 @@ func (t *controlFooterTheme) Size(name fyne.ThemeSizeName) float32 {
 func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 	mw.applyControlFooterIconHover()
 	mw.keyboardIcon.Show()
+	mw.inputModeIcon.Show()
 	mw.mouseIcon.Show()
+	mw.clipboardIcon.Show()
 	if mw.fullscreenIcon != nil {
 		mw.fullscreenIcon.SetIcon(assets.FullscreenIconFooter)
 	}
@@ -482,7 +488,9 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 	videoParts = append(videoParts,
 		mw.controlFooterHIDDivider,
 		controlFooterIconBox(mw.keyboardIcon),
+		controlFooterIconBox(mw.inputModeIcon),
 		controlFooterIconBox(mw.mouseIcon),
+		controlFooterIconBox(mw.clipboardIcon),
 	)
 	videoGroup := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, videoParts...)
 
