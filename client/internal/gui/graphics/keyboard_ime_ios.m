@@ -78,9 +78,11 @@ BOOL usbridgeStickyIMEEnabled(void) {
     field.autocorrectionType = UITextAutocorrectionTypeNo;
     field.autocapitalizationType = UITextAutocapitalizationTypeNone;
     field.spellCheckingType = UITextSpellCheckingTypeNo;
-    field.smartDashesType = UITextSmartDashesTypeNo;
-    field.smartQuotesType = UITextSmartQuotesTypeNo;
-    field.smartInsertDeleteType = UITextSmartInsertDeleteTypeNo;
+    if (@available(iOS 11.0, *)) {
+        field.smartDashesType = UITextSmartDashesTypeNo;
+        field.smartQuotesType = UITextSmartQuotesTypeNo;
+        field.smartInsertDeleteType = UITextSmartInsertDeleteTypeNo;
+    }
     field.keyboardType = UIKeyboardTypeDefault;
     field.returnKeyType = UIReturnKeyDefault;
     field.delegate = self;
