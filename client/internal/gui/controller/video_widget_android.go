@@ -224,6 +224,10 @@ func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {
 	}
 }
 
+func (vw *VideoWidget) platformSyncKeyboardBottomInsetFromIME(imeHeightDp float32) {
+	vw.syncKeyboardBottomInsetFromIME(imeHeightDp)
+}
+
 // vkLastRendered* track the last pixel rect sent to the Vulkan overlay.
 // Any change (rotation, keyboard, fullscreen, safe-area) triggers a forced
 // swapchain recreation so the render thread picks up the new surface immediately.
@@ -582,30 +586,4 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 func (vw *VideoWidget) refocusStickySystemIME() bool {
 	// Android sticky IME is Activity-owned; keep Fyne focus on the touchpad.
 	return false
-}
-
-// handleNativeIMEText applies sticky soft-IME diffs from KeyboardBridge.
-func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
-	mi := vw.moonlightInput()
-	if mi == nil {
-		return
-	}
-	logrus.Infof("⌨️ [IME-TEXT] del=%d add=%q", deleteCount, text)
-	for i := 0; i < deleteCount; i++ {
-		vw.enqueueSend(func() {
-			mi.SendMoonlightKey(0x08, service.LiKeyActionDown, 0)
-			mi.SendMoonlightKey(0x08, service.LiKeyActionUp, 0)
-		})
-	}
-	if text != "" {
-		t := text
-		vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(t) })
-	}
-}
-
-func (vw *VideoWidget) ensureIMEKeyboardTarget() {
-	vw.ensureMobileVirtualKeyboard()
-	if vw.virtualKeyboard != nil {
-		vw.virtualKeyboard.RegisterAsIMETarget()
-	}
 }

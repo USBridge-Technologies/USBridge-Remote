@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"sync/atomic"
 	"time"
 
 	"usbridge-client/internal/gui/view"
@@ -15,7 +16,25 @@ const (
 	mobileControlLandscapeStrip = float32(36 + 4 + 4 + 1)
 )
 
+// controlChromeHiddenForKeyboard is set while the Control footer (tabs /
+// version strip) is hidden for the keyboard stack — videoChromeBelow must
+// not keep reserving that band or Metal leaves a gap above the IME.
+var controlChromeHiddenForKeyboard atomic.Bool
+
+func setControlChromeHiddenForKeyboard(on bool) {
+	controlChromeHiddenForKeyboard.Store(on)
+}
+
+// SetControlChromeHiddenForKeyboard hides the Control footer band from
+// videoChromeBelow while the keyboard stack owns the bottom of the screen.
+func SetControlChromeHiddenForKeyboard(on bool) {
+	setControlChromeHiddenForKeyboard(on)
+}
+
 func videoChromeBelow() float32 {
+	if controlChromeHiddenForKeyboard.Load() {
+		return 0
+	}
 	if !view.IsMobile() {
 		return view.AppFooterOuterHeight()
 	}

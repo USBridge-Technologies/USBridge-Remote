@@ -5,6 +5,10 @@ package controller
 import (
 	"math"
 	"sync/atomic"
+
+	"usbridge-client/internal/service"
+
+	"github.com/sirupsen/logrus"
 )
 
 // imeExpandBits stores math.Float32bits(imeHeightDp) atomically. Non-zero
@@ -62,7 +66,10 @@ func (vw *VideoWidget) applyImmediateKeyboardViewport() {
 				h = cur
 			}
 			setImeExpandHeightDp(h)
-			vw.syncKeyboardBottomInsetFromIME(h)
+			// Android: inset the viewport above the IME. iOS: Fyne already
+			// shrinks the canvas — syncKeyboardBottomInsetFromIME would
+			// double-count and thrash Metal.
+			vw.platformSyncKeyboardBottomInsetFromIME(h)
 			vw.focusViewportOnVirtualCursorForKeyboard()
 		}
 	} else {
@@ -74,6 +81,33 @@ func (vw *VideoWidget) applyImmediateKeyboardViewport() {
 	vw.platformAfterKeyboardViewportSettle()
 	vw.InvalidateOverlayGeometry()
 	vw.forceCanvasRefresh.Store(true)
+}
+
+func (vw *VideoWidget) ensureIMEKeyboardTarget() {
+	vw.ensureMobileVirtualKeyboard()
+	if vw.virtualKeyboard != nil {
+		vw.virtualKeyboard.RegisterAsIMETarget()
+	}
+}
+
+// handleNativeIMEText applies sticky soft-IME diffs from the platform bridge
+// (Android KeyboardBridge / iOS UITextField).
+func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
+	mi := vw.moonlightInput()
+	if mi == nil {
+		return
+	}
+	logrus.Infof("⌨️ [IME-TEXT] del=%d add=%q", deleteCount, text)
+	for i := 0; i < deleteCount; i++ {
+		vw.enqueueSend(func() {
+			mi.SendMoonlightKey(0x08, service.LiKeyActionDown, 0)
+			mi.SendMoonlightKey(0x08, service.LiKeyActionUp, 0)
+		})
+	}
+	if text != "" {
+		t := text
+		vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(t) })
+	}
 }
 
 func (vw *VideoWidget) platformHandleVirtualKeyboard() {

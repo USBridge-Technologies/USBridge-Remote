@@ -16,12 +16,11 @@ import (
 )
 
 const (
-	tariffDialogWidth     float32 = 500
-	tariffDialogHeight    float32 = 420
-	tariffFooterH         float32 = 32
-	tariffGitHubURL               = "https://github.com/USBridge-Technologies/USBridge-Remote/"
-	tariffPricePro                = "$8"
-	tariffPriceEnterprise         = "$25"
+	tariffDialogWidth  float32 = 500
+	tariffDialogHeight float32 = 420
+	tariffFooterH      float32 = 32
+	tariffGitHubURL            = "https://github.com/USBridge-Technologies/USBridge-Remote/"
+	tariffPricePro             = "$8"
 )
 
 // Slightly above ColorGray900 so feature cards lift off the dialog fill.
@@ -75,21 +74,14 @@ func tariffPlansNow() []tariffPlan {
 				{c.FeatWacom, c.FeatWacomSub},
 			},
 		},
-		{
-			key:      protocolEnterprise,
-			tab:      "Enterprise",
-			buyLabel: c.BuyEnterprise,
-			price:    tariffPriceEnterprise,
-			paid:     true,
-			features: []tariffFeature{
-				{c.FeatRecording, c.FeatRecordingSub},
-				{c.FeatCompanyRollout, c.FeatCompanyRolloutSub},
-			},
-		},
 	}
 }
 
 func tariffIndexForKey(key string) int {
+	// Enterprise is no longer shown in this dialog; land on Pro.
+	if key == protocolEnterprise {
+		key = protocolPro
+	}
 	for i, p := range tariffPlansNow() {
 		if p.key == key {
 			return i
@@ -297,11 +289,7 @@ func (w *Window) newTariffFooter(parent fyne.Window, plan tariffPlan) fyne.Canva
 		unit.TextSize = 11
 		left = container.New(&tightHBoxLayout{gap: 3}, price, container.NewCenter(unit))
 		buy := newDialogCTA(plan.buyLabel, func() {
-			tier := "pro"
-			if plan.key == protocolEnterprise {
-				tier = "enterprise"
-			}
-			w.openTariffCheckout(parent, tier)
+			w.openTariffCheckout(parent, "pro")
 		})
 		buyLock := canvas.NewRectangle(color.Transparent)
 		buyLock.SetMinSize(fyne.NewSize(108, 1))
@@ -348,7 +336,7 @@ func newTariffFeatureCard(feat tariffFeature, plan tariffPlan) fyne.CanvasObject
 	switch plan.key {
 	case protocolOpensource:
 		plusClr = design.ColorWhite
-	case protocolPro, protocolEnterprise:
+	case protocolPro:
 		plusClr = design.ColorCTA
 	}
 	plus := canvas.NewText("+", plusClr)
@@ -445,7 +433,7 @@ func (b *tariffTabButton) refreshVisuals() {
 		b.bg.FillColor = color.Transparent
 		b.bg.StrokeColor = color.Transparent
 		switch b.key {
-		case protocolPro, protocolEnterprise:
+		case protocolPro:
 			b.text.Color = design.ColorProSoft
 		case protocolFree:
 			b.text.Color = design.ColorTeal

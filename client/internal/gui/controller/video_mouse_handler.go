@@ -163,9 +163,9 @@ func (t *TouchpadWrapper) SetSkipWindowFocus(skip bool) {
 	t.skipWindowFocus.Store(skip)
 }
 
-// FocusGained implements fyne.Focusable. While sticky system IME is on (iOS/
-// wasm), bounce focus back to the soft-IME Entry so video drags do not
-// dismiss the keyboard. Android uses native sticky IME and keeps touchpad focus.
+// FocusGained implements fyne.Focusable. While sticky system IME is on,
+// reassert the platform sticky keyboard. Android/iOS use a native field so
+// this does not bounce Fyne Entry focus (that flickered the IME on iPhone).
 func (t *TouchpadWrapper) FocusGained() {
 	vw := t.videoWidget
 	if vw == nil || !vw.IsSystemIMESticky() {
@@ -175,9 +175,9 @@ func (t *TouchpadWrapper) FocusGained() {
 }
 
 // FocusLost implements fyne.Focusable. While sticky system IME is on, keep the
-// native soft keyboard up (re-show) without bouncing Fyne focus to an Entry —
-// video drags must not dismiss the IME. On iOS/wasm, refocusStickySystemIME
-// restores Entry focus instead of the touchpad.
+// native soft keyboard up. Android/iOS reassert the platform field and keep
+// touchpad focus; wasm still returns true from refocusStickySystemIME to hold
+// the Fyne Entry.
 func (t *TouchpadWrapper) FocusLost() {
 	vw := t.videoWidget
 	if vw == nil || !vw.IsSystemIMESticky() {
