@@ -71,7 +71,10 @@ func (vw *VideoWidget) platformSetSystemIMESticky(on bool) {
 	logrus.Info("⌨️ System IME sticky OFF (iOS)")
 }
 
-func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {}
+func (vw *VideoWidget) platformAfterKeyboardViewportSettle() {
+	imeOpen := getImeExpandHeightDp() > 100 && imeCropsVideoOverlay()
+	vw.bottomAnchorContentVertically = imeOpen
+}
 
 func (vw *VideoWidget) platformSyncKeyboardBottomInsetFromIME(imeHeightDp float32) {
 	// Fyne already shrinks the iOS canvas for the soft keyboard.
