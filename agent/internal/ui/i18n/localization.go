@@ -536,6 +536,10 @@ func ES() *LocalizedStrings {
 	locale.NotRunning = "No en ejecucion"
 	locale.NotStaged = "No instalado"
 
+	locale.EnableUSBBroker = "Habilitar"
+	locale.USBBrokerConsentTitle = "¿Habilitar USB passthrough?"
+	locale.USBBrokerConsentBody = "El soporte de USB passthrough funciona mediante un componente independiente de código cerrado (no es de código abierto como el resto de este agente). Permanecerá desactivado hasta que lo habilites aquí. Una vez habilitado, el passthrough de teclado, ratón y gamepad es gratuito; otros dispositivos USB (unidades de disco, audio, tabletas, etc.) requieren una suscripción Pro o Enterprise."
+
 	locale.StreamerConsentTitle = "¿Cambiar al protocolo USBridge?"
 	locale.StreamerConsentBody = "El protocolo USBridge funciona mediante un componente independiente de código cerrado (no es de código abierto como Sunshine y el resto de este agente). Cambiar a este protocolo descargará e instalará el componente USBridge Streamer. ¿Deseas continuar?"
 
@@ -737,6 +741,10 @@ func UK() *LocalizedStrings {
 
 	locale.NotRunning = "Не запущено"
 	locale.NotStaged = "Не встановлено"
+
+	locale.EnableUSBBroker = "Увімкнути"
+	locale.USBBrokerConsentTitle = "Увімкнути USB passthrough?"
+	locale.USBBrokerConsentBody = "Прокидання USB (USB passthrough) працює на окремому компоненті із закритим вихідним кодом (не open-source, на відміну від решти агента). Він залишається вимкненим, доки ви не увімкнете його тут. Після увімкнення прокидання клавіатури, миші та геймпада є безкоштовним; інші USB-пристрої (накопичувачі, аудіо, планшети тощо) потребують підписки Pro або Enterprise."
 
 	locale.StreamerConsentTitle = "Перемкнути на протокол USBridge?"
 	locale.StreamerConsentBody = "Протокол USBridge працює на окремому компоненті із закритим вихідним кодом (не open-source, на відміну від Sunshine та решти агента). Перемикання на цей протокол завантажить та встановить USBridge Streamer. Бажаєте продовжити?"

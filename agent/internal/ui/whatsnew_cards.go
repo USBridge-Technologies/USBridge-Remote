@@ -124,18 +124,6 @@ func whatsNewCatalog() []whatsNewCard {
 					Points: []whatsNewPoint{
 						{
 							Title: whatsNewCopy{
-								EN: "Remote window lock",
-								ES: "Bloqueo de la ventana remota",
-								UK: "Блокування віддаленого вікна",
-							},
-							Body: whatsNewCopy{
-								EN: "Stop a remote session from clicking the agent window, changing protocol, or quitting. Local use still works.",
-								ES: "Impide que una sesion remota pulse la ventana del agent, cambie el protocolo o lo cierre. El uso local sigue funcionando.",
-								UK: "Віддалена сесія більше не може натискати вікно агента, змінювати протокол чи закривати його. Локально все працює як раніше.",
-							},
-						},
-						{
-							Title: whatsNewCopy{
 								EN: "USBridge protocol auto-update",
 								ES: "Autoactualizacion del protocolo USBridge",
 								UK: "Автооновлення протоколу USBridge",

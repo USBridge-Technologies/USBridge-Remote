@@ -1770,9 +1770,6 @@ func (vw *VideoWidget) recalculateViewport() {
 		// causes the picture to scroll down to the center, creating a huge black
 		// gap above it which feels broken (picture does not stop at edge).
 		extraDown = float32(0)
-		if r := vw.specialKeysHeaderReserve; r > extraDown {
-			extraDown = r
-		}
 	}
 	if vw.bottomAnchorContentVertically && contentH <= availableH {
 		// wasm only: keep flush above the IME panel; no free letterbox pan.
@@ -2115,13 +2112,10 @@ func (vw *VideoWidget) focusViewportOnVirtualCursorForKeyboard() {
 
 	extraUp := float32(0)
 	extraDown := float32(0)
-	if r := vw.specialKeysHeaderReserve; r > extraDown {
-		extraDown = r
-	}
 
 	if cw > vw.touchpadSizeW {
 		maxPanX := (cw - vw.touchpadSizeW) / 2
-		vw.panOffsetX = clampFloat(idealPanX, -maxPanX-extraUp, maxPanX+extraDown)
+		vw.panOffsetX = clampFloat(idealPanX, -maxPanX, maxPanX)
 	} else {
 		vw.panOffsetX = idealPanX
 	}
