@@ -56,6 +56,8 @@ var (
 	keyboardInputModeIcon []byte
 	//go:embed cursor-pointer.svg
 	cursorPointerIcon []byte
+	//go:embed graphic-tablet-svgrepo-com.svg
+	graphicTabletIcon []byte
 	//go:embed gamepad-svgrepo-com.svg
 	gamepadIcon []byte
 	//go:embed audio-svgrepo-com.svg
@@ -350,6 +352,8 @@ var (
 	GamepadIcon                = fyne.NewStaticResource("gamepad-svgrepo-com.svg", recolorGamepadIcon(gamepadIcon, "#C9C9C9"))
 	GamepadIconActive          = fyne.NewStaticResource("gamepad-svgrepo-com-active.svg", recolorGamepadIcon(gamepadIcon, "#93C572"))
 	GamepadIconStatusBar       = fyne.NewStaticResource("gamepad-svgrepo-com-statusbar.svg", recolorGamepadIcon(gamepadIcon, "#c4e77a"))
+	GraphicTabletIcon          = fyne.NewStaticResource("graphic-tablet-svgrepo-com.svg", recolorFillIcon(graphicTabletIcon, "#C9C9C9"))
+	GraphicTabletIconActive    = fyne.NewStaticResource("graphic-tablet-svgrepo-com-active.svg", recolorFillIcon(graphicTabletIcon, "#93C572"))
 	AudioIcon                  = fyne.NewStaticResource("audio-svgrepo-com.svg", recolorFillIcon(audioIcon, "#C9C9C9"))
 	AudioIconActive            = fyne.NewStaticResource("audio-svgrepo-com-active.svg", recolorFillIcon(audioIcon, "#93C572"))
 	AudioIconStatusBar         = fyne.NewStaticResource("audio-svgrepo-com-statusbar.svg", recolorFillIcon(audioIcon, "#c4e77a"))

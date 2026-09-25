@@ -138,7 +138,14 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 
 	var iconRes fyne.Resource
 	useStorageIcon := false
-	switch drive.Source {
+	if drive.IsPenTablet || (drive.IsUSBPassthrough && isWacomTablet(drive)) {
+		if drive.IsMounted {
+			iconRes = assets.GraphicTabletIconActive
+		} else {
+			iconRes = assets.GraphicTabletIcon
+		}
+	} else {
+		switch drive.Source {
 	case "api":
 		useStorageIcon = true
 		if drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp" {
@@ -193,6 +200,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		}
 	default:
 		iconRes = assets.DiscIcon
+	}
 	}
 
 	if useStorageIcon && drive.IsMounted {

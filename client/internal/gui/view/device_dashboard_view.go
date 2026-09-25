@@ -1133,6 +1133,7 @@ var DeviceDashboardAudioIconSVG = fyne.NewStaticResource("device_dashboard_audio
 var DeviceDashboardKeyboardIconActive = fyne.NewStaticResource("device_dashboard_keyboard_active.svg", []byte(strings.ReplaceAll(string(assets.KeyboardIconActive.Content()), "#93C572", "#41e0c3")))
 var DeviceDashboardMouseIconActive = fyne.NewStaticResource("device_dashboard_mouse_active.svg", []byte(strings.ReplaceAll(string(assets.MouseIconActive.Content()), "#93C572", "#41e0c3")))
 var DeviceDashboardGamepadIconActive = fyne.NewStaticResource("device_dashboard_gamepad_active.svg", []byte(strings.ReplaceAll(string(assets.GamepadIconActive.Content()), "#93C572", "#41e0c3")))
+var DeviceDashboardTabletIconActive = fyne.NewStaticResource("device_dashboard_tablet_active.svg", []byte(strings.ReplaceAll(string(assets.GraphicTabletIconActive.Content()), "#93C572", "#41e0c3")))
 var DeviceDashboardAudioIconActive = fyne.NewStaticResource("device_dashboard_audio_active.svg", []byte(strings.ReplaceAll(string(assets.AudioIconActive.Content()), "#93C572", "#41e0c3")))
 var DeviceDashboardCameraIconActive = fyne.NewStaticResource("device_dashboard_camera_active.svg", []byte(strings.ReplaceAll(string(assets.CameraIconActive.Content()), "#93C572", "#41e0c3")))
 

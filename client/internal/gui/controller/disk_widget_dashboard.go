@@ -713,6 +713,13 @@ func setDashboardRows(target *fyne.Container, rows []fyne.CanvasObject, emptyTex
 // just returning the resource instead of mutating a *canvas.Image in
 // place.
 func driveIconResource(drive DriveItem) fyne.Resource {
+	if drive.IsPenTablet || (drive.IsUSBPassthrough && isWacomTablet(drive)) {
+		if drive.IsMounted {
+			return view.DeviceDashboardTabletIconActive
+		}
+		return assets.GraphicTabletIcon
+	}
+
 	var iconRes fyne.Resource
 	useStorageIcon := false
 	switch drive.Source {
