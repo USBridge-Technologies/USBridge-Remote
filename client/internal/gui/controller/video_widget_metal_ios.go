@@ -442,6 +442,18 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	vw.forceCanvasRefresh.Store(true)
 	if imeOpen && imeCropsVideoOverlay() && (vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky()) {
 		vw.focusViewportOnVirtualCursorForKeyboard()
+		// keyboard_ime_ios.m now delivers this after Fyne's own canvas
+		// resize for the keyboard, but that resize can still straddle a
+		// render tick under load. Re-run once more shortly after so the
+		// content rect catches up with whatever size Fyne actually
+		// settled on, instead of leaving a stale gap above the keyboard.
+		time.AfterFunc(80*time.Millisecond, func() {
+			fyne.Do(func() {
+				if vw.IsVirtualKeyboardVisible() || vw.IsSystemIMESticky() {
+					vw.focusViewportOnVirtualCursorForKeyboard()
+				}
+			})
+		})
 	}
 }
 

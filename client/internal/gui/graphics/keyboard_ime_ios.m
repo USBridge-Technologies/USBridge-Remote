@@ -296,13 +296,21 @@ BOOL usbridgeStickyIMEEnabled(void) {
 
     int imeHeight = (int)overlap;
     int screenHeight = (int)screenSize.height;
-    deliverIMEHeightFromObjC(imeHeight, screenHeight);
 
-    // Run after every observer of this notification (incl. Fyne's own
-    // WillShow/WillHide, which may carry the stale size) so ours wins.
+    // Deliver to Go only AFTER Fyne's own canvas has been resized for the
+    // keyboard (syncFyneKeyboardInset below), not before. Go's viewport math
+    // (focusViewportOnVirtualCursorForKeyboard) re-reads the touchpad
+    // widget's *current* Fyne size to size/pan the zoomed content rect; if
+    // that read happens before Fyne resizes, it sizes content against the
+    // old, taller canvas while the Metal clip (queried live, every render
+    // tick) already reflects the new, keyboard-shortened one -- the
+    // mismatch is exactly the black strip left above the system keyboard.
+    // Queuing both on the same serial main-queue block, in this order,
+    // guarantees Go always sees the post-resize size.
     dispatch_async(dispatch_get_main_queue(), ^{
         UIWindow *w = [self keyWindow];
         [self syncFyneKeyboardInset:[self keyboardOverlapInWindow:w endFrame:endFrame] window:w];
+        deliverIMEHeightFromObjC(imeHeight, screenHeight);
     });
 
     // If sticky and keyboard collapsed unexpectedly, pull it back.
