@@ -194,6 +194,15 @@ func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
 		mw.showSpecialKeysInMainHeader()
 		if mw.connectedChromeHost != nil {
 			mw.connectedChromeHost.Hide()
+			// Hide() only flips the Hidden flag (see fyne.Container.Hide) --
+			// it does not re-run the parent EdgeStack's Layout, so without
+			// this the footer's height stays reserved as dead space between
+			// the video and the keyboard even though the footer itself is
+			// now invisible underneath the keyboard. Refresh forces
+			// mainContent's EdgeStack to re-layout and reclaim that height.
+			if mw.mainContent != nil {
+				mw.mainContent.Refresh()
+			}
 		}
 		controller.SetControlChromeHiddenForKeyboard(true)
 		if mw.videoWidget != nil {
@@ -203,6 +212,9 @@ func (mw *MainWindow) applyMainHeaderForKeyboardStack() {
 	}
 	if mw.connectedChromeHost != nil {
 		mw.connectedChromeHost.Show()
+		if mw.mainContent != nil {
+			mw.mainContent.Refresh()
+		}
 	}
 	controller.SetControlChromeHiddenForKeyboard(false)
 	mw.restoreMainHeader()

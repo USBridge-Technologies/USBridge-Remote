@@ -236,12 +236,12 @@ func (l *edgeStackLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	top, bottom, content := l.split(objects)
 
 	var topHeight, bottomHeight float32
-	if top != nil {
+	if top != nil && top.Visible() {
 		topHeight = top.MinSize().Height
 		top.Move(fyne.NewPos(0, 0))
 		top.Resize(fyne.NewSize(size.Width, topHeight))
 	}
-	if bottom != nil {
+	if bottom != nil && bottom.Visible() {
 		bottomHeight = bottom.MinSize().Height
 		bottom.Move(fyne.NewPos(0, size.Height-bottomHeight))
 		bottom.Resize(fyne.NewSize(size.Width, bottomHeight))
