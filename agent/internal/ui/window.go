@@ -2111,6 +2111,23 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 			// backend. Used both for the plain Free row and for a
 			// Pro/Enterprise row that's already paid for.
 			switchToRustShine := func() {
+				if !st.RustShineStaged && parent != nil {
+					w.showStreamerConsentDialog(parent, func(confirmed bool) {
+						if !confirmed {
+							render(w.token.EntitlementStatus())
+							return
+						}
+						go func() {
+							if err := w.token.DownloadRustShine(nil); err != nil {
+								fyne.Do(func() { render(w.token.EntitlementStatus()) })
+								return
+							}
+							_ = w.token.SetStreamBackend("rustshine")
+							fyne.Do(func() { render(w.token.EntitlementStatus()) })
+						}()
+					})
+					return
+				}
 				go func() {
 					if !st.RustShineStaged {
 						if err := w.token.DownloadRustShine(nil); err != nil {

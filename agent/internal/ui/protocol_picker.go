@@ -358,6 +358,22 @@ func (w *Window) applySelectedProtocol(parent fyne.Window) {
 		return
 	}
 	key := w.protocolPick
+
+	if key != protocolOpensource && !st.RustShineStaged && parent != nil {
+		w.showStreamerConsentDialog(parent, func(confirmed bool) {
+			if !confirmed {
+				w.protocolPick = w.protocolApplied
+				w.refreshProtocolPickerVisuals(false)
+				return
+			}
+			w.proceedProtocolSwitch(parent, key, st, acc)
+		})
+		return
+	}
+	w.proceedProtocolSwitch(parent, key, st, acc)
+}
+
+func (w *Window) proceedProtocolSwitch(parent fyne.Window, key string, st entitlement.Status, acc account.Status) {
 	if w.protocolChange != nil {
 		w.protocolChange.Disable()
 	}

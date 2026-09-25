@@ -68,6 +68,10 @@ type LocalizedStrings struct {
 	USBBrokerConsentTitle string
 	USBBrokerConsentBody  string
 
+	// USBridge streamer consent (download confirmation for closed-source streamer)
+	StreamerConsentTitle string
+	StreamerConsentBody  string
+
 	// Tailscale
 	SignIn              string
 	SignOut             string
@@ -326,6 +330,9 @@ func EN() *LocalizedStrings {
 		USBBrokerConsentTitle: "Enable USB passthrough?",
 		USBBrokerConsentBody:  "USB passthrough is powered by a separate, closed-source component (not open-source like the rest of this agent). It stays off until you enable it here. Once enabled, keyboard, mouse, and gamepad passthrough is free; other USB devices (drives, audio, tablets, etc.) require a Pro or Enterprise subscription.",
 
+		StreamerConsentTitle: "Switch to USBridge protocol?",
+		StreamerConsentBody:  "USBridge is powered by a separate, closed-source streaming component (not open-source like Sunshine and the rest of this agent). Switching to this protocol will download and install the USBridge Streamer component. Do you want to proceed?",
+
 		SignIn:              "Sign In",
 		SignOut:             "Sign Out",
 		NoRemoteControllers: "No active remote controllers",
@@ -529,6 +536,9 @@ func ES() *LocalizedStrings {
 	locale.NotRunning = "No en ejecucion"
 	locale.NotStaged = "No instalado"
 
+	locale.StreamerConsentTitle = "¿Cambiar al protocolo USBridge?"
+	locale.StreamerConsentBody = "El protocolo USBridge funciona mediante un componente independiente de código cerrado (no es de código abierto como Sunshine y el resto de este agente). Cambiar a este protocolo descargará e instalará el componente USBridge Streamer. ¿Deseas continuar?"
+
 	locale.SignIn = "Entrar"
 	locale.SignOut = "Salir"
 	locale.NoRemoteControllers = "No hay controladores remotos activos"
@@ -727,6 +737,9 @@ func UK() *LocalizedStrings {
 
 	locale.NotRunning = "Не запущено"
 	locale.NotStaged = "Не встановлено"
+
+	locale.StreamerConsentTitle = "Перемкнути на протокол USBridge?"
+	locale.StreamerConsentBody = "Протокол USBridge працює на окремому компоненті із закритим вихідним кодом (не open-source, на відміну від Sunshine та решти агента). Перемикання на цей протокол завантажить та встановить USBridge Streamer. Бажаєте продовжити?"
 
 	locale.SignIn = "Увійти"
 	locale.SignOut = "Вийти"

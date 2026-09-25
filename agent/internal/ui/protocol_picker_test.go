@@ -6,6 +6,7 @@ import (
 	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/ui/design"
+	"usbridge_agent/internal/ui/i18n"
 )
 
 func TestProtocolNeedsPurchase_AccountProUnlocksChange(t *testing.T) {
@@ -165,5 +166,20 @@ func TestProtocolBadgeColorsFollowsProChrome(t *testing.T) {
 	fg, _ = protocolBadgeColors(protocolFree)
 	if fg != design.ColorTeal {
 		t.Fatal("Free pill should stay teal on Free chrome")
+	}
+}
+
+func TestStreamerConsentLocalization(t *testing.T) {
+	i18n.Init("en")
+	if loc().StreamerConsentTitle == "" || loc().StreamerConsentBody == "" {
+		t.Fatal("English streamer consent strings should not be empty")
+	}
+	i18n.Init("uk")
+	if loc().StreamerConsentTitle == "" || loc().StreamerConsentBody == "" {
+		t.Fatal("Ukrainian streamer consent strings should not be empty")
+	}
+	i18n.Init("es")
+	if loc().StreamerConsentTitle == "" || loc().StreamerConsentBody == "" {
+		t.Fatal("Spanish streamer consent strings should not be empty")
 	}
 }
