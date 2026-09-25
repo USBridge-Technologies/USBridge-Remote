@@ -441,25 +441,48 @@ func MCPConfigJSON(url string) string {
 // Pinned to main (not e.g. a tag) so a rebuilt bin/bridge.cjs reaches
 // already-pasted configs without the user touching them again -- same
 // tradeoff bare `npx pkg@latest`/`curl .../main/install.sh` patterns make.
-const mcpBridgeSourceURL = "https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/client/web/mcp-bridge/bin/bridge.cjs"
+// mcpBridgeSHA256 is what keeps that tradeoff from being a blank check: it
+// pins the exact bytes the eval script will accept, computed from the same
+// bin/bridge.cjs this repo ships (`shasum -a 256
+// client/web/mcp-bridge/bin/bridge.cjs`) -- so neither a compromised
+// raw.githubusercontent.com/GitHub CDN response nor a malicious push to
+// main (by anyone with write access, or a compromised CI credential) can
+// get arbitrary code evaluated on a machine that already pasted this
+// config; the worst either can do is serve stale/garbage bytes that fail
+// the hash check and refuse to run. MUST be updated by hand (see
+// client/web/mcp-bridge/README.md's rebuild steps) every time
+// bin/bridge.cjs is rebuilt -- there is no CI step enforcing that they stay
+// in sync, so a stale hash here just breaks the bridge (fails closed) until
+// fixed, rather than silently running mismatched code.
+const (
+	mcpBridgeSourceURL = "https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/client/web/mcp-bridge/bin/bridge.cjs"
+	mcpBridgeSHA256    = "1ff0562db230a12b3cfc07c60067bff825ec257f55a5bc33c5eada05b0ecc430"
+)
 
 // MCPBridgeConfigJSON returns the Claude-Desktop-style config block for the
 // wasm build's MCP setup: a "command"+"args" entry that runs `node -e` with
-// an inline script fetching bridge.cjs straight from this repo on GitHub
-// and eval-ing it, instead of spawning a file the user had to download and
-// point a path at -- see newScriptsMCPCardWebBridge's doc comment for the
-// full picture. The eval is written as `.then(c => eval(c))`, a *direct*
-// eval call (not `.then(eval)`, an indirect one) specifically so it runs in
-// this scope, not the global one -- bridge.cjs's esbuild bundle leans on
-// `require` for Node builtins (http, crypto, node:readline, ...) throughout,
-// and only direct eval keeps that binding in scope; indirect eval would
-// throw ReferenceError: require is not defined immediately on fetch
-// resolving. --port/--token still arrive as normal argv (bridge.mjs's own
-// parseArgs reads process.argv.slice(2), untouched by any of this) because
-// `node -e script -- a b` appends everything after -- to process.argv
-// exactly like a regular script invocation would.
+// an inline script fetching bridge.cjs straight from this repo on GitHub,
+// verifying its SHA-256 against mcpBridgeSHA256, and only then eval-ing it
+// -- instead of spawning a file the user had to download and point a path
+// at. See newScriptsMCPCardWebBridge's doc comment for the full picture,
+// and mcpBridgeSHA256's doc comment for why the hash check exists at all.
+// The eval is written as `.then(c => eval(c))`, a *direct* eval call (not
+// `.then(eval)`, an indirect one) specifically so it runs in this scope,
+// not the global one -- bridge.cjs's esbuild bundle leans on `require` for
+// Node builtins (http, crypto, node:readline, ...) throughout, and only
+// direct eval keeps that binding in scope; indirect eval would throw
+// ReferenceError: require is not defined immediately on fetch resolving
+// (the same require binding is what require("crypto") below reaches for,
+// so this is also just reusing the one dependency already in scope, not
+// pulling in anything extra). --port/--token still arrive as normal argv
+// (bridge.mjs's own parseArgs reads process.argv.slice(2), untouched by
+// any of this) because `node -e script -- a b` appends everything after
+// -- to process.argv exactly like a regular script invocation would.
 func MCPBridgeConfigJSON(token string, port int) string {
-	evalScript := fmt.Sprintf("fetch(%q).then(r=>r.text()).then(c=>eval(c))", mcpBridgeSourceURL)
+	evalScript := fmt.Sprintf(
+		`const h=require("crypto").createHash("sha256");fetch(%q).then(r=>r.text()).then(c=>{h.update(c);if(h.digest("hex")!==%q){process.stderr.write("usbridge mcp-bridge: bridge.cjs integrity check failed\n");process.exit(1)}eval(c)})`,
+		mcpBridgeSourceURL, mcpBridgeSHA256,
+	)
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
 			"usbridge-browser": map[string]any{

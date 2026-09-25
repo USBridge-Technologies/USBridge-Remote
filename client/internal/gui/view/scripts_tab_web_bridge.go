@@ -66,10 +66,7 @@ func newScriptsMCPCardWebBridge(data ScriptsMCPData) fyne.CanvasObject {
 
 	var configRows []fyne.CanvasObject
 	for _, line := range strings.Split(data.BridgeConfigJSON, "\n") {
-		t := canvas.NewText(line, scriptsMCPURLColor)
-		t.TextSize = 9
-		t.TextStyle.Monospace = true
-		configRows = append(configRows, t)
+		configRows = append(configRows, newConfigLineText(line, scriptsMCPURLColor, 9))
 	}
 	configBlock := container.New(&tightStatsVBoxLayout{Gap: 1}, configRows...)
 
@@ -126,4 +123,143 @@ func newScriptsMCPCardWebBridge(data ScriptsMCPData) fyne.CanvasObject {
 	cardBg.StrokeWidth = 1
 
 	return container.NewStack(cardBg, content)
+}
+
+// configLineText renders one line of the copy-able config JSON, wrapping at
+// the character level -- not just whitespace, since the fetch+eval line in
+// MCPBridgeConfigJSON's output has none -- to whatever width it's actually
+// given instead of overflowing configBox the way a bare canvas.Text does.
+// canvas.Text has no Wrapping support at all and always reports its full
+// unwrapped width as MinSize, which is exactly what pushed past the card's
+// real (ratio-based, see DeviceDashboardColumnsLayout) width instead of
+// wrapping into it. Modeled on deviceDashboardWrapText
+// (device_dashboard_view.go), which hits the same tightStatsVBoxLayout/
+// canvas.Text MinSize problem for card names -- the one real difference is
+// this has no line cap/ellipsis: unlike a name label, truncating config
+// text would just hide bytes the user still needs to read (OnCopyBridgeConfig
+// copies data.BridgeConfigJSON directly, not this widget's text, so the
+// clipboard is never affected either way -- but the whole point of showing
+// the config at all is letting the user actually read it here first).
+type configLineText struct {
+	widget.BaseWidget
+	text     string
+	color    color.Color
+	textSize float32
+}
+
+func newConfigLineText(text string, col color.Color, size float32) *configLineText {
+	t := &configLineText{text: text, color: col, textSize: size}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+// MinSize reports a width of 1, not the wrapped text's actual rendered
+// width -- deliberately, so this widget can never be the thing that forces
+// the card wider (that's tightStatsVBoxLayout's w = max(child.MinSize().
+// Width) rule, the same mechanism a bare canvas.Text abuses to overflow).
+// Real width always comes top-down from the parent Resize call below.
+func (t *configLineText) MinSize() fyne.Size {
+	h := fyne.MeasureText("Ag", t.textSize, fyne.TextStyle{Monospace: true}).Height
+	if h < 1 {
+		h = t.textSize + 2
+	}
+	n := len(wrapConfigLine(t.text, t.textSize, t.Size().Width))
+	if n < 1 {
+		n = 1
+	}
+	return fyne.NewSize(1, float32(n)*h)
+}
+
+func (t *configLineText) Resize(size fyne.Size) {
+	prev := t.Size()
+	t.BaseWidget.Resize(size)
+	if prev.Width != size.Width {
+		t.Refresh()
+	}
+}
+
+func (t *configLineText) CreateRenderer() fyne.WidgetRenderer {
+	return &configLineTextRenderer{t: t}
+}
+
+type configLineTextRenderer struct {
+	t     *configLineText
+	lines []*canvas.Text
+}
+
+func (r *configLineTextRenderer) Layout(size fyne.Size) { r.apply(size.Width) }
+
+func (r *configLineTextRenderer) apply(width float32) {
+	parts := wrapConfigLine(r.t.text, r.t.textSize, width)
+	h := fyne.MeasureText("Ag", r.t.textSize, fyne.TextStyle{Monospace: true}).Height
+	for len(r.lines) < len(parts) {
+		ln := canvas.NewText("", r.t.color)
+		ln.TextStyle.Monospace = true
+		r.lines = append(r.lines, ln)
+	}
+	y := float32(0)
+	for i, ln := range r.lines {
+		if i < len(parts) {
+			ln.Text = parts[i]
+			ln.Color = r.t.color
+			ln.TextSize = r.t.textSize
+			ln.Show()
+			ln.Move(fyne.NewPos(0, y))
+			ln.Resize(ln.MinSize())
+			ln.Refresh()
+			y += h
+		} else {
+			ln.Hide()
+		}
+	}
+}
+
+func (r *configLineTextRenderer) MinSize() fyne.Size           { return r.t.MinSize() }
+func (r *configLineTextRenderer) Refresh()                     { r.apply(r.t.Size().Width); canvas.Refresh(r.t) }
+func (r *configLineTextRenderer) BackgroundColor() color.Color { return color.Transparent }
+func (r *configLineTextRenderer) Destroy()                     {}
+func (r *configLineTextRenderer) Objects() []fyne.CanvasObject {
+	objs := make([]fyne.CanvasObject, len(r.lines))
+	for i, ln := range r.lines {
+		objs[i] = ln
+	}
+	return objs
+}
+
+// wrapConfigLine greedily fits as many runes as will fit in width onto each
+// line, character by character rather than word by word -- a plain
+// strings.Fields word-wrap (the pattern used elsewhere in this codebase,
+// e.g. videoDialogWrapText) can't break a single space-free token like the
+// fetch/eval JS string at all. No max line count: the caller needs every
+// byte visible, not a truncated preview.
+func wrapConfigLine(text string, textSize, width float32) []string {
+	if width <= 8 {
+		return []string{text}
+	}
+	if text == "" {
+		return []string{""}
+	}
+	style := fyne.TextStyle{Monospace: true}
+	fit := func(s string) bool {
+		return fyne.MeasureText(s, textSize, style).Width <= width
+	}
+	runes := []rune(text)
+	var lines []string
+	start := 0
+	for start < len(runes) {
+		end := start + 1
+		for end <= len(runes) && fit(string(runes[start:end])) {
+			end++
+		}
+		end--
+		if end <= start {
+			end = start + 1
+		}
+		lines = append(lines, string(runes[start:end]))
+		start = end
+	}
+	if len(lines) == 0 {
+		lines = []string{text}
+	}
+	return lines
 }
