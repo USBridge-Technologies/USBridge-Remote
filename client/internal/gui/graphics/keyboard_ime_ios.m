@@ -228,6 +228,61 @@ BOOL usbridgeStickyIMEEnabled(void) {
     });
 }
 
+// keyboardOverlapInWindow is how many points of the window's bottom the
+// keyboard actually covers (0 when hidden/offscreen). Uses the window's own
+// coordinate space instead of trusting endFrame.size.height, which also
+// reports a height for undocked/floating keyboards that cover nothing.
+- (CGFloat)keyboardOverlapInWindow:(UIWindow *)win endFrame:(CGRect)endFrame {
+    if (win == nil) {
+        CGSize screenSize = [UIScreen mainScreen].bounds.size;
+        return endFrame.origin.y < screenSize.height ? endFrame.size.height : 0;
+    }
+    CGRect kb = [win convertRect:endFrame fromWindow:nil];
+    CGFloat overlap = CGRectGetMaxY(win.bounds) - CGRectGetMinY(kb);
+    if (overlap < 0 || CGRectGetMinY(kb) >= CGRectGetMaxY(win.bounds)) {
+        overlap = 0;
+    }
+    if (overlap > win.bounds.size.height) {
+        overlap = win.bounds.size.height;
+    }
+    return overlap;
+}
+
+// syncFyneKeyboardInset pushes the real keyboard overlap into Fyne. Fyne's
+// GoAppAppController only records keyboardHeight in keyboardWillShow: (and
+// uses it as the bottom padding), so a frame change while the keyboard is
+// already up -- QuickType bar appearing/disappearing, first responder moving
+// from Fyne's GoInputView to our sticky field (no autocorrect, no bar) --
+// left Fyne with a stale, taller height and a black band above the keyboard.
+// Replaying a normalized notification to Fyne's own handler keeps its
+// padding equal to what the keyboard really covers on every iPhone.
+- (void)syncFyneKeyboardInset:(CGFloat)overlap window:(UIWindow *)win {
+    UIViewController *root = win.rootViewController;
+    if (root == nil) {
+        return;
+    }
+    if (overlap > 0) {
+        if (![root respondsToSelector:@selector(keyboardWillShow:)]) {
+            return;
+        }
+        CGRect bounds = win.bounds;
+        CGRect fake = CGRectMake(0, CGRectGetMaxY(bounds) - overlap, bounds.size.width, overlap);
+        NSNotification *n = [NSNotification notificationWithName:UIKeyboardWillShowNotification
+                                                          object:nil
+                                                        userInfo:@{UIKeyboardFrameEndUserInfoKey: [NSValue valueWithCGRect:fake]}];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [root performSelector:@selector(keyboardWillShow:) withObject:n];
+#pragma clang diagnostic pop
+    } else if ([root respondsToSelector:@selector(keyboardWillHide:)]) {
+        NSNotification *n = [NSNotification notificationWithName:UIKeyboardWillHideNotification object:nil];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [root performSelector:@selector(keyboardWillHide:) withObject:n];
+#pragma clang diagnostic pop
+    }
+}
+
 - (void)keyboardWillChangeFrame:(NSNotification *)notification {
     NSDictionary *userInfo = notification.userInfo;
     NSValue *endFrameValue = userInfo[UIKeyboardFrameEndUserInfoKey];
@@ -235,14 +290,20 @@ BOOL usbridgeStickyIMEEnabled(void) {
 
     CGRect endFrame = [endFrameValue CGRectValue];
     CGSize screenSize = [UIScreen mainScreen].bounds.size;
+    UIWindow *win = [self keyWindow];
+    CGFloat overlap = [self keyboardOverlapInWindow:win endFrame:endFrame];
+    NSLog(@"[USBridge IME] kb frame=%@ overlap=%.0f", NSStringFromCGRect(endFrame), overlap);
 
-    int imeHeight = 0;
-    if (endFrame.origin.y < screenSize.height) {
-        imeHeight = (int)endFrame.size.height;
-    }
-
+    int imeHeight = (int)overlap;
     int screenHeight = (int)screenSize.height;
     deliverIMEHeightFromObjC(imeHeight, screenHeight);
+
+    // Run after every observer of this notification (incl. Fyne's own
+    // WillShow/WillHide, which may carry the stale size) so ours wins.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *w = [self keyWindow];
+        [self syncFyneKeyboardInset:[self keyboardOverlapInWindow:w endFrame:endFrame] window:w];
+    });
 
     // If sticky and keyboard collapsed unexpectedly, pull it back.
     if (self.stickyEnabled && imeHeight < 50) {
