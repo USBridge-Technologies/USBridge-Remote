@@ -20,9 +20,20 @@ package service
 //	      server → tsnet → [proxy] → 127.0.0.1:clientDynPort            (video/audio data)
 //	      (Sunshine sends video back to the source of the UDP ping, which is our tsnet IP)
 //
-//	UDP:  C lib → 127.0.0.1:47999 → [proxy] → tsnet → server:47999     (ENet control)
+//	UDP:  C lib → 127.0.0.1:LOCAL_PORT → [proxy] → tsnet → server:47999 (ENet control)
+//	      rustshine never puts a server_port= in the control SETUP response (unlike
+//	      video/audio), so moonlight-common-c falls back to a hardcoded well-known
+//	      port -- 47999 -- for its *local* connect too. Binding our proxy to that
+//	      literal local port used to be how this worked, but it collides with
+//	      anything else on the machine also listening on 47999 (a Sunshine/
+//	      rustshine server running locally for testing, most commonly). Instead we
+//	      inject a synthesized server_port= into that response ourselves (see
+//	      injectControlServerPort), same trick as the video/audio ports, so the C
+//	      library always connects to a dynamically chosen local port like every
+//	      other stream.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -67,12 +78,12 @@ type moonlightTSNetProxy struct {
 	cancel context.CancelFunc
 
 	rtspListener net.Listener
-	ctrlListener *net.UDPConn
 
-	mu              sync.Mutex
-	udpConns        []net.Conn       // tsnet UDP connections (for cleanup)
-	localListeners  []net.PacketConn // local UDP listeners (for cleanup)
-	seenServerPorts map[int]bool     // server ports already proxied
+	mu                  sync.Mutex
+	udpConns            []net.Conn       // tsnet UDP connections (for cleanup)
+	localListeners      []net.PacketConn // local UDP listeners (for cleanup)
+	seenServerPorts     map[int]bool     // server ports already proxied
+	pendingControlSetup bool             // a SETUP streamid=control request just went out; the next response needs an injected server_port=
 }
 
 func (p *moonlightTSNetProxy) start() (rtspProxyPort int, err error) {
@@ -86,16 +97,6 @@ func (p *moonlightTSNetProxy) start() (rtspProxyPort int, err error) {
 		rtspProxyPort, p.serverHost, p.rtspPort)
 	go p.runRTSPProxy()
 
-	ctrlConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 47999})
-	if err != nil {
-		ln.Close()
-		return 0, fmt.Errorf("ENet control UDP proxy bind :47999: %w", err)
-	}
-	p.ctrlListener = ctrlConn
-	logrus.Infof("🌕 [Moonlight/Proxy] ENet control UDP proxy on 127.0.0.1:47999 → %s:47999 (via tsnet)",
-		p.serverHost)
-	go p.runControlProxy()
-
 	return rtspProxyPort, nil
 }
 
@@ -103,9 +104,6 @@ func (p *moonlightTSNetProxy) stop() {
 	p.cancel()
 	if p.rtspListener != nil {
 		p.rtspListener.Close()
-	}
-	if p.ctrlListener != nil {
-		p.ctrlListener.Close()
 	}
 	p.mu.Lock()
 	udpConns := p.udpConns
@@ -160,7 +158,7 @@ func (p *moonlightTSNetProxy) handleRTSP(client net.Conn) {
 	done := make(chan struct{}, 2)
 	go func() {
 		defer func() { done <- struct{}{} }()
-		copyConn(server, client)
+		p.proxyRequestsToServer(server, client)
 	}()
 	go func() {
 		defer func() { done <- struct{}{} }()
@@ -169,12 +167,25 @@ func (p *moonlightTSNetProxy) handleRTSP(client net.Conn) {
 	<-done
 }
 
-func copyConn(dst, src net.Conn) {
+// proxyRequestsToServer copies client→server RTSP request bytes verbatim,
+// additionally flagging the SETUP streamid=control request so
+// proxyAndRewriteResponse knows its response -- which rustshine never puts a
+// server_port= in, unlike video/audio -- needs one injected. Safe to flag
+// before the write below completes: the server physically cannot answer a
+// request it hasn't received yet, so this always happens-before the matching
+// response reaches proxyAndRewriteResponse on the other goroutine.
+func (p *moonlightTSNetProxy) proxyRequestsToServer(dst, src net.Conn) {
 	buf := make([]byte, 32768)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
-			dst.Write(buf[:n]) //nolint:errcheck
+			data := buf[:n]
+			if bytes.Contains(data, []byte("SETUP")) && bytes.Contains(data, []byte("streamid=control")) {
+				p.mu.Lock()
+				p.pendingControlSetup = true
+				p.mu.Unlock()
+			}
+			dst.Write(data) //nolint:errcheck
 		}
 		if err != nil {
 			return
@@ -193,6 +204,12 @@ func (p *moonlightTSNetProxy) proxyAndRewriteResponse(dst, src net.Conn) {
 			s := string(data)
 			if strings.Contains(s, "server_port=") {
 				data = p.rewriteServerPorts(data)
+			} else if p.consumePendingControlSetup() {
+				if injected, ierr := p.injectControlServerPort(data); ierr != nil {
+					logrus.Warnf("🌕 [Moonlight/Proxy] control SETUP response: %v", ierr)
+				} else {
+					data = injected
+				}
 			}
 			dst.Write(data) //nolint:errcheck
 		}
@@ -200,6 +217,74 @@ func (p *moonlightTSNetProxy) proxyAndRewriteResponse(dst, src net.Conn) {
 			return
 		}
 	}
+}
+
+func (p *moonlightTSNetProxy) consumePendingControlSetup() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	v := p.pendingControlSetup
+	p.pendingControlSetup = false
+	return v
+}
+
+// injectControlServerPort creates the same kind of dynamic local↔tsnet↔server
+// UDP proxy rewriteServerPorts creates for video/audio (server:47999, the
+// ENet control port every Sunshine/rustshine build listens on), then writes
+// its local port into the control SETUP response as a synthesized
+// Transport server_port= -- appended to an existing Transport header if the
+// response has one, or added as a new header otherwise. Either way,
+// moonlight-common-c's parseServerPortFromTransport (RtspConnection.c) reads
+// it exactly like a real server-supplied value and never falls back to its
+// hardcoded local-and-remote 47999.
+func (p *moonlightTSNetProxy) injectControlServerPort(data []byte) ([]byte, error) {
+	p.mu.Lock()
+	seen := p.seenServerPorts[47999]
+	if !seen {
+		p.seenServerPorts[47999] = true
+	}
+	p.mu.Unlock()
+	if seen {
+		return nil, fmt.Errorf("control UDP proxy already created for this session")
+	}
+
+	localPort, err := p.createControlUDPProxy(47999)
+	if err != nil {
+		return nil, fmt.Errorf("create control UDP proxy: %w", err)
+	}
+	logrus.Infof("🌕 [Moonlight/Proxy] SETUP streamid=control: injecting server_port=%d (control stream port 47999 via tsnet)", localPort)
+	return injectServerPortIntoTransport(data, localPort), nil
+}
+
+// injectServerPortIntoTransport adds "server_port=port" to an RTSP response's
+// Transport header, appending to that header's existing value if present or
+// inserting a whole new Transport header (right after the status line)
+// otherwise. Both forms parse identically for moonlight-common-c's purposes
+// -- it only ever looks for the first "server_port=" substring inside
+// whichever Transport header getOptionContent hands back.
+func injectServerPortIntoTransport(data []byte, port int) []byte {
+	s := string(data)
+	field := fmt.Sprintf("server_port=%d", port)
+
+	if idx := strings.Index(s, "\r\nTransport:"); idx >= 0 {
+		lineStart := idx + len("\r\n")
+		lineEnd := strings.Index(s[lineStart:], "\r\n")
+		if lineEnd < 0 {
+			lineEnd = len(s) - lineStart
+		}
+		lineEnd += lineStart
+		if !strings.Contains(s[lineStart:lineEnd], "server_port=") {
+			s = s[:lineEnd] + ";" + field + s[lineEnd:]
+		}
+		return []byte(s)
+	}
+
+	statusEnd := strings.Index(s, "\r\n")
+	if statusEnd < 0 {
+		// Not a well-formed RTSP message (or split across reads) -- leave it
+		// untouched rather than risk corrupting it.
+		return data
+	}
+	return []byte(s[:statusEnd] + "\r\nTransport: " + field + s[statusEnd:])
 }
 
 // rewriteServerPorts replaces each "server_port=X-Y" in the RTSP SETUP response
@@ -448,33 +533,32 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 	return localPort, nil
 }
 
-// ── ENet control UDP proxy ────────────────────────────────────────────────────
-
-// runControlProxy proxies ENet UDP control traffic between the C library (at
-// 127.0.0.1:47999) and the Sunshine server via tsnet.
-//
-// Redials the tsnet side whenever it goes bad instead of giving up after the
-// first dial, the way this used to work (a single sync.Once dial for the
-// whole proxy's lifetime, with its reader goroutine just returning silently
-// -- no log line, nothing -- on any non-timeout error). Confirmed live over
-// a DERP-relayed tsnet path: once that single tsConn went quiet, every ENet
-// control packet the C library still thought it was sending (including its
-// own keepalive pings) silently never left this process, so the *server*
-// side's ENet peer -- not this one -- was what eventually declared the
-// disconnect, ~10s later (ControlStream.c's enet_peer_timeout). From the
-// user's side that looked like "video plays a moment then stops": the whole
-// session (video+audio) tears down right along with the control channel,
-// moonlight-common-c reconnects fresh, and the exact same thing happens
-// again on the new (equally un-redialed) tsConn a few seconds later -- a
-// tight, indefinite retry loop, never actually recovering on its own.
-func (p *moonlightTSNetProxy) runControlProxy() {
-	srv, err := p.ts.serverInstance()
+// createControlUDPProxy is createServerUDPProxy's control-channel sibling:
+// same dynamic-local-port idea, but keeping the redial behavior the deleted
+// runControlProxy had and createServerUDPProxy's plain retry-same-conn loop
+// does not. That difference matters specifically for control: video/audio
+// have VideoWidget's "no frame for Xs" watchdog to notice a silently-dead
+// tsConn and force a whole-session reconnect, but the ENet control channel
+// has no client-side equivalent -- confirmed live over a DERP-relayed tsnet
+// path, a quiet control tsConn meant every packet the C library still
+// thought it was sending (including its own keepalive pings) silently never
+// left this process, so it was the *server*'s own ENet peer timeout,
+// ~10s later, that eventually tore the session down, moonlight-common-c
+// reconnected fresh, and the same thing happened again on the next
+// (equally un-redialed) tsConn -- a tight, indefinite retry loop.
+func (p *moonlightTSNetProxy) createControlUDPProxy(serverPort int) (localPort int, err error) {
+	ln, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	if err != nil {
-		logrus.Errorf("🌕 [Moonlight/Proxy] control proxy: tsnet unavailable: %v", err)
-		return
+		return 0, fmt.Errorf("local UDP listen: %w", err)
 	}
+	localPort = ln.LocalAddr().(*net.UDPAddr).Port
 
-	serverAddr := net.JoinHostPort(p.serverHost, "47999")
+	p.mu.Lock()
+	p.localListeners = append(p.localListeners, ln)
+	p.mu.Unlock()
+
+	serverAddr := net.JoinHostPort(p.serverHost, strconv.Itoa(serverPort))
+	logrus.Infof("🌕 [Moonlight/Proxy] control UDP proxy: 127.0.0.1:%d ↔ tsnet ↔ %s", localPort, serverAddr)
 
 	var (
 		connMu   sync.Mutex
@@ -502,6 +586,19 @@ func (p *moonlightTSNetProxy) runControlProxy() {
 		}
 		connMu.Unlock()
 
+		srv, srvErr := p.ts.serverInstance()
+		if srvErr != nil {
+			connMu.Lock()
+			dialing = false
+			connMu.Unlock()
+			select {
+			case <-p.ctx.Done():
+			default:
+				logrus.Errorf("🌕 [Moonlight/Proxy] control: tsnet unavailable: %v", srvErr)
+			}
+			return
+		}
+
 		conn, dialErr := srv.Dial(p.ctx, "udp", serverAddr)
 
 		connMu.Lock()
@@ -517,9 +614,13 @@ func (p *moonlightTSNetProxy) runControlProxy() {
 		}
 		tsConn = conn
 		connMu.Unlock()
+
+		p.mu.Lock()
+		p.udpConns = append(p.udpConns, conn)
+		p.mu.Unlock()
+
 		logrus.Infof("🌕 [Moonlight/Proxy] ENet control via tsnet to %s", serverAddr)
 
-		localConn := p.ctrlListener
 		go func() {
 			rbuf := make([]byte, 65536)
 			for {
@@ -542,51 +643,55 @@ func (p *moonlightTSNetProxy) runControlProxy() {
 				dst := enetAddr
 				connMu.Unlock()
 				if dst != nil && rn > 0 {
-					localConn.WriteToUDP(rbuf[:rn], dst) //nolint:errcheck
+					ln.WriteToUDP(rbuf[:rn], dst) //nolint:errcheck
 				}
 			}
 		}()
 	}
 
-	buf := make([]byte, 65536)
-	first := true
-	for {
-		p.ctrlListener.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-		n, addr, err := p.ctrlListener.ReadFromUDP(buf)
-		if err != nil {
-			select {
-			case <-p.ctx.Done():
-				return
-			default:
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					continue
+	go func() {
+		buf := make([]byte, 65536)
+		first := true
+		for {
+			ln.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			n, addr, readErr := ln.ReadFromUDP(buf)
+			if readErr != nil {
+				select {
+				case <-p.ctx.Done():
+					return
+				default:
+					if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+						continue
+					}
+					logrus.Errorf("🌕 [Moonlight/Proxy] control read: %v", readErr)
+					return
 				}
-				logrus.Errorf("🌕 [Moonlight/Proxy] control read: %v", err)
-				return
 			}
-		}
 
-		connMu.Lock()
-		enetAddr = addr
-		connMu.Unlock()
-		if first {
-			first = false
-			redial()
-		}
-
-		connMu.Lock()
-		conn := tsConn
-		connMu.Unlock()
-		if conn == nil {
-			continue
-		}
-		if _, werr := conn.Write(buf[:n]); werr != nil {
-			select {
-			case <-p.ctx.Done():
-			default:
-				logrus.Warnf("🌕 [Moonlight/Proxy] control write: %v, redialing", werr)
+			connMu.Lock()
+			enetAddr = addr
+			connMu.Unlock()
+			if first {
+				first = false
 				redial()
 			}
+
+			connMu.Lock()
+			conn := tsConn
+			connMu.Unlock()
+			if conn == nil {
+				continue
+			}
+			if _, werr := conn.Write(buf[:n]); werr != nil {
+				select {
+				case <-p.ctx.Done():
+				default:
+					logrus.Warnf("🌕 [Moonlight/Proxy] control write: %v, redialing", werr)
+					redial()
+				}
+			}
 		}
-	}
+	}()
+
+	return localPort, nil
 }
