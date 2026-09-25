@@ -106,8 +106,19 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 
 		// If bridge returned an AuthURL, open it in the browser for user approval.
 		// Only open when the URL is new — polling runs every 10s and we must not
-		// spam the browser with a new tab on every tick.
-		if authURL := strings.TrimSpace(resp.TailscaleStatus.AuthURL); authURL != "" && !tailscaleReady {
+		// spam the browser with a new tab on every tick. Also only when THIS
+		// call actually requested registration (doRegister): the bridge keeps
+		// reporting a dangling AuthURL from any earlier registration attempt
+		// (interactive tsnet login stays pending until approved/expired) even
+		// on a plain status sync, so without this gate the browser popped open
+		// on every connect regardless of the "Register in Tailscale" checkbox
+		// for the *current* attempt — see resolveBridgeAuthInputs's sibling
+		// gate a few lines up, which stops us from initiating a new one but
+		// doesn't stop us from acting on a leftover one already in flight.
+		authURL := strings.TrimSpace(resp.TailscaleStatus.AuthURL)
+		logrus.Debugf("🛰️ [SYNC] authURL=%q doRegister=%v tailscaleReady=%v lastAuthURL=%q",
+			authURL, doRegister, tailscaleReady, mw.lastTailscaleAuthURL)
+		if authURL != "" && !tailscaleReady && doRegister {
 			if authURL != mw.lastTailscaleAuthURL {
 				mw.lastTailscaleAuthURL = authURL
 				logrus.Infof("🛰️ [SYNC] Bridge Tailscale needs approval — opening browser: %s", authURL)
@@ -119,6 +130,8 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 			} else {
 				logrus.Debugf("🛰️ [SYNC] Bridge Tailscale still needs approval (same URL)")
 			}
+		} else if authURL != "" && !doRegister {
+			logrus.Infof("🛰️ [SYNC] Bridge has a pending Tailscale AuthURL but registration was not requested this attempt — not opening browser")
 		}
 	}
 
