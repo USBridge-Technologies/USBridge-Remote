@@ -429,7 +429,25 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	// Apply zoom and pan coordinates directly to the native overlay frame!
 	// This naturally zooms and crops the CALayer.
 	if vw.contentRectW > 0 && vw.contentRectH > 0 {
-		return vw.contentRectX, topOffset + vw.contentRectY, vw.contentRectW, vw.contentRectH
+		cy := vw.contentRectY
+		// Emulate Android's VKVideoAndroidSetAlignTop(true) behavior
+		if vw.IsVirtualKeyboardVisible() && vw.specialKeysInMainHeader() {
+			availableH := vw.touchpadSizeH - vw.bottomInset
+			if availableH < 0 {
+				availableH = 0
+			}
+			scale := vw.zoomScale
+			if scale <= 0 {
+				scale = 1
+			}
+			baseH := vw.contentRectH / scale
+			if baseH < availableH {
+				// Base frame is letterboxed. Android AlignTop pushes it up by the letterbox gap.
+				gap := (availableH - baseH) / 2
+				cy -= gap
+			}
+		}
+		return vw.contentRectX, topOffset + cy, vw.contentRectW, vw.contentRectH
 	}
 
 	// The video container (touchpadWrapper) size dynamically shrinks when the virtual
