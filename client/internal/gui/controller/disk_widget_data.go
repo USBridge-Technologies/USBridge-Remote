@@ -657,7 +657,6 @@ func (dw *DiskWidget) loadMountedDevices() {
 			}
 			dw.applyLiveAgentIdentity(deviceInfo.AgentOS, deviceInfo.AgentProtocol)
 			dw.usbPassSessions = passSessions
-			dw.syncEmulationProBadge()
 			if dw.onAgentProtocol != nil && dw.agentProtocol != "" {
 				dw.onAgentProtocol(dw.agentProtocol)
 			}

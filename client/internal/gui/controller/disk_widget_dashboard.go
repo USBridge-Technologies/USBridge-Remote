@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"usbridge-client/internal/gui/assets"
@@ -178,13 +179,16 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		dw.dashboardStorageScroll,
 		storageBind,
 	)
-	emulationProBadge := view.NewDeviceDashboardHeaderBadge(i18n.Current.USBEmulationProBadge, design.ColorProSoft)
-	emulationProBadge.OnHover = dw.dashboardEmulationHover
-	emulationProBadge.Show()
-	dw.dashboardEmulationProBadge = emulationProBadge
-	zadigHint := view.NewDeviceDashboardZadigHint(dw.showZadigHelp)
-	zadigHint.OnHover = dw.dashboardEmulationHover
-	emulationHeaderRight := container.New(&view.DeviceRowControlsLayout{Gap: 8}, zadigHint, emulationProBadge)
+	// Zadig/WinUSB driver replacement is only ever needed on a Windows
+	// client (that's the OS whose raw, non-HID USB passthrough goes through
+	// libusb and needs the WinUSB driver bound) -- macOS/Linux clients never
+	// hit that path, so the hint icon would just be a dead tap there.
+	var emulationHeaderRight fyne.CanvasObject
+	if runtime.GOOS == "windows" {
+		zadigHint := view.NewDeviceDashboardZadigHint(dw.showZadigHelp)
+		zadigHint.OnHover = dw.dashboardEmulationHover
+		emulationHeaderRight = container.New(&view.DeviceRowControlsLayout{Gap: 8}, zadigHint)
+	}
 	emulationTitle := i18n.Current.DevicesCardUSBPassthrough
 	if strings.TrimSpace(emulationTitle) == "" {
 		emulationTitle = deviceDashboardEmulationTitle
@@ -278,14 +282,6 @@ func (dw *DiskWidget) firmwarePromoDismissed() bool {
 		return false
 	}
 	return dw.app.Preferences().BoolWithFallback(devicesFirmwarePromoDismissedPrefKey, false)
-}
-
-// syncEmulationProBadge keeps Raw USB's Pro plaque visible.
-func (dw *DiskWidget) syncEmulationProBadge() {
-	if dw.dashboardEmulationProBadge == nil {
-		return
-	}
-	dw.dashboardEmulationProBadge.Show()
 }
 
 func (dw *DiskWidget) syncStorageHardwareChrome(softwareAgent bool) {
@@ -565,8 +561,6 @@ func (dw *DiskWidget) refreshDashboard() {
 	if dw.dashboardEmulation != nil {
 		setDashboardRows(dw.dashboardEmulation, emulationRows, i18n.Current.DevicesEmptyUSB)
 	}
-	dw.syncEmulationProBadge()
-
 	promoDismissed := dw.firmwarePromoDismissed()
 	showPromo := softwareAgent && !promoDismissed
 

@@ -129,10 +129,6 @@ type DiskWidget struct {
 	// updateSDStorageInfo has a reading.
 	dashboardBackupSpace *view.DeviceDashboardSpaceMeter
 
-	// dashboardEmulationProBadge is Raw USB's header plaque
-	// ("Pro USBridge Streamer"), always shown.
-	dashboardEmulationProBadge *view.DeviceDashboardHeaderBadge
-
 	// dashboardSnapshotCount is the number of snapshots last reported by
 	// BackupWidget (via SetDashboardSnapshotCount). Shown as a plaque on
 	// the Backups row; dashboardSnapshotKnown is false until the first
@@ -1259,7 +1255,6 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 			dw.dashboardSnapshotCount = 0
 			dw.dashboardSnapshotKnown = false
 			dw.dashboardSnapshotMounted = false
-			dw.syncEmulationProBadge()
 			dw.updateSDStorageInfo()
 			dw.stopAllGamepadCaptures()
 			dw.stopAllPenCaptures()

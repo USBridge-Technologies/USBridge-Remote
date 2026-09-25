@@ -137,7 +137,6 @@ func (dw *DiskWidget) endOperation() {
 		if newMounted != nil {
 			dw.mountedDevices = newMounted
 			dw.applyLiveAgentIdentity(newAgentOS, newAgentProtocol)
-			dw.syncEmulationProBadge()
 			if dw.onAgentProtocol != nil && dw.agentProtocol != "" {
 				dw.onAgentProtocol(dw.agentProtocol)
 			}

@@ -129,7 +129,6 @@ type LocalizedStrings struct {
 	DevicesEmptyUSB                   string
 	DevicesCardUSBPassthrough         string
 	DevicesHardwareOnly               string
-	USBEmulationProBadge              string // Raw USB header plaque, e.g. "Pro USBridge Streamer"
 	DevicesZadigTitle                 string
 	DevicesZadigMessage               string
 	DevicesZadigDownload              string
@@ -727,7 +726,6 @@ func EN() *LocalizedStrings {
 		DevicesEmptyUSB:                   "No USB devices",
 		DevicesCardUSBPassthrough:         "USB-Passthrough",
 		DevicesHardwareOnly:               "Hardware only",
-		USBEmulationProBadge:              "Pro USBridge Streamer",
 		DevicesZadigTitle:                 "Can't find your device?",
 		DevicesZadigMessage:               "If the USB device does not appear in this list, install Zadig and bind the WinUSB driver to it. After you replug the device, it will show up here.",
 		DevicesZadigDownload:              "Download Zadig",
@@ -1454,13 +1452,12 @@ func ES() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Sin audio"
 	locale.DevicesEmptyStorage = "Sin storage ni ISO"
 	locale.DevicesEmptyUSB = "Sin USB"
-	locale.DevicesCardUSBPassthrough = "USB en bruto"
+	locale.DevicesCardUSBPassthrough = "USB-Passthrough"
 	locale.DevicesHardwareOnly = "Solo hardware"
-	locale.USBEmulationProBadge = "Pro USBridge Streamer"
 	locale.DevicesZadigTitle = "No aparece tu dispositivo?"
 	locale.DevicesZadigMessage = "Si el dispositivo USB no esta en esta lista, instala Zadig y asignale el controlador WinUSB. Al volver a conectarlo, aparecera aqui."
 	locale.DevicesZadigDownload = "Descargar Zadig"
-	locale.DevicesUSBHelpTitle = "USB en bruto en Windows"
+	locale.DevicesUSBHelpTitle = "USB-Passthrough en Windows"
 	locale.DevicesUSBHelpText = "Teclados, ratones, lápices y otros dispositivos HID, así como los mandos Xbox, se reenvían sin configuración adicional.\n\nPara reenviar en bruto cualquier otro dispositivo (almacenamiento, adaptadores, hardware propio), Windows debe usar para él el controlador WinUSB. Sustituye el controlador del dispositivo por WinUSB con Zadig: selecciona el dispositivo, elige WinUSB como controlador de destino y pulsa Replace Driver.\n\nReinstala el controlador original en el Administrador de dispositivos para volver al uso normal."
 	locale.DevicesUSBHelpOpenZadig = "Abrir sitio de Zadig"
 	locale.DevicesEmptyNetwork = "Sin bridge de red"
@@ -1795,13 +1792,12 @@ func UKProper() *LocalizedStrings {
 	locale.DevicesEmptyAudio = "Немає аудіо"
 	locale.DevicesEmptyStorage = "Немає storage / ISO"
 	locale.DevicesEmptyUSB = "Немає USB"
-	locale.DevicesCardUSBPassthrough = "Сирий USB"
+	locale.DevicesCardUSBPassthrough = "USB-Passthrough"
 	locale.DevicesHardwareOnly = "Лише hardware"
-	locale.USBEmulationProBadge = "Pro USBridge Streamer"
 	locale.DevicesZadigTitle = "Не бачите свій пристрій?"
 	locale.DevicesZadigMessage = "Якщо USB-пристрій не з’явився в цьому списку, встановіть Zadig і призначте йому драйвер WinUSB. Після повторного підключення він з’явиться тут."
 	locale.DevicesZadigDownload = "Завантажити Zadig"
-	locale.DevicesUSBHelpTitle = "Сирий USB у Windows"
+	locale.DevicesUSBHelpTitle = "USB-Passthrough у Windows"
 	locale.DevicesUSBHelpText = "Клавіатури, миші, пера та інші HID-пристрої, а також геймпади Xbox прокидаються без додаткового налаштування.\n\nЩоб прокинути будь-який інший пристрій сирим (накопичувачі, адаптери, власне обладнання), Windows має використовувати для нього драйвер WinUSB. Замініть драйвер пристрою на WinUSB через Zadig: виберіть пристрій, оберіть WinUSB цільовим драйвером і натисніть Replace Driver.\n\nЩоб повернути пристрій до звичайного використання, перевстановіть початковий драйвер у Диспетчері пристроїв."
 	locale.DevicesUSBHelpOpenZadig = "Відкрити сайт Zadig"
 	locale.DevicesEmptyNetwork = "Немає network bridge"
