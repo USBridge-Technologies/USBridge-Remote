@@ -130,6 +130,13 @@ func (b *MCPBrowserBridge) handle(conn net.Conn, body []byte) {
 	body = bytes.TrimSpace(body)
 	id := jsonRPCID(body)
 
+	if isJSONRPCNotification(body) {
+		// See isJSONRPCNotification's doc comment (mcp_proxy.go): never
+		// reply to a JSON-RPC notification, or a strict client reading
+		// stdout sees an unsolicited response and breaks.
+		return
+	}
+
 	b.mu.Lock()
 	client := b.client
 	b.mu.Unlock()

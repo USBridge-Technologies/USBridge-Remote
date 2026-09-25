@@ -75,7 +75,7 @@ func TestMCPProxyRejectsOrigin(t *testing.T) {
 
 	t.Run("native client request (no Origin) is forwarded normally", func(t *testing.T) {
 		upstreamCalled = false
-		req, _ := http.NewRequest(http.MethodPost, proxyURL, strings.NewReader(`{"tool":"do_something"}`))
+		req, _ := http.NewRequest(http.MethodPost, proxyURL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"do_something"}}`))
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("request failed: %v", err)

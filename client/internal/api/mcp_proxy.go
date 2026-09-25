@@ -151,6 +151,31 @@ func jsonRPCID(body []byte) any {
 	return envelope.ID
 }
 
+// isJSONRPCNotification reports whether body is a JSON-RPC notification --
+// a message with no "id" member at all, as opposed to a request carrying
+// `"id":null` (that's still a request, just an odd one). The distinction
+// matters because the spec (which MCP inherits directly) is explicit that a
+// server MUST NOT reply to a notification. agent/mcp.go doesn't make that
+// distinction -- e.g. "notifications/initialized" falls through its method
+// switch to the same -32601 "method not found" error any other unknown
+// method gets -- so without a check here, both proxies (this one and
+// MCPBrowserBridge.handle) would otherwise forward that error straight back
+// to the MCP client as if it were a real response. Confirmed live: that
+// unsolicited response is exactly what broke every call sent right after
+// it (tools/list, specifically) with a client that enforces the "no
+// response to a notification" rule strictly (Antigravity) -- Claude
+// Desktop's own client just silently discards a response it can't match to
+// an in-flight request by id, which is why this went unnoticed until now.
+func isJSONRPCNotification(body []byte) bool {
+	var envelope struct {
+		ID *json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return false
+	}
+	return envelope.ID == nil
+}
+
 // writeJSONRPCError replies with a spec-shaped JSON-RPC 2.0 error object
 // instead of a bare text/plain body. Every other path in this handler used
 // to call http.Error directly, which an MCP client (expecting JSON-RPC)
@@ -209,6 +234,11 @@ func (p *MCPProxy) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	body = bytes.TrimSpace(body)
 	id := jsonRPCID(body)
+
+	if isJSONRPCNotification(body) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 
 	// Local ui.parse offload (see local_ui_intercept.go): when enabled in
 	// settings, answer ui.parse ourselves via ONNX Runtime on this
