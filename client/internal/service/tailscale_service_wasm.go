@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 )
@@ -66,6 +67,10 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 func (s *TailscaleService) Logout(ctx context.Context) error { return nil }
 
 func (s *TailscaleService) HTTPClient() (*http.Client, error) {
+	return nil, errTailscaleUnsupported
+}
+
+func (s *TailscaleService) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
 	return nil, errTailscaleUnsupported
 }
 

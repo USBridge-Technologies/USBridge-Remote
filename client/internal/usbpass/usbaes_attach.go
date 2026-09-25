@@ -16,6 +16,7 @@ package usbpass
 // change at all.
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"net"
@@ -58,8 +59,14 @@ func Attach(opts AttachOptions) error {
 	StopAttach()
 
 	key := deriveSessionKey([]byte(opts.Secret))
-	dialer := net.Dialer{Timeout: 5 * time.Second}
-	conn, err := dialer.Dial("tcp", opts.AgentAddr)
+	dial := opts.Dialer
+	if dial == nil {
+		d := net.Dialer{Timeout: 5 * time.Second}
+		dial = d.DialContext
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	conn, err := dial(ctx, "tcp", opts.AgentAddr)
+	cancel()
 	if err != nil {
 		return fmt.Errorf("connect agent %s: %w", opts.AgentAddr, err)
 	}

@@ -1153,6 +1153,13 @@ func (m *MoonlightService) SetAutoReconnect(enabled bool) {
 func (m *MoonlightService) SetMaxReconnectAttempts(max int) {
 }
 
+// IsLikelyTailnetHost is isLikelyTailnetHost, exported for other client-side
+// dialers (e.g. usbpass.Attach's tsnet wiring in disk_widget_mount.go) that
+// need the same "is this host actually reachable via tsnet" check.
+func IsLikelyTailnetHost(host string) bool {
+	return isLikelyTailnetHost(host)
+}
+
 // isLikelyTailnetHost reports whether host is a Tailscale address (100.64.0.0/10
 // CGNAT range or a *.ts.net MagicDNS name), mirroring the same check the deep
 // link handler uses to pick internal_host vs tailscale_host.

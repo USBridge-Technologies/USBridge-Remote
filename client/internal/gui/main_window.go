@@ -322,6 +322,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	// Initialize widgets
 	mw.diskWidget = controller.NewDiskWidget(nil, mw.updateStatus, a, cfg)
 	mw.diskWidget.SetWindow(w)
+	mw.diskWidget.SetTailscaleService(mw.tailscaleService)
 	// Browser USB/IP passthrough (gamepad/pen, see disk_widget_gamepad_start_wasm.go
 	// / disk_widget_pen_start_wasm.go) rides a DataChannel on this same
 	// video/control PeerConnection instead of a separate ws:// WebSocket --

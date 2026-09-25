@@ -439,6 +439,20 @@ func (s *TailscaleService) GetPeerDirectIP(tailscaleIP string) string {
 	return ""
 }
 
+// Dial reaches addr through this service's embedded tsnet stack instead of
+// the kernel's own BSD sockets -- needed for anything (like usbpass.Attach's
+// AES control-plane connection) that has to reach a 100.x tailnet IP the OS
+// itself can't route to without a real system-level Tailscale VPN. Same
+// mechanism moonlight_tsnet_proxy.go already uses for the video/control
+// streams, exposed here for other client-side dialers to reuse directly.
+func (s *TailscaleService) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	srv, err := s.serverInstance()
+	if err != nil {
+		return nil, fmt.Errorf("tsnet: %w", err)
+	}
+	return srv.Dial(ctx, network, addr)
+}
+
 func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

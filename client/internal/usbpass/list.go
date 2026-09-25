@@ -8,8 +8,10 @@ package usbpass
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"hash/fnv"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -174,7 +176,7 @@ func StableUSBIPBusID(instanceID string) string {
 	_, _ = h.Write([]byte(instanceID))
 	v := h.Sum32()
 	bus := (v % 9) + 1
-	port := (v / 9) % 200 + 1
+	port := (v/9)%200 + 1
 	return strconv.FormatUint(uint64(bus), 10) + "-" + strconv.FormatUint(uint64(port), 10)
 }
 
@@ -190,4 +192,11 @@ type AttachOptions struct {
 	PID             string // hex, e.g. "55A9"
 	ExportService   string // default 3240
 	AllowUnlicensed bool   // unused client-side: the entitlement gate is on the agent
+	// Dialer, if set, replaces the plain net.Dialer.Dial Attach otherwise
+	// uses to reach AgentAddr -- e.g. a Tailscale tsnet dialer, needed
+	// because AgentAddr can be a 100.x tailnet IP that kernel BSD sockets
+	// can't route to on their own (same constraint moonlight_tsnet_proxy.go
+	// works around for the video/control streams). nil means AgentAddr is
+	// reachable directly (LAN/localhost).
+	Dialer func(ctx context.Context, network, addr string) (net.Conn, error)
 }

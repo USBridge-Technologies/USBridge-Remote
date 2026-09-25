@@ -223,6 +223,10 @@ type DiskWidget struct {
 	nbdServers   map[string]service.NBDRunner
 	usbClient    *api.USBClient
 	updateStatus func()
+	// tailscaleSvc, when set, lets mountUSBPassthrough route usbpass.Attach's
+	// AES control-plane dial through the embedded tsnet stack for a tailnet
+	// agent address -- see SetTailscaleService.
+	tailscaleSvc *service.TailscaleService
 
 	// peerConn opens a labeled DataChannel on the video/control WebRTC
 	// PeerConnection (client/internal/webrtcweb.WebRTCClient.OpenDataChannel,
@@ -1237,6 +1241,13 @@ func (dw *DiskWidget) SetPeerConnection(pc interface {
 	OpenDataChannel(label string) (net.Conn, error)
 }) {
 	dw.peerConn = pc
+}
+
+// SetTailscaleService wires in the Tailscale service so mountUSBPassthrough
+// can dial a tailnet agent address through tsnet -- same pattern as
+// VideoWidget.SetTailscaleService.
+func (dw *DiskWidget) SetTailscaleService(ts *service.TailscaleService) {
+	dw.tailscaleSvc = ts
 }
 
 // UpdateClient updates the USB client. On disconnect — immediately clears the data;

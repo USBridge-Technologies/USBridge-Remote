@@ -1489,6 +1489,15 @@ func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
 		}
 		addr := net.JoinHostPort(u.Hostname(), strconv.Itoa(port))
 		secret := string(dw.usbClient.APISecret())
+		// usbpass.Attach's AES control-plane connection is a plain TCP dial
+		// by default, which can't route to a 100.x tailnet address any more
+		// than moonlight-common-c's own kernel sockets can (see
+		// moonlight_tsnet_proxy.go) -- route it through the same embedded
+		// tsnet stack when the agent address actually is one.
+		var dialer func(ctx context.Context, network, addr string) (net.Conn, error)
+		if dw.tailscaleSvc != nil && service.IsLikelyTailnetHost(u.Hostname()) {
+			dialer = dw.tailscaleSvc.Dial
+		}
 		for _, d := range devices {
 			inst := d.InstanceID
 			if inst == "" {
@@ -1502,6 +1511,7 @@ func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
 				VID:           d.VID,
 				PID:           d.PID,
 				ExportService: strconv.Itoa(exportPort),
+				Dialer:        dialer,
 			}); err != nil {
 				usbpass.StopSession()
 				if errors.Is(err, usbpass.ErrAgentLicenseRequired) {
