@@ -519,7 +519,6 @@ func (w *ScriptsTabWidget) sectionData() view.ScriptsSectionData {
 					w.window.Clipboard().SetContent(view.MCPBridgeConfigJSON(w.mcpBridgeToken(), w.mcpBridgePort))
 				}
 			},
-			OnDownloadBridge: func() { openBridgeDownload() },
 		},
 		ScriptCount:   len(scripts),
 		NewEnabled:    newEnabled,

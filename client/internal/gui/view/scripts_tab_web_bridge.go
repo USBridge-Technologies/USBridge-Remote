@@ -8,12 +8,14 @@ package view
 // HTTP listener there -- any MCP client's "url" server entry just points
 // straight at it. A browser tab structurally cannot accept an inbound
 // connection at all (no raw TCP/HTTP listen in a browser sandbox), so
-// there is no URL to hand out here. Instead: download a small local relay
-// script (client/web/mcp-bridge/bridge.mjs, see that file's own doc
-// comment for the full topology) that Claude Desktop spawns over stdio --
-// the one transport every MCP client already supports without needing
-// "url"/SSE support -- and that itself opens a local WebSocket server this
-// browser tab dials OUT to (the one direction a browser sandbox permits).
+// there is no URL to hand out here. Instead: the pasted config's `node -e`
+// fetches a small local relay script straight from GitHub at launch
+// (client/web/mcp-bridge/bridge.mjs, see that file's own doc comment for
+// the full topology -- and MCPBridgeConfigJSON for why fetch+eval instead
+// of a downloaded file) that Claude Desktop spawns over stdio -- the one
+// transport every MCP client already supports without needing "url"/SSE
+// support -- and that itself opens a local WebSocket server this browser
+// tab dials OUT to (the one direction a browser sandbox permits).
 // BridgeConnected reflects whether that outbound connection is currently
 // up; OnToggleBridge dials/closes it.
 
@@ -41,11 +43,9 @@ func newScriptsMCPCardWebBridge(data ScriptsMCPData) fyne.CanvasObject {
 	topRow := container.NewBorder(nil, nil, topLeft, newScriptsMCPStateBadge(data.BridgeConnected))
 
 	explainer := widget.NewLabel("A browser tab can't accept an incoming connection, so Claude Desktop " +
-		"instead runs a small local script that this page connects out to. Download it once, " +
-		"paste the config below into Claude Desktop, then connect.")
+		"instead runs a small script (fetched automatically, nothing to download) that this page " +
+		"connects out to. Paste the config below into Claude Desktop, then connect.")
 	explainer.Wrapping = fyne.TextWrapWord
-
-	downloadBtn := widget.NewButton("Download bridge.cjs", data.OnDownloadBridge)
 
 	configLabel := canvas.NewText("CLAUDE DESKTOP CONFIG", color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
 	configLabel.TextSize = 10
@@ -73,7 +73,7 @@ func newScriptsMCPCardWebBridge(data ScriptsMCPData) fyne.CanvasObject {
 	}
 	configBlock := container.New(&tightStatsVBoxLayout{Gap: 1}, configRows...)
 
-	pathHint := widget.NewLabel("Replace the first \"args\" entry with wherever you saved bridge.cjs.")
+	pathHint := widget.NewLabel("Requires Node.js on the machine running Claude Desktop.")
 	pathHint.Wrapping = fyne.TextWrapWord
 
 	configInner := container.New(&tightStatsVBoxLayout{Gap: 4}, configLabelRow, configBlock)
@@ -113,7 +113,6 @@ func newScriptsMCPCardWebBridge(data ScriptsMCPData) fyne.CanvasObject {
 	inner := container.New(&tightStatsVBoxLayout{Gap: 10},
 		topRow,
 		explainer,
-		downloadBtn,
 		configBox,
 		pathHint,
 		localRow,

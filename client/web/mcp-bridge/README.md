@@ -4,11 +4,14 @@
 what Claude Desktop (or any other stdio-only MCP client) actually runs:
 `bin/bridge.cjs`, a single self-contained bundle with `ws` inlined, so a
 user only needs Node itself installed -- no `npm install` step, no
-`node_modules` to go with the downloaded file. See `bridge.mjs`'s own doc
-comment for why this process exists and how it relays between Claude
-Desktop's stdio and the USBridge web client's browser tab (the Scripts & AI
-page generates the ready-to-paste config + this file's download link, with
-a fresh per-install `--token`).
+`node_modules`, and no manual download either: the config the Scripts & AI
+page generates (`MCPBridgeConfigJSON`, `client/internal/gui/view/
+scripts_tab.go`) runs it via `node -e "fetch(...).then(r=>r.text())
+.then(c=>eval(c))"`, fetching this file straight from GitHub at launch
+(`mcpBridgeSourceURL`, pinned to `main`) with a fresh per-install `--token`.
+See `bridge.mjs`'s own doc comment for why this process exists and how it
+relays between Claude Desktop's stdio and the USBridge web client's browser
+tab.
 
 ## Rebuilding bin/bridge.cjs
 

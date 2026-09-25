@@ -56,8 +56,9 @@ var (
 // (WebBridge==false) can run a local HTTP listener an MCP client dials
 // directly (MCPProxy, URL/Running/OnToggle below); the wasm/browser build
 // (WebBridge==true) never can (see newScriptsMCPCardWebBridge's doc
-// comment), so it shows a download-the-bridge-script + copy-able launcher
-// config flow instead, using the WebBridge* fields below.
+// comment), so it shows a copy-able launcher config instead (no download
+// step -- the config's own `node -e` fetches bridge.cjs from GitHub at
+// launch, see MCPBridgeConfigJSON), using the WebBridge* fields below.
 type ScriptsMCPData struct {
 	URL       string
 	Running   bool
@@ -74,7 +75,6 @@ type ScriptsMCPData struct {
 	BridgeConfigJSON   string
 	OnToggleBridge     func()
 	OnCopyBridgeConfig func()
-	OnDownloadBridge   func()
 }
 
 // ScriptTableRow is one automation-script row.
@@ -435,21 +435,38 @@ func MCPConfigJSON(url string) string {
 	return string(b)
 }
 
+// mcpBridgeSourceURL is where Claude Desktop's spawned node process fetches
+// bridge.cjs from at launch, instead of the user having to download it
+// themselves and hand-edit a path into the config (see MCPBridgeConfigJSON).
+// Pinned to main (not e.g. a tag) so a rebuilt bin/bridge.cjs reaches
+// already-pasted configs without the user touching them again -- same
+// tradeoff bare `npx pkg@latest`/`curl .../main/install.sh` patterns make.
+const mcpBridgeSourceURL = "https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/client/web/mcp-bridge/bin/bridge.cjs"
+
 // MCPBridgeConfigJSON returns the Claude-Desktop-style config block for the
-// wasm build's MCP setup: a "command"+"args" entry that spawns bridge.cjs
-// over stdio (the transport every MCP client already supports, no "url"
-// support needed) with the local WS port/pairing token it needs to relay
-// through -- see newScriptsMCPCardWebBridge's doc comment for the full
-// picture. bridgePath is left as an obvious placeholder: this page has no
-// way to know where the user actually saved the file they just downloaded
-// (see OnDownloadBridge), so the card's own copy tells them to fill it in.
+// wasm build's MCP setup: a "command"+"args" entry that runs `node -e` with
+// an inline script fetching bridge.cjs straight from this repo on GitHub
+// and eval-ing it, instead of spawning a file the user had to download and
+// point a path at -- see newScriptsMCPCardWebBridge's doc comment for the
+// full picture. The eval is written as `.then(c => eval(c))`, a *direct*
+// eval call (not `.then(eval)`, an indirect one) specifically so it runs in
+// this scope, not the global one -- bridge.cjs's esbuild bundle leans on
+// `require` for Node builtins (http, crypto, node:readline, ...) throughout,
+// and only direct eval keeps that binding in scope; indirect eval would
+// throw ReferenceError: require is not defined immediately on fetch
+// resolving. --port/--token still arrive as normal argv (bridge.mjs's own
+// parseArgs reads process.argv.slice(2), untouched by any of this) because
+// `node -e script -- a b` appends everything after -- to process.argv
+// exactly like a regular script invocation would.
 func MCPBridgeConfigJSON(token string, port int) string {
+	evalScript := fmt.Sprintf("fetch(%q).then(r=>r.text()).then(c=>eval(c))", mcpBridgeSourceURL)
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
 			"usbridge-browser": map[string]any{
 				"command": "node",
 				"args": []string{
-					"/path/to/bridge.cjs",
+					"-e", evalScript,
+					"--",
 					"--port", fmt.Sprintf("%d", port),
 					"--token", token,
 				},
@@ -458,7 +475,7 @@ func MCPBridgeConfigJSON(token string, port int) string {
 	}
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return fmt.Sprintf(`{"mcpServers":{"usbridge-browser":{"command":"node","args":["/path/to/bridge.cjs","--port","%d","--token",%q]}}}`, port, token)
+		return fmt.Sprintf(`{"mcpServers":{"usbridge-browser":{"command":"node","args":["-e",%q,"--","--port","%d","--token",%q]}}}`, evalScript, port, token)
 	}
 	return string(b)
 }
