@@ -147,6 +147,25 @@ var (
 	lastMetalCursorX, lastMetalCursorY float32
 )
 
+// metalVideoTop is the window-absolute Y of the touchpad's top edge, shared
+// by the clip (videoWidgetFrame) and the content rect (videoCanvasFrame).
+// Both must use the same origin: contentRectY is touchpad-relative, so if the
+// clip starts at safeTop+keysH but content at safeTop+pos.Y, content shifts by
+// the difference. AbsolutePositionForObject reports ~0 on iOS while the
+// keyboard stack is open, which slid the picture up under the special keys
+// and left a keysH-tall black strip above the IME.
+func (vw *VideoWidget) metalVideoTop() float32 {
+	// Metal is on UIWindow (absolute). Fyne canvas Y is InteractiveArea-
+	// relative; add safe-top so we do not paint under the notch / over keys.
+	safeTop := canvasInteractiveOrigin(vw.parentWindow.Canvas()).Y
+	// Mobile keyboard stack: keys live in mainHeaderHost, directly above the
+	// touchpad, so their height is the reliable offset.
+	if keysH := vw.specialKeysTopInsetDp(); keysH > 0 {
+		return safeTop + keysH
+	}
+	return safeTop + vw.videoContainerOrigin().Y
+}
+
 // videoWidgetFrame returns the touchpad widget bounds in window-local dp coordinates.
 // This is the visible area the Metal overlay must not overflow.
 func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
@@ -155,30 +174,13 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	}
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	// AbsolutePositionForObject is unreliable on iOS (may return wrong positive
-	safeTop := canvasInteractiveOrigin(vw.parentWindow.Canvas()).Y
-	pos := vw.videoContainerOrigin()
-	topOffset := safeTop + pos.Y
+	topOffset := vw.metalVideoTop()
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f,ch=%.0f", canvasH, szMain.Height, topOffset, videoChromeBelow()))
-
-	// Mobile keyboard stack: keys live in mainHeaderHost. Overlay-height is
-	// 0 in that mode — without specialKeysHeaderReserve Metal starts at Y=0
-	// and covers the special-keys band.
-	keysH := vw.specialKeysTopInsetDp()
-	// Metal is on UIWindow (absolute). Fyne canvas Y is InteractiveArea-
-	// relative; add safe-top so we do not paint under the notch / over keys.
 
 	szVideo := vw.touchpadWrapper.Size()
 	width := szVideo.Width
 	if width <= 0 {
 		width = szMain.Width
-	}
-
-	if keysH > 0 {
-		videoTop := safeTop + keysH
-		if szVideo.Height > 0 {
-			return 0, videoTop, width, szVideo.Height
-		}
 	}
 
 	if szVideo.Height > 0 {
@@ -394,9 +396,7 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	}
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	safeTop := canvasInteractiveOrigin(vw.parentWindow.Canvas()).Y
-	pos := vw.videoContainerOrigin()
-	topOffset := safeTop + pos.Y
+	topOffset := vw.metalVideoTop()
 	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,ime=%.0f,tO=%.0f,ch=%.0f", canvasH, szMain.Height, getImeExpandHeightDp(), topOffset, videoChromeBelow()))
 
 	// Apply zoom and pan coordinates directly to the native overlay frame!
