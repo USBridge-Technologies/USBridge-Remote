@@ -39,11 +39,13 @@ func listHIDDarwin() ([]models.USBPassthroughDevice, error) {
 			desc = fmt.Sprintf("%s (%s)", d.Name, label)
 		}
 		out = append(out, models.USBPassthroughDevice{
-			BusID:       StableUSBIPBusID(instanceID),
-			InstanceID:  instanceID,
-			VID:         fmt.Sprintf("%04x", d.VID),
-			PID:         fmt.Sprintf("%04x", d.PID),
-			Description: desc,
+			BusID:        StableUSBIPBusID(instanceID),
+			InstanceID:   instanceID,
+			VID:          fmt.Sprintf("%04x", d.VID),
+			PID:          fmt.Sprintf("%04x", d.PID),
+			Description:  desc,
+			HIDUsagePage: d.UsagePage,
+			HIDUsage:     d.Usage,
 		})
 	}
 	return out, nil

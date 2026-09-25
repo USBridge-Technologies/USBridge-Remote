@@ -76,6 +76,16 @@ type USBPassthroughDevice struct {
 	// rust-shine, from its own live OP_REQ_DEVLIST probe, never from this
 	// field or anything else this open-source client reports.
 	Interfaces [][3]uint8 `json:"interfaces,omitempty"`
+	// HIDUsagePage/HIDUsage are this device's top-level HID usage (e.g.
+	// 0x01/0x05 = Generic Desktop/GamePad) when known -- currently only
+	// list_hid_darwin.go populates these, off IOHIDManager's own device
+	// properties. Same display-only caveat as Interfaces: this is what lets
+	// RequiresProLicense (and rust-shine's real classify()) tell a generic
+	// HID gamepad (free) apart from, say, a Wacom tablet (Pro) when both
+	// report the same 03/00/00 interface class -- zero means unknown, which
+	// resolves to Pro same as an unrecognized interface class does.
+	HIDUsagePage uint16 `json:"hid_usage_page,omitempty"`
+	HIDUsage     uint16 `json:"hid_usage,omitempty"`
 }
 type USBDeviceInfo struct {
 	Connected       bool   `json:"connected"`

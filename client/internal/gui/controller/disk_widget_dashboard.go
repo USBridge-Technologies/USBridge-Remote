@@ -34,7 +34,7 @@ func (dw *DiskWidget) dashboardProBadge(drive DriveItem) fyne.CanvasObject {
 	if dw.agentProtocol != "free" || drive.USBPassthrough == nil {
 		return nil
 	}
-	if !usbpass.RequiresProLicense(drive.USBPassthrough.Interfaces) {
+	if !usbpass.RequiresProLicense(drive.USBPassthrough.Interfaces, drive.USBPassthrough.HIDUsagePage, drive.USBPassthrough.HIDUsage) {
 		return nil
 	}
 	return view.NewDeviceDashboardOutlinedBadge(i18n.Current.Color444Badge, design.ColorProSoft)

@@ -189,6 +189,8 @@ func StartSession(listenAddr string, devices []models.USBPassthroughDevice) (*Se
 		}
 		ed := NewExportedFromVIDPID(busID, vid, pid)
 		ed.InstanceID = d.InstanceID
+		ed.HIDUsagePage = d.HIDUsagePage
+		ed.HIDUsage = d.HIDUsage
 		accessRefs = append(accessRefs, usbDevRef{BusID: busID, Busnum: ed.Busnum, Devnum: ed.Devnum})
 		exported = append(exported, ed)
 		busIDs = append(busIDs, busID)

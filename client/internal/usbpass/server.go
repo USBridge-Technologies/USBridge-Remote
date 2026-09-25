@@ -53,9 +53,19 @@ type ExportedDevice struct {
 	ConfigVal  uint8
 	NumConfigs uint8
 	Interfaces [][3]uint8 // class, subclass, protocol
-	DeviceDesc []byte
-	ConfigDesc []byte
-	Backend    DeviceBackend
+	// HIDUsagePage/HIDUsage are the device's top-level HID usage (e.g.
+	// 0x01/0x05 = Generic Desktop/GamePad) when known -- currently only
+	// list_hid_darwin.go populates these, straight off IOHIDManager's own
+	// device properties, no report-descriptor parsing needed there. Zero
+	// means unknown, same "resolves to Pro" default as an empty Interfaces.
+	// Sent as packRepDevlist's own trailing extension (see there) -- never
+	// part of appendDeviceBody's shared, real-USB/IP-spec-compatible fixed
+	// record, so this can't affect a real usbip-win2 VHCI OP_REQ_IMPORT.
+	HIDUsagePage uint16
+	HIDUsage     uint16
+	DeviceDesc   []byte
+	ConfigDesc   []byte
+	Backend      DeviceBackend
 
 	trace urbTrace // see urbtrace.go
 }
@@ -487,6 +497,15 @@ func packRepDevlist(devs []*ExportedDevice) []byte {
 	out = appendU32(out, uint32(len(devs)))
 	for _, d := range devs {
 		out = appendDeviceBody(out, d, true)
+	}
+	// Trailing extension, one (HIDUsagePage, HIDUsage) pair per device in
+	// the same order as the loop above -- devlist_probe.rs's only consumer,
+	// added after every real OP_REP_DEVLIST record so a real USB/IP DEVLIST
+	// reader (which reads exactly ndev records and stops) never even looks
+	// at these bytes. See ExportedDevice.HIDUsagePage's doc comment.
+	for _, d := range devs {
+		out = appendU16(out, d.HIDUsagePage)
+		out = appendU16(out, d.HIDUsage)
 	}
 	return out
 }
