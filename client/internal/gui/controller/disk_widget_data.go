@@ -468,11 +468,27 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, gamepadItem)
 	}
 
+	// usbpassVIDs tracks which vendor IDs are already represented by a raw
+	// USB-passthrough row (dw.usbPassDevices, populated below) so the pen-
+	// tablet loop right after can skip adding a second, redundant card for
+	// the same physical device -- see that loop's doc comment.
+	usbpassVIDs := make(map[string]bool, len(dw.usbPassDevices))
+	for _, d := range dw.usbPassDevices {
+		usbpassVIDs[strings.ToLower(d.VID)] = true
+	}
+
 	// Add pen tablets captured locally (macOS: IOKit; web build: a WebHID
 	// grant) -- distinct from a real tablet forwarded raw from the agent's
 	// own machine (drive.IsUSBPassthrough && isWacomTablet, see
-	// disk_widget_dashboard.go).
+	// disk_widget_dashboard.go). When the same physical tablet is also
+	// enumerated as a raw USB-passthrough device (true for every Wacom on
+	// macOS since listHIDDarwin's HID enumeration was generalized beyond
+	// Wacom), skip the local-capture row here and let the passthrough one
+	// represent it -- otherwise the same tablet shows up as two cards.
 	for _, tab := range dw.penTablets {
+		if usbpassVIDs[strings.ToLower(fmt.Sprintf("%04x", tab.VID))] {
+			continue
+		}
 		penItem := DriveItem{
 			Name:        tab.Name,
 			Size:        "N/A",
