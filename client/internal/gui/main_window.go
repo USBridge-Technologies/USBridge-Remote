@@ -199,12 +199,15 @@ type MainWindow struct {
 	videoResolutionText *canvas.Text
 	videoStatusGroup    *fyne.Container
 	// videoMonitorText/Dot are the capture-device name after fps/resolution
-	// in the Control header. videoMonitorToggle/Btn are the desktop footer
-	// picker (after fullscreen), hidden when the agent only has one monitor.
-	videoMonitorText   *canvas.Text
-	videoMonitorDot    fyne.CanvasObject
-	videoMonitorToggle *headerStatusBadgeButton
-	videoMonitorBtn    fyne.CanvasObject
+	// in the Control header; videoMonitorLabelBtn is the tappable wrapper
+	// around videoMonitorText that opens the same picker as the desktop
+	// footer's videoMonitorToggle/Btn (after fullscreen) -- both hidden when
+	// the agent only has one monitor.
+	videoMonitorText     *canvas.Text
+	videoMonitorDot      fyne.CanvasObject
+	videoMonitorLabelBtn *statusBarTextButton
+	videoMonitorToggle   *headerStatusBadgeButton
+	videoMonitorBtn      fyne.CanvasObject
 	// videoMonitorChipLoaded is true after the first device-list fetch for
 	// this stream so updateStatusBarUI does not hammer GetVideoDevices.
 	videoMonitorChipLoaded bool

@@ -1679,6 +1679,9 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			if mw.videoMonitorText != nil {
 				mw.videoMonitorText.Hide()
 			}
+			if mw.videoMonitorLabelBtn != nil {
+				mw.videoMonitorLabelBtn.Hide()
+			}
 			if mw.mobileMonitorBtn != nil {
 				mw.mobileMonitorBtn.Hide()
 			}

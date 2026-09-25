@@ -308,7 +308,7 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoResolutionText = canvas.NewText("", design.ColorStatusBarResolutionText)
 	mw.videoResolutionText.TextSize = statusIndicatorFPSTextSize
 
-	var fpsBtn, resBtn *statusBarTextButton
+	var fpsBtn, resBtn, monitorBtn *statusBarTextButton
 	fpsBtn = newStatusBarTextButton(mw.videoFPSText, func() {
 		mw.showVideoFPSMenu(fpsBtn)
 	})
@@ -326,7 +326,15 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoMonitorDot.Hide()
 	mw.videoMonitorText = canvas.NewText("", design.ColorStatusBarResolutionText)
 	mw.videoMonitorText.TextSize = statusIndicatorFPSTextSize
-	mw.videoMonitorText.Hide()
+	// monitorBtn wraps videoMonitorText the same way resBtn/fpsBtn wrap
+	// their own labels, so the monitor name in the status bar opens the
+	// same picker showVideoMonitorMenu already gives the footer's
+	// monitorIcon, instead of just sitting there as inert text.
+	monitorBtn = newStatusBarTextButton(mw.videoMonitorText, func() {
+		mw.showVideoMonitorMenu(monitorBtn)
+	})
+	monitorBtn.Hide()
+	mw.videoMonitorLabelBtn = monitorBtn
 
 	mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
 	mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
@@ -345,11 +353,12 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		resBtn,
 	}
 	if !useMobileControl() {
-		videoItems = append(videoItems, mw.videoMonitorDot, mw.videoMonitorText)
+		videoItems = append(videoItems, mw.videoMonitorDot, monitorBtn)
 	}
 	swapTargets := []fyne.CanvasObject{
 		fpsBtn,
 		resBtn,
+		monitorBtn,
 		monitorIcon,
 		mw.videoIcon,
 		mw.footerVideoSettingsIcon,
@@ -541,6 +550,9 @@ func (mw *MainWindow) applyVideoMonitorChip(devices []models.SystemDevice) {
 		if mw.videoMonitorText != nil {
 			mw.videoMonitorText.Hide()
 		}
+		if mw.videoMonitorLabelBtn != nil {
+			mw.videoMonitorLabelBtn.Hide()
+		}
 		if mw.mobileMonitorBtn != nil {
 			if multi {
 				mw.mobileMonitorBtn.Show()
@@ -590,11 +602,17 @@ func (mw *MainWindow) syncVideoMonitorName(devices []models.SystemDevice, stream
 	if label == "" {
 		mw.videoMonitorText.Hide()
 		mw.videoMonitorDot.Hide()
+		if mw.videoMonitorLabelBtn != nil {
+			mw.videoMonitorLabelBtn.Hide()
+		}
 		return
 	}
 	mw.videoMonitorText.Text = label
 	mw.videoMonitorText.Show()
 	mw.videoMonitorDot.Show()
+	if mw.videoMonitorLabelBtn != nil {
+		mw.videoMonitorLabelBtn.Show()
+	}
 	mw.videoMonitorText.Refresh()
 }
 
