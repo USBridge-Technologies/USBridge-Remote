@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -1504,7 +1505,11 @@ func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
 				ExportService: strconv.Itoa(exportPort),
 			}); err != nil {
 				usbpass.StopSession()
-				dw.showErrorAsync(err)
+				if errors.Is(err, usbpass.ErrAgentLicenseRequired) {
+					dw.showErrorAsync(fmt.Errorf("%s", i18n.Current.USBPassthroughEnterpriseHint))
+				} else {
+					dw.showErrorAsync(err)
+				}
 				return
 			}
 		}

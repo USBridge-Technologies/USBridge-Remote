@@ -20,14 +20,21 @@ package usbpass
 // differ there.
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // usbAesInfo must match the Rust side's transport::INFO exactly.
@@ -40,6 +47,16 @@ const (
 	usbAesMinFrame = 12 + 16 // nonce + GCM tag, empty plaintext
 	usbAesMaxFrame = 16 * 1024 * 1024
 )
+
+// ErrAgentLicenseRequired is returned by recvFrame when the broker answers
+// the very first frame with a plain-text HTTP response instead of the
+// AES-framed protocol. Live-verified: rust-shine's entitlement gate for HID/
+// pen passthrough on the closed usbridge-usb-broker binary rejects an
+// unlicensed agent this way rather than an AES-encrypted HelloAck{ok:false}
+// -- without this check, recvFrame reads "HTTP"'s 4 ASCII bytes as a
+// length-prefix (0x48545450 = 1,213,486,160), fails usbAesMaxFrame's bounds
+// check, and surfaces as an opaque "aes frame size out of range" error.
+var ErrAgentLicenseRequired = errors.New("usb passthrough: this feature requires a license on the agent")
 
 func deriveSessionKey(masterKey []byte) [32]byte {
 	h := sha256.New()
@@ -149,6 +166,9 @@ func (s *aeadStream) recvFrame() ([]byte, error) {
 	if _, err := io.ReadFull(s.conn, lenb[:]); err != nil {
 		return nil, err
 	}
+	if string(lenb[:]) == "HTTP" {
+		return nil, s.readLicenseRejection(lenb[:])
+	}
 	n := binary.BigEndian.Uint32(lenb[:])
 	if n < usbAesMinFrame || n > usbAesMaxFrame {
 		return nil, fmt.Errorf("aes frame size out of range (%d bytes)", n)
@@ -166,4 +186,22 @@ func (s *aeadStream) recvFrame() ([]byte, error) {
 		return nil, fmt.Errorf("aes decrypt: %w", err)
 	}
 	return pt, nil
+}
+
+// readLicenseRejection finishes reading the plain-text HTTP response
+// recvFrame detected (already-consumed bytes passed as prefix), logs the
+// broker's actual status/body for diagnostics, and returns
+// ErrAgentLicenseRequired regardless of parse success -- an HTTP response on
+// this port is only ever the entitlement gate, so even a malformed one still
+// means "no license".
+func (s *aeadStream) readLicenseRejection(prefix []byte) error {
+	resp, err := http.ReadResponse(bufio.NewReader(io.MultiReader(bytes.NewReader(prefix), s.conn)), nil)
+	if err != nil {
+		logrus.Warnf("usbpass: agent rejected hello with an unparsable HTTP response: %v", err)
+		return ErrAgentLicenseRequired
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	logrus.Warnf("usbpass: agent rejected hello: HTTP %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	return ErrAgentLicenseRequired
 }
