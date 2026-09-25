@@ -9,7 +9,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -359,6 +358,22 @@ func (w *Window) applySelectedProtocol(parent fyne.Window) {
 		return
 	}
 	key := w.protocolPick
+
+	if key != protocolOpensource && !st.RustShineStaged && parent != nil {
+		w.showStreamerConsentDialog(parent, func(confirmed bool) {
+			if !confirmed {
+				w.protocolPick = w.protocolApplied
+				w.refreshProtocolPickerVisuals(false)
+				return
+			}
+			w.proceedProtocolSwitch(parent, key, st, acc)
+		})
+		return
+	}
+	w.proceedProtocolSwitch(parent, key, st, acc)
+}
+
+func (w *Window) proceedProtocolSwitch(parent fyne.Window, key string, st entitlement.Status, acc account.Status) {
 	if w.protocolChange != nil {
 		w.protocolChange.Disable()
 	}
@@ -432,7 +447,7 @@ func (w *Window) requestPaidTier(parent fyne.Window, st entitlement.Status, tier
 		fyne.Do(done)
 		return
 	}
-	d := dialog.NewConfirm(
+	showConfirmDialog(
 		fmt.Sprintf(loc().SubscribeTitle, tierDisplayName(tier)),
 		fmt.Sprintf(loc().SubscribeBody, tierDisplayName(tier)),
 		func(confirmed bool) {
@@ -453,20 +468,15 @@ func (w *Window) requestPaidTier(parent fyne.Window, st entitlement.Status, tier
 				if parseErr == nil && w.app != nil {
 					openErr = w.app.OpenURL(parsed)
 				}
-				fyne.Do(func() {
-					if openErr != nil {
-						dialog.ShowInformation(loc().CheckoutTitle,
-							loc().CouldntOpenBrowserBuy+"\n"+checkoutURL, parent)
-					}
-					done()
-				})
+				if openErr != nil {
+					showInfoDialog(loc().CheckoutTitle,
+						loc().CouldntOpenBrowserBuy+"\n"+checkoutURL, parent)
+				}
+				fyne.Do(done)
 			}()
 		},
 		parent,
 	)
-	d.SetConfirmText(loc().Yes)
-	d.SetDismissText(loc().No)
-	d.Show()
 }
 
 func (w *Window) applyAccountLicense(identifier, tier string, done func()) {

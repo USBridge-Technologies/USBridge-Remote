@@ -120,6 +120,7 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	pan.SetSelectedStyle(design.ColorAlphaWhite12, assets.ViewportPanIconActive)
 	mw.mobileViewportPanToggle = pan
 	mw.mobileViewportPanBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), pan)
+	mw.mobileViewportPanBtn.Hide()
 
 	mouse := newHeaderStatusBadgeButton(assets.MouseIcon, func() {
 		mw.showMouseModeMenuAt(mw.mobileMouseToggle)
@@ -477,9 +478,6 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	if mw.mobileFullscreenBtn != nil {
 		parts = append(parts, mw.mobileFullscreenBtn)
 	}
-	if mw.mobileViewportPanBtn != nil {
-		parts = append(parts, mw.mobileViewportPanBtn)
-	}
 	if mw.mobileFooterHIDDivider != nil {
 		parts = append(parts, mw.mobileFooterHIDDivider)
 	}
@@ -638,9 +636,6 @@ func (mw *MainWindow) syncMobileKeyboardButton(controlActive bool) {
 	}
 	if controlActive {
 		mw.mobileKeyboardToggle.Show()
-		if mw.mobileViewportPanToggle != nil {
-			mw.mobileViewportPanToggle.Show()
-		}
 		if mw.mobileControlBurgerBtn != nil {
 			mw.mobileControlBurgerBtn.Show()
 		}
