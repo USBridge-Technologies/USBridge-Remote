@@ -455,7 +455,17 @@ func (vw *VideoWidget) StopVideoSync() error {
 	done := make(chan struct{})
 	go func() {
 		vw.runVideoOpSync("stop-video-sync", func() {
-			if vw.usbClient != nil {
+			// Gate on videoClient, not usbClient: videoClient (WebRTCVideoClient
+			// on web, moonlight wrapper on desktop) is the thing that actually
+			// holds the live network session (RTCPeerConnection + <video>/<audio>
+			// elements on web, LiStopConnection state on desktop). usbClient is
+			// the unrelated REST client and gets nilled independently by
+			// handleDisconnect's fyne.Do, which runs on Fyne's main-thread queue
+			// and races this goroutine. Gating here on usbClient meant that when
+			// that fyne.Do queued closure happened to run first, this fell into
+			// the "already gone" branch below and skipped videoClient.Disconnect()
+			// entirely — leaving the WebRTC session (and its audio) running.
+			if vw.videoClient != nil {
 				vw.stopVideoInternal()
 			} else {
 				// Client is already gone — clean up only the local state

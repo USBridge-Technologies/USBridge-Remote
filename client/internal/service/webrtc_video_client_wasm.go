@@ -36,6 +36,18 @@ import (
 // all since the browser itself renders every frame directly.
 const webrtcVideoFPS = 24
 
+// webrtcVideoSessionLive tracks whether any WebRTCVideoClient currently has
+// a connected session, mirroring metal_video_darwin.go's MetalVideoIsActive.
+// net_graph_wasm.go's pushNetGraphWasmOverlay gates the HUD DOM canvas on
+// this so it hides itself once the session ends -- there's no native
+// surface destroy to piggyback on here the way Darwin's Metal HUD layer
+// gets from MetalVideoDestroy(), so without this the canvas stayed
+// "visibility:visible" forever after disconnect, showing frozen stats from
+// the last snapshot netGraphWasmPair() ever saw.
+var webrtcVideoSessionLive atomic.Bool
+
+func webrtcVideoSessionActive() bool { return webrtcVideoSessionLive.Load() }
+
 // WebRTCVideoClient implements service.VideoClient over WebRTC for the
 // browser build.
 type WebRTCVideoClient struct {
@@ -204,11 +216,13 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 		switch state {
 		case "connected":
 			c.connected.Store(true)
+			webrtcVideoSessionLive.Store(true)
 			if cb != nil {
 				cb("connected")
 			}
 		case "failed", "disconnected", "closed":
 			c.connected.Store(false)
+			webrtcVideoSessionLive.Store(false)
 			if cb != nil {
 				cb("disconnected")
 			}
@@ -297,6 +311,7 @@ func (c *WebRTCVideoClient) Disconnect() error {
 		client.Close()
 	}
 	c.connected.Store(false)
+	webrtcVideoSessionLive.Store(false)
 	return nil
 }
 

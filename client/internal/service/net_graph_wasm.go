@@ -186,6 +186,21 @@ func ensureNetGraphDOMCanvas() {
 func pushNetGraphWasmOverlay(img *image.RGBA) {
 	netGraphDOMMu.Lock()
 	defer netGraphDOMMu.Unlock()
+
+	// Gate on the actual WebRTC session, not just the operator's checkbox
+	// (netGraphEnabled, which this function's caller already gated on):
+	// netGraphWasmNetworkStats/RenderFPS/DecodeMs all replay the last snapshot
+	// netGraphWasmPair() ever saw once the session's stats poller stops, so
+	// without this the HUD kept pushing (and showing) frozen numbers forever
+	// after disconnect instead of disappearing along with the stream, unlike
+	// Darwin's Metal HUD layer which vanishes for free when MetalVideoDestroy
+	// tears down the whole native surface it's drawn on.
+	if !webrtcVideoSessionActive() {
+		if !netGraphDOMCanvas.IsUndefined() && !netGraphDOMCanvas.IsNull() {
+			netGraphDOMCanvas.Get("style").Set("visibility", "hidden")
+		}
+		return
+	}
 	ensureNetGraphDOMCanvas()
 
 	w, h := img.Rect.Dx(), img.Rect.Dy()
