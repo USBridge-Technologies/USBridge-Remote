@@ -240,6 +240,17 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		}
 	}
 
+	// DIAGNOSTIC (temporary): exact rects handed to Metal, every call (not
+	// gated by the change-detection cache below) -- clipBottom vs
+	// contentBottom is the direct test for the black-strip-above-keyboard
+	// bug: a gap means contentBottom < clipBottom while the keyboard is up.
+	service.Syslog(fmt.Sprintf("GEO:clip=(%.0f,%.0f,%.0f,%.0f)b=%.0f content=(%.0f,%.0f,%.0f,%.0f)b=%.0f zoom=%.2f pan=(%.0f,%.0f) anchor=%v lift=%v base=(%.0f,%.0f)",
+		clipX, clipY, clipW, clipH, clipY+clipH,
+		contentX, contentY, contentW, contentH, contentY+contentH,
+		vw.zoomScale, vw.panOffsetX, vw.panOffsetY,
+		vw.bottomAnchorContentVertically, vw.keyboardViewportLift,
+		vw.baseContentRectW, vw.baseContentRectH))
+
 	// Cursor position: use virtualCursorU/V (persistent across touch events) so
 	// the arrow stays where the user left it rather than jumping to the finger tip.
 	cursorVisible := isVirtualCursorLikeMode(vw.GetMouseInputMode())
