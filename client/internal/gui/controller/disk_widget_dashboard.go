@@ -270,7 +270,7 @@ func (dw *DiskWidget) AttachConnectingHint(hint *view.DeviceDashboardBusySpinner
 const (
 	devicesFirmwarePromoDismissedPrefKey = "devices.firmware_promo.dismissed"
 	deviceDashboardStorageTitle          = "Virtual Mass Storage & ISO Media"
-	deviceDashboardEmulationTitle        = "Raw USB"
+	deviceDashboardEmulationTitle        = "USB-Passthrough"
 )
 
 func (dw *DiskWidget) firmwarePromoDismissed() bool {

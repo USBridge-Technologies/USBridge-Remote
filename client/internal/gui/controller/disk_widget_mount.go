@@ -1298,7 +1298,7 @@ func (dw *DiskWidget) updateButtons() {
 		if selectedCount == 0 && hasMountedDevices {
 			disconnectLabel = i18n.Current.DisconnectAllButton
 		}
-		
+
 		if dw.unmountBtn.Text != disconnectLabel {
 			dw.unmountBtn.SetText(disconnectLabel)
 		}
@@ -1474,7 +1474,7 @@ func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
 		}
 		if _, err := dw.usbClient.OpenUSBPassthroughSession(); err != nil {
 			usbpass.StopSession()
-			dw.showErrorAsync(fmt.Errorf("%s: %w", i18n.Current.USBPassthroughEnterpriseHint, err))
+			dw.showErrorAsync(fmt.Errorf("%s: %w", i18n.Current.USBPassthroughProHint, err))
 			return
 		}
 		base := dw.usbClient.GetBaseURL()
@@ -1506,7 +1506,7 @@ func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
 			}); err != nil {
 				usbpass.StopSession()
 				if errors.Is(err, usbpass.ErrAgentLicenseRequired) {
-					dw.showErrorAsync(fmt.Errorf("%s", i18n.Current.USBPassthroughEnterpriseHint))
+					dw.showErrorAsync(fmt.Errorf("%s", i18n.Current.USBPassthroughProHint))
 				} else {
 					dw.showErrorAsync(err)
 				}

@@ -55,8 +55,8 @@ func protocolBadgeColors(key string) (fg color.Color, line color.Color) {
 var protocolOptions = []protocolOption{
 	{protocolOpensource, "Sunshine", "Opensource", design.ColorMutedOlive, design.ColorChromeOlive, nil},
 	{protocolFree, "USBridge Streamer", "Free", design.ColorTeal, design.ColorTeal, nil},
-	{protocolPro, "USBridge", "Pro", design.ColorProSoft, design.ColorProSoft, assets.StarProIcon},
-	{protocolEnterprise, "USBridge", "Enterprise", design.ColorProSoft, design.ColorProSoft, assets.StarProIcon},
+	{protocolPro, "USBridge Streamer", "Pro", design.ColorProSoft, design.ColorProSoft, assets.StarProIcon},
+	{protocolEnterprise, "USBridge Streamer", "Enterprise", design.ColorProSoft, design.ColorProSoft, assets.StarProIcon},
 }
 
 func protocolKeyFromStatus(st entitlement.Status) string {

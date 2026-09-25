@@ -276,7 +276,7 @@ type LocalizedStrings struct {
 	DevicesSectionAudioHint           string
 	DevicesSectionPassthrough         string
 	DevicesSectionPassthroughHint     string
-	USBPassthroughEnterpriseHint      string
+	USBPassthroughProHint             string
 	USBPassthroughProtected           string
 	USBPassthroughInputMonitoring     string
 	USBPassthroughOpenSettingsButton  string
@@ -725,13 +725,13 @@ func EN() *LocalizedStrings {
 		DevicesEmptyAudio:                 "No audio devices",
 		DevicesEmptyStorage:               "No storage or ISO media",
 		DevicesEmptyUSB:                   "No USB devices",
-		DevicesCardUSBPassthrough:         "Raw USB",
+		DevicesCardUSBPassthrough:         "USB-Passthrough",
 		DevicesHardwareOnly:               "Hardware only",
 		USBEmulationProBadge:              "Pro USBridge Streamer",
 		DevicesZadigTitle:                 "Can't find your device?",
 		DevicesZadigMessage:               "If the USB device does not appear in this list, install Zadig and bind the WinUSB driver to it. After you replug the device, it will show up here.",
 		DevicesZadigDownload:              "Download Zadig",
-		DevicesUSBHelpTitle:               "Raw USB passthrough on Windows",
+		DevicesUSBHelpTitle:               "USB-Passthrough on Windows",
 		DevicesUSBHelpText:                "Keyboards, mice, pens and other HID devices, as well as Xbox gamepads, are passed through with no extra setup.\n\nTo pass any other device through raw (storage, adapters, custom hardware), Windows must use the WinUSB driver for it. Replace the device's driver with WinUSB using Zadig: select the device, choose WinUSB as the target driver and click Replace Driver.\n\nReinstall the original driver in Device Manager to return the device to normal use.",
 		DevicesUSBHelpOpenZadig:           "Open Zadig website",
 		DevicesEmptyNetwork:               "No network bridge devices",
@@ -870,9 +870,9 @@ func EN() *LocalizedStrings {
 		DevicesSectionConnectivityHint:    "RNDIS bridge and channel infrastructure used to link the remote host.",
 		DevicesSectionAudio:               "Audio",
 		DevicesSectionAudioHint:           "Audio capture sources and USB Audio Codec gadget.",
-		DevicesSectionPassthrough:         "Raw USB",
+		DevicesSectionPassthrough:         "USB-Passthrough",
 		DevicesSectionPassthroughHint:     "Redirect a local USB device into the remote Windows session.",
-		USBPassthroughEnterpriseHint:      "Requires Enterprise on the Windows agent.",
+		USBPassthroughProHint:             "Requires Pro on the Windows agent.",
 		USBPassthroughProtected:           "Protected (session input / capture)",
 		USBPassthroughInputMonitoring:     "USB passthrough for this device needs Input Monitoring access on macOS.",
 		USBPassthroughOpenSettingsButton:  "Open Input Monitoring Settings",
