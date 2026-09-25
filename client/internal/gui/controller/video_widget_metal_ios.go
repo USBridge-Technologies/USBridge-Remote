@@ -176,34 +176,16 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 
 	if keysH > 0 {
 		videoTop := safeTop + keysH
-		// Remaining height inside the Fyne content area below the keys.
-		videoH := canvasH - keysH
-		if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
-			// Canvas already shrinks for the soft keyboard on iOS — do not
-			// subtract ime again.
-		} else {
-			clipH := videoClipHeightFromCanvas(topOffset, szVideo.Height, canvasH)
-			// Keep footer chrome when IME is closed: clip to chrome-aware height.
-			avail := clipH - (videoTop - topOffset)
-			if safeTop < 1 {
-				avail = clipH - keysH
-			}
-			if avail > 0 && avail < videoH {
-				videoH = avail
-			}
-		}
-		if videoH > 0 {
-			return 0, videoTop, width, videoH
+		if szVideo.Height > 0 {
+			return 0, videoTop, width, szVideo.Height
 		}
 	}
 
-	if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
-		videoH := canvasH - keysH
-		if videoH > 0 {
-			return 0, safeTop + keysH, width, videoH
-		}
+	if szVideo.Height > 0 {
+		return 0, topOffset, width, szVideo.Height
 	}
 
+	// Fallback if layout hasn't settled
 	clipH := videoClipHeightFromCanvas(topOffset, szVideo.Height, canvasH)
 	return 0, topOffset, width, clipH
 }
@@ -423,9 +405,10 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 		return vw.contentRectX, topOffset + vw.contentRectY, vw.contentRectW, vw.contentRectH
 	}
 
-	// The video container (touchpadWrapper) size dynamically shrinks when the virtual
-	// keyboard panel appears at the bottom.
 	szVideo := vw.touchpadWrapper.Size()
+	if szVideo.Height > 0 {
+		return 0, topOffset, szVideo.Width, szVideo.Height
+	}
 	clipH := videoClipHeightFromCanvas(topOffset, szVideo.Height, canvasH)
 	return 0, topOffset, szVideo.Width, clipH
 }
