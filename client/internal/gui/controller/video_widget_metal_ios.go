@@ -156,10 +156,8 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
 	// AbsolutePositionForObject is unreliable on iOS (may return wrong positive
-	// values before layout settles). Derive Y from canvas/container sizes, but
-	// subtract Control chrome — canvasH−szMain alone is header+footer and the
-	// overlay would cover the bottom bar after Metal starts.
-	topOffset := videoTopOffsetFromCanvas(szMain.Height, canvasH)
+	pos := vw.videoContainerOrigin()
+	topOffset := pos.Y
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f,ch=%.0f", canvasH, szMain.Height, topOffset, videoChromeBelow()))
 
 	// Mobile keyboard stack: keys live in mainHeaderHost. Overlay-height is
@@ -414,16 +412,8 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	}
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := videoTopOffsetFromCanvas(szMain.Height, canvasH)
-	// When the keyboard is open, Fyne shrinks szMain by ~keyboardHeight, so topOffset
-	// grows to tabBarH + keyboardH. Subtract the IME height to recover the real tab bar Y.
-	// Landscape floating IME does not shrink the canvas — skip this adjustment.
-	if ime := getImeExpandHeightDp(); ime > 0 && imeCropsVideoOverlay() {
-		topOffset -= ime
-		if topOffset < 0 {
-			topOffset = 0
-		}
-	}
+	pos := vw.videoContainerOrigin()
+	topOffset := pos.Y
 	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,ime=%.0f,tO=%.0f,ch=%.0f", canvasH, szMain.Height, getImeExpandHeightDp(), topOffset, videoChromeBelow()))
 
 	// Apply zoom and pan coordinates directly to the native overlay frame!
