@@ -82,6 +82,7 @@ func takeMatchingTunnelKey(packet []byte) (busID string, key [32]byte, plaintext
 			continue
 		}
 		if pt, err := probeDecryptFirstFrame(e.key, packet); err == nil {
+			logrus.Infof("usbpass: tunnel key for busID=%s matched first frame, consuming it now", e.busID)
 			busID, key, plaintext, ok = e.busID, e.key, pt, true
 			continue // consumed: not carried into `live`
 		}
@@ -182,7 +183,7 @@ func handleTunnelConn(conn net.Conn, exportAddr string) {
 
 	busID, key, plaintext, ok := takeMatchingTunnelKey(packet)
 	if !ok {
-		logrus.Debugf("usbpass: tunnel: unauthenticated connection from %s dropped", conn.RemoteAddr())
+		logrus.Errorf("usbpass: tunnel: unauthenticated connection from %s dropped (key missing/consumed?)", conn.RemoteAddr())
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
