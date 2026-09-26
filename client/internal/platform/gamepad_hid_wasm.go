@@ -317,8 +317,18 @@ func buildHIDLayout(device js.Value) []hidReportLayout {
 							page = full >> 16
 							usage = full & 0xFFFF
 							if page == 0 {
-								// Fallback to collection's usage page
-								page = colPage
+								// First fallback: item's own usagePage
+								if !item.Get("usagePage").IsUndefined() {
+									page = item.Get("usagePage").Int()
+								}
+								// Second fallback: if still 0, use collection's page
+								if page == 0 {
+									page = colPage
+								}
+								// Third fallback: if it's a 1-bit field with small usage, it's almost certainly a Button
+								if page == 1 && reportSize == 1 && usage >= 1 && usage <= 32 {
+									page = hidUsagePageButton
+								}
 							}
 						}
 						
