@@ -300,36 +300,34 @@ func buildHIDLayout(device js.Value) []hidReportLayout {
 					logicalMax := item.Get("logicalMaximum").Int()
 					usages := item.Get("usages")
 					isRange := item.Get("isRange").Bool()
-					usageMin := 0
-					if isRange {
-						usageMin = item.Get("usageMinimum").Int()
-					}
-					
 					// We do not fully parse Array items yet, but generic DirectInput uses Variable bits anyway.
 					
 					for k := 0; k < reportCount; k++ {
 						usage := 0
 						page := 0
+						
 						if isRange {
-							usage = usageMin + k
-							page = hidUsagePageButton
+							fullMin := item.Get("usageMinimum").Int()
+							page = fullMin >> 16
+							usage = (fullMin & 0xFFFF) + k
 						} else if k < usages.Length() {
 							full := usages.Index(k).Int()
 							page = full >> 16
 							usage = full & 0xFFFF
+						}
+						
+						if page == 0 {
+							// First fallback: item's own usagePage
+							if !item.Get("usagePage").IsUndefined() {
+								page = item.Get("usagePage").Int()
+							}
+							// Second fallback: if still 0, use collection's page
 							if page == 0 {
-								// First fallback: item's own usagePage
-								if !item.Get("usagePage").IsUndefined() {
-									page = item.Get("usagePage").Int()
-								}
-								// Second fallback: if still 0, use collection's page
-								if page == 0 {
-									page = colPage
-								}
-								// Third fallback: if it's a 1-bit field with small usage, it's almost certainly a Button
-								if page == 1 && reportSize == 1 && usage >= 1 && usage <= 32 {
-									page = hidUsagePageButton
-								}
+								page = colPage
+							}
+							// Third fallback: if it's a 1-bit field with small usage, it's almost certainly a Button
+							if page == 1 && reportSize == 1 && usage >= 1 && usage <= 32 {
+								page = hidUsagePageButton
 							}
 						}
 						
