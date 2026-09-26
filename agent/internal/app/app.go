@@ -2265,32 +2265,61 @@ func (a *App) tickStreamerUpdate(ctx context.Context) {
 
 // deviceCertRegisterInterval is how often deviceCertWatchdog re-registers
 // this machine's current LAN IP with the backend (see internal/devicecert)
-// -- frequent enough that a DHCP lease change is picked up promptly (a
-// stale DNS record just means the browser web client can't reach this
-// agent by its device.usbridge.io hostname until the next tick, nothing
-// more serious), cheap enough (a single Cloudflare-API-backed Worker call)
-// not to matter at this cadence.
+// as a periodic heartbeat even when no IP change has been detected.
 const deviceCertRegisterInterval = 5 * time.Minute
+
+// deviceCertPollInterval is how frequently deviceCertWatchdog checks the local
+// routing table for IP address / interface changes.
+const deviceCertPollInterval = 3 * time.Second
 
 // deviceCertWatchdog keeps this machine's <label>.device.usbridge.io DNS
 // record and shared wildcard TLS cert (see internal/tlshost,
 // internal/devicecert) up to date -- what lets the browser-based web
 // client (client/web, loaded from https://web.usbridge.io) reach this
-// agent's HTTPS listener (a.tlsServer) at all; see tlshost's own module
-// doc comment for why a plain-HTTP or self-signed-HTTPS origin can't work
-// for that caller. Fires once immediately (mirrors streamerUpdateWatchdog)
-// so a freshly started agent gets a real hostname/cert without waiting a
-// full interval.
+// agent's HTTPS listener (a.tlsServer) at all.
+//
+// Actively monitors the local IP address of the egress network interface:
+// when a DHCP lease change, Wi-Fi switch, or manual IP change occurs, the new
+// LAN IP is immediately registered with the domain backend so the browser web
+// client can connect without waiting for the 5-minute fallback heartbeat.
 func (a *App) deviceCertWatchdog(ctx context.Context) {
-	a.tickDeviceCert(ctx)
-	ticker := time.NewTicker(deviceCertRegisterInterval)
+	var lastRegisteredIP string
+	var lastRegisterTime time.Time
+
+	runTick := func() {
+		ip := netutil.PreferredIPv4()
+		if ip == "" {
+			return
+		}
+		if err := a.tickDeviceCert(ctx); err == nil {
+			if lastRegisteredIP != "" && lastRegisteredIP != ip {
+				log.Printf("🌐 [app] device-cert: local IP changed (%s -> %s), registered domain", lastRegisteredIP, ip)
+			}
+			lastRegisteredIP = ip
+			lastRegisterTime = time.Now()
+		}
+	}
+
+	runTick()
+	ticker := time.NewTicker(deviceCertPollInterval)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			a.tickDeviceCert(ctx)
+			currentIP := netutil.PreferredIPv4()
+			if currentIP == "" {
+				continue
+			}
+			// Trigger registration if:
+			// 1. IP changed from last successfully registered IP
+			// 2. OR registration hasn't succeeded yet (lastRegisterTime is zero)
+			// 3. OR periodic heartbeat interval (5m) has elapsed
+			if currentIP != lastRegisteredIP || lastRegisterTime.IsZero() || time.Since(lastRegisterTime) >= deviceCertRegisterInterval {
+				runTick()
+			}
 		}
 	}
 }
@@ -2303,15 +2332,15 @@ func (a *App) deviceCertWatchdog(ctx context.Context) {
 // this ticks. Best-effort throughout: any failure here just leaves the
 // self-signed fallback (or whatever device cert is already installed) in
 // place until the next tick, never blocks or crashes the agent.
-func (a *App) tickDeviceCert(ctx context.Context) {
+func (a *App) tickDeviceCert(ctx context.Context) error {
 	hwID, err := hwid.Get()
 	if err != nil {
 		log.Printf("[app] device-cert: hwid unavailable: %v", err)
-		return
+		return fmt.Errorf("hwid unavailable: %w", err)
 	}
 	ip := netutil.PreferredIPv4()
 	if ip == "" {
-		return // no LAN interface up yet (e.g. still booting) -- next tick retries
+		return fmt.Errorf("no LAN interface up")
 	}
 
 	regCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -2319,12 +2348,22 @@ func (a *App) tickDeviceCert(ctx context.Context) {
 	cancel()
 	if err != nil {
 		log.Printf("[app] device-cert: register IP failed: %v", err)
-		return
+		return fmt.Errorf("register IP failed: %w", err)
+	}
+
+	if a.tlsMgr != nil {
+		selfSignedIPs := []net.IP{net.ParseIP("127.0.0.1")}
+		if parsed := net.ParseIP(ip); parsed != nil {
+			selfSignedIPs = append(selfSignedIPs, parsed)
+		}
+		if err := a.tlsMgr.EnsureSelfSigned(selfSignedIPs, nil); err != nil {
+			log.Printf("[app] device-cert: update self-signed TLS cert: %v", err)
+		}
 	}
 
 	currentHostname, needsRefresh := a.tlsMgr.DeviceCertStatus()
 	if currentHostname == hostname && !needsRefresh {
-		return
+		return nil
 	}
 
 	certCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -2332,11 +2371,13 @@ func (a *App) tickDeviceCert(ctx context.Context) {
 	cancel()
 	if err != nil {
 		log.Printf("[app] device-cert: fetch cert failed: %v", err)
-		return
+		return fmt.Errorf("fetch cert failed: %w", err)
 	}
 	if err := a.tlsMgr.InstallDeviceCert(hostname, cert.CertPEM, cert.KeyPEM); err != nil {
 		log.Printf("[app] device-cert: install cert failed: %v", err)
+		return fmt.Errorf("install cert failed: %w", err)
 	}
+	return nil
 }
 
 // recheckEntitlement re-verifies whatever's currently cached in

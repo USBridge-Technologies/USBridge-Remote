@@ -151,3 +151,44 @@ func TestTickDeviceCert_SkipsCertFetchWhenHostnameUnchangedAndFresh(t *testing.T
 		t.Errorf("GET /v1/device/cert called %d times, want 1 (second tick should skip the fetch, see DeviceCertStatus)", certRequests)
 	}
 }
+
+func TestTickDeviceCert_ReusesCertOnIPChange(t *testing.T) {
+	if netutil.PreferredIPv4() == "" {
+		t.Skip("no LAN interface available in this sandbox to derive a preferred IPv4 from")
+	}
+
+	dnsRegistrations := 0
+	certRequests := 0
+	withDeviceCertBackendURL(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/device/dns":
+			dnsRegistrations++
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"hostname": "abc123.device.usbridge.test"})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/device/cert":
+			certRequests++
+			certPEM, keyPEM := generateTestServerCert(t, "abc123.device.usbridge.test")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(devicecert.Cert{CertPEM: certPEM, KeyPEM: keyPEM, HostnameSuffix: "device.usbridge.test", NotAfter: "2027-01-01T00:00:00Z"})
+		}
+	})).URL)
+
+	a := newTestAppWithTLS(t)
+
+	// First tick registers IP and fetches wildcard cert once
+	if err := a.tickDeviceCert(context.Background()); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+
+	// Second tick (simulating IP change or re-check): DNS registered again, but cert is reused!
+	if err := a.tickDeviceCert(context.Background()); err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+
+	if dnsRegistrations != 2 {
+		t.Errorf("POST /v1/device/dns called %d times, want 2", dnsRegistrations)
+	}
+	if certRequests != 1 {
+		t.Errorf("GET /v1/device/cert called %d times, want 1 (wildcard cert must be reused across IP changes)", certRequests)
+	}
+}
