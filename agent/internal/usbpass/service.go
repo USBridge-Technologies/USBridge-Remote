@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -178,6 +179,8 @@ func (s *Service) Start() error {
 	}
 	s.cmd = cmd
 	s.exe = exe
+	startedAt := time.Now()
+	logPath := filepath.Join(cmd.Dir, "broker.log")
 	// cmd.Wait()'s result used to be discarded outright, which meant a
 	// broker that exits immediately after a successful fork (e.g. the
 	// entitlement/enterprise gate inside rust-shine rejecting) was
@@ -199,9 +202,44 @@ func (s *Service) Start() error {
 		s.mu.Unlock()
 		if err != nil {
 			log.Printf("[usbpass] broker exited: %v", err)
+			// A crash within a couple seconds of launch is the signature of
+			// a startup-time failure (most commonly: another process already
+			// holds the URB port -- confirmed live on a Windows test machine
+			// where WsToastNotification.exe raced the broker for port 8090
+			// on every boot, silently, for over an hour, with nothing but
+			// this one now-orphaned "exit status 1" anywhere in the agent's
+			// own log to go on). broker.log has the real reason (rust-shine
+			// logs its own bind error via tracing before exiting), but
+			// nobody reads a separate per-subprocess log file proactively --
+			// surface its last lines here, in the log actually being
+			// watched, and identify whatever's squatting the port while
+			// we're at it so the fix doesn't need manual netstat/tasklist
+			// archaeology next time.
+			if time.Since(startedAt) < 5*time.Second {
+				for _, line := range tailFile(logPath, 6) {
+					log.Printf("[usbpass] broker.log: %s", line)
+				}
+				if who := whatHoldsPort(s.urbPort); who != "" {
+					log.Printf("[usbpass] port %d is held by %s -- that's almost certainly why the broker failed to bind it", s.urbPort, who)
+				}
+			}
 		}
 	}()
 	return nil
+}
+
+// tailFile returns the last n non-empty lines of path, oldest first, or nil
+// if it can't be read -- best-effort diagnostic, never fatal.
+func tailFile(path string, n int) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
 }
 
 func (s *Service) Stop() {

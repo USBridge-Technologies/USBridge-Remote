@@ -788,6 +788,7 @@ func (a *App) Run(headless, startHidden bool) error {
 	// watchdog now" bookkeeping.
 	go a.entitlementWatchdog(ctx)
 	go a.streamerUpdateWatchdog(ctx)
+	go a.usbBrokerWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
 	// Gated by the "Enable HTTPS" checkbox (see ui's HTTP Listen Address
@@ -2431,6 +2432,56 @@ func (a *App) recheckEntitlement(ctx context.Context) bool {
 	a.ensureRustShineFresh(ctx, res.Token)
 	a.ensureUSBBroker(ctx, res.Token)
 	return true
+}
+
+// usbBrokerWatchdogInterval is how often usbBrokerWatchdog checks whether
+// the usb-broker subprocess is actually alive and restarts it if not.
+// ensureUSBBroker (below) only ever stages+starts it once, gated on
+// Staged() -- which just checks the binary exists on disk, not that the
+// process is actually running -- so a broker that crashes after a
+// successful launch (fork succeeded, cmd.Start() returned nil, so Go never
+// saw a staging failure) stayed dead forever until this watchdog existed.
+// Confirmed live: an unrelated Windows process (WsToastNotification.exe)
+// happened to be squatting on the broker's hardcoded URB port, so the
+// broker's own bind() failed at startup and it exited immediately -- the
+// agent kept relaying every USB-passthrough Hello into that *other*
+// process's own HTTP listener on the same port instead, indefinitely, and
+// every attach failed with a misleading "requires a license" error with no
+// hint anywhere that the actual broker had died over an hour earlier.
+// Mirrors sunshineWatchdog's exact shape: Start() is an idempotent no-op
+// when the broker is already running (see Service.Start's own guard), so
+// calling it unconditionally every tick is safe.
+const usbBrokerWatchdogInterval = 15 * time.Second
+
+// usbBrokerWatchdog periodically verifies the broker's control-plane port
+// actually answers (Service.Status's BrokerAlive, a real dial+status-query
+// against 127.0.0.1:<controlAddr>, not just "is a *os.Process handle set")
+// and restarts it if not -- see this const's own doc comment for why
+// ensureUSBBroker's one-shot staging call can't catch this on its own.
+func (a *App) usbBrokerWatchdog(ctx context.Context) {
+	if a.usbBroker == nil {
+		return
+	}
+	ticker := time.NewTicker(usbBrokerWatchdogInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if !a.cfg.USBBrokerConsentGiven() || !a.usbBroker.Staged() {
+			continue
+		}
+		if a.usbBroker.Status().BrokerAlive {
+			continue
+		}
+		if err := a.usbBroker.Start(); err != nil {
+			log.Printf("[usbpass] broker restart failed: %v", err)
+		} else {
+			log.Printf("[usbpass] broker was not alive -- restarted")
+		}
+	}
 }
 
 // ensureUSBBroker stages and starts the usb-broker regardless of which
