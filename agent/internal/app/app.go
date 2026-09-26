@@ -583,6 +583,7 @@ func New() (*App, error) {
 	instance.removeLegacyKMSGrants()
 	instance.syncSunshineCapExec()
 	apiServer := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort)
+	apiServer.SetSelfHTTPPort(cfg.HTTPPort)
 	// Started unconditionally (like ts itself, which doesn't actually spin up
 	// tsnet until Server() is first called) rather than gated on
 	// cfg.TailscaleEnabled: Tailscale can be toggled on later without this

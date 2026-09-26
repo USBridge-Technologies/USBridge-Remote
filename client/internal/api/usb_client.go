@@ -79,6 +79,11 @@ type USBClient struct {
 	transportErrorMu      sync.Mutex
 	transportErrorCount   int
 	lastTransportErrorAt  time.Time
+
+	// openDataChannel, when set, lets every request this client makes ride
+	// the WebRTC PeerConnection's "api-tunnel" DataChannel instead of a
+	// direct fetch() -- see SetOpenDataChannel's own doc comment.
+	openDataChannel func(label string) (net.Conn, error)
 }
 
 func NewUSBClient(host string, port int, timeout int) *USBClient {
@@ -197,6 +202,34 @@ func (c *USBClient) SetOnTransportError(handler func(error)) {
 
 func (c *USBClient) SetCursorUpdateHandler(handler func(models.CursorState)) {
 	c.cursorUpdateHandler = handler
+}
+
+// SetOpenDataChannel wires this client's requests to prefer the WebRTC
+// PeerConnection's "api-tunnel" DataChannel over a direct fetch() whenever
+// one can be opened -- the same optional-interface-probe pattern already
+// used for browser USB/gamepad/pen passthrough and clipboard sync (see
+// ClipboardSync.SetOpenDataChannel's doc comment). Direct/Tailscale mode
+// keeps working exactly as before: fn is wired unconditionally from
+// gui.attachUSBClient regardless of connection mode (mw.videoClient's
+// OpenDataChannel is a real method on every platform, see
+// service.VideoClient's doc comment), and webrtcAPITransport.RoundTrip only
+// actually uses the tunnel once fn succeeds -- which it can't until a
+// WebRTC PeerConnection exists (SendMoonlightKey/ConnectToMoonlight
+// territory) -- falling back to a normal fetch()-backed round trip
+// otherwise, exactly like ClipboardSync.dial does. This is what lets a
+// fully remote browser session (no LAN route, no OS-level Tailscale peer,
+// mixed-content blocking every direct http:// fetch from an https-loaded
+// page) reach /api/*+/v1/sync/* at all once video/input are up, instead of
+// only those two working while every other call sits blocked.
+func (c *USBClient) SetOpenDataChannel(fn func(label string) (net.Conn, error)) {
+	c.openDataChannel = fn
+	if fn == nil || c.httpClient == nil {
+		return
+	}
+	c.httpClient.Transport = &webrtcAPITransport{
+		openDataChannel: fn,
+		fallback:        c.httpClient.Transport,
+	}
 }
 
 func (c *USBClient) noteSuccessfulTransportRequest() {
@@ -1084,13 +1117,14 @@ func (c *USBClient) PostRawWithTimeout(endpoint string, body []byte, timeout tim
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	oneOff := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			Proxy:        http.ProxyURL(nil),
-			TLSNextProto: make(map[string]func(authority string, conn *tls.Conn) http.RoundTripper),
-		},
+	var oneOffTransport http.RoundTripper = &http.Transport{
+		Proxy:        http.ProxyURL(nil),
+		TLSNextProto: make(map[string]func(authority string, conn *tls.Conn) http.RoundTripper),
 	}
+	if c.openDataChannel != nil {
+		oneOffTransport = &webrtcAPITransport{openDataChannel: c.openDataChannel, fallback: oneOffTransport}
+	}
+	oneOff := &http.Client{Timeout: timeout, Transport: oneOffTransport}
 	resp, err := oneOff.Do(req)
 	if err != nil {
 		wrappedErr := fmt.Errorf("request failed: %v", err)

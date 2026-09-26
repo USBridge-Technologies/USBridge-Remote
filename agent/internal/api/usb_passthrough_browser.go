@@ -418,6 +418,15 @@ const usbPassBridgePreambleMaxLen = 256
 //	                        framedJSONConn and clipboard.go's
 //	                        runClipboardDuplex, which this shares with the
 //	                        browser's own direct /api/clipboard/ws path.
+//	API\n                -- no bus_id (one connection per HTTP request/
+//	                        response pair). Relayed byte-for-byte into
+//	                        this agent's own plain-HTTP API port
+//	                        (selfHTTPPort), exactly like ATTACH relays
+//	                        into the broker's port: a raw HTTP/1.1 request
+//	                        in, a raw HTTP/1.1 response out. See
+//	                        usbPassBridgeAPI's own doc comment for why the
+//	                        web client's ordinary /api/*+/v1/sync/* calls
+//	                        need this too, not just USB passthrough.
 //
 // Unauthenticated by design: this listener only ever binds 127.0.0.1, on a
 // port never handed to the browser or advertised outside this machine --
@@ -457,6 +466,10 @@ func (s *Server) handleUSBPassBridgeConn(conn net.Conn) {
 	// malformed for having no space.
 	if trimmed == "CLIPBOARD" {
 		s.usbPassBridgeClipboard(conn, reader)
+		return
+	}
+	if trimmed == "API" {
+		s.usbPassBridgeAPI(conn, reader)
 		return
 	}
 
@@ -506,6 +519,50 @@ func (s *Server) usbPassBridgeAttach(conn net.Conn, reader *bufio.Reader) {
 	go func() {
 		defer func() { done <- struct{}{} }()
 		_, _ = io.Copy(conn, broker)
+	}()
+	<-done
+}
+
+// usbPassBridgeAPI relays raw bytes between the bridge connection (an "API"
+// preamble, see handleUSBPassBridgeConn) and this agent's own plain-HTTP API
+// port (selfHTTPPort) -- the same byte-for-byte relay usbPassBridgeAttach
+// does into the USB broker, just pointed at localhost's own HTTP server
+// instead. This is what lets client/internal/api.USBClient's ordinary
+// /api/*+/v1/sync/* calls (healthz, status, devices, sync, ...) ride the
+// WebRTC PeerConnection once one exists, instead of a direct fetch() from
+// the browser: rustshine terminates the "api-tunnel" DataChannel on the
+// other end (see rust-shine's usbpass_bridge.rs::attach_api_channel) and
+// dials in here per request, exactly one HTTP request/response pair per
+// DataChannel/connection -- there's no keep-alive to preserve across
+// connections, so a plain io.Copy in both directions until either side
+// closes is enough; the HTTP/1.1 framing itself (Content-Length/chunked,
+// Connection: close) is entirely the two real net/http endpoints' problem,
+// not this relay's.
+//
+// Skipped (connection just closed) when selfHTTPPort was never wired
+// (SetSelfHTTPPort not called, e.g. an older agent build) -- same
+// "nothing to relay into" handling as usbPassBridgeAttach's s.usb == nil
+// check above.
+func (s *Server) usbPassBridgeAPI(conn net.Conn, reader *bufio.Reader) {
+	if s.selfHTTPPort == 0 {
+		log.Printf("[api] usbpass bridge api: selfHTTPPort not configured")
+		return
+	}
+	local, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", s.selfHTTPPort))
+	if err != nil {
+		log.Printf("[api] usbpass bridge api: dial self: %v", err)
+		return
+	}
+	defer local.Close()
+
+	done := make(chan struct{}, 2)
+	go func() {
+		defer func() { done <- struct{}{} }()
+		_, _ = io.Copy(local, reader)
+	}()
+	go func() {
+		defer func() { done <- struct{}{} }()
+		_, _ = io.Copy(conn, local)
 	}()
 	<-done
 }

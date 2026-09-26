@@ -10,6 +10,12 @@ func (s *Server) SetUSBPassthrough(svc *usbpass.Service) {
 	s.usb = svc
 }
 
+// SetSelfHTTPPort wires this agent's own plain-HTTP listen port -- see
+// Server.selfHTTPPort's doc comment.
+func (s *Server) SetSelfHTTPPort(port int) {
+	s.selfHTTPPort = port
+}
+
 func (s *Server) usbPassthroughStatus(w http.ResponseWriter, r *http.Request) {
 	if s.usb == nil {
 		s.ok(w, "usb_passthrough", usbpass.Status{Available: false, Platform: "disabled"})

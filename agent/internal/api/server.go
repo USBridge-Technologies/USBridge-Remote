@@ -96,6 +96,18 @@ type Server struct {
 
 	usb *usbpass.Service
 
+	// selfHTTPPort is this agent's own plain-HTTP listen port (cfg.HTTPPort,
+	// wired via SetSelfHTTPPort) -- StartUSBPassBridge's "API" preamble
+	// dials 127.0.0.1:<selfHTTPPort> to relay the browser web client's
+	// WebRTC-tunneled /api/*+/v1/sync/* traffic back into this same
+	// process's own Routes() handler, the same way usbPassBridgeAttach
+	// dials the USB broker's port. Always the plain-HTTP listener, never
+	// TLSPort: the DataChannel this arrived over is already
+	// DTLS-encrypted end to end, so a second TLS handshake for a
+	// loopback-only hop would just add a self-signed-cert dance for no
+	// security benefit.
+	selfHTTPPort int
+
 	clipboardBlobs *clipboardBlobStore
 
 	virtMu          sync.Mutex
