@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"runtime"
 	"time"
 
 	"usbridge-client/internal/gui/view"
@@ -78,6 +79,29 @@ func (mw *MainWindow) observeContentResize(size, minSize fyne.Size) {
 	if view.ForceMobileDesign {
 		p := view.CurrentPhonePreview()
 		mw.lastGoodWindowSize = fyne.NewSize(p.Width, p.Height)
+		return
+	}
+
+	// The minimize/restore snap-to-MinSize this guard works around is a
+	// Windows GLFW driver bug (see the type doc above) -- it doesn't exist
+	// on the browser build, where the canvas is instead resized by glfw-js
+	// from the page's own DOM layout (see index.html's installViewportFollow
+	// and its "resize" dispatch). There, a legitimate later layout pass can
+	// report a genuinely smaller size than an earlier one purely from normal
+	// browser causes this guard has no way to tell apart from the Windows
+	// glitch: the very first layout can fire before devtools/scrollbars/
+	// zoom have settled into the page's final clientWidth/clientHeight, so
+	// mw.lastGoodWindowSize latches an inflated size, and the guard then
+	// forces the window back to it the moment the real (smaller) size
+	// arrives -- clipping the content by exactly the gap between the two,
+	// which is what a docked DevTools panel or a slightly-too-high browser
+	// zoom looks like. Skipping the restore on js leaves lastGoodWindowSize
+	// tracking (used elsewhere) intact and just never fights the browser's
+	// own sizing.
+	if runtime.GOOS == "js" {
+		if size.Width >= minConfiguredWindowWidth && size.Height >= minConfiguredWindowHeight {
+			mw.lastGoodWindowSize = size
+		}
 		return
 	}
 
