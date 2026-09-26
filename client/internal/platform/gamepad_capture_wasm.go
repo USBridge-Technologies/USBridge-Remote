@@ -16,6 +16,9 @@ package platform
 
 import (
 	"encoding/binary"
+	"math"
+	"strconv"
+	"strings"
 	"syscall/js"
 	"time"
 )
@@ -113,6 +116,50 @@ func decodeGamepad(pad js.Value) []byte {
 	buttons := pad.Get("buttons")
 	axes := pad.Get("axes")
 
+	mappingStr := pad.Get("mapping").String()
+	if mappingStr != "standard" {
+		id := pad.Get("id").String()
+		if vid, pid, ok := parseBrowserGamepadID(id); ok {
+			if m := sdlMappingFor(vid, pid); m != nil {
+				var in joyInput
+				nAxes := axes.Length()
+				for i := 0; i < nAxes && i < 6; i++ {
+					in.axes[sdlAxisToJoy[i]] = axes.Index(i).Float()
+				}
+				if nAxes > 9 {
+					povFloat := axes.Index(9).Float()
+					if povFloat >= -1.0 && povFloat <= 1.0 {
+						val := int(math.Round((povFloat + 1.0) / 2.0 * 7.0))
+						switch val {
+						case 0: in.pov = 0
+						case 1: in.pov = 4500
+						case 2: in.pov = 9000
+						case 3: in.pov = 13500
+						case 4: in.pov = 18000
+						case 5: in.pov = 22500
+						case 6: in.pov = 27000
+						case 7: in.pov = 31500
+						}
+					} else {
+						in.pov = -1
+					}
+				} else {
+					in.pov = -1
+				}
+
+				nBtns := buttons.Length()
+				for i := 0; i < nBtns && i < 32; i++ {
+					if buttons.Index(i).Get("pressed").Bool() {
+						in.buttons |= (1 << uint(i))
+					}
+				}
+				
+				st := m.capture(in)
+				return EncodeBrowserGamepadFrame(st.Buttons, st.LeftTrigger, st.RightTrigger, st.LeftX, st.LeftY, st.RightX, st.RightY)
+			}
+		}
+	}
+
 	btnPressed := func(i int) bool {
 		if i >= buttons.Length() {
 			return false
@@ -196,4 +243,26 @@ func decodeGamepad(pad js.Value) []byte {
 	rightY := -toAxis(axis(3))
 
 	return EncodeBrowserGamepadFrame(flags, leftTrigger, rightTrigger, leftX, leftY, rightX, rightY)
+}
+
+func parseBrowserGamepadID(id string) (vid, pid uint16, ok bool) {
+	idx := strings.Index(id, "Vendor: ")
+	if idx >= 0 && idx+12 <= len(id) {
+		v, err1 := strconv.ParseUint(id[idx+8:idx+12], 16, 16)
+		idx2 := strings.Index(id, "Product: ")
+		if idx2 >= 0 && idx2+13 <= len(id) && err1 == nil {
+			p, err2 := strconv.ParseUint(id[idx2+9:idx2+13], 16, 16)
+			if err2 == nil {
+				return uint16(v), uint16(p), true
+			}
+		}
+	}
+	if len(id) >= 9 && id[4] == '-' && id[9] == '-' {
+		v, err1 := strconv.ParseUint(id[0:4], 16, 16)
+		p, err2 := strconv.ParseUint(id[5:9], 16, 16)
+		if err1 == nil && err2 == nil {
+			return uint16(v), uint16(p), true
+		}
+	}
+	return 0, 0, false
 }
