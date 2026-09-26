@@ -280,6 +280,7 @@ func buildHIDLayout(device js.Value) []hidReportLayout {
 	collections := device.Get("collections")
 	var walk func(js.Value)
 	walk = func(col js.Value) {
+		colPage := col.Get("usagePage").Int()
 		reports := col.Get("inputReports")
 		if !reports.IsUndefined() {
 			n := reports.Length()
@@ -302,29 +303,25 @@ func buildHIDLayout(device js.Value) []hidReportLayout {
 					if isRange {
 						usageMin = item.Get("usageMinimum").Int()
 					}
+					
+					// We do not fully parse Array items yet, but generic DirectInput uses Variable bits anyway.
+					
 					for k := 0; k < reportCount; k++ {
 						usage := 0
 						page := 0
 						if isRange {
 							usage = usageMin + k
-							// isRange items encode page+usage combined into
-							// usageMinimum/usageMaximum on some engines and
-							// split on others; the button page is what every
-							// gamepad range item in practice uses, so a bare
-							// low 16 bits is the usage id either way.
 							page = hidUsagePageButton
 						} else if k < usages.Length() {
 							full := usages.Index(k).Int()
 							page = full >> 16
 							usage = full & 0xFFFF
 							if page == 0 {
-								// Some engines report a plain usage id here
-								// (no page packed in); fall back to the
-								// item's own usagePage field.
-								page = item.Get("usagePage").Int()
-								usage = full
+								// Fallback to collection's usage page
+								page = colPage
 							}
 						}
+						
 						fields = append(fields, hidField{
 							usagePage:  page,
 							usage:      usage,
@@ -362,9 +359,8 @@ func buildHIDLayout(device js.Value) []hidReportLayout {
 	return layouts
 }
 
-// readField extracts one field's raw unsigned integer from a report's raw
-// bytes, LSB-first bit packing per the USB HID spec (the same convention
-// every field in a HID report uses, buttons included).
+// readField extracts one field's raw integer from a report's raw
+// bytes, LSB-first bit packing per the USB HID spec. Sign-extends if logicalMin < 0.
 func readField(data []byte, f hidField) int {
 	var v uint32
 	for i := 0; i < f.bitSize; i++ {
@@ -378,7 +374,17 @@ func readField(data []byte, f hidField) int {
 			v |= 1 << uint(i)
 		}
 	}
-	return int(v)
+	
+	// Sign extension
+	if f.logicalMin < 0 && f.bitSize > 0 && f.bitSize < 32 {
+		signBit := uint32(1 << (f.bitSize - 1))
+		if v&signBit != 0 {
+			mask := ^uint32(0) << f.bitSize
+			v |= mask
+		}
+	}
+	
+	return int(int32(v))
 }
 
 // HIDGamepadCapture is an active WebHID oninputreport capture.
@@ -388,12 +394,7 @@ type HIDGamepadCapture struct {
 }
 
 // StartHIDGamepadCapture decodes id's (see RegisterHIDDevice) raw input
-// reports into EncodeBrowserGamepadFrame-shaped frames, using
-// gamepad_sdlmap.go's SDL_GameControllerDB mapping when the device's
-// VID:PID is known, falling back to genericHIDMapping's fixed usage-order
-// assumption otherwise. onFrame is called from the browser's own
-// oninputreport event, not a polling loop -- HID reports only arrive on
-// change already, unlike the Gamepad API's snapshot-based getGamepads().
+// reports into EncodeBrowserGamepadFrame-shaped frames.
 func StartHIDGamepadCapture(id string, onFrame func([]byte)) (*HIDGamepadCapture, error) {
 	hidDevicesMu.Lock()
 	device, ok := hidDevices[id]
@@ -415,10 +416,6 @@ func StartHIDGamepadCapture(id string, onFrame func([]byte)) (*HIDGamepadCapture
 
 	c := &HIDGamepadCapture{device: device}
 	c.listener = js.FuncOf(func(this js.Value, args []js.Value) (result interface{}) {
-		// See pen_capture_wasm.go's StartBrowserPenCapture for why this
-		// recover exists: an uncaught panic in any goroutine (including one
-		// a browser event drives) kills the entire wasm program, not just
-		// this one report.
 		defer func() {
 			if r := recover(); r != nil {
 				logrus.Warnf("usbpass(wasm): gamepad oninputreport panic recovered: %v", r)
@@ -451,6 +448,7 @@ func StartHIDGamepadCapture(id string, onFrame func([]byte)) (*HIDGamepadCapture
 		in.pov = -1
 		for _, f := range layout.fields {
 			rawVal := readField(raw, f)
+			
 			switch {
 			case f.usagePage == hidUsagePageButton && f.usage >= 1 && f.usage <= 32:
 				if rawVal != 0 {
@@ -474,20 +472,14 @@ func StartHIDGamepadCapture(id string, onFrame func([]byte)) (*HIDGamepadCapture
 	return c, nil
 }
 
-// Stop detaches the oninputreport listener. The HIDDevice itself is left
-// open (and registered) so a later mount can resume capture without a fresh
-// permission prompt.
+// Stop detaches the oninputreport listener.
 func (c *HIDGamepadCapture) Stop() {
 	c.device.Set("oninputreport", js.Null())
 	c.listener.Release()
 }
 
 // hidAxisIndex maps a Generic Desktop usage to gamepad_sdlmap.go's joyInput
-// axis slot, in direct usage order (X,Y,Z,Rx,Ry,Rz) -- unlike
-// gamepad_capture_windows.go's sdlAxisToJoy, no remap table is needed here:
-// that table exists only to correct WinMM's own opaque axis numbering
-// (see its doc comment), which this code never goes through -- these axes
-// come straight from the descriptor's own usage, already unambiguous.
+// axis slot, matching WinMM order (sdlAxisToJoy) so sdlMapping.capture reads it correctly.
 func hidAxisIndex(usage int) (int, bool) {
 	switch usage {
 	case hidUsageX:
@@ -497,17 +489,16 @@ func hidAxisIndex(usage int) (int, bool) {
 	case hidUsageZ:
 		return 2, true
 	case hidUsageRx:
-		return 3, true
+		return 5, true // V
 	case hidUsageRy:
-		return 4, true
+		return 4, true // U
 	case hidUsageRz:
-		return 5, true
+		return 3, true // R
 	}
 	return 0, false
 }
 
-// hidAxisUnit scales a raw axis value to -1..1 given the field's own
-// logical range, the same normalization winmmUnit does for WinMM.
+// hidAxisUnit scales a raw axis value to -1..1 given the field's own logical range.
 func hidAxisUnit(raw, lo, hi int) float64 {
 	if hi <= lo {
 		return 0
