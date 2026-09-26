@@ -34,6 +34,7 @@ package platform
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall/js"
 
@@ -426,6 +427,14 @@ func StartHIDGamepadCapture(id string, onFrame func([]byte)) (*HIDGamepadCapture
 	logrus.Infof("WebHID capture started for %04x:%04x (has_sdl_mapping=%v, name=%q)", vid, pid, hasSdlMap, device.Get("productName").String())
 
 	layouts := buildHIDLayout(device)
+	
+	for _, l := range layouts {
+		var fieldStrs []string
+		for _, f := range l.fields {
+			fieldStrs = append(fieldStrs, fmt.Sprintf("pg=%d usg=%d bit=%d sz=%d min=%d", f.usagePage, f.usage, f.bitOffset, f.bitSize, f.logicalMin))
+		}
+		logrus.Infof("WebHID layout [reportID=%d]: %s", l.reportID, strings.Join(fieldStrs, ", "))
+	}
 
 	c := &HIDGamepadCapture{device: device}
 	c.listener = js.FuncOf(func(this js.Value, args []js.Value) (result interface{}) {
@@ -455,6 +464,12 @@ func StartHIDGamepadCapture(id string, onFrame func([]byte)) (*HIDGamepadCapture
 		}
 		if layout == nil {
 			return nil
+		}
+		
+		// Debug raw frame once
+		if c.device.Get("loggedRawFrame").IsUndefined() {
+			c.device.Set("loggedRawFrame", true)
+			logrus.Infof("WebHID first raw frame [reportID=%d]: %x", reportID, raw)
 		}
 
 		var in joyInput
