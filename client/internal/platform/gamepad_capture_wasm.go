@@ -116,47 +116,44 @@ func decodeGamepad(pad js.Value) []byte {
 	buttons := pad.Get("buttons")
 	axes := pad.Get("axes")
 
-	mappingStr := pad.Get("mapping").String()
-	if mappingStr != "standard" {
-		id := pad.Get("id").String()
-		if vid, pid, ok := parseBrowserGamepadID(id); ok {
-			if m := sdlMappingFor(vid, pid); m != nil {
-				var in joyInput
-				nAxes := axes.Length()
-				for i := 0; i < nAxes && i < 6; i++ {
-					in.axes[sdlAxisToJoy[i]] = axes.Index(i).Float()
-				}
-				if nAxes > 9 {
-					povFloat := axes.Index(9).Float()
-					if povFloat >= -1.0 && povFloat <= 1.0 {
-						val := int(math.Round((povFloat + 1.0) / 2.0 * 7.0))
-						switch val {
-						case 0: in.pov = 0
-						case 1: in.pov = 4500
-						case 2: in.pov = 9000
-						case 3: in.pov = 13500
-						case 4: in.pov = 18000
-						case 5: in.pov = 22500
-						case 6: in.pov = 27000
-						case 7: in.pov = 31500
-						}
-					} else {
-						in.pov = -1
+	id := pad.Get("id").String()
+	if vid, pid, ok := parseBrowserGamepadID(id); ok {
+		if m := sdlMappingFor(vid, pid); m != nil {
+			var in joyInput
+			nAxes := axes.Length()
+			for i := 0; i < nAxes && i < 6; i++ {
+				in.axes[sdlAxisToJoy[i]] = axes.Index(i).Float()
+			}
+			if nAxes > 9 {
+				povFloat := axes.Index(9).Float()
+				if povFloat >= -1.0 && povFloat <= 1.0 {
+					val := int(math.Round((povFloat + 1.0) / 2.0 * 7.0))
+					switch val {
+					case 0: in.pov = 0
+					case 1: in.pov = 4500
+					case 2: in.pov = 9000
+					case 3: in.pov = 13500
+					case 4: in.pov = 18000
+					case 5: in.pov = 22500
+					case 6: in.pov = 27000
+					case 7: in.pov = 31500
 					}
 				} else {
 					in.pov = -1
 				}
-
-				nBtns := buttons.Length()
-				for i := 0; i < nBtns && i < 32; i++ {
-					if buttons.Index(i).Get("pressed").Bool() {
-						in.buttons |= (1 << uint(i))
-					}
-				}
-				
-				st := m.capture(in)
-				return EncodeBrowserGamepadFrame(st.Buttons, st.LeftTrigger, st.RightTrigger, st.LeftX, st.LeftY, st.RightX, st.RightY)
+			} else {
+				in.pov = -1
 			}
+
+			nBtns := buttons.Length()
+			for i := 0; i < nBtns && i < 32; i++ {
+				if buttons.Index(i).Get("pressed").Bool() {
+					in.buttons |= (1 << uint(i))
+				}
+			}
+			
+			st := m.capture(in)
+			return EncodeBrowserGamepadFrame(st.Buttons, st.LeftTrigger, st.RightTrigger, st.LeftX, st.LeftY, st.RightX, st.RightY)
 		}
 	}
 
