@@ -286,6 +286,10 @@ func legacyBinaryName() string {
 // falling back to legacy paths and PATH for local dev where it's
 // just been cargo-built and symlinked.
 func (b *rustshineBackend) BinaryPath() string {
+	// `-tags devstreamer` builds only; always "" in release builds.
+	if p := devStreamerOverride(); p != "" {
+		return p
+	}
 	if b.launchPath != "" {
 		return b.launchPath
 	}
@@ -681,8 +685,11 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		// SetCapExecPath), run the signed release bytes from the bundle
 		// next to launchPath instead of launchPath itself; the launcher
 		// raises CAP_SYS_ADMIN into the ambient set before exec.
+		// A devstreamer override is a local, unsigned build: exec it
+		// directly -- the launcher would (correctly) only ever run the
+		// signed bundle. See devstreamer_on.go.
 		var cmd *exec.Cmd
-		if b.capExecPath != "" {
+		if b.capExecPath != "" && devStreamerOverride() == "" {
 			bundle := streamerlaunch.BundleDir(filepath.Dir(launchPath))
 			cmd = exec.Command(b.capExecPath, append([]string{"--run", bundle, "--"}, args...)...)
 		} else {

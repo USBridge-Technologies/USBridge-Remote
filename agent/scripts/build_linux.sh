@@ -37,6 +37,25 @@ fi
 # entirely (see fetch_rustshine.sh's own removal) so there is exactly one
 # way RustShine ever reaches an agent install: the subscription-gated
 # download, never a build artifact.
+#
+# The one exception is local debugging: DEV_STREAMER=1 builds the agent with
+# `-tags devstreamer`, which compiles in the USBRIDGE_DEV_STREAMER override
+# (internal/streamhost/devstreamer_on.go) so a locally built streamer can be
+# run on a real install. CI always builds without it -- even if DEV_STREAMER=1
+# ends up set (env or hardcoded below), it's forced off under CI/GitHub
+# Actions -- and a local dev AppImage gets a "-devstreamer" suffix so it
+# can't be mistaken for a release.
+GO_TAGS=""
+APPIMAGE_SUFFIX=""
+if [[ "${DEV_STREAMER:-}" == "1" && ( -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ) ]]; then
+    echo -e "${YELLOW}DEV_STREAMER=1 ignored under CI: building the release agent without -tags devstreamer${NC}"
+    DEV_STREAMER=0
+fi
+if [[ "${DEV_STREAMER:-}" == "1" ]]; then
+    GO_TAGS="devstreamer"
+    APPIMAGE_SUFFIX="-devstreamer"
+    echo -e "${YELLOW}DEV_STREAMER=1: building with -tags devstreamer (USBRIDGE_DEV_STREAMER override enabled, NOT for release)${NC}"
+fi
 echo -e "${GREEN}Building usbridge_agent for Linux${NC}"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -51,7 +70,7 @@ export GOOS=linux
 export GOARCH=amd64
 
 echo -e "${YELLOW}Compiling agent...${NC}"
-go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUTPUT_PATH" "$BUILD_PKG"
+go build -trimpath -tags "$GO_TAGS" -ldflags "-s -w -X main.version=$VERSION" -o "$OUTPUT_PATH" "$BUILD_PKG"
 chmod +x "$OUTPUT_PATH"
 
 # usbridge-streamer-launch: tiny, fully static (CGO_ENABLED=0) launcher
@@ -154,7 +173,7 @@ fi
 
 # Build AppImage
 echo -e "${YELLOW}Packaging AppImage...${NC}"
-OUTPUT_APPIMAGE="$REPO_ROOT/dist/USBridgeAgent-Linux-x86_64-${VERSION}.AppImage"
+OUTPUT_APPIMAGE="$REPO_ROOT/dist/USBridgeAgent-Linux-x86_64-${VERSION}${APPIMAGE_SUFFIX}.AppImage"
 rm -f "$OUTPUT_APPIMAGE"
 
 # Some CI/container runners don't have a working FUSE mount for AppImages to
