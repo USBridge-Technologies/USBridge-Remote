@@ -16,6 +16,7 @@ import (
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
+	"usbridge_agent/internal/tlshost"
 	"usbridge_agent/internal/usbpass"
 )
 
@@ -300,6 +301,12 @@ func (c *Client) DeviceHostname() string {
 	var body stringBody
 	_ = c.do(http.MethodGet, "/token/device-hostname", nil, &body)
 	return body.Value
+}
+
+func (c *Client) CertStatus() tlshost.CertStatus {
+	var status tlshost.CertStatus
+	_ = c.do(http.MethodGet, "/token/cert-status", nil, &status)
+	return status
 }
 
 func (c *Client) StreamerRunning() bool {

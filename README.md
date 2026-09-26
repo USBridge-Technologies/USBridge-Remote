@@ -49,7 +49,7 @@ The Client is the control interface — installed on your workstation or laptop 
 
 Prefer a direct APK without a Play Store account? A self-updating build is also published on the [latest release](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
-🌐 **Zero-Install Web Client**: No installation required. Just open [web.usbridge.io](https://web.usbridge.io) to connect instantly. *(Note: The web client operates with some feature and performance limitations due to browser security sandbox and WebRTC constraints. For the full uncompromised experience, use the native apps).*
+🌐 **Zero-Install Web Client**: No installation required. Just open [web.usbridge.io](https://web.usbridge.io) to connect instantly. *(Note: The web client operates with some feature and performance limitations due to browser security sandbox and WebRTC constraints. For the full uncompromised experience, use the native apps).* On a freshly-started Agent it can take up to a minute to become reachable the first time (or after a network change) while it provisions a trusted HTTPS certificate for itself — see the Agent's **Status → Certificate** row, or the [Agent docs](agent/docs/README.md#platform-notes-from-the-top-level-readme) for details.
 
 ## Agent
 

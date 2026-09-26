@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"usbridge_agent/internal/tlshost"
 	"usbridge_agent/internal/ui/design"
 )
 
@@ -118,6 +119,57 @@ func (w *Window) showWebClientInfoDialog(parent fyne.Window) {
 	)
 	footer := container.NewCenter(openBtn)
 	panel := newBrandedDialogPanelInsets(loc().WebClient, statusDialogWidth, 20, 10, body, footer, closeDialog)
+	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
+}
+
+// showCertStatusDialog is the Status-card certificate row's info glyph:
+// explains why the agent needs a browser-trusted certificate at all (see
+// internal/tlshost's own top doc comment -- client/web can't reach a
+// self-signed-HTTPS origin), and shows whichever cert is currently active,
+// live from w.token.CertStatus() at the moment the dialog opens.
+func (w *Window) showCertStatusDialog(parent fyne.Window) {
+	if parent == nil {
+		return
+	}
+
+	st := tlshost.CertStatus{}
+	if w.token != nil {
+		st = w.token.CertStatus()
+	}
+
+	var popup *widget.PopUp
+	closeDialog := func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	}
+
+	hint := widget.NewLabel(loc().CertificateHint)
+	hint.Wrapping = fyne.TextWrapWord
+	hint.Alignment = fyne.TextAlignLeading
+	rows := []fyne.CanvasObject{wrapDialogLabel(hint, 11, design.ColorMutedOlive)}
+
+	var certFooter fyne.CanvasObject = container.NewCenter()
+	if st.LetsEncrypt {
+		labelW := dialogFormLabelWidth(loc().CertHostnameLabel, loc().CertExpiresLabel)
+		deviceURL := "https://" + st.Hostname
+		rows = append(rows,
+			newDialogCopyRow(loc().CertHostnameLabel, st.Hostname, labelW, func() string { return st.Hostname }, parent),
+			newDialogFormRow(loc().CertExpiresLabel, labelW, widget.NewLabel(st.ExpiresAt.Local().Format("2006-01-02"))),
+		)
+		certFooter = container.NewCenter(newDialogCTA(loc().OpenInBrowser, func() {
+			if parsed, err := url.Parse(deviceURL); err == nil && w.app != nil {
+				_ = w.app.OpenURL(parsed)
+			}
+		}))
+	} else if !st.ExpiresAt.IsZero() {
+		pending := widget.NewLabel(loc().CertPending)
+		pending.Wrapping = fyne.TextWrapWord
+		rows = append(rows, wrapDialogLabel(pending, 11, design.ColorAlert))
+	}
+
+	body := container.New(&tightVBoxLayout{gap: 10}, rows...)
+	panel := newBrandedDialogPanelInsets(loc().CertificateTitle, statusDialogWidth, 20, 10, body, certFooter, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
 }
 

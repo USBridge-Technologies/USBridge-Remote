@@ -30,6 +30,7 @@ import (
 	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
+	"usbridge_agent/internal/tlshost"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/ui/i18n"
 	"usbridge_agent/internal/update"
@@ -72,6 +73,13 @@ type TokenProvider interface {
 	// token dialog's quick-connect link so the browser web client connects
 	// by that trusted-cert hostname instead of the bare LAN IP.
 	DeviceHostname() string
+	// CertStatus reports what the HTTPS listener is currently presenting --
+	// see app.App.CertStatus / tlshost.Manager.CertStatus -- for the Status
+	// card's certificate row: whether a real Let's Encrypt cert for
+	// DeviceHostname is active yet, or it's still on the self-signed
+	// fallback (the thing that makes client/web unreachable until it
+	// lands, see internal/tlshost's own top doc comment).
+	CertStatus() tlshost.CertStatus
 	// StreamerRunning reports whether the active streaming host's own child
 	// process is alive right now -- for the status traffic light next to
 	// streamerNameLabel, distinct from whether it's staged/entitled at all.
@@ -246,6 +254,20 @@ type Window struct {
 	// with WebRTC turned off, since there's nothing reachable to show.
 	sunWebSunshineRow  *fyne.Container
 	sunWebRustshineRow *fyne.Container
+
+	// certRow is the Status panel's HTTPS-certificate line: certVal shows
+	// either the trusted <label>.device.usbridge.io hostname (Let's
+	// Encrypt-issued, see internal/tlshost) once one is active, or a plain
+	// "self-signed" while the agent is still falling back -- certWarn
+	// matches httpRow/sunStreamRow's own warning-badge pattern for the
+	// self-signed case. Hidden entirely while HTTPS itself is off (see
+	// refreshCertStatusUI) -- there's no certificate of any kind to report
+	// then. certInfoBtn opens showCertStatusDialog, explaining what the two
+	// states mean and why client/web needs the trusted one.
+	certRow     *fyne.Container
+	certVal     *canvas.Text
+	certWarn    *canvas.Text
+	certInfoBtn *iconActionButton
 
 	// moonlightBtn shows the paired-device count; clicking opens the clients dialog.
 	moonlightBtn *iconActionButton
@@ -702,6 +724,39 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 		return
 	}
 	w.showFooterIdle(loc().AlreadyUpToDate, footerIdleMessageDuration)
+}
+
+// refreshCertStatusUI keeps certRow in sync with w.token.CertStatus():
+// hidden while HTTPS is off (ExpiresAt zero -- tlshost never generated even
+// the self-signed fallback yet), the trusted device hostname in the normal
+// address color once a real Let's Encrypt cert is active, or a plain
+// "self-signed" with the same warning badge httpRow/sunStreamRow use for a
+// LAN-exposed address otherwise -- the two states an agent can be in are
+// "client/web will work" and "client/web can't reach this device yet".
+func (w *Window) refreshCertStatusUI(st tlshost.CertStatus) {
+	if w.certRow == nil || w.certVal == nil || w.certWarn == nil {
+		return
+	}
+	if st.ExpiresAt.IsZero() {
+		w.certRow.Hide()
+		return
+	}
+	if st.LetsEncrypt {
+		w.certWarn.Hide()
+		if w.certVal.Text != st.Hostname || w.certVal.Color != design.ColorAddress {
+			w.certVal.Text = st.Hostname
+			w.certVal.Color = design.ColorAddress
+			w.certVal.Refresh()
+		}
+	} else {
+		w.certWarn.Show()
+		if w.certVal.Text != loc().CertSelfSigned || w.certVal.Color != design.ColorMutedOlive {
+			w.certVal.Text = loc().CertSelfSigned
+			w.certVal.Color = design.ColorMutedOlive
+			w.certVal.Refresh()
+		}
+	}
+	w.certRow.Show()
 }
 
 // refreshUSBPassthroughUI keeps usbDriverRow/usbBrokerRow in sync.
@@ -1294,6 +1349,22 @@ func (w *Window) ShowAndRun(onClose func()) {
 		httpEditBtn,
 	)
 
+	// certRow starts hidden/empty -- refreshCertStatusUI (driven by
+	// performRefresh, same tick as everything else in this panel) fills in
+	// certVal/certWarn and shows the row once w.token.CertStatus() reports
+	// HTTPS is actually on, same lazy-fill pattern as streamerVersionLabel.
+	w.certVal = makeStatusAddress("")
+	w.certWarn = makeWarningBadge()
+	w.certWarn.Hide()
+	w.certInfoBtn = newTinyGlyphButtonColored(theme.InfoIcon(), design.ColorNameMutedOlive, func() {
+		w.showCertStatusDialog(win)
+	})
+	w.certRow = newStatusRow(
+		container.New(&tightHBoxLayout{gap: 6}, makeStatusLabel(loc().Certificate), w.certVal, w.certWarn),
+		w.certInfoBtn,
+	)
+	w.certRow.Hide()
+
 	sunWebVal := makeStatusAddress(fmt.Sprintf("127.0.0.1:%d", sunshinePort))
 
 	sunStreamPort := sunshinePort - 1
@@ -1352,7 +1423,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.sunWebRustshineRow.Hide()
 
 	statsBlock := newPanel(osHeaderIcon(), loc().Status, w.streamerVersionLabel, container.New(&tightVBoxLayout{gap: 4},
-		streamerLabel, w.usbBrokerRow, httpRow, sunStreamRow, w.sunWebSunshineRow, w.sunWebRustshineRow))
+		streamerLabel, w.usbBrokerRow, httpRow, w.certRow, sunStreamRow, w.sunWebSunshineRow, w.sunWebRustshineRow))
 	if p, ok := statsBlock.(*themedPanel); ok {
 		w.statusPanel = p
 	}
@@ -2421,6 +2492,7 @@ func (w *Window) performRefresh() {
 			status.accessGranted = w.perms.AccessibilityGranted()
 		}
 		var entStatus entitlement.Status
+		var certStatus tlshost.CertStatus
 		if w.token != nil {
 			if clients, err := w.token.ListSunshineClients(); err == nil {
 				status.moonlightCount = len(clients)
@@ -2428,6 +2500,7 @@ func (w *Window) performRefresh() {
 			entStatus = w.token.EntitlementStatus()
 			status.usbStatus = w.token.USBPassthroughStatus()
 			status.streamerRunning = w.token.StreamerRunning()
+			certStatus = w.token.CertStatus()
 		}
 		fyne.Do(func() {
 			w.maybeFinishPendingTierSwitch(entStatus)
@@ -2437,6 +2510,7 @@ func (w *Window) performRefresh() {
 			w.refreshAccountAvatar()
 			w.refreshRustShineUI(entStatus)
 			w.refreshUSBPassthroughUI(entStatus, status.usbStatus)
+			w.refreshCertStatusUI(certStatus)
 			setStatusDot(w.streamerStatusDot, status.streamerRunning)
 			if w.token != nil {
 				w.setStreamerDisplay(w.token.StreamerName())

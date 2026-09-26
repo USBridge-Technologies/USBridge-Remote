@@ -3354,6 +3354,17 @@ func (a *App) DeviceHostname() string {
 	return hostname
 }
 
+// CertStatus reports the HTTPS listener's current certificate -- see
+// tlshost.Manager.CertStatus. Zero value (no hostname, LetsEncrypt false)
+// when HTTPS is disabled or the manager hasn't been created yet, which the
+// Status UI's cert row reads as "HTTPS off".
+func (a *App) CertStatus() tlshost.CertStatus {
+	if a.tlsMgr == nil || !a.cfg.TLSEnabledOK() {
+		return tlshost.CertStatus{}
+	}
+	return a.tlsMgr.CertStatus()
+}
+
 func buildQRLink(internalHost, tailscaleHost, masterKey string) string {
 	if masterKey == "" {
 		return ""

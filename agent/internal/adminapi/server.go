@@ -17,6 +17,7 @@ import (
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
+	"usbridge_agent/internal/tlshost"
 	"usbridge_agent/internal/usbpass"
 )
 
@@ -53,6 +54,7 @@ type TokenBackend interface {
 	SunshineStreamHost() string
 	StreamerName() string
 	DeviceHostname() string
+	CertStatus() tlshost.CertStatus
 	StreamerRunning() bool
 
 	// Hardware-bound RustShine entitlement (see internal/entitlement,
@@ -224,6 +226,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/sunshine-stream-host", s.handleSunshineStreamHost)
 	mux.HandleFunc("GET /token/streamer-name", s.handleStreamerName)
 	mux.HandleFunc("GET /token/device-hostname", s.handleDeviceHostname)
+	mux.HandleFunc("GET /token/cert-status", s.handleCertStatus)
 	mux.HandleFunc("GET /token/streamer-running", s.handleStreamerRunning)
 	mux.HandleFunc("GET /token/entitlement-status", s.handleEntitlementStatus)
 	mux.HandleFunc("POST /token/start-trial", s.handleStartTrial)
@@ -542,6 +545,10 @@ func (s *Server) handleStreamerName(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeviceHostname(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stringBody{Value: s.token.DeviceHostname()})
+}
+
+func (s *Server) handleCertStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.token.CertStatus())
 }
 
 func (s *Server) handleStreamerRunning(w http.ResponseWriter, r *http.Request) {

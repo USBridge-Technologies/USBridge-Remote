@@ -155,6 +155,14 @@ type LocalizedStrings struct {
 	URL               string
 	WebClient         string
 	WebClientHint     string
+	Certificate       string
+	CertSelfSigned    string
+	CertLetsEncrypt   string
+	CertificateTitle  string
+	CertificateHint   string
+	CertHostnameLabel string
+	CertExpiresLabel  string
+	CertPending       string
 	SunshineStreaming string
 	SunshineAdminPort string
 	InvalidPortWide   string
@@ -408,6 +416,14 @@ func EN() *LocalizedStrings {
 		URL:               "URL",
 		WebClient:         "Web Client",
 		WebClientHint:     "Open this link in a browser on any device to stream via USBridge-streamer's built-in WebRTC client — no Moonlight app needed. Uses the same pairing/master key as everything else in this agent.",
+		Certificate:       "Certificate",
+		CertSelfSigned:    "self-signed",
+		CertLetsEncrypt:   "Let's Encrypt",
+		CertificateTitle:  "HTTPS Certificate",
+		CertificateHint:   "This agent's HTTPS listener needs a certificate a browser will trust without a warning — that's the only way the browser-based Web Client (client/web, loaded from https://web.usbridge.io) is allowed to reach it at all; a self-signed certificate can't be used there, only clicked through manually on this device's own LAN address. Once this device registers with USBridge's backend, it gets a real Let's Encrypt-issued certificate for its own <label>.device.usbridge.io hostname, and the Web Client starts working automatically — no action needed here. Until then, or if registration ever fails, this falls back to a self-signed certificate: everything else (Sunshine, Moonlight, the native app) keeps working normally, only the browser-based Web Client is affected.",
+		CertHostnameLabel: "Hostname",
+		CertExpiresLabel:  "Valid until",
+		CertPending:       "Registering with USBridge's backend for a trusted hostname — this can take a minute after first launch or a network change.",
 		SunshineStreaming: "Sunshine Streaming",
 		SunshineAdminPort: "Sunshine Admin Port",
 		InvalidPortWide:   "Invalid port (1–65534)",
@@ -615,6 +631,14 @@ func ES() *LocalizedStrings {
 	locale.Password = "Password"
 	locale.WebClient = "Web Client"
 	locale.WebClientHint = "Abre este enlace en un navegador para transmitir con el cliente WebRTC de USBridge-streamer — sin la app Moonlight. Usa la misma master key que el resto del agent."
+	locale.Certificate = "Certificado"
+	locale.CertSelfSigned = "autofirmado"
+	locale.CertLetsEncrypt = "Let's Encrypt"
+	locale.CertificateTitle = "Certificado HTTPS"
+	locale.CertificateHint = "El listener HTTPS de este agente necesita un certificado en el que un navegador confie sin advertencias — es la unica forma de que el Web Client (client/web, cargado desde https://web.usbridge.io) pueda alcanzarlo. Un certificado autofirmado no sirve ahi, solo aceptandolo a mano en la direccion LAN de este dispositivo. En cuanto este dispositivo se registra con el backend de USBridge, recibe un certificado real emitido por Let's Encrypt para su propio nombre <label>.device.usbridge.io, y el Web Client empieza a funcionar solo — no hace falta nada aqui. Hasta entonces, o si el registro falla, se usa un certificado autofirmado: todo lo demas (Sunshine, Moonlight, la app nativa) sigue funcionando normal, solo el Web Client se ve afectado."
+	locale.CertHostnameLabel = "Host"
+	locale.CertExpiresLabel = "Valido hasta"
+	locale.CertPending = "Registrando con el backend de USBridge para obtener un host de confianza — puede tardar un minuto tras el primer arranque o un cambio de red."
 	locale.SunshineStreaming = "Sunshine Streaming"
 	locale.SunshineAdminPort = "Sunshine Admin Port"
 	locale.InvalidPortWide = "Puerto invalido (1–65534)"
@@ -821,6 +845,14 @@ func UK() *LocalizedStrings {
 	locale.Password = "Password"
 	locale.WebClient = "Web Client"
 	locale.WebClientHint = "Відкрийте це посилання в браузері, щоб стрімити через WebRTC-клієнт USBridge-streamer — без застосунку Moonlight. Той самий master key, що й у решти agent."
+	locale.Certificate = "Сертифікат"
+	locale.CertSelfSigned = "самопідписаний"
+	locale.CertLetsEncrypt = "Let's Encrypt"
+	locale.CertificateTitle = "HTTPS-сертифікат"
+	locale.CertificateHint = "HTTPS-слухачу цього агента потрібен сертифікат, якому браузер довіряє без попередження — лише так Web Client (client/web, завантажений з https://web.usbridge.io) може взагалі до нього достукатися. Самопідписаний сертифікат тут не підходить — його можна прийняти вручну лише за LAN-адресою цього пристрою. Щойно пристрій зареєструється в бекенді USBridge, він отримує справжній сертифікат Let's Encrypt для власного імені <label>.device.usbridge.io, і Web Client запрацює сам — тут нічого робити не треба. До того часу, або якщо реєстрація не вдасться, використовується самопідписаний сертифікат: усе інше (Sunshine, Moonlight, нативний застосунок) працює як завжди, лише Web Client буде недоступний."
+	locale.CertHostnameLabel = "Хост"
+	locale.CertExpiresLabel = "Дійсний до"
+	locale.CertPending = "Реєстрація в бекенді USBridge для отримання довіреного хоста — це може зайняти хвилину після першого запуску або зміни мережі."
 	locale.SunshineStreaming = "Sunshine Streaming"
 	locale.SunshineAdminPort = "Sunshine Admin Port"
 	locale.InvalidPortWide = "Некоректний порт (1–65534)"

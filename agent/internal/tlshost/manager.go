@@ -175,6 +175,42 @@ func (m *Manager) DeviceCertStatus() (hostname string, needsRefresh bool) {
 	return m.deviceHostname, certExpiringSoon(m.deviceLeaf, time.Now(), deviceCertRenewBefore)
 }
 
+// CertStatus is a snapshot of what GetCertificate is currently serving --
+// what the agent's Status UI (and any thin client reading it over adminapi)
+// shows the user so they don't have to inspect the browser's own padlock to
+// know whether this device has a browser-trusted Let's Encrypt cert yet or
+// is still on the self-signed fallback (see this file's own top doc comment
+// for what each one is for and why the difference matters for client/web).
+type CertStatus struct {
+	// Hostname is this device's "<label>.device.usbridge.io" name once
+	// InstallDeviceCert has run for it, "" if none has ever been installed.
+	Hostname string `json:"hostname"`
+	// LetsEncrypt is true once a device cert for Hostname is actually
+	// loaded and being served -- false means GetCertificate is still
+	// falling back to the self-signed cert for every SNI name, even if
+	// Hostname is already registered but the cert fetch hasn't landed yet.
+	LetsEncrypt bool `json:"letsEncrypt"`
+	// ExpiresAt is the NotAfter of whichever cert is currently active (the
+	// device cert if LetsEncrypt, the self-signed one otherwise), zero if
+	// neither has been generated/installed yet.
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// CertStatus reports what GetCertificate is currently serving -- cheap,
+// in-memory only, safe to call from a UI refresh tick.
+func (m *Manager) CertStatus() CertStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.device != nil && m.deviceLeaf != nil {
+		return CertStatus{Hostname: m.deviceHostname, LetsEncrypt: true, ExpiresAt: m.deviceLeaf.NotAfter}
+	}
+	st := CertStatus{Hostname: m.deviceHostname}
+	if m.selfLeaf != nil {
+		st.ExpiresAt = m.selfLeaf.NotAfter
+	}
+	return st
+}
+
 // GetCertificate is a tls.Config.GetCertificate callback: picks the device
 // wildcard cert when the client's SNI name matches the hostname it was
 // issued for, the self-signed cert otherwise (including when no SNI name
