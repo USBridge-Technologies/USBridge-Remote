@@ -21,6 +21,8 @@ import (
 	"strings"
 	"syscall/js"
 	"time"
+	
+	"github.com/sirupsen/logrus"
 )
 
 // browserGamepadFrameLen must match agent/internal/api/usb_passthrough_browser.go's
@@ -112,13 +114,22 @@ func pollGamepad() ([]byte, bool) {
 // exactly why none of this project's native XInput/evdev decoders
 // (gamepad_sdlmap.go et al.) need a per-model remap table for a pad
 // reporting this mapping either.
+var loggedW3cFallback bool
+
 func decodeGamepad(pad js.Value) []byte {
 	buttons := pad.Get("buttons")
 	axes := pad.Get("axes")
 
 	id := pad.Get("id").String()
+	mappingStr := pad.Get("mapping").String()
+	
 	if vid, pid, ok := parseBrowserGamepadID(id); ok {
 		if m := sdlMappingFor(vid, pid); m != nil {
+			if !loggedW3cFallback {
+				logrus.Infof("W3C Gamepad API (fallback): using SDL DB for %04x:%04x (id=%q, mapping=%q)", vid, pid, id, mappingStr)
+				loggedW3cFallback = true
+			}
+			
 			var in joyInput
 			nAxes := axes.Length()
 			for i := 0; i < nAxes && i < 6; i++ {

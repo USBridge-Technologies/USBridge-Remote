@@ -406,11 +406,14 @@ func StartHIDGamepadCapture(id string, onFrame func([]byte)) (*HIDGamepadCapture
 	vid := uint16(device.Get("vendorId").Int())
 	pid := uint16(device.Get("productId").Int())
 	mapping := sdlMappingFor(vid, pid)
+	hasSdlMap := mapping != nil
 	if mapping == nil {
 		mapping = genericHIDMapping
 	} else if isDS4Family(vid, pid) {
 		mapping.withDS4Defaults()
 	}
+	
+	logrus.Infof("WebHID capture started for %04x:%04x (has_sdl_mapping=%v, name=%q)", vid, pid, hasSdlMap, device.Get("productName").String())
 
 	layouts := buildHIDLayout(device)
 
