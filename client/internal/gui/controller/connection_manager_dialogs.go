@@ -16,7 +16,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -54,6 +53,10 @@ type connectionDialogSpec struct {
 	feedbackColor          color.Color
 	onConnect              func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool
 	onSave                 func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool
+	// onSetupAddressSaved: "Over USB" saved a connection whose host is the
+	// USB setup address (the KVM had no Ethernet address yet); the manager
+	// swaps it for the Ethernet one when that comes up.
+	onSetupAddressSaved func(setupHost, masterKey string)
 	onDelete               func(close func())
 	onQR                   func()
 	// startWithPasteLink opens the dialog with the inline paste-link view
@@ -1517,25 +1520,40 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 							}
 							usbBtn.SetLabel("✓ " + i18n.Current.AddOverUSBDone)
 							logrus.Infof("Over USB: got the KVM's key (host %s)", res.Host)
+							// The KVM hands its key out once: save the
+							// connection right away, as Save would, so closing
+							// the dialog can't lose the key.
+							if strings.TrimSpace(nameEntry.Text) == "" {
+								nameEntry.SetText("USBridge KVM")
+							}
+							if spec.onSave != nil && spec.onSave(nameEntry.Text, lanEntry.Text, tsEntry.Text, tokenEntry.Text, registerCheck.Checked) {
+								logrus.Infof("Over USB: saved the connection %q", nameEntry.Text)
+								if spec.onSetupAddressSaved != nil && len(res.LANAddrs) == 0 {
+									spec.onSetupAddressSaved(strings.TrimSpace(lanEntry.Text), strings.TrimSpace(tokenEntry.Text))
+								}
+								if d != nil {
+									d.Hide()
+								}
+							}
 						case errors.Is(err, errUSBSetupBrowserHTTPS):
 							usbBtn.SetLabel(i18n.Current.AddOverUSB)
-							dialog.ShowInformation(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBBrowserHTTP, parent)
+							view.ShowInfoDialog(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBBrowserHTTP, parent)
 						case errors.Is(err, errUSBSetupNotFound):
 							usbBtn.SetLabel(i18n.Current.AddOverUSB)
-							dialog.ShowInformation(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBNotFound, parent)
+							view.ShowInfoDialog(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBNotFound, parent)
 						case errors.As(err, &claimed):
 							usbBtn.SetLabel(i18n.Current.AddOverUSB)
 							msg := i18n.Current.AddOverUSBClaimed
 							if claimed.at != nil {
 								msg = claimed.at.Local().Format("2006-01-02 15:04") + ": " + msg
 							}
-							dialog.ShowInformation(i18n.Current.AddOverUSB, msg, parent)
+							view.ShowInfoDialog(i18n.Current.AddOverUSB, msg, parent)
 						case errors.Is(err, errUSBSetupWindowClosed):
 							usbBtn.SetLabel(i18n.Current.AddOverUSB)
-							dialog.ShowInformation(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBWindowClosed, parent)
+							view.ShowInfoDialog(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBWindowClosed, parent)
 						default:
 							usbBtn.SetLabel(i18n.Current.AddOverUSB)
-							dialog.ShowError(err, parent)
+							view.ShowErrorDialog(err, parent)
 						}
 					})
 				}()
@@ -2016,7 +2034,8 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			})
 			return true
 		},
-		onQR: cm.handleQRScan,
+		onQR:                cm.handleQRScan,
+		onSetupAddressSaved: cm.followEthernetAddress,
 	})
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -47,7 +48,9 @@ func claimKVMOverUSB() (usbSetupClaim, error) {
 		return res, errUSBSetupBrowserHTTPS
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(usbSetupClaimURL)
+	// The KVM has no clock of its own until it's online: it takes ours (only
+	// while its own is unset) so what it stamps from here on is right.
+	resp, err := client.Get(usbSetupClaimURL + "?t=" + strconv.FormatInt(time.Now().Unix(), 10))
 	if err != nil {
 		return res, errUSBSetupNotFound
 	}
