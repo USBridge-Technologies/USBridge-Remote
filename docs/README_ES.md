@@ -19,7 +19,7 @@
 
 ---
 
-**USBridge Remote** es un cliente unificado de alto rendimiento para gestionar máquinas remotas. Diseñado para combinar el **acceso a BIOS a nivel de hardware** (a través de dispositivos USBridge KVM) y **escritorio remoto basado en software** en una única interfaz simplificada.
+**USBridge Remote** es un cliente unificado de alto rendimiento para gestionar máquinas remotas. Diseñado para combinar el **acceso BIOS a nivel de hardware** (a través de dispositivos USBridge KVM) y el **escritorio remoto basado en software** en una única interfaz simplificada.
 
 <div align="center">
   <img src="./assets/Functions.svg" width="1400" alt="USBridge Remote">
@@ -36,9 +36,9 @@ El Cliente es la interfaz de control — instalada en tu estación de trabajo o 
 | **x86_64** | [Descargar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Descargar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [Abrir App](https://web.usbridge.io) |
 | **ARM64** | — | [Descargar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [Abrir App](https://web.usbridge.io) |
 
-¿Prefieres un APK directo sin una cuenta de Play Store? Una versión autocompletable también se publica en la [última versión](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
+¿Prefieres un APK directo sin una cuenta de Play Store? También se publica una versión autactualizable en la [última versión](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
-🌐 **Cliente Web Sin Instalación**: No se requiere instalación. Simplemente abre [web.usbridge.io](https://web.usbridge.io) para conectarte al instante. *(Nota: El cliente web opera con algunas limitaciones de características y rendimiento debido a la seguridad del navegador y las restricciones de WebRTC. Para la experiencia completa sin compromisos, utiliza las aplicaciones nativas).* En un Agente recién iniciado, puede tardar hasta un minuto en ser accesible la primera vez (o después de un cambio de red) mientras provisiona un certificado HTTPS de confianza para sí mismo — consulta la fila **Estado → Certificado** del Agente, o la [documentación del Agente](agent/docs/README.md#platform-notes-from-the-top-level-readme) para más detalles.
+🌐 **Cliente Web Sin Instalación**: No se requiere instalación. Simplemente abre [web.usbridge.io](https://web.usbridge.io) para conectarte al instante. *(Nota: El cliente web opera con algunas limitaciones de características y rendimiento debido a la seguridad del navegador y las restricciones de WebRTC. Para la experiencia completa sin compromisos, utiliza las aplicaciones nativas).* El cliente web alcanza a un Agente a través de su nombre confiable `<label>.device.usbridge.io`: el Agente obtiene ese certificado la primera vez que un navegador accede a él, y solo mientras estés conectado a tu cuenta de USBridge en el Agente — así que el primer intento puede tardar unos minutos. Consulta la fila **Estado → Certificado** del Agente, o la [documentación del Agente](agent/docs/README.md#platform-notes-from-the-top-level-readme) para más detalles. Un USBridge KVM también sirve al cliente web en `https://<kvm>:9443/` y se mueve a su propio nombre confiable cuando puede.
 
 ## Agente
 
@@ -88,7 +88,7 @@ El Agente se ejecuta en la máquina objetivo — el servidor o PC al que deseas 
       ✓ Acceso a escritorio y juegos de baja latencia<br>
       ✓ Portapapeles de archivos y texto bidireccional<br>    
       ✓ Cambio de visualización de múltiples monitores<br>
-      ✓ Redes P2P Tailscale integradas<br>
+      ✓ Red P2P Tailscale integrada<br>
       ✓ Soporte nativo de Wayland (captura sin aviso)
     </td>
     <td width="33%" valign="top">
@@ -97,7 +97,7 @@ El Agente se ejecuta en la máquina objetivo — el servidor o PC al que deseas 
       <i>Motor de Transmisión basado en Rust</i><br><br>
       ✓ Protocolo remoto personalizado de conexión instantánea<br>
       ✓ Paso a través de dispositivos periféricos USB en crudo<br>
-      ✓ Transmisión adaptativa optimizada para estabilidad de Wi-Fi<br>
+      ✓ Transmisión adaptativa optimizada para estabilidad Wi-Fi<br>
       ✓ HDR10<br>
       ✓ Gestión de visualización virtual sin cabeza<br>
       ✓ Paso a través de controladores de gamepad de baja latencia<br>
@@ -105,10 +105,10 @@ El Agente se ejecuta en la máquina objetivo — el servidor o PC al que deseas 
       ✓ Acceso previo al inicio de sesión en Windows (entrada segura de credenciales)
     </td>
     <td width="33%" valign="top">
-      <code>+ CARACTERÍSTICAS BÁSICAS</code> <code>+ CARACTERÍSTICAS GRATUITAS</code><br><br>
+      <code>+ CARACTERÍSTICAS BÁSICAS</code> <code>+ CARACTERÍSTICAS GRATIS</code><br><br>
       <b>USBRIDGE PRO</b><br>
       <i>Flujos de Trabajo Profesionales</i><br><br>
-      ✓ Precisión de color croma 4:4:4 sin pérdidas<br>
+      ✓ Precisión de color croma 4:4:4 sin pérdida<br>
       ✓ Soporte para tabletas Wacom con presión y inclinación<br><br>
     </td>
   </tr>
@@ -131,8 +131,8 @@ El Agente se ejecuta en la máquina objetivo — el servidor o PC al que deseas 
 <table>
   <tr>
    <td width="33%" valign="top">
-      <b>Control de BIOS a Nivel de Hardware</b><br>
-      USBridge Remote se integra de forma nativa con el dispositivo USBridge-KVM 2.0 para gestión fuera de banda, bare-metal antes del arranque del SO.<br><br>
+      <b>Control BIOS a Nivel de Hardware</b><br>
+      USBridge Remote se integra de forma nativa con el dispositivo USBridge-KVM 2.0 para gestión fuera de banda, a nivel de hardware, antes del arranque del SO.<br><br>
       <a href="https://www.usbridge.io/hardware-agent?utm_campaign=readme-kvm&utm_medium=readme&utm_source=github#buy-usbridge-kvm-2-0"><img src="https://img.shields.io/badge/Buy-USBridge--KVM_2.0-2da44e?style=for-the-badge" alt="Comprar USBridge-KVM 2.0"></a>
     </td>
     <td width="33%" valign="top">
@@ -142,7 +142,7 @@ El Agente se ejecuta en la máquina objetivo — el servidor o PC al que deseas 
     </td>
     <td width="33%" valign="top">
       <b>Dongle de Hardware USB/IP (ESP32-S3)</b><br>
-      El paso a través de USB por software se encuentra con un muro en macOS: no hay un controlador VHCI al que adjuntarse, por lo que una tableta Wacom remota (u otro dispositivo USB) no puede presentarse como hardware real. Este dongle se conecta al Mac y hace en hardware lo que <code>vhci-hcd</code> hace en software en otros lugares — el dispositivo exportado se enumera con su propio VID/PID, vinculado por el propio controlador de macOS.<br><br>
+      El paso a través de USB por software se encuentra con un obstáculo en macOS: no hay controlador VHCI al que adjuntarse, por lo que una tableta Wacom remota (u otro dispositivo USB) no puede presentarse como hardware real. Este dongle se conecta al Mac y hace en hardware lo que <code>vhci-hcd</code> hace en software en otros lugares — el dispositivo exportado se enumera con su propio VID/PID, vinculado por el propio controlador de macOS.<br><br>
       <a href="esp32-acm/README.md"><img src="https://img.shields.io/badge/Open_Hardware-esp32--acm-f59e0b?style=for-the-badge" alt="firmware y docs de esp32-acm"></a>
     </td>
   </tr>
