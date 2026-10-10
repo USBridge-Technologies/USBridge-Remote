@@ -1,5 +1,6 @@
-//go:build !android
+//go:build !android && !(js && wasm)
 // +build !android
+// +build !js !wasm
 
 package platform
 

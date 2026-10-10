@@ -42,3 +42,7 @@ func NewDirectUSBClient(host string, port, tlsPort int, timeout int) *USBClient 
 // build's counterpart (usb_client_direct_wasm.go) for why this symbol
 // exists unconditionally on every platform.
 func BrowserIsHTTPS() bool { return false }
+
+// SameOriginPort: only the browser build has a page origin (see the wasm
+// counterpart).
+func SameOriginPort(host string) (int, bool) { return 0, false }

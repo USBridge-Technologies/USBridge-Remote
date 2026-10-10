@@ -2,7 +2,11 @@
 
 package api
 
-import "syscall/js"
+import (
+	"strconv"
+	"strings"
+	"syscall/js"
+)
 
 // NewDirectUSBClient on wasm is just NewUSBClient: the physical-interface
 // pinning the native implementation does (see usb_client_direct_default.go)
@@ -36,10 +40,38 @@ import "syscall/js"
 // that). When this page is plain http (e.g. served directly by an agent on
 // the LAN, or a local dev build), host:port behaves exactly as before.
 func NewDirectUSBClient(host string, port, tlsPort int, timeout int) *USBClient {
+	if p, ok := SameOriginPort(host); ok {
+		// This page was served by the device itself (the KVM's own web
+		// client): talk to the very origin it came from.
+		port, tlsPort = p, p
+	}
 	if BrowserIsHTTPS() {
 		return NewUSBClientWithScheme("https", host, tlsPort, timeout, nil)
 	}
 	return NewUSBClient(host, port, timeout)
+}
+
+// SameOriginPort reports this page's own port when host is the host the
+// page was loaded from -- i.e. the device serves this web client itself
+// (the KVM's https://<kvm>:9443/ or http://<kvm>:8080/), so its API and
+// WebRTC offer are on that same origin: no CORS, no mixed content, no
+// second certificate to accept.
+func SameOriginPort(host string) (int, bool) {
+	loc := js.Global().Get("location")
+	if loc.IsUndefined() || loc.IsNull() || host == "" {
+		return 0, false
+	}
+	if !strings.EqualFold(strings.Trim(loc.Get("hostname").String(), "[]"), strings.Trim(host, "[]")) {
+		return 0, false
+	}
+	p, err := strconv.Atoi(loc.Get("port").String())
+	if err != nil || p <= 0 {
+		if loc.Get("protocol").String() == "https:" {
+			return 443, true
+		}
+		return 80, true
+	}
+	return p, true
 }
 
 // BrowserIsHTTPS reports whether this wasm module's own page was loaded

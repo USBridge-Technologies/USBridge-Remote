@@ -204,6 +204,10 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 		}
 	}
 
+	if p, ok := api.SameOriginPort(host); ok {
+		port = p // the web client the KVM serves: its own origin
+	}
+
 	baseURL := scheme + "://" + host + ":" + strconv.Itoa(port)
 
 	// Preflight against the agent's ordinary REST API (a route every
