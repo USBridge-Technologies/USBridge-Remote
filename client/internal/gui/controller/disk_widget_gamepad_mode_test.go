@@ -28,6 +28,24 @@ func TestEffectiveGamepadMode(t *testing.T) {
 	}
 }
 
+// A USBridge KVM with rust-shine's USB broker (the NanoKVM) takes virtual
+// pads over the stream like a software agent.
+func TestEffectiveGamepadModeKVMWithUSBBroker(t *testing.T) {
+	dw := &DiskWidget{agentOS: "USBridge OS", agentUSBBroker: true}
+	if got := dw.effectiveGamepadMode(""); got != gamepadModeMapX360 {
+		t.Fatalf("default = %q, want %q", got, gamepadModeMapX360)
+	}
+	if got := dw.effectiveGamepadMode(gamepadModeDualShock4); got != gamepadModeDualShock4 {
+		t.Fatalf("dualshock4 = %q, want %q", got, gamepadModeDualShock4)
+	}
+	if !dw.virtualPads() {
+		t.Fatal("virtualPads() = false on a KVM with a USB broker")
+	}
+	if (&DiskWidget{agentOS: "USBridge OS"}).virtualPads() {
+		t.Fatal("virtualPads() = true on a KVM without a USB broker")
+	}
+}
+
 func TestGamepadIdentityMatches(t *testing.T) {
 	tests := []struct {
 		name                               string

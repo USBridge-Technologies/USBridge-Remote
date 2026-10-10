@@ -277,6 +277,24 @@ type DiskWidget struct {
 
 	agentOS       string
 	agentProtocol string
+	// agentUSBBroker: the KVM reports usb_broker (see virtualPads).
+	agentUSBBroker bool
+}
+
+// virtualPads: gamepads go to the host as virtual Xbox 360 / DualShock 4
+// pads over the stream (Moonlight controller events), any number of them --
+// on a software agent, and on a USBridge KVM that runs rust-shine's USB
+// broker (the NanoKVM clones the virtual pad into its own USB gadget).
+// Otherwise the KVM's own gadget modes (DirectInput / XInput, one pad).
+func (dw *DiskWidget) virtualPads() bool {
+	return IsSoftwareAgentOS(dw.agentOS) || dw.agentUSBBroker
+}
+
+// setAgentUSBBroker records the usb_broker flag from /api/device/info.
+func (dw *DiskWidget) setAgentUSBBroker(v bool) {
+	if dw != nil {
+		dw.agentUSBBroker = v
+	}
 }
 
 // SetAgentIdentity records OS/tariff from connect verification (or the last
@@ -364,7 +382,7 @@ func gamepadModeLabel(mode string) string {
 // DualShock 4 are not available on the hardware, so both fall back to XInput
 // there.
 func (dw *DiskWidget) effectiveGamepadMode(mode string) string {
-	software := IsSoftwareAgentOS(dw.agentOS)
+	software := dw.virtualPads()
 	switch strings.ToLower(mode) {
 	case gamepadModeMapX360:
 		if software {
@@ -391,7 +409,7 @@ func (dw *DiskWidget) effectiveGamepadMode(mode string) string {
 // replaced there by the two virtual-pad shapes a software agent actually
 // offers.
 func (dw *DiskWidget) gamepadModeOptions() []string {
-	if IsSoftwareAgentOS(dw.agentOS) {
+	if dw.virtualPads() {
 		return []string{i18n.Current.DeviceMapX360, i18n.Current.DeviceDualShock4}
 	}
 	return []string{i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput}

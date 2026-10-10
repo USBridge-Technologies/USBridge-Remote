@@ -369,6 +369,10 @@ type DeviceInfoResponse struct {
 	AgentOS         string       `json:"agent_os,omitempty"`
 	AgentDisplay    string       `json:"agent_display,omitempty"`
 	AgentProtocol   string       `json:"agent_protocol,omitempty"`
+	// USBBroker: a USBridge KVM that runs rust-shine's USB broker (the
+	// NanoKVM): gamepads are virtual Xbox 360 / DualShock 4 pads over the
+	// stream, as on a software agent, and USB passthrough is available.
+	USBBroker bool `json:"usb_broker,omitempty"`
 }
 
 // DeviceStatusResponse device status response (new API)

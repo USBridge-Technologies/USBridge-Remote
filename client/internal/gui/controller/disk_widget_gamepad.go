@@ -332,9 +332,8 @@ func gamepadIdentityExactMatch(driveVID, drivePID, deviceVID, devicePID string) 
 // pad: toggling the Raiju on lit up the virtual pad's row instead, every
 // time, because the virtual row (blank identity) was reached first and
 // matched regardless of which pad the agent actually confirmed.
-func gamepadDeviceAssignment(drives []DriveItem, devices []*models.DeviceInfo, agentOS string, usedMountedIdx map[int]bool) map[int]int {
+func gamepadDeviceAssignment(drives []DriveItem, devices []*models.DeviceInfo, multiPad bool, usedMountedIdx map[int]bool) map[int]int {
 	assignment := make(map[int]int)
-	multiPad := IsSoftwareAgentOS(agentOS)
 
 	assign := func(exactOnly bool) {
 		for i := range drives {

@@ -675,6 +675,7 @@ func (dw *DiskWidget) loadMountedDevices() {
 			for i := range deviceInfo.Devices {
 				dw.mountedDevices[i] = &deviceInfo.Devices[i]
 			}
+			dw.setAgentUSBBroker(deviceInfo.USBBroker)
 			dw.applyLiveAgentIdentity(deviceInfo.AgentOS, deviceInfo.AgentProtocol)
 			dw.usbPassSessions = passSessions
 			if dw.onAgentProtocol != nil && dw.agentProtocol != "" {
@@ -740,7 +741,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 
 	drives := dw.allDrives
 	usedMountedIdx := make(map[int]bool)
-	gamepadAssignment := gamepadDeviceAssignment(drives, dw.mountedDevices, dw.agentOS, usedMountedIdx)
+	gamepadAssignment := gamepadDeviceAssignment(drives, dw.mountedDevices, dw.virtualPads(), usedMountedIdx)
 	for i := range drives {
 		drive := &drives[i]
 		oldStatus := drive.IsMounted

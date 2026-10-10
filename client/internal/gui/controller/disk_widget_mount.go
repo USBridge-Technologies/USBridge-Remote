@@ -97,6 +97,7 @@ func (dw *DiskWidget) endOperation() {
 	var newMounted []*models.DeviceInfo
 	var newLocalDrives []*models.LocalDrive
 	var newAgentOS string
+	var newUSBBroker bool
 	var newAgentProtocol string
 	var newPassSessions []string
 
@@ -111,6 +112,7 @@ func (dw *DiskWidget) endOperation() {
 				newMounted[i] = &deviceInfo.Devices[i]
 			}
 			newAgentOS = deviceInfo.AgentOS
+			newUSBBroker = deviceInfo.USBBroker
 			newAgentProtocol = strings.TrimSpace(deviceInfo.AgentProtocol)
 		} else {
 			logrus.Errorf("endOperation: GetDeviceInfo: %v", err)
@@ -136,6 +138,7 @@ func (dw *DiskWidget) endOperation() {
 	fyne.Do(func() {
 		if newMounted != nil {
 			dw.mountedDevices = newMounted
+			dw.setAgentUSBBroker(newUSBBroker)
 			dw.applyLiveAgentIdentity(newAgentOS, newAgentProtocol)
 			if dw.onAgentProtocol != nil && dw.agentProtocol != "" {
 				dw.onAgentProtocol(dw.agentProtocol)
@@ -1098,7 +1101,7 @@ func (dw *DiskWidget) keepMountedHIDRequests(selected []DriveItem) []models.Devi
 	// A software agent takes any number of pads (each is Moonlight controller N),
 	// so mounting one must keep the others; the KVM hardware has a single gamepad
 	// gadget, which a new pad replaces.
-	multiPad := IsSoftwareAgentOS(dw.agentOS)
+	multiPad := dw.virtualPads()
 	selectedPads := make(map[string]bool)
 	for _, d := range selected {
 		switch {
