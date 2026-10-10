@@ -71,8 +71,14 @@ func syncHIDConnectOverlay(dw *DiskWidget) {
 	}
 	abs := fyne.CurrentApp().Driver().AbsolutePositionForObject(btn)
 	size := btn.Size()
-	js.Global().Call("usbridgeSetHIDButtonRect",
-		float64(abs.X), float64(abs.Y), float64(size.Width), float64(size.Height))
+	// index.html defines it only where WebHID exists -- not on a plain
+	// http:// page (the KVM's own http://<kvm>:8080/), where calling it
+	// unchecked panicked the whole client at startup.
+	fn := js.Global().Get("usbridgeSetHIDButtonRect")
+	if fn.Type() != js.TypeFunction {
+		return
+	}
+	fn.Invoke(float64(abs.X), float64(abs.Y), float64(size.Width), float64(size.Height))
 }
 
 func setHIDButtonVisible(visible bool) {

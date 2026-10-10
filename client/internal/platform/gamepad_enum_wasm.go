@@ -21,7 +21,6 @@ package platform
 import (
 	"regexp"
 	"strconv"
-	"syscall/js"
 )
 
 // GamepadDevice describes a system gamepad -- same shape as every other
@@ -61,7 +60,10 @@ func EnumerateGamepads() []GamepadDevice {
 	if hidPads := EnumerateHIDGamepads(); len(hidPads) > 0 {
 		return hidPads
 	}
-	pads := js.Global().Get("navigator").Call("getGamepads")
+	pads := browserGamepads()
+	if pads.IsUndefined() {
+		return nil
+	}
 	length := pads.Get("length").Int()
 	out := make([]GamepadDevice, 0, length)
 	for i := 0; i < length; i++ {

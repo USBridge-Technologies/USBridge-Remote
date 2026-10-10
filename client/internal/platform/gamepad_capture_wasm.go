@@ -89,7 +89,10 @@ func StartBrowserGamepadCapture(onFrame func([]byte)) *BrowserGamepadCapture {
 func (c *BrowserGamepadCapture) Stop() { close(c.stop) }
 
 func pollGamepad() ([]byte, bool) {
-	pads := js.Global().Get("navigator").Call("getGamepads")
+	pads := browserGamepads()
+	if pads.IsUndefined() {
+		return nil, false
+	}
 	length := pads.Get("length").Int()
 	for i := 0; i < length; i++ {
 		pad := pads.Index(i)
@@ -197,4 +200,19 @@ func decodeGamepad(pad js.Value) []byte {
 	rightY := -toAxis(axis(3))
 
 	return EncodeBrowserGamepadFrame(flags, leftTrigger, rightTrigger, leftX, leftY, rightX, rightY)
+}
+
+// browserGamepads is navigator.getGamepads(), or undefined where the
+// browser doesn't offer it (it's limited to secure contexts: not on a
+// plain http:// page such as the KVM's own http://<kvm>:8080/).
+func browserGamepads() js.Value {
+	nav := js.Global().Get("navigator")
+	if nav.IsUndefined() || nav.Get("getGamepads").Type() != js.TypeFunction {
+		return js.Undefined()
+	}
+	pads := nav.Call("getGamepads")
+	if pads.IsNull() {
+		return js.Undefined()
+	}
+	return pads
 }
