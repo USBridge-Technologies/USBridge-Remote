@@ -183,6 +183,15 @@ GET /api/healthz
     unauthenticated (logs a startup warning) — see rust-shine's `docs/WEBRTC.md` "Authentication"
     section, which also has the live-verification notes (real agent install, real device).
 
+    **WebTransport (the header's WebRTC / WebTransport switch)**: `GET /webtransport/info`,
+    signed the same way, returns rustshine's WebTransport UDP port, the SHA-256 of its
+    short-lived certificate (`serverCertificateHashes`) and the session path; the session URL
+    carries a signed timestamp. Video arrives one access unit per QUIC stream and is decoded with
+    WebCodecs in a worker (`client/internal/webrtcweb/wt_player.js`); input and the
+    `usbpass-*`/`clipboard-sync`/`api-tunnel` channels ride the same session. On a KVM the
+    agent proxies `/webtransport/info` and `/webrtc/offer` on its own origin (`:9443`). See
+    rust-shine's `docs/WEBRTC.md` "WebTransport + WebCodecs".
+
     **Signaling relay fallback (pro/enterprise only)**: `client_wasm.go`'s `postOffer` tries the
     direct fetch above first; only on a genuine network-level failure (connection refused, DNS
     failure, mixed content or Local Network Access blocking the request — i.e. the agent was never
