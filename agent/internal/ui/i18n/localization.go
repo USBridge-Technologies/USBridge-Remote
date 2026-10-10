@@ -195,31 +195,33 @@ type LocalizedStrings struct {
 	NoPairedClients  string
 
 	// Status dialogs
-	SunshineWebUI     string
-	OpenInBrowser     string
-	Login             string
-	Password          string
-	URL               string
-	WebClient         string
-	WebClientHint     string
-	Certificate       string
-	CertSelfSigned    string
-	CertLetsEncrypt   string
-	CertificateTitle  string
-	CertificateHint   string
-	CertHostnameLabel string
-	CertExpiresLabel  string
-	CertPending       string
-	CertErrorPrefix   string
-	CertRetry         string
-	SunshineStreaming string
-	SunshineAdminPort string
-	InvalidPortWide   string
-	InvalidPort       string
-	Host              string
-	Port              string
-	RestartsSunshine  string
-	SetsExternalIP    string
+	SunshineWebUI      string
+	OpenInBrowser      string
+	Login              string
+	Password           string
+	URL                string
+	WebClient          string
+	WebClientHint      string
+	Certificate        string
+	CertSelfSigned     string
+	CertLetsEncrypt    string
+	CertificateTitle   string
+	CertificateHint    string
+	CertHostnameLabel  string
+	CertExpiresLabel   string
+	CertPending        string
+	CertErrorPrefix    string
+	CertRetry          string
+	CertSignInRequired string
+	CertSignInHint     string
+	SunshineStreaming  string
+	SunshineAdminPort  string
+	InvalidPortWide    string
+	InvalidPort        string
+	Host               string
+	Port               string
+	RestartsSunshine   string
+	SetsExternalIP     string
 
 	// Tariffs
 	TariffsTitle               string
@@ -492,31 +494,33 @@ func EN() *LocalizedStrings {
 		PINPlaceholder:   "4-digit PIN from Moonlight",
 		NoPairedClients:  "No paired clients",
 
-		SunshineWebUI:     "Sunshine Web UI",
-		OpenInBrowser:     "Open in Browser",
-		Login:             "Login",
-		Password:          "Password",
-		URL:               "URL",
-		WebClient:         "Web Client",
-		WebClientHint:     "Open this link in a browser on any device to stream via USBridge-streamer's built-in WebRTC client — no Moonlight app needed. Uses the same pairing/master key as everything else in this agent.",
-		Certificate:       "Certificate",
-		CertSelfSigned:    "self-signed",
-		CertLetsEncrypt:   "Let's Encrypt",
-		CertificateTitle:  "HTTPS Certificate",
-		CertificateHint:   "This agent's HTTPS listener needs a certificate a browser will trust without a warning — that's the only way the browser-based Web Client (client/web, loaded from https://web.usbridge.io) is allowed to reach it at all; a self-signed certificate can't be used there, only clicked through manually on this device's own LAN address. Once this device registers with USBridge's backend, it gets a real Let's Encrypt-issued certificate for its own <label>.device.usbridge.io hostname, and the Web Client starts working automatically — no action needed here. Until then, or if registration ever fails, this falls back to a self-signed certificate: everything else (Sunshine, Moonlight, the native app) keeps working normally, only the browser-based Web Client is affected.",
-		CertHostnameLabel: "Hostname",
-		CertExpiresLabel:  "Valid until",
-		CertPending:       "Registering with USBridge's backend for a trusted hostname — this can take a minute after first launch or a network change.",
-		CertErrorPrefix:   "Couldn't get a trusted certificate: ",
-		CertRetry:         "Retry",
-		SunshineStreaming: "Sunshine Streaming",
-		SunshineAdminPort: "Sunshine Admin Port",
-		InvalidPortWide:   "Invalid port (1–65534)",
-		InvalidPort:       "Invalid port (1–65535)",
-		Host:              "Host",
-		Port:              "Port",
-		RestartsSunshine:  "Restarts Sunshine to apply",
-		SetsExternalIP:    "Sets external_ip + port in sunshine.conf · restarts Sunshine",
+		SunshineWebUI:      "Sunshine Web UI",
+		OpenInBrowser:      "Open in Browser",
+		Login:              "Login",
+		Password:           "Password",
+		URL:                "URL",
+		WebClient:          "Web Client",
+		WebClientHint:      "Open this link in a browser on any device to stream via USBridge-streamer's built-in WebRTC client — no Moonlight app needed. Uses the same pairing/master key as everything else in this agent.",
+		Certificate:        "Certificate",
+		CertSelfSigned:     "self-signed",
+		CertLetsEncrypt:    "Let's Encrypt",
+		CertificateTitle:   "HTTPS Certificate",
+		CertificateHint:    "This agent's HTTPS listener needs a certificate a browser will trust without a warning — that's the only way the browser-based Web Client (client/web, loaded from https://web.usbridge.io) is allowed to reach it at all; a self-signed certificate can't be used there, only clicked through manually on this device's own LAN address. Once this device registers with USBridge's backend, it gets a real Let's Encrypt-issued certificate for its own <label>.device.usbridge.io hostname, and the Web Client starts working automatically — no action needed here. Until then, or if registration ever fails, this falls back to a self-signed certificate: everything else (Sunshine, Moonlight, the native app) keeps working normally, only the browser-based Web Client is affected.",
+		CertHostnameLabel:  "Hostname",
+		CertExpiresLabel:   "Valid until",
+		CertPending:        "Registering with USBridge's backend for a trusted hostname — this can take a minute after first launch or a network change.",
+		CertErrorPrefix:    "Couldn't get a trusted certificate: ",
+		CertRetry:          "Retry",
+		CertSignInRequired: "sign in to get a free one",
+		CertSignInHint:     "Sign in to your USBridge account to get a free trusted certificate for this device. Without it the browser-based Web Client can't reach this device; everything else keeps working.",
+		SunshineStreaming:  "Sunshine Streaming",
+		SunshineAdminPort:  "Sunshine Admin Port",
+		InvalidPortWide:    "Invalid port (1–65534)",
+		InvalidPort:        "Invalid port (1–65535)",
+		Host:               "Host",
+		Port:               "Port",
+		RestartsSunshine:   "Restarts Sunshine to apply",
+		SetsExternalIP:     "Sets external_ip + port in sunshine.conf · restarts Sunshine",
 
 		TariffsTitle:               "Tariffs & Licenses",
 		TariffSubtitle:             "Upgrade your USBridge agent for low-latency streaming, passthrough & mesh networks",
@@ -753,6 +757,8 @@ func ES() *LocalizedStrings {
 	locale.CertPending = "Registrando con el backend de USBridge para obtener un host de confianza — puede tardar un minuto tras el primer arranque o un cambio de red."
 	locale.CertErrorPrefix = "No se pudo obtener un certificado de confianza: "
 	locale.CertRetry = "Reintentar"
+	locale.CertSignInRequired = "inicia sesion para obtener uno gratis"
+	locale.CertSignInHint = "Inicia sesion en tu cuenta de USBridge para obtener un certificado de confianza gratuito para este dispositivo. Sin el, el Web Client del navegador no puede alcanzar este dispositivo; todo lo demas sigue funcionando."
 	locale.SunshineStreaming = "Sunshine Streaming"
 	locale.SunshineAdminPort = "Sunshine Admin Port"
 	locale.InvalidPortWide = "Puerto invalido (1–65534)"
@@ -996,6 +1002,8 @@ func UK() *LocalizedStrings {
 	locale.CertPending = "Реєстрація в бекенді USBridge для отримання довіреного хоста — це може зайняти хвилину після першого запуску або зміни мережі."
 	locale.CertErrorPrefix = "Не вдалося отримати довірений сертифікат: "
 	locale.CertRetry = "Повторити"
+	locale.CertSignInRequired = "увійдіть, щоб отримати безкоштовний"
+	locale.CertSignInHint = "Увійдіть в обліковий запис USBridge, щоб отримати безкоштовний довірений сертифікат для цього пристрою. Без нього Web Client у браузері не може достукатися до пристрою; усе інше працює як завжди."
 	locale.SunshineStreaming = "Sunshine Streaming"
 	locale.SunshineAdminPort = "Sunshine Admin Port"
 	locale.InvalidPortWide = "Некоректний порт (1–65534)"

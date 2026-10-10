@@ -871,7 +871,9 @@ func (w *Window) finishStreamerUpdateCheck(before entitlement.Status, checkErr e
 // "self-signed" with the same warning badge httpRow/sunStreamRow use for a
 // LAN-exposed address otherwise -- the two states an agent can be in are
 // "client/web will work" and "client/web can't reach this device yet".
-func (w *Window) refreshCertStatusUI(st tlshost.CertStatus) {
+// Signed out with no trusted cert, it says to sign in instead: the backend
+// issues a desktop's certificate only to a signed-in account.
+func (w *Window) refreshCertStatusUI(st tlshost.CertStatus, loggedIn bool) {
 	if w.certRow == nil || w.certVal == nil || w.certWarn == nil {
 		return
 	}
@@ -884,6 +886,13 @@ func (w *Window) refreshCertStatusUI(st tlshost.CertStatus) {
 		if w.certVal.Text != st.Hostname || w.certVal.Color != design.ColorAddress {
 			w.certVal.Text = st.Hostname
 			w.certVal.Color = design.ColorAddress
+			w.certVal.Refresh()
+		}
+	} else if !loggedIn {
+		w.certWarn.Hide()
+		if w.certVal.Text != loc().CertSignInRequired || w.certVal.Color != design.ColorAlert {
+			w.certVal.Text = loc().CertSignInRequired
+			w.certVal.Color = design.ColorAlert
 			w.certVal.Refresh()
 		}
 	} else {
@@ -2708,6 +2717,7 @@ func (w *Window) performRefresh() {
 		}
 		var entStatus entitlement.Status
 		var certStatus tlshost.CertStatus
+		var certLoggedIn bool
 		if w.token != nil {
 			if clients, err := w.token.ListSunshineClients(); err == nil {
 				status.moonlightCount = len(clients)
@@ -2717,6 +2727,7 @@ func (w *Window) performRefresh() {
 			status.streamerRunning = w.token.StreamerRunning()
 			status.sessionActive = w.token.SessionActive()
 			certStatus = w.token.CertStatus()
+			certLoggedIn = w.token.AccountStatus().LoggedIn
 		}
 		fyne.Do(func() {
 			w.maybeFinishPendingTierSwitch(entStatus)
@@ -2726,7 +2737,7 @@ func (w *Window) performRefresh() {
 			w.refreshAccountAvatar()
 			w.refreshRustShineUI(entStatus)
 			w.refreshUSBPassthroughUI(entStatus, status.usbStatus)
-			w.refreshCertStatusUI(certStatus)
+			w.refreshCertStatusUI(certStatus, certLoggedIn)
 			setStatusDot(w.streamerStatusDot, status.streamerRunning)
 			if w.token != nil {
 				w.setStreamerDisplay(w.token.StreamerName())

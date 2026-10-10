@@ -163,6 +163,16 @@ func (w *Window) showCertStatusDialog(parent fyne.Window) {
 				_ = w.app.OpenURL(parsed)
 			}
 		}))
+	case w.token != nil && !w.token.AccountStatus().LoggedIn:
+		// Signed out: the backend won't issue this machine a certificate
+		// (devicecert.ErrAccountRequired), so retrying can't help.
+		signIn := widget.NewLabel(loc().CertSignInHint)
+		signIn.Wrapping = fyne.TextWrapWord
+		rows = append(rows, wrapDialogLabel(signIn, 11, design.ColorAlert))
+		certFooter = container.NewCenter(newDialogCTA(loc().SignIn, func() {
+			closeDialog()
+			w.showAccountLoginDialog(parent)
+		}))
 	case st.LastError != "":
 		// Distinct from the CertPending case below: this is "the last
 		// attempt actually failed" (e.g. Let's Encrypt rate-limited the
