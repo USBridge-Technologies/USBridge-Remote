@@ -6,7 +6,17 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync/atomic"
+	"time"
 )
+
+// apiTunnelDownUntil (unix nanos): after an "api-tunnel" channel failed to
+// open, requests go straight to the fallback until then instead of each
+// paying a failed channel open first (a NanoKVM without an agent bridge
+// refuses every one). Package-level since one-off transports share it.
+var apiTunnelDownUntil atomic.Int64
+
+const apiTunnelRetryAfter = 30 * time.Second
 
 // webrtcAPITransport implements http.RoundTripper by tunneling HTTP/1.1 requests
 // over a WebRTC DataChannel (label "api-tunnel") when one can be opened,
@@ -29,8 +39,12 @@ func (t *webrtcAPITransport) RoundTrip(req *http.Request) (*http.Response, error
 		return t.fallback.RoundTrip(req)
 	}
 
+	if t.fallback != nil && time.Now().UnixNano() < apiTunnelDownUntil.Load() {
+		return t.fallback.RoundTrip(req)
+	}
 	conn, err := t.openDataChannel("api-tunnel")
 	if err != nil {
+		apiTunnelDownUntil.Store(time.Now().Add(apiTunnelRetryAfter).UnixNano())
 		if t.fallback == nil {
 			return nil, fmt.Errorf("webrtc api transport: open data channel %q: %w", "api-tunnel", err)
 		}

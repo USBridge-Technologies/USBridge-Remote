@@ -2,6 +2,7 @@ package controller
 
 import (
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/media"
 	"usbridge-client/internal/service"
 
@@ -23,6 +24,20 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 		videoClient.SetOnStateChanged(func(state string) {
 			logrus.Infof("🎬 [VideoWidget] video state changed: %s", state)
 			switch state {
+			case "taken-over":
+				// The stream went to another page (another tab or viewer):
+				// taking it back on our own would make the two fight over
+				// it, so stop and say so; Start takes it back.
+				vw.isStreaming = false
+				vw.isVideoConnected = false
+				vw.MarkUserStopped()
+				vw.hideConnectingSpinner()
+				go vw.clearVideo()
+				fyne.Do(func() {
+					if vw.statusLabel != nil {
+						vw.statusLabel.SetText(i18n.Current.VideoTakenOver)
+					}
+				})
 			case "disconnected", "error", "stopped":
 				vw.isStreaming = false
 				vw.isVideoConnected = false

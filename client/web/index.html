@@ -296,6 +296,19 @@
   // callback internal/gui/ime_bridge_wasm.go registers once wasm has
   // loaded -- that hand-off has no gesture requirement of its own.
   function installClipboardPasteBridge() {
+    // Ctrl/Cmd+V in a text field: keep the key away from glfw-js (which
+    // would preventDefault it, and turn it into Fyne's ShortcutPaste, whose
+    // synchronous clipboard read freezes the page) so the browser fires
+    // its native paste event below. Not preventDefault: that would cancel
+    // the paste itself. Elsewhere (the video: Ctrl+V for the host) and
+    // with Alt (the Ctrl+Alt+Shift+V "type the clipboard" hotkey) the key
+    // goes to glfw-js as before.
+    window.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyV' &&
+          window.usbridgeFocusIsTextEntry && window.usbridgeFocusIsTextEntry()) {
+        e.stopImmediatePropagation();
+      }
+    }, true);
     document.addEventListener('paste', function (e) {
       if (!e.clipboardData) return;
       var text = e.clipboardData.getData('text/plain') || e.clipboardData.getData('text');

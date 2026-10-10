@@ -110,3 +110,7 @@ replace github.com/wlynxg/anet => ./internal/anet
 tool golang.org/x/mobile/cmd/gobind
 
 replace github.com/google/gousb => ./third_party/gousb
+
+// Bounded clipboard read in the browser build (see
+// third_party/glfw-js/clipboard_wasm.go).
+replace github.com/fyne-io/glfw-js => ./third_party/glfw-js

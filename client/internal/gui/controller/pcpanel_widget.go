@@ -1606,7 +1606,7 @@ func (p *PCPanelWidget) showProtectedActionDialog(title, hint, expectedWord stri
 	helpLabel := widget.NewLabel("English only. Confirmation is case-insensitive.")
 	helpLabel.Wrapping = fyne.TextWrapWord
 
-	confirmEntry := widget.NewEntry()
+	confirmEntry := view.NewStyledEntry()
 	confirmEntry.SetPlaceHolder(expectedWord)
 
 	contentItems := []fyne.CanvasObject{titleLabel, hintLabel, helpLabel}

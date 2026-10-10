@@ -113,8 +113,14 @@ func NewWebRTCClient(baseURL, masterKey, hwID string) *WebRTCClient {
 // crypto/* stdlib — compiles and runs identically under GOOS=js the same as
 // any other platform, no browser SubtleCrypto involvement needed.
 func (c *WebRTCClient) signHMAC(method, path, body string) (ts, sig string) {
+	return signHMAC(c.masterKey, method, path, body)
+}
+
+// signHMAC is WebRTCClient.signHMAC for any master key (the WebTransport
+// client signs the same way).
+func signHMAC(masterKey, method, path, body string) (ts, sig string) {
 	ts = strconv.FormatInt(time.Now().Unix(), 10)
-	derived := sha256.Sum256([]byte(c.masterKey))
+	derived := sha256.Sum256([]byte(masterKey))
 	mac := hmac.New(sha256.New, derived[:])
 	mac.Write([]byte(method + path + ts + body))
 	sig = hex.EncodeToString(mac.Sum(nil))
@@ -229,42 +235,8 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 	pc.Call("addTransceiver", "video", map[string]interface{}{"direction": "recvonly"})
 	pc.Call("addTransceiver", "audio", map[string]interface{}{"direction": "recvonly"})
 
-	doc := js.Global().Get("document")
-	videoEl := doc.Call("createElement", "video")
-	videoEl.Set("autoplay", true)
-	videoEl.Set("muted", true) // audio plays through a separate <audio> element below; browsers block autoplay with sound without a user gesture, but always allow it muted
-	videoEl.Set("playsInline", true)
-	videoEl.Set("id", "usbridge-video-overlay")
-	style := videoEl.Get("style")
-	// position:fixed + an explicit z-index makes this a *positioned* element,
-	// which per normal CSS stacking rules always paints above Fyne's own
-	// wasm <canvas> (a plain, non-positioned element with implicit z-index
-	// "auto") regardless of DOM append order -- no need to fight over
-	// whether the canvas is transparent or opaque underneath. Sits below
-	// the touch-overlay div (z-index 10, video_gestures_wasm.go) and the
-	// virtual-cursor dot (z-index 11, video_widget_cursor_wasm.go), which
-	// both need to stay clickable/visible above the actual video pixels.
-	// object-fit:fill + an exact-letterboxed-size box (set by
-	// video_widget_dom_overlay_wasm.go's syncVideoOverlay, mirroring the
-	// same scale-to-fit math VideoWidget already does for every other
-	// platform) means this never needs its own aspect-ratio logic -- the
-	// box handed to it is already the right shape.
-	style.Set("position", "fixed")
-	style.Set("left", "0px")
-	style.Set("top", "0px")
-	style.Set("width", "0px")
-	style.Set("height", "0px")
-	style.Set("zIndex", "5")
-	style.Set("objectFit", "fill")
-	style.Set("pointerEvents", "none")
-	style.Set("visibility", "hidden")
-	style.Set("background", "#000")
-	doc.Get("body").Call("appendChild", videoEl)
+	videoEl, audioEl := newMediaElements()
 	c.videoEl = videoEl
-
-	audioEl := doc.Call("createElement", "audio")
-	audioEl.Set("autoplay", true)
-	doc.Get("body").Call("appendChild", audioEl)
 	c.audioEl = audioEl
 
 	c.pcTrackFunc = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -504,16 +476,26 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 // the decision logic around it (shouldFallbackToRelay et al., signal_relay.go)
 // stays platform-independent and unit-testable.
 func doOfferFetch(url string, body []byte, headers map[string]string) ([]byte, error) {
+	return doFetch("POST", url, body, headers)
+}
+
+// doFetch is doOfferFetch for any method; a nil body sends none (and no
+// Content-Type).
+func doFetch(method, url string, body []byte, headers map[string]string) ([]byte, error) {
 	jsHeaders := js.Global().Get("Object").New()
-	jsHeaders.Set("Content-Type", "application/json")
+	if body != nil {
+		jsHeaders.Set("Content-Type", "application/json")
+	}
 	for k, v := range headers {
 		jsHeaders.Set(k, v)
 	}
 
 	opts := js.Global().Get("Object").New()
-	opts.Set("method", "POST")
+	opts.Set("method", method)
 	opts.Set("headers", jsHeaders)
-	opts.Set("body", string(body))
+	if body != nil {
+		opts.Set("body", string(body))
+	}
 
 	fetchPromise := js.Global().Call("fetch", url, opts)
 	respVal, err := awaitPromise(fetchPromise)
@@ -778,7 +760,12 @@ func (c *WebRTCClient) VideoElement() js.Value {
 // native GPU-overlay platform (Android/Metal) already uses -- see
 // handleVideoFrame's doc comment. Returns a stop function.
 func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
-	if c.videoEl.IsUndefined() || c.videoEl.IsNull() {
+	return watchVideoFrames(c.videoEl, onFrame)
+}
+
+// watchVideoFrames is WatchVideoFrames for any session's <video>.
+func watchVideoFrames(videoEl js.Value, onFrame func()) func() {
+	if videoEl.IsUndefined() || videoEl.IsNull() {
 		return func() {}
 	}
 	stopped := false
@@ -818,10 +805,10 @@ func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
 	// playback progress rather than a blind timer.
 	lastFrameCount := -1.0
 	lastCurrentTime := -1.0
-	hasPlaybackQuality := !c.videoEl.Get("getVideoPlaybackQuality").IsUndefined()
+	hasPlaybackQuality := !videoEl.Get("getVideoPlaybackQuality").IsUndefined()
 	reportIfAdvanced := func() {
 		if hasPlaybackQuality {
-			total := c.videoEl.Call("getVideoPlaybackQuality").Get("totalVideoFrames").Float()
+			total := videoEl.Call("getVideoPlaybackQuality").Get("totalVideoFrames").Float()
 			if total <= lastFrameCount {
 				return
 			}
@@ -839,7 +826,7 @@ func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
 			}
 			return
 		} else {
-			ct := c.videoEl.Get("currentTime").Float()
+			ct := videoEl.Get("currentTime").Float()
 			if ct <= lastCurrentTime {
 				return
 			}
@@ -848,17 +835,17 @@ func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
 		onFrame()
 	}
 
-	if rvfc := c.videoEl.Get("requestVideoFrameCallback"); !rvfc.IsUndefined() {
+	if rvfc := videoEl.Get("requestVideoFrameCallback"); !rvfc.IsUndefined() {
 		var tick js.Func
 		tick = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 			if isStopped() {
 				return nil
 			}
 			reportIfAdvanced()
-			c.videoEl.Call("requestVideoFrameCallback", tick)
+			videoEl.Call("requestVideoFrameCallback", tick)
 			return nil
 		})
-		c.videoEl.Call("requestVideoFrameCallback", tick)
+		videoEl.Call("requestVideoFrameCallback", tick)
 	}
 
 	handle := js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -1019,12 +1006,6 @@ func (c *WebRTCClient) Close() {
 		c.pcConnStateFunc.Release()
 		c.pcTrackFunc.Release()
 	}
-	if !c.videoEl.IsUndefined() && !c.videoEl.IsNull() {
-		c.videoEl.Set("srcObject", js.Null())
-		if parent := c.videoEl.Get("parentNode"); !parent.IsNull() && !parent.IsUndefined() {
-			parent.Call("removeChild", c.videoEl)
-		}
-	}
 	// audioEl used to be a Connect()-local variable never referenced again
 	// after being appended to <body> -- every reconnect (and this app has
 	// reconnected a lot, chasing the capture-kms bug and ICE flapping
@@ -1036,12 +1017,7 @@ func (c *WebRTCClient) Close() {
 	// speaker, with something warbling in between" report, not a real
 	// PulseAudio loopback on the host (pactl showed none). Tear it down
 	// the same way videoEl already is.
-	if !c.audioEl.IsUndefined() && !c.audioEl.IsNull() {
-		c.audioEl.Set("srcObject", js.Null())
-		if parent := c.audioEl.Get("parentNode"); !parent.IsNull() && !parent.IsUndefined() {
-			parent.Call("removeChild", c.audioEl)
-		}
-	}
+	removeMediaElements(c.videoEl, c.audioEl)
 }
 
 // awaitPromise blocks the calling goroutine until a JS Promise settles,
@@ -1096,4 +1072,60 @@ func jsArrayBufferToBytes(arrayBuffer js.Value) []byte {
 	buf := make([]byte, uint8Array.Get("length").Int())
 	js.CopyBytesToGo(buf, uint8Array)
 	return buf
+}
+
+// newMediaElements creates the session's hidden overlay <video> (positioned
+// by video_widget_dom_overlay_wasm.go) and its <audio>, both appended to
+// <body> -- shared by the WebRTC and WebTransport clients.
+func newMediaElements() (videoEl, audioEl js.Value) {
+	doc := js.Global().Get("document")
+	videoEl = doc.Call("createElement", "video")
+	videoEl.Set("autoplay", true)
+	videoEl.Set("muted", true) // audio plays through a separate <audio> element below; browsers block autoplay with sound without a user gesture, but always allow it muted
+	videoEl.Set("playsInline", true)
+	videoEl.Set("id", "usbridge-video-overlay")
+	style := videoEl.Get("style")
+	// position:fixed + an explicit z-index makes this a *positioned* element,
+	// which per normal CSS stacking rules always paints above Fyne's own
+	// wasm <canvas> (a plain, non-positioned element with implicit z-index
+	// "auto") regardless of DOM append order -- no need to fight over
+	// whether the canvas is transparent or opaque underneath. Sits below
+	// the touch-overlay div (z-index 10, video_gestures_wasm.go) and the
+	// virtual-cursor dot (z-index 11, video_widget_cursor_wasm.go), which
+	// both need to stay clickable/visible above the actual video pixels.
+	// object-fit:fill + an exact-letterboxed-size box (set by
+	// video_widget_dom_overlay_wasm.go's syncVideoOverlay, mirroring the
+	// same scale-to-fit math VideoWidget already does for every other
+	// platform) means this never needs its own aspect-ratio logic -- the
+	// box handed to it is already the right shape.
+	style.Set("position", "fixed")
+	style.Set("left", "0px")
+	style.Set("top", "0px")
+	style.Set("width", "0px")
+	style.Set("height", "0px")
+	style.Set("zIndex", "5")
+	style.Set("objectFit", "fill")
+	style.Set("pointerEvents", "none")
+	style.Set("visibility", "hidden")
+	style.Set("background", "#000")
+	doc.Get("body").Call("appendChild", videoEl)
+
+	audioEl = doc.Call("createElement", "audio")
+	audioEl.Set("autoplay", true)
+	doc.Get("body").Call("appendChild", audioEl)
+
+	return videoEl, audioEl
+}
+
+// removeMediaElements detaches and removes what newMediaElements made.
+func removeMediaElements(videoEl, audioEl js.Value) {
+	for _, el := range []js.Value{videoEl, audioEl} {
+		if el.IsUndefined() || el.IsNull() {
+			continue
+		}
+		el.Set("srcObject", js.Null())
+		if parent := el.Get("parentNode"); !parent.IsNull() && !parent.IsUndefined() {
+			parent.Call("removeChild", el)
+		}
+	}
 }

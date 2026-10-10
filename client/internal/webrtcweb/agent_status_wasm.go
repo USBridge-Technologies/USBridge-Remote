@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall/js"
 	"time"
 
@@ -30,6 +32,10 @@ import (
 // *WebRTCClient is constructed against.
 func FetchStreamerName(apiHost string, apiPort int, masterKey string) (string, error) {
 	const path = "/api/status"
+	key := fmt.Sprintf("%s:%d", apiHost, apiPort)
+	if _, absent := noStatusRoute.Load(key); absent {
+		return "", nil
+	}
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	derived := sha256.Sum256([]byte(masterKey))
 	mac := hmac.New(sha256.New, derived[:])
@@ -59,6 +65,12 @@ func FetchStreamerName(apiHost string, apiPort int, masterKey string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("reading response body: %w", err)
 	}
+	if respVal.Get("status").Int() == http.StatusNotFound {
+		// A USBridge KVM has no /api/status: nothing to learn, and no
+		// point asking (and logging a 404) on every stream start.
+		noStatusRoute.Store(key, struct{}{})
+		return "", nil
+	}
 	if !respVal.Get("ok").Bool() {
 		return "", fmt.Errorf("agent returned HTTP %d: %s", respVal.Get("status").Int(), textVal.String())
 	}
@@ -73,6 +85,9 @@ func FetchStreamerName(apiHost string, apiPort int, masterKey string) (string, e
 	}
 	return parsed.Data.Streamer, nil
 }
+
+// noStatusRoute: host:port pairs whose agent answered /api/status with 404.
+var noStatusRoute sync.Map
 
 // StreamerSupportsWebRTC reports whether name (as returned by
 // FetchStreamerName, e.g. "USBridge Streamer (Proprietary)" or "Sunshine

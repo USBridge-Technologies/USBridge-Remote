@@ -17,11 +17,11 @@ import (
 type VideoQualityDialog struct {
 	parent fyne.Window
 
-	widthEntry   *widget.Entry
-	heightEntry  *widget.Entry
-	fpsEntry     *widget.Entry
-	qualityEntry *widget.Entry
-	bitrateEntry *widget.Entry
+	widthEntry   *StyledEntry
+	heightEntry  *StyledEntry
+	fpsEntry     *StyledEntry
+	qualityEntry *StyledEntry
+	bitrateEntry *StyledEntry
 
 	onApply func(width, height, fps, quality, bitrate int)
 }
@@ -35,23 +35,23 @@ func NewVideoQualityDialog(parent fyne.Window) *VideoQualityDialog {
 func (vqd *VideoQualityDialog) Show(currentWidth, currentHeight, currentFPS, currentQuality, currentBitrate int, onApply func(int, int, int, int, int)) {
 	vqd.onApply = onApply
 
-	vqd.widthEntry = widget.NewEntry()
+	vqd.widthEntry = NewStyledEntry()
 	vqd.widthEntry.SetText(fmt.Sprintf("%d", currentWidth))
 	vqd.widthEntry.SetPlaceHolder("640")
 
-	vqd.heightEntry = widget.NewEntry()
+	vqd.heightEntry = NewStyledEntry()
 	vqd.heightEntry.SetText(fmt.Sprintf("%d", currentHeight))
 	vqd.heightEntry.SetPlaceHolder("480")
 
-	vqd.fpsEntry = widget.NewEntry()
+	vqd.fpsEntry = NewStyledEntry()
 	vqd.fpsEntry.SetText(fmt.Sprintf("%d", currentFPS))
 	vqd.fpsEntry.SetPlaceHolder("30")
 
-	vqd.qualityEntry = widget.NewEntry()
+	vqd.qualityEntry = NewStyledEntry()
 	vqd.qualityEntry.SetText(fmt.Sprintf("%d", currentQuality))
 	vqd.qualityEntry.SetPlaceHolder("80")
 
-	vqd.bitrateEntry = widget.NewEntry()
+	vqd.bitrateEntry = NewStyledEntry()
 	vqd.bitrateEntry.SetText(fmt.Sprintf("%d", currentBitrate))
 	vqd.bitrateEntry.SetPlaceHolder("2000")
 

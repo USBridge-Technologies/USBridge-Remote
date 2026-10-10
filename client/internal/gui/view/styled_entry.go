@@ -32,11 +32,27 @@ func NewStyledEntry() *StyledEntry {
 	return e
 }
 
+// NewStyledPasswordEntry is NewStyledEntry with its text concealed.
+func NewStyledPasswordEntry() *StyledEntry {
+	e := NewStyledEntry()
+	e.Password = true
+	return e
+}
+
 func (e *StyledEntry) TappedSecondary(*fyne.PointEvent) {
 	if c := fyne.CurrentApp().Driver().CanvasForObject(e); c != nil {
 		c.Focus(e)
 	}
 	ShowEntryContextMenu(&e.Entry, e, e.TypedShortcut)
+}
+
+// TypedShortcut reads the browser build's paste asynchronously (see
+// BrowserHandlesPaste) and passes everything else to widget.Entry.
+func (e *StyledEntry) TypedShortcut(shortcut fyne.Shortcut) {
+	if BrowserHandlesPaste(shortcut) {
+		return
+	}
+	e.Entry.TypedShortcut(shortcut)
 }
 
 var _ fyne.SecondaryTappable = (*StyledEntry)(nil)
@@ -59,6 +75,9 @@ func EntryContextMenuItems(entry *widget.Entry, typedShortcut func(fyne.Shortcut
 		typedShortcut(&fyne.ShortcutCopy{Clipboard: clipboard})
 	}}
 	paste := StyledMenuItem{Label: "Paste", OnTap: func() {
+		if PasteFromBrowserClipboard() {
+			return
+		}
 		typedShortcut(&fyne.ShortcutPaste{Clipboard: clipboard})
 	}}
 	selectAll := StyledMenuItem{Label: "Select All", OnTap: func() {

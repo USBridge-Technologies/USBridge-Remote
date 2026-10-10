@@ -1555,6 +1555,10 @@ func (vw *VideoWidget) refreshAgentProtocol() {
 			vw.SetAgentProtocol(p)
 			return
 		}
+		// A USBridge KVM has no protocol to report and no /api/status.
+		if os := strings.TrimSpace(info.AgentOS); os != "" && !IsSoftwareAgentOS(os) {
+			return
+		}
 	}
 	if status, err := vw.usbClient.GetStatus(); err == nil && status != nil && status.Data != nil {
 		if p := strings.TrimSpace(status.Data.AgentProtocol); p != "" {

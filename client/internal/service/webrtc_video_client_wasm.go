@@ -49,16 +49,38 @@ var webrtcVideoSessionLive atomic.Bool
 
 func webrtcVideoSessionActive() bool { return webrtcVideoSessionLive.Load() }
 
-// WebRTCVideoClient implements service.VideoClient over WebRTC for the
-// browser build.
+// browserStream is what WebRTCVideoClient drives: a WebRTC session
+// (webrtcweb.WebRTCClient) or, where the page and the streamer can do it,
+// the cheaper WebTransport+WebCodecs one (webrtcweb.WebTransportClient).
+type browserStream interface {
+	Connect(sessionID string) error
+	Close()
+	OnStateChange(fn func(state string))
+	OnVideoTrack(fn func())
+	VideoElement() js.Value
+	WatchVideoFrames(onFrame func()) func()
+	StartStatsLogging(interval time.Duration, logFn func(msg string)) func()
+	StartNetGraphStatsPolling() func()
+	NegotiatedVideoCodec() (string, bool)
+	SendBinary(data []byte) error
+	OpenDataChannel(label string) (net.Conn, error)
+}
+
+// WebRTCVideoClient implements service.VideoClient over WebRTC (or
+// WebTransport, see browserStream) for the browser build.
 type WebRTCVideoClient struct {
 	config *models.AppConfig
 
-	mu             sync.Mutex
-	host           string
-	apiSecret      string // hex, same format webrtcweb.NewWebRTCClient expects
-	hwID           string // see SetHwID's doc comment
-	client         *webrtcweb.WebRTCClient
+	mu        sync.Mutex
+	host      string
+	apiSecret string // hex, same format webrtcweb.NewWebRTCClient expects
+	hwID      string // see SetHwID's doc comment
+	client    browserStream
+	// gen counts sessions; a session's callbacks act only while it is the
+	// current one, so a replaced session can't flip the state or leave its
+	// pollers running.
+	gen            uint64
+	transport      string // "webrtc" or "webtransport", for GetStats
 	connected      atomic.Bool
 	stopFrameWatch func()
 	stopStatsLog   func()
@@ -70,6 +92,9 @@ type WebRTCVideoClient struct {
 	// videoMode: the codec picked in the video settings dialog -- see
 	// SetVideoMode.
 	videoMode string
+	// fps: the video dialog's frame rate (SetFPS); only the WebTransport
+	// path can ask for one.
+	fps int
 
 	onFrame        func(image.Image)
 	onStateChanged func(string)
@@ -169,6 +194,7 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	hwID := c.hwID
 	bitrateKbps := c.bitrateKbps
 	videoMode := c.videoMode
+	fps := c.fps
 	c.mu.Unlock()
 	if host == "" {
 		return fmt.Errorf("webrtc video: no host set")
@@ -204,8 +230,10 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 		}
 	}
 
+	sameOrigin := false
 	if p, ok := api.SameOriginPort(host); ok {
 		port = p // the web client the KVM serves: its own origin
+		sameOrigin = true
 	}
 
 	baseURL := scheme + "://" + host + ":" + strconv.Itoa(port)
@@ -220,29 +248,95 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	// /api/status's streamer field, whatever), fall through to the normal
 	// WebRTC attempt below rather than blocking on it -- this is purely an
 	// early, friendlier error path, not a hard gate.
-	if streamer, err := webrtcweb.FetchStreamerName(host, port, secret); err == nil && streamer != "" && !webrtcweb.StreamerSupportsWebRTC(streamer) {
-		return fmt.Errorf("%s: %w", streamer, ErrStreamerUnsupportedWebRTC)
+	// A page the KVM serves itself needs no probe: the KVM runs rust-shine
+	// and has no /api/status (the request would only log a 404).
+	if !sameOrigin {
+		if streamer, err := webrtcweb.FetchStreamerName(host, port, secret); err == nil && streamer != "" && !webrtcweb.StreamerSupportsWebRTC(streamer) {
+			return fmt.Errorf("%s: %w", streamer, ErrStreamerUnsupportedWebRTC)
+		}
 	}
 
-	client := webrtcweb.NewWebRTCClient(baseURL, secret, hwID)
-	client.SetBitrateKbps(bitrateKbps)
-	client.SetVideoCodec(videoMode)
-	if show, ok := moonlight.DisplayCursor(); ok {
-		client.SetDisplayCursor(show)
-	}
+	// A session still open here would keep its pollers and, on the
+	// server, lose the stream to the new one and report a failure.
+	_ = c.Disconnect()
+	c.mu.Lock()
+	c.gen++
+	gen := c.gen
+	c.mu.Unlock()
+
 	sessionID := uuid.NewString()
+	var client browserStream
+	transport := "webrtc"
+	// The transport is the user's pick in the header (WebRTC / WebData),
+	// not a silent fallback: a WebData session that can't connect says why.
+	if BrowserUsesWebData() {
+		logrus.Infof("[webrtc-video] WebData (WebTransport) hello: fps=%d bitrate_kbps=%d codec=%q", fps, bitrateKbps, videoMode)
+		wt := webrtcweb.NewWebTransportClient(baseURL, secret)
+		wt.SetBitrateKbps(bitrateKbps)
+		wt.SetFPS(fps)
+		wt.SetVideoCodec(videoMode)
+		if show, ok := moonlight.DisplayCursor(); ok {
+			wt.SetDisplayCursor(show)
+		}
+		c.wireStream(wt, gen)
+		if err := wt.Connect(sessionID); err != nil {
+			return fmt.Errorf("WebData (WebTransport): %w -- switch the header to WebRTC to use that instead", err)
+		}
+		logrus.Info("[webrtc-video] streaming over WebData (WebTransport + WebCodecs)")
+		client, transport = wt, "webtransport"
+	}
+	if client == nil {
+		rtc := webrtcweb.NewWebRTCClient(baseURL, secret, hwID)
+		rtc.SetBitrateKbps(bitrateKbps)
+		rtc.SetVideoCodec(videoMode)
+		if show, ok := moonlight.DisplayCursor(); ok {
+			rtc.SetDisplayCursor(show)
+		}
+		c.wireStream(rtc, gen)
+		if err := rtc.Connect(sessionID); err != nil {
+			return fmt.Errorf("webrtc video: connect: %w", err)
+		}
+		client = rtc
+	}
 
+	c.mu.Lock()
+	if c.gen != gen {
+		c.mu.Unlock()
+		client.Close()
+		return fmt.Errorf("webrtc video: session replaced while connecting")
+	}
+	c.client = client
+	c.transport = transport
+	c.mu.Unlock()
+
+	return nil
+}
+
+// wireStream hooks a session's state and video-track callbacks into this
+// VideoClient's -- the same for both transports.
+func (c *WebRTCVideoClient) wireStream(client browserStream, gen uint64) {
 	client.OnStateChange(func(state string) {
-		logrus.Infof("[webrtc-video] connection state: %s", state)
 		c.mu.Lock()
 		cb := c.onStateChanged
+		current := c.gen == gen
 		c.mu.Unlock()
+		if !current {
+			return
+		}
+		logrus.Infof("[webrtc-video] connection state: %s", state)
 		switch state {
 		case "connected":
 			c.connected.Store(true)
 			webrtcVideoSessionLive.Store(true)
 			if cb != nil {
 				cb("connected")
+			}
+		case "taken-over":
+			// Another page opened a session: stop here, no reconnect.
+			c.connected.Store(false)
+			webrtcVideoSessionLive.Store(false)
+			if cb != nil {
+				cb("taken-over")
 			}
 		case "failed", "disconnected", "closed":
 			c.connected.Store(false)
@@ -290,21 +384,18 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 		// stall logger does (see StartNetGraphStatsPolling's doc comment).
 		stopNetGraph := client.StartNetGraphStatsPolling()
 		c.mu.Lock()
+		if c.gen != gen {
+			c.mu.Unlock()
+			stop()
+			stopStats()
+			stopNetGraph()
+			return
+		}
 		c.stopFrameWatch = stop
 		c.stopStatsLog = stopStats
 		c.stopNetGraph = stopNetGraph
 		c.mu.Unlock()
 	})
-
-	if err := client.Connect(sessionID); err != nil {
-		return fmt.Errorf("webrtc video: connect: %w", err)
-	}
-
-	c.mu.Lock()
-	c.client = client
-	c.mu.Unlock()
-
-	return nil
 }
 
 func (c *WebRTCVideoClient) ConnectToUDPViaPipe(pipeReader *os.File) error {
@@ -313,6 +404,7 @@ func (c *WebRTCVideoClient) ConnectToUDPViaPipe(pipeReader *os.File) error {
 
 func (c *WebRTCVideoClient) Disconnect() error {
 	c.mu.Lock()
+	c.gen++
 	client := c.client
 	c.client = nil
 	stop := c.stopFrameWatch
@@ -372,7 +464,13 @@ func (c *WebRTCVideoClient) SetOnPairingPINResolved(callback func())           {
 func (c *WebRTCVideoClient) IsConnected() bool { return c.connected.Load() }
 
 func (c *WebRTCVideoClient) GetStats() map[string]interface{} {
-	return map[string]interface{}{"protocol": "webrtc"}
+	c.mu.Lock()
+	transport := c.transport
+	c.mu.Unlock()
+	if transport == "" {
+		transport = "webrtc"
+	}
+	return map[string]interface{}{"protocol": transport}
 }
 
 func (c *WebRTCVideoClient) GetConfig() *models.AppConfig { return c.config }
@@ -403,7 +501,11 @@ func (c *WebRTCVideoClient) UpdateVideoUDPPort(port int) {}
 // message to the agent is a reasonable follow-up, not required for a
 // first working video path.
 func (c *WebRTCVideoClient) SetExpectedVideoSize(width, height int) {}
-func (c *WebRTCVideoClient) SetFPS(fps int)                         {}
+func (c *WebRTCVideoClient) SetFPS(fps int) {
+	c.mu.Lock()
+	c.fps = fps
+	c.mu.Unlock()
+}
 
 // SetBitrate stores the video-settings dialog's bitrate request for the
 // *next* ConnectToMoonlight call -- previously a no-op here (only the

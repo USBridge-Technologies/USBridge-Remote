@@ -81,7 +81,12 @@ func (c *WebRTCClient) OpenDataChannel(label string) (net.Conn, error) {
 		return nil, errors.New("webrtc: peer connection not established")
 	}
 	pc := *c.pc
-	dc := pc.Call("createDataChannel", label)
+	return openDCConn(pc.Call("createDataChannel", label), label)
+}
+
+// openDCConn wraps a new RTCDataChannel (or WebTransport channel shaped
+// like one, see wt_player.js's Channel) as a net.Conn once it opens.
+func openDCConn(dc js.Value, label string) (net.Conn, error) {
 	dc.Set("binaryType", "arraybuffer")
 
 	conn := &dcConn{

@@ -17,13 +17,22 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
 // MainWindow is the main window of the application.
 type MainWindow struct {
+	// statusBarBusy/statusBarAgain coalesce updateStatusBar calls (every
+	// widget's updateStatus lands there) into one poll at a time, at most
+	// one a second; lastStatusBarKey/lastStorageChip skip re-laying out the
+	// header when the poll changed nothing. A full header refresh re-measures
+	// every text in the window, the web client's biggest CPU cost.
+	statusBarBusy    atomic.Bool
+	statusBarAgain   atomic.Bool
+	lastStatusBarKey string
+	lastStorageChip  string
+
 	app    fyne.App
 	window fyne.Window
 	// keepAliveWindow is never shown and never closed -- see
@@ -43,7 +52,7 @@ type MainWindow struct {
 	// Vulkan, so they replace this header instead of floating on video).
 	mainHeaderHost   *fyne.Container
 	mainHeaderNormal fyne.CanvasObject
-	tabs             *container.AppTabs
+	tabs             *tabSet
 	// tabHeaderButtons is the Control/Devices/Snapshots/Scripts selector --
 	// desktop: left zone of createMainAddressBar; mobile: the bigger
 	// connected footer (see createMobileConnectedFooter).

@@ -690,6 +690,7 @@ type LocalizedStrings struct {
 	ErrorVideoStart            string // "Error starting video: %v"
 	ErrorVideoInfo             string // "Error getting video information"
 	VideoWaitingConnection     string // "Waiting for connection..."
+	VideoTakenOver             string // the stream was opened elsewhere
 	VideoInfoReceived          string // "Video information received"
 	VideoInfoUnavailable       string // "Video information unavailable"
 	VirtualKeyboardClickToType string // "click to type"
@@ -1412,6 +1413,7 @@ func EN() *LocalizedStrings {
 		ErrorVideoStart:            "Error starting video: %v",
 		ErrorVideoInfo:             "Error getting video information",
 		VideoWaitingConnection:     "Waiting for connection...",
+		VideoTakenOver:             "Video opened in another window. Press Start to bring it back here.",
 		VideoInfoReceived:          "Video information received",
 		VideoInfoUnavailable:       "Video information unavailable",
 		VirtualKeyboardClickToType: "click to type",

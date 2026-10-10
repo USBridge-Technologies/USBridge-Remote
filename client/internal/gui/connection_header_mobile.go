@@ -1,7 +1,6 @@
 package gui
 
 import (
-	"image/color"
 	"runtime"
 
 	"usbridge-client/internal/gui/assets"
@@ -26,7 +25,11 @@ func newMobileConnectionHeader(actions connectionHeaderActions) (*fyne.Container
 	handle := &ConnectionHeaderHandle{}
 	var tailscaleAccessory fyne.CanvasObject
 	if runtime.GOOS == "js" {
-		tailscaleAccessory = canvas.NewRectangle(color.Transparent)
+		// The stream transport switch in the Tailscale toggle's spot, as on
+		// the desktop-width header (newTransportHeaderToggle).
+		toggle := newTransportHeaderToggle(actions.OnTransportChanged)
+		toggle.scale = mobileConnectionHeaderScale
+		tailscaleAccessory = toggle
 	} else {
 		toggle := newTailscaleHeaderToggle(actions.OnToggleTailscale)
 		toggle.scale = mobileConnectionHeaderScale

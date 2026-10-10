@@ -279,6 +279,12 @@ type DiskWidget struct {
 	agentProtocol string
 	// agentUSBBroker: the KVM reports usb_broker (see virtualPads).
 	agentUSBBroker bool
+
+	// mediaStatus: the agent's video/audio state as of the last device poll
+	// (loadMountedDevices). updateDevicesStatus reads it instead of asking
+	// the agent: it runs on the UI goroutine, where a request freezes the
+	// window (half a second per Devices tab switch in the browser).
+	mediaStatus atomic.Pointer[diskMediaStatus]
 }
 
 // virtualPads: gamepads go to the host as virtual Xbox 360 / DualShock 4
