@@ -87,7 +87,17 @@ func claimKVMOverUSBOnce() (usbSetupClaim, error) {
 	if api.BrowserIsHTTPS() {
 		return res, errUSBSetupBrowserHTTPS
 	}
-	client := &http.Client{Timeout: 5 * time.Second}
+	// A fresh connection every time, no shared pool: the shared transport
+	// kept one opened before the adapter had its 10.55.0.x address (sourced
+	// from the PC's LAN address) and every later ask rode it and was refused,
+	// until it idled out.
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+			Proxy:             nil,
+		},
+	}
 	// The KVM has no clock of its own until it's online: it takes ours (only
 	// while its own is unset) so what it stamps from here on is right.
 	resp, err := client.Get(usbSetupClaimURL + "?t=" + strconv.FormatInt(time.Now().Unix(), 10))
