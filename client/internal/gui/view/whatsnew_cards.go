@@ -49,6 +49,7 @@ type whatsNewGlyph string
 const (
 	whatsNewGlyphAI      whatsNewGlyph = "ai"
 	whatsNewGlyphUSB     whatsNewGlyph = "usb"
+	whatsNewGlyphBoard   whatsNewGlyph = "board"
 	whatsNewGlyphColor   whatsNewGlyph = "color"
 	whatsNewGlyphDisplay whatsNewGlyph = "display"
 	whatsNewGlyphCloud   whatsNewGlyph = "cloud"
@@ -59,6 +60,11 @@ type whatsNewPoint struct {
 	Glyph whatsNewGlyph
 	Title whatsNewCopy
 	Body  whatsNewCopy
+	// LinkLabel and LinkURL replace the kind badge with a pill button.
+	// LinkTone "purple" is the Mac tablet pill; "teal" is the Download pill.
+	LinkLabel whatsNewCopy
+	LinkURL   string
+	LinkTone  string
 }
 
 // whatsNewItem is one plaque. Several Points share the same Kind so they
@@ -85,9 +91,9 @@ func whatsNewKindRank(kind whatsNewKind) int {
 		return 2
 	case whatsNewKindFree:
 		return 3
-	case whatsNewKindOpensource:
-		return 4
 	case whatsNewKindHardwareAgent:
+		return 4
+	case whatsNewKindOpensource:
 		return 5
 	default:
 		return 6
@@ -151,6 +157,66 @@ func markWhatsNewCatalogSeen() {
 // before shipping; leave older ones so the window can page through them.
 func whatsNewCatalog() []whatsNewCard {
 	return []whatsNewCard{
+		{
+			Version: "3.0.111",
+			Date:    "October 2026",
+			Items: []whatsNewItem{
+				{
+					Kind: whatsNewKindFree,
+					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphUSB,
+						Title: whatsNewCopy{
+							EN: "Free USB passthrough",
+							ES: "Passthrough USB gratis",
+							UK: "Безкоштовний проброс USB",
+						},
+						Body: whatsNewCopy{
+							EN: "USB passthrough is now included in the free version, except graphics tablets.",
+							ES: "El passthrough USB ya esta en la version gratuita, salvo tabletas graficas.",
+							UK: "Проброс USB тепер доступний у безкоштовній версії, крім графічних планшетів.",
+						},
+					}},
+				},
+				{
+					Kind: whatsNewKindHardwareAgent,
+					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphBoard,
+						Title: whatsNewCopy{
+							EN: "NanoKVM firmware",
+							ES: "Firmware para NanoKVM",
+							UK: "Прошивка для NanoKVM",
+						},
+						Body: whatsNewCopy{
+							EN: "Firmware for NanoKVM: a much faster KVM at 60 FPS, with gamepad support.",
+							ES: "Firmware para NanoKVM: un KVM mucho mas rapido a 60 FPS, con soporte de gamepads.",
+							UK: "Прошивка для NanoKVM: набагато швидший KVM на 60 FPS і підтримка геймпадів.",
+						},
+						LinkLabel: whatsNewCopy{EN: "Download", ES: "Descargar", UK: "Завантажити"},
+						LinkURL:   "https://www.usbridge.io/hardware-agent",
+						LinkTone:  "teal",
+					}},
+				},
+				{
+					Kind: whatsNewKindOpensource,
+					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphBoard,
+						Title: whatsNewCopy{
+							EN: "ESP module for Mac tablets",
+							ES: "Modulo ESP para tabletas en Mac",
+							UK: "ESP-модуль для планшета на Mac",
+						},
+						Body: whatsNewCopy{
+							EN: "Pass a graphics tablet through to a Mac.",
+							ES: "Pasa una tableta grafica a un Mac.",
+							UK: "Проброс графічного планшета на Mac.",
+						},
+						LinkLabel: whatsNewCopy{EN: "Mac Tablet Support", ES: "Mac Tablet Support", UK: "Mac Tablet Support"},
+						LinkURL:   "https://www.usbridge.io/macos-wacom-support",
+						LinkTone:  "purple",
+					}},
+				},
+			},
+		},
 		{
 			Version: "3.0.45",
 			Date:    "September 2026",

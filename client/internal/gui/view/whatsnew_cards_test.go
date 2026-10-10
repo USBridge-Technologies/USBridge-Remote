@@ -88,20 +88,29 @@ func TestWhatsNewKindHardwareAgent(t *testing.T) {
 	if whatsNewKindLabel(whatsNewKindHardwareAgent) != "Hardware Agent" {
 		t.Fatal("hardware agent label")
 	}
-	if whatsNewKindRank(whatsNewKindHardwareAgent) <= whatsNewKindRank(whatsNewKindOpensource) {
-		t.Fatal("hardware agent should sit after Open Source")
+	if whatsNewKindRank(whatsNewKindOpensource) <= whatsNewKindRank(whatsNewKindHardwareAgent) {
+		t.Fatal("open source should sit after Hardware Agent")
 	}
 }
 
 func TestWhatsNewCatalogHasCards(t *testing.T) {
 	cards := whatsNewCatalog()
-	if len(cards) != 1 {
-		t.Fatalf("shipping one appeal for now, got %d", len(cards))
+	if len(cards) != 2 {
+		t.Fatalf("shipping the current appeal plus the previous one, got %d", len(cards))
+	}
+	if cards[0].Version != "3.0.111" || cards[0].Date != "October 2026" {
+		t.Fatalf("newest card: %s %q", cards[0].Version, cards[0].Date)
+	}
+	if cards[1].Version != "3.0.45" || cards[1].Date != "September 2026" {
+		t.Fatalf("previous card: %s %q", cards[1].Version, cards[1].Date)
 	}
 	if whatsNewKindRank(whatsNewKindBeta) >= whatsNewKindRank(whatsNewKindPro) {
 		t.Fatal("beta should be first")
 	}
-	var sawBeta, sawProUSB, sawPro444, sawFree, sawOther bool
+	if whatsNewKindRank(whatsNewKindFree) >= whatsNewKindRank(whatsNewKindHardwareAgent) {
+		t.Fatal("free USB row should sit above the NanoKVM firmware row")
+	}
+	var sawBeta, sawPro, sawFree, sawHardware, sawOther bool
 	for i, card := range cards {
 		if card.Version == "" {
 			t.Fatalf("card %d missing version", i)
@@ -128,28 +137,45 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 			case whatsNewKindBeta:
 				sawBeta = true
 			case whatsNewKindPro:
-				if len(item.Points) < 2 {
-					t.Fatal("pro plaque should have USB and 4:4:4")
-				}
-				sawProUSB, sawPro444 = true, true
+				sawPro = true
 			case whatsNewKindFree:
 				sawFree = true
+			case whatsNewKindHardwareAgent:
+				sawHardware = true
 			case whatsNewKindOther:
 				sawOther = true
 			}
 		}
 	}
-	if !sawBeta || !sawProUSB || !sawPro444 || !sawFree || !sawOther {
-		t.Fatalf("missing plaques: beta=%v pro=%v/%v free=%v other=%v", sawBeta, sawProUSB, sawPro444, sawFree, sawOther)
+	if !sawBeta || !sawPro || !sawFree || !sawHardware || !sawOther {
+		t.Fatalf("missing plaques: beta=%v pro=%v free=%v hardware=%v other=%v", sawBeta, sawPro, sawFree, sawHardware, sawOther)
 	}
-	if cards[0].Date != "September 2026" {
-		t.Fatalf("date %q", cards[0].Date)
+	newest := sortWhatsNewItems(cards[0].Items)
+	if newest[0].Kind != whatsNewKindFree || newest[0].Points[0].Glyph != whatsNewGlyphUSB {
+		t.Fatal("first row of 3.0.111 should be free USB passthrough")
+	}
+	nano := newest[1].Points[0]
+	if newest[1].Kind != whatsNewKindHardwareAgent || nano.Glyph != whatsNewGlyphBoard {
+		t.Fatal("second row of 3.0.111 should be NanoKVM firmware")
+	}
+	if nano.LinkURL != "https://www.usbridge.io/hardware-agent" || nano.LinkLabel.EN != "Download" || nano.LinkTone != "teal" {
+		t.Fatal("NanoKVM row should offer a Download button")
+	}
+	esp := newest[2].Points[0]
+	if len(newest) < 3 || newest[2].Kind != whatsNewKindOpensource || esp.Glyph != whatsNewGlyphBoard {
+		t.Fatal("third row of 3.0.111 should be the ESP module for Mac tablets")
+	}
+	if esp.LinkURL != "https://www.usbridge.io/macos-wacom-support" || esp.LinkLabel.EN != "Mac Tablet Support" {
+		t.Fatal("ESP row should open Mac Tablet Support")
+	}
+	if esp.Title.EN == "" || esp.Body.EN == "" {
+		t.Fatal("ESP row text should be a title plus one body line")
 	}
 }
 
 func TestWhatsNewCatalogFingerprintJoinsVersions(t *testing.T) {
 	fp := whatsNewCatalogFingerprint()
-	if fp != "3.0.45" {
+	if fp != "3.0.111\n3.0.45" {
 		t.Fatalf("got %q", fp)
 	}
 }
