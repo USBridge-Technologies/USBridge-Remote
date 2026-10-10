@@ -10,10 +10,12 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/theme"
 )
 
 func TestMain(m *testing.M) {
 	i18n.Init("en")
+	test.NewApp().Settings().SetTheme(theme.DefaultTheme())
 	os.Exit(m.Run())
 }
 
