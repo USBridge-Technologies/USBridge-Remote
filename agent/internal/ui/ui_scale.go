@@ -68,7 +68,7 @@ func ApplySavedUIScale(a fyne.App) {
 }
 
 func setFyneScaleEnv(v float32) {
-	_ = os.Setenv(fyneScaleEnv, strconv.FormatFloat(float64(v), 'f', 2, 32))
+	_ = os.Setenv(fyneScaleEnv, strconv.FormatFloat(float64(pinnedScaleValue(v)), 'f', 3, 32))
 }
 
 // saveUIScale persists the choice and asks Fyne to re-read FYNE_SCALE.
@@ -79,11 +79,7 @@ func (w *Window) saveUIScale(v float32) {
 	}
 	w.app.Preferences().SetString(uiScalePrefKey, strconv.FormatFloat(float64(v), 'f', 2, 32))
 	setFyneScaleEnv(v)
-	if s := w.app.Settings(); s != nil {
-		if t := s.Theme(); t != nil {
-			s.SetTheme(t)
-		}
-	}
+	reloadFyneCanvasScale(w.app)
 }
 
 func (w *Window) uiScaleOptions() (labels []string, selected string) {

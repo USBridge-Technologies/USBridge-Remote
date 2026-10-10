@@ -1770,6 +1770,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// OnStarted runs once the event loop is actually pumping, so the first
 	// status pass and the 2s ticker cannot race window startup.
 	w.app.Lifecycle().SetOnStarted(func() {
+		w.pinLinuxDPIScale()
 		w.performRefresh()
 		go func() {
 			ticker := time.NewTicker(2 * time.Second)
