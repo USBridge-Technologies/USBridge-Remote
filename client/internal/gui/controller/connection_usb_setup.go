@@ -47,8 +47,42 @@ type usbSetupClaimedError struct{ at *time.Time }
 
 func (e usbSetupClaimedError) Error() string { return "already set up" }
 
-// claimKVMOverUSB asks the KVM on the USB cable for its master key.
+// usbSetupRetryFor: how long "Over USB" keeps asking while the KVM isn't
+// there yet. Right after a KVM powers on or reboots (an update) its USB
+// network adapter and the setup server come up a few seconds apart: the
+// first asks are refused or unanswered, and giving up at once made it look
+// as if it took several tries.
+const (
+	usbSetupRetryFor   = 25 * time.Second
+	usbSetupRetryEvery = 1500 * time.Millisecond
+)
+
+// claimKVMOverUSB asks the KVM on the USB cable for its master key; while it
+// isn't reachable yet (not found, refused, an answer that isn't the setup
+// server's) it asks again for usbSetupRetryFor.
 func claimKVMOverUSB() (usbSetupClaim, error) {
+	deadline := time.Now().Add(usbSetupRetryFor)
+	for {
+		res, err := claimKVMOverUSBOnce()
+		if err == nil || !usbSetupRetryable(err) || time.Now().Add(usbSetupRetryEvery).After(deadline) {
+			return res, err
+		}
+		time.Sleep(usbSetupRetryEvery)
+	}
+}
+
+// usbSetupRetryable: the KVM may just not be up yet. Not an answer it gave
+// on purpose (already set up, window closed) and not the https case.
+func usbSetupRetryable(err error) bool {
+	var claimed usbSetupClaimedError
+	switch {
+	case errors.Is(err, errUSBSetupBrowserHTTPS), errors.Is(err, errUSBSetupWindowClosed), errors.As(err, &claimed):
+		return false
+	}
+	return true
+}
+
+func claimKVMOverUSBOnce() (usbSetupClaim, error) {
 	var res usbSetupClaim
 	if api.BrowserIsHTTPS() {
 		return res, errUSBSetupBrowserHTTPS
