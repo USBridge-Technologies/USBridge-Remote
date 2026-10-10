@@ -9,7 +9,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -286,15 +285,9 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 
 	rule := canvas.NewRectangle(design.ColorDivider)
 	rule.SetMinSize(fyne.NewSize(0, 1))
-	// Three tiles share one row; a fourth (Punktfunk) wraps onto a second
-	// one instead of widening the whole window.
-	var grid fyne.CanvasObject = container.New(&equalHBoxLayout{gap: 8}, tiles...)
-	if len(tiles) > len(protocolOptions) {
-		grid = container.New(&tightVBoxLayout{gap: 8},
-			container.New(&equalHBoxLayout{gap: 8}, tiles[:len(protocolOptions)]...),
-			container.New(&equalHBoxLayout{gap: 8}, append(tiles[len(protocolOptions):], layout.NewSpacer(), layout.NewSpacer())...),
-		)
-	}
+	// All protocol tiles share one row. Each card's min width is small
+	// enough that four of them fit the width three used to take.
+	grid := container.New(&equalHBoxLayout{gap: 8}, tiles...)
 	return container.New(&tightVBoxLayout{gap: 12},
 		grid,
 		rule,
@@ -707,7 +700,7 @@ func (r *protocolPickRow) CreateRenderer() fyne.WidgetRenderer {
 	dot := canvas.NewCircle(design.ColorCTA)
 
 	title := canvas.NewText(r.label, design.ColorTextLight)
-	title.TextSize = 12
+	title.TextSize = 11
 	title.TextStyle.Bold = true
 	sub := canvas.NewText(r.badge, r.badgeClr)
 	sub.TextSize = 9
@@ -756,7 +749,7 @@ func (r *protocolPickRow) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (r *protocolPickRow) MinSize() fyne.Size {
-	return fyne.NewSize(168, 56)
+	return fyne.NewSize(120, 56)
 }
 
 func (r *protocolPickRow) Tapped(e *fyne.PointEvent) {
@@ -842,11 +835,11 @@ func (r *protocolPickRowRenderer) Layout(size fyne.Size) {
 	r.border.Move(fyne.NewPos(0, 0))
 	r.border.Resize(size)
 
-	const padL float32 = 12
-	const radioSide float32 = 16
-	const innerSide float32 = 8
-	const infoSide float32 = 14
-	const padR float32 = 10
+	const padL float32 = 8
+	const radioSide float32 = 14
+	const innerSide float32 = 7
+	const infoSide float32 = 13
+	const padR float32 = 6
 	radioY := (size.Height - radioSide) / 2
 	r.radio.Move(fyne.NewPos(padL, radioY))
 	r.radio.Resize(fyne.NewSize(radioSide, radioSide))
@@ -891,7 +884,7 @@ func (r *protocolPickRowRenderer) Layout(size fyne.Size) {
 		r.lock.Hide()
 	}
 
-	textX := padL + radioSide + 10
+	textX := padL + radioSide + 6
 	textW := trailX - 8 - textX
 	if textW < 0 {
 		textW = 0

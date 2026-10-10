@@ -14,6 +14,7 @@ type LocalizedStrings struct {
 	Website                 string
 	Theme                   string
 	ThemeDefault            string
+	InterfaceScale          string
 	GeneralSettings         string
 	GeneralSettingsSubtitle string
 	AgentAutoUpdate         string
@@ -339,6 +340,7 @@ func EN() *LocalizedStrings {
 		Website:                 "Website",
 		Theme:                   "Theme",
 		ThemeDefault:            "Default",
+		InterfaceScale:          "Interface scale",
 		GeneralSettings:         "General Settings",
 		GeneralSettingsSubtitle: "Preferences that apply to the whole agent.",
 		AgentAutoUpdate:         "USBridge protocol auto-update",
@@ -598,6 +600,7 @@ func ES() *LocalizedStrings {
 	locale.Website = "Sitio web"
 	locale.Theme = "Tema"
 	locale.ThemeDefault = "Por defecto"
+	locale.InterfaceScale = "Escala de la interfaz"
 	locale.GeneralSettings = "Ajustes generales"
 	locale.GeneralSettingsSubtitle = "Preferencias para todo el agente."
 	locale.AgentAutoUpdate = "Actualizacion automatica del protocolo USBridge"
@@ -840,6 +843,7 @@ func UK() *LocalizedStrings {
 	locale.Website = "Сайт"
 	locale.Theme = "Тема"
 	locale.ThemeDefault = "За замовчуванням"
+	locale.InterfaceScale = "Масштаб інтерфейсу"
 	locale.GeneralSettings = "Загальні налаштування"
 	locale.GeneralSettingsSubtitle = "Параметри для всього агента."
 	locale.AgentAutoUpdate = "Автооновлення протоколу USBridge"

@@ -48,8 +48,9 @@ type whatsNewPoint struct {
 type whatsNewGlyph string
 
 const (
-	whatsNewGlyphUSB     whatsNewGlyph = "usb"
-	whatsNewGlyphDisplay whatsNewGlyph = "display"
+	whatsNewGlyphUSB      whatsNewGlyph = "usb"
+	whatsNewGlyphProtocol whatsNewGlyph = "protocol"
+	whatsNewGlyphDisplay  whatsNewGlyph = "display"
 	whatsNewGlyphCloud   whatsNewGlyph = "cloud"
 	whatsNewGlyphMetrics whatsNewGlyph = "metrics"
 )
@@ -97,6 +98,44 @@ func sortWhatsNewItems(items []whatsNewItem) []whatsNewItem {
 // before shipping; leave older ones so the window can page through them.
 func whatsNewCatalog() []whatsNewCard {
 	return []whatsNewCard{
+		{
+			Version: "3.0.111",
+			Date:    "October 2026",
+			Items: []whatsNewItem{
+				{
+					Kind: whatsNewKindFree,
+					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphUSB,
+						Title: whatsNewCopy{
+							EN: "Free USB passthrough",
+							ES: "Passthrough USB gratis",
+							UK: "Безкоштовний проброс USB",
+						},
+						Body: whatsNewCopy{
+							EN: "USB passthrough is now included in the free version, except graphics tablets.",
+							ES: "El passthrough USB ya esta en la version gratuita, salvo tabletas graficas.",
+							UK: "Проброс USB тепер доступний у безкоштовній версії, крім графічних планшетів.",
+						},
+					}},
+				},
+				{
+					Kind: whatsNewKindOpensource,
+					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphProtocol,
+						Title: whatsNewCopy{
+							EN: "Punktfunk",
+							ES: "Punktfunk",
+							UK: "Punktfunk",
+						},
+						Body: whatsNewCopy{
+							EN: "A new open-source streaming protocol, next to Sunshine.",
+							ES: "Un protocolo de streaming open source nuevo, junto a Sunshine.",
+							UK: "Новий протокол стрімінгу з відкритим кодом, поруч із Sunshine.",
+						},
+					}},
+				},
+			},
+		},
 		{
 			Version: "3.0.45",
 			Date:    "September 2026",

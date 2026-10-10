@@ -157,12 +157,12 @@ type App struct {
 	// streamMu serializes SetStreamBackend calls against each other (a GUI
 	// click racing the entitlement watchdog's own downgrade, say) --
 	// a.stream/a.streamKind must only ever be read/written while held.
-	streamMu   sync.Mutex
+	streamMu sync.Mutex
 	// Crash-loop backoff for restartStreamerAfterExit.
 	streamerExitMu     sync.Mutex
 	streamerLastExit   time.Time
 	streamerExitStreak int
-	streamKind string // "sunshine" | "rustshine" | "punktfunk" -- bookkeeping only, mirrors which concrete type a.stream currently is
+	streamKind         string // "sunshine" | "rustshine" | "punktfunk" -- bookkeeping only, mirrors which concrete type a.stream currently is
 	// streamKindView mirrors streamKind for readers that must not wait on
 	// streamMu: SetStreamBackend holds it through the new backend's whole
 	// startup (~25-40 s for Sunshine), and currentStreamKind used to take
@@ -400,6 +400,7 @@ func runThinClientGUI(client *adminapi.Client, startHidden bool) error {
 	restoreXWayland := forceXWaylandForGUI()
 	fyneApp := fyneapp.NewWithID("io.usbridge.agent")
 	restoreXWayland()
+	ui.ApplySavedUIScale(fyneApp)
 	fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	fyneApp.SetIcon(assets.AppIcon)
 
@@ -883,6 +884,7 @@ func (a *App) Run(headless, startHidden bool) error {
 	restoreXWayland := forceXWaylandForGUI()
 	a.fyneApp = fyneapp.NewWithID("io.usbridge.agent")
 	restoreXWayland()
+	ui.ApplySavedUIScale(a.fyneApp)
 	a.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	a.fyneApp.SetIcon(assets.AppIcon)
 

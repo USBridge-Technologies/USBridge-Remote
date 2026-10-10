@@ -67,6 +67,8 @@ var whatsNewMetricsSVG = fyne.NewStaticResource("whatsnew_metrics.svg", []byte(
 	`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#c5c8b5" stroke-width="1.8" stroke-linecap="round"><path d="M5 19V11M10 19V6M15 19v-8M20 19V8"/></svg>`))
 var whatsNewDisplaySVG = fyne.NewStaticResource("whatsnew_display.svg", []byte(
 	`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#c5c8b5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>`))
+var whatsNewProtocolSVG = fyne.NewStaticResource("whatsnew_protocol.svg", []byte(
+	`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#c5c8b5" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 16l9 5 9-5"/></svg>`))
 
 func showWhatsNewDialog(parent fyne.Window) {
 	if parent == nil {
@@ -388,6 +390,8 @@ func whatsNewGlyphResource(glyph whatsNewGlyph, accent color.Color) fyne.Resourc
 	switch glyph {
 	case whatsNewGlyphUSB:
 		return whatsNewRecolor(assets.USBGlyphIcon, "#c3c6b4", hex)
+	case whatsNewGlyphProtocol:
+		return whatsNewRecolor(whatsNewProtocolSVG, "#c5c8b5", hex)
 	case whatsNewGlyphDisplay:
 		return whatsNewRecolor(whatsNewDisplaySVG, "#c5c8b5", hex)
 	case whatsNewGlyphCloud:

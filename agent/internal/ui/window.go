@@ -334,7 +334,6 @@ type Window struct {
 	supportBtn *supportButton
 
 	loginAvatar *loginAvatarButton
-	themeBtn    *footerTextButton
 
 	permPanel        *themedPanel
 	statusPanel      *themedPanel
@@ -1701,25 +1700,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	content := cards
 
-	// Initial refresh
-	w.performRefresh()
+	// Permission ticks are local and this call is still on the UI goroutine,
+	// before the Fyne loop starts. The status poll is not: it runs off this
+	// goroutine, and a widget touch from there before app.Run is pumping
+	// events makes Fyne wait on the UI thread (the window then never appears).
 	w.refreshScreenCaptureUI()
-
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			if win.Canvas() == nil {
-				return
-			}
-			w.performRefresh()
-		}
-	}()
 
 	bg := canvas.NewRectangle(design.ColorPanel)
 	w.protocolBusy = newFooterBusyHint(loc().ChangingProtocol)
-	w.themeBtn = newFooterTextButton(loc().Theme, func() { w.showThemeMenu(w.themeBtn) })
-	footer := newAppFooter(appVersion, w.protocolBusy, w.themeBtn, func() {
+	footer := newAppFooter(appVersion, w.protocolBusy, nil, func() {
 		showWhatsNewDialog(win)
 	})
 	body := container.NewBorder(header, footer, nil, nil,
@@ -1769,6 +1758,21 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.scheduleWindowPlacementRestore()
 	}
 	w.startWindowPlacementAutosave()
+	// OnStarted runs once the event loop is actually pumping, so the first
+	// status pass and the 2s ticker cannot race window startup.
+	w.app.Lifecycle().SetOnStarted(func() {
+		w.performRefresh()
+		go func() {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if win.Canvas() == nil {
+					return
+				}
+				w.performRefresh()
+			}
+		}()
+	})
 	w.app.Run()
 	w.stopWindowPlacementAutosave()
 }
@@ -1940,18 +1944,30 @@ func (w *Window) dropProChromePinIfNeeded(st entitlement.Status) {
 	}
 }
 
-func (w *Window) showThemeMenu(anchor fyne.CanvasObject) {
-	if anchor == nil {
-		return
+func (w *Window) chromeThemeOptions() (labels []string, selected string, pinOf map[string]string) {
+	type choice struct {
+		label string
+		pin   string
+	}
+	choices := []choice{
+		{loc().ThemeDefault, ""},
+		{"White", protocolOpensource},
+		{"Blue", protocolFree},
+	}
+	if w.chromeProAllowed() {
+		choices = append(choices, choice{"Pro", protocolPro})
 	}
 	pin := chromePinned()
-	proOK := w.chromeProAllowed()
-	showStyledTealMenuAbove(anchor, []styledMenuItem{
-		{Label: loc().ThemeDefault, Selected: pin == "", OnTap: func() { w.saveChromePin("") }},
-		{Label: "White", Selected: pin == protocolOpensource, OnTap: func() { w.saveChromePin(protocolOpensource) }},
-		{Label: "Blue", Selected: pin == protocolFree, OnTap: func() { w.saveChromePin(protocolFree) }},
-		{Label: "Pro", Selected: pin == protocolPro, Disabled: !proOK, OnTap: func() { w.saveChromePin(protocolPro) }},
-	})
+	pinOf = make(map[string]string, len(choices))
+	selected = loc().ThemeDefault
+	for _, c := range choices {
+		labels = append(labels, c.label)
+		pinOf[c.label] = c.pin
+		if c.pin == pin {
+			selected = c.label
+		}
+	}
+	return labels, selected, pinOf
 }
 
 func (w *Window) showSettingsMenu(win fyne.Window, anchor fyne.CanvasObject) {
@@ -2066,9 +2082,6 @@ func (w *Window) applyLanguage() {
 	if w.tsEmpty != nil {
 		w.tsEmpty.Text = c.NoRemoteControllers
 		w.tsEmpty.Refresh()
-	}
-	if w.themeBtn != nil {
-		w.themeBtn.SetText(c.Theme)
 	}
 	if w.protocolChange != nil {
 		w.protocolChange.SetContent(c.Change, headerChangeIcon)
