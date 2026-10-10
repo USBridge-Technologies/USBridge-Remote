@@ -65,7 +65,7 @@ func (vw *VideoWidget) runVideoOpSync(name string, fn func()) {
 }
 
 // RestartStream reconnects a live stream (e.g. after the browser build's
-// WebRTC/WebData switch); nothing happens when video isn't wanted.
+// WebRTC/WebTransport switch); nothing happens when video isn't wanted.
 func (vw *VideoWidget) RestartStream(reason string) {
 	vw.videoOpMu.Lock()
 	wanted := vw.desiredStreaming

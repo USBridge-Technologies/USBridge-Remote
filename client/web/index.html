@@ -374,13 +374,54 @@
     });
   }
 
-  const go = new Go();
-  WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then((result) => {
-    go.run(result.instance);
-    installViewportFollow();
-    installFullscreenOnFirstTap();
-    installClipboardPasteBridge();
-    installHIDConnectButton();
+  // A KVM serving this page on its IP may also have a trusted name,
+  // <label>.device.usbridge.io (usbridge's web/device_cert.go): move there
+  // when this browser can reach it -- no certificate warning, and an origin
+  // the account backend accepts. Offline, or a resolver that won't answer
+  // a public name with a LAN address: stay on the IP.
+  function withTimeout(promise, ms) {
+    return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
+  }
+  // The usbridge://connect link after the # names the KVM by the IP the
+  // page was opened on; the client must use the new name for it (its
+  // same-origin check compares the two).
+  function rewriteHostInHash(hash, from, to) {
+    if (!hash) return '';
+    let link = hash.slice(1), encoded = false;
+    try {
+      if (/%3A/i.test(link)) { link = decodeURIComponent(link); encoded = true; }
+    } catch (_) {
+      return hash;
+    }
+    link = link.replace(new RegExp('([?&]host=)' + from.replace(/\./g, '\\.') + '(?=&|$)'), '$1' + to);
+    return '#' + (encoded ? encodeURIComponent(link) : link);
+  }
+  function moveToTrustedHostname() {
+    const ip = location.hostname;
+    if (location.protocol !== 'https:' || !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return Promise.resolve(false);
+    return withTimeout(fetch('/api/device/hostname', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)), 1500)
+      .then((info) => {
+        if (!info || !info.ready || !info.hostname) return false;
+        const origin = 'https://' + info.hostname + (location.port ? ':' + location.port : '');
+        // Resolves only when the name resolves here and its cert is trusted.
+        return withTimeout(fetch(origin + '/api/healthz', { mode: 'no-cors', cache: 'no-store' }), 2000).then(() => {
+          location.replace(origin + location.pathname + location.search + rewriteHostInHash(location.hash, ip, info.hostname));
+          return true;
+        });
+      })
+      .catch(() => false);
+  }
+
+  moveToTrustedHostname().then((moved) => {
+    if (moved) return;
+    const go = new Go();
+    WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then((result) => {
+      go.run(result.instance);
+      installViewportFollow();
+      installFullscreenOnFirstTap();
+      installClipboardPasteBridge();
+      installHIDConnectButton();
+    });
   });
 </script>
 </body>

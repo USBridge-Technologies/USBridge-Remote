@@ -267,10 +267,10 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	sessionID := uuid.NewString()
 	var client browserStream
 	transport := "webrtc"
-	// The transport is the user's pick in the header (WebRTC / WebData),
-	// not a silent fallback: a WebData session that can't connect says why.
-	if BrowserUsesWebData() {
-		logrus.Infof("[webrtc-video] WebData (WebTransport) hello: fps=%d bitrate_kbps=%d codec=%q", fps, bitrateKbps, videoMode)
+	// The transport is the user's pick in the header (WebRTC / WebTransport),
+	// not a silent fallback: a WebTransport session that can't connect says why.
+	if BrowserUsesWebTransport() {
+		logrus.Infof("[webrtc-video] WebTransport hello: fps=%d bitrate_kbps=%d codec=%q", fps, bitrateKbps, videoMode)
 		wt := webrtcweb.NewWebTransportClient(baseURL, secret)
 		wt.SetBitrateKbps(bitrateKbps)
 		wt.SetFPS(fps)
@@ -280,9 +280,9 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 		}
 		c.wireStream(wt, gen)
 		if err := wt.Connect(sessionID); err != nil {
-			return fmt.Errorf("WebData (WebTransport): %w -- switch the header to WebRTC to use that instead", err)
+			return fmt.Errorf("WebTransport: %w -- switch the header to WebRTC to use that instead", err)
 		}
-		logrus.Info("[webrtc-video] streaming over WebData (WebTransport + WebCodecs)")
+		logrus.Info("[webrtc-video] streaming over WebTransport + WebCodecs")
 		client, transport = wt, "webtransport"
 	}
 	if client == nil {

@@ -9,28 +9,28 @@ import (
 )
 
 // transportPrefKey stores the browser transport the user picked in the
-// header (see gui's transport toggle): "webtransport" (WebData) or
-// "webrtc". Absent: WebData where the page can run it.
+// header (see gui's transport toggle): "webtransport" or
+// "webrtc". Absent: WebTransport where the page can run it.
 const transportPrefKey = "usbridge.transport"
 
-// BrowserWebDataSupported: this page can stream over WebTransport +
+// BrowserWebTransportSupported: this page can stream over WebTransport +
 // WebCodecs (Chromium in a secure context).
-func BrowserWebDataSupported() bool { return webrtcweb.WebTransportSupported() }
+func BrowserWebTransportSupported() bool { return webrtcweb.WebTransportSupported() }
 
-// BrowserUsesWebData reports the transport the next connection uses: the
-// user's pick, else WebData where supported. Never WebData where the page
+// BrowserUsesWebTransport reports the transport the next connection uses: the
+// user's pick, else WebTransport where supported. Never WebTransport where the page
 // can't run it.
-func BrowserUsesWebData() bool {
-	if !BrowserWebDataSupported() {
+func BrowserUsesWebTransport() bool {
+	if !BrowserWebTransportSupported() {
 		return false
 	}
 	return readTransportPref() != "webrtc"
 }
 
-// SetBrowserUsesWebData stores the user's pick for later connections.
-func SetBrowserUsesWebData(webData bool) {
+// SetBrowserUsesWebTransport stores the user's pick for later connections.
+func SetBrowserUsesWebTransport(webTransport bool) {
 	v := "webrtc"
-	if webData {
+	if webTransport {
 		v = "webtransport"
 	}
 	defer func() { _ = recover() }() // storage blocked: the pick lasts this page only
