@@ -109,6 +109,8 @@ type headerSettingsMenuActions struct {
 	OnRunBenchmark func()
 	// OnShowHotkeys opens the Ctrl+Alt+Shift hotkey reference.
 	OnShowHotkeys func()
+	// OnKVMSettings opens the KVM's network settings and event log.
+	OnKVMSettings func()
 }
 
 // newHeaderSettingsMenuButton builds a single gear-icon button that opens a
@@ -147,6 +149,7 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 				actions.OnOpenAccount,
 				actions.OnRunBenchmark,
 				actions.OnShowHotkeys,
+				actions.OnKVMSettings,
 			)
 			return
 		}
@@ -186,6 +189,9 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 					actions.OnOpenAccount()
 				}
 			}},
+		}
+		if actions.OnKVMSettings != nil {
+			items = append(items, view.StyledMenuItem{Label: i18n.Current.MenuKVMSettings, Icon: assets.LANIconTeal, OnTap: actions.OnKVMSettings})
 		}
 		if actions.OnShowHotkeys != nil {
 			items = append(items, view.StyledMenuItem{Label: i18n.Current.MenuHotkeys, Icon: assets.KeyboardIconTeal, OnTap: actions.OnShowHotkeys})

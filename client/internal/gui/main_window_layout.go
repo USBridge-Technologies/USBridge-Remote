@@ -642,6 +642,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		},
 		OnRunBenchmark: mw.benchmarkMenuAction(),
 		OnShowHotkeys:  mw.showHotkeysDialog,
+		OnKVMSettings:  mw.showKVMSettingsDialog,
 	})
 	// mw.mainExitBtn no longer has a protocol badge stuck on top of it (see
 	// connectionProtocolLabel) -- it just sizes itself to its own icon+text

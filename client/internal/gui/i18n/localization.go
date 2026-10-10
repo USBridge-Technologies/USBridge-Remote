@@ -84,6 +84,55 @@ type LocalizedStrings struct {
 	MenuCommunity                     string
 	MenuAccount                       string
 	MenuBenchmark                     string
+	MenuKVMSettings                   string
+	KVMNetEthernet                    string
+	KVMNetWiFi                        string
+	KVMEventLog                       string
+	KVMNetSection                     string
+	KVMNetConnected                   string
+	KVMNetNoCable                     string
+	KVMNetNotConnected                string
+	KVMNetConnecting                  string
+	KVMNetAddressMode                 string
+	KVMNetDHCP                        string
+	KVMNetStatic                      string
+	KVMNetIP                          string
+	KVMNetNetmask                     string
+	KVMNetGateway                     string
+	KVMNetDNS                         string
+	KVMNetApply                       string
+	KVMNetApplied                     string
+	KVMNetNoEthernet                  string
+	KVMNetNoWiFi                      string
+	KVMWiFiScan                       string
+	KVMWiFiScanning                   string
+	KVMWiFiNetwork                    string
+	KVMWiFiPassword                   string
+	KVMWiFiConnect                    string
+	KVMWiFiDisconnect                 string
+	KVMWiFiForget                     string
+	KVMWiFiNoNetworks                 string
+	KVMWiFiPickNetwork                string
+	KVMEventsRefresh                  string
+	KVMEventsEmpty                    string
+	KVMPower                          string
+	KVMPowerNone                      string
+	KVMPowerStock                     string
+	KVMUpdates                        string
+	KVMUpdateVersion                  string
+	KVMUpdateCheck                    string
+	KVMUpdateCommit                   string
+	KVMUpdateHint                     string
+	KVMSDCard                         string
+	KVMSDNone                         string
+	KVMSDUsage                        string
+	KVMSDFormat                       string
+	KVMSDFormatConfirm                string
+	KVMSDFormatBlocked                string
+	KVMSDFormatting                   string
+	KVMSnapQuiet                      string
+	KVMSnapMaxInterval                string
+	KVMSave                           string
 	MenuHotkeys                       string
 	HotkeysTitle                      string
 	HotkeyQuit                        string
@@ -759,6 +808,55 @@ func EN() *LocalizedStrings {
 		MenuCommunity:                     "Community",
 		MenuAccount:                       "Account",
 		MenuBenchmark:                     "Run benchmark",
+		MenuKVMSettings:                   "KVM settings",
+		KVMNetEthernet:                    "Ethernet",
+		KVMNetWiFi:                        "Wi-Fi",
+		KVMEventLog:                       "Event log",
+		KVMNetSection:                     "Section",
+		KVMNetConnected:                   "Connected",
+		KVMNetNoCable:                     "No cable",
+		KVMNetNotConnected:                "Not connected",
+		KVMNetConnecting:                  "Connecting...",
+		KVMNetAddressMode:                 "Address",
+		KVMNetDHCP:                        "Automatic (DHCP)",
+		KVMNetStatic:                      "Static",
+		KVMNetIP:                          "IP address",
+		KVMNetNetmask:                     "Netmask",
+		KVMNetGateway:                     "Gateway",
+		KVMNetDNS:                         "DNS",
+		KVMNetApply:                       "Apply",
+		KVMNetApplied:                     "Saved and applied. If the KVM's address changed, reconnect to it at the new one.",
+		KVMNetNoEthernet:                  "This board has no Ethernet port.",
+		KVMNetNoWiFi:                      "This board has no Wi-Fi.",
+		KVMWiFiScan:                       "Scan",
+		KVMWiFiScanning:                   "Scanning...",
+		KVMWiFiNetwork:                    "Network",
+		KVMWiFiPassword:                   "Password",
+		KVMWiFiConnect:                    "Connect",
+		KVMWiFiDisconnect:                 "Disconnect",
+		KVMWiFiForget:                     "Forget",
+		KVMWiFiNoNetworks:                 "No networks found",
+		KVMWiFiPickNetwork:                "Scan and pick a network first",
+		KVMEventsRefresh:                  "Refresh",
+		KVMPower:                          "Power & performance",
+		KVMPowerNone:                      "This board has no power settings.",
+		KVMPowerStock:                     "stock",
+		KVMUpdates:                        "Updates",
+		KVMUpdateVersion:                  "Installed",
+		KVMUpdateCheck:                    "Check for updates",
+		KVMUpdateCommit:                   "Commit update",
+		KVMUpdateHint:                     "The KVM downloads and installs an update it finds, then restarts into it (A/B, with rollback).",
+		KVMSDCard:                         "SD card",
+		KVMSDNone:                         "No SD card in the slot",
+		KVMSDUsage:                        "Used %s of %s (%s)",
+		KVMSDFormat:                       "Format SD card",
+		KVMSDFormatConfirm:                "Erase everything on the SD card and prepare it as backup storage (btrfs with snapshots)?",
+		KVMSDFormatBlocked:                "Formatting isn't allowed: %s",
+		KVMSDFormatting:                   "Formatting: %s",
+		KVMSnapQuiet:                      "Snapshot after this many seconds without writes",
+		KVMSnapMaxInterval:                "Snapshot at least every N minutes while writing",
+		KVMSave:                           "Save",
+		KVMEventsEmpty:                    "No events yet",
 		MenuHotkeys:                       "Hotkeys",
 		HotkeysTitle:                      "Ctrl+Alt+Shift + key",
 		HotkeyQuit:                        "Stop the stream",
@@ -1679,6 +1777,55 @@ func ES() *LocalizedStrings {
 	locale.ScriptsStateStopped = "Parado"
 	locale.ScriptsStateRunning = "Activo"
 	locale.MenuBenchmark = "Ejecutar benchmark"
+	locale.MenuKVMSettings = "Ajustes del KVM"
+	locale.KVMNetEthernet = "Ethernet"
+	locale.KVMNetWiFi = "Wi-Fi"
+	locale.KVMEventLog = "Registro de eventos"
+	locale.KVMNetSection = "Sección"
+	locale.KVMNetConnected = "Conectado"
+	locale.KVMNetNoCable = "Sin cable"
+	locale.KVMNetNotConnected = "No conectado"
+	locale.KVMNetConnecting = "Conectando..."
+	locale.KVMNetAddressMode = "Dirección"
+	locale.KVMNetDHCP = "Automática (DHCP)"
+	locale.KVMNetStatic = "Estática"
+	locale.KVMNetIP = "Dirección IP"
+	locale.KVMNetNetmask = "Máscara de red"
+	locale.KVMNetGateway = "Puerta de enlace"
+	locale.KVMNetDNS = "DNS"
+	locale.KVMNetApply = "Aplicar"
+	locale.KVMNetApplied = "Guardado y aplicado. Si cambió la dirección del KVM, vuelve a conectarte a la nueva."
+	locale.KVMNetNoEthernet = "Esta placa no tiene puerto Ethernet."
+	locale.KVMNetNoWiFi = "Esta placa no tiene Wi-Fi."
+	locale.KVMWiFiScan = "Buscar"
+	locale.KVMWiFiScanning = "Buscando..."
+	locale.KVMWiFiNetwork = "Red"
+	locale.KVMWiFiPassword = "Contraseña"
+	locale.KVMWiFiConnect = "Conectar"
+	locale.KVMWiFiDisconnect = "Desconectar"
+	locale.KVMWiFiForget = "Olvidar"
+	locale.KVMWiFiNoNetworks = "No se encontraron redes"
+	locale.KVMWiFiPickNetwork = "Primero busca y elige una red"
+	locale.KVMEventsRefresh = "Actualizar"
+	locale.KVMEventsEmpty = "Aún no hay eventos"
+	locale.KVMPower = "Energía y rendimiento"
+	locale.KVMPowerNone = "Esta placa no tiene ajustes de energía."
+	locale.KVMPowerStock = "de fábrica"
+	locale.KVMUpdates = "Actualizaciones"
+	locale.KVMUpdateVersion = "Instalado"
+	locale.KVMUpdateCheck = "Buscar actualizaciones"
+	locale.KVMUpdateCommit = "Confirmar actualización"
+	locale.KVMUpdateHint = "El KVM descarga e instala la actualización que encuentre y se reinicia en ella (A/B, con reversión)."
+	locale.KVMSDCard = "Tarjeta SD"
+	locale.KVMSDNone = "No hay tarjeta SD en la ranura"
+	locale.KVMSDUsage = "Usado %s de %s (%s)"
+	locale.KVMSDFormat = "Formatear tarjeta SD"
+	locale.KVMSDFormatConfirm = "¿Borrar todo en la tarjeta SD y prepararla como almacenamiento de copias (btrfs con instantáneas)?"
+	locale.KVMSDFormatBlocked = "No se permite formatear: %s"
+	locale.KVMSDFormatting = "Formateando: %s"
+	locale.KVMSnapQuiet = "Instantánea tras estos segundos sin escrituras"
+	locale.KVMSnapMaxInterval = "Instantánea al menos cada N minutos mientras se escribe"
+	locale.KVMSave = "Guardar"
 	locale.BenchTitle = "Benchmark de streamers"
 	locale.BenchHint = "Cada streamer seleccionado se activa en el host, se inicia desde cero y muestra el mismo vídeo dinámico con el Net Graph activo. El arranque se mide aparte; el vídeo empieza cuando el stream ya está en marcha."
 	locale.BenchDuration = "Medir cada streamer durante"
@@ -2085,6 +2232,55 @@ func UKProper() *LocalizedStrings {
 	locale.ScriptsStateStopped = "Стоп"
 	locale.ScriptsStateRunning = "Онлайн"
 	locale.MenuBenchmark = "Запустити бенчмарк"
+	locale.MenuKVMSettings = "Налаштування KVM"
+	locale.KVMNetEthernet = "Ethernet"
+	locale.KVMNetWiFi = "Wi-Fi"
+	locale.KVMEventLog = "Журнал подій"
+	locale.KVMNetSection = "Розділ"
+	locale.KVMNetConnected = "Підключено"
+	locale.KVMNetNoCable = "Немає кабелю"
+	locale.KVMNetNotConnected = "Не підключено"
+	locale.KVMNetConnecting = "Підключення..."
+	locale.KVMNetAddressMode = "Адреса"
+	locale.KVMNetDHCP = "Автоматично (DHCP)"
+	locale.KVMNetStatic = "Статична"
+	locale.KVMNetIP = "IP-адреса"
+	locale.KVMNetNetmask = "Маска мережі"
+	locale.KVMNetGateway = "Шлюз"
+	locale.KVMNetDNS = "DNS"
+	locale.KVMNetApply = "Застосувати"
+	locale.KVMNetApplied = "Збережено й застосовано. Якщо адреса KVM змінилася, підключіться до нової."
+	locale.KVMNetNoEthernet = "На цій платі немає Ethernet-порту."
+	locale.KVMNetNoWiFi = "На цій платі немає Wi-Fi."
+	locale.KVMWiFiScan = "Шукати"
+	locale.KVMWiFiScanning = "Пошук..."
+	locale.KVMWiFiNetwork = "Мережа"
+	locale.KVMWiFiPassword = "Пароль"
+	locale.KVMWiFiConnect = "Підключити"
+	locale.KVMWiFiDisconnect = "Відключити"
+	locale.KVMWiFiForget = "Забути"
+	locale.KVMWiFiNoNetworks = "Мереж не знайдено"
+	locale.KVMWiFiPickNetwork = "Спершу знайдіть і виберіть мережу"
+	locale.KVMEventsRefresh = "Оновити"
+	locale.KVMEventsEmpty = "Подій ще немає"
+	locale.KVMPower = "Живлення й продуктивність"
+	locale.KVMPowerNone = "На цій платі немає налаштувань живлення."
+	locale.KVMPowerStock = "штатно"
+	locale.KVMUpdates = "Оновлення"
+	locale.KVMUpdateVersion = "Встановлено"
+	locale.KVMUpdateCheck = "Перевірити оновлення"
+	locale.KVMUpdateCommit = "Підтвердити оновлення"
+	locale.KVMUpdateHint = "KVM завантажує й встановлює знайдене оновлення, потім перезапускається в нього (A/B, з відкатом)."
+	locale.KVMSDCard = "SD-карта"
+	locale.KVMSDNone = "У слоті немає SD-карти"
+	locale.KVMSDUsage = "Зайнято %s з %s (%s)"
+	locale.KVMSDFormat = "Форматувати SD-карту"
+	locale.KVMSDFormatConfirm = "Стерти все на SD-карті й підготувати її як сховище резервних копій (btrfs зі знімками)?"
+	locale.KVMSDFormatBlocked = "Форматування заборонено: %s"
+	locale.KVMSDFormatting = "Форматування: %s"
+	locale.KVMSnapQuiet = "Знімок після стількох секунд без запису"
+	locale.KVMSnapMaxInterval = "Знімок щонайменше кожні N хвилин під час запису"
+	locale.KVMSave = "Зберегти"
 	locale.BenchTitle = "Бенчмарк стрімерів"
 	locale.BenchHint = "Кожен вибраний стрімер вмикається на хості, запускається з нуля й показує те саме динамічне відео з увімкненим Net Graph. Час запуску рахується окремо; відео стартує лише після запуску стріму."
 	locale.BenchDuration = "Вимірювати кожен стрімер"
