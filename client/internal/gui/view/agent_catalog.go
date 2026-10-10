@@ -44,6 +44,7 @@ var agentCatalogEditions = []agentEdition{
 	{Title: "Sunshine", Tag: "Open Source", Kind: agentEditionList},
 	{Title: "USBridge Streamer", Tag: "Free", Kind: agentEditionList},
 	{Title: "USBridge Streamer", Tag: "Pro", Pro: true, Kind: agentEditionProPlus},
+	{Title: "Punktfunk", Tag: "Open Source", Kind: agentEditionList},
 }
 
 func agentEditionFeatures(ed agentEdition) []string {
@@ -55,9 +56,9 @@ func agentEditionFeatures(ed agentEdition) []string {
 	case "Open Source":
 		return []string{c.AgentFeatLowLatency, c.AgentFeatClipboard, c.AgentFeatMultiMonitor, c.AgentFeatVirtualDisplay}
 	case "Free":
-		return []string{c.AgentFeatWebClient, c.AgentFeatPreLogin, c.AgentFeatFastConnect}
+		return []string{c.AgentFeatWebClient, c.AgentFeatPreLogin, c.AgentFeatFastConnect, c.AgentFeatUSB}
 	case "Pro":
-		return []string{c.AgentFeat444, c.AgentFeatUSB, c.AgentFeatWacom}
+		return []string{c.AgentFeat444, c.AgentFeatWacom}
 	case "Enterprise":
 		return []string{c.AgentFeatRecording, c.AgentFeatCompanyRollout}
 	default:
@@ -277,7 +278,7 @@ type agentEditionRow struct {
 }
 
 func (r *agentEditionRow) mobileButtonLabel() string {
-	if r.title == "Sunshine" {
+	if r.tag == "Open Source" {
 		return r.title
 	}
 	if r.tag != "" {

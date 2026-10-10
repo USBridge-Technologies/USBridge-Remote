@@ -38,6 +38,8 @@ type DeviceFirmwarePromo struct {
 	onOpen       func()
 	hovered      bool
 	closeHovered bool
+	// hoverGen invalidates a pending hide. See FirmwarePromoBanner.
+	hoverGen     int
 	border       *canvas.Rectangle
 	closeBtn     *iconChromeButton
 }
@@ -60,24 +62,44 @@ func (p *DeviceFirmwarePromo) SetOnOpen(fn func()) {
 }
 
 func (p *DeviceFirmwarePromo) MouseIn(*desktop.MouseEvent) {
-	p.setHovered(true)
+	p.markPointerInside()
 }
 
 func (p *DeviceFirmwarePromo) MouseOut() {
-	p.setHovered(false)
+	p.markPointerMaybeLeft()
 }
 
-func (p *DeviceFirmwarePromo) MouseMoved(*desktop.MouseEvent) {}
+func (p *DeviceFirmwarePromo) MouseMoved(*desktop.MouseEvent) {
+	p.markPointerInside()
+}
 
 func (p *DeviceFirmwarePromo) setHovered(hovered bool) {
 	if hovered {
-		p.hovered = true
-		p.syncChrome()
+		p.markPointerInside()
 		return
 	}
-	p.hovered = false
-	time.AfterFunc(50*time.Millisecond, func() {
-		fyne.Do(p.syncChrome)
+	p.markPointerMaybeLeft()
+}
+
+func (p *DeviceFirmwarePromo) markPointerInside() {
+	p.hoverGen++
+	wasInside := p.hovered
+	p.hovered = true
+	if !wasInside || (p.closeBtn != nil && !p.closeBtn.Visible()) {
+		p.syncChrome()
+	}
+}
+
+func (p *DeviceFirmwarePromo) markPointerMaybeLeft() {
+	gen := p.hoverGen
+	time.AfterFunc(80*time.Millisecond, func() {
+		fyne.Do(func() {
+			if p.hoverGen != gen {
+				return
+			}
+			p.hovered = false
+			p.syncChrome()
+		})
 	})
 }
 
@@ -151,12 +173,10 @@ func (p *DeviceFirmwarePromo) CreateRenderer() fyne.WidgetRenderer {
 		OnHover: func(on bool) {
 			p.closeHovered = on
 			if on {
-				p.hovered = true
+				p.markPointerInside()
+				return
 			}
-			p.syncChrome()
-			if !on {
-				p.setHovered(false)
-			}
+			p.markPointerMaybeLeft()
 		},
 		OnTapped: func() {
 			if p.onDismiss != nil {

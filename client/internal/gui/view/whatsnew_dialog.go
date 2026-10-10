@@ -409,6 +409,9 @@ func newWhatsNewCardView(card whatsNewCard, bodyW, scrollMax float32) fyne.Canva
 }
 
 func newWhatsNewFeatureRow(kind whatsNewKind, pt whatsNewPoint, rowW float32) fyne.CanvasObject {
+	if strings.TrimSpace(pt.LinkURL) != "" {
+		return newWhatsNewLinkRow(kind, pt, rowW)
+	}
 	chrome := whatsNewKindChromeFor(kind)
 	icon := newWhatsNewIconTile(whatsNewGlyphResource(pt.Glyph, chrome.Accent), chrome, whatsNewIconSize, whatsNewIconGlyph)
 	title := NewBrandText(strings.TrimSpace(pt.Title.String()), 12, design.ColorTextLight, true)
@@ -476,6 +479,205 @@ func (l *whatsNewFeatureLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(w, h)
 }
 
+// Mac Tablet Support pill: the bright purple from the marketing chip.
+var (
+	whatsNewMacTabletFill  = color.NRGBA{R: 0x7b, G: 0x5c, B: 0xff, A: 0xff}
+	whatsNewMacTabletHover = color.NRGBA{R: 0x94, G: 0x7a, B: 0xff, A: 0xff}
+	whatsNewAppleSVG       = fyne.NewStaticResource("whatsnew_apple.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>`))
+)
+
+// newWhatsNewLinkRow is a feature row whose kind badge is a pill that
+// opens LinkURL. Purple keeps the Mac-tablet outline and apple pill;
+// teal is the Download pill on an otherwise normal card.
+func newWhatsNewLinkRow(kind whatsNewKind, pt whatsNewPoint, rowW float32) fyne.CanvasObject {
+	chrome := whatsNewKindChromeFor(kind)
+	stroke := whatsNewCardStroke
+	var btn *whatsNewLinkPill
+	if pt.LinkTone == "purple" {
+		chrome = whatsNewChromePro
+		stroke = whatsNewChromePro.Stroke
+		btn = newWhatsNewLinkPill(pt.LinkLabel.String(), pt.LinkURL, whatsNewMacTabletFill, whatsNewMacTabletHover, color.White, whatsNewAppleSVG)
+	} else {
+		btn = newWhatsNewLinkPill(pt.LinkLabel.String(), pt.LinkURL, design.ColorConnectionBadgeText, color.NRGBA{R: 0x61, G: 0xf0, B: 0xd3, A: 0xff}, design.ColorGray950, assets.DownloadIconDark)
+	}
+	icon := newWhatsNewIconTile(whatsNewGlyphResource(pt.Glyph, chrome.Accent), chrome, whatsNewIconSize, whatsNewIconGlyph)
+	title := NewBrandText(strings.TrimSpace(pt.Title.String()), 12, design.ColorTextLight, true)
+	textW := rowW - whatsNewRowPad*2 - whatsNewIconSize - whatsNewIconGap - btn.MinSize().Width - 12
+	if textW < 80 {
+		textW = 80
+	}
+	body := newVideoDialogWrapText(textW, 9, false, videoDialogWrapSpan{
+		Text:  strings.TrimSpace(pt.Body.String()),
+		Color: design.ColorConnectionsSectionSubtitle,
+	})
+	text := container.New(&tightStatsVBoxLayout{Gap: 2}, title, body)
+	row := container.New(&whatsNewLinkLayout{}, icon, text, btn)
+	bg := canvas.NewRectangle(design.ColorConnectionBadgeFill)
+	bg.CornerRadius = design.RadiusMD
+	bg.StrokeColor = stroke
+	bg.StrokeWidth = 1
+	return container.NewStack(bg, NewInsetExact(row, whatsNewRowPad, whatsNewRowPad, 10, 10))
+}
+
+type whatsNewLinkLayout struct{}
+
+func (l *whatsNewLinkLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+	icon, text, btn := objects[0], objects[1], objects[2]
+	iconSize := icon.MinSize()
+	btnSize := btn.MinSize()
+	icon.Resize(iconSize)
+	btn.Resize(btnSize)
+	icon.Move(fyne.NewPos(0, (size.Height-iconSize.Height)/2))
+	btn.Move(fyne.NewPos(size.Width-btnSize.Width, (size.Height-btnSize.Height)/2))
+	textX := iconSize.Width + whatsNewIconGap
+	textW := size.Width - textX - btnSize.Width - 12
+	if textW < 0 {
+		textW = 0
+	}
+	textH := text.MinSize().Height
+	text.Resize(fyne.NewSize(textW, textH))
+	text.Move(fyne.NewPos(textX, (size.Height-textH)/2))
+}
+
+func (l *whatsNewLinkLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(whatsNewIconSize, whatsNewIconSize)
+	}
+	icon := objects[0].MinSize()
+	text := objects[1].MinSize()
+	btn := objects[2].MinSize()
+	h := icon.Height
+	if text.Height > h {
+		h = text.Height
+	}
+	if btn.Height > h {
+		h = btn.Height
+	}
+	return fyne.NewSize(icon.Width+whatsNewIconGap+text.Width+12+btn.Width, h)
+}
+
+type whatsNewLinkPill struct {
+	widget.BaseWidget
+	label      string
+	url        string
+	fill       color.Color
+	hover      color.Color
+	labelColor color.Color
+	iconRes    fyne.Resource
+	hovered    bool
+	bg         *canvas.Rectangle
+	text       *canvas.Text
+	icon       *canvas.Image
+}
+
+func newWhatsNewLinkPill(label, rawURL string, fill, hover, labelColor color.Color, icon fyne.Resource) *whatsNewLinkPill {
+	b := &whatsNewLinkPill{
+		label:      strings.TrimSpace(label),
+		url:        strings.TrimSpace(rawURL),
+		fill:       fill,
+		hover:      hover,
+		labelColor: labelColor,
+		iconRes:    icon,
+	}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *whatsNewLinkPill) Tapped(*fyne.PointEvent) {
+	u, err := url.Parse(b.url)
+	if err != nil || u.String() == "" {
+		return
+	}
+	if app := fyne.CurrentApp(); app != nil {
+		_ = app.OpenURL(u)
+	}
+}
+
+func (b *whatsNewLinkPill) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *whatsNewLinkPill) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.Refresh()
+}
+
+func (b *whatsNewLinkPill) MouseOut() {
+	b.hovered = false
+	b.Refresh()
+}
+
+func (b *whatsNewLinkPill) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *whatsNewLinkPill) Cursor() desktop.Cursor { return desktop.PointerCursor }
+
+func (b *whatsNewLinkPill) MinSize() fyne.Size {
+	label := canvas.NewText(b.label, color.White)
+	label.TextSize = 10
+	label.TextStyle = fyne.TextStyle{Bold: true}
+	s := label.MinSize()
+	iconW := float32(0)
+	if b.iconRes != nil {
+		iconW = 12 + 4
+	}
+	return fyne.NewSize(9+iconW+s.Width+9, 24)
+}
+
+func (b *whatsNewLinkPill) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(b.fill)
+	b.bg.CornerRadius = 12
+	if b.iconRes != nil {
+		b.icon = canvas.NewImageFromResource(b.iconRes)
+		b.icon.FillMode = canvas.ImageFillContain
+		b.icon.SetMinSize(fyne.NewSize(12, 12))
+	}
+	b.text = canvas.NewText(b.label, b.labelColor)
+	b.text.TextSize = 10
+	b.text.TextStyle = fyne.TextStyle{Bold: true}
+	return &whatsNewLinkPillRenderer{pill: b}
+}
+
+type whatsNewLinkPillRenderer struct {
+	pill *whatsNewLinkPill
+}
+
+func (r *whatsNewLinkPillRenderer) Layout(size fyne.Size) {
+	p := r.pill
+	p.bg.Resize(size)
+	p.bg.Move(fyne.NewPos(0, 0))
+	textX := float32(9)
+	if p.icon != nil {
+		icon := float32(12)
+		p.icon.Resize(fyne.NewSize(icon, icon))
+		p.icon.Move(fyne.NewPos(9, (size.Height-icon)/2))
+		textX = 9 + icon + 4
+	}
+	ts := p.text.MinSize()
+	p.text.Resize(ts)
+	p.text.Move(fyne.NewPos(textX, (size.Height-ts.Height)/2))
+}
+
+func (r *whatsNewLinkPillRenderer) MinSize() fyne.Size { return r.pill.MinSize() }
+
+func (r *whatsNewLinkPillRenderer) Refresh() {
+	if r.pill.hovered {
+		r.pill.bg.FillColor = r.pill.hover
+	} else {
+		r.pill.bg.FillColor = r.pill.fill
+	}
+	r.pill.bg.Refresh()
+}
+
+func (r *whatsNewLinkPillRenderer) Objects() []fyne.CanvasObject {
+	if r.pill.icon == nil {
+		return []fyne.CanvasObject{r.pill.bg, r.pill.text}
+	}
+	return []fyne.CanvasObject{r.pill.bg, r.pill.icon, r.pill.text}
+}
+
+func (r *whatsNewLinkPillRenderer) Destroy() {}
+
 func newWhatsNewKindBadge(kind whatsNewKind) fyne.CanvasObject {
 	chrome := whatsNewKindChromeFor(kind)
 	bg := canvas.NewRectangle(chrome.Fill)
@@ -512,6 +714,8 @@ func whatsNewGlyphResource(glyph whatsNewGlyph, accent color.Color) fyne.Resourc
 		return whatsNewRecolor(assets.ScriptsTabIconMuted, "#c5c8b5", hex)
 	case whatsNewGlyphUSB:
 		return whatsNewRecolor(assets.USBTabIcon, "#F5F5F5", hex)
+	case whatsNewGlyphBoard:
+		return whatsNewRecolor(assets.USBridgeOSIconAccent, "#c4e77a", hex)
 	case whatsNewGlyphColor:
 		return whatsNewRecolor(assets.StarProIcon, "#9c58f9", hex)
 	case whatsNewGlyphDisplay:

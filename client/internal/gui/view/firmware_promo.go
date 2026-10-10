@@ -27,12 +27,14 @@ import (
 const FirmwarePromoURL = "https://www.usbridge.io/hardware-agent/"
 
 var firmwarePromoBoardsList = []string{
+	"NanoKVM (SG2002)",
 	"Radxa Zero 3W / 3E",
 	"Radxa Cubie A7Z",
 }
 
 func firmwarePromoBoardDetails() map[string]string {
 	return map[string]string{
+		"NanoKVM (SG2002)":   i18n.Current.FirmwarePromoSDCardOnly,
 		"Radxa Zero 3W / 3E": i18n.Current.FirmwarePromoSDCardEMMC,
 		"Radxa Cubie A7Z":    i18n.Current.FirmwarePromoSDCardOnly,
 	}
@@ -73,6 +75,12 @@ type FirmwarePromoBanner struct {
 
 	hovered      bool
 	closeHovered bool
+	// hoverGen invalidates a pending "pointer left" hide. Child controls
+	// (board menu, Download, the X itself) report their own hover, and Fyne
+	// does not send MouseIn again when the pointer moves from a child back
+	// onto the strip. Without this, the X stayed hidden until a fresh enter
+	// — often not until the next launch.
+	hoverGen     int
 	closeBtn     *iconChromeButton
 	featureIcon  *canvas.Image
 	featureLabel *canvas.Text
@@ -111,6 +119,7 @@ func (b *FirmwarePromoBanner) Show() {
 
 func (b *FirmwarePromoBanner) Hide() {
 	b.stopRotation()
+	b.hoverGen++
 	b.hovered = false
 	b.closeHovered = false
 	b.syncClose()
@@ -118,24 +127,46 @@ func (b *FirmwarePromoBanner) Hide() {
 }
 
 func (b *FirmwarePromoBanner) MouseIn(*desktop.MouseEvent) {
-	b.setHovered(true)
+	b.markPointerInside()
 }
 
 func (b *FirmwarePromoBanner) MouseOut() {
-	b.setHovered(false)
+	b.markPointerMaybeLeft()
 }
 
-func (b *FirmwarePromoBanner) MouseMoved(*desktop.MouseEvent) {}
+func (b *FirmwarePromoBanner) MouseMoved(*desktop.MouseEvent) {
+	b.markPointerInside()
+}
 
+// setHovered is what the board menu, Download, and the X report. A false
+// from one of them only means the pointer left that control, not the strip.
 func (b *FirmwarePromoBanner) setHovered(hovered bool) {
 	if hovered {
-		b.hovered = true
-		b.syncClose()
+		b.markPointerInside()
 		return
 	}
-	b.hovered = false
+	b.markPointerMaybeLeft()
+}
+
+func (b *FirmwarePromoBanner) markPointerInside() {
+	b.hoverGen++
+	wasInside := b.hovered
+	b.hovered = true
+	if !wasInside || (b.closeBtn != nil && !b.closeBtn.Visible()) {
+		b.syncClose()
+	}
+}
+
+func (b *FirmwarePromoBanner) markPointerMaybeLeft() {
+	gen := b.hoverGen
 	time.AfterFunc(80*time.Millisecond, func() {
-		fyne.Do(b.syncClose)
+		fyne.Do(func() {
+			if b.hoverGen != gen {
+				return
+			}
+			b.hovered = false
+			b.syncClose()
+		})
 	})
 }
 
@@ -320,12 +351,10 @@ func (b *FirmwarePromoBanner) CreateRenderer() fyne.WidgetRenderer {
 		OnHover: func(on bool) {
 			b.closeHovered = on
 			if on {
-				b.hovered = true
+				b.markPointerInside()
+				return
 			}
-			b.syncClose()
-			if !on {
-				b.setHovered(false)
-			}
+			b.markPointerMaybeLeft()
 		},
 		OnTapped: func() {
 			if b.onDismiss != nil {
