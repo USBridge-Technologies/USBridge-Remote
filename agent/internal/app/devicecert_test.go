@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -116,7 +117,7 @@ func newTestAppWithTLS(t *testing.T) *App {
 	dir := t.TempDir()
 	return &App{
 		cfgPath: filepath.Join(dir, "config.yaml"),
-		cfg:     config.Config{StateDir: dir},
+		cfg:     config.Config{StateDir: dir, AccountToken: "test-account-token"},
 		tlsMgr:  tlshost.NewManager(dir),
 	}
 }
@@ -156,6 +157,7 @@ func TestTickDeviceCert_RegistersIPAndInstallsCertOnFirstRun(t *testing.T) {
 	})).URL)
 
 	a := newTestAppWithTLS(t)
+	a.tlsMgr.NoteDeviceCertDemand() // a browser came for the name
 	a.tickDeviceCert(context.Background())
 
 	if registeredIP == "" {
@@ -167,6 +169,74 @@ func TestTickDeviceCert_RegistersIPAndInstallsCertOnFirstRun(t *testing.T) {
 	hostname, needsRefresh := a.tlsMgr.DeviceCertStatus()
 	if hostname != "abc123.device.usbridge.test" || needsRefresh {
 		t.Errorf("DeviceCertStatus after tick = (%q, %v), want (abc123.device.usbridge.test, false)", hostname, needsRefresh)
+	}
+}
+
+// Without a browser having come for the name, the name is registered (and
+// handed out) but no certificate is spent on it.
+func TestTickDeviceCert_NoCertWithoutDemand(t *testing.T) {
+	if netutil.PreferredIPv4() == "" {
+		t.Skip("no LAN interface available in this sandbox to derive a preferred IPv4 from")
+	}
+	certRequests := 0
+	withDeviceCertBackendURL(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/device/dns":
+			_ = json.NewEncoder(w).Encode(map[string]string{"hostname": "abc123.device.usbridge.test"})
+		case "/v1/device/cert":
+			certRequests++
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	})).URL)
+
+	a := newTestAppWithTLS(t)
+	if err := a.tickDeviceCert(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if certRequests != 0 {
+		t.Fatalf("cert requested %d times without demand", certRequests)
+	}
+	if got := a.tlsMgr.RegisteredHostname(); got != "abc123.device.usbridge.test" {
+		t.Fatalf("RegisteredHostname = %q", got)
+	}
+
+	// A handshake for that name is the demand.
+	_, _ = a.tlsMgr.GetCertificate(&tls.ClientHelloInfo{ServerName: "abc123.device.usbridge.test"})
+	select {
+	case <-a.tlsMgr.DemandC():
+	default:
+		t.Fatal("a handshake for the registered name must signal demand")
+	}
+	if !a.tlsMgr.DeviceCertDemanded(deviceCertDemandWindow) {
+		t.Fatal("demand not recorded")
+	}
+}
+
+// Signed out: demand alone doesn't get a certificate; the reason is shown.
+func TestTickDeviceCert_NeedsAccount(t *testing.T) {
+	if netutil.PreferredIPv4() == "" {
+		t.Skip("no LAN interface available in this sandbox to derive a preferred IPv4 from")
+	}
+	certRequests := 0
+	withDeviceCertBackendURL(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/device/dns":
+			_ = json.NewEncoder(w).Encode(map[string]string{"hostname": "abc123.device.usbridge.test"})
+		case "/v1/device/cert":
+			certRequests++
+		}
+	})).URL)
+	a := newTestAppWithTLS(t)
+	a.cfg.AccountToken = ""
+	a.tlsMgr.NoteDeviceCertDemand()
+	if err := a.tickDeviceCert(context.Background()); !errors.Is(err, devicecert.ErrAccountRequired) {
+		t.Fatalf("tick error = %v, want ErrAccountRequired", err)
+	}
+	if certRequests != 0 {
+		t.Fatalf("cert requested %d times while signed out", certRequests)
+	}
+	if st := a.tlsMgr.CertStatus(); st.LastError == "" {
+		t.Fatal("the reason must show in the cert status")
 	}
 }
 
@@ -191,6 +261,7 @@ func TestTickDeviceCert_SkipsCertFetchWhenHostnameUnchangedAndFresh(t *testing.T
 	})).URL)
 
 	a := newTestAppWithTLS(t)
+	a.tlsMgr.NoteDeviceCertDemand() // a browser came for the name
 	a.tickDeviceCert(context.Background())
 	a.tickDeviceCert(context.Background()) // second tick: same hostname, cert still fresh
 
@@ -222,6 +293,7 @@ func TestTickDeviceCert_ReusesCertOnIPChange(t *testing.T) {
 	})).URL)
 
 	a := newTestAppWithTLS(t)
+	a.tlsMgr.NoteDeviceCertDemand() // a browser came for the name
 
 	// First tick registers IP and fetches wildcard cert once
 	if err := a.tickDeviceCert(context.Background()); err != nil {

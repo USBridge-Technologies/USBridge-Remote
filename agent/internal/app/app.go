@@ -2828,6 +2828,11 @@ const deviceCertPendingRetry = time.Minute
 // routing table for IP address / interface changes.
 const deviceCertPollInterval = 3 * time.Second
 
+// deviceCertDemandWindow: a device cert is requested (or renewed) only if a
+// browser reached this machine's name within this window -- see
+// tlshost.Manager's registeredHostname doc comment for why.
+const deviceCertDemandWindow = 30 * 24 * time.Hour
+
 // deviceCertTickOutcome decides how deviceCertWatchdog's runTick should
 // update its retry bookkeeping after one attempt at ip, given the error (if
 // any) tickDeviceCert returned. Pulled out as a pure function so this
@@ -2894,6 +2899,13 @@ func (a *App) deviceCertWatchdog(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-a.tlsMgr.DemandC():
+			// A browser asked for this machine's name: get the cert now
+			// rather than at the next heartbeat (at most once a minute --
+			// a browser retries its handshake).
+			if _, needs := a.tlsMgr.DeviceCertStatus(); needs && time.Since(lastRegisterTime) >= time.Minute {
+				runTick()
+			}
 		case <-ticker.C:
 			currentIP := netutil.PreferredIPv4()
 			if currentIP == "" {
@@ -2936,6 +2948,7 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 		log.Printf("[app] device-cert: register IP failed: %v", err)
 		return fmt.Errorf("register IP failed: %w", err)
 	}
+	a.tlsMgr.SetRegisteredHostname(hostname)
 
 	if a.tlsMgr != nil {
 		selfSignedIPs := []net.IP{net.ParseIP("127.0.0.1")}
@@ -2951,6 +2964,11 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 	if currentHostname == hostname && !needsRefresh {
 		return nil
 	}
+	// No browser has come for this name lately: don't spend a certificate
+	// from the shared Let's Encrypt budget on it.
+	if !a.tlsMgr.DeviceCertDemanded(deviceCertDemandWindow) {
+		return nil
+	}
 
 	csrDER, err := a.tlsMgr.DeviceCSR(hostname)
 	if err != nil {
@@ -2960,7 +2978,7 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 	}
 
 	certCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	cert, err := devicecert.RequestCert(certCtx, hwID, csrDER)
+	cert, err := devicecert.RequestCert(certCtx, hwID, csrDER, strings.TrimSpace(a.cfg.AccountToken))
 	cancel()
 	if err != nil {
 		log.Printf("[app] device-cert: request cert failed: %v", err)
@@ -2982,6 +3000,9 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 // runs concurrently with the watchdog's own ticks without any shared state
 // beyond tlsMgr, which is already safe for concurrent use.
 func (a *App) RetryDeviceCert() {
+	if a.tlsMgr != nil {
+		a.tlsMgr.NoteDeviceCertDemand()
+	}
 	go func() {
 		if err := a.tickDeviceCert(context.Background()); err != nil {
 			log.Printf("[app] device-cert: manual retry failed: %v", err)
@@ -4111,8 +4132,9 @@ func (a *App) DeviceHostname() string {
 	if a.tlsMgr == nil || !a.cfg.TLSEnabledOK() {
 		return ""
 	}
-	hostname, _ := a.tlsMgr.DeviceCertStatus()
-	return hostname
+	// The registered name, cert or not: a browser that comes to it is what
+	// gets the cert issued (tlshost.Manager.GetCertificate).
+	return a.tlsMgr.RegisteredHostname()
 }
 
 // CertStatus reports the HTTPS listener's current certificate -- see
