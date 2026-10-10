@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"usbridge-client/internal/api"
 )
 
 // A USBridge KVM that hasn't been set up yet is reachable over its USB
@@ -26,6 +28,9 @@ type usbSetupClaim struct {
 }
 
 var (
+	// errUSBSetupBrowserHTTPS: a page loaded over https can't make the
+	// plain-http request (mixed content).
+	errUSBSetupBrowserHTTPS = errors.New("https page")
 	errUSBSetupNotFound     = errors.New("no KVM over USB")
 	errUSBSetupWindowClosed = errors.New("setup window closed")
 )
@@ -38,6 +43,9 @@ func (e usbSetupClaimedError) Error() string { return "already set up" }
 // claimKVMOverUSB asks the KVM on the USB cable for its master key.
 func claimKVMOverUSB() (usbSetupClaim, error) {
 	var res usbSetupClaim
+	if api.BrowserIsHTTPS() {
+		return res, errUSBSetupBrowserHTTPS
+	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(usbSetupClaimURL)
 	if err != nil {

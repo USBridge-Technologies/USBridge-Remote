@@ -2,7 +2,9 @@
 
 package controller
 
-// usbSetupSupported is false in the browser: a page can't reach the KVM's
-// http://10.55.0.1 (mixed content from an https page, no CORS on the setup
-// server). Open http://10.55.0.1 in the browser itself instead.
-const usbSetupSupported = false
+// usbSetupSupported in the browser too: it works in the web client the KVM
+// itself serves over its USB cable (http://10.55.0.1:8080/), whose origin
+// the KVM's setup server allows. From an https page (web.usbridge.io, or
+// https://<kvm>:9443/) the browser blocks the plain-http request: the
+// button then says where to open the client instead.
+const usbSetupSupported = true

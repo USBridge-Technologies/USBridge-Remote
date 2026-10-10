@@ -1511,6 +1511,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 							}
 							usbBtn.SetLabel("✓ " + i18n.Current.AddOverUSBDone)
 							logrus.Infof("Over USB: got the KVM's key (host %s)", res.Host)
+						case errors.Is(err, errUSBSetupBrowserHTTPS):
+							usbBtn.SetLabel(i18n.Current.AddOverUSB)
+							dialog.ShowInformation(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBBrowserHTTP, parent)
 						case errors.Is(err, errUSBSetupNotFound):
 							usbBtn.SetLabel(i18n.Current.AddOverUSB)
 							dialog.ShowInformation(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBNotFound, parent)
