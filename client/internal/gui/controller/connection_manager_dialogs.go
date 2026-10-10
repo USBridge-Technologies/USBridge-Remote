@@ -1548,6 +1548,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 								msg = claimed.at.Local().Format("2006-01-02 15:04") + ": " + msg
 							}
 							view.ShowInfoDialog(i18n.Current.AddOverUSB, msg, parent)
+						case errors.Is(err, errUSBSetupForbidden):
+							usbBtn.SetLabel(i18n.Current.AddOverUSB)
+							view.ShowInfoDialog(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBForbidden, parent)
 						case errors.Is(err, errUSBSetupWindowClosed):
 							usbBtn.SetLabel(i18n.Current.AddOverUSB)
 							view.ShowInfoDialog(i18n.Current.AddOverUSB, i18n.Current.AddOverUSBWindowClosed, parent)

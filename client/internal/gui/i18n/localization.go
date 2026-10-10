@@ -63,6 +63,7 @@ type LocalizedStrings struct {
 	AddOverUSBClaimed                 string
 	AddOverUSBWindowClosed            string
 	AddOverUSBBrowserHTTP             string
+	AddOverUSBForbidden               string
 	ManualEntry                       string
 	OrEnterManually                   string
 	AddConnectionSubtitle             string
@@ -789,6 +790,7 @@ func EN() *LocalizedStrings {
 		AddOverUSBClaimed:                 "this KVM was already set up and its master key handed out. If that wasn't you, reset the KVM to factory settings.",
 		AddOverUSBWindowClosed:            "The KVM hands out its key only during the first 30 minutes after it powers on. Power it off and on again, then try once more.",
 		AddOverUSBBrowserHTTP:             "In the browser, Over USB works in the client the KVM itself serves over its USB cable.\n\nOn the computer the KVM is plugged into, open http://10.55.0.1:8080/ (plain http, not https) and try again there.",
+		AddOverUSBForbidden:               "The KVM refused the request: it hands its key only to this computer over the USB cable, and only to the app or to the client page the KVM itself serves.\n\nOpen the web client from the KVM (http://10.55.0.1:8080/ or http://<KVM address>:8080/) or use the desktop app on the computer the KVM's USB cable is plugged into.",
 		ManualEntry:                       "Manual",
 		OrEnterManually:                   "OR ENTER MANUALLY",
 		AddConnectionSubtitle:             "Pair a hardware or software agent using its IP address and master key.",
@@ -1506,6 +1508,7 @@ func ES() *LocalizedStrings {
 	locale.AddOverUSBClaimed = "este KVM ya se configuró y entregó su clave maestra. Si no fuiste tú, restablece el KVM de fábrica."
 	locale.AddOverUSBWindowClosed = "El KVM entrega su clave solo durante los primeros 30 minutos tras encenderse. Apágalo y enciéndelo de nuevo y vuelve a intentarlo."
 	locale.AddOverUSBBrowserHTTP = "En el navegador, «Por USB» funciona en el cliente que sirve el propio KVM por su cable USB.\n\nEn el ordenador al que está conectado el KVM, abre http://10.55.0.1:8080/ (http, no https) y vuelve a intentarlo allí."
+	locale.AddOverUSBForbidden = "El KVM rechazó la petición: entrega su clave solo a este ordenador por el cable USB, y solo a la aplicación o a la página del cliente que sirve el propio KVM.\n\nAbre el cliente web desde el KVM (http://10.55.0.1:8080/ o http://<dirección del KVM>:8080/) o usa la aplicación de escritorio en el ordenador al que está conectado el cable USB del KVM."
 	locale.ManualEntry = "Manual"
 	locale.OrEnterManually = "O INTRODUCIR MANUALMENTE"
 	locale.AddConnectionSubtitle = "Empareja un agent de hardware o software con su IP y master key."
@@ -1963,6 +1966,7 @@ func UKProper() *LocalizedStrings {
 	locale.AddOverUSBClaimed = "цей KVM вже налаштовано, його майстер-ключ видано. Якщо це були не ви, скиньте KVM до заводських налаштувань."
 	locale.AddOverUSBWindowClosed = "KVM видає ключ лише протягом перших 30 хвилин після ввімкнення. Вимкніть і ввімкніть його знову й спробуйте ще раз."
 	locale.AddOverUSBBrowserHTTP = "У браузері «Через USB» працює в клієнті, який віддає сам KVM через свій USB-кабель.\n\nНа комп'ютері, до якого підключено KVM, відкрийте http://10.55.0.1:8080/ (саме http, не https) і спробуйте там."
+	locale.AddOverUSBForbidden = "KVM відхилив запит: він віддає ключ лише цьому комп'ютеру через USB-кабель і лише застосунку або сторінці клієнта, яку віддає сам KVM.\n\nВідкрийте веб-клієнт з KVM (http://10.55.0.1:8080/ або http://<адреса KVM>:8080/) або скористайтеся настільним застосунком на комп'ютері, до якого підключено USB-кабель KVM."
 	locale.ManualEntry = "Вручну"
 	locale.OrEnterManually = "АБО ВВЕСТИ ВРУЧНУ"
 	locale.AddConnectionSubtitle = "Прив'яжіть hardware або software agent за IP та master key."

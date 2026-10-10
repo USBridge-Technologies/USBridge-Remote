@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -34,6 +36,10 @@ var (
 	errUSBSetupBrowserHTTPS = errors.New("https page")
 	errUSBSetupNotFound     = errors.New("no KVM over USB")
 	errUSBSetupWindowClosed = errors.New("setup window closed")
+	// errUSBSetupForbidden: the KVM answered 403 "forbidden" (plain text):
+	// the request's origin isn't a page the KVM serves, or it didn't come
+	// over the setup network.
+	errUSBSetupForbidden = errors.New("forbidden")
 )
 
 // usbSetupClaimedError: the KVM was set up already (its key handed out).
@@ -55,8 +61,12 @@ func claimKVMOverUSB() (usbSetupClaim, error) {
 		return res, errUSBSetupNotFound
 	}
 	defer resp.Body.Close()
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return res, fmt.Errorf("KVM answer: %w", err)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode == http.StatusForbidden {
+		return res, errUSBSetupForbidden
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return res, fmt.Errorf("KVM answer (HTTP %d): %q", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	switch {
 	case resp.StatusCode == http.StatusOK && res.MasterKey != "" && res.Host != "":
