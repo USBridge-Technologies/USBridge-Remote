@@ -211,7 +211,13 @@ func (e *connectionDialogEntry) TypedKey(k *fyne.KeyEvent) {
 // text but never told anything wired to OnChanged (e.g. the paste view's
 // Apply button enable/disable) -- typing the same text manually worked
 // only because TypedRune/TypedKey above already call the right OnChanged.
+//
+// The browser build's paste is read asynchronously instead of through
+// widget.Entry, which would freeze the page (see view.BrowserHandlesPaste).
 func (e *connectionDialogEntry) TypedShortcut(shortcut fyne.Shortcut) {
+	if view.BrowserHandlesPaste(shortcut) {
+		return // OnChanged fires as the pasted text is typed in
+	}
 	e.Entry.TypedShortcut(shortcut)
 	if e.OnChanged != nil {
 		e.OnChanged(e.Text)

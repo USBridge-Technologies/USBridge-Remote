@@ -794,7 +794,7 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 		warn.Wrapping = fyne.TextWrapWord
 		styledWarn := wrapAccountField(warn, 8, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
 
-		entry := widget.NewPasswordEntry()
+		entry := view.NewStyledPasswordEntry()
 		entry.SetPlaceHolder(i18n.Current.AccountNewPassphrase)
 		entry.TextStyle.Monospace = true
 		styledEntry := wrapAccountField(entry, 10, color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff})
@@ -845,7 +845,7 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 	label.Wrapping = fyne.TextWrapWord
 	styledLabel := wrapAccountField(label, 8, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
 
-	entry := widget.NewPasswordEntry()
+	entry := view.NewStyledPasswordEntry()
 	entry.SetPlaceHolder(i18n.Current.AccountPassphrasePlaceholder)
 	entry.TextStyle.Monospace = true
 	styledEntry := wrapAccountField(entry, 10, color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff})

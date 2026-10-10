@@ -354,11 +354,18 @@ func (mw *MainWindow) recreateContainers() {
 		scriptsContent = view.NewMobileFillWidth(scriptsContent)
 	}
 
-	mw.tabs = container.NewAppTabs(
-		container.NewTabItem(controlTabTitle, container.NewThemeOverride(controlContent, design.NewBrandTheme())),
-		container.NewTabItem(devicesTabTitle, container.NewThemeOverride(devicesContent, design.NewBrandTheme())),
-		container.NewTabItem(snapshotsTabTitle, container.NewThemeOverride(snapshotsContent, design.NewBrandTheme())),
-		container.NewTabItem(scriptsTabTitle, container.NewThemeOverride(scriptsContent, design.NewBrandTheme())),
+	// Each tab's ThemeOverride sits in a plain Stack that applyTabVisualState
+	// shows and hides: Show on the ThemeOverride itself refreshes its whole
+	// tree (every text re-measured), up to half a second per tab switch in
+	// the browser; a Container's Show only flips its flag.
+	tabPage := func(content fyne.CanvasObject) fyne.CanvasObject {
+		return container.NewStack(container.NewThemeOverride(content, design.NewBrandTheme()))
+	}
+	mw.tabs = newTabSet(
+		container.NewTabItem(controlTabTitle, tabPage(controlContent)),
+		container.NewTabItem(devicesTabTitle, tabPage(devicesContent)),
+		container.NewTabItem(snapshotsTabTitle, tabPage(snapshotsContent)),
+		container.NewTabItem(scriptsTabTitle, tabPage(scriptsContent)),
 	)
 	mw.applyTabVisualState(0)
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
@@ -367,12 +374,24 @@ func (mw *MainWindow) recreateContainers() {
 		if tab != nil {
 			tabName = tab.Text
 		}
+		// steps: how long each part took, logged when the switch is slow.
+		var steps []string
+		step := func(name string, t0 time.Time) {
+			steps = append(steps, fmt.Sprintf("%s=%v", name, time.Since(t0).Round(time.Millisecond)))
+		}
+		t0 := time.Now()
 		mw.applyTabVisualState(mw.tabs.SelectedIndex())
+		step("visual", t0)
+		t0 = time.Now()
 		mw.updateDeviceButtonsVisibility()
+		step("buttons", t0)
 		// syncVideoOverlayForNav is the single authoritative place that
 		// calls NotifyOverlayShow/Hide for tab/screen navigation — see its
 		// own doc comment for why this must not do so directly.
+		t0 = time.Now()
 		mw.syncVideoOverlayForNav()
+		step("overlay", t0)
+		t0 = time.Now()
 		if tab != nil && tab.Text == controlTabTitle {
 			if mw.videoWidget != nil {
 				mw.videoWidget.BootstrapControlSessionAsync()
@@ -399,7 +418,12 @@ func (mw *MainWindow) recreateContainers() {
 				mw.backupWidget.Refresh()
 			}
 		}
-		logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, time.Since(tabSwitchStart))
+		step("tab-specific", t0)
+		if d := time.Since(tabSwitchStart); d > 100*time.Millisecond {
+			logrus.Warnf("📑 [Tabs] switched to %q in %v (slow: %s)", tabName, d, strings.Join(steps, " "))
+		} else {
+			logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, d)
+		}
 	}
 
 	deviceFooterOverlay := container.NewBorder(nil, mainFooter, nil, nil, nil)
@@ -466,6 +490,8 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 		}
 		if i == activeIndex {
 			item.Content.Show()
+			// A Container's Show doesn't ask for a repaint.
+			canvas.Refresh(item.Content)
 		} else {
 			item.Content.Hide()
 		}
@@ -519,6 +545,11 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 		OnToggleTailscale: func() {
 			if mw.connectionManager != nil {
 				mw.connectionManager.ToggleTailscale()
+			}
+		},
+		OnTransportChanged: func() {
+			if mw.videoWidget != nil {
+				mw.videoWidget.RestartStream("transport-changed")
 			}
 		},
 		OnOpenAccount: func() {
@@ -1498,7 +1529,31 @@ func (mw *MainWindow) updateStatusBar() {
 		return
 	}
 
+	if !mw.statusBarBusy.CompareAndSwap(false, true) {
+		mw.statusBarAgain.Store(true)
+		return
+	}
 	go func() {
+		for {
+			mw.statusBarAgain.Store(false)
+			mw.pollStatusBar()
+			time.Sleep(time.Second)
+			if !mw.statusBarAgain.Load() {
+				break
+			}
+		}
+		mw.statusBarBusy.Store(false)
+		// A call between the last check and the Store above lost its CAS.
+		if mw.statusBarAgain.Load() {
+			mw.updateStatusBar()
+		}
+	}()
+}
+
+// pollStatusBar is one status-bar poll: the agent's devices, audio, scripts
+// and storage, then the header.
+func (mw *MainWindow) pollStatusBar() {
+	{
 		client := mw.usbClient
 		if client == nil {
 			return
@@ -1598,6 +1653,10 @@ func (mw *MainWindow) updateStatusBar() {
 				runningName = "debug.sh"
 			}
 			fyne.Do(func() {
+				if runningPath == mw.runningScriptPath && runningName == mw.runningScriptName &&
+					(mw.scriptIcon == nil || mw.scriptIcon.Visible() == (runningPath != "")) {
+					return
+				}
 				mw.runningScriptPath = runningPath
 				mw.runningScriptName = runningName
 				if mw.scriptIcon != nil {
@@ -1637,20 +1696,31 @@ func (mw *MainWindow) updateStatusBar() {
 					usedPct := display.Percent / 100 // view.ProgressBar expects 0..1
 
 					if mw.sdStorageProgress != nil {
-						mw.sdStorageProgress.SetIcon(assets.SDCardIcon)
-						mw.sdStorageProgress.SetValue(usedPct)
-						mw.sdStorageProgress.SetSizeText(models.FormatStorageSizeOnly(used, display.Total))
-						mw.syncStorageChipVisibility(true)
-						mw.refreshMainHeaderLayout()
+						sizeText := models.FormatStorageSizeOnly(used, display.Total)
+						if chip := fmt.Sprintf("%.3f|%s", usedPct, sizeText); chip != mw.lastStorageChip {
+							mw.lastStorageChip = chip
+							mw.sdStorageProgress.SetIcon(assets.SDCardIcon)
+							mw.sdStorageProgress.SetValue(usedPct)
+							mw.sdStorageProgress.SetSizeText(sizeText)
+							mw.syncStorageChipVisibility(true)
+							mw.refreshMainHeaderLayout()
+						}
 					}
 				}
 			})
 		}
-	}()
+	}
 }
 
 func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming bool) {
 	fyne.Do(func() {
+		// %p: a rebuilt window (language change, reload) has new widgets.
+		key := fmt.Sprint(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected,
+			videoStreaming, gamepadConnected, audioStreaming, useMobileControl(), mw.connectedProtocol, fmt.Sprintf("%p", mw.statusPanel))
+		if key == mw.lastStatusBarKey {
+			return
+		}
+		mw.lastStatusBarKey = key
 		if mw.keyboardIcon != nil {
 			if useMobileControl() {
 				mw.keyboardIcon.Hide()
@@ -1992,7 +2062,7 @@ func (mw *MainWindow) controlTabIndex() int {
 
 // tabsSelectedIndexOrNegOne is a nil-safe SelectedIndex() for logging --
 // mw.tabs can be nil before the tab strip is built.
-func tabsSelectedIndexOrNegOne(tabs *container.AppTabs) int {
+func tabsSelectedIndexOrNegOne(tabs *tabSet) int {
 	if tabs == nil {
 		return -1
 	}

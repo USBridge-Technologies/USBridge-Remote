@@ -1182,7 +1182,9 @@ func (mw *MainWindow) refreshConnectionAgentIdentity(ctx context.Context, client
 			osName = strings.TrimSpace(deviceInfo.AgentOS)
 			protocol = strings.TrimSpace(deviceInfo.AgentProtocol)
 		}
-		if osName != "" && protocol != "" {
+		// A USBridge KVM reports no protocol and has no /api/status (the
+		// software agent's route): asking would only log a 404.
+		if osName != "" && (protocol != "" || !controller.IsSoftwareAgentOS(osName)) {
 			return osName, protocol
 		}
 		status, statusErr := client.GetStatus()

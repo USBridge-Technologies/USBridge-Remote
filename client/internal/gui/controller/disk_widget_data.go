@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/platform"
@@ -640,6 +641,34 @@ func (dw *DiskWidget) loadUSBPassthroughDevices() {
 	}()
 }
 
+// diskMediaStatus: see DiskWidget.mediaStatus.
+type diskMediaStatus struct {
+	videoKnown     bool
+	videoPath      string
+	videoStreaming bool
+	virtualDisplay bool
+	audioPath      string
+	audioName      string
+	audioStreaming bool
+}
+
+// fetchDiskMediaStatus asks the agent; never on the UI goroutine.
+func fetchDiskMediaStatus(client *api.USBClient) *diskMediaStatus {
+	var m diskMediaStatus
+	if info, err := getVideoInfoData(client); err == nil && info != nil {
+		m.videoKnown = true
+		m.videoPath = info.Device
+		m.videoStreaming = info.Streaming
+		m.virtualDisplay = info.VirtualDisplaySupported
+	}
+	if info, err := client.GetAudioInfo(); err == nil && info != nil {
+		m.audioPath = info.DevicePath
+		m.audioName = info.DeviceName
+		m.audioStreaming = info.Streaming
+	}
+	return &m
+}
+
 // loadMountedDevices loads mounted devices via the API
 func (dw *DiskWidget) loadMountedDevices() {
 	if !dw.loadingMountedInfo.CompareAndSwap(false, true) {
@@ -667,6 +696,8 @@ func (dw *DiskWidget) loadMountedDevices() {
 		if st, err := client.GetUSBPassthroughStatus(); err == nil && st != nil {
 			passSessions = append([]string(nil), st.Sessions...)
 		}
+
+		dw.mediaStatus.Store(fetchDiskMediaStatus(client))
 
 		logrus.Debugf("Loaded %d mounted devices, agentOS='%s', usbpass_sessions=%d",
 			len(deviceInfo.Devices), deviceInfo.AgentOS, len(passSessions))
@@ -713,24 +744,15 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	}
 	dw.nbdServersMu.Unlock()
 
-	var currentVideoPath string
-	videoStreaming := false
-	if info, err := getVideoInfoData(dw.usbClient); err == nil && info != nil {
-		currentVideoPath = info.Device
-		videoStreaming = info.Streaming
-		dw.virtualDisplaySupported.Store(info.VirtualDisplaySupported)
+	var media diskMediaStatus
+	if m := dw.mediaStatus.Load(); m != nil {
+		media = *m
 	}
-
-	var currentAudioPath string
-	var currentAudioName string
-	audioStreaming := false
-	if dw.usbClient != nil {
-		if info, err := dw.usbClient.GetAudioInfo(); err == nil && info != nil {
-			currentAudioPath = info.DevicePath
-			currentAudioName = info.DeviceName
-			audioStreaming = info.Streaming
-		}
+	currentVideoPath, videoStreaming := media.videoPath, media.videoStreaming
+	if media.videoKnown {
+		dw.virtualDisplaySupported.Store(media.virtualDisplay)
 	}
+	currentAudioPath, currentAudioName, audioStreaming := media.audioPath, media.audioName, media.audioStreaming
 	// While user's audio switch is in-flight the server may still report the old device.
 	// Use the pending path to keep the UI stable and prevent combineDrives from reverting
 	// the optimistic selection the user just made.

@@ -17,6 +17,8 @@ package main
 import (
 	"syscall/js"
 
+	"github.com/sirupsen/logrus"
+
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -50,6 +52,8 @@ func main() {
 	js.Global().Set("usbridgeStartBrowserGamepad", js.FuncOf(startBrowserGamepad))
 	js.Global().Set("usbridgeStopBrowserGamepad", js.FuncOf(stopBrowserGamepad))
 	js.Global().Set("usbridgeRegisterHIDDevice", js.FuncOf(registerHIDDevice))
+	js.Global().Set("usbridgeSetLogLevel", js.FuncOf(setLogLevel))
+	applySavedLogLevel()
 
 	// Recovers HID gamepads granted in an earlier visit (getDevices() needs
 	// no user gesture, unlike requestDevice() -- see gamepad_hid_wasm.go's
@@ -65,6 +69,40 @@ func main() {
 	gui.InitIMEBridge()
 	gui.InitTouchGestureBridge()
 	mainWindow.Show()
+}
+
+// Logging is a runtime choice, not a build flag: the chattiest traces (one
+// per HTTP request, ...) are Debug, off by default because every console
+// line costs main-thread time. From the devtools console:
+//
+//	usbridgeSetLogLevel("debug")  // now, and on every later load
+//	usbridgeSetLogLevel("info")   // back to the default
+func setLogLevel(this js.Value, args []js.Value) any {
+	if len(args) < 1 || args[0].Type() != js.TypeString {
+		return logrus.GetLevel().String()
+	}
+	lvl, err := logrus.ParseLevel(args[0].String())
+	if err != nil {
+		return err.Error()
+	}
+	logrus.SetLevel(lvl)
+	if ls := js.Global().Get("localStorage"); ls.Truthy() {
+		ls.Call("setItem", "usbridge.logLevel", lvl.String())
+	}
+	return lvl.String()
+}
+
+func applySavedLogLevel() {
+	defer func() { _ = recover() }() // localStorage can throw (blocked storage)
+	ls := js.Global().Get("localStorage")
+	if !ls.Truthy() {
+		return
+	}
+	if v := ls.Call("getItem", "usbridge.logLevel"); v.Type() == js.TypeString {
+		if lvl, err := logrus.ParseLevel(v.String()); err == nil {
+			logrus.SetLevel(lvl)
+		}
+	}
 }
 
 // sendInput(jsonPayload) pushes a raw JSON input message (matching

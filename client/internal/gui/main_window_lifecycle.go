@@ -277,6 +277,8 @@ func (mw *MainWindow) Show() {
 	// real size — a Windows Fyne/GLFW quirk we work around here rather
 	// than patching Fyne. Resize happens before the first Show;
 	// CenterOnScreen is skipped when a last-session monitor position exists.
+	// Lets api report requests made on the UI goroutine (see ui_block.go).
+	go fyne.Do(api.MarkUIGoroutine)
 	mw.recreateContainers()
 	if mw.connectionManager != nil {
 		mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)

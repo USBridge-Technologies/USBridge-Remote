@@ -1052,8 +1052,9 @@ func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint
 		req.Header.Set(key, value)
 	}
 
+	reportUIBlockingRequest(method, endpoint)
 	start := time.Now()
-	logrus.Infof("🌐 [HTTP-TRACE] -> %s %s", method, endpoint)
+	logrus.Debugf("🌐 [HTTP-TRACE] -> %s %s", method, endpoint)
 
 	resp, err := c.httpClient.Do(req)
 	duration := time.Since(start)
@@ -1068,7 +1069,7 @@ func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint
 	}
 	defer resp.Body.Close()
 
-	logrus.Infof("✅ [HTTP-TRACE] <- OK %s %s (%d) in %v", method, endpoint, resp.StatusCode, duration)
+	logrus.Debugf("✅ [HTTP-TRACE] <- OK %s %s (%d) in %v", method, endpoint, resp.StatusCode, duration)
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

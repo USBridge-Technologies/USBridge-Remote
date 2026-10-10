@@ -99,19 +99,27 @@ var ErrRateLimited = errors.New("devicecert: certificate issuance is rate-limite
 // on a later poll, typically within a few minutes.
 var ErrPending = errors.New("devicecert: certificate is being issued, check back in a few minutes")
 
+// ErrAccountRequired: the backend issues a desktop device's certificate only
+// to a signed-in USBridge account (HTTP 401 account_required) -- or there's
+// no account token to send at all.
+var ErrAccountRequired = errors.New("devicecert: sign in to your USBridge account to get a trusted certificate")
+
 // RequestCert asks the backend to issue (or return the cached, still-fresh)
 // leaf certificate for this device's own hostname, signing csrDER -- a
 // DER-encoded PKCS#10 CSR generated locally (see
 // tlshost.Manager.DeviceCSR). The backend independently recomputes the
 // hostname from hwID and rejects a CSR that doesn't name it, so csrDER must
 // already be built for the hostname RegisterIP returned.
-func RequestCert(ctx context.Context, hwID string, csrDER []byte) (*Cert, error) {
+func RequestCert(ctx context.Context, hwID string, csrDER []byte, accountToken string) (*Cert, error) {
+	if accountToken == "" {
+		return nil, ErrAccountRequired
+	}
 	reqBody, _ := json.Marshal(map[string]string{
 		"hw_id": hwID,
 		"csr":   base64.StdEncoding.EncodeToString(csrDER),
 	})
 	var out Cert
-	if err := doJSON(ctx, http.MethodPost, "/v1/device/cert", reqBody, &out); err != nil {
+	if err := doJSONAuth(ctx, http.MethodPost, "/v1/device/cert", reqBody, accountToken, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -134,9 +142,16 @@ func newRequest(ctx context.Context, method, path string, body []byte) (*http.Re
 }
 
 func doJSON(ctx context.Context, method, path string, body []byte, out any) error {
+	return doJSONAuth(ctx, method, path, body, "", out)
+}
+
+func doJSONAuth(ctx context.Context, method, path string, body []byte, bearer string, out any) error {
 	req, err := newRequest(ctx, method, path, body)
 	if err != nil {
 		return err
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	resp, err := httpClient().Do(req)
 	if err != nil {
@@ -163,6 +178,12 @@ func doJSON(ctx context.Context, method, path string, body []byte, out any) erro
 		}
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error == "rate_limited" {
 			return fmt.Errorf("%w: %s", ErrRateLimited, apiErr.Detail)
+		}
+		if apiErr.Error == "account_required" {
+			return ErrAccountRequired
+		}
+		if apiErr.Error == "device_owned_by_other_account" || apiErr.Error == "account_device_limit" {
+			return fmt.Errorf("devicecert: %s", apiErr.Detail)
 		}
 		return fmt.Errorf("devicecert: %s: HTTP %d: %s", path, resp.StatusCode, truncate(respBody))
 	}

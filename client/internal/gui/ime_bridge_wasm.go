@@ -173,6 +173,18 @@ func InitIMEBridge() {
 	})
 	js.Global().Set("usbridgePasteText", pasteTextListener)
 
+	// index.html's Ctrl/Cmd+V guard asks this before letting the key reach
+	// glfw-js: in a text field, the paste must come from the native paste
+	// event (above), never from Fyne's own ShortcutPaste, whose synchronous
+	// clipboard read freezes the page (see view.BrowserHandlesPaste).
+	// Elsewhere -- the video, where Ctrl+V is a key for the host -- the key
+	// goes through as before. Reads only the focus pointer: no blocking.
+	focusIsTextEntry := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		_, isText := currentFocusable().(interface{ SelectedText() string })
+		return isText
+	})
+	js.Global().Set("usbridgeFocusIsTextEntry", focusIsTextEntry)
+
 	logrus.Info("[ime-bridge] #dummyEntry input listener installed")
 }
 

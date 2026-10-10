@@ -4,6 +4,7 @@ import (
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/input"
 	"usbridge-client/internal/service"
 )
@@ -131,7 +132,12 @@ func (vw *VideoWidget) typeClipboardText() {
 	if vw.parentWindow == nil {
 		return
 	}
-	text := vw.parentWindow.Clipboard().Content()
+	// Read without blocking Fyne's goroutine: the browser build can only
+	// read the clipboard asynchronously (see view.ReadClipboard).
+	view.ReadClipboard(vw.parentWindow, vw.typeText)
+}
+
+func (vw *VideoWidget) typeText(text string) {
 	if text == "" {
 		return
 	}

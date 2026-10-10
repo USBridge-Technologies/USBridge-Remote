@@ -76,6 +76,9 @@ func (s *ScriptFooterStatus) SetOnDismiss(fn func()) {
 }
 
 func (s *ScriptFooterStatus) SetKind(kind ScriptFooterKind) {
+	if kind == s.kind && s.Visible() == (kind != ScriptFooterIdle) {
+		return // polled; an unchanged status must not re-render its icons
+	}
 	s.kind = kind
 	s.applyChildren()
 	if kind == ScriptFooterIdle {

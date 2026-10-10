@@ -250,11 +250,24 @@ func (cs *ClipboardSync) Stop() {
 	}
 }
 
+// errNoClipboardChannel: the browser build couldn't open the
+// "clipboard-sync" channel and has no direct dial to fall back to -- a
+// USBridge KVM without an agent bridge on the target. Not an error to log
+// every few seconds; the channel is retried slowly in case a bridge appears.
+var errNoClipboardChannel = errors.New("clipboard-sync channel unavailable")
+
 func (cs *ClipboardSync) connectLoop(ctx context.Context) {
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
+	saidNoChannel := false
 	for ctx.Err() == nil {
-		if err := cs.runOnce(ctx); err != nil {
+		if err := cs.runOnce(ctx); errors.Is(err, errNoClipboardChannel) {
+			if !saidNoChannel {
+				logrus.Infof("[clipboard-sync] no clipboard channel to this host (%v); retrying every %v", err, maxBackoff)
+				saidNoChannel = true
+			}
+			backoff = maxBackoff
+		} else if err != nil {
 			logrus.Errorf("[clipboard-sync] connection error: %v", err)
 		}
 		if ctx.Err() != nil {
@@ -333,6 +346,9 @@ func (cs *ClipboardSync) dial(ctx context.Context, header http.Header) (clipboar
 		if err == nil {
 			return newDCJSONConn(conn), nil, nil
 		}
+		if !clipboardDirectDial {
+			return nil, nil, fmt.Errorf("%w: %v", errNoClipboardChannel, err)
+		}
 		logrus.Warnf("[clipboard-sync] DataChannel unavailable (%v), falling back to direct dial", err)
 	}
 	return cs.dialer().DialContext(ctx, cs.wsURL(), header)
@@ -389,11 +405,14 @@ func (cs *ClipboardSync) signedHeader(method, path string) http.Header {
 func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 	header := cs.signedHeader("GET", "/api/clipboard/ws")
 	if cs.OpenDataChannel != nil {
-		logrus.Infof("[clipboard-sync] dialing DataChannel %q", clipboardDataChannelLabel)
+		logrus.Debugf("[clipboard-sync] dialing DataChannel %q", clipboardDataChannelLabel)
 	} else {
 		logrus.Infof("[clipboard-sync] dialing %s", cs.wsURL())
 	}
 	conn, resp, err := cs.dial(ctx, header)
+	if errors.Is(err, errNoClipboardChannel) {
+		return err
+	}
 	if err != nil {
 		status := "n/a"
 		if resp != nil {

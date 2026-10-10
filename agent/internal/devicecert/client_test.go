@@ -77,7 +77,7 @@ func TestRequestCert_ReturnsCertAndMetadataNoKey(t *testing.T) {
 		})
 	})
 
-	cert, err := RequestCert(context.Background(), "hw-1", []byte("fake-csr-der"))
+	cert, err := RequestCert(context.Background(), "hw-1", []byte("fake-csr-der"), "test-account-token")
 	if err != nil {
 		t.Fatalf("RequestCert: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestRequestCert_PropagatesBackendError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"device cert unavailable: boom"}`))
 	})
 
-	if _, err := RequestCert(context.Background(), "hw-1", []byte("csr")); err == nil {
+	if _, err := RequestCert(context.Background(), "hw-1", []byte("csr"), "test-account-token"); err == nil {
 		t.Fatal("expected an error on HTTP 503, got nil")
 	}
 }
@@ -109,7 +109,7 @@ func TestRequestCert_RateLimitedResponseReturnsErrRateLimited(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"rate_limited","detail":"too many certificates"}`))
 	})
 
-	_, err := RequestCert(context.Background(), "hw-1", []byte("csr"))
+	_, err := RequestCert(context.Background(), "hw-1", []byte("csr"), "test-account-token")
 	if !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("RequestCert error = %v, want errors.Is(err, ErrRateLimited)", err)
 	}
@@ -124,8 +124,31 @@ func TestRequestCertPendingIsErrPending(t *testing.T) {
 	prev := TestSetBackendBaseURL(srv.URL)
 	defer TestSetBackendBaseURL(prev)
 
-	_, err := RequestCert(context.Background(), "hw", []byte("csr"))
+	_, err := RequestCert(context.Background(), "hw", []byte("csr"), "test-account-token")
 	if !errors.Is(err, ErrPending) {
 		t.Fatalf("want ErrPending, got %v", err)
+	}
+}
+
+func TestRequestCert_SendsAccountTokenAndMapsAccountRequired(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"account_required"}`))
+	}))
+	defer srv.Close()
+	defer TestSetBackendBaseURL(TestSetBackendBaseURL(srv.URL))
+
+	_, err := RequestCert(context.Background(), "hw-1", []byte("csr"), "tok")
+	if gotAuth != "Bearer tok" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if !errors.Is(err, ErrAccountRequired) {
+		t.Fatalf("err = %v, want ErrAccountRequired", err)
+	}
+	gotAuth = "unset"
+	if _, err := RequestCert(context.Background(), "hw-1", []byte("csr"), ""); !errors.Is(err, ErrAccountRequired) || gotAuth != "unset" {
+		t.Fatalf("signed out: err = %v, request sent = %v", err, gotAuth != "unset")
 	}
 }

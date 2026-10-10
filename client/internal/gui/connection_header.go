@@ -9,6 +9,7 @@ import (
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -31,6 +32,10 @@ type connectionHeaderActions struct {
 	OnOpenHardwareAgent func()
 	OnOpenSoftwareAgent func()
 	OnToggleTailscale   func()
+	// OnTransportChanged runs after the browser build's WebRTC/WebTransport
+	// switch flips (the pick is already stored): restart a live stream on
+	// the new transport.
+	OnTransportChanged func()
 	// OnOpenAccount opens the account login/sync dialog (see
 	// MainWindow.showAccountDialog) -- fired by the login avatar button.
 	OnOpenAccount func()
@@ -262,10 +267,10 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	handle := &ConnectionHeaderHandle{avatar: loginBtn}
 	if runtime.GOOS == "js" {
 		// No embedded tsnet in a browser tab (tailscale_service_wasm.go is a
-		// stub) -- the "Sign In With Google" toggle has nothing to do here,
-		// so don't show it at all rather than show a button that can't
-		// function. handle.toggle stays nil, so SetTailscaleState is a no-op.
-		tailscaleAccessory = canvas.NewRectangle(color.Transparent)
+		// stub), so the Tailscale toggle's spot holds the stream transport
+		// switch instead: WebRTC, or WebTransport + WebCodecs.
+		// handle.toggle stays nil, so SetTailscaleState is a no-op.
+		tailscaleAccessory = newTransportHeaderToggle(actions.OnTransportChanged)
 	} else {
 		toggle := newTailscaleHeaderToggle(actions.OnToggleTailscale)
 		handle.toggle = toggle
@@ -330,12 +335,46 @@ type tailscaleHeaderToggle struct {
 	// Desktop keeps the original "switch only" hit target; the phone
 	// chip is too small to land on the thumb alone.
 	wholeChipTappable bool
+	// text is the label ("" = "Tailscale"); the transport switch sets it.
+	text string
+	// widestText: the longest label this toggle shows, so the pill is sized
+	// for it and the header doesn't shift when the label changes.
+	widestText string
 
 	bg     *canvas.Rectangle
 	border *canvas.Rectangle
 	label  *canvas.Text
 	track  *canvas.Rectangle
 	thumb  *canvas.Circle
+}
+
+// newTransportHeaderToggle is the browser build's WebRTC/WebTransport switch, in
+// the Tailscale toggle's look: on = WebTransport. Disabled (WebRTC) where the
+// page can't run WebTransport (not Chromium, or not https).
+func newTransportHeaderToggle(onChanged func()) *tailscaleHeaderToggle {
+	var toggle *tailscaleHeaderToggle
+	sync := func() {
+		webTransport := service.BrowserUsesWebTransport()
+		toggle.text = "WebRTC"
+		if webTransport {
+			toggle.text = "WebTransport"
+		}
+		toggle.SetOn(webTransport)
+	}
+	toggle = newTailscaleHeaderToggle(func() {
+		service.SetBrowserUsesWebTransport(!service.BrowserUsesWebTransport())
+		sync()
+		if onChanged != nil {
+			onChanged()
+		}
+	})
+	toggle.wholeChipTappable = true
+	toggle.widestText = "WebTransport"
+	sync()
+	if !service.BrowserWebTransportSupported() {
+		toggle.SetDisabled(true)
+	}
+	return toggle
 }
 
 func newTailscaleHeaderToggle(onTapped func()) *tailscaleHeaderToggle {
@@ -422,7 +461,13 @@ func (t *tailscaleHeaderToggle) MouseOut() {
 
 func (t *tailscaleHeaderToggle) MinSize() fyne.Size {
 	s := t.scaleOr1()
-	return fyne.NewSize(92*s, 24*s)
+	w := float32(92) * s
+	if t.widestText != "" {
+		// label inset + label + gap + track + right inset (see Layout)
+		label := fyne.MeasureText(t.widestText, 10*s, fyne.TextStyle{Bold: true}).Width
+		w = max(w, 10*s+label+8*s+24*s+6*s)
+	}
+	return fyne.NewSize(w, 24*s)
 }
 
 func (t *tailscaleHeaderToggle) CreateRenderer() fyne.WidgetRenderer {
@@ -435,7 +480,11 @@ func (t *tailscaleHeaderToggle) CreateRenderer() fyne.WidgetRenderer {
 	t.border.StrokeColor = design.ColorAccent
 	t.border.StrokeWidth = 1
 
-	t.label = canvas.NewText("Tailscale", design.ColorTextMuted)
+	text := t.text
+	if text == "" {
+		text = "Tailscale"
+	}
+	t.label = canvas.NewText(text, design.ColorTextMuted)
 	t.label.TextSize = 10 * s
 	t.label.TextStyle = fyne.TextStyle{Bold: true}
 	t.label.Alignment = fyne.TextAlignLeading
@@ -478,6 +527,9 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 	t.border.StrokeColor = borderColor
 	t.border.StrokeWidth = 1
 	t.label.Color = labelColor
+	if t.text != "" {
+		t.label.Text = t.text
+	}
 
 	t.track.FillColor = trackColor
 	t.thumb.FillColor = thumbColor
@@ -510,7 +562,7 @@ func (r *tailscaleHeaderToggleRenderer) Layout(size fyne.Size) {
 	s := r.toggle.scaleOr1()
 	labelH := float32(14) * s
 	r.toggle.label.Move(fyne.NewPos(10*s, (size.Height-labelH)/2))
-	r.toggle.label.Resize(fyne.NewSize(55*s, labelH))
+	r.toggle.label.Resize(fyne.NewSize(max(55*s, size.Width-10*s-8*s-24*s-6*s), labelH))
 
 	trackSize := fyne.NewSize(24*s, 14*s)
 	trackX := size.Width - trackSize.Width - 6*s

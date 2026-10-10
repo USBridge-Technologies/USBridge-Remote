@@ -875,6 +875,12 @@ func newScriptsActionsCell(row ScriptTableRow) *scriptsActionsCell {
 }
 
 func (c *scriptsActionsCell) SetActive(running bool, errStr string) {
+	// The status poll calls this for every row every few seconds; an
+	// unchanged row must not refresh (each refresh re-rasterizes its SVG
+	// icons).
+	if c.row.Running == running && c.row.Error == errStr {
+		return
+	}
 	c.row.Running = running
 	c.row.Error = errStr
 	if c.runBtn == nil || c.stopBtn == nil {

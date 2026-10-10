@@ -33,6 +33,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,9 @@ const (
 	deviceCertFile = "device-cert.pem"
 	deviceKeyFile  = "device-key.pem"
 	deviceHostFile = "device-hostname.txt"
+	// deviceDemandFile: unix time a browser last asked for this device's
+	// own name (see NoteDeviceCertDemand), so renewals survive restarts.
+	deviceDemandFile = "device-demand.txt"
 
 	// How long before expiry the device cert is considered due for
 	// a re-fetch -- matches usbridge_service's identical tlsRenewBefore
@@ -98,13 +102,23 @@ type Manager struct {
 	// succeeds.
 	lastCertErr   error
 	lastCertErrAt time.Time
+
+	// Certificates are issued on demand: Let's Encrypt allows 50 per week
+	// for all of usbridge.io, and fetching one at every install's first
+	// start (VMs, machines nobody opens in a browser) used the whole budget
+	// up. registeredHostname is the name the backend points at this machine
+	// (known before any cert); a TLS handshake for it is the demand.
+	registeredHostname string
+	lastDemand         time.Time
+	persistedDemand    time.Time
+	demandC            chan struct{}
 }
 
 // NewManager returns a Manager persisting its certs under dir (created on
 // first write if missing) -- typically filepath.Join(cfg.StateDir,
 // "web-tls").
 func NewManager(dir string) *Manager {
-	return &Manager{dir: dir}
+	return &Manager{dir: dir, demandC: make(chan struct{}, 1)}
 }
 
 // LoadPersisted reads back whatever cert pairs were saved on a previous
@@ -116,6 +130,12 @@ func (m *Manager) LoadPersisted() {
 	defer m.mu.Unlock()
 	if cert, leaf, err := loadCertKeyPairFiles(filepath.Join(m.dir, selfCertFile), filepath.Join(m.dir, selfKeyFile)); err == nil {
 		m.self, m.selfLeaf = cert, leaf
+	}
+	if b, err := os.ReadFile(filepath.Join(m.dir, deviceDemandFile)); err == nil {
+		if secs, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
+			m.lastDemand = time.Unix(secs, 0)
+			m.persistedDemand = m.lastDemand
+		}
 	}
 	if hostnameBytes, err := os.ReadFile(filepath.Join(m.dir, deviceHostFile)); err == nil {
 		hostname := strings.TrimSpace(string(hostnameBytes))
@@ -368,6 +388,9 @@ func (m *Manager) CertStatus() CertStatus {
 func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if hello.ServerName != "" && (hostnamesEqual(hello.ServerName, m.registeredHostname) || hostnamesEqual(hello.ServerName, m.deviceHostname)) {
+		m.noteDemandLocked()
+	}
 	if hello.ServerName != "" && m.device != nil && hostnamesEqual(hello.ServerName, m.deviceHostname) {
 		return m.device, nil
 	}
@@ -376,6 +399,64 @@ func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 	}
 	return nil, fmt.Errorf("tlshost: no certificate available yet")
 }
+
+// SetRegisteredHostname records the name the backend points at this
+// machine (devicecert.RegisterIP), before any cert exists for it.
+func (m *Manager) SetRegisteredHostname(hostname string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.registeredHostname = hostname
+}
+
+// RegisteredHostname is the registered name, else the one the installed
+// cert covers, "" before either.
+func (m *Manager) RegisteredHostname() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.registeredHostname != "" {
+		return m.registeredHostname
+	}
+	return m.deviceHostname
+}
+
+// NoteDeviceCertDemand records that the device cert is wanted now (a
+// browser reached the device's name, or the user pressed retry) and wakes
+// DemandC.
+func (m *Manager) NoteDeviceCertDemand() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.noteDemandLocked()
+}
+
+// noteDemandLocked: callers hold m.mu. Runs inside TLS handshakes, so the
+// file write is rare (hourly) and off the handshake.
+func (m *Manager) noteDemandLocked() {
+	now := time.Now()
+	m.lastDemand = now
+	if now.Sub(m.persistedDemand) >= time.Hour {
+		m.persistedDemand = now
+		dir, stamp := m.dir, strconv.FormatInt(now.Unix(), 10)
+		go func() {
+			if err := os.MkdirAll(dir, 0700); err == nil {
+				_ = os.WriteFile(filepath.Join(dir, deviceDemandFile), []byte(stamp), 0644)
+			}
+		}()
+	}
+	select {
+	case m.demandC <- struct{}{}:
+	default:
+	}
+}
+
+// DeviceCertDemanded reports whether demand was noted within the window.
+func (m *Manager) DeviceCertDemanded(within time.Duration) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !m.lastDemand.IsZero() && time.Since(m.lastDemand) <= within
+}
+
+// DemandC fires (coalesced) when demand is noted.
+func (m *Manager) DemandC() <-chan struct{} { return m.demandC }
 
 func hostnamesEqual(a, b string) bool {
 	norm := func(s string) string { return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), ".") }
