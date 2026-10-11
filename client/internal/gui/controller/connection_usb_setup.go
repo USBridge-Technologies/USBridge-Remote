@@ -52,11 +52,9 @@ func (e usbSetupClaimedError) Error() string { return "already set up" }
 // there yet. Right after a KVM powers on or reboots (an update) its USB
 // network adapter and the setup server come up a few seconds apart: the
 // first asks are refused or unanswered, and giving up at once made it look
-// as if it took several tries. On a Windows before 11 the KVM waits ~25 s for
-// the PC to ask for an address before it swaps NCM for RNDIS, and the new
-// adapter takes a few more to come up: hence the long window.
+// as if it took several tries.
 const (
-	usbSetupRetryFor   = 40 * time.Second
+	usbSetupRetryFor   = 25 * time.Second
 	usbSetupRetryEvery = 1500 * time.Millisecond
 )
 
