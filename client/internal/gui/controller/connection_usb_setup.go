@@ -56,7 +56,7 @@ func (e usbSetupClaimedError) Error() string { return "already set up" }
 // the PC to ask for an address before it swaps NCM for RNDIS, and the new
 // adapter takes a few more to come up: hence the long window.
 const (
-	usbSetupRetryFor   = 75 * time.Second
+	usbSetupRetryFor   = 40 * time.Second
 	usbSetupRetryEvery = 1500 * time.Millisecond
 )
 
