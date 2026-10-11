@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"usbridge-client/internal/analytics"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
@@ -53,12 +54,16 @@ type connectionDialogSpec struct {
 	feedbackColor          color.Color
 	onConnect              func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool
 	onSave                 func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool
+	// analyticsSource, when non-nil, is how this new device was added.
+	// Over USB and a pasted link update it before Save runs. Edit dialogs
+	// leave it nil.
+	analyticsSource *string
 	// onSetupAddressSaved: "Over USB" saved a connection whose host is the
 	// USB setup address (the KVM had no Ethernet address yet); the manager
 	// swaps it for the Ethernet one when that comes up.
 	onSetupAddressSaved func(setupHost, masterKey string)
-	onDelete               func(close func())
-	onQR                   func()
+	onDelete            func(close func())
+	onQR                func()
 	// startWithPasteLink opens the dialog with the inline paste-link view
 	// already showing instead of the Name/LAN/TS/Token fields -- the "+"
 	// placeholder card's own Paste Link button jumps straight here instead
@@ -1446,6 +1451,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			lanEntry.SetText(ih)
 			tsEntry.SetText(th)
 			tokenEntry.SetText(mk)
+			if spec.analyticsSource != nil {
+				*spec.analyticsSource = analytics.SourceLink
+			}
 			showNormalFields()
 		}, showNormalFields)
 		onPasteText(func() {
@@ -1525,6 +1533,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 							// the dialog can't lose the key.
 							if strings.TrimSpace(nameEntry.Text) == "" {
 								nameEntry.SetText("USBridge KVM")
+							}
+							if spec.analyticsSource != nil {
+								*spec.analyticsSource = analytics.SourceUSB
 							}
 							if spec.onSave != nil && spec.onSave(nameEntry.Text, lanEntry.Text, tsEntry.Text, tokenEntry.Text, registerCheck.Checked) {
 								logrus.Infof("Over USB: saved the connection %q", nameEntry.Text)
@@ -1979,6 +1990,13 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 
 	logrus.Infof("Opening add connection dialog: internal=%s tailscale=%s scanned=%v", internalHost, tailscaleHost, scanned)
 
+	source := analytics.SourceManual
+	if scanned {
+		source = analytics.SourceQR
+	} else if startWithPasteLink {
+		source = analytics.SourceLink
+	}
+
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
 		title:                  i18n.Current.AddConnectionTitle,
 		subtitle:               i18n.Current.AddConnectionSubtitle,
@@ -2030,7 +2048,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			}
 			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
-			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, selectedProtocol, "", tailscaleRegister)
+			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, selectedProtocol, "", tailscaleRegister, source)
 			fyne.Do(func() {
 				cm.applyConnectionToForm(host, masterKey, selectedProtocol)
 				cm.refreshConnectionsList()
@@ -2039,6 +2057,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		},
 		onQR:                cm.handleQRScan,
 		onSetupAddressSaved: cm.followEthernetAddress,
+		analyticsSource:     &source,
 	})
 }
 

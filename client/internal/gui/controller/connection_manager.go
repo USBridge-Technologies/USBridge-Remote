@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"usbridge-client/internal/analytics"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
@@ -287,7 +288,7 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 			logrus.Infof("QR connect: host=%s", host)
 		},
 		func(name, internalHost, tailscaleHost, masterKey, protocol, hwID string, tailscaleRegister bool) {
-			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol, hwID, tailscaleRegister)
+			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol, hwID, tailscaleRegister, analytics.SourceQR)
 			fyne.Do(func() {
 				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), masterKey, protocol)
 			})

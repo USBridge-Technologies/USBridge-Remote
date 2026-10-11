@@ -188,11 +188,12 @@ type MainWindow struct {
 	scriptsWidget *controller.ScriptsTabWidget
 
 	// Address bar
-	hostEntry           *widget.Entry
-	tokenEntry          *widget.Entry
-	sdStorageProgress   *view.StorageProgressBar
-	deepLinkHandler     *DeepLinkHandler
-	deepLinkMonitorStop chan struct{}
+	hostEntry             *widget.Entry
+	tokenEntry            *widget.Entry
+	sdStorageProgress     *view.StorageProgressBar
+	mobileSnapshotStorage *view.MobileSnapshotStorage
+	deepLinkHandler       *DeepLinkHandler
+	deepLinkMonitorStop   chan struct{}
 
 	lifecycleMu  sync.Mutex
 	lifecycleOps chan func()
@@ -379,6 +380,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.diskWidget.SetMoonlightProvider(mw.videoWidget.GetMoonlightInput)
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
 	mw.backupWidget.SetWindow(w)
+	mw.backupWidget.SetMobileStorageChip(mw.mobileSnapshotStorage)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(w)
 	mw.scriptsWidget = controller.NewScriptsTabWidget(w)
 

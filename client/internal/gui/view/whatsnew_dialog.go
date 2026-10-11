@@ -502,7 +502,10 @@ func newWhatsNewLinkRow(kind whatsNewKind, pt whatsNewPoint, rowW float32) fyne.
 	}
 	icon := newWhatsNewIconTile(whatsNewGlyphResource(pt.Glyph, chrome.Accent), chrome, whatsNewIconSize, whatsNewIconGlyph)
 	title := NewBrandText(strings.TrimSpace(pt.Title.String()), 12, design.ColorTextLight, true)
-	textW := rowW - whatsNewRowPad*2 - whatsNewIconSize - whatsNewIconGap - btn.MinSize().Width - 12
+	textW := rowW - whatsNewRowPad*2 - whatsNewIconSize - whatsNewIconGap
+	if !IsMobile() {
+		textW -= btn.MinSize().Width + 12
+	}
 	if textW < 80 {
 		textW = 80
 	}
@@ -530,9 +533,29 @@ func (l *whatsNewLinkLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	btnSize := btn.MinSize()
 	icon.Resize(iconSize)
 	btn.Resize(btnSize)
+	textX := iconSize.Width + whatsNewIconGap
+	if IsMobile() {
+		icon.Move(fyne.NewPos(0, 0))
+		textW := size.Width - textX
+		if textW < 0 {
+			textW = 0
+		}
+		textH := text.MinSize().Height
+		text.Resize(fyne.NewSize(textW, textH))
+		text.Move(fyne.NewPos(textX, 0))
+		topH := iconSize.Height
+		if textH > topH {
+			topH = textH
+		}
+		btnX := (size.Width - btnSize.Width) / 2
+		if btnX < 0 {
+			btnX = 0
+		}
+		btn.Move(fyne.NewPos(btnX, topH+8))
+		return
+	}
 	icon.Move(fyne.NewPos(0, (size.Height-iconSize.Height)/2))
 	btn.Move(fyne.NewPos(size.Width-btnSize.Width, (size.Height-btnSize.Height)/2))
-	textX := iconSize.Width + whatsNewIconGap
 	textW := size.Width - textX - btnSize.Width - 12
 	if textW < 0 {
 		textW = 0
@@ -549,6 +572,17 @@ func (l *whatsNewLinkLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	icon := objects[0].MinSize()
 	text := objects[1].MinSize()
 	btn := objects[2].MinSize()
+	if IsMobile() {
+		topH := icon.Height
+		if text.Height > topH {
+			topH = text.Height
+		}
+		w := icon.Width + whatsNewIconGap + text.Width
+		if btn.Width > w {
+			w = btn.Width
+		}
+		return fyne.NewSize(w, topH+8+btn.Height)
+	}
 	h := icon.Height
 	if text.Height > h {
 		h = text.Height

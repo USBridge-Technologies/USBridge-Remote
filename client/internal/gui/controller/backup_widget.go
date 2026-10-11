@@ -40,6 +40,7 @@ type BackupWidget struct {
 	firmwareBanner         *view.FirmwarePromoBanner
 	firmwareChip           *view.FooterHardwareChip
 	firmwarePromoDismissed bool
+	mobileStorageChip      fyne.CanvasObject
 }
 
 // NewBackupWidget creates a new backup widget
@@ -74,6 +75,18 @@ func (bw *BackupWidget) Shutdown() {
 			close(bw.refreshStop)
 		}
 	})
+}
+
+// SetMobileStorageChip is the memory plaque shown above the snapshot list
+// on a phone while a KVM is connected. Desktop leaves it unset.
+func (bw *BackupWidget) SetMobileStorageChip(chip fyne.CanvasObject) {
+	if bw == nil {
+		return
+	}
+	bw.mobileStorageChip = chip
+	if bw.ui != nil {
+		bw.ui.SetSection(view.NewSnapshotsSection(bw.snapshotsSectionData()))
+	}
 }
 
 // SetWindow sets the window for dialogs

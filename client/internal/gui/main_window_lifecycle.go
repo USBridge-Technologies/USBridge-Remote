@@ -331,6 +331,7 @@ func (mw *MainWindow) reloadUI() {
 	mw.wireMobileKeyboardStackCallbacks()
 	mw.wireMobileViewportPanCallbacks()
 	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, mw.hostEntry, mw.updateStatus)
+	mw.backupWidget.SetMobileStorageChip(mw.mobileSnapshotStorage)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
 	mw.scriptsWidget = controller.NewScriptsTabWidget(mw.window)
 

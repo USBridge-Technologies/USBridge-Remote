@@ -59,6 +59,9 @@ func (bw *BackupWidget) snapshotsSectionData() view.SnapshotsSectionData {
 		FlashMounted:  bw.currentFlashConnected,
 		OnMount:       bw.currentFlashAction(),
 	}
+	if view.IsMobile() {
+		data.Storage = bw.mobileStorageChip
+	}
 	if bw.currentFlashConnected {
 		data.MountLabel = i18n.Current.DisconnectButton
 		data.MountEnabled = !mounting

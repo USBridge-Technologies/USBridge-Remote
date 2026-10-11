@@ -58,6 +58,9 @@ type SnapshotsSectionData struct {
 	// Banner, when set, sits under the header -- the same USBridge
 	// Firmware strip Connections uses, shown on a software agent.
 	Banner fyne.CanvasObject
+	// Storage is the mobile memory plaque drawn above the snapshot list
+	// while a KVM is connected. Nil on desktop and on a software agent.
+	Storage fyne.CanvasObject
 }
 
 // NewSnapshotsSection builds the Snapshots tab: connections-style header

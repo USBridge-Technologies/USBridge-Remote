@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"usbridge-client/internal/analytics"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
 
@@ -18,7 +19,7 @@ import (
 // masterKey — API master secret (from device QR code).
 // hwID — the agent's hw_id if the QR/deep link carried one (see
 // SavedConnection.HwID's doc comment); "" for a manual entry.
-func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol, hwID string, tailscaleRegister bool) string {
+func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol, hwID string, tailscaleRegister bool, source string) string {
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
 	if internalHost == "" && tailscaleHost == "" {
@@ -64,6 +65,7 @@ func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, m
 	fyne.Do(func() {
 		cm.refreshConnectionsList()
 	})
+	analytics.AddConnection(source, conn.Protocol)
 	return name
 }
 
@@ -126,7 +128,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	// the reasons above, an auto-selected Tailscale protocol isn't safe to
 	// assume works, especially in the browser build.
 	logrus.Warnf("⚠️ [TS] No matching connection found for currentHost=%q; saving as NEW connection", currentHost)
-	name := cm.SaveConnection("", internalHost, tailscaleHost, masterKey, models.ConnectionProtocolAuto, "", false)
+	name := cm.SaveConnection("", internalHost, tailscaleHost, masterKey, models.ConnectionProtocolAuto, "", false, "")
 	logrus.Infof("Saved new connection %q with resolved tailscale host=%s", name, tailscaleHost)
 }
 

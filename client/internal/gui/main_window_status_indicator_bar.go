@@ -213,14 +213,40 @@ func (r *statusBarTextButtonRenderer) Objects() []fyne.CanvasObject {
 
 func (r *statusBarTextButtonRenderer) Destroy() {}
 
-// syncStorageChipVisibility shows/hides mw.sdStorageProgress and the
-// divider right before it together -- callers that used to just call
-// mw.sdStorageProgress.Show()/Hide() directly (main_window_layout.go) now
-// go through this instead, so the divider never gets left dangling when
-// there's no SD card to show (e.g. an agent connection with none).
+func (mw *MainWindow) applyStorageChip(icon fyne.Resource, usedPct float64, sizeText string) {
+	if mw.sdStorageProgress != nil {
+		mw.sdStorageProgress.SetIcon(icon)
+		mw.sdStorageProgress.SetValue(usedPct)
+		mw.sdStorageProgress.SetSizeText(sizeText)
+	}
+	if mw.mobileSnapshotStorage != nil {
+		mw.mobileSnapshotStorage.SetIcon(icon)
+		mw.mobileSnapshotStorage.SetValue(usedPct)
+		mw.mobileSnapshotStorage.SetSizeText(sizeText)
+	}
+	mw.syncStorageChipVisibility(true)
+}
+
 func (mw *MainWindow) syncStorageChipVisibility(visible bool) {
 	if mw.sdStorageProgress == nil {
 		return
+	}
+	if useMobileControl() {
+		mw.sdStorageProgress.Hide()
+		if mw.statusBarStorageDivider != nil {
+			mw.statusBarStorageDivider.Hide()
+		}
+		if mw.mobileSnapshotStorage != nil {
+			if visible {
+				mw.mobileSnapshotStorage.Show()
+			} else {
+				mw.mobileSnapshotStorage.Hide()
+			}
+		}
+		return
+	}
+	if mw.mobileSnapshotStorage != nil {
+		mw.mobileSnapshotStorage.Hide()
 	}
 	if visible {
 		mw.sdStorageProgress.Show()
@@ -278,11 +304,6 @@ func (mw *MainWindow) syncStatusIndicatorBarVisibility() {
 		return
 	}
 	show := mw.videoStatusGroup != nil && hasVisibleContent(mw.videoStatusGroup)
-	if useMobileControl() {
-		show = show ||
-			(mw.statusPanel != nil && hasVisibleContent(mw.statusPanel)) ||
-			(mw.sdStorageProgress != nil && mw.sdStorageProgress.Visible())
-	}
 	if show {
 		mw.statusIndicatorBar.Show()
 	} else {
@@ -395,18 +416,10 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.statusBarStorageDivider = newStatusBarDivider()
 	mw.statusBarStorageDivider.Hide()
 
-	contentParts := []fyne.CanvasObject{mw.videoStatusGroup}
-	if useMobileControl() {
-		peripheralsSized := container.NewThemeOverride(mw.statusPanel, &statusBarPeripheralTheme{Theme: design.NewBrandTheme()})
-		contentParts = append(contentParts,
-			mw.statusBarPeripheralsDivider,
-			peripheralsSized,
-			mw.statusBarStorageDivider,
-			mw.sdStorageProgress,
-		)
-	}
-
-	content := container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4}, contentParts...)
+	// Phone Control header is only the video settings icon, FPS, and
+	// resolution. Storage is on the Snapshots tab; audio and the other
+	// device icons stay off this strip. Desktop keeps those in the footer.
+	content := container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4}, mw.videoStatusGroup)
 
 	bg := canvas.NewRectangle(design.ColorStatusBarFill)
 	bg.StrokeColor = design.ColorStatusBarBorder

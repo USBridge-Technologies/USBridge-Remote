@@ -127,6 +127,9 @@ func (mw *MainWindow) createInterface() {
 
 	mw.sdStorageProgress = view.NewStorageProgressBar()
 	mw.sdStorageProgress.SetOnTapped(mw.showStorageInfoDialog)
+	mw.mobileSnapshotStorage = view.NewMobileSnapshotStorage()
+	mw.mobileSnapshotStorage.SetOnTapped(mw.showStorageInfoDialog)
+	mw.mobileSnapshotStorage.Hide()
 	mw.syncStorageChipVisibility(false)
 
 	if mw.backupWidget != nil {
@@ -202,6 +205,9 @@ func (mw *MainWindow) recreateContainers() {
 			}
 			if total <= 0 {
 				mw.syncStorageChipVisibility(false)
+				if useMobileControl() {
+					mw.refreshMainHeaderLayout()
+				}
 				return
 			}
 			mw.currentStorageTotal = total
@@ -217,14 +223,11 @@ func (mw *MainWindow) recreateContainers() {
 			if mw.currentStorageDir == "/mnt/sdcard/iso" {
 				icon = assets.SDCardIcon
 			}
-			mw.sdStorageProgress.SetIcon(icon)
-			mw.sdStorageProgress.SetValue(usedPct)
 			used := total - available
 			if used < 0 {
 				used = 0
 			}
-			mw.sdStorageProgress.SetSizeText(models.FormatStorageSizeOnly(used, total))
-			mw.syncStorageChipVisibility(true)
+			mw.applyStorageChip(icon, usedPct, models.FormatStorageSizeOnly(used, total))
 			mw.refreshMainHeaderLayout()
 		})
 	}
@@ -1443,8 +1446,9 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.scriptIcon.Hide()
 
 	if useMobileControl() {
-		// Mobile keeps peripherals in the header strip (22px). Desktop
-		// parents the same widgets from buildDesktopControlFooterActions.
+		// Built so the same icons still update, but the phone Control
+		// header does not show this strip. Desktop parents these widgets
+		// from buildDesktopControlFooterActions.
 		mw.statusBarButtonsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
 			container.NewGridWrap(statusBarIconBoxSize, mw.audioIcon),
 			container.NewGridWrap(statusBarIconBoxSize, mw.rndisIcon),
@@ -1695,16 +1699,11 @@ func (mw *MainWindow) pollStatusBar() {
 					used := display.Used
 					usedPct := display.Percent / 100 // view.ProgressBar expects 0..1
 
-					if mw.sdStorageProgress != nil {
-						sizeText := models.FormatStorageSizeOnly(used, display.Total)
-						if chip := fmt.Sprintf("%.3f|%s", usedPct, sizeText); chip != mw.lastStorageChip {
-							mw.lastStorageChip = chip
-							mw.sdStorageProgress.SetIcon(assets.SDCardIcon)
-							mw.sdStorageProgress.SetValue(usedPct)
-							mw.sdStorageProgress.SetSizeText(sizeText)
-							mw.syncStorageChipVisibility(true)
-							mw.refreshMainHeaderLayout()
-						}
+					sizeText := models.FormatStorageSizeOnly(used, display.Total)
+					if chip := fmt.Sprintf("%.3f|%s", usedPct, sizeText); chip != mw.lastStorageChip {
+						mw.lastStorageChip = chip
+						mw.applyStorageChip(assets.SDCardIcon, usedPct, sizeText)
+						mw.refreshMainHeaderLayout()
 					}
 				}
 			})
@@ -1861,12 +1860,8 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 		}
 		if mw.audioIcon != nil {
-			if audioStreaming {
-				if useMobileControl() {
-					mw.audioIcon.SetIcon(assets.AudioIconStatusBar)
-				} else {
-					mw.audioIcon.SetIcon(assets.AudioIcon)
-				}
+			if audioStreaming && !useMobileControl() {
+				mw.audioIcon.SetIcon(assets.AudioIcon)
 				mw.audioIcon.Show()
 			} else {
 				mw.audioIcon.SetIcon(assets.AudioIcon)
@@ -1941,6 +1936,9 @@ func (mw *MainWindow) refreshMainHeaderLayout() {
 	}
 	if mw.sdStorageProgress != nil {
 		mw.sdStorageProgress.Refresh()
+	}
+	if mw.mobileSnapshotStorage != nil {
+		mw.mobileSnapshotStorage.Refresh()
 	}
 	if mw.statusPanel != nil {
 		mw.statusPanel.Refresh()

@@ -9,6 +9,8 @@ import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import com.google.android.play.core.review.ReviewManagerFactory
+import com.google.firebase.analytics.FirebaseAnalytics
 import android.provider.MediaStore
 import android.util.Log
 import android.os.SystemClock
@@ -214,6 +216,35 @@ class MainActivity : GoNativeActivity() {
 
         clipboardManager.addPrimaryClipChangedListener { clipChangeCount++ }
         setupSystemBack()
+    }
+
+    private var reviewProbeStarted = false
+
+    override fun onResume() {
+        super.onResume()
+        // Temporary probe: fire the Play review flow once per process so we
+        // can see the call work. The real trigger (when, how often) is not
+        // decided yet.
+        if (!reviewProbeStarted) {
+            reviewProbeStarted = true
+            window.decorView.post { requestInAppReview() }
+        }
+    }
+
+    private fun requestInAppReview() {
+        val manager = ReviewManagerFactory.create(this)
+        Log.i(TAG, "in-app review: requesting flow")
+        manager.requestReviewFlow().addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                Log.w(TAG, "in-app review: request failed", task.exception)
+                return@addOnCompleteListener
+            }
+            Log.i(TAG, "in-app review: launching flow")
+            manager.launchReviewFlow(this@MainActivity, task.result).addOnCompleteListener {
+                // Play does not say whether the user rated or the sheet was skipped.
+                Log.i(TAG, "in-app review: flow finished")
+            }
+        }
     }
 
     // Gesture-nav Back on API 33+ never reaches onBackPressed; without this
@@ -1144,6 +1175,19 @@ class MainActivity : GoNativeActivity() {
     fun clipboardReadMime(): String = clipReadMime
     fun clipboardReadFileName(): String = clipReadName
     fun clipboardReadFd(): Int = clipReadFd
+
+    // Called from Go. Empty keys are skipped. A failure here must not
+    // affect the save or the connection that triggered the event.
+    fun logAnalyticsEvent(name: String, key1: String, value1: String, key2: String, value2: String) {
+        try {
+            val bundle = Bundle()
+            if (key1.isNotEmpty()) bundle.putString(key1, value1)
+            if (key2.isNotEmpty()) bundle.putString(key2, value2)
+            FirebaseAnalytics.getInstance(this).logEvent(name, bundle)
+        } catch (t: Throwable) {
+            Log.w(TAG, "analytics event failed", t)
+        }
+    }
 
     fun clipboardSetText(text: String): Boolean {
         return try {

@@ -23,6 +23,9 @@ func newMobileSnapshotsSection(data SnapshotsSectionData) fyne.CanvasObject {
 		body = canvas.NewRectangle(color.Transparent)
 	} else {
 		body = newMobileSnapshotsList(data.Rows)
+		if data.Storage != nil {
+			body = container.New(&tightStatsVBoxLayout{Gap: 10}, data.Storage, body)
+		}
 	}
 	padded := NewInsetExact(body, connectionsMobileSideMargin, connectionsMobileSideMargin, 8, 12)
 	scroll := container.NewVScroll(container.New(&snapshotsBodyTopLayout{}, NewMobileFillWidth(padded)))

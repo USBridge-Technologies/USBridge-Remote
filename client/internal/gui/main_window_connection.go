@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"usbridge-client/internal/analytics"
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/controller"
@@ -77,7 +78,7 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, 
 	})
 
 	if mw.connectionManager != nil {
-		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol, hwID, tailscaleRegister)
+		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol, hwID, tailscaleRegister, analytics.SourceLink)
 		logrus.Infof("✅ Connection '%s' saved", generatedName)
 		fyne.Do(func() {
 			logrus.Infof("💾 Saved as: %s", generatedName)
@@ -603,7 +604,9 @@ func (mw *MainWindow) handleConnect(userCtx context.Context, gen uint64) {
 	}
 	if err != nil {
 		mw.handleConnectFailure("Connection failed", err)
+		return
 	}
+	analytics.ConnectionStarted(mw.connectedProtocol)
 }
 
 // testConnectionWithRetry wraps TestConnectionWithContext with retry logic for

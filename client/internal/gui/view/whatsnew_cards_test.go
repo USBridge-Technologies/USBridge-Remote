@@ -213,3 +213,38 @@ func TestWhatsNewDialogMetricsMobileFitsPhone(t *testing.T) {
 		t.Fatalf("scrollMax=%v", scrollMax)
 	}
 }
+
+func TestWhatsNewLinkLayoutMobilePutsButtonUnderText(t *testing.T) {
+	a := test.NewApp()
+	t.Cleanup(a.Quit)
+	prev := ForceMobileDesign
+	ForceMobileDesign = true
+	t.Cleanup(func() { ForceMobileDesign = prev })
+
+	icon := canvas.NewRectangle(color.White)
+	icon.SetMinSize(fyne.NewSize(24, 24))
+	text := canvas.NewText("Firmware", color.White)
+	btn := canvas.NewRectangle(color.White)
+	btn.SetMinSize(fyne.NewSize(160, 24))
+	objects := []fyne.CanvasObject{icon, text, btn}
+	layout := &whatsNewLinkLayout{}
+
+	min := layout.MinSize(objects)
+	beside := icon.MinSize().Width + whatsNewIconGap + text.MinSize().Width + 12 + btn.MinSize().Width
+	if min.Width >= beside-1 {
+		t.Fatalf("mobile width %v still keeps the button beside the text (%v)", min.Width, beside)
+	}
+	if min.Height < text.MinSize().Height+8+btn.MinSize().Height-1 {
+		t.Fatalf("mobile height %v should stack the button under the text", min.Height)
+	}
+
+	const rowW float32 = 280
+	layout.Layout(objects, fyne.NewSize(rowW, min.Height))
+	if btn.Position().Y < text.Position().Y+text.Size().Height-1 {
+		t.Fatalf("button y=%v, text bottom=%v", btn.Position().Y, text.Position().Y+text.Size().Height)
+	}
+	wantX := (rowW - btn.Size().Width) / 2
+	if btn.Position().X < wantX-1 || btn.Position().X > wantX+1 {
+		t.Fatalf("button x=%v want %v", btn.Position().X, wantX)
+	}
+}
