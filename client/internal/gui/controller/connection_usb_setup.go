@@ -14,7 +14,8 @@ import (
 )
 
 // A USBridge KVM that hasn't been set up yet is reachable over its USB
-// cable: it's 10.55.0.1 on a USB network adapter (NCM) it adds to this PC,
+// cable: it's 10.55.0.1 on a USB network adapter (NCM; RNDIS on a Windows
+// before 11, which the KVM falls back to by itself) it adds to this PC,
 // and hands its master key to the first one asking within 30 minutes of
 // powering on (usbridge's modules/setupnet). This is the client's side of
 // that: "Over USB" in the Add Connection dialog.
@@ -51,9 +52,11 @@ func (e usbSetupClaimedError) Error() string { return "already set up" }
 // there yet. Right after a KVM powers on or reboots (an update) its USB
 // network adapter and the setup server come up a few seconds apart: the
 // first asks are refused or unanswered, and giving up at once made it look
-// as if it took several tries.
+// as if it took several tries. On a Windows before 11 the KVM waits ~25 s for
+// the PC to ask for an address before it swaps NCM for RNDIS, and the new
+// adapter takes a few more to come up: hence the long window.
 const (
-	usbSetupRetryFor   = 25 * time.Second
+	usbSetupRetryFor   = 75 * time.Second
 	usbSetupRetryEvery = 1500 * time.Millisecond
 )
 
