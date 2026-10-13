@@ -867,7 +867,7 @@ func goAIVisionShouldSample() C.int {
 	// A pending live-frame request (see internal/api/live_frame.go) needs
 	// this frame regardless of the checkbox/pacing below -- it's a
 	// one-shot, independent consumer of the same sample.
-	if usbapi.LiveFrameWanted() {
+	if usbapi.LiveFrameWanted() || usbapi.LiveLumaWanted() || usbapi.LiveRGBAWanted() {
 		return 1
 	}
 	if !aiVisionEnabled.Load() {

@@ -213,13 +213,27 @@ func tryLocalUIParse(client *USBClient, reqBody []byte) (respBody []byte, handle
 	// entirely, neither of which should be treated as an error.
 	_ = json.Unmarshal(call.Arguments, &args)
 
+	// Preferred: the live video frame as raw pixels -- no PNG encode of it
+	// here and no PNG decode of it inside the parser.
+	var markedPNG []byte
+	var result *localui.Result
+	if frame, ok := RequestLiveRGBA(liveFrameWaitTimeout); ok {
+		if args.Text {
+			markedPNG, result, err = parser.ParseRGBA(frame)
+		} else {
+			markedPNG, result, err = parser.ParseIconsOnlyMarkedRGBA(frame)
+		}
+		if err != nil {
+			return nil, true, fmt.Errorf("local ui.parse: %w", err)
+		}
+		return localParseResponse(env, markedPNG, result)
+	}
+
 	imgBytes, err := screenImageForLocalParse(client)
 	if err != nil {
 		return nil, true, fmt.Errorf("local ui.parse: fetch screen.get_image from device: %w", err)
 	}
 
-	var markedPNG []byte
-	var result *localui.Result
 	if args.Text {
 		markedPNG, result, err = parser.Parse(imgBytes)
 	} else {
@@ -234,6 +248,12 @@ func tryLocalUIParse(client *USBClient, reqBody []byte) (respBody []byte, handle
 	if err != nil {
 		return nil, true, fmt.Errorf("local ui.parse: %w", err)
 	}
+	return localParseResponse(env, markedPNG, result)
+}
+
+// localParseResponse builds the ui.parse tools/call reply (annotated image +
+// JSON result) shared by the raw-pixel and PNG input paths.
+func localParseResponse(env mcpEnvelope, markedPNG []byte, result *localui.Result) ([]byte, bool, error) {
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return nil, true, fmt.Errorf("local ui.parse: marshal result: %w", err)

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"usbridge-client/internal/localui"
 	"usbridge-client/internal/models"
@@ -44,6 +45,12 @@ func InitLocalUIParseFromConfig(cfg *models.AppConfig) {
 			modelDir = localUIDefaultModelDir()
 		}
 		ortLib := cfg.LocalUIParseORTLib
+		if ortLib == "" {
+			libName := localui.DefaultRuntimeLibName()
+			if p := cudaRuntimeLib(libName); p != "" {
+				ortLib = p
+			}
+		}
 		if ortLib == "" {
 			libName := localui.DefaultRuntimeLibName()
 			ortLib = resolveLocalUIPath(
@@ -148,4 +155,28 @@ func resolveLocalUIPath(bundleRel, flatRel, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// cudaRuntimeLib returns ~/.usbridge/localui/runtime-cuda/<libName> when the
+// CUDA pack is installed (scripts/fetch_onnxruntime_cuda.sh) and an NVIDIA
+// driver is loaded on this machine, "" otherwise. Linux only: the pack is an
+// onnxruntime-gpu build plus CUDA/cuDNN libs, and its CUDA EP is what makes
+// dbnet/svtr run on NVIDIA -- the OpenVINO GPU plugin in the default runtime
+// is Intel-only.
+func cudaRuntimeLib(libName string) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	if _, err := os.Stat("/proc/driver/nvidia/version"); err != nil {
+		return ""
+	}
+	dir := defaultLocalUIDir("runtime-cuda")
+	lib := filepath.Join(dir, libName)
+	if _, err := os.Stat(lib); err != nil {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(dir, "libonnxruntime_providers_cuda.so")); err != nil {
+		return ""
+	}
+	return lib
 }

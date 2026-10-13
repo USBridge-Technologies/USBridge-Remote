@@ -27,11 +27,12 @@ var (
 // basicfont instead of gocv's OpenCV-backed drawing primitives.
 func drawResult(src *rgbImage, result *Result) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, src.W, src.H))
-	for y := 0; y < src.H; y++ {
-		for x := 0; x < src.W; x++ {
-			off := (y*src.W + x) * 3
-			img.SetRGBA(x, y, color.RGBA{R: src.Pix[off], G: src.Pix[off+1], B: src.Pix[off+2], A: 255})
-		}
+	n := src.W * src.H
+	for i := 0; i < n; i++ {
+		img.Pix[i*4] = src.Pix[i*3]
+		img.Pix[i*4+1] = src.Pix[i*3+1]
+		img.Pix[i*4+2] = src.Pix[i*3+2]
+		img.Pix[i*4+3] = 255
 	}
 
 	for _, icon := range result.Icons {
@@ -44,7 +45,10 @@ func drawResult(src *rgbImage, result *Result) []byte {
 	}
 
 	var buf bytes.Buffer
-	png.Encode(&buf, img)
+	// BestSpeed: lossless like the default, several times faster on a
+	// full-resolution frame (this encode was ~0.7s of an icon-only ui.parse).
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	enc.Encode(&buf, img)
 	return buf.Bytes()
 }
 

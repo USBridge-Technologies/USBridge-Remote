@@ -626,6 +626,7 @@ func New() (*App, error) {
 		instance.stream = streamhost.NewDefault(instance.exeDir, cfg.StateDir, instance.logPath)
 	}
 	instance.screen = capture.New(instance.stream)
+	instance.wireStreamedBounds()
 	instance.syncSunshineCaptureMode()
 	instance.removeLegacyKMSGrants()
 	instance.syncSunshineCapExec()

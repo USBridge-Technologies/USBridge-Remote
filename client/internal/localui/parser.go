@@ -288,6 +288,29 @@ func (p *Parser) ParseIconsOnlyMarked(imgBytes []byte) (markedPNG []byte, result
 	return markedPNG, result, nil
 }
 
+// ParseRGBA is Parse for a frame that is already decoded pixels (the live
+// video frame), skipping the PNG encode+decode round trip.
+func (p *Parser) ParseRGBA(img *image.RGBA) (markedPNG []byte, result *Result, err error) {
+	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		return nil, nil, fmt.Errorf("empty image")
+	}
+	return p.parseRGB(rgbFromRGBA(img), true, nil, nil, nil)
+}
+
+// ParseIconsOnlyMarkedRGBA is ParseIconsOnlyMarked for already-decoded pixels.
+func (p *Parser) ParseIconsOnlyMarkedRGBA(img *image.RGBA) (markedPNG []byte, result *Result, err error) {
+	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		return nil, nil, fmt.Errorf("empty image")
+	}
+	original := rgbFromRGBA(img)
+	icons, err := p.parseIconsOnlyRGB(original)
+	if err != nil {
+		return nil, nil, err
+	}
+	result = &Result{Icons: icons, ImageWidth: original.W, ImageHeight: original.H, Backend: backendLabel(p.accel)}
+	return drawResult(original, result), result, nil
+}
+
 func (p *Parser) ParseIconsOnlyRGBA(img *image.RGBA) (icons []Icon, err error) {
 	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
 		return nil, fmt.Errorf("empty image")
@@ -550,6 +573,13 @@ func (p *Parser) batchRecognizeSVTR(original *rgbImage, textBoxes []Box) []TextR
 		conf float64
 	}
 	parts := make(map[int][]partial, len(textBoxes))
+	failedBatches := 0
+	var lastErr error
+	defer func() {
+		if failedBatches > 0 {
+			fmt.Fprintf(os.Stderr, "localui: svtr: %d OCR batch(es) failed, text may be incomplete: %v\n", failedBatches, lastErr)
+		}
+	}()
 
 	for start := 0; start < len(jobs); start += svtrBatchSize {
 		end := start + svtrBatchSize
@@ -571,7 +601,11 @@ func (p *Parser) batchRecognizeSVTR(original *rgbImage, textBoxes []Box) []TextR
 
 		out, err := p.svtr.run(buf, len(batch), 3, svtrHeight, svtrWidth)
 		if err != nil {
-			continue // this batch's crops just contribute no text, rest of Parse still succeeds
+			// Never silent: a batch that fails used to just vanish and a
+			// whole OCR pass could report "0 texts" as if the screen had none.
+			failedBatches++
+			lastErr = err
+			continue
 		}
 		for i, j := range batch {
 			if !valid[i] {

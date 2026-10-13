@@ -17,3 +17,6 @@ func MoveProcessWindows(pid int, m Monitor) error { return ErrUnsupported }
 
 // GDINames is Windows-only.
 func GDINames() []string { return nil }
+
+// WithPhysicalDPI is Windows-only; elsewhere it just runs f.
+func WithPhysicalDPI(f func()) { f() }

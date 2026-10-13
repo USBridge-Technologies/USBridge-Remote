@@ -51,13 +51,49 @@ func tryLocalMouseClickDiff(client *USBClient, reqBody []byte) (respBody []byte,
 		return nil, false, nil
 	}
 	var args struct {
-		Action string `json:"action"`
+		Action       string `json:"action"`
+		X            *int   `json:"x"`
+		Y            *int   `json:"y"`
+		ScreenWidth  *int   `json:"screen_width"`
+		ScreenHeight *int   `json:"screen_height"`
+		Button       *int   `json:"button"`
 	}
 	if jsonErr := json.Unmarshal(call.Arguments, &args); jsonErr != nil {
 		return nil, false, nil
 	}
 	if args.Action != "click_at" && args.Action != "double_click_at" {
 		return nil, false, nil
+	}
+
+	// Fast path: compare PNG-free luma grids taken straight off the decode
+	// thread (~one frame interval each) instead of encoding+decoding two
+	// full-resolution PNGs (~1s apiece at 2560x1600).
+	//
+	// The cursor is parked on the target first and the "before" frame is
+	// taken only after it has had time to show up in the stream: otherwise
+	// the cursor's own move (a ~0.3% blob at 2560x1600) is in the diff and
+	// every click on inert pixels reads as "visibly changed".
+	if parkCursor(client, env.ID, args.X, args.Y, args.ScreenWidth, args.ScreenHeight) {
+		time.Sleep(cursorParkDelay)
+	}
+	if beforeLuma, lok := RequestLiveLuma(liveFrameWaitTimeout); lok {
+		resp, postErr := sendFastClick(client, env.ID, args.Action == "double_click_at",
+			args.X, args.Y, args.ScreenWidth, args.ScreenHeight, args.Button)
+		if postErr != nil {
+			// Fast path unavailable on this backend -- forward the original
+			// click_at untouched (its own response/diff stands, we just
+			// overwrite the diff fields below as before).
+			resp, postErr = client.PostRawWithTimeout("/api/mcp", reqBody, mcpProxyTimeout)
+			if postErr != nil {
+				return nil, true, postErr
+			}
+		}
+		time.Sleep(clickSettleDelay)
+		afterLuma, aok := RequestLiveLuma(liveFrameWaitTimeout)
+		if !aok {
+			return resp, true, nil
+		}
+		return overwriteScreenDiffFields(resp, LumaGridChangePercent(beforeLuma, afterLuma)), true, nil
 	}
 
 	beforePNG, ok := RequestLiveFrame(liveFrameWaitTimeout)
@@ -82,6 +118,123 @@ func tryLocalMouseClickDiff(client *USBClient, reqBody []byte) (respBody []byte,
 	}
 
 	return overwriteScreenDiffFields(resp, pct), true, nil
+}
+
+// fastClickPressHold / fastClickDoubleGap mirror the Agent's own click_at
+// timing (agent/internal/api/mcp_mouse_absolute.go): 50ms between press and
+// release, 80ms between the two clicks of a double-click.
+const (
+	fastClickPressHold = 50 * time.Millisecond
+	fastClickDoubleGap = 80 * time.Millisecond
+	absoluteAxisMax    = 32767
+)
+
+// cursorParkDelay is how long to wait after moving the cursor onto the
+// click target before sampling the "before" frame -- covers capture, encode,
+// network and decode latency of the stream so the cursor is already drawn at
+// the target in that frame.
+const cursorParkDelay = 150 * time.Millisecond
+
+// absoluteXY converts screen pixels to the 0..32767 normalized axis with the
+// same clamp/scale as the Agent's pixelToAbsoluteXY.
+func absoluteXY(x, y, sw, sh int) (int, int) {
+	scale := func(v, dim int) int {
+		if dim <= 1 {
+			return 0
+		}
+		r := v * absoluteAxisMax / (dim - 1)
+		if r < 0 {
+			return 0
+		}
+		if r > absoluteAxisMax {
+			return absoluteAxisMax
+		}
+		return r
+	}
+	return scale(x, sw), scale(y, sh)
+}
+
+// parkCursor moves the cursor to the click target with a button-less
+// absolute event. Reports whether the move was sent.
+func parkCursor(client *USBClient, id json.RawMessage, x, y, sw, sh *int) bool {
+	if x == nil || y == nil || sw == nil || sh == nil || *sw <= 0 || *sh <= 0 {
+		return false
+	}
+	ax, ay := absoluteXY(*x, *y, *sw, *sh)
+	arg, _ := json.Marshal(map[string]any{"action": "absolute", "x": ax, "y": ay, "button_state": 0})
+	params, _ := json.Marshal(mcpToolCallParams{Name: "mouse.action", Arguments: arg})
+	body, _ := json.Marshal(mcpEnvelope{JSONRPC: "2.0", ID: id, Method: "tools/call", Params: params})
+	_, err := client.PostRawWithTimeout("/api/mcp", body, mcpProxyTimeout)
+	return err == nil
+}
+
+// sendFastClick performs a click_at/double_click_at as raw "absolute"
+// press/release events, skipping the Agent's click_at confirmation diff.
+// That diff makes the Agent take its own before/after screenshots (~0.8s of
+// a ~1s click_at) only for the Client to overwrite the result with its own
+// frame comparison anyway. Pixel->axis math is pixelToAbsoluteXY's (same
+// clamp and scale), so the cursor lands on the byte-identical position.
+// Returns a synthesized {"status":"ok"} response in the device's shape;
+// an error means "not sent / not supported, use the normal path" ONLY when
+// nothing was injected yet (first press failed) -- later failures are
+// returned as a response error text so a click is never replayed twice.
+func sendFastClick(client *USBClient, id json.RawMessage, double bool, x, y, sw, sh, button *int) ([]byte, error) {
+	if x == nil || y == nil || sw == nil || sh == nil || *sw <= 0 || *sh <= 0 {
+		return nil, fmt.Errorf("missing coordinates")
+	}
+	mask := 0x01
+	if button != nil {
+		switch *button {
+		case 1:
+		case 2:
+			mask = 0x02
+		case 3:
+			mask = 0x04
+		default:
+			return nil, fmt.Errorf("invalid button")
+		}
+	}
+	ax, ay := absoluteXY(*x, *y, *sw, *sh)
+
+	send := func(state int) error {
+		arg, _ := json.Marshal(map[string]any{"action": "absolute", "x": ax, "y": ay, "button_state": state})
+		params, _ := json.Marshal(mcpToolCallParams{Name: "mouse.action", Arguments: arg})
+		body, _ := json.Marshal(mcpEnvelope{JSONRPC: "2.0", ID: id, Method: "tools/call", Params: params})
+		resp, err := client.PostRawWithTimeout("/api/mcp", body, mcpProxyTimeout)
+		if err != nil {
+			return err
+		}
+		var env mcpEnvelope
+		if json.Unmarshal(resp, &env) == nil && len(env.Error) > 0 {
+			return fmt.Errorf("device error: %s", string(env.Error))
+		}
+		return nil
+	}
+
+	clicks := 1
+	if double {
+		clicks = 2
+	}
+	for i := 0; i < clicks; i++ {
+		if err := send(mask); err != nil {
+			if i == 0 {
+				return nil, err // nothing injected yet: caller may fall back
+			}
+			return nil, fmt.Errorf("click partially sent: %w", err)
+		}
+		time.Sleep(fastClickPressHold)
+		if err := send(0); err != nil {
+			return nil, fmt.Errorf("click release failed: %w", err)
+		}
+		if i == 0 && clicks == 2 {
+			time.Sleep(fastClickDoubleGap)
+		}
+	}
+	out, _ := json.Marshal(mcpEnvelope{
+		JSONRPC: "2.0", ID: id,
+		Result: json.RawMessage(`{"content":[{"type":"text","text":"{\"status\":\"ok\"}"}]}`),
+	})
+	return out, nil
 }
 
 // overwriteScreenDiffFields replaces screen_changed_pct/screen_visibly_changed

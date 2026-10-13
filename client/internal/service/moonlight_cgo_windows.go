@@ -2048,7 +2048,7 @@ func goAIVisionOverlay(rgba *C.uint8_t, width, height, stride C.int) {
 //
 //export goAIVisionShouldSample
 func goAIVisionShouldSample() C.int {
-	if usbapi.LiveFrameWanted() {
+	if usbapi.LiveFrameWanted() || usbapi.LiveLumaWanted() || usbapi.LiveRGBAWanted() {
 		return 1
 	}
 	if !aiVisionEnabled.Load() {

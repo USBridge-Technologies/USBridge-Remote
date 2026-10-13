@@ -169,12 +169,25 @@ func ApplyAIVisionOverlay(rgba []byte, w, h, stride int) {
 // to check unconditionally without a busy-guard of its own -- at most one
 // frame gets captured+encoded per outstanding request either way.
 func maybeServeLiveFrame(rgba []byte, w, h, stride int) {
+	if usbapi.LiveLumaWanted() {
+		usbapi.SubmitLiveLuma(lumaGridRGBA(rgba, w, h, stride))
+	}
+	// What the AI works from is the host's actual desktop: stream letterbox
+	// bars are cropped (usbapi.CropForMCP) so ui.parse/screen.get_image
+	// coordinates match the space click_at normalizes over.
+	if usbapi.LiveRGBAWanted() {
+		usbapi.SubmitLiveRGBA(usbapi.CropForMCP(snapshotRGBA(rgba, w, h, stride)))
+	}
 	if !usbapi.LiveFrameWanted() {
 		return
 	}
-	frame := snapshotRGBA(rgba, w, h, stride)
+	frame := usbapi.CropForMCP(snapshotRGBA(rgba, w, h, stride))
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, frame); err != nil {
+	// BestSpeed: still lossless, ~3-4x faster than the default level at
+	// 2560x1600 -- the encode is on the caller's critical path (screen.get_image,
+	// ui.parse), the few extra hundred KB on loopback don't matter.
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(&buf, frame); err != nil {
 		logrus.Warnf("🔎 [AI Vision] live-frame encode failed: %v", err)
 		return
 	}
@@ -332,6 +345,25 @@ func publishAIVisionText(text []localui.TextRegion, w, h int) {
 // snapshotRGBA copies a possibly stride-padded RGBA buffer into a
 // standalone *image.RGBA that the encoder and background goroutine can
 // hold onto safely past this call.
+// lumaGridRGBA samples every usbapi.LumaStride-th pixel of an RGBA frame
+// into a usbapi.LumaGrid (same BT.601 weights as the PNG diff it replaces).
+func lumaGridRGBA(rgba []byte, w, h, stride int) *usbapi.LumaGrid {
+	st := usbapi.LumaStride
+	gw, gh := (w+st-1)/st, (h+st-1)/st
+	g := &usbapi.LumaGrid{W: w, H: h, GW: gw, GH: gh, Pix: make([]uint8, gw*gh)}
+	for gy := 0; gy < gh; gy++ {
+		row := gy * st * stride
+		for gx := 0; gx < gw; gx++ {
+			o := row + gx*st*4
+			if o+2 >= len(rgba) {
+				continue
+			}
+			g.Pix[gy*gw+gx] = uint8((299*int(rgba[o]) + 587*int(rgba[o+1]) + 114*int(rgba[o+2])) / 1000)
+		}
+	}
+	return g
+}
+
 func snapshotRGBA(rgba []byte, w, h, stride int) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	rowBytes := w * 4

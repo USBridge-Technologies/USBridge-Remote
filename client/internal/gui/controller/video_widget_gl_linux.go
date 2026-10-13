@@ -31,6 +31,20 @@ func (vw *VideoWidget) isNativeVideoActive() bool {
 // startMetalVideoOnWindow creates the Vulkan overlay on the X11 window.
 // Falls back to GLX overlay if Vulkan is unavailable.
 func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bool) {
+	vw.startMetalVideoOnWindowAttempt(window, fullscreen, 0)
+}
+
+// videoCanvasZeroSizeRetries/Delay bound how long the native overlay waits
+// for the video canvas to get a layout size: a connect fired at launch
+// (usbridge:// deeplink with immediate=true) reaches this before the window
+// has been laid out once, and giving up there left a permanently black
+// window even though frames were decoding fine.
+const (
+	videoCanvasZeroSizeRetries = 50
+	videoCanvasZeroSizeDelay   = 100 * time.Millisecond
+)
+
+func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullscreen bool, attempt int) {
 	// Wire hide/show hooks for Fyne menus — mirrors macOS Metal / Windows Vulkan pattern.
 	view.OnOverlayShow = func() { service.VKVideoSetHidden(true) }
 	view.OnOverlayHide = func() { service.VKVideoSetHidden(false) }
@@ -66,6 +80,15 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		if !fullscreen {
 			x, y, w, h := vw.videoCanvasFrame()
 			if w <= 0 || h <= 0 {
+				if attempt < videoCanvasZeroSizeRetries {
+					if attempt == 0 {
+						logrus.Info("[VK/Linux] videoCanvas has no size yet — retrying until the window is laid out")
+					}
+					time.AfterFunc(videoCanvasZeroSizeDelay, func() {
+						fyne.Do(func() { vw.startMetalVideoOnWindowAttempt(window, fullscreen, attempt+1) })
+					})
+					return
+				}
 				logrus.Warn("[VK/Linux] videoCanvas has zero size — skipped")
 				return
 			}
