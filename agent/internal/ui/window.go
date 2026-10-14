@@ -238,12 +238,6 @@ type Window struct {
 	clipboardToolRow *fyne.Container
 	clipboardToolBtn *widget.Button
 
-	// udpBufRow: Linux only, shown while the kernel's UDP receive-buffer cap is too small
-	// for whole video frames (see netutil/udpbuf_linux.go); hidden once granted.
-	udpBufRow  *fyne.Container
-	udpBufBtn  *widget.Button
-	udpBufLang *widget.Label
-
 	// awdlDisableRow: macOS only -- lets the user opt into the agent
 	// bringing awdl0 down for the duration of a streaming session (see
 	// app.AWDLDisableDuringStreamingSupported / internal/netutil/awdl_darwin.go).
@@ -581,18 +575,6 @@ func (w *Window) refreshClipboardToolUI() {
 		w.clipboardToolRow.Hide()
 	} else {
 		w.clipboardToolRow.Show()
-	}
-}
-
-// refreshUDPBufferUI hides the UDP receive-buffer row once the cap fits video frames.
-func (w *Window) refreshUDPBufferUI() {
-	if w.udpBufRow == nil {
-		return
-	}
-	if netutil.UDPBufferOK() {
-		w.udpBufRow.Hide()
-	} else {
-		w.udpBufRow.Show()
 	}
 }
 
@@ -1319,26 +1301,6 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.clipboardLang = clipLabel
 	w.clipboardToolRow = container.NewHBox(clipLabel, layout.NewSpacer(), clipboardInfoBtn, w.clipboardToolBtn)
 
-	// UDP receive buffer (Linux only): a stock kernel caps SO_RCVBUF at 208 KB, less than one
-	// PyroWave frame, so the kernel drops packets every few seconds (lost frames, host/jitter
-	// spikes) on whichever side receives video. One pkexec prompt raises it for good.
-	w.udpBufBtn = widget.NewButton(loc().PermGrant, func() {
-		w.udpBufBtn.Disable()
-		go func() {
-			err := netutil.EnsureUDPBuffer()
-			fyne.Do(func() {
-				w.udpBufBtn.Enable()
-				if err != nil {
-					showErrorDialog(err, win)
-				}
-				w.refreshUDPBufferUI()
-			})
-		}()
-	})
-	w.udpBufBtn.Importance = widget.LowImportance
-	w.udpBufLang = widget.NewLabel(loc().UDPBuffer)
-	w.udpBufRow = container.NewHBox(w.udpBufLang, layout.NewSpacer(), w.udpBufBtn)
-
 	// AWDL disable-during-streaming (macOS only): turning it on installs a
 	// sudoers.d NOPASSWD rule (one admin-password prompt, see
 	// app.SetAWDLDisableDuringStreaming) so the agent can toggle awdl0
@@ -1504,9 +1466,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 		autostartRow,
 	}
 	if runtime.GOOS == "linux" {
-		permTop = append(permTop, w.clipboardToolRow, w.udpBufRow)
+		permTop = append(permTop, w.clipboardToolRow)
 		w.refreshClipboardToolUI()
-		w.refreshUDPBufferUI()
 	}
 	if w.token != nil && w.token.AWDLDisableDuringStreamingSupported() {
 		permTop = append(permTop, w.awdlDisableRow)
@@ -2137,12 +2098,6 @@ func (w *Window) applyLanguage() {
 	}
 	if w.clipboardLang != nil {
 		w.clipboardLang.SetText(c.ClipboardTool)
-	}
-	if w.udpBufLang != nil {
-		w.udpBufLang.SetText(c.UDPBuffer)
-	}
-	if w.udpBufBtn != nil {
-		w.udpBufBtn.SetText(c.PermGrant)
 	}
 	if w.awdlDisableLang != nil {
 		w.awdlDisableLang.SetText(c.AWDLDisable)

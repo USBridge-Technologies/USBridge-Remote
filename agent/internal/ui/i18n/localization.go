@@ -60,7 +60,6 @@ type LocalizedStrings struct {
 	GPUNoEncoderSettings string
 	NvencTwoPass         string
 	ClipboardTool        string
-	UDPBuffer            string
 	Install              string
 	ClipboardInstall     string
 	ClipboardNoPkgMgr    string
@@ -385,7 +384,6 @@ func EN() *LocalizedStrings {
 		GPUNoEncoderSettings: "No encoder settings here: the NVIDIA ones above don't apply to this card",
 		NvencTwoPass:         "NVENC two-pass (better picture, more GPU load)",
 		ClipboardTool:        "Clipboard Tool",
-		UDPBuffer:            "Network buffer for video (fixes periodic frame loss)",
 		Install:              "Install",
 		ClipboardInstall:     "Clipboard Tool Install",
 		ClipboardNoPkgMgr:    "No supported package manager (or pkexec) was found on this system -- clicking Install will show why, instead of a command preview.",
