@@ -265,12 +265,24 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_windows.sh
 
+      - name: Install Inno Setup
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Build installer (Windows, Inno Setup)
+        if: matrix.name == 'windows'
+        shell: msys2 {0}
+        working-directory: agent
+        run: ./scripts/build_windows_installer.sh
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: agent-${{ matrix.name }}
           path: |
             agent/dist/*.zip
+            agent/dist/*.exe
             agent/dist/*.dmg
             agent/dist/*.AppImage
           if-no-files-found: error
@@ -300,7 +312,7 @@ jobs:
         # release after release instead of changing every time.
         run: |
           mkdir -p out
-          find artifacts -type f \( -name '*.zip' -o -name '*.dmg' -o -name '*.AppImage' \) -exec cp {} out/ \;
+          find artifacts -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -exec cp {} out/ \;
           for f in out/*; do
             stable="$(echo "$f" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+(\.[A-Za-z0-9]+)$/\1/')"
             [ "$f" != "$stable" ] && mv "$f" "$stable"

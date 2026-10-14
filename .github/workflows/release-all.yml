@@ -346,10 +346,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_windows.sh
+      - name: Install Inno Setup
+        shell: pwsh
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build installer (Inno Setup)
+        shell: msys2 {0}
+        working-directory: agent
+        run: ./scripts/build_windows_installer.sh
       - uses: actions/upload-artifact@v4
         with:
           name: release-agent-windows
           path: agent/dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-agent-windows-setup
+          path: agent/dist/USBridgeAgent-Windows-x86_64-Setup-*.exe
           if-no-files-found: error
           retention-days: 7
 

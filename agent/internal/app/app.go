@@ -2151,6 +2151,13 @@ func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) bool {
 		log.Printf("[app] warning: failed to persist entitlement token: %v", err)
 	}
 	a.refreshLocalEntitlementStatus()
+	// A fresh install whose installer already picked RustShine and gave USB
+	// consent (preferred_backend / usb_broker_consent in config.yaml) gets
+	// both right away instead of on the next recheck.
+	if a.cfg.PreferredBackend == "rustshine" {
+		a.ensureRustShineFresh(ctx, res.Token)
+	}
+	a.ensureUSBBroker(ctx, res.Token)
 	return true
 }
 
@@ -3276,6 +3283,13 @@ func (a *App) ensureRustShineFresh(ctx context.Context, entitlementToken string)
 		a.entMu.Lock()
 		a.entStatus.RustShineStaged = a.rustshineStaged()
 		a.entMu.Unlock()
+		// New() fell back to Sunshine because the binary wasn't staged yet;
+		// honour a saved RustShine preference now that it is.
+		if a.cfg.PreferredBackend == "rustshine" && a.streamKindView.Load() != "rustshine" {
+			if err := a.SetStreamBackend("rustshine"); err != nil {
+				log.Printf("[app] switching to preferred rustshine: %v", err)
+			}
+		}
 		return
 	}
 	a.checkRustShineUpdate(ctx, entitlementToken)

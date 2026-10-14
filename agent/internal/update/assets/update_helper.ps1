@@ -62,7 +62,13 @@ try {
 }
 
 $newExe = Join-Path $InstallDir $ExeName
-if (Test-Path $newExe) {
+# Installed by the setup .exe the agent runs as the USBridgeAgent service
+# (LocalSystem): bring the service back rather than starting a bare copy in
+# session 0, which would be invisible and not managed by the SCM.
+$service = Get-CimInstance Win32_Service -Filter "Name='USBridgeAgent'" -ErrorAction SilentlyContinue
+if ($service -and [Security.Principal.WindowsIdentity]::GetCurrent().IsSystem -and $service.PathName -like "*$newExe*") {
+    Start-Service -Name 'USBridgeAgent'
+} elseif (Test-Path $newExe) {
     Start-Process -FilePath $newExe
 }
 

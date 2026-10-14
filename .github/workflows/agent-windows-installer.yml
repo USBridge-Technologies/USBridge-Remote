@@ -1,0 +1,64 @@
+name: agent-windows-installer
+
+# Builds only the Windows agent setup (USBridgeAgent-Windows-x86_64-Setup.exe)
+# -- the same steps release-all.yml / agent-release.yml run in their Windows
+# job -- for testing the installer without a full multi-platform release.
+# With `release_tag` set, the setup is also attached to that existing release
+# (stable name, so /releases/latest/download/... keeps working).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to attach the setup to (blank = artifact only)
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-go
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-python
+            git
+            zip
+            python
+      - name: Build (Windows, MSYS2 UCRT64)
+        shell: msys2 {0}
+        working-directory: agent
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/build_windows.sh
+      - name: Install Inno Setup
+        shell: pwsh
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build installer (Inno Setup)
+        shell: msys2 {0}
+        working-directory: agent
+        run: ./scripts/build_windows_installer.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-windows-setup
+          path: agent/dist/USBridgeAgent-Windows-x86_64-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attach to release
+        if: inputs.release_tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          src="$(ls agent/dist/USBridgeAgent-Windows-x86_64-Setup-*.exe)"
+          cp "$src" USBridgeAgent-Windows-x86_64-Setup.exe
+          gh release upload "${{ inputs.release_tag }}" USBridgeAgent-Windows-x86_64-Setup.exe --clobber

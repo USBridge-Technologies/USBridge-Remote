@@ -172,6 +172,13 @@ func collectPlatforms(dir, app string) (map[string]platformAsset, error) {
 		if strings.Contains(e.Name(), "-market") || strings.HasSuffix(e.Name(), ".aab") {
 			continue
 		}
+		// The Windows setup .exe is the first-install download only; an
+		// installed agent self-updates from the same platform's .zip (see
+		// agent/internal/update/apply_windows.go), which would otherwise
+		// collide with it under "windows-amd64".
+		if strings.Contains(e.Name(), "-Setup") {
+			continue
+		}
 
 		key, err := platformKeyFor(e.Name())
 		if err != nil {
