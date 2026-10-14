@@ -42,6 +42,7 @@
 #import <CoreVideo/CoreVideo.h>
 #include <vulkan/vulkan.h>
 #include <pyrowave.h>
+#include "pyrowave_framing.h"
 
 #include <dlfcn.h>
 #include <pthread.h>
@@ -180,7 +181,7 @@ static int pw_ensure_decoder(int w, int h) {
 // tightly packed w*h luma plane and *uv at an interleaved CbCr plane of (w/2)*2 bytes
 // per row and h/2 rows, both valid until the next call; *full_range reports whether
 // the stream signals full-range YCbCr. Returns 0 for a frame that cannot be decoded.
-static int pw_decode(const uint8_t *au, size_t len,
+static int pw_decode_dense(const uint8_t *au, size_t len,
                      const uint8_t **y, const uint8_t **uv,
                      int *w_out, int *h_out, int *full_range) {
     // BitstreamSequenceHeader (pyrowave_common.hpp), little endian: width-1 in bits
@@ -321,6 +322,21 @@ static void pyrowave_darwin_deliver(const uint8_t *y, const uint8_t *uv, int w, 
     // Reported whether or not it was shown, same convention as vt_callback's zero-copy
     // path and pyrowave_decode_linux.c's own pyrowave_linux_deliver.
     goVTFrame(NULL, w, h, 0);
+}
+
+// pw_decode takes the frame payload as it came off the wire (dense, record framed or
+// length-prefixed -- see pyrowave_framing.h) and decodes it.
+static int pw_decode(const uint8_t *au, size_t len,
+                     const uint8_t **y, const uint8_t **uv,
+                     int *w_out, int *h_out, int *full_range) {
+    uint8_t *dense = (uint8_t *)malloc(len ? len : 1);
+    if (!dense) return 0;
+    size_t n = pw_unframe(au, len, dense);
+    int ok = 0;
+    if (n) ok = pw_decode_dense(dense, n, y, uv, w_out, h_out, full_range);
+    else pw_fail("malformed framing", (int)len);
+    free(dense);
+    return ok;
 }
 
 // ── decode thread ──────────────────────────────────────────────────────────────

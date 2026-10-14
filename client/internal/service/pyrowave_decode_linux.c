@@ -21,6 +21,7 @@
 
 #include <vulkan/vulkan.h>
 #include <pyrowave.h>
+#include "pyrowave_framing.h"
 
 #include <pthread.h>
 #include <stdint.h>
@@ -160,7 +161,7 @@ static int pw_ensure_decoder(int w, int h) {
 // tightly packed w*h luma plane and *uv at an interleaved CbCr plane of (w/2)*2 bytes
 // per row and h/2 rows, both valid until the next call; *full_range reports whether
 // the stream signals full-range YCbCr. Returns 0 for a frame that cannot be decoded.
-static int pw_decode(const uint8_t *au, size_t len,
+static int pw_decode_dense(const uint8_t *au, size_t len,
                      const uint8_t **y, const uint8_t **uv,
                      int *w_out, int *h_out, int *full_range) {
     // BitstreamSequenceHeader (pyrowave_common.hpp), little endian: width-1 in bits
@@ -221,6 +222,21 @@ static int pw_decode(const uint8_t *au, size_t len,
     ok = 1;
 out:
     pthread_mutex_unlock(&g_pw_mu);
+    return ok;
+}
+
+// pw_decode takes the frame payload as it came off the wire (dense, record framed or
+// length-prefixed -- see pyrowave_framing.h) and decodes it.
+static int pw_decode(const uint8_t *au, size_t len,
+                     const uint8_t **y, const uint8_t **uv,
+                     int *w_out, int *h_out, int *full_range) {
+    uint8_t *dense = (uint8_t *)malloc(len ? len : 1);
+    if (!dense) return 0;
+    size_t n = pw_unframe(au, len, dense);
+    int ok = 0;
+    if (n) ok = pw_decode_dense(dense, n, y, uv, w_out, h_out, full_range);
+    else pw_fail("malformed framing", (int)len);
+    free(dense);
     return ok;
 }
 
@@ -301,11 +317,23 @@ static void pw_stop_worker(void) {
     pthread_mutex_unlock(&g_pwq_mu);
 }
 
-// pyrowave_linux_frames counts the frames decoded since the stream started.
+// pyrowave_linux_unframe reduces a frame payload as it came off the wire (dense, record
+// framed or length-prefixed, see pyrowave_framing.h) to the dense access unit; `out` needs
+// room for `len` bytes. Returns the dense length, 0 for a malformed payload. Used by the
+// GPU path (vk_video_try_submit_pyrowave), which decodes inside the renderer.
+size_t pyrowave_linux_unframe(const uint8_t *in, size_t len, uint8_t *out) {
+    return pw_unframe(in, len, out);
+}
+
+extern unsigned long long vk_video_pyrowave_frames(void);
+
+// pyrowave_linux_frames counts the frames decoded since the stream started: those of the CPU
+// path plus those the renderer decoded on the GPU.
 uint64_t pyrowave_linux_frames(void) {
     pthread_mutex_lock(&g_pw_mu);
     uint64_t n = g_pw_frames;
     pthread_mutex_unlock(&g_pw_mu);
+    n += (uint64_t)vk_video_pyrowave_frames();
     return n;
 }
 
