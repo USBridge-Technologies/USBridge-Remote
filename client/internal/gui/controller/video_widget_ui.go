@@ -92,7 +92,10 @@ func (vw *VideoWidget) handleStartVideo() {
 			preferredDevicePath = preferredConfig.DevicePath
 		}
 
-		videoInfo := vw.fetchVideoInfoForStartDialogAttempts(preferredDevicePath, 5)
+		var videoInfo *models.VideoInfoData
+		if !vw.gameStreamOnly.Load() {
+			videoInfo = vw.fetchVideoInfoForStartDialogAttempts(preferredDevicePath, 5)
+		}
 
 		// Check whether the widget was closed while the HTTP requests were in flight
 		if vw.isClosing.Load() {
@@ -650,7 +653,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	// UpdateClient(nil) during disconnect, so all subsequent uses must go
 	// through this local variable to avoid nil-pointer panics in the loop.
 	client := vw.usbClient
-	if client == nil {
+	if client == nil || vw.gameStreamOnly.Load() {
 		return nil
 	}
 

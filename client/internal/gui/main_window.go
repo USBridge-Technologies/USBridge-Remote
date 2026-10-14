@@ -128,11 +128,16 @@ type MainWindow struct {
 	clipboardSync    *api.ClipboardSync
 
 	// State
-	config                   *models.AppConfig
-	appState                 *models.AppState
-	isConnected              bool
-	isStreaming              bool
-	activeAPISecret          []byte
+	config          *models.AppConfig
+	appState        *models.AppState
+	isConnected     bool
+	isStreaming     bool
+	activeAPISecret []byte
+	// gameStreamOnly: connected with an empty master key, i.e. to a plain
+	// Sunshine/GameStream host (or fork) with no usbridge agent API to
+	// authenticate against -- only the Moonlight stream is used, paired by
+	// the PIN the user types on the host (see connectGameStreamOnly).
+	gameStreamOnly           bool
 	isConnectionPending      atomic.Bool
 	isConnectionLoading      bool
 	connectedProtocol        string

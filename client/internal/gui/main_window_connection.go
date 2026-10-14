@@ -717,6 +717,8 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 		protocol = models.ConnectionProtocolAuto
 	}
 
+	mw.setGameStreamOnly(strings.TrimSpace(masterKey) == "")
+
 	if strings.TrimSpace(masterKey) != "" {
 		// Master key — perform QR sync.
 		key := strings.TrimSpace(masterKey)
@@ -780,7 +782,7 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 			logrus.Infof("🔗 [CONNECT] Sync failed but protocol=%s — proceeding without sync", protocol)
 		}
 	} else {
-		logrus.Warn("⚠️ [CONNECT] No master key provided")
+		logrus.Info("🎮 [CONNECT] No master key provided — connecting as a plain Sunshine/GameStream host (PIN pairing)")
 	}
 
 	if mw.connectAborted(waitCtx, gen) {
@@ -928,15 +930,22 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 	// The direct paths below: the bare host, the API port from it.
 	host = mw.useConnectionAPIPort(savedHost)
 
-	switch protocol {
-	case models.ConnectionProtocolTailscale:
+	switch {
+	case mw.gameStreamOnly:
+		if err := mw.connectGameStreamOnly(ctx, host); err != nil {
+			if mw.connectAborted(ctx, gen) {
+				return errConnectAborted
+			}
+			return err
+		}
+	case protocol == models.ConnectionProtocolTailscale:
 		if err := connectTailscale(ctx); err != nil {
 			if mw.connectAborted(ctx, gen) {
 				return errConnectAborted
 			}
 			return err
 		}
-	case models.ConnectionProtocolAuto:
+	case protocol == models.ConnectionProtocolAuto:
 		if err := connectTailscale(ctx); err != nil {
 			if mw.connectAborted(ctx, gen) {
 				return errConnectAborted
@@ -955,7 +964,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 			mw.connectedProtocol = models.ConnectionProtocolDirect
 			mw.videoWidget.SetTailscaleVideoEnabled(false)
 		}
-	case models.ConnectionProtocolDirect:
+	case protocol == models.ConnectionProtocolDirect:
 		tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.USBTLSPort, mw.config.APITimeout)
 		if err := testConnectionWithRetry(ctx, tempClient, host); err != nil {
 			if mw.connectAborted(ctx, gen) {
@@ -989,7 +998,25 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 		return errConnectAborted
 	}
 
-	info, err := mw.verifyActiveConnectionWithContext(ctx)
+	// A plain GameStream host has no agent API to verify against;
+	// connectGameStreamOnly already proved the streamer answers. Its
+	// streamer can't be asked who it is without a key, so keep whatever
+	// identity was saved for this host (a RustShine host maps the mouse in
+	// desktop space) and only assume Sunshine's stream space when unknown.
+	var info *models.DeviceInfoResponse
+	var err error
+	if mw.gameStreamOnly {
+		info = &models.DeviceInfoResponse{}
+		savedProtocol := ""
+		if mw.connectionManager != nil {
+			_, savedProtocol = mw.connectionManager.LookupAgentIdentity(host)
+		}
+		if strings.TrimSpace(savedProtocol) == "" {
+			info.AgentProtocol = "sunshine"
+		}
+	} else {
+		info, err = mw.verifyActiveConnectionWithContext(ctx)
+	}
 	if err != nil {
 		logrus.Errorf("❌ Connection verification failed: %v", err)
 		if client := mw.usbClient; client != nil {
@@ -1067,7 +1094,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 
 	logrus.Infof("✅ Connected to USBridge via %s", mw.connectedProtocol)
 
-	if mw.usbClient != nil && mw.connectionManager != nil && (gen == 0 || mw.connectAttemptLive(gen)) {
+	if mw.usbClient != nil && mw.connectionManager != nil && !mw.gameStreamOnly && (gen == 0 || mw.connectAttemptLive(gen)) {
 		client := mw.usbClient
 		connMgr := mw.connectionManager
 		connHost := strings.TrimSpace(host)
@@ -1083,6 +1110,65 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 		go mw.refreshConnectionAgentIdentity(probeCtx, client, connMgr, connHost, liveGen)
 	}
 
+	return nil
+}
+
+// setGameStreamOnly switches the connection mode for the next connect. With
+// no master key there is nothing to sign agent API requests with, so any
+// secret left over from a previous keyed connection must be dropped too --
+// otherwise MoonlightService's PIN relay would sign with it and the wrong
+// agent could swallow the PIN instead of it being shown to the user.
+func (mw *MainWindow) setGameStreamOnly(enabled bool) {
+	mw.gameStreamOnly = enabled
+	if mw.videoWidget != nil {
+		mw.videoWidget.SetGameStreamOnly(enabled)
+	}
+	if !enabled {
+		return
+	}
+	mw.activeAPISecret = nil
+	if ms, ok := mw.videoClient.(interface{ SetAPISecret([]byte) }); ok {
+		ms.SetAPISecret(nil)
+	}
+}
+
+// connectGameStreamOnly connects to a host given without a master key: a
+// stock Sunshine, a Sunshine fork, or NVIDIA GameStream -- anything Moonlight
+// can stream from. There is no usbridge agent API to authenticate against
+// (an agent that does answer would only 401 every unsigned call), so instead
+// of the agent's /api/device/info this checks the streamer's own GameStream
+// /serverinfo. Pairing happens on the first stream start, the same way as in
+// Moonlight: the client shows a PIN (view.ShowPairingPINDialog) for the user
+// to enter on the host's pairing page.
+func (mw *MainWindow) connectGameStreamOnly(ctx context.Context, host string) error {
+	prober, ok := mw.videoClient.(interface {
+		ProbeGameStreamHost(ctx context.Context) error
+	})
+	if !ok {
+		// The browser client streams over the agent's WebRTC endpoint only;
+		// it can't speak GameStream to a plain Sunshine host.
+		return fmt.Errorf("a master key is required: the web client can only connect to a USBridge agent")
+	}
+	mw.videoClient.UpdateHost(host)
+	if err := prober.ProbeGameStreamHost(ctx); err != nil {
+		return fmt.Errorf("no Sunshine/GameStream host found at %s (enter the master key to connect to a USBridge agent): %w", host, err)
+	}
+
+	client := mw.attachUSBClient(api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.USBTLSPort, mw.config.APITimeout))
+	// Agent-API pollers (devices, PC panel, scripts, clipboard) have
+	// nothing to talk to on a plain GameStream host. Their failures must
+	// not count as a lost connection -- the stream is what matters here.
+	client.SetOnTransportError(func(err error) {
+		logrus.Debugf("🎮 [CONNECT] agent API unavailable on GameStream-only host (ignored): %v", err)
+	})
+	mw.usbClient = client
+	if isLikelyTailscaleHost(host) {
+		mw.connectedProtocol = models.ConnectionProtocolTailscale
+	} else {
+		mw.connectedProtocol = models.ConnectionProtocolDirect
+		mw.videoWidget.SetTailscaleVideoEnabled(false)
+	}
+	logrus.Infof("🎮 [CONNECT] GameStream host %s reachable; Moonlight pairing will ask for a PIN if needed", host)
 	return nil
 }
 

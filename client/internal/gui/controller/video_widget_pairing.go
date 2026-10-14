@@ -40,3 +40,13 @@ func (vw *VideoWidget) dismissPairingPINDialog() {
 	vw.pairingPINDialog.Hide()
 	vw.pairingPINDialog = nil
 }
+
+// SetGameStreamOnly marks the current connection as a plain Sunshine/
+// GameStream host with no usbridge agent API behind it (connected with an
+// empty master key). Starting video then skips the agent-only steps -- the
+// video-info query that seeds the start dialog and the HID gadget
+// auto-connect -- which would only fail (or 401) against such a host; input
+// goes over the Moonlight stream itself.
+func (vw *VideoWidget) SetGameStreamOnly(enabled bool) {
+	vw.gameStreamOnly.Store(enabled)
+}

@@ -1453,7 +1453,7 @@ func EN() *LocalizedStrings {
 
 		// Moonlight manual pairing
 		PairingPINTitle:   "Pairing Required",
-		PairingPINMessage: "Enter this PIN on your host's pairing page:",
+		PairingPINMessage: "Enter this PIN on the host: in the USBridge agent window press + next to Moonlight, or on the streamer's pairing page.",
 		PairingPINWaiting: "Waiting for the host to accept it...",
 	}
 }
@@ -1702,7 +1702,7 @@ func ES() *LocalizedStrings {
 	locale.VideoHighFidelityFmt = "Alta fidelidad (%.1f %s)"
 	locale.VideoParameters = "Parametros de video"
 	locale.PairingPINTitle = "Emparejamiento"
-	locale.PairingPINMessage = "Introduce este PIN en la pagina de pairing del host:"
+	locale.PairingPINMessage = "Introduce este PIN en el host: en la ventana del agente USBridge pulsa + junto a Moonlight, o en la página de emparejamiento del streamer."
 	locale.PairingPINWaiting = "Esperando a que el host lo acepte..."
 	locale.OtherSettings = "OTROS AJUSTES"
 	locale.NetGraphSize = "Tamano"
@@ -2160,7 +2160,7 @@ func UKProper() *LocalizedStrings {
 	locale.VideoHighFidelityFmt = "Висока якість (%.1f %s)"
 	locale.VideoParameters = "Параметри відео"
 	locale.PairingPINTitle = "Потрібне парування"
-	locale.PairingPINMessage = "Введіть цей PIN на сторінці парування хоста:"
+	locale.PairingPINMessage = "Введіть цей PIN на хості: у вікні агента USBridge натисніть + біля Moonlight або на сторінці парування стрімера."
 	locale.PairingPINWaiting = "Чекаємо, поки хост підтвердить..."
 	locale.OtherSettings = "ІНШІ НАЛАШТУВАННЯ"
 	locale.NetGraphSize = "Розмір"

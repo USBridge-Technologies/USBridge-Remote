@@ -1,9 +1,7 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -181,32 +179,8 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 
 	logrus.Info("🌕 Moonlight protocol: ConnectToMoonlight called")
 
-	// 1. Setup client with the correct host
-	m.client.Host = m.serverHost
-	if m.client.Host == "0.0.0.0" || m.client.Host == "" {
-		m.client.Host = "127.0.0.1" // Default to localhost if unbound
-	}
-	m.client.Port, m.client.HTTPSPort = MoonlightPorts()
-
-	// 1b. Use the tsnet-aware dialer for Moonlight HTTP only when the target host is
-	// actually a Tailscale peer. tsnet's userspace netstack does not route plain LAN
-	// addresses (e.g. a "protocol=direct" 192.168.x.x host) reliably — when tsnet has
-	// no login/tailnet session, dialing such a host through it hangs indefinitely
-	// (srv.HTTPClient() has no request timeout), which looked like a silent black
-	// screen: GetServerInfo() below never returned and never logged an error.
-	if m.tailscaleSvc != nil && isLikelyTailnetHost(m.client.Host) {
-		if tsHTTP, err := m.tailscaleSvc.HTTPClient(); err == nil && tsHTTP.Transport != nil {
-			if tr, ok := tsHTTP.Transport.(*http.Transport); ok && tr.DialContext != nil {
-				m.client.SetDialTransport(tr.DialContext)
-				logrus.Info("🌕 [Moonlight] using Tailscale tsnet dialer for Sunshine HTTP")
-			}
-		}
-		// Confirm the data path to Sunshine's HTTP port is actually usable
-		// before firing the first real request -- see WaitForPeerReachable's
-		// doc comment for why a real dial (not just Status()) matters here,
-		// e.g. after a DERP relay change.
-		m.tailscaleSvc.WaitForPeerReachable(context.Background(), m.client.Host, strconv.Itoa(m.client.Port), 8*time.Second)
-	}
+	// 1. Setup client with the correct host (and dialer, see prepareGameStreamClient)
+	m.prepareGameStreamClient()
 
 	tConnect := time.Now()
 
@@ -863,9 +837,69 @@ func (m *MoonlightService) Reconnect() error {
 	return m.ConnectToMoonlight()
 }
 
+// prepareGameStreamClient points m.client at the current serverHost and picks
+// the dialer for it. Shared by ConnectToMoonlight and ProbeGameStreamHost.
+func (m *MoonlightService) prepareGameStreamClient() {
+	m.client.Host = m.serverHost
+	if m.client.Host == "0.0.0.0" || m.client.Host == "" {
+		m.client.Host = "127.0.0.1" // Default to localhost if unbound
+	}
+	m.client.Port, m.client.HTTPSPort = MoonlightPorts()
+
+	// Use the tsnet-aware dialer for Moonlight HTTP only when the target host is
+	// actually a Tailscale peer. tsnet's userspace netstack does not route plain LAN
+	// addresses (e.g. a "protocol=direct" 192.168.x.x host) reliably — when tsnet has
+	// no login/tailnet session, dialing such a host through it hangs indefinitely
+	// (srv.HTTPClient() has no request timeout), which looked like a silent black
+	// screen: GetServerInfo() below never returned and never logged an error.
+	if m.tailscaleSvc != nil && isLikelyTailnetHost(m.client.Host) {
+		if tsHTTP, err := m.tailscaleSvc.HTTPClient(); err == nil && tsHTTP.Transport != nil {
+			if tr, ok := tsHTTP.Transport.(*http.Transport); ok && tr.DialContext != nil {
+				m.client.SetDialTransport(tr.DialContext)
+				logrus.Info("🌕 [Moonlight] using Tailscale tsnet dialer for Sunshine HTTP")
+			}
+		}
+		// Confirm the data path to Sunshine's HTTP port is actually usable
+		// before firing the first real request -- see WaitForPeerReachable's
+		// doc comment for why a real dial (not just Status()) matters here,
+		// e.g. after a DERP relay change.
+		m.tailscaleSvc.WaitForPeerReachable(context.Background(), m.client.Host, strconv.Itoa(m.client.Port), 8*time.Second)
+	}
+}
+
+// ProbeGameStreamHost checks that serverHost answers the GameStream
+// /serverinfo endpoint (HTTP 47989, the same request Moonlight's host
+// discovery makes; it needs no pairing). Used by the GUI's connect flow when
+// no master key was entered: the target is then treated as a plain
+// Sunshine/GameStream host with no usbridge agent API to verify against, so
+// reachability of the streamer itself is the only meaningful check. Pairing
+// happens later, on the first ConnectToMoonlight, with the PIN shown to the
+// user via onPairingPINRequired.
+func (m *MoonlightService) ProbeGameStreamHost(ctx context.Context) error {
+	m.prepareGameStreamClient()
+	done := make(chan error, 1)
+	go func() {
+		_, err := m.client.GetServerInfo()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // submitPinToService sends the pairing PIN to the usbridge service, which forwards it
 // to Sunshine's local web API so the getservercert handshake can complete automatically.
 func (m *MoonlightService) submitPinToService(pin string) error {
+	// The agent only relays a signed PIN (agent/internal/api/security.go's
+	// LimitPIN): an unsigned one would let anyone on the network pair
+	// themselves. Without the master key the user enters the PIN on the
+	// host (agent window's Moonlight "+", or the streamer's own pairing page).
+	if len(m.apiSecret) == 0 {
+		return fmt.Errorf("no master key: PIN must be entered on the host")
+	}
 	host := m.serverHost
 	if host == "" {
 		host = "127.0.0.1"
@@ -901,30 +935,6 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 		if c, err := m.tailscaleSvc.HTTPClient(); err == nil {
 			tsHTTPClient = c
 		}
-	}
-
-	// Use a plain HTTP client when we have no API secret (pre-pair state).
-	// Once paired the secret is set via SetAPISecret and we use HMAC signing.
-	if len(m.apiSecret) == 0 {
-		url := fmt.Sprintf("%s://%s:%d/api/moonlight/pin", scheme, host, port)
-		client := &http.Client{Timeout: 10 * time.Second}
-		if tsHTTPClient != nil {
-			client.Transport = tsHTTPClient.Transport
-		} else {
-			client.Transport = &http.Transport{
-				Proxy:        http.ProxyURL(nil),
-				TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
-			}
-		}
-		resp, err := client.Post(url, "application/json", bytes.NewReader(body))
-		if err != nil {
-			return fmt.Errorf("POST %s: %w", url, err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("usbridge service returned HTTP %d", resp.StatusCode)
-		}
-		return nil
 	}
 
 	var usbClient *usbapi.USBClient
