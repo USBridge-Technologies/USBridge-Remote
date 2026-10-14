@@ -67,10 +67,11 @@ func protocolBadgeColors(key string) (fg color.Color, line color.Color) {
 	}
 }
 
+// USBridge Streamer leads: it is what the Windows installer selects.
 var protocolOptions = []protocolOption{
-	{protocolOpensource, "Sunshine", "Open Source", design.ColorWhite, design.ColorWhite, nil},
 	{protocolFree, "USBridge Streamer", "Free", design.ColorTeal, design.ColorTeal, nil},
 	{protocolPro, "USBridge Streamer", "Pro", design.ColorProSoft, design.ColorProSoft, nil},
+	{protocolOpensource, "Sunshine", "Open Source", design.ColorWhite, design.ColorWhite, nil},
 }
 
 func protocolPickerKey(key string) string {
