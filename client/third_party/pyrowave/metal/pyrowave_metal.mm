@@ -241,10 +241,14 @@ id<MTLComputePipelineState> make_pipeline(id<MTLDevice> device, const char *sour
 		fail(PWM_ERROR_UNSUPPORTED, "needs macOS 11 (Metal Shading Language 2.3)");
 		return nil;
 	}
-	// IEEE float math, as the Vulkan drivers run these shaders.
+	// IEEE float math, as the Vulkan drivers run these shaders. mathMode only
+	// exists in the macOS 15 SDK; older SDKs (CI's macos-14 image) get the
+	// fastMathEnabled path only.
+#if defined(__MAC_15_0) && __MAC_OS_X_VERSION_MAX_ALLOWED >= __MAC_15_0
 	if (@available(macOS 15.0, *))
 		options.mathMode = MTLMathModeSafe;
 	else
+#endif
 	{
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
