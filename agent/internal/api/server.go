@@ -74,8 +74,8 @@ type Application interface {
 	// free-tier, no license check.
 	HdrStatus() (active bool, available bool)
 	// PyroWaveColorStatus reports whether 4:4:4 (Pro) and HDR can be offered
-	// with PyroWave (a Linux host takes them on any GPU it encodes on; Windows
-	// and macOS hosts encode 8-bit 4:2:0) -- independent of the HEVC encoder's
+	// with PyroWave (Linux and macOS hosts take them on any GPU they encode on;
+	// Windows hosts encode 8-bit 4:2:0) -- independent of the HEVC encoder's
 	// Color444Status/HdrStatus.
 	PyroWaveColorStatus() (color444 bool, hdr bool)
 	// VirtualDisplayPrimary / SetVirtualDisplayPrimary: whether the virtual
@@ -884,8 +884,9 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		// comment.
 		"hdr_active":    hdrActive,
 		"hdr_available": hdrAvailable,
-		// The same two upgrades with PyroWave (a Linux host's PyroWave GPU;
-		// 4:4:4 still license-gated) -- see Application.PyroWaveColorStatus.
+		// The same two upgrades with PyroWave (a Linux or macOS host's
+		// PyroWave GPU; 4:4:4 still license-gated) -- see
+		// Application.PyroWaveColorStatus.
 		"pyrowave_color_444_available": pyroWave444Available,
 		"pyrowave_hdr_available":       pyroWaveHdrAvailable,
 		"virtual_display_supported":    s.app.VirtualDisplaySupported(),

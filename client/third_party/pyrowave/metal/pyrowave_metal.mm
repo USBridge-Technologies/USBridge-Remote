@@ -13,7 +13,9 @@
 // - Input and output planes are IOSurface-backed textures: the encoder samples the capture's Y
 //   and CbCr planes in place (Cb and Cr are swizzled views of the one CbCr plane); the decoder
 //   writes Y straight into the output surface, and Cb/Cr into two chroma textures that one more
-//   dispatch interleaves into the surface's CbCr plane.
+//   dispatch interleaves into the surface's CbCr plane. 8-bit surfaces are R8/RG8 textures,
+//   16-bit ones (10-bit HDR in 16-bit containers) R16/RG16 -- both UNORM, so the shaders see the
+//   same 0..1 range either way, as on Vulkan.
 // - Bitstream and metadata buffers are shared (CPU-visible) memory: read in place after the
 //   encode, no staging copy.
 
@@ -98,6 +100,7 @@ enum
 enum
 {
 	CHROMA_RESOLUTION_420 = 0,
+	CHROMA_RESOLUTION_444 = 1,
 };
 
 struct BitstreamSequenceHeader
@@ -399,6 +402,7 @@ struct WaveletBuffers
 
 	int width = 0;
 	int height = 0;
+	bool chroma444 = false;
 	int aligned_width = 0;
 	int aligned_height = 0;
 	uint32_t last_gpu_us = 0;
@@ -413,10 +417,19 @@ struct WaveletBuffers
 		return std::max(1, (aligned_height / 2) >> level);
 	}
 
-	int init(void *mtl_device, int width_, int height_, bool for_encoder)
+	// 4:2:0 has no level-0 chroma bands: the half-size chroma planes enter at level 1.
+	bool skip_band_level(int level, int component) const
 	{
+		return level == 0 && component != 0 && !chroma444;
+	}
+
+	int init(void *mtl_device, int width_, int height_, int chroma, bool for_encoder)
+	{
+		if (chroma != PWM_CHROMA_420 && chroma != PWM_CHROMA_444)
+			return fail(PWM_ERROR_ARGUMENT, "chroma %d", chroma);
 		if (width_ <= 0 || height_ <= 0 || (width_ & 1) || (height_ & 1) || width_ > 16384 || height_ > 16384)
-			return fail(PWM_ERROR_ARGUMENT, "%dx%d is not an even 4:2:0 size", width_, height_);
+			return fail(PWM_ERROR_ARGUMENT, "%dx%d is not an even size", width_, height_);
+		chroma444 = chroma == PWM_CHROMA_444;
 		device = resolve_device(mtl_device);
 		if (!device)
 			return fail(PWM_ERROR_UNSUPPORTED, "no Metal device");
@@ -534,7 +547,7 @@ struct WaveletBuffers
 			for (int component = 0; component < NumComponents; component++)
 			{
 				// Ignore top-level CbCr when doing 420 subsampling.
-				if (level == 0 && component != 0)
+				if (skip_band_level(level, component))
 					continue;
 
 				for (int band = (level == DecompositionLevels - 1 ? 0 : 1); band < 4; band++)
@@ -585,11 +598,13 @@ struct WaveletBuffers
 
 // ── IOSurface planes as textures ──────────────────────────────────────────────
 
-// One NV12 IOSurface wrapped as textures, kept while the surface is in use: capture and display
-// pools hand the same few surfaces round, so each is wrapped once.
+// One biplanar YCbCr IOSurface wrapped as textures, kept while the surface is in use: capture and
+// display pools hand the same few surfaces round, so each is wrapped once.
 struct SurfaceTextures
 {
 	IOSurfaceRef surface = nullptr; // retained
+	// 2 for 16-bit samples (10-bit formats keep theirs in 16-bit containers), else 1.
+	size_t bytes_per_sample = 1;
 	id<MTLTexture> y;
 	id<MTLTexture> cbcr;
 	// Encoder: Cb and Cr as single-channel reads of the CbCr plane (red, green).
@@ -614,36 +629,44 @@ struct SurfaceCache
 		entries.clear();
 	}
 
-	// `writable`: the decoder's output; otherwise the encoder's input.
-	const SurfaceTextures *get(id<MTLDevice> device, IOSurfaceRef surface, int width, int height, bool writable)
+	// `writable`: the decoder's output; otherwise the encoder's input. The surface is 8- or 16-bit
+	// biplanar YCbCr of the coder's size, its CbCr plane half size (4:2:0) or full size (4:4:4).
+	const SurfaceTextures *get(id<MTLDevice> device, IOSurfaceRef surface, int width, int height, bool chroma444,
+	                           bool writable)
 	{
 		for (auto &e : entries)
 			if (e.surface == surface)
 				return &e;
 
-		if (IOSurfaceGetPlaneCount(surface) != 2 ||
+		const int chroma_width = chroma444 ? width : width / 2;
+		const int chroma_height = chroma444 ? height : height / 2;
+		const size_t bps = IOSurfaceGetBytesPerElementOfPlane(surface, 0);
+		if (IOSurfaceGetPlaneCount(surface) != 2 || (bps != 1 && bps != 2) ||
 		    int(IOSurfaceGetWidthOfPlane(surface, 0)) != width || int(IOSurfaceGetHeightOfPlane(surface, 0)) != height ||
-		    int(IOSurfaceGetWidthOfPlane(surface, 1)) != width / 2 || int(IOSurfaceGetHeightOfPlane(surface, 1)) != height / 2 ||
-		    IOSurfaceGetBytesPerElementOfPlane(surface, 0) != 1 || IOSurfaceGetBytesPerElementOfPlane(surface, 1) != 2)
+		    int(IOSurfaceGetWidthOfPlane(surface, 1)) != chroma_width ||
+		    int(IOSurfaceGetHeightOfPlane(surface, 1)) != chroma_height ||
+		    IOSurfaceGetBytesPerElementOfPlane(surface, 1) != 2 * bps)
 		{
-			fail(PWM_ERROR_SURFACE, "surface is %zux%zu with %zu planes, not 8-bit NV12 %dx%d",
-			     IOSurfaceGetWidth(surface), IOSurfaceGetHeight(surface), IOSurfaceGetPlaneCount(surface), width, height);
+			fail(PWM_ERROR_SURFACE, "surface is %zux%zu with %zu planes of %zu bytes per sample, not biplanar %s %dx%d",
+			     IOSurfaceGetWidth(surface), IOSurfaceGetHeight(surface), IOSurfaceGetPlaneCount(surface), bps,
+			     chroma444 ? "4:4:4" : "4:2:0", width, height);
 			return nullptr;
 		}
 
 		MTLTextureUsage usage = writable ? (MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite) : MTLTextureUsageShaderRead;
-		MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
+		MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:(bps == 2 ? MTLPixelFormatR16Unorm : MTLPixelFormatR8Unorm)
 		                                                                                width:NSUInteger(width)
 		                                                                               height:NSUInteger(height)
 		                                                                            mipmapped:NO];
 		desc.usage = usage;
 		desc.storageMode = MTLStorageModeShared;
 		SurfaceTextures e;
+		e.bytes_per_sample = bps;
 		e.y = [device newTextureWithDescriptor:desc iosurface:surface plane:0];
 
-		desc.pixelFormat = MTLPixelFormatRG8Unorm;
-		desc.width = NSUInteger(width / 2);
-		desc.height = NSUInteger(height / 2);
+		desc.pixelFormat = bps == 2 ? MTLPixelFormatRG16Unorm : MTLPixelFormatRG8Unorm;
+		desc.width = NSUInteger(chroma_width);
+		desc.height = NSUInteger(chroma_height);
 		e.cbcr = [device newTextureWithDescriptor:desc iosurface:surface plane:1];
 		if (!writable)
 		{
@@ -763,9 +786,13 @@ struct EncoderImpl : WaveletBuffers
 
 		float csf = 2.6f * (0.0192f + 0.114f * cpd) * std::exp(-std::pow(0.114f * cpd, 1.1f));
 
-		// Heavily discount chroma quality (4:2:0).
+		// Heavily discount chroma quality.
 		if (component != 0 && level != DecompositionLevels - 1)
-			csf *= 0.6f;
+		{
+			// Consider chroma a little more important if we're not subsampling.
+			if (!chroma444)
+				csf *= 0.6f;
+		}
 
 		// Due to filtering, distortion in lower bands will result in more noise power.
 		// By scaling the distortion by this factor, we ensure uniform results.
@@ -780,8 +807,8 @@ struct EncoderImpl : WaveletBuffers
 	{
 		block_stat_buffer = device_buffer(size_t(block_count_8x8) * sizeof(BlockStats));
 		meta_buffer = device_buffer(size_t(block_count_8x8) * sizeof(BlockMeta));
-		// Worst case estimate (4:2:0; patches/0001 doubles it for 4:4:4).
-		payload_data = device_buffer(size_t(aligned_width) * size_t(aligned_height) * 2);
+		// Worst case estimate; 4:4:4 carries twice the samples (patches/0001).
+		payload_data = device_buffer(size_t(aligned_width) * size_t(aligned_height) * (chroma444 ? 4 : 2));
 		quant_buffer = device_buffer(size_t(block_count_32x32) * sizeof(uint32_t));
 
 		size_t bucket_size = RDOBucketOffset;
@@ -824,15 +851,18 @@ struct EncoderImpl : WaveletBuffers
 			if (output_level == 0)
 			{
 				[cmd setComputePipelineState:pipelines->dwt[1]];
-				[cmd setTexture:planes.y atIndex:0];
-				[cmd setTexture:component_layer_views[0][output_level] atIndex:1];
-				dispatch(cmd, (push.aligned_resolution.x + 31) / 32, (push.aligned_resolution.y + 31) / 32, 64);
+				for (int c = 0; c < (chroma444 ? NumComponents : 1); c++)
+				{
+					[cmd setTexture:(c == 0 ? planes.y : c == 1 ? planes.cb : planes.cr) atIndex:0];
+					[cmd setTexture:component_layer_views[c][output_level] atIndex:1];
+					dispatch(cmd, (push.aligned_resolution.x + 31) / 32, (push.aligned_resolution.y + 31) / 32, 64);
+				}
 			}
 			else
 			{
 				for (int c = 0; c < NumComponents; c++)
 				{
-					if (c != 0 && output_level == 1)
+					if (!chroma444 && c != 0 && output_level == 1)
 					{
 						push.resolution = { uint32_t(width / 2), uint32_t(height / 2) };
 						push.aligned_resolution = { uint32_t(aligned_width >> output_level), uint32_t(aligned_height >> output_level) };
@@ -867,7 +897,7 @@ struct EncoderImpl : WaveletBuffers
 			for (int component = 0; component < NumComponents; component++)
 			{
 				// Ignore top-level CbCr when doing 420 subsampling.
-				if (level == 0 && component != 0)
+				if (skip_band_level(level, component))
 					continue;
 
 				[cmd setTexture:component_layer_views[component][level] atIndex:0];
@@ -908,7 +938,7 @@ struct EncoderImpl : WaveletBuffers
 			for (int component = 0; component < NumComponents; component++)
 			{
 				// Ignore top-level CbCr when doing 420 subsampling.
-				if (level == 0 && component != 0)
+				if (skip_band_level(level, component))
 					continue;
 
 				for (int band = (level == DecompositionLevels - 1 ? 0 : 1); band < 4; band++)
@@ -976,7 +1006,7 @@ struct EncoderImpl : WaveletBuffers
 			for (int component = 0; component < NumComponents; component++)
 			{
 				// Ignore top-level CbCr when doing 420 subsampling.
-				if (level == 0 && component != 0)
+				if (skip_band_level(level, component))
 					continue;
 
 				for (int band = (level == DecompositionLevels - 1 ? 0 : 1); band < 4; band++)
@@ -1010,7 +1040,7 @@ struct EncoderImpl : WaveletBuffers
 		if (target_bitstream_size > UINT32_MAX || target_bitstream_size == 0)
 			return fail(PWM_ERROR_ARGUMENT, "bitstream budget %zu", maximum_bitstream_size);
 
-		const SurfaceTextures *planes = surfaces.get(device, surface, width, height, false);
+		const SurfaceTextures *planes = surfaces.get(device, surface, width, height, chroma444, false);
 		if (!planes)
 			return PWM_ERROR_SURFACE;
 
@@ -1075,7 +1105,7 @@ struct EncoderImpl : WaveletBuffers
 		header.extended = 1;
 		header.code = BITSTREAM_EXTENDED_CODE_START_OF_FRAME;
 		header.total_blocks = uint32_t(num_non_zero_blocks);
-		header.chroma_resolution = CHROMA_RESOLUTION_420;
+		header.chroma_resolution = chroma444 ? CHROMA_RESOLUTION_444 : CHROMA_RESOLUTION_420;
 
 		size_t output_offset = 0;
 		memcpy(output_bitstream, &header, sizeof(header));
@@ -1108,7 +1138,8 @@ struct DequantizerPushData
 struct DecoderImpl : WaveletBuffers
 {
 	id<MTLBuffer> dequant_offset_buffer, payload_data;
-	// The iDWT's chroma output (half size), interleaved into the surface's CbCr plane at the end.
+	// The iDWT's chroma output (half size for 4:2:0), interleaved into the surface's CbCr plane at
+	// the end. 16-bit, so it holds an HDR surface's samples as well as an 8-bit one's.
 	id<MTLTexture> chroma_planes[2];
 	SurfaceCache surfaces;
 
@@ -1118,15 +1149,24 @@ struct DecoderImpl : WaveletBuffers
 	int total_blocks_in_sequence = 0;
 	uint32_t last_seq = UINT32_MAX;
 
+	int chroma_width() const
+	{
+		return chroma444 ? width : width / 2;
+	}
+	int chroma_height() const
+	{
+		return chroma444 ? height : height / 2;
+	}
+
 	bool init_decoder_buffers()
 	{
 		dequant_offset_buffer = shared_buffer(size_t(block_count_32x32) * sizeof(uint32_t));
 		dequant_offset_buffer_cpu.resize(size_t(block_count_32x32));
 		payload_data_cpu.reserve(1024 * 1024);
 
-		MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
-		                                                                                width:NSUInteger(width / 2)
-		                                                                               height:NSUInteger(height / 2)
+		MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR16Unorm
+		                                                                                width:NSUInteger(chroma_width())
+		                                                                               height:NSUInteger(chroma_height())
 		                                                                            mipmapped:NO];
 		desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
 		desc.storageMode = MTLStorageModePrivate;
@@ -1185,7 +1225,7 @@ struct DecoderImpl : WaveletBuffers
 				BitstreamSequenceHeader seq;
 				memcpy(&seq, data, sizeof(seq));
 
-				if (seq.chroma_resolution != CHROMA_RESOLUTION_420)
+				if (seq.chroma_resolution != (chroma444 ? CHROMA_RESOLUTION_444 : CHROMA_RESOLUTION_420))
 				{
 					fail(PWM_ERROR_BITSTREAM, "chroma resolution mismatch");
 					return false;
@@ -1317,7 +1357,7 @@ struct DecoderImpl : WaveletBuffers
 			for (int component = 0; component < NumComponents; component++)
 			{
 				// Ignore top-level CbCr when doing 420 subsampling.
-				if (level == 0 && component != 0)
+				if (skip_band_level(level, component))
 					continue;
 
 				[cmd setTexture:component_layer_views[component][level] atIndex:0];
@@ -1360,9 +1400,12 @@ struct DecoderImpl : WaveletBuffers
 			if (input_level == 0)
 			{
 				[cmd setComputePipelineState:pipelines->idwt[1]];
-				[cmd setTexture:y_plane atIndex:1];
-				[cmd setTexture:component_layer_views[0][input_level] atIndex:0];
-				dispatch(cmd, groups_x, groups_y, 64);
+				for (int c = 0; c < (chroma444 ? NumComponents : 1); c++)
+				{
+					[cmd setTexture:(c == 0 ? y_plane : chroma_planes[c - 1]) atIndex:1];
+					[cmd setTexture:component_layer_views[c][input_level] atIndex:0];
+					dispatch(cmd, groups_x, groups_y, 64);
+				}
 			}
 			else
 			{
@@ -1370,7 +1413,7 @@ struct DecoderImpl : WaveletBuffers
 				{
 					[cmd setTexture:component_layer_views[c][input_level] atIndex:0];
 
-					if (c != 0 && input_level == 1)
+					if (!chroma444 && c != 0 && input_level == 1)
 					{
 						[cmd setTexture:chroma_planes[c - 1] atIndex:1];
 						[cmd setComputePipelineState:pipelines->idwt[1]];
@@ -1389,7 +1432,7 @@ struct DecoderImpl : WaveletBuffers
 
 	int decode(const uint8_t *au, size_t len, IOSurfaceRef surface)
 	{
-		const SurfaceTextures *planes = surfaces.get(device, surface, width, height, true);
+		const SurfaceTextures *planes = surfaces.get(device, surface, width, height, chroma444, true);
 		if (!planes)
 			return PWM_ERROR_SURFACE;
 
@@ -1411,7 +1454,7 @@ struct DecoderImpl : WaveletBuffers
 		[cmd setTexture:chroma_planes[0] atIndex:0];
 		[cmd setTexture:chroma_planes[1] atIndex:1];
 		[cmd setTexture:planes->cbcr atIndex:2];
-		[cmd dispatchThreads:MTLSizeMake(NSUInteger(width / 2), NSUInteger(height / 2), 1)
+		[cmd dispatchThreads:MTLSizeMake(NSUInteger(chroma_width()), NSUInteger(chroma_height()), 1)
 		    threadsPerThreadgroup:MTLSizeMake(16, 16, 1)];
 		[cmd endEncoding];
 
@@ -1452,7 +1495,7 @@ int pwm_supported(void *mtl_device)
 	}
 }
 
-int pwm_encoder_create(void *mtl_device, int width, int height, pwm_encoder **out)
+int pwm_encoder_create(void *mtl_device, int width, int height, int chroma, pwm_encoder **out)
 {
 	last_error.clear();
 	if (!out)
@@ -1460,7 +1503,7 @@ int pwm_encoder_create(void *mtl_device, int width, int height, pwm_encoder **ou
 	@autoreleasepool
 	{
 		auto *enc = new pwm_encoder();
-		int r = enc->impl.init(mtl_device, width, height, true);
+		int r = enc->impl.init(mtl_device, width, height, chroma, true);
 		if (r == PWM_OK && !enc->impl.init_encoder_buffers())
 			r = fail(PWM_ERROR_GPU, "allocating the encoder buffers failed");
 		if (r != PWM_OK)
@@ -1481,8 +1524,8 @@ void pwm_encoder_destroy(pwm_encoder *enc)
 	}
 }
 
-int pwm_encoder_encode_nv12(pwm_encoder *enc, void *iosurface, size_t target_size,
-                            uint8_t *out, size_t out_capacity, size_t *out_len)
+int pwm_encoder_encode(pwm_encoder *enc, void *iosurface, size_t target_size,
+                       uint8_t *out, size_t out_capacity, size_t *out_len)
 {
 	last_error.clear();
 	if (!enc || !iosurface || !out || !out_len)
@@ -1501,7 +1544,7 @@ uint32_t pwm_encoder_last_gpu_us(const pwm_encoder *enc)
 	return enc ? enc->impl.last_gpu_us : 0;
 }
 
-int pwm_decoder_create(void *mtl_device, int width, int height, pwm_decoder **out)
+int pwm_decoder_create(void *mtl_device, int width, int height, int chroma, pwm_decoder **out)
 {
 	last_error.clear();
 	if (!out)
@@ -1509,7 +1552,7 @@ int pwm_decoder_create(void *mtl_device, int width, int height, pwm_decoder **ou
 	@autoreleasepool
 	{
 		auto *dec = new pwm_decoder();
-		int r = dec->impl.init(mtl_device, width, height, false);
+		int r = dec->impl.init(mtl_device, width, height, chroma, false);
 		if (r == PWM_OK && !dec->impl.init_decoder_buffers())
 			r = fail(PWM_ERROR_GPU, "allocating the decoder buffers failed");
 		if (r != PWM_OK)
@@ -1530,7 +1573,7 @@ void pwm_decoder_destroy(pwm_decoder *dec)
 	}
 }
 
-int pwm_decoder_decode_nv12(pwm_decoder *dec, const uint8_t *au, size_t len, void *iosurface)
+int pwm_decoder_decode(pwm_decoder *dec, const uint8_t *au, size_t len, void *iosurface)
 {
 	last_error.clear();
 	if (!dec || !au || !iosurface)

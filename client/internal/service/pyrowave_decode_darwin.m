@@ -12,10 +12,18 @@
 // No pixel is read back or copied by the CPU.
 //
 // The buffer's pixel format and attachments say what the stream is (the sequence header's
-// colour bits): '420f' or '420v' for full or limited range, BT.709, left or centred chroma --
-// Core Animation converts accordingly. A non-bilinear UpscaleMode (FSR1/bicubic/Lanczos) falls
-// back to CA's own scaling for these frames, same as any format metal_spike_render doesn't
-// special-case -- see that function's own doc comment.
+// colour bits) -- Core Animation converts accordingly:
+// - SDR: '420f' / '420v' (full / limited range), BT.709;
+// - HDR (VIDEO_FORMAT_PYROWAVE_HDR): 'xf20' / 'x420', 10-bit samples in 16-bit containers,
+//   BT.2020 primaries and matrix, PQ -- the same format and tags VideoToolbox gives an HEVC Main10
+//   frame, shown through the same EDR layer (metal_video_set_hdr);
+// - 4:4:4 (VIDEO_FORMAT_PYROWAVE_444 / _444_HDR): '444f' / '444v', 'xf44' / 'x444', a full-size
+//   CbCr plane;
+// left or centred chroma siting on all of them. The wavelet has no bit depth: the decoder writes
+// the 16-bit planes as 16-bit UNORM, the host having fed it the 10-bit samples the same way.
+// A non-bilinear UpscaleMode (FSR1/bicubic/Lanczos) runs metal_spike_render's own kernels for
+// 'x420' (as for HEVC HDR) and falls back to CA's own scaling for the other formats -- see that
+// function's own doc comment.
 //
 // A decode unit is one whole PyroWave packet: every frame is a keyframe, and a frame with a
 // lost shard never reaches here (moonlight-common-c drops it).
@@ -50,7 +58,7 @@ extern int metal_video_try_submit(CVImageBufferRef img);
 
 static pthread_mutex_t g_pw_mu = PTHREAD_MUTEX_INITIALIZER;
 static pwm_decoder    *g_pw_dec = NULL;
-static int             g_pw_w = 0, g_pw_h = 0;
+static int             g_pw_w = 0, g_pw_h = 0, g_pw_444 = 0;
 static uint64_t        g_pw_frames = 0;
 static uint64_t        g_pw_decode_us = 0;
 static uint64_t        g_pw_gpu_us = 0;
@@ -89,22 +97,35 @@ int pyrowave_darwin_supported(void) {
 
 static void pw_destroy_decoder(void) {
     if (g_pw_dec) { pwm_decoder_destroy(g_pw_dec); g_pw_dec = NULL; }
-    g_pw_w = g_pw_h = 0;
+    g_pw_w = g_pw_h = g_pw_444 = 0;
 }
 
-static int pw_ensure_decoder(int w, int h) {
-    if (g_pw_dec && g_pw_w == w && g_pw_h == h) return 1;
+static int pw_ensure_decoder(int w, int h, int c444) {
+    if (g_pw_dec && g_pw_w == w && g_pw_h == h && g_pw_444 == c444) return 1;
     pw_destroy_decoder();
-    if (pwm_decoder_create(NULL, w, h, &g_pw_dec) != PWM_OK) {
+    if (pwm_decoder_create(NULL, w, h, c444 ? PWM_CHROMA_444 : PWM_CHROMA_420, &g_pw_dec) != PWM_OK) {
         g_pw_dec = NULL;
         char msg[320];
-        snprintf(msg, sizeof(msg), "pyrowave: Metal decoder create failed for %dx%d: %s", w, h, pwm_last_error());
+        snprintf(msg, sizeof(msg), "pyrowave: Metal decoder create failed for %dx%d%s: %s", w, h, c444 ? " 4:4:4" : "", pwm_last_error());
         goVTLog(msg);
         return 0;
     }
-    g_pw_w = w; g_pw_h = h;
-    pw_log("pyrowave: Metal compute decoder ready %dx%d", w, h);
+    g_pw_w = w; g_pw_h = h; g_pw_444 = c444;
+    char msg[160];
+    snprintf(msg, sizeof(msg), "pyrowave: Metal compute decoder ready %dx%d %s", w, h, c444 ? "4:4:4" : "4:2:0");
+    goVTLog(msg);
     return 1;
+}
+
+// pw_pixel_format: the CoreVideo format a frame decodes into -- chroma resolution, bit depth
+// (16-bit containers for HDR's 10-bit samples) and range, all from the sequence header.
+static OSType pw_pixel_format(int c444, int hdr, int full_range) {
+    if (c444) {
+        if (hdr) return full_range ? kCVPixelFormatType_444YpCbCr10BiPlanarFullRange : kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange;
+        return full_range ? kCVPixelFormatType_444YpCbCr8BiPlanarFullRange : kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange;
+    }
+    if (hdr) return full_range ? kCVPixelFormatType_420YpCbCr10BiPlanarFullRange : kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange;
+    return full_range ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
 }
 
 // ── CVPixelBuffer pool ───────────────────────────────────────────────────────────
@@ -114,15 +135,15 @@ static int pw_ensure_decoder(int w, int h) {
 // just driven by hand since we build the buffer ourselves. A buffer the renderer still holds is
 // not handed out again, so the decoder never writes into the frame on screen.
 static CVPixelBufferPoolRef g_pw_pool = NULL;
-static int g_pw_pool_w = 0, g_pw_pool_h = 0, g_pw_pool_full = -1;
+static int g_pw_pool_w = 0, g_pw_pool_h = 0;
+static OSType g_pw_pool_fmt = 0;
 
-static CVPixelBufferPoolRef pw_ensure_pool(int w, int h, int full_range) {
-    if (g_pw_pool && g_pw_pool_w == w && g_pw_pool_h == h && g_pw_pool_full == full_range) return g_pw_pool;
+static CVPixelBufferPoolRef pw_ensure_pool(int w, int h, OSType fmt) {
+    if (g_pw_pool && g_pw_pool_w == w && g_pw_pool_h == h && g_pw_pool_fmt == fmt) return g_pw_pool;
     if (g_pw_pool) { CVPixelBufferPoolRelease(g_pw_pool); g_pw_pool = NULL; }
 
     NSDictionary *pixelAttrs = @{
-        (id)kCVPixelBufferPixelFormatTypeKey: @(full_range ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-                                                           : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+        (id)kCVPixelBufferPixelFormatTypeKey: @(fmt),
         (id)kCVPixelBufferWidthKey: @(w),
         (id)kCVPixelBufferHeightKey: @(h),
         (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
@@ -137,7 +158,7 @@ static CVPixelBufferPoolRef pw_ensure_pool(int w, int h, int full_range) {
                                            &pool);
     if (cr != kCVReturnSuccess || !pool) return NULL;
     g_pw_pool = pool;
-    g_pw_pool_w = w; g_pw_pool_h = h; g_pw_pool_full = full_range;
+    g_pw_pool_w = w; g_pw_pool_h = h; g_pw_pool_fmt = fmt;
     return g_pw_pool;
 }
 
@@ -154,18 +175,22 @@ static int pw_decode_dense(const uint8_t *au, size_t len) {
     if (!(w0 >> 31)) { pw_fail("no sequence header", (int)len); return 0; }
     int w = (int)(w0 & 0x3fff) + 1;
     int h = (int)((w0 >> 14) & 0x3fff) + 1;
-    if ((w1 >> 26) & 1) { pw_fail("4:4:4 stream", (int)len); return 0; }   // not negotiated here
-    if ((w1 >> 27) & 7) { pw_fail("HDR stream", (int)len); return 0; }     // not negotiated here
     if ((w | h) & 1) { pw_fail("odd size", w); return 0; }
+    int c444 = (int)((w1 >> 26) & 1);
+    int bt2020_primaries = (int)((w1 >> 27) & 1);
+    int pq = (int)((w1 >> 28) & 1);
+    int bt2020_matrix = (int)((w1 >> 29) & 1);
     int full_range = !((w1 >> 30) & 1);
     int left_sited = (int)((w1 >> 31) & 1);
+    // HDR10 (what rust-shine's Linux encoder sends): PQ-coded 10-bit samples, into a 16-bit surface.
+    int hdr = pq;
 
     int ok = 0;
     CVPixelBufferRef buf = NULL;
     pthread_mutex_lock(&g_pw_mu);
-    if (!pw_ensure_decoder(w, h)) goto out;
+    if (!pw_ensure_decoder(w, h, c444)) goto out;
 
-    CVPixelBufferPoolRef pool = pw_ensure_pool(w, h, full_range);
+    CVPixelBufferPoolRef pool = pw_ensure_pool(w, h, pw_pixel_format(c444, hdr, full_range));
     if (!pool) { pw_fail("no pixel buffer pool", 0); goto out; }
     if (CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buf) != kCVReturnSuccess || !buf) {
         buf = NULL;
@@ -177,7 +202,7 @@ static int pw_decode_dense(const uint8_t *au, size_t len) {
 
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
-    int r = pwm_decoder_decode_nv12(g_pw_dec, au, len, surface);
+    int r = pwm_decoder_decode(g_pw_dec, au, len, surface);
     clock_gettime(CLOCK_MONOTONIC, &t1);
     if (r != PWM_OK) {
         char why[256];
@@ -188,18 +213,26 @@ static int pw_decode_dense(const uint8_t *au, size_t len) {
     g_pw_decode_us += (uint64_t)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000);
     g_pw_gpu_us += pwm_decoder_last_gpu_us(g_pw_dec);
 
-    // What the stream is (the sequence header), so Core Animation converts it correctly. Hosts
-    // send BT.709 (the header has no other SDR matrix).
-    CVBufferSetAttachment(buf, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
-    CVBufferSetAttachment(buf, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
-    CVBufferSetAttachment(buf, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
+    // What the stream is (the sequence header), so Core Animation converts it correctly: BT.709
+    // or BT.2020 for the matrix and primaries, BT.709 or PQ for the transfer (the header has no
+    // other choices). CoreVideo mirrors these onto the IOSurface, which is what CA reads.
+    CVBufferSetAttachment(buf, kCVImageBufferYCbCrMatrixKey,
+                          bt2020_matrix ? kCVImageBufferYCbCrMatrix_ITU_R_2020 : kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+                          kCVAttachmentMode_ShouldPropagate);
+    CVBufferSetAttachment(buf, kCVImageBufferColorPrimariesKey,
+                          bt2020_primaries ? kCVImageBufferColorPrimaries_ITU_R_2020 : kCVImageBufferColorPrimaries_ITU_R_709_2,
+                          kCVAttachmentMode_ShouldPropagate);
+    CVBufferSetAttachment(buf, kCVImageBufferTransferFunctionKey,
+                          pq ? kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ : kCVImageBufferTransferFunction_ITU_R_709_2,
+                          kCVAttachmentMode_ShouldPropagate);
     CFStringRef siting = left_sited ? kCVImageBufferChromaLocation_Left : kCVImageBufferChromaLocation_Center;
     CVBufferSetAttachment(buf, kCVImageBufferChromaLocationTopFieldKey, siting, kCVAttachmentMode_ShouldPropagate);
     CVBufferSetAttachment(buf, kCVImageBufferChromaLocationBottomFieldKey, siting, kCVAttachmentMode_ShouldPropagate);
 
     if (++g_pw_frames == 1) {
-        char msg[160];
-        snprintf(msg, sizeof(msg), "pyrowave: first frame decoded (%dx%d, %s range, %s chroma)", w, h,
+        char msg[200];
+        snprintf(msg, sizeof(msg), "pyrowave: first frame decoded (%dx%d %s, %s, %s range, %s chroma)", w, h,
+                 c444 ? "4:4:4" : "4:2:0", hdr ? "HDR10 BT.2020 PQ 10-bit" : "BT.709 8-bit",
                  full_range ? "full" : "limited", left_sited ? "left-sited" : "centred");
         goVTLog(msg);
     }
@@ -327,6 +360,6 @@ void pyrowave_darwin_teardown(void) {
     g_pw_failures = 0;
     if (g_pw_pool) { CVPixelBufferPoolRelease(g_pw_pool); g_pw_pool = NULL; }
     g_pw_pool_w = g_pw_pool_h = 0;
-    g_pw_pool_full = -1;
+    g_pw_pool_fmt = 0;
     pthread_mutex_unlock(&g_pw_mu);
 }

@@ -17,11 +17,14 @@ func PyroWaveDecodeSupported() bool {
 	return C.pyrowave_darwin_supported() != 0
 }
 
-// PyroWaveColorDecodeSupported: the 4:4:4 / HDR PyroWave streams
-// (VIDEO_FORMAT_PYROWAVE_444 / _HDR) are decoded on Windows only so far; this
-// decoder is 8-bit 4:2:0, so the client never asks for them here.
+// PyroWaveColorDecodeSupported reports whether this client can decode the
+// PyroWave color upgrades: 4:4:4 (color444, VIDEO_FORMAT_PYROWAVE_444) and/or
+// HDR10 (hdr, VIDEO_FORMAT_PYROWAVE_HDR: 10-bit BT.2020 PQ). The Metal decoder
+// takes every combination on any GPU it runs on -- it writes 16-bit and
+// full-size chroma planes the same way as 8-bit 4:2:0 ones, into the CoreVideo
+// formats Core Animation shows ('x420', '444v', ...; see pyrowave_decode_darwin.m).
 func PyroWaveColorDecodeSupported(color444, hdr bool) bool {
-	return !color444 && !hdr && PyroWaveDecodeSupported()
+	return PyroWaveDecodeSupported()
 }
 
 // PyroWaveDecodedFrames counts the PyroWave frames the current stream has

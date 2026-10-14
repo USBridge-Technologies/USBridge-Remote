@@ -364,6 +364,10 @@ static int g_video_format = 0x0001;
 // AV1 Main10, AV1 High10_444: every format bit this project's RustShine
 // HDR color upgrade (see docs/COLOR_MODES.md) can end up negotiating.
 #define VIDEO_FORMAT_MASK_10BIT 0xAA00
+// VIDEO_FORMAT_PYROWAVE_HDR | VIDEO_FORMAT_PYROWAVE_444_HDR: PyroWave's own
+// HDR10 upgrades, decoded into the same 10-bit BT.2020 PQ surfaces
+// (pyrowave_decode_darwin.m) and so shown through the same EDR layer.
+#define VIDEO_FORMAT_MASK_PYROWAVE_HDR 0xC0000
 
 void platform_set_video_format(int videoFormat) {
     g_video_format = videoFormat ? videoFormat : 0x0001;
@@ -374,7 +378,7 @@ void platform_set_video_format(int videoFormat) {
     // first frame reaches metal_render_main_with_buf) -- see
     // metal_video_set_hdr's own doc comment for why this is the only
     // render-side change HDR needs.
-    metal_video_set_hdr((g_video_format & VIDEO_FORMAT_MASK_10BIT) != 0);
+    metal_video_set_hdr((g_video_format & (VIDEO_FORMAT_MASK_10BIT | VIDEO_FORMAT_MASK_PYROWAVE_HDR)) != 0);
 #endif
 }
 
