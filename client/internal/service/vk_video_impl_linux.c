@@ -130,6 +130,7 @@ static VkDescriptorPool         g_y3dpool      = VK_NULL_HANDLE;
 static VkDescriptorSet          g_y3dset       = VK_NULL_HANDLE;
 static VkPipeline               g_y3pipeline   = VK_NULL_HANDLE;
 static int                      g_y3pipeline_ok = 0;
+static int                      g_y3_limited    = 1; // range the 3-plane conversion was built for
 // Access-unit slot (network bytes only: a PyroWave frame is a few hundred KB): written by the
 // decode thread, picked up by the render thread. Capacity 1, newest frame wins.
 static uint8_t                 *g_pwau_buf[2];
@@ -811,14 +812,24 @@ static int vk_ycbcr_ensure_pipeline(void) {
     return 1;
 }
 
-static int vk_ycbcr3_ensure_pipeline(void) {
+static void vk_pw_destroy_decoder(void);
+static void vk_ycbcr3_destroy_pipeline(void);
+
+static int vk_ycbcr3_ensure_pipeline(int limited) {
+    if (g_y3pipeline_ok > 0 && g_y3_limited != limited) {
+        // The range lives in the immutable sampler conversion: rebuild it (and the ring views).
+        vkDeviceWaitIdle(g_dev);
+        vk_pw_destroy_decoder();
+        vk_ycbcr3_destroy_pipeline();
+    }
+    g_y3_limited = limited;
     if (g_y3pipeline_ok) return g_y3pipeline_ok > 0;
     g_y3pipeline_ok = -1; // assume failure; flipped to 1 at the end on success
 
     VkSamplerYcbcrConversionCreateInfo convCI = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO };
     convCI.format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
     convCI.ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709;
-    convCI.ycbcrRange = VK_SAMPLER_YCBCR_RANGE_ITU_NARROW;
+    convCI.ycbcrRange = limited ? VK_SAMPLER_YCBCR_RANGE_ITU_NARROW : VK_SAMPLER_YCBCR_RANGE_ITU_FULL;
     convCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -1733,7 +1744,7 @@ static int vk_render_frame_pyrowave(const uint8_t *au, size_t aulen) {
     int fw = (int)(w0 & 0x3fff) + 1, fh = (int)((w0 >> 14) & 0x3fff) + 1;
     if (((w1 >> 26) & 1) || ((fw | fh) & 1)) { g_render_stage = 1; return 0; } // 4:4:4 / odd: not negotiated here
 
-    if (!vk_ycbcr3_ensure_pipeline()) { g_pw_gpu_ok = 0; g_render_stage = 1; return 0; }
+    if (!vk_ycbcr3_ensure_pipeline((int)((w1 >> 30) & 1))) { g_pw_gpu_ok = 0; g_render_stage = 1; return 0; }
     g_render_stage = 2;
     if (!vk_pw_ensure(fw, fh)) { g_render_stage = 1; return 0; }
 
