@@ -734,6 +734,13 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf, double latencyMs) {
         spikeRendered = metal_spike_render(buf, container);
     }
 
+    // A decoded CVPixelBuffer means this session's frames don't go through
+    // g_avsbdl (PyroWave, decoded by pyrowave_decode_darwin.m). That layer
+    // is opaque black and sits above g_layer/g_metal_layer, so left visible
+    // it hides every frame shown here. metal_video_create makes a fresh,
+    // visible one each session, so H.264/H.265 sessions are unaffected.
+    if (g_avsbdl && !g_avsbdl.hidden) g_avsbdl.hidden = YES;
+
     if (spikeRendered) {
         if (g_metal_layer.hidden) g_metal_layer.hidden = NO;
         if (!g_layer.hidden) g_layer.hidden = YES;
