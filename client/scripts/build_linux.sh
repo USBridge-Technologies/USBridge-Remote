@@ -300,4 +300,11 @@ if ! grep -qx "$VERSION" <<<"$BINARY_STRINGS"; then
 fi
 
 echo -e "${GREEN}✓${NC} AppImage: $OUTPUT_APPIMAGE"
+
+# Same AppDir as a .deb, updated by apt (see build_deb.sh).
+if command -v dpkg-deb >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build_deb.sh"
+else
+    echo -e "${YELLOW}dpkg-deb not found: skipping the .deb${NC}"
+fi
 echo "Binary: $OUTPUT_PATH"

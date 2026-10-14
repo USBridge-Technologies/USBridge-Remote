@@ -395,7 +395,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-linux
-          path: client/dist/USBridgeClient-Linux-x86_64-*.AppImage
+          path: |
+            client/dist/USBridgeClient-Linux-x86_64-*.AppImage
+            client/dist/USBridgeClient-Linux-x86_64-*.deb
           if-no-files-found: error
           retention-days: 7
 
@@ -975,6 +977,86 @@ jobs:
           rm -f "$RUNNER_TEMP/build_certificate.p12"
           [ -n "${PROFILE_UUID:-}" ] && rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" || true
 
+  # ── Client + Agent bundles ──────────────────────────────────────────────
+  # The main download on the site: the client with the agent alongside, so
+  # one install covers both "connect to my computers" and "let this one be
+  # reached". The agent-only downloads stay for headless machines. Named
+  # USBridge-*, so sign_update_manifest.go never picks them up: each app
+  # still self-updates from its own USBridgeClient-*/USBridgeAgent-* asset.
+
+  bundle-windows:
+    needs: [agent-windows, client-windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*-windows*
+          path: artifacts
+      - name: Install Inno Setup
+        shell: pwsh
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build the Client + Agent setup (scripts/windows-installer/USBridge.iss)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content client/VERSION -Raw).Trim()
+          $zip = Get-ChildItem artifacts/release-client-windows/USBridgeClient-Windows-x86_64-*.zip | Select-Object -First 1
+          $agentSetup = Get-ChildItem artifacts/release-agent-windows-setup/USBridgeAgent-Windows-x86_64-Setup-*.exe | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath "$env:RUNNER_TEMP\client"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$version" "/DClientDir=$env:RUNNER_TEMP\client" "/DAgentSetup=$($agentSetup.FullName)" "/DOutputDir=$PWD\dist" scripts/windows-installer/USBridge.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited with $LASTEXITCODE" }
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-windows
+          path: dist/USBridge-Windows-x86_64-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  bundle-macos:
+    # Both apps are already Developer ID signed, notarized and stapled by
+    # their own jobs; this only lays them out side by side on one disk
+    # image (copied with ditto, which keeps signatures and tickets intact).
+    needs: [agent-macos, client-macos]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*-macos
+          path: artifacts
+      - name: Build the Client + Agent disk image
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d ' \t\n\r' < client/VERSION)"
+          SRC="$RUNNER_TEMP/bundle"
+          mkdir -p "$SRC" dist
+          for dmg in artifacts/release-client-macos/*.dmg artifacts/release-agent-macos/*.dmg; do
+            mnt="$(mktemp -d)"
+            hdiutil attach -nobrowse -readonly -quiet -mountpoint "$mnt" "$dmg"
+            for app in "$mnt"/*.app; do ditto "$app" "$SRC/$(basename "$app")"; done
+            hdiutil detach -quiet "$mnt"
+          done
+          ln -s /Applications "$SRC/Applications"
+          ls -la "$SRC"
+          for app in "$SRC"/*.app; do
+            xcrun stapler validate "$app"
+            spctl --assess --type execute -vv "$app"
+          done
+          OUT="dist/USBridge-macOS-arm64-$VERSION.dmg"
+          for attempt in 1 2 3; do
+            hdiutil create -volname "USBridge" -srcfolder "$SRC" -ov -format UDZO "$OUT" && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 10
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-macos
+          path: dist/USBridge-macOS-arm64-*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
   # ── Combined release ────────────────────────────────────────────────────
 
   release:
@@ -982,6 +1064,8 @@ jobs:
       - agent-linux
       - agent-macos
       - agent-windows
+      - bundle-windows
+      - bundle-macos
       - client-linux
       - client-windows
       - client-android
@@ -1053,7 +1137,7 @@ jobs:
         # apt at /releases/latest/download/ ./ (agent/scripts/build_deb.sh),
         # so only the release that becomes "latest" is ever installed from,
         # and a prerelease never reaches apt users. Signed with the GPG key
-        # whose public half is agent/packaging/deb/usbridge-archive-keyring.gpg
+        # whose public half is scripts/deb/usbridge-archive-keyring.gpg
         # (backup and README in ~/usbridge-apt-key, outside this repo).
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
@@ -1064,7 +1148,7 @@ jobs:
           trap 'rm -rf "$GNUPGHOME"' EXIT
           printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
           # Refuse to publish an index the shipped keyring can't verify.
-          want="$(gpg --batch --with-colons --show-keys agent/packaging/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
+          want="$(gpg --batch --with-colons --show-keys scripts/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
           gpg --batch --with-colons --list-secret-keys "$want" >/dev/null
 
           cd out
