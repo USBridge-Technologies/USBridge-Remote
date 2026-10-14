@@ -49,7 +49,7 @@ Categories=Network;RemoteAccess;
 EOF
 
 deb_build "$ROOT" "$OUT" usbridge-client "$VERSION" \
-    "libc6, libgl1, libx11-6, libfontconfig1, libfreetype6, libharfbuzz0b, libfribidi0" "usbridge-agent, pkexec | policykit-1" net \
+    "libc6, libgl1, libx11-6, libfontconfig1, libfreetype6, libharfbuzz0b, libfribidi0, libva2, libva-drm2, libva-x11-2, libvdpau1, libvulkan1, libdrm2" "usbridge-agent, pkexec | policykit-1" net \
     "USBridge Client - remote desktop and USB passthrough" \
     "Connects to computers running USBridge Agent: low-latency desktop
 streaming, and passing this computer's USB devices through to them."
