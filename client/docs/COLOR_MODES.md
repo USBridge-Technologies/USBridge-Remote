@@ -47,8 +47,9 @@ the combined mode.
 
 ## PyroWave
 
-PyroWave (the intra-only wavelet codec) takes both options on every host GPU
-that encodes it. The host's Vulkan tonemap writes 4:4:4 as three full-size
+PyroWave (the intra-only wavelet codec) takes both options on every Linux host
+GPU that encodes it; Windows and macOS hosts encode PyroWave 8-bit 4:2:0 only
+and don't offer them. The host's Vulkan tonemap writes 4:4:4 as three full-size
 planes and HDR as 10-bit BT.2020 PQ planes (R16), and the PyroWave encoder
 reads them straight from GPU memory. The stream's sequence header says what
 each frame is: chroma resolution, primaries, transfer function and matrix.
@@ -68,7 +69,9 @@ Negotiation (moonlight-common-c fork):
 The Windows client decodes all four modes on the GPU. See
 [WINDOWS_DECODE_PIPELINE.md](./WINDOWS_DECODE_PIPELINE.md#color-modes-444-and-hdr).
 The Linux and macOS decoders are 8-bit 4:2:0 only, so those clients never ask
-for the PyroWave options.
+for the PyroWave options. The macOS one is PyroWave's native Metal port
+(`third_party/pyrowave/metal`), decoding straight into the IOSurface the
+renderer shows.
 
 On a Linux host whose desktop is itself in HDR mode (KDE/GNOME HDR on), an
 HDR stream carries the desktop's HDR picture as-is. An SDR stream from that

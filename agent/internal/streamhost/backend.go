@@ -129,9 +129,10 @@ type CodecProbe interface {
 	// free-tier, no license check.
 	HdrStatus() (active bool, available bool)
 	// PyroWaveColorStatus reports whether this host can offer the color
-	// upgrades with PyroWave (rust-shine: any GPU that encodes PyroWave does
-	// 4:4:4 and HDR through its Vulkan slots; 4:4:4 still needs the Pro
-	// license, HDR is free). Independent of Color444Status/HdrStatus, which
+	// upgrades with PyroWave (rust-shine on Linux: any GPU that encodes
+	// PyroWave does 4:4:4 and HDR through its Vulkan slots; the Windows and
+	// macOS encoders are 8-bit 4:2:0 and report neither. 4:4:4 still needs the
+	// Pro license, HDR is free). Independent of Color444Status/HdrStatus, which
 	// are the HEVC encoder's. (false, false) on backends without PyroWave.
 	PyroWaveColorStatus() (color444 bool, hdr bool)
 	// VirtualDisplayPrimary / SetVirtualDisplayPrimary: whether the virtual

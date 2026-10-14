@@ -5,13 +5,11 @@ package service
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
 #cgo LDFLAGS: -framework AppKit -framework CoreVideo -framework QuartzCore -framework CoreFoundation -framework Metal -framework AVFoundation -framework CoreMedia
-// PyroWave decode (pyrowave_decode_darwin.m): one static archive from
-// scripts/build_pyrowave_macos.sh that exports only the pyrowave_* C API.
-// Vulkan headers come from the vendored tree (pinned to what the bitstream was built
-// against, see PUNKTFUNK-VENDOR.txt) -- MoltenVK itself is a runtime-only dependency
-// (dlopen'd, see pyrowave_decode_darwin.m's moltenvk_preload), not linked here.
-#cgo CFLAGS: -I${SRCDIR}/../../third_party/pyrowave/vendor/pyrowave -I${SRCDIR}/../../third_party/pyrowave/vendor/pyrowave/Granite/third_party/khronos/vulkan-headers/include
-#cgo LDFLAGS: -L${SRCDIR}/../../third_party/pyrowave/build -lusbridge-pyrowave -lstdc++ -lm
+// PyroWave decode (pyrowave_decode_darwin.m): PyroWave's native Metal decoder, one static
+// archive from scripts/build_pyrowave_macos.sh exporting the pwm_* C API
+// (third_party/pyrowave/metal/pyrowave_metal.h). No Vulkan or MoltenVK.
+#cgo CFLAGS: -I${SRCDIR}/../../third_party/pyrowave/metal
+#cgo LDFLAGS: -L${SRCDIR}/../../third_party/pyrowave/build -lusbridge-pyrowave -lc++ -framework IOSurface
 
 #include <stdint.h>
 #include <CoreVideo/CoreVideo.h>

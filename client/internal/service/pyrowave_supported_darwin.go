@@ -5,14 +5,16 @@ package service
 /*
 #include <stdint.h>
 extern uint64_t pyrowave_darwin_frames(void);
+extern int pyrowave_darwin_supported(void);
 */
 import "C"
 
 // PyroWaveDecodeSupported reports whether this client can decode a PyroWave
-// stream (models.VideoModePyroWave). On macOS the decoder is built in:
-// Vulkan compute over MoltenVK, pyrowave_decode_darwin.m.
+// stream (models.VideoModePyroWave). On macOS the decoder is built in: native
+// Metal compute (pyrowave_decode_darwin.m), on any GPU with 32-wide SIMD
+// groups -- every Apple GPU, not an Intel Mac's AMD one. Checked once.
 func PyroWaveDecodeSupported() bool {
-	return true
+	return C.pyrowave_darwin_supported() != 0
 }
 
 // PyroWaveColorDecodeSupported: the 4:4:4 / HDR PyroWave streams
