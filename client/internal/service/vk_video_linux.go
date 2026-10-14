@@ -3,7 +3,7 @@
 package service
 
 /*
-#cgo LDFLAGS: -lvulkan -lX11
+#cgo LDFLAGS: -lvulkan -lX11 -lXext
 
 #include <stdint.h>
 
@@ -21,6 +21,7 @@ extern void vk_video_clear_pending_stats(void);
 extern void vk_video_get_diag(long long *hb, int *stage);
 extern void vk_video_get_gpu_name(char *out, int out_len);
 extern void vk_video_set_hidden(int hidden);
+extern void vk_video_set_holes(const int *xywh, int n);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
 extern void vk_video_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *sh);
 
@@ -137,6 +138,21 @@ func VKVideoSetHidden(hidden bool) {
 		h = 1
 	}
 	C.vk_video_set_hidden(h)
+}
+
+// VKVideoSetHoles cuts rects (overlay-window pixels, [x,y,w,h] each) out of
+// the Vulkan child window so Fyne menus underneath show through while the
+// rest of the video keeps playing. nil/empty clears every hole.
+func VKVideoSetHoles(rects [][4]int) {
+	if len(rects) == 0 {
+		C.vk_video_set_holes(nil, 0)
+		return
+	}
+	flat := make([]C.int, 0, len(rects)*4)
+	for _, r := range rects {
+		flat = append(flat, C.int(r[0]), C.int(r[1]), C.int(r[2]), C.int(r[3]))
+	}
+	C.vk_video_set_holes(&flat[0], C.int(len(rects)))
 }
 
 // VKVideoNextEvent drains one pending pointer event from the Vulkan overlay window.

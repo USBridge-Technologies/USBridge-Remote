@@ -3,6 +3,8 @@
 package controller
 
 import (
+	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,9 +47,10 @@ const (
 )
 
 func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullscreen bool, attempt int) {
-	// Wire hide/show hooks for Fyne menus — mirrors macOS Metal / Windows Vulkan pattern.
-	view.OnOverlayShow = func() { service.VKVideoSetHidden(true) }
-	view.OnOverlayHide = func() { service.VKVideoSetHidden(false) }
+	// Fyne menus no longer hide the video: syncVKOcclusion cuts their rects
+	// out of the Vulkan child window instead (see view.OverlayHoleRects).
+	view.OnOverlayShow = vw.scheduleVKOcclusionSync
+	view.OnOverlayHide = vw.scheduleVKOcclusionSync
 
 	if window == nil {
 		return
@@ -110,9 +113,8 @@ func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullsc
 		if service.VKVideoCreate(xwin, px, py, pw, ph) {
 			logrus.Infof("[VK/Linux] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)",
 				fullscreen, px, py, pw, ph)
-			if view.OverlayActive() {
-				service.VKVideoSetHidden(true)
-			}
+			vkHolesApplied = nil
+			vw.syncVKOcclusion()
 			// Forward mouse events from Vulkan window to TouchpadWrapper.
 			// GLFW stops delivering mouse events to Fyne when the cursor is over
 			// the native child window, so we read them directly from the X11
@@ -177,6 +179,7 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			scale = vw.parentWindow.Canvas().Scale()
 		}
 		service.VKVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
+		vw.syncVKOcclusion()
 		if st.FW > 0 && st.FH > 0 {
 			vw.noteStreamPixelSize(float32(st.FW), float32(st.FH))
 		}
@@ -208,6 +211,92 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		}
 		service.GLVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
 	}
+}
+
+// vkHolesApplied is the last hole list pushed to the Vulkan child window
+// (nil = none). Fyne main goroutine only.
+var vkHolesApplied [][4]int
+
+// scheduleVKOcclusionSync runs syncVKOcclusion now and again shortly after:
+// overlay show/hide fires from popup watchers off the main goroutine, often
+// before the popup's panel has its first layout, and a paused stream has no
+// frame tick to pick the final rect up.
+func (vw *VideoWidget) scheduleVKOcclusionSync() {
+	fyne.Do(vw.syncVKOcclusion)
+	for _, d := range []time.Duration{60 * time.Millisecond, 250 * time.Millisecond} {
+		time.AfterFunc(d, func() { fyne.Do(vw.syncVKOcclusion) })
+	}
+}
+
+// syncVKOcclusion keeps Fyne overlays visible over the Vulkan child window:
+// open menus/popups become holes in its X11 shape so the rest of the video
+// keeps playing; navigation away from Control, or an overlay of unknown
+// shape, still hides it outright. Fyne main goroutine only.
+func (vw *VideoWidget) syncVKOcclusion() {
+	if !service.VKVideoIsActive() {
+		return
+	}
+	win := vkFullscreenWindow
+	if win == nil {
+		win = vw.parentWindow
+	}
+	if win == nil || win.Canvas() == nil || view.NavVideoHidden() {
+		service.VKVideoSetHidden(true)
+		return
+	}
+	rects, ok := view.OverlayHoleRects(win.Canvas())
+	if !ok {
+		service.VKVideoSetHidden(true)
+		return
+	}
+	vx, vy, vwid, vh := vw.videoCanvasFrame()
+	scale := win.Canvas().Scale()
+	var holes [][4]int
+	for _, r := range rects {
+		// Overlay rect relative to the child window, in pixels, grown to
+		// whole pixels so no sliver of video covers the menu's edge.
+		x0 := int(math.Floor(float64((r.X - vx) * scale)))
+		y0 := int(math.Floor(float64((r.Y - vy) * scale)))
+		x1 := int(math.Ceil(float64((r.X + r.W - vx) * scale)))
+		y1 := int(math.Ceil(float64((r.Y + r.H - vy) * scale)))
+		if x1 <= 0 || y1 <= 0 || x0 >= int(vwid*scale)+1 || y0 >= int(vh*scale)+1 {
+			continue // overlay does not touch the video
+		}
+		holes = appendRoundedHole(holes, x0, y0, x1-x0, y1-y0, int(math.Round(float64(r.R*scale))))
+	}
+	if !slices.Equal(holes, vkHolesApplied) {
+		service.VKVideoSetHoles(holes)
+		vkHolesApplied = holes
+		// Parent GL pixels under a fresh hole are only as fresh as Fyne's
+		// last paint; repaint so the menu shows up at once.
+		win.Canvas().Refresh(win.Canvas().Content())
+	}
+	service.VKVideoSetHidden(false)
+}
+
+// appendRoundedHole adds a w×h hole at (x,y) with corners of radius r
+// (pixels) as X rectangles: one-pixel rows for the top and bottom r rows,
+// each inset by the circle, plus one block for the straight middle. The
+// video then fills the corners a rounded menu card leaves bare.
+func appendRoundedHole(holes [][4]int, x, y, w, h, r int) [][4]int {
+	if r > w/2 {
+		r = w / 2
+	}
+	if r > h/2 {
+		r = h / 2
+	}
+	if r <= 0 {
+		return append(holes, [4]int{x, y, w, h})
+	}
+	rf := float64(r)
+	for row := 0; row < r; row++ {
+		dy := rf - float64(row) - 0.5
+		inset := int(math.Floor(rf - math.Sqrt(rf*rf-dy*dy)))
+		holes = append(holes,
+			[4]int{x + inset, y + row, w - 2*inset, 1},
+			[4]int{x + inset, y + h - 1 - row, w - 2*inset, 1})
+	}
+	return append(holes, [4]int{x, y + r, w, h - 2*r})
 }
 
 // vkFullscreenWindow tracks the window currently hosting the VK overlay in

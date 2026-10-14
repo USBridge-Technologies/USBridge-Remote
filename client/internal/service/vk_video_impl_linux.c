@@ -21,6 +21,7 @@
 #include "pyrowave.h"
 #include <vulkan/vulkan_xlib.h>
 #include <X11/Xlib.h>
+#include <X11/extensions/shape.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -2337,6 +2338,9 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     return 1;
 }
 
+static int g_hole_count, g_shape_w, g_shape_h;
+static void vk_apply_holes(void);
+
 // vk_video_update_frame — reposition the X11 child window and apply hide/show.
 // Called from CGO thread only; safe to call X11 here.
 void vk_video_update_frame(int x, int y, int w, int h) {
@@ -2348,8 +2352,12 @@ void vk_video_update_frame(int x, int y, int w, int h) {
     atomic_store(&g_dst_w, w);
     atomic_store(&g_dst_h, h);
 
-    if (g_dpy && g_win && w > 0 && h > 0)
+    if (g_dpy && g_win && w > 0 && h > 0) {
         XMoveResizeWindow(g_dpy, g_win, x, y, (unsigned)w, (unsigned)h);
+        // An explicit bounding shape does not grow with the window, so
+        // re-cut the holes against the new size.
+        if (g_hole_count > 0 && (w != g_shape_w || h != g_shape_h)) vk_apply_holes();
+    }
 
     // Apply visibility (g_hidden may have been updated by vk_video_set_hidden).
     int want_hidden = atomic_load(&g_hidden);
@@ -2361,6 +2369,59 @@ void vk_video_update_frame(int x, int y, int w, int h) {
         g_win_visible = 1;
     }
     if (g_dpy) XFlush(g_dpy);
+}
+
+// Menu holes: rects (child-window pixels; rounded corners arrive as rows) cut out of the overlay's X11
+// shape so Fyne menus drawn in the parent GLFW window show through while
+// the rest of the video keeps playing. CGO thread only, like the X calls
+// above.
+#define VK_MAX_HOLES 1024 // rects, not menus: a rounded hole is ~2r+1 of them
+static XRectangle g_holes[VK_MAX_HOLES];
+static int g_hole_count = 0;
+static int g_shape_w = 0, g_shape_h = 0;
+static int g_shape_ok = -1; // -1 unknown, 0 no SHAPE extension, 1 available
+
+static void vk_apply_holes(void) {
+    if (!g_dpy || !g_win) return;
+    if (g_shape_ok < 0) {
+        int ev, er;
+        g_shape_ok = XShapeQueryExtension(g_dpy, &ev, &er) ? 1 : 0;
+    }
+    if (!g_shape_ok) return;
+    int w = atomic_load(&g_dst_w), h = atomic_load(&g_dst_h);
+    if (g_hole_count == 0 || w <= 0 || h <= 0) {
+        // None restores the default rectangular shape.
+        XShapeCombineMask(g_dpy, g_win, ShapeBounding, 0, 0, None, ShapeSet);
+        g_shape_w = g_shape_h = 0;
+    } else {
+        XRectangle full = { 0, 0, (unsigned short)w, (unsigned short)h };
+        XShapeCombineRectangles(g_dpy, g_win, ShapeBounding, 0, 0, &full, 1, ShapeSet, Unsorted);
+        XShapeCombineRectangles(g_dpy, g_win, ShapeBounding, 0, 0, g_holes, g_hole_count,
+                                ShapeSubtract, Unsorted);
+        g_shape_w = w; g_shape_h = h;
+    }
+    XFlush(g_dpy);
+}
+
+// vk_video_set_holes replaces the hole list; xywh holds n rects as
+// x,y,w,h quadruples. n == 0 clears every hole.
+void vk_video_set_holes(const int *xywh, int n) {
+    if (n > VK_MAX_HOLES) n = VK_MAX_HOLES;
+    int k = 0;
+    for (int i = 0; i < n; i++) {
+        int x = xywh[i*4], y = xywh[i*4+1], w = xywh[i*4+2], h = xywh[i*4+3];
+        if (w <= 0 || h <= 0) continue;
+        if (x < -32000) { w += x + 32000; x = -32000; }
+        if (y < -32000) { h += y + 32000; y = -32000; }
+        if (w > 65535) w = 65535;
+        if (h > 65535) h = 65535;
+        g_holes[k].x = (short)x; g_holes[k].y = (short)y;
+        g_holes[k].width = (unsigned short)w; g_holes[k].height = (unsigned short)h;
+        k++;
+    }
+    if (k == 0 && g_hole_count == 0) return;
+    g_hole_count = k;
+    vk_apply_holes();
 }
 
 // Called from CGO thread — safe to call X11 immediately.
@@ -2432,6 +2493,7 @@ static void vk_full_cleanup(void) {
     g_pdev = VK_NULL_HANDLE;
 
     if (g_win && g_dpy)  { XDestroyWindow(g_dpy, g_win); g_win = 0; }
+    g_hole_count = 0; g_shape_w = g_shape_h = 0; g_shape_ok = -1;
     if (g_dpy)           { XCloseDisplay(g_dpy);          g_dpy = NULL; }
     g_parent_win = 0;
 
