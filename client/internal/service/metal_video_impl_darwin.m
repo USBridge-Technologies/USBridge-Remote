@@ -1647,6 +1647,96 @@ void metal_video_update_frame(float x, float y, float w, float h) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
+// metal_buffer_to_rgba converts a locked CVPixelBuffer to w*h RGBA: BGRA (what
+// VideoToolbox decodes SDR H.26x to), or biplanar YCbCr -- 8-bit or 16-bit
+// samples, 4:2:0 or 4:4:4, full or video range: the formats PyroWave
+// (pyrowave_decode_darwin.m) and HEVC Main10 frames arrive in. The matrix
+// follows the buffer's own YCbCr attachment (BT.2020 or BT.709); PQ is not
+// tone mapped, it is a still for the pause screen. Returns 0 for any other
+// format -- reading a planar buffer as BGRA through its base address walks
+// off the end of the surface and crashed the client on stop.
+static int metal_buffer_to_rgba(CVPixelBufferRef buf, int w, int h, uint8_t *rgba) {
+    OSType fmt = CVPixelBufferGetPixelFormatType(buf);
+    if (fmt == kCVPixelFormatType_32BGRA) {
+        uint8_t *src = (uint8_t *)CVPixelBufferGetBaseAddress(buf);
+        size_t srcStride = CVPixelBufferGetBytesPerRow(buf);
+        if (!src || srcStride < (size_t)w * 4) return 0;
+        // Swap B<->R to produce RGBA.
+        for (int y = 0; y < h; y++) {
+            uint8_t *s = src  + (size_t)y * srcStride;
+            uint8_t *d = rgba + (size_t)y * (size_t)w * 4;
+            for (int x = 0; x < w; x++, s += 4, d += 4) {
+                d[0] = s[2]; d[1] = s[1]; d[2] = s[0]; d[3] = s[3];
+            }
+        }
+        return 1;
+    }
+
+    int full;  // range
+    int bps;   // bytes per sample
+    int c444;
+    switch (fmt) {
+    case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:   full = 0; bps = 1; c444 = 0; break;
+    case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:    full = 1; bps = 1; c444 = 0; break;
+    case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:  full = 0; bps = 2; c444 = 0; break;
+    case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:   full = 1; bps = 2; c444 = 0; break;
+    case kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange:   full = 0; bps = 1; c444 = 1; break;
+    case kCVPixelFormatType_444YpCbCr8BiPlanarFullRange:    full = 1; bps = 1; c444 = 1; break;
+    case kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:  full = 0; bps = 2; c444 = 1; break;
+    case kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:   full = 1; bps = 2; c444 = 1; break;
+    default: return 0;
+    }
+    if (CVPixelBufferGetPlaneCount(buf) != 2) return 0;
+    const uint8_t *yp = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(buf, 0);
+    const uint8_t *cp = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(buf, 1);
+    size_t ys = CVPixelBufferGetBytesPerRowOfPlane(buf, 0);
+    size_t cs = CVPixelBufferGetBytesPerRowOfPlane(buf, 1);
+    int cw = c444 ? w : (w + 1) / 2, ch = c444 ? h : (h + 1) / 2;
+    if (!yp || !cp || ys < (size_t)w * bps || cs < (size_t)cw * 2 * bps ||
+        (int)CVPixelBufferGetHeightOfPlane(buf, 1) < ch) return 0;
+
+    // Kr/Kb of the matrix the frame is tagged with.
+    float kr = 0.2126f, kb = 0.0722f;
+    CFTypeRef m = CVBufferCopyAttachment(buf, kCVImageBufferYCbCrMatrixKey, NULL);
+    if (m) {
+        if (CFEqual(m, kCVImageBufferYCbCrMatrix_ITU_R_2020)) { kr = 0.2627f; kb = 0.0593f; }
+        CFRelease(m);
+    }
+    const float kg = 1.0f - kr - kb;
+    // Samples as 0..1, the 16-bit ones through their top byte's scale.
+    const float ymul = full ? 1.0f : 255.0f / 219.0f, yoff = full ? 0.0f : 16.0f / 255.0f;
+    const float cmul = full ? 1.0f : 255.0f / 224.0f;
+    for (int y = 0; y < h; y++) {
+        const uint8_t *yr = yp + (size_t)y * ys;
+        const uint8_t *cr = cp + (size_t)(c444 ? y : y / 2) * cs;
+        uint8_t *d = rgba + (size_t)y * (size_t)w * 4;
+        for (int x = 0; x < w; x++, d += 4) {
+            int cx = c444 ? x : x / 2;
+            float Y, Cb, Cr;
+            if (bps == 1) {
+                Y  = yr[x] / 255.0f;
+                Cb = cr[2 * cx] / 255.0f;
+                Cr = cr[2 * cx + 1] / 255.0f;
+            } else {
+                const uint16_t *y16 = (const uint16_t *)yr, *c16 = (const uint16_t *)cr;
+                Y  = y16[x] / 65535.0f;
+                Cb = c16[2 * cx] / 65535.0f;
+                Cr = c16[2 * cx + 1] / 65535.0f;
+            }
+            Y = (Y - yoff) * ymul;
+            Cb = (Cb - 0.5f) * cmul;
+            Cr = (Cr - 0.5f) * cmul;
+            float r = Y + 2.0f * (1.0f - kr) * Cr;
+            float b = Y + 2.0f * (1.0f - kb) * Cb;
+            float g = (Y - kr * r - kb * b) / kg;
+            #define PW_U8(v) ((uint8_t)lrintf(fminf(fmaxf((v), 0.0f), 1.0f) * 255.0f))
+            d[0] = PW_U8(r); d[1] = PW_U8(g); d[2] = PW_U8(b); d[3] = 255;
+            #undef PW_U8
+        }
+    }
+    return 1;
+}
+
 // Copies the last rendered frame to a caller-owned RGBA buffer.
 // Returns 1 on success; caller must free(*out) with free().
 // Safe to call from any thread: the read-then-retain of g_lastRenderedBuf is
@@ -1663,27 +1753,20 @@ int metal_video_get_last_frame_rgba(int *outW, int *outH, uint8_t **out) {
     int h = (int)CVPixelBufferGetHeight(buf);
     if (w <= 0 || h <= 0) { CVPixelBufferRelease(buf); return 0; }
 
-    CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
-    uint8_t *src    = (uint8_t *)CVPixelBufferGetBaseAddress(buf);
-    size_t srcStride = CVPixelBufferGetBytesPerRow(buf);
-
     uint8_t *rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4);
     if (!rgba) {
-        CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
         CVPixelBufferRelease(buf);
         return 0;
     }
 
-    // VT decodes to kCVPixelFormatType_32BGRA; swap B↔R to produce RGBA.
-    for (int y = 0; y < h; y++) {
-        uint8_t *s = src  + (size_t)y * srcStride;
-        uint8_t *d = rgba + (size_t)y * (size_t)w * 4;
-        for (int x = 0; x < w; x++, s += 4, d += 4) {
-            d[0] = s[2]; d[1] = s[1]; d[2] = s[0]; d[3] = s[3];
-        }
-    }
-
+    CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    int ok = metal_buffer_to_rgba(buf, w, h, rgba);
     CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    if (!ok) {
+        free(rgba);
+        CVPixelBufferRelease(buf);
+        return 0;
+    }
     CVPixelBufferRelease(buf);
 
     *outW = w; *outH = h; *out = rgba;
