@@ -285,6 +285,7 @@ jobs:
             agent/dist/*.exe
             agent/dist/*.dmg
             agent/dist/*.AppImage
+            agent/dist/*.deb
           if-no-files-found: error
           retention-days: 14
 
@@ -312,7 +313,7 @@ jobs:
         # release after release instead of changing every time.
         run: |
           mkdir -p out
-          find artifacts -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -exec cp {} out/ \;
+          find artifacts -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} out/ \;
           for f in out/*; do
             stable="$(echo "$f" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+(\.[A-Za-z0-9]+)$/\1/')"
             [ "$f" != "$stable" ] && mv "$f" "$stable"

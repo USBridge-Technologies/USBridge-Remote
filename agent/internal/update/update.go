@@ -41,6 +41,12 @@ const downloadTimeout = 5 * time.Minute
 // update, for CheckAndApply) -- this indirection is what avoids the cycle.
 var BeforeRelaunch func()
 
+// packageManagedApply, when set by a platform file, updates an install that
+// a system package manager owns (the Linux .deb, see apply_linux.go) instead
+// of downloading and swapping the binary. handled=false means this install
+// isn't package-managed and the normal download path runs.
+var packageManagedApply func(ctx context.Context, version string) (handled bool, err error)
+
 // platformKey identifies this build in the manifest's "platforms" map.
 func platformKey() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
@@ -102,6 +108,15 @@ func Check(ctx context.Context, currentVersion string) *Manifest {
 // calls os.Exit itself.
 func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress ProgressFunc) error {
 	log := logrus.WithField("component", "update")
+
+	if packageManagedApply != nil {
+		if handled, err := packageManagedApply(ctx, manifest.Version); handled {
+			if err != nil {
+				return fmt.Errorf("apply update: %w", err)
+			}
+			return nil
+		}
+	}
 
 	asset, ok := manifest.Platforms[platformKey()]
 	if !ok {

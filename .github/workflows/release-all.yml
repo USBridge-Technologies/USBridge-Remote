@@ -129,6 +129,7 @@ jobs:
           path: |
             agent/dist/*.zip
             agent/dist/*.AppImage
+            agent/dist/*.deb
           if-no-files-found: error
           retention-days: 7
 
@@ -1045,6 +1046,40 @@ jobs:
           UPDATE_SIGNING_KEY="$AGENT_UPDATE_ED25519_PRIVATE_KEY" go run scripts/sign_update_manifest.go \
             -app agent -version "$AGENT_VERSION" -dir out \
             -manifest-out out/manifest-agent.json -sig-out out/manifest-agent.json.sig
+
+      - name: Build and sign the APT index
+        # A flat APT repository made of this release's own assets: Packages,
+        # Release, InRelease next to the .deb files. Installed packages point
+        # apt at /releases/latest/download/ ./ (agent/scripts/build_deb.sh),
+        # so only the release that becomes "latest" is ever installed from,
+        # and a prerelease never reaches apt users. Signed with the GPG key
+        # whose public half is agent/packaging/deb/usbridge-archive-keyring.gpg
+        # (backup and README in ~/usbridge-apt-key, outside this repo).
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          # Refuse to publish an index the shipped keyring can't verify.
+          want="$(gpg --batch --with-colons --show-keys agent/packaging/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
+          gpg --batch --with-colons --list-secret-keys "$want" >/dev/null
+
+          cd out
+          apt-ftparchive packages . > Packages
+          gzip -9kn Packages
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=USBridge \
+            -o APT::FTPArchive::Release::Label=USBridge \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Architectures=amd64 \
+            release . > Release.tmp
+          mv Release.tmp Release
+          gpg --batch --yes --local-user "$want" --clearsign -o InRelease Release
+          gpg --batch --yes --local-user "$want" -abs -o Release.gpg Release
+          cat Packages
 
       - name: Derive release tag
         id: tag
