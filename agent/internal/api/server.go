@@ -185,8 +185,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/healthz", sec.Public(s.health))
 	mux.HandleFunc("/api/auth/qr/link", sec.Public(s.AuthQRLink))
 
-	// --- HMAC verified when present, allowed unsigned pre-pair ---
-	mux.HandleFunc("/api/moonlight/pin", sec.OptionalVerify(s.MoonlightPIN))
+	// --- HMAC-authenticated, PIN rate limit ---
+	mux.HandleFunc("/api/moonlight/pin", sec.LimitPIN(s.MoonlightPIN))
 
 	// --- AES-GCM auth only (no HMAC, rate-limited) ---
 	mux.HandleFunc("/api/auth/sync", sec.LimitSync(s.Sync))

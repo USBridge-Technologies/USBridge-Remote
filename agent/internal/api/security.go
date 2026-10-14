@@ -133,7 +133,6 @@ func (m *SecurityMiddleware) clientIP(r *http.Request) string {
 // publicPaths are exempt from HMAC verification.
 func isPublicPath(path string) bool {
 	return path == "/api/healthz" ||
-		path == "/api/moonlight/pin" ||
 		strings.HasPrefix(path, "/api/auth/qr")
 }
 
@@ -296,21 +295,21 @@ func (m *SecurityMiddleware) Public(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// OptionalVerify rate-limits specifically for PIN entry, and verifies the HMAC signature when
-// present. usbridge_client submits the Moonlight pairing PIN unsigned before it
-// has received the master key (pre-pair), and signed afterwards (post-pair) —
-// this accepts both while still rejecting a forged signature.
-func (m *SecurityMiddleware) OptionalVerify(next http.HandlerFunc) http.HandlerFunc {
+// LimitPIN rate-limits specifically for PIN entry and requires a valid HMAC
+// signature. A Moonlight PIN relayed here is passed straight to the streamer,
+// i.e. it grants whoever sent it a paired client with full control of this
+// machine, so only a client holding the master key may relay one. Without the
+// key, the PIN has to be typed in on this machine itself (the agent window's
+// Moonlight "+" button, which goes over the local admin socket, not this API).
+func (m *SecurityMiddleware) LimitPIN(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !m.pinLimiter.get(m.clientIP(r)).Allow() {
 			writeRateLimitJSON(w)
 			return
 		}
-		if r.Header.Get("X-Auth-Signature") != "" || r.Header.Get("X-Auth-Timestamp") != "" {
-			body := readBody(r)
-			if !m.verifyHMAC(w, r, body) {
-				return
-			}
+		body := readBody(r)
+		if !m.verifyHMAC(w, r, body) {
+			return
 		}
 		next(w, r)
 	}

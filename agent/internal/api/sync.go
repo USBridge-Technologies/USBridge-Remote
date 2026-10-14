@@ -174,8 +174,8 @@ func (s *Server) Sync(w http.ResponseWriter, r *http.Request) {
 }
 
 // MoonlightPIN implements POST /api/moonlight/pin.
-// This endpoint is intentionally public (no HMAC) — it is called during the Moonlight
-// pairing handshake before the client has exchanged the master key.
+// HMAC-signed only (see SecurityMiddleware.LimitPIN): a client without the
+// master key shows its PIN to the user instead, to be entered on this machine.
 func (s *Server) MoonlightPIN(w http.ResponseWriter, r *http.Request) {
 	var req MoonlightPINRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
