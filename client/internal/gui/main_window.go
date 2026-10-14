@@ -253,6 +253,9 @@ type MainWindow struct {
 	awdlIcon        *headerStatusBadgeButton
 	awdlGrantBtn    *view.HeaderActionButton
 	awdlSuppressing bool
+	// udpBufGrantBtn: Linux-only header button raising the kernel's UDP receive-buffer cap
+	// (see udpbuf_status.go); hidden once the cap fits whole video frames.
+	udpBufGrantBtn *view.HeaderActionButton
 	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are that strip's own
 	// *passive* indicators (main_window_status_indicator_bar.go's
 	// "indicators" sub-group) -- bare newHeaderPassiveIndicator images, not

@@ -31,6 +31,7 @@ func main() {
 	seconds := flag.Int("seconds", 20, "measurement window")
 	settle := flag.Int("settle", 3, "seconds to wait after the first frame before recording")
 	label := flag.String("label", "", "free-form tag copied into the output (streamer, loss level, ...)")
+	dump := flag.String("dump", "", "write the raw run (every frame and 100ms counter tick) as JSON to this file")
 	flag.Parse()
 	logrus.SetLevel(logrus.WarnLevel)
 
@@ -64,6 +65,11 @@ func main() {
 	rec.Stop()
 	_ = m.Disconnect()
 
+	if *dump != "" {
+		if b, err := json.Marshal(run); err == nil {
+			_ = os.WriteFile(*dump, b, 0o644)
+		}
+	}
 	met := service.AnalyzeBenchRun(run)
 	out := map[string]any{
 		"label": *label, "requested": *mode, "negotiated": codec, "bitrate_kbps": *bitrate,

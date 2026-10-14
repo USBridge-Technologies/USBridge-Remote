@@ -1513,6 +1513,7 @@ func (mw *MainWindow) updateStatus() {
 	fyne.Do(func() {
 		mw.updateStatusBar()
 		mw.refreshAWDLUI()
+		mw.refreshUDPBufferUI()
 	})
 }
 
