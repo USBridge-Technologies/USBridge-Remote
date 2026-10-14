@@ -26,6 +26,9 @@ const (
 	// agent reports the "opensource" protocol (entitlement.Status.Protocol),
 	// since the client treats it like Sunshine.
 	protocolPunktfunk = "punktfunk"
+	// protocolVibepollo is a picker key only, like protocolPunktfunk: the client treats a
+	// Vibepollo agent as an open-source (Sunshine-family) one.
+	protocolVibepollo = "vibepollo"
 )
 
 type protocolOption struct {
@@ -84,9 +87,17 @@ var protocolLockIcon = fyne.NewStaticResource("protocol-lock.svg", []byte(
 // that has it (entitlement.Status.PunktfunkAvailable): no agent ships it.
 var protocolPunktfunkOption = protocolOption{protocolPunktfunk, "Punktfunk", "Open Source", design.ColorWhite, design.ColorWhite, nil}
 
+// protocolVibepolloOption is the tile for Vibepollo (Nonary's Sunshine fork, with the
+// USBridge USB broker bridge): offered wherever Streamers-Forks publishes a build for this
+// platform (entitlement.Status.VibepolloAvailable); picking it downloads it.
+var protocolVibepolloOption = protocolOption{protocolVibepollo, "Vibepollo", "Open Source", design.ColorWhite, design.ColorWhite, nil}
+
 func protocolKeyFromStatus(st entitlement.Status) string {
 	if st.ActiveBackend == "punktfunk" {
 		return protocolPunktfunk
+	}
+	if st.ActiveBackend == "vibepollo" {
+		return protocolVibepollo
 	}
 	return st.Protocol()
 }
@@ -258,6 +269,9 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 	if st.PunktfunkAvailable || st.ActiveBackend == "punktfunk" {
 		options = append(append([]protocolOption{}, protocolOptions...), protocolPunktfunkOption)
 	}
+	if st.VibepolloAvailable || st.ActiveBackend == "vibepollo" {
+		options = append(append([]protocolOption{}, options...), protocolVibepolloOption)
+	}
 	w.protocolRows = make([]*protocolPickRow, 0, len(options))
 	tiles := make([]fyne.CanvasObject, 0, len(options))
 	for _, opt := range options {
@@ -392,6 +406,8 @@ func (w *Window) syncProtocolRowUpdate(row *protocolPickRow, st entitlement.Stat
 		row.SetUpdate(show, st.RustShineUpdateInProgress || w.streamerUpdateChecking, w.beginStreamerUpdateCheck)
 	case protocolPunktfunk:
 		row.SetUpdate(st.PunktfunkStaged, st.PunktfunkUpdateInProgress || w.punktfunkUpdateChecking, w.beginPunktfunkUpdateCheck)
+	case protocolVibepollo:
+		row.SetUpdate(st.VibepolloStaged, st.VibepolloUpdateInProgress || w.vibepolloUpdateChecking, w.beginVibepolloUpdateCheck)
 	case protocolOpensource:
 		row.SetUpdate(st.SunshineUpdatable, st.SunshineUpdateInProgress || w.sunshineUpdateChecking, w.beginSunshineUpdateCheck)
 	default:
@@ -451,7 +467,7 @@ func (w *Window) applySelectedProtocol(parent fyne.Window) {
 		return
 	}
 
-	if key != protocolOpensource && key != protocolPunktfunk && !st.RustShineStaged && parent != nil {
+	if key != protocolOpensource && key != protocolPunktfunk && key != protocolVibepollo && !st.RustShineStaged && parent != nil {
 		w.startProtocolBusy()
 		w.showStreamerConsentDialog(parent, func(confirmed bool) {
 			if !confirmed {
@@ -482,6 +498,11 @@ func (w *Window) proceedProtocolSwitch(parent fyne.Window, key string, st entitl
 	case protocolPunktfunk:
 		go func() {
 			_ = w.token.SetStreamBackend("punktfunk")
+			fyne.Do(done)
+		}()
+	case protocolVibepollo:
+		go func() {
+			_ = w.token.SetStreamBackend("vibepollo")
 			fyne.Do(done)
 		}()
 	case protocolFree:

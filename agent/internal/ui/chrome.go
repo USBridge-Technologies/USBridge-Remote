@@ -30,7 +30,7 @@ type chromePalette struct {
 
 func chromeForProtocol(kind string) chromePalette {
 	switch kind {
-	case protocolOpensource, protocolPunktfunk:
+	case protocolOpensource, protocolPunktfunk, protocolVibepollo:
 		return chromePalette{
 			Kind:         protocolOpensource,
 			Accent:       design.ColorTextLight,

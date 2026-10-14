@@ -35,7 +35,14 @@ type Status struct {
 	Tier      string    `json:"tier,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 
-	// ActiveBackend is "sunshine", "rustshine" or "punktfunk" -- which one
+	// Vibepollo (Nonary's Sunshine fork, from Streamers-Forks): offered wherever the release
+	// has a build for this platform; picking it downloads it.
+	VibepolloAvailable        bool   `json:"vibepollo_available"`
+	VibepolloStaged           bool   `json:"vibepollo_staged"`
+	VibepolloVersion          string `json:"vibepollo_version,omitempty"`
+	VibepolloUpdateInProgress bool   `json:"vibepollo_update_in_progress"`
+
+	// ActiveBackend is "sunshine", "rustshine", "punktfunk" or "vibepollo" -- which one
 	// is actually running right now, independent of Linked (a linked
 	// supporter can still choose Sunshine).
 	ActiveBackend string `json:"active_backend"`

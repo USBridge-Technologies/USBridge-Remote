@@ -83,6 +83,7 @@ type TokenBackend interface {
 	CheckRustShineUpdateNow() error
 	CheckPunktfunkUpdateNow() error
 	CheckSunshineUpdateNow() error
+	CheckVibepolloUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
 
@@ -283,6 +284,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/check-rustshine-update", s.handleCheckRustShineUpdateNow)
 	mux.HandleFunc("POST /token/check-punktfunk-update", s.handleCheckPunktfunkUpdateNow)
 	mux.HandleFunc("POST /token/check-sunshine-update", s.handleCheckSunshineUpdateNow)
+	mux.HandleFunc("POST /token/check-vibepollo-update", s.handleCheckVibepolloUpdateNow)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
 	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
 	mux.HandleFunc("GET /token/usb-driver-status", s.handleUSBPassthroughStatus)
@@ -757,6 +759,17 @@ func (s *Server) handleCheckSunshineUpdateNow(w http.ResponseWriter, r *http.Req
 	go func() {
 		if err := s.token.CheckSunshineUpdateNow(); err != nil {
 			logrus.WithError(err).Warn("sunshine update check failed")
+		}
+	}()
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+// handleCheckVibepolloUpdateNow: the same for the Vibepollo card
+// (VibepolloUpdateInProgress/VibepolloVersion/LastError).
+func (s *Server) handleCheckVibepolloUpdateNow(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		if err := s.token.CheckVibepolloUpdateNow(); err != nil {
+			logrus.WithError(err).Warn("vibepollo update check failed")
 		}
 	}()
 	writeJSON(w, http.StatusOK, struct{}{})

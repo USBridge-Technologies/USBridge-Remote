@@ -115,6 +115,7 @@ type TokenProvider interface {
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
 	CheckRustShineUpdateNow() error
 	CheckPunktfunkUpdateNow() error
+	CheckVibepolloUpdateNow() error
 	CheckSunshineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
@@ -396,6 +397,8 @@ type Window struct {
 	streamerUpdateChecking bool
 	// punktfunkUpdateChecking: the same for the Punktfunk card's glyph.
 	punktfunkUpdateChecking bool
+	// vibepolloUpdateChecking: the same for the Vibepollo card's glyph.
+	vibepolloUpdateChecking bool
 	// sunshineUpdateChecking: the same for the Sunshine card's glyph.
 	sunshineUpdateChecking bool
 	// streamerBgUpdateWatching is true while a background auto-update is in
@@ -738,6 +741,16 @@ func (w *Window) beginPunktfunkUpdateCheck() {
 	}
 	w.beginForkUpdateCheck("punktfunk", &w.punktfunkUpdateChecking, w.token.CheckPunktfunkUpdateNow,
 		func(st entitlement.Status) (bool, string) { return st.PunktfunkUpdateInProgress, st.PunktfunkVersion })
+}
+
+// beginVibepolloUpdateCheck is the Vibepollo card's "check for updates": the latest
+// Streamers-Forks release, signature-verified (CheckVibepolloUpdateNow).
+func (w *Window) beginVibepolloUpdateCheck() {
+	if w.token == nil {
+		return
+	}
+	w.beginForkUpdateCheck("vibepollo", &w.vibepolloUpdateChecking, w.token.CheckVibepolloUpdateNow,
+		func(st entitlement.Status) (bool, string) { return st.VibepolloUpdateInProgress, st.VibepolloVersion })
 }
 
 // beginSunshineUpdateCheck is the Sunshine card's: the same, for the Sunshine

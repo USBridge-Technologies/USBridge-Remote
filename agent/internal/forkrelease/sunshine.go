@@ -332,3 +332,28 @@ func extractTarGzTree(archive, dest string) error {
 		}
 	}
 }
+
+// zipTopDir is the one directory every member of the zip sits under, as extractZipTree's strip
+// argument ("Vibepollo/"), or "" when the members have no single common top directory.
+func zipTopDir(archive string) string {
+	zr, err := zip.OpenReader(archive)
+	if err != nil {
+		return ""
+	}
+	defer zr.Close()
+	top := ""
+	for _, f := range zr.File {
+		name := strings.ReplaceAll(f.Name, "\\", "/")
+		i := strings.Index(name, "/")
+		if i <= 0 {
+			return ""
+		}
+		dir := name[:i+1]
+		if top == "" {
+			top = dir
+		} else if top != dir {
+			return ""
+		}
+	}
+	return top
+}
