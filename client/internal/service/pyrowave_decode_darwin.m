@@ -224,15 +224,28 @@ static int pw_decode_dense(const uint8_t *au, size_t len,
     clock_gettime(CLOCK_MONOTONIC, &t1);
     g_pw_decode_us += (uint64_t)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000);
 
-    for (size_t i = 0; i < chroma; i++) {
-        puv[i * 2]     = pcb[i];
-        puv[i * 2 + 1] = pcr[i];
+    if ((w1 >> 30) & 1) {
+        for (size_t i = 0; i < chroma; i++) {
+            puv[i * 2]     = pcb[i];
+            puv[i * 2 + 1] = pcr[i];
+        }
+    } else {
+        // Full-range stream (rust-shine's scaled encode): the renderer samples limited
+        // range, so compress the levels here, fused with the interleave.
+        static uint8_t ly[256], lc[256];
+        static int luts = 0;
+        if (!luts) { pw_range_luts(ly, lc); luts = 1; }
+        for (size_t i = 0; i < luma; i++) py[i] = ly[py[i]];
+        for (size_t i = 0; i < chroma; i++) {
+            puv[i * 2]     = lc[pcb[i]];
+            puv[i * 2 + 1] = lc[pcr[i]];
+        }
     }
     *y = py;
     *uv = puv;
     *w_out = w;
     *h_out = h;
-    *full_range = ((w1 >> 30) & 1) ? 0 : 1;
+    *full_range = 0; // levels are limited range by now (compressed above if the stream was full)
     if (++g_pw_frames == 1) pw_log("pyrowave: first frame decoded (%dx%d)", w, h);
     if (g_pw_frames % 600 == 0) {
         pw_log("pyrowave: decode %d us per frame (average of the last %d)",

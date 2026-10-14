@@ -453,6 +453,7 @@ typedef struct {
     VkDescriptorPool         dpool;
     VkFormat                 fmt; // VK_FORMAT_UNDEFINED = unused slot
     VkFormat                 swap_fmt; // color attachment format the pipeline was built for
+    int                      narrow;   // YCbCr range baked into the immutable sampler conversion
 } VkYcbcrPipeline;
 #define VK_YCBCR_PIPELINE_CACHE_SIZE 4
 static VkYcbcrPipeline g_ycbcr_pipelines[VK_YCBCR_PIPELINE_CACHE_SIZE];
@@ -488,6 +489,7 @@ static void      *g_vkf_release_ctx  = NULL;
 static void      (*g_vkf_release_fn)(void*) = NULL;
 static VkSemaphore g_vkf_sem         = VK_NULL_HANDLE;
 static int        g_vkf_external     = 0; // image imported from D3D11 (d3d11_interop_windows.c)
+static int        g_vkf_narrow       = 1; // limited-range YCbCr
 static uint64_t   g_vkf_sem_value    = 0;
 static volatile int g_vkf_ready      = 0;
 
@@ -1903,11 +1905,11 @@ static void vk_ycbcr_pipeline_drop(VkYcbcrPipeline *p) {
     memset(p, 0, sizeof(*p));
 }
 
-static VkYcbcrPipeline *vk_ycbcr_pipeline_get(VkFormat fmt) {
+static VkYcbcrPipeline *vk_ycbcr_pipeline_get(VkFormat fmt, int narrow) {
     for (int i = 0; i < VK_YCBCR_PIPELINE_CACHE_SIZE; i++) {
         if (g_ycbcr_pipelines[i].fmt != fmt) continue;
-        if (g_ycbcr_pipelines[i].swap_fmt == g_swap_fmt) return &g_ycbcr_pipelines[i];
-        vk_ycbcr_pipeline_drop(&g_ycbcr_pipelines[i]); // swapchain format changed (SDR <-> HDR10)
+        if (g_ycbcr_pipelines[i].swap_fmt == g_swap_fmt && g_ycbcr_pipelines[i].narrow == narrow) return &g_ycbcr_pipelines[i];
+        vk_ycbcr_pipeline_drop(&g_ycbcr_pipelines[i]); // swapchain format (SDR <-> HDR10) or stream range changed
         break;
     }
     int slot = -1;
@@ -1926,7 +1928,7 @@ static VkYcbcrPipeline *vk_ycbcr_pipeline_get(VkFormat fmt) {
                       : (fmt == VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM || fmt == VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM)
                           ? VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709
                       : VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_601;
-    convCI.ycbcrRange = VK_SAMPLER_YCBCR_RANGE_ITU_NARROW;
+    convCI.ycbcrRange = narrow ? VK_SAMPLER_YCBCR_RANGE_ITU_NARROW : VK_SAMPLER_YCBCR_RANGE_ITU_FULL;
     convCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -2047,6 +2049,7 @@ static VkYcbcrPipeline *vk_ycbcr_pipeline_get(VkFormat fmt) {
 
     p->fmt = fmt;
     p->swap_fmt = g_swap_fmt;
+    p->narrow = narrow;
     return p;
 
 fail:
@@ -2148,11 +2151,11 @@ static VkDescriptorSet vk_imgview_cache_get(VkImage img, VkFormat fmt, VkYcbcrPi
 // a decoded VkImage directly into the swapchain instead of blitting an
 // uploaded RGBA staging texture. Same acquire/fence/present machinery.
 static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_layout, int fw, int fh,
-                                   VkSemaphore wait_sem, uint64_t wait_value, int external) {
+                                   VkSemaphore wait_sem, uint64_t wait_value, int external, int narrow) {
     if (!g_dev || !g_swap) return 0;
     char _dbg[96];
 
-    VkYcbcrPipeline *pl = vk_ycbcr_pipeline_get(fmt);
+    VkYcbcrPipeline *pl = vk_ycbcr_pipeline_get(fmt, narrow);
     if (!pl) return 0;
     VkDescriptorSet dset = vk_imgview_cache_get(img, fmt, pl);
     if (!dset) return 0;
@@ -3703,11 +3706,11 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
             void *rel_ctx = NULL;
             void (*rel_fn)(void*) = NULL;
-            VkSemaphore wsem = VK_NULL_HANDLE; uint64_t wval = 0; int wext = 0;
+            VkSemaphore wsem = VK_NULL_HANDLE; uint64_t wval = 0; int wext = 0, wnarrow = 1;
             EnterCriticalSection(&g_cs);
             if (g_vkf_ready) {
                 img = g_vkf_img; fmt = g_vkf_fmt; layout = g_vkf_layout; fw = g_vkf_w; fh = g_vkf_h;
-                wsem = g_vkf_sem; wval = g_vkf_sem_value; wext = g_vkf_external;
+                wsem = g_vkf_sem; wval = g_vkf_sem_value; wext = g_vkf_external; wnarrow = g_vkf_narrow;
                 rel_ctx = g_vkf_release_ctx; rel_fn = g_vkf_release_fn;
                 g_vkf_ready = 0;
             }
@@ -3723,7 +3726,7 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
                 }
                 g_has_frame = 1;
                 g_render_stage = 1; // got frame — entering vk_render_frame_vkimage
-                rf = vk_render_frame_vkimage(img, fmt, layout, fw, fh, wsem, wval, wext);
+                rf = vk_render_frame_vkimage(img, fmt, layout, fw, fh, wsem, wval, wext, wnarrow);
                 if (rf) {
                     // Fence-wait at the top of the NEXT call confirms this
                     // frame's GPU read has retired before its ref is dropped.
@@ -3913,7 +3916,6 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
 int vk_video_try_submit_vkframe(void *vk_image, int vk_format, int vk_layout, int width, int height,
                                  int narrow_range, void *wait_sem, uint64_t wait_value, int external,
                                  void *release_ctx, void (*release_fn)(void *)) {
-    (void)narrow_range; // reserved: VK_SAMPLER_YCBCR_RANGE_ITU_NARROW is currently hardcoded, matches Moonlight's H264/HEVC streams
     if (!atomic_load(&g_active) || !g_cs_init) return 0;
     EnterCriticalSection(&g_cs);
     if (!atomic_load(&g_active)) {
@@ -3934,6 +3936,7 @@ int vk_video_try_submit_vkframe(void *vk_image, int vk_format, int vk_layout, in
     g_vkf_sem = (VkSemaphore)wait_sem;
     g_vkf_sem_value = wait_value;
     g_vkf_external = external;
+    g_vkf_narrow = narrow_range;
     g_vkf_release_ctx = release_ctx;
     g_vkf_release_fn  = release_fn;
     g_vkf_ready = 1;

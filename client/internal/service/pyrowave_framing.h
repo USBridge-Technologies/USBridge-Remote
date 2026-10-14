@@ -68,3 +68,12 @@ static inline size_t pw_unframe(const uint8_t *in, size_t len, uint8_t *out) {
     }
     return o;
 }
+
+// pw_range_luts fills full-range -> limited-range (BT.709 video levels) lookup tables
+// for the CPU decode paths, whose renderers only sample limited-range NV12.
+static inline void pw_range_luts(uint8_t luma[256], uint8_t chroma[256]) {
+    for (int v = 0; v < 256; v++) {
+        luma[v] = (uint8_t)(16 + (v * 219 + 127) / 255);
+        chroma[v] = (uint8_t)(16 + (v * 224 + 127) / 255);
+    }
+}
