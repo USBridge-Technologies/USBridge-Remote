@@ -1558,6 +1558,14 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         g_metal_layer = ml;
         g_avsbdl = sl;
         atomic_store(&g_avsbdl_needs_idr, 1);
+        // Per session, like g_renderCount below: a count left over from an
+        // earlier H.264/H.265 session made metal_video_last_fps and
+        // metal_video_decode_ms_available read this (idle) path for a
+        // PyroWave one -- FPS 0 and DEC -- in the Net Graph.
+        atomic_store(&g_avsbdl_submit_count, 0);
+        atomic_store(&g_avsbdl_fps_start, 0.0);
+        atomic_store(&g_avsbdl_fps_frames, 0);
+        atomic_store(&g_lastKnownAvsbdlFps, 0.0);
 
         g_submitCount = 0; g_renderCount = 0;
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;

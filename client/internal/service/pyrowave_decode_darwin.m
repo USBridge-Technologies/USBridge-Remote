@@ -62,6 +62,7 @@ static int             g_pw_w = 0, g_pw_h = 0, g_pw_444 = 0;
 static uint64_t        g_pw_frames = 0;
 static uint64_t        g_pw_decode_us = 0;
 static uint64_t        g_pw_gpu_us = 0;
+static uint64_t        g_pw_au_bytes = 0;
 
 static void pw_log(const char *fmt, int a, int b) {
     char msg[160];
@@ -212,6 +213,7 @@ static int pw_decode_dense(const uint8_t *au, size_t len) {
     }
     g_pw_decode_us += (uint64_t)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000);
     g_pw_gpu_us += pwm_decoder_last_gpu_us(g_pw_dec);
+    g_pw_au_bytes += len;
 
     // What the stream is (the sequence header), so Core Animation converts it correctly: BT.709
     // or BT.2020 for the matrix and primaries, BT.709 or PQ for the transfer (the header has no
@@ -231,16 +233,19 @@ static int pw_decode_dense(const uint8_t *au, size_t len) {
 
     if (++g_pw_frames == 1) {
         char msg[200];
-        snprintf(msg, sizeof(msg), "pyrowave: first frame decoded (%dx%d %s, %s, %s range, %s chroma)", w, h,
+        snprintf(msg, sizeof(msg), "pyrowave: first frame decoded (%dx%d %s, %s, %s range, %s chroma, %zu KB)", w, h,
                  c444 ? "4:4:4" : "4:2:0", hdr ? "HDR10 BT.2020 PQ 10-bit" : "BT.709 8-bit",
-                 full_range ? "full" : "limited", left_sited ? "left-sited" : "centred");
+                 full_range ? "full" : "limited", left_sited ? "left-sited" : "centred", len / 1024);
         goVTLog(msg);
     }
     if (g_pw_frames % 600 == 0) {
-        pw_log("pyrowave: decode %d us per frame, %d us of it on the GPU (average of the last 600)",
-               (int)(g_pw_decode_us / 600), (int)(g_pw_gpu_us / 600));
+        char msg[200];
+        snprintf(msg, sizeof(msg), "pyrowave: decode %d us per frame, %d us of it on the GPU, %d KB per frame (average of the last 600)",
+                 (int)(g_pw_decode_us / 600), (int)(g_pw_gpu_us / 600), (int)(g_pw_au_bytes / 600 / 1024));
+        goVTLog(msg);
         g_pw_decode_us = 0;
         g_pw_gpu_us = 0;
+        g_pw_au_bytes = 0;
     }
     ok = 1;
 out:
@@ -357,6 +362,7 @@ void pyrowave_darwin_teardown(void) {
     g_pw_frames = 0;
     g_pw_decode_us = 0;
     g_pw_gpu_us = 0;
+    g_pw_au_bytes = 0;
     g_pw_failures = 0;
     if (g_pw_pool) { CVPixelBufferPoolRelease(g_pw_pool); g_pw_pool = NULL; }
     g_pw_pool_w = g_pw_pool_h = 0;
