@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 
+	"usbridge_agent/internal/adminapi"
 	"usbridge_agent/internal/app"
 	"usbridge_agent/internal/sasinput"
 )
@@ -40,7 +42,51 @@ func runMain(headless, tray bool, attach string) {
 		}
 		return
 	}
+	// With the service running, a plain launch (Start menu, the
+	// installer's "Open USBridge Agent") must be a window onto the
+	// service's engine. Left to the normal config discovery it looks in
+	// the user's own profile, finds that engine.lock free and starts a
+	// second engine with its own config.yaml and master key: the window
+	// then shows a key nothing on port 8080 accepts.
+	if !headless && attach == "" {
+		if sock, ok := runningServiceAdminSocket(); ok {
+			log.Printf("[service] %s is running -- attaching to its engine at %s", serviceName, sock)
+			attach = sock
+		}
+	}
 	doStart(headless, tray, attach)
+}
+
+// runningServiceAdminSocket returns the service engine's admin socket when
+// the USBridgeAgent service is running or starting. Only asks for
+// connect/query rights, which a standard user has.
+func runningServiceAdminSocket() (string, bool) {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return "", false
+	}
+	defer windows.CloseServiceHandle(scm)
+	name, _ := windows.UTF16PtrFromString(serviceName)
+	h, err := windows.OpenService(scm, name, windows.SERVICE_QUERY_STATUS)
+	if err != nil {
+		return "", false
+	}
+	defer windows.CloseServiceHandle(h)
+	var st windows.SERVICE_STATUS
+	if err := windows.QueryServiceStatus(h, &st); err != nil {
+		return "", false
+	}
+	if st.CurrentState != windows.SERVICE_RUNNING && st.CurrentState != windows.SERVICE_START_PENDING {
+		return "", false
+	}
+	sysDir, err := windows.GetSystemDirectory()
+	if err != nil {
+		return "", false
+	}
+	// LocalSystem's os.UserConfigDir() -- the same state dir the installer
+	// seeds (ServiceStateDir in USBridgeAgent.iss).
+	stateDir := filepath.Join(sysDir, "config", "systemprofile", "AppData", "Roaming", "usbridge-agent")
+	return adminapi.SocketPath(stateDir), true
 }
 
 type agentService struct{}
