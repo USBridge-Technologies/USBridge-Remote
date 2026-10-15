@@ -437,6 +437,10 @@ func (c *Client) CheckSunshineUpdateNow() error {
 	return c.do(http.MethodPost, "/token/check-sunshine-update", nil, nil)
 }
 
+func (c *Client) CheckVibepolloUpdateNow() error {
+	return c.do(http.MethodPost, "/token/check-vibepollo-update", nil, nil)
+}
+
 func (c *Client) SetStreamBackend(kind string) error {
 	return c.do(http.MethodPost, "/token/set-stream-backend", map[string]string{"kind": kind}, nil)
 }

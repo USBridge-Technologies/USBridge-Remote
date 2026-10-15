@@ -5,8 +5,10 @@ package localui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -55,6 +57,16 @@ type session struct {
 	inputT     *ort.Tensor[float32]
 	outputT    *ort.Tensor[float32]
 	inputShape ort.Shape
+
+	// Kept so run() can rebuild this session on plain CPU if the
+	// accelerator EP that initialized fine then fails at inference time
+	// (seen live: OpenVINO GPU initializes paddle_dbnet, then every Run()
+	// fails with "allocated input memory is necessary to set kernel
+	// arguments", which turned every ui.parse text:true into a 502).
+	onnxPath    string
+	inputShapeI []int64
+	outShapeI   []int64
+	accel       string
 }
 
 // acceleratorEP picks and appends the best available non-CPU execution
@@ -127,12 +139,43 @@ func acceleratorEP(opts *ort.SessionOptions, useGPU bool) string {
 		// box that has an OpenVINO runtime installed (setup_localui.sh-style
 		// manual setup) but no DirectML.dll bundled next to onnxruntime.dll.
 	}
+	if runtime.GOOS == "linux" {
+		// NVIDIA: CUDA EP. Only present when the runtime dir is the CUDA pack
+		// (libonnxruntime_providers_cuda.so + CUDA/cuDNN libs next to
+		// libonnxruntime.so, see scripts/fetch_onnxruntime_cuda.sh).
+		if co, err := ort.NewCUDAProviderOptions(); err == nil {
+			_ = co.Update(map[string]string{"device_id": "0", "cudnn_conv_algo_search": "HEURISTIC"})
+			err = opts.AppendExecutionProviderCUDA(co)
+			co.Destroy()
+			if err == nil {
+				return "cuda"
+			}
+			debugf("CUDA EP unavailable: %v", err)
+		}
+		// The OpenVINO "GPU" plugin is Intel-only. On a box without an Intel
+		// GPU it binds whatever OpenCL device exists (NVIDIA's), where
+		// icon_detect happens to run but dbnet/svtr fail at inference.
+		if !hasIntelGPU() {
+			return ""
+		}
+	}
 	if err := opts.AppendExecutionProviderOpenVINO(map[string]string{
 		"device_type": "GPU",
 	}); err == nil {
 		return "openvino"
 	}
 	return ""
+}
+
+// hasIntelGPU reports whether a DRM device with PCI vendor 0x8086 exists.
+func hasIntelGPU() bool {
+	vendors, _ := filepath.Glob("/sys/class/drm/card*/device/vendor")
+	for _, v := range vendors {
+		if b, err := os.ReadFile(v); err == nil && strings.TrimSpace(string(b)) == "0x8086" {
+			return true
+		}
+	}
+	return false
 }
 
 // directmlDeviceID picks which D3D12 adapter DirectML should bind to.
@@ -200,7 +243,10 @@ func newSession(onnxPath string, inputShape, outputShape []int64, useGPU bool) (
 		return nil, "", err
 	}
 
-	return &session{s: s, inputT: inputT, outputT: outputT, inputShape: inShape}, accel, nil
+	return &session{
+		s: s, inputT: inputT, outputT: outputT, inputShape: inShape,
+		onnxPath: onnxPath, inputShapeI: inputShape, outShapeI: outputShape, accel: accel,
+	}, accel, nil
 }
 
 // loadNamedSession introspects onnxPath for its single input/output tensor
@@ -225,7 +271,22 @@ func loadNamedSession(onnxPath string, inputT, outputT *ort.Tensor[float32], opt
 func (s *session) run(data []float32) ([]float32, error) {
 	copy(s.inputT.GetData(), data)
 	if err := s.s.Run(); err != nil {
-		return nil, err
+		if s.accel == "" {
+			return nil, err
+		}
+		// Accelerator EP failed at inference time: degrade to CPU for the
+		// rest of this session's life rather than failing every call.
+		debugf("%s: %s EP inference failed (%v); falling back to CPU", s.onnxPath, s.accel, err)
+		cpu, _, cerr := newSession(s.onnxPath, s.inputShapeI, s.outShapeI, false)
+		if cerr != nil {
+			return nil, fmt.Errorf("%w (CPU fallback also failed: %v)", err, cerr)
+		}
+		s.Close()
+		*s = *cpu
+		copy(s.inputT.GetData(), data)
+		if err := s.s.Run(); err != nil {
+			return nil, err
+		}
 	}
 	out := s.outputT.GetData()
 	return append([]float32(nil), out...), nil
@@ -257,6 +318,11 @@ type batchedSession struct {
 	s          *ort.DynamicAdvancedSession
 	inputName  string
 	outputName string
+
+	// onnxPath/accel let run() rebuild on plain CPU if the accelerator EP
+	// loads fine but fails at inference (see session.accel).
+	onnxPath string
+	accel    string
 }
 
 // svtrBatchSize is the batch size batchRecognizeSVTR groups crops into.
@@ -291,7 +357,7 @@ func newBatchedSession(onnxPath string, useGPU bool) (*batchedSession, string, e
 	if err != nil {
 		return nil, "", err
 	}
-	return &batchedSession{s: s, inputName: inputName[0].Name, outputName: outputName[0].Name}, accel, nil
+	return &batchedSession{s: s, inputName: inputName[0].Name, outputName: outputName[0].Name, onnxPath: onnxPath, accel: accel}, accel, nil
 }
 
 // run executes one batch: data must hold exactly batch*3*height*width
@@ -307,7 +373,20 @@ func (b *batchedSession) run(data []float32, batch, channels, height, width int)
 
 	outputs := []ort.Value{nil}
 	if err := b.s.Run([]ort.Value{inputT}, outputs); err != nil {
-		return nil, err
+		if b.accel == "" {
+			return nil, err
+		}
+		debugf("%s: %s EP inference failed (%v); falling back to CPU", b.onnxPath, b.accel, err)
+		cpu, _, cerr := newBatchedSession(b.onnxPath, false)
+		if cerr != nil {
+			return nil, fmt.Errorf("%w (CPU fallback also failed: %v)", err, cerr)
+		}
+		b.Close()
+		*b = *cpu
+		outputs = []ort.Value{nil}
+		if err := b.s.Run([]ort.Value{inputT}, outputs); err != nil {
+			return nil, err
+		}
 	}
 	outT, ok := outputs[0].(*ort.Tensor[float32])
 	if !ok {

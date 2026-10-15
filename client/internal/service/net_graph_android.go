@@ -10,10 +10,21 @@ extern int      do_get_estimated_rtt_info(uint32_t *out);
 extern uint16_t do_get_last_host_latency_tenths_ms(void);
 extern uint64_t do_get_playout_jitter_us(void);
 extern uint64_t do_get_playout_applied_delay_us(void);
+extern double   vlat_last_decode_ms(void); // video_latency_android.c
+extern int      do_get_negotiated_video_format(void);
+
+// vk_video_impl_android.c (vk_overlay_common.h): the overlay's own HUD
+// layer, drawn by both its Vulkan and GLES backends.
+extern int  vk_hud_set_pixels(const uint8_t *rgba, int w, int h);
+extern void vk_hud_clear(void);
+extern void vk_hud_set_scale(float s);
 */
 import "C"
 
-import "unsafe"
+import (
+	"image"
+	"unsafe"
+)
 
 // RTPVideoStats / GetRTPVideoStats / GetEstimatedRttInfo /
 // GetLastHostLatencyMs / GetPlayoutJitterMs / GetPlayoutAppliedDelayMs:
@@ -69,13 +80,33 @@ func GetPlayoutAppliedDelayMs() float64 {
 
 func init() {
 	// Same role as net_graph_linux.go: HUD FPS comes from the native
-	// overlay that is actually painting the video (Vulkan here). Decode
-	// ms is left nil -- AMediaCodec has no submit-to-display timer
-	// equivalent to Metal's g_decodeMsSum, so the DEC row reads 0.
+	// overlay that is actually painting the video (Vulkan here). DEC is
+	// video_latency_android.c's decoder-submit -> present average (the
+	// same span Metal's g_decodeMsSum covers), "--" until its first 2 s
+	// window.
 	netGraphRenderFPS = func() float64 {
 		return VKVideoAndroidGetFPS()
 	}
+	netGraphDecodeMs = func() float64 {
+		return float64(C.vlat_last_decode_ms())
+	}
+	netGraphDecodeMsValid = func() bool {
+		return C.vlat_last_decode_ms() > 0
+	}
+	netGraphCodecFn = func() (string, bool) {
+		return videoFormatCodecName(int32(C.do_get_negotiated_video_format()))
+	}
 	netGraphGPUNameFn = VKVideoAndroidGetGPUName
+	// The HUD is a layer of the video overlay, not a burn-in, so Net Graph
+	// keeps the zero-copy decoder path (see amc_present_image).
+	netGraphMetalPush = func(img *image.RGBA) {
+		if img == nil || len(img.Pix) == 0 {
+			return
+		}
+		C.vk_hud_set_pixels((*C.uint8_t)(unsafe.Pointer(&img.Pix[0])), C.int(img.Rect.Dx()), C.int(img.Rect.Dy()))
+	}
+	netGraphMetalClear = func() { C.vk_hud_clear() }
+	netGraphScalePush = func(scale float32) { C.vk_hud_set_scale(C.float(scale)) }
 	netGraphNetworkStatsFn = func() netGraphRawNetworkStats {
 		rtp := GetRTPVideoStats()
 		rttMs, rttVarianceMs, rttOk := GetEstimatedRttInfo()
@@ -98,14 +129,9 @@ func init() {
 	}
 }
 
-//export goNetGraphWanted
-func goNetGraphWanted() C.int {
-	if netGraphEnabled.Load() {
-		return 1
-	}
-	return 0
-}
-
+// goNetGraphOverlay burns the HUD into a CPU frame; only for the Fyne
+// fallback, when there is no native overlay to draw it.
+//
 //export goNetGraphOverlay
 func goNetGraphOverlay(rgba *C.uint8_t, width, height, stride C.int) {
 	if rgba == nil || width <= 0 || height <= 0 || stride <= 0 {

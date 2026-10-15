@@ -72,6 +72,13 @@ func withDPIContext(ctx uintptr, f func()) {
 	f()
 }
 
+// WithPhysicalDPI runs f on a locked OS thread switched to per-monitor-v2
+// DPI awareness: Win32 geometry/cursor calls inside f (GetMonitorInfo,
+// SetCursorPos) then work in physical pixels whatever this process's own
+// awareness is. Mixing logical rects (1280x720 for a 4K panel at 300%) with a
+// physical cursor space confined absolute mouse moves to a corner of the screen.
+func WithPhysicalDPI(f func()) { withDPIContext(dpiContextPerMonitorAware2, f) }
+
 func monitorInfo(h uintptr) (monitorInfoEx, bool) {
 	mi := monitorInfoEx{CbSize: uint32(unsafe.Sizeof(monitorInfoEx{}))}
 	ok, _, _ := procGetMonitorInfoW.Call(h, uintptr(unsafe.Pointer(&mi)))

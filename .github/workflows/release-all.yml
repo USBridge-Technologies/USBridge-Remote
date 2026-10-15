@@ -102,7 +102,9 @@ jobs:
   # ── Agent ────────────────────────────────────────────────────────────────
 
   agent-linux:
-    runs-on: ubuntu-latest
+    # The oldest base GitHub still offers: the agent links glibc 2.35, so the
+    # .deb/AppImage run on Ubuntu 22.04+ and Debian 12+, not only 24.04+.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -129,6 +131,7 @@ jobs:
           path: |
             agent/dist/*.zip
             agent/dist/*.AppImage
+            agent/dist/*.deb
           if-no-files-found: error
           retention-days: 7
 
@@ -234,7 +237,16 @@ jobs:
         # Staple the .app itself, not just the .dmg — if the ticket only
         # lives on the disk image, an app dragged out of it to /Applications
         # has no local ticket (Gatekeeper falls back to an online check).
-        run: xcrun stapler staple "agent/dist/macos/USBridgeAgent.app"
+        # Apple's ticket service (api.apple-cloudkit.com) drops the
+        # connection now and then ("network connection was lost", error 68)
+        # right after an Accepted notarization: retry instead of failing.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler staple "agent/dist/macos/USBridgeAgent.app" && break
+            [ "$attempt" -eq 5 ] && { echo "::error::stapling failed after 5 attempts"; exit 1; }
+            echo "::warning::stapling failed (attempt $attempt/5) -- retrying in 30s"
+            sleep 30
+          done
 
       - name: Rebuild disk image with the stapled app
         run: |
@@ -306,7 +318,12 @@ jobs:
           echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc" && { echo "::error::ad-hoc signed"; exit 1; }
           echo "$CODESIGN_INFO" | grep -q "Authority=Developer ID Application" || { echo "::error::wrong cert"; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$APP"
-          xcrun stapler validate "$APP" || { echo "::error::ticket not stapled"; exit 1; }
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler validate "$APP" && break
+            [ "$attempt" -eq 5 ] && { echo "::error::ticket not stapled"; exit 1; }
+            echo "::warning::stapler validate failed (attempt $attempt/5) -- retrying in 30s"
+            sleep 30
+          done
           SPCTL_OUTPUT="$(spctl --assess --type execute -vv "$APP" 2>&1)" || { echo "$SPCTL_OUTPUT"; echo "::error::spctl rejected"; exit 1; }
           echo "$SPCTL_OUTPUT" | grep -q "source=Notarized Developer ID" || { echo "::error::not notarized"; exit 1; }
           echo "✓ agent macOS ready to distribute"
@@ -346,17 +363,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_windows.sh
+      - name: Install Inno Setup
+        shell: pwsh
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build installer (Inno Setup)
+        shell: msys2 {0}
+        working-directory: agent
+        run: ./scripts/build_windows_installer.sh
       - uses: actions/upload-artifact@v4
         with:
           name: release-agent-windows
           path: agent/dist/*.zip
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-agent-windows-setup
+          path: agent/dist/USBridgeAgent-Windows-x86_64-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
 
   # ── Client ───────────────────────────────────────────────────────────────
 
   client-linux:
-    runs-on: ubuntu-latest
+    # Ubuntu 22.04 base (glibc 2.35) so the client runs on Ubuntu 22.04+ and
+    # Debian 12+, with the same FFmpeg 6.1 it always shipped: 22.04's own is
+    # 4.4, so build_ffmpeg_linux.sh builds 6.1.1 (+ dav1d, libvpl,
+    # nv-codec-headers) and build_linux.sh links and bundles that instead.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -365,23 +399,39 @@ jobs:
         with:
           go-version-file: client/go.mod
       - name: Install Linux build deps
+        # No libavcodec-dev & co.: FFmpeg comes from build_ffmpeg_linux.sh.
+        # ocl-icd-libopencl1: the bundled OpenVINO GPU plugin links libOpenCL.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev xorg-dev libxkbcommon-dev \
-            libavcodec-dev libavutil-dev libswscale-dev libpulse-dev \
-            libva-dev libva-drm2 \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libpulse-dev \
+            libva-dev libva-drm2 libvdpau-dev libdrm-dev libx264-dev \
+            nasm meson ninja-build ocl-icd-libopencl1 \
             libopus-dev libssl-dev libusb-1.0-0-dev pkg-config cmake libvulkan-dev
+      - name: Cache FFmpeg
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: client/dist/linux/ffmpeg
+          key: ffmpeg-ubuntu22.04-${{ hashFiles('client/scripts/build_ffmpeg_linux.sh') }}
+      - name: Build FFmpeg 6.1
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        working-directory: client
+        run: ./scripts/build_ffmpeg_linux.sh
       - name: Build (Linux)
         # build_linux.sh packages an AppImage directly (client/dist/USBridgeClient-Linux-x86_64-<VERSION>.AppImage),
-        # bundling libavcodec/libpulse/libopus/etc. via linuxdeploy — no separate
-        # archive step needed, same as the agent's Linux build.
+        # bundling FFmpeg/libpulse/libopus/etc. via linuxdeploy, then the .deb
+        # from the same AppDir.
         working-directory: client
+        env:
+          USBRIDGE_FFMPEG_PREFIX: ${{ github.workspace }}/client/dist/linux/ffmpeg
         run: ./scripts/build_linux.sh
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-linux
-          path: client/dist/USBridgeClient-Linux-x86_64-*.AppImage
+          path: |
+            client/dist/USBridgeClient-Linux-x86_64-*.AppImage
+            client/dist/USBridgeClient-Linux-x86_64-*.deb
           if-no-files-found: error
           retention-days: 7
 
@@ -767,7 +817,16 @@ jobs:
         # Staple the .app itself, not just the .dmg — if the ticket only
         # lives on the disk image, an app dragged out of it to /Applications
         # has no local ticket (Gatekeeper falls back to an online check).
-        run: xcrun stapler staple "client/dist/macos/USBridgeClient.app"
+        # Apple's ticket service (api.apple-cloudkit.com) drops the
+        # connection now and then ("network connection was lost", error 68)
+        # right after an Accepted notarization: retry instead of failing.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler staple "client/dist/macos/USBridgeClient.app" && break
+            [ "$attempt" -eq 5 ] && { echo "::error::stapling failed after 5 attempts"; exit 1; }
+            echo "::warning::stapling failed (attempt $attempt/5) -- retrying in 30s"
+            sleep 30
+          done
 
       - name: Rebuild disk image with the stapled app
         run: |
@@ -839,7 +898,12 @@ jobs:
           echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc" && { echo "::error::ad-hoc signed"; exit 1; }
           echo "$CODESIGN_INFO" | grep -q "Authority=Developer ID Application" || { echo "::error::wrong cert"; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$APP"
-          xcrun stapler validate "$APP" || { echo "::error::ticket not stapled"; exit 1; }
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler validate "$APP" && break
+            [ "$attempt" -eq 5 ] && { echo "::error::ticket not stapled"; exit 1; }
+            echo "::warning::stapler validate failed (attempt $attempt/5) -- retrying in 30s"
+            sleep 30
+          done
           SPCTL_OUTPUT="$(spctl --assess --type execute -vv "$APP" 2>&1)" || { echo "$SPCTL_OUTPUT"; echo "::error::spctl rejected"; exit 1; }
           echo "$SPCTL_OUTPUT" | grep -q "source=Notarized Developer ID" || { echo "::error::not notarized"; exit 1; }
           echo "✓ client macOS ready to distribute"
@@ -961,6 +1025,90 @@ jobs:
           rm -f "$RUNNER_TEMP/build_certificate.p12"
           [ -n "${PROFILE_UUID:-}" ] && rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" || true
 
+  # ── Client + Agent bundles ──────────────────────────────────────────────
+  # The main download on the site: the client with the agent alongside, so
+  # one install covers both "connect to my computers" and "let this one be
+  # reached". The agent-only downloads stay for headless machines. Named
+  # USBridge-*, so sign_update_manifest.go never picks them up: each app
+  # still self-updates from its own USBridgeClient-*/USBridgeAgent-* asset.
+
+  bundle-windows:
+    needs: [agent-windows, client-windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*-windows*
+          path: artifacts
+      - name: Install Inno Setup
+        shell: pwsh
+        run: if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build the Client + Agent setup (scripts/windows-installer/USBridge.iss)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content client/VERSION -Raw).Trim()
+          $zip = Get-ChildItem artifacts/release-client-windows/USBridgeClient-Windows-x86_64-*.zip | Select-Object -First 1
+          $agentSetup = Get-ChildItem artifacts/release-agent-windows-setup/USBridgeAgent-Windows-x86_64-Setup-*.exe | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath "$env:RUNNER_TEMP\client"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$version" "/DClientDir=$env:RUNNER_TEMP\client" "/DAgentSetup=$($agentSetup.FullName)" "/DOutputDir=$PWD\dist" scripts/windows-installer/USBridge.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited with $LASTEXITCODE" }
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-windows
+          path: dist/USBridge-Windows-x86_64-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  bundle-macos:
+    # Both apps are already Developer ID signed, notarized and stapled by
+    # their own jobs; this only lays them out side by side on one disk
+    # image (copied with ditto, which keeps signatures and tickets intact).
+    needs: [agent-macos, client-macos]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*-macos
+          path: artifacts
+      - name: Build the Client + Agent disk image
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d ' \t\n\r' < client/VERSION)"
+          SRC="$RUNNER_TEMP/bundle"
+          mkdir -p "$SRC" dist
+          for dmg in artifacts/release-client-macos/*.dmg artifacts/release-agent-macos/*.dmg; do
+            mnt="$(mktemp -d)"
+            hdiutil attach -nobrowse -readonly -quiet -mountpoint "$mnt" "$dmg"
+            for app in "$mnt"/*.app; do ditto "$app" "$SRC/$(basename "$app")"; done
+            hdiutil detach -quiet "$mnt"
+          done
+          ln -s /Applications "$SRC/Applications"
+          ls -la "$SRC"
+          for app in "$SRC"/*.app; do
+            for attempt in 1 2 3 4 5; do
+              xcrun stapler validate "$app" && break
+              [ "$attempt" -eq 5 ] && exit 1
+              sleep 30
+            done
+            spctl --assess --type execute -vv "$app"
+          done
+          OUT="dist/USBridge-macOS-arm64-$VERSION.dmg"
+          for attempt in 1 2 3; do
+            hdiutil create -volname "USBridge" -srcfolder "$SRC" -ov -format UDZO "$OUT" && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 10
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-macos
+          path: dist/USBridge-macOS-arm64-*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
   # ── Combined release ────────────────────────────────────────────────────
 
   release:
@@ -968,6 +1116,8 @@ jobs:
       - agent-linux
       - agent-macos
       - agent-windows
+      - bundle-windows
+      - bundle-macos
       - client-linux
       - client-windows
       - client-android
@@ -1032,6 +1182,40 @@ jobs:
           UPDATE_SIGNING_KEY="$AGENT_UPDATE_ED25519_PRIVATE_KEY" go run scripts/sign_update_manifest.go \
             -app agent -version "$AGENT_VERSION" -dir out \
             -manifest-out out/manifest-agent.json -sig-out out/manifest-agent.json.sig
+
+      - name: Build and sign the APT index
+        # A flat APT repository made of this release's own assets: Packages,
+        # Release, InRelease next to the .deb files. Installed packages point
+        # apt at /releases/latest/download/ ./ (agent/scripts/build_deb.sh),
+        # so only the release that becomes "latest" is ever installed from,
+        # and a prerelease never reaches apt users. Signed with the GPG key
+        # whose public half is scripts/deb/usbridge-archive-keyring.gpg
+        # (backup and README in ~/usbridge-apt-key, outside this repo).
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          # Refuse to publish an index the shipped keyring can't verify.
+          want="$(gpg --batch --with-colons --show-keys scripts/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
+          gpg --batch --with-colons --list-secret-keys "$want" >/dev/null
+
+          cd out
+          apt-ftparchive packages . > Packages
+          gzip -9kn Packages
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=USBridge \
+            -o APT::FTPArchive::Release::Label=USBridge \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Architectures=amd64 \
+            release . > Release.tmp
+          mv Release.tmp Release
+          gpg --batch --yes --local-user "$want" --clearsign -o InRelease Release
+          gpg --batch --yes --local-user "$want" -abs -o Release.gpg Release
+          cat Packages
 
       - name: Derive release tag
         id: tag

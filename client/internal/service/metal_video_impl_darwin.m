@@ -734,6 +734,13 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf, double latencyMs) {
         spikeRendered = metal_spike_render(buf, container);
     }
 
+    // A decoded CVPixelBuffer means this session's frames don't go through
+    // g_avsbdl (PyroWave, decoded by pyrowave_decode_darwin.m). That layer
+    // is opaque black and sits above g_layer/g_metal_layer, so left visible
+    // it hides every frame shown here. metal_video_create makes a fresh,
+    // visible one each session, so H.264/H.265 sessions are unaffected.
+    if (g_avsbdl && !g_avsbdl.hidden) g_avsbdl.hidden = YES;
+
     if (spikeRendered) {
         if (g_metal_layer.hidden) g_metal_layer.hidden = NO;
         if (!g_layer.hidden) g_layer.hidden = YES;
@@ -1108,6 +1115,29 @@ void metal_video_avsbdl_clear_needs_idr(void) {
     atomic_store(&g_avsbdl_needs_idr, 0);
 }
 
+// The layer's own enqueue/flush/status/error are deprecated since macOS 15
+// in favour of the same calls on its sampleBufferRenderer (macOS 14+), which
+// the layer's versions forward to. Older systems only have the layer's.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static AVQueuedSampleBufferRenderingStatus avsbdl_status(AVSampleBufferDisplayLayer *l) {
+    if (@available(macOS 14.0, *)) return l.sampleBufferRenderer.status;
+    return l.status;
+}
+static NSError *avsbdl_error(AVSampleBufferDisplayLayer *l) {
+    if (@available(macOS 14.0, *)) return l.sampleBufferRenderer.error;
+    return l.error;
+}
+static void avsbdl_flush(AVSampleBufferDisplayLayer *l) {
+    if (@available(macOS 14.0, *)) [l.sampleBufferRenderer flush];
+    else [l flush];
+}
+static void avsbdl_enqueue(AVSampleBufferDisplayLayer *l, CMSampleBufferRef sample) {
+    if (@available(macOS 14.0, *)) [l.sampleBufferRenderer enqueueSampleBuffer:sample];
+    else [l enqueueSampleBuffer:sample];
+}
+#pragma clang diagnostic pop
+
 int metal_video_submit_compressed_sample(CMSampleBufferRef sample) {
     if (!atomic_load(&g_active) || !g_avsbdl) return 0;
 
@@ -1121,13 +1151,13 @@ int metal_video_submit_compressed_sample(CMSampleBufferRef sample) {
     // later frame, including real IDRs, kept getting silently dropped here.
     // Confirmed live: exactly this (a report of "black screen for up to a
     // minute") with zero evidence in the log before this check existed.
-    if (g_avsbdl.status == AVQueuedSampleBufferRenderingStatusFailed) {
-        NSError *err = g_avsbdl.error;
+    if (avsbdl_status(g_avsbdl) == AVQueuedSampleBufferRenderingStatusFailed) {
+        NSError *err = avsbdl_error(g_avsbdl);
         char msg[160];
         snprintf(msg, sizeof(msg), "AVSBDL: status=Failed, flushing to recover (%s)",
                  err ? err.localizedDescription.UTF8String : "no error info");
         goMetalLog(msg, 1); // warn
-        [g_avsbdl flush];
+        avsbdl_flush(g_avsbdl);
         // Don't also enqueue this sample: it's almost certainly not an IDR
         // (those are rare/periodic), so it'll just fail again immediately
         // post-flush. Tell the caller to request a fresh IDR instead of
@@ -1137,11 +1167,11 @@ int metal_video_submit_compressed_sample(CMSampleBufferRef sample) {
         return 2;
     }
 
-    [g_avsbdl enqueueSampleBuffer:sample];
+    avsbdl_enqueue(g_avsbdl, sample);
 
     if (atomic_fetch_add(&g_avsbdl_submit_count, 1) == 0) {
         char msg[96];
-        snprintf(msg, sizeof(msg), "AVSBDL: first sample enqueued (status=%ld)", (long)g_avsbdl.status);
+        snprintf(msg, sizeof(msg), "AVSBDL: first sample enqueued (status=%ld)", (long)avsbdl_status(g_avsbdl));
         goMetalLog(msg, 0);
     }
     double now = mono_sec();
@@ -1156,7 +1186,7 @@ int metal_video_submit_compressed_sample(CMSampleBufferRef sample) {
         atomic_store(&g_lastKnownAvsbdlFps, fps);
         char msg[128];
         snprintf(msg, sizeof(msg), "AVSBDL: submit fps=%.1f (frames=%llu window=%.1fs) status=%ld",
-                 fps, (unsigned long long)frames, elapsed, (long)g_avsbdl.status);
+                 fps, (unsigned long long)frames, elapsed, (long)avsbdl_status(g_avsbdl));
         goMetalLog(msg, 0);
     }
     return 1;
@@ -1374,8 +1404,108 @@ void metal_video_set_hud_scale(float s) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
-// Forward declaration — CGO generates this export from video_widget_metal_darwin.go.
-extern void goMetalMouseEvent(int typ, float x, float y, int btn);
+// Pointer-event sink, registered by internal/gui/controller (its
+// goMetalMouseEvent export) through metal_video_set_mouse_callback. A
+// pointer, not a direct reference to that export, so binaries that link
+// this package without the controller (tests, cmd tools) still link.
+typedef void (*metal_mouse_cb)(int typ, float x, float y, int btn);
+static _Atomic(metal_mouse_cb) g_mouse_cb; // zero = none; no NULL initializer (Xcode 15 clang rejects it)
+
+void metal_video_set_mouse_callback(metal_mouse_cb cb) { atomic_store(&g_mouse_cb, cb); }
+
+static void metal_push_mouse(int typ, float x, float y, int btn) {
+    metal_mouse_cb cb = atomic_load(&g_mouse_cb);
+    if (cb) cb(typ, x, y, btn);
+}
+
+// Menu holes: rounded rects (view points, top-left origin like Fyne; r is
+// the corner radius) cut out of g_view so Fyne menus drawn by the GLFW
+// content view underneath show through while the rest of the video keeps
+// playing. The mask follows the cards' rounded corners, so video fills the
+// corners a menu card leaves bare. Main thread only.
+#define METAL_MAX_HOLES 64
+static CGRect  g_holes[METAL_MAX_HOLES];
+static CGFloat g_hole_radius[METAL_MAX_HOLES];
+static int     g_hole_count = 0;
+
+static int metal_point_in_hole(NSView *v, NSPoint pt) {
+    if (g_hole_count == 0) return 0;
+    CGPoint p = CGPointMake(pt.x, v.bounds.size.height - pt.y);
+    for (int i = 0; i < g_hole_count; i++)
+        if (CGRectContainsPoint(g_holes[i], p)) return 1;
+    return 0;
+}
+
+// metal_apply_holes rebuilds g_view's mask from g_holes against its current
+// bounds; no holes removes the mask.
+static void metal_apply_holes(void) {
+    if (!g_view) return;
+    CALayer *root = g_view.layer;
+    if (!root) return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if (g_hole_count == 0) {
+        root.mask = nil;
+    } else {
+        CGRect b = root.bounds;
+        CGMutablePathRef cut = CGPathCreateMutable();
+        for (int i = 0; i < g_hole_count; i++) {
+            // Fyne's top-left rect -> the layer's bottom-left geometry.
+            CGRect r = g_holes[i];
+            r.origin.y = b.size.height - r.origin.y - r.size.height;
+            CGFloat rad = g_hole_radius[i];
+            rad = MIN(rad, MIN(r.size.width, r.size.height) / 2);
+            if (rad > 0) CGPathAddRoundedRect(cut, NULL, r, rad, rad);
+            else         CGPathAddRect(cut, NULL, r);
+        }
+        CAShapeLayer *mask = [root.mask isKindOfClass:[CAShapeLayer class]]
+                                 ? (CAShapeLayer *)root.mask : [CAShapeLayer layer];
+        mask.frame = b;
+        mask.fillColor = CGColorGetConstantColor(kCGColorBlack);
+        CGPathRef shape = NULL;
+        if (@available(macOS 13.0, *)) {
+            // Non-zero subtraction: overlapping holes stay cut out.
+            CGPathRef full = CGPathCreateWithRect(b, NULL);
+            shape = CGPathCreateCopyBySubtractingPath(full, cut, false);
+            CGPathRelease(full);
+            mask.fillRule = kCAFillRuleNonZero;
+        }
+        if (!shape) {
+            CGMutablePathRef eo = CGPathCreateMutable();
+            CGPathAddRect(eo, NULL, b);
+            CGPathAddPath(eo, NULL, cut);
+            shape = eo;
+            mask.fillRule = kCAFillRuleEvenOdd;
+        }
+        mask.path = shape;
+        CGPathRelease(shape);
+        root.mask = mask;
+    }
+    [CATransaction commit];
+}
+
+// metal_video_set_holes replaces the hole list; xywhr holds n holes as
+// x,y,w,h,radius quintuples in view points. n == 0 clears every hole.
+void metal_video_set_holes(const float *xywhr, int n) {
+    if (n < 0) n = 0;
+    if (n > METAL_MAX_HOLES) n = METAL_MAX_HOLES;
+    NSData *d = [NSData dataWithBytes:xywhr length:(NSUInteger)n * 5 * sizeof(float)];
+    dispatch_block_t blk = ^{
+        const float *v = d.bytes;
+        int k = 0;
+        for (int i = 0; i < n; i++) {
+            const float *h = v + i * 5;
+            if (h[2] <= 0 || h[3] <= 0) continue;
+            g_holes[k] = CGRectMake(h[0], h[1], h[2], h[3]);
+            g_hole_radius[k] = h[4];
+            k++;
+        }
+        if (k == 0 && g_hole_count == 0) return;
+        g_hole_count = k;
+        metal_apply_holes();
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // USBridgeMetalView: captures all pointer events and sends them directly to Go.
@@ -1386,6 +1516,20 @@ extern void goMetalMouseEvent(int typ, float x, float y, int btn);
 
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent __unused *)event { return YES; }
+
+// Clicks inside a menu hole belong to the Fyne view underneath.
+- (NSView *)hitTest:(NSPoint)p {
+    NSView *hit = [super hitTest:p];
+    if (hit == self && metal_point_in_hole(self, [self convertPoint:p fromView:self.superview]))
+        return nil;
+    return hit;
+}
+
+// The mask is cut against the bounds; re-cut it whenever they change.
+- (void)setFrameSize:(NSSize)size {
+    [super setFrameSize:size];
+    if (self == g_view && g_hole_count > 0) metal_apply_holes();
+}
 
 // Tracking area: deliver mouseMoved: (and drag events) even without a held button.
 - (void)updateTrackingAreas {
@@ -1402,15 +1546,19 @@ extern void goMetalMouseEvent(int typ, float x, float y, int btn);
 // NSView coordinates have origin at bottom-left; Fyne expects top-left.
 - (void)pushMoveEvent:(NSEvent *)e {
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    goMetalMouseEvent(1, (float)pt.x, (float)(self.bounds.size.height - pt.y), 0);
+    metal_push_mouse(1, (float)pt.x, (float)(self.bounds.size.height - pt.y), 0);
 }
 - (void)pushButtonEvent:(int)type btn:(int)btn event:(NSEvent *)e {
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    goMetalMouseEvent(type, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
+    metal_push_mouse(type, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
 }
 
 // ── mouse movement (no button held) ───────────────────────────────────────
-- (void)mouseMoved:(NSEvent *)e       { [self pushMoveEvent:e]; }
+- (void)mouseMoved:(NSEvent *)e {
+    // Hovering an open menu must not drive the remote cursor.
+    if (metal_point_in_hole(self, [self convertPoint:e.locationInWindow fromView:nil])) return;
+    [self pushMoveEvent:e];
+}
 // ── drag (button held) ────────────────────────────────────────────────────
 - (void)mouseDragged:(NSEvent *)e     { [self pushMoveEvent:e]; }
 - (void)rightMouseDragged:(NSEvent *)e{ [self pushMoveEvent:e]; }
@@ -1426,7 +1574,7 @@ extern void goMetalMouseEvent(int typ, float x, float y, int btn);
 - (void)scrollWheel:(NSEvent *)e {
     int btn = (e.scrollingDeltaY >= 0) ? 4 : 5; // 4=up 5=down
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
-    goMetalMouseEvent(2, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
+    metal_push_mouse(2, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
 }
 
 @end
@@ -1545,12 +1693,21 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         [cv addSubview:ov];
 
         g_view  = ov;
+        g_hole_count = 0; // the Go side re-sends holes for the new view
         g_layer = vl;
         g_overlay_layer = ol;
         g_hud_layer = hl;
         g_metal_layer = ml;
         g_avsbdl = sl;
         atomic_store(&g_avsbdl_needs_idr, 1);
+        // Per session, like g_renderCount below: a count left over from an
+        // earlier H.264/H.265 session made metal_video_last_fps and
+        // metal_video_decode_ms_available read this (idle) path for a
+        // PyroWave one -- FPS 0 and DEC -- in the Net Graph.
+        atomic_store(&g_avsbdl_submit_count, 0);
+        atomic_store(&g_avsbdl_fps_start, 0.0);
+        atomic_store(&g_avsbdl_fps_frames, 0);
+        atomic_store(&g_lastKnownAvsbdlFps, 0.0);
 
         g_submitCount = 0; g_renderCount = 0;
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
@@ -1640,6 +1797,96 @@ void metal_video_update_frame(float x, float y, float w, float h) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
+// metal_buffer_to_rgba converts a locked CVPixelBuffer to w*h RGBA: BGRA (what
+// VideoToolbox decodes SDR H.26x to), or biplanar YCbCr -- 8-bit or 16-bit
+// samples, 4:2:0 or 4:4:4, full or video range: the formats PyroWave
+// (pyrowave_decode_darwin.m) and HEVC Main10 frames arrive in. The matrix
+// follows the buffer's own YCbCr attachment (BT.2020 or BT.709); PQ is not
+// tone mapped, it is a still for the pause screen. Returns 0 for any other
+// format -- reading a planar buffer as BGRA through its base address walks
+// off the end of the surface and crashed the client on stop.
+static int metal_buffer_to_rgba(CVPixelBufferRef buf, int w, int h, uint8_t *rgba) {
+    OSType fmt = CVPixelBufferGetPixelFormatType(buf);
+    if (fmt == kCVPixelFormatType_32BGRA) {
+        uint8_t *src = (uint8_t *)CVPixelBufferGetBaseAddress(buf);
+        size_t srcStride = CVPixelBufferGetBytesPerRow(buf);
+        if (!src || srcStride < (size_t)w * 4) return 0;
+        // Swap B<->R to produce RGBA.
+        for (int y = 0; y < h; y++) {
+            uint8_t *s = src  + (size_t)y * srcStride;
+            uint8_t *d = rgba + (size_t)y * (size_t)w * 4;
+            for (int x = 0; x < w; x++, s += 4, d += 4) {
+                d[0] = s[2]; d[1] = s[1]; d[2] = s[0]; d[3] = s[3];
+            }
+        }
+        return 1;
+    }
+
+    int full;  // range
+    int bps;   // bytes per sample
+    int c444;
+    switch (fmt) {
+    case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:   full = 0; bps = 1; c444 = 0; break;
+    case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:    full = 1; bps = 1; c444 = 0; break;
+    case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:  full = 0; bps = 2; c444 = 0; break;
+    case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:   full = 1; bps = 2; c444 = 0; break;
+    case kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange:   full = 0; bps = 1; c444 = 1; break;
+    case kCVPixelFormatType_444YpCbCr8BiPlanarFullRange:    full = 1; bps = 1; c444 = 1; break;
+    case kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:  full = 0; bps = 2; c444 = 1; break;
+    case kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:   full = 1; bps = 2; c444 = 1; break;
+    default: return 0;
+    }
+    if (CVPixelBufferGetPlaneCount(buf) != 2) return 0;
+    const uint8_t *yp = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(buf, 0);
+    const uint8_t *cp = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(buf, 1);
+    size_t ys = CVPixelBufferGetBytesPerRowOfPlane(buf, 0);
+    size_t cs = CVPixelBufferGetBytesPerRowOfPlane(buf, 1);
+    int cw = c444 ? w : (w + 1) / 2, ch = c444 ? h : (h + 1) / 2;
+    if (!yp || !cp || ys < (size_t)w * bps || cs < (size_t)cw * 2 * bps ||
+        (int)CVPixelBufferGetHeightOfPlane(buf, 1) < ch) return 0;
+
+    // Kr/Kb of the matrix the frame is tagged with.
+    float kr = 0.2126f, kb = 0.0722f;
+    CFTypeRef m = CVBufferCopyAttachment(buf, kCVImageBufferYCbCrMatrixKey, NULL);
+    if (m) {
+        if (CFEqual(m, kCVImageBufferYCbCrMatrix_ITU_R_2020)) { kr = 0.2627f; kb = 0.0593f; }
+        CFRelease(m);
+    }
+    const float kg = 1.0f - kr - kb;
+    // Samples as 0..1, the 16-bit ones through their top byte's scale.
+    const float ymul = full ? 1.0f : 255.0f / 219.0f, yoff = full ? 0.0f : 16.0f / 255.0f;
+    const float cmul = full ? 1.0f : 255.0f / 224.0f;
+    for (int y = 0; y < h; y++) {
+        const uint8_t *yr = yp + (size_t)y * ys;
+        const uint8_t *cr = cp + (size_t)(c444 ? y : y / 2) * cs;
+        uint8_t *d = rgba + (size_t)y * (size_t)w * 4;
+        for (int x = 0; x < w; x++, d += 4) {
+            int cx = c444 ? x : x / 2;
+            float Y, Cb, Cr;
+            if (bps == 1) {
+                Y  = yr[x] / 255.0f;
+                Cb = cr[2 * cx] / 255.0f;
+                Cr = cr[2 * cx + 1] / 255.0f;
+            } else {
+                const uint16_t *y16 = (const uint16_t *)yr, *c16 = (const uint16_t *)cr;
+                Y  = y16[x] / 65535.0f;
+                Cb = c16[2 * cx] / 65535.0f;
+                Cr = c16[2 * cx + 1] / 65535.0f;
+            }
+            Y = (Y - yoff) * ymul;
+            Cb = (Cb - 0.5f) * cmul;
+            Cr = (Cr - 0.5f) * cmul;
+            float r = Y + 2.0f * (1.0f - kr) * Cr;
+            float b = Y + 2.0f * (1.0f - kb) * Cb;
+            float g = (Y - kr * r - kb * b) / kg;
+            #define PW_U8(v) ((uint8_t)lrintf(fminf(fmaxf((v), 0.0f), 1.0f) * 255.0f))
+            d[0] = PW_U8(r); d[1] = PW_U8(g); d[2] = PW_U8(b); d[3] = 255;
+            #undef PW_U8
+        }
+    }
+    return 1;
+}
+
 // Copies the last rendered frame to a caller-owned RGBA buffer.
 // Returns 1 on success; caller must free(*out) with free().
 // Safe to call from any thread: the read-then-retain of g_lastRenderedBuf is
@@ -1656,27 +1903,20 @@ int metal_video_get_last_frame_rgba(int *outW, int *outH, uint8_t **out) {
     int h = (int)CVPixelBufferGetHeight(buf);
     if (w <= 0 || h <= 0) { CVPixelBufferRelease(buf); return 0; }
 
-    CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
-    uint8_t *src    = (uint8_t *)CVPixelBufferGetBaseAddress(buf);
-    size_t srcStride = CVPixelBufferGetBytesPerRow(buf);
-
     uint8_t *rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4);
     if (!rgba) {
-        CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
         CVPixelBufferRelease(buf);
         return 0;
     }
 
-    // VT decodes to kCVPixelFormatType_32BGRA; swap B↔R to produce RGBA.
-    for (int y = 0; y < h; y++) {
-        uint8_t *s = src  + (size_t)y * srcStride;
-        uint8_t *d = rgba + (size_t)y * (size_t)w * 4;
-        for (int x = 0; x < w; x++, s += 4, d += 4) {
-            d[0] = s[2]; d[1] = s[1]; d[2] = s[0]; d[3] = s[3];
-        }
-    }
-
+    CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    int ok = metal_buffer_to_rgba(buf, w, h, rgba);
     CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    if (!ok) {
+        free(rgba);
+        CVPixelBufferRelease(buf);
+        return 0;
+    }
     CVPixelBufferRelease(buf);
 
     *outW = w; *outH = h; *out = rgba;
@@ -1781,6 +2021,7 @@ void metal_video_destroy(void) {
             g_metal_layer = nil;
             g_avsbdl = nil;
         }
+        g_hole_count = 0;
         atomic_store(&g_hud_dirty, 0);
         pthread_mutex_lock(&g_hud_pending_mu);
         g_hud_pending_data = nil;

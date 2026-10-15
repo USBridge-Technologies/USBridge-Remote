@@ -215,4 +215,13 @@ if [[ -n "$PRODUCED" && "$PRODUCED" != "$OUTPUT_APPIMAGE" ]]; then
 fi
 
 echo -e "${GREEN}✓${NC} AppImage: $OUTPUT_APPIMAGE"
+
+# ── Build .deb ────────────────────────────────────────────────────────────────
+# Same two binaries, installed under /usr/lib/usbridge-agent and updated by
+# apt (see build_deb.sh).
+if command -v dpkg-deb >/dev/null 2>&1; then
+    DEB_SUFFIX="$APPIMAGE_SUFFIX" "$SCRIPT_DIR/build_deb.sh"
+else
+    echo -e "${YELLOW}dpkg-deb not found: skipping the .deb${NC}"
+fi
 echo "Binary: $OUTPUT_PATH"

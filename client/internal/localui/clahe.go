@@ -2,6 +2,39 @@
 
 package localui
 
+import (
+	"runtime"
+	"sync"
+)
+
+// parallelRows runs fn over [0,n) split into one contiguous chunk per CPU.
+// CLAHE prep is ~190ms single-threaded on a 2560x1600 frame -- the largest
+// CPU cost left on the icon-only ui.parse path once inference is on GPU.
+func parallelRows(n int, fn func(lo, hi int)) {
+	workers := runtime.GOMAXPROCS(0)
+	if workers > n {
+		workers = n
+	}
+	if workers <= 1 {
+		fn(0, n)
+		return
+	}
+	var wg sync.WaitGroup
+	chunk := (n + workers - 1) / workers
+	for lo := 0; lo < n; lo += chunk {
+		hi := lo + chunk
+		if hi > n {
+			hi = n
+		}
+		wg.Add(1)
+		go func(lo, hi int) {
+			defer wg.Done()
+			fn(lo, hi)
+		}(lo, hi)
+	}
+	wg.Wait()
+}
+
 // claheGray is a from-scratch CLAHE (Contrast Limited Adaptive Histogram
 // Equalization) implementation matching gocv.NewCLAHEWithParams(2.0,
 // image.Pt(8,8))'s parameters (clipLimit=2.0, an 8x8 tile grid) -- the same
@@ -19,114 +52,120 @@ func claheGray(gray []uint8, w, h int, clipLimit float64, tilesX, tilesY int) []
 	mappings := make([][][256]uint8, tilesY)
 	for ty := 0; ty < tilesY; ty++ {
 		mappings[ty] = make([][256]uint8, tilesX)
-		for tx := 0; tx < tilesX; tx++ {
-			x0, y0 := tx*tileW, ty*tileH
-			x1, y1 := minInt(x0+tileW, w), minInt(y0+tileH, h)
+	}
+	parallelRows(tilesY, func(tyLo, tyHi int) {
+		for ty := tyLo; ty < tyHi; ty++ {
+			for tx := 0; tx < tilesX; tx++ {
+				x0, y0 := tx*tileW, ty*tileH
+				x1, y1 := minInt(x0+tileW, w), minInt(y0+tileH, h)
 
-			var hist [256]int
-			count := 0
-			for y := y0; y < y1; y++ {
-				row := y * w
-				for x := x0; x < x1; x++ {
-					hist[gray[row+x]]++
-					count++
+				var hist [256]int
+				count := 0
+				for y := y0; y < y1; y++ {
+					row := y * w
+					for x := x0; x < x1; x++ {
+						hist[gray[row+x]]++
+						count++
+					}
 				}
-			}
-			if count == 0 {
+				if count == 0 {
+					for i := 0; i < 256; i++ {
+						mappings[ty][tx][i] = uint8(i)
+					}
+					continue
+				}
+
+				clipAt := int(clipLimit * float64(count) / 256.0)
+				if clipAt < 1 {
+					clipAt = 1
+				}
+				excess := 0
 				for i := 0; i < 256; i++ {
-					mappings[ty][tx][i] = uint8(i)
+					if hist[i] > clipAt {
+						excess += hist[i] - clipAt
+						hist[i] = clipAt
+					}
 				}
-				continue
-			}
+				redist := excess / 256
+				rem := excess - redist*256
+				for i := 0; i < 256; i++ {
+					hist[i] += redist
+					if i < rem {
+						hist[i]++
+					}
+				}
 
-			clipAt := int(clipLimit * float64(count) / 256.0)
-			if clipAt < 1 {
-				clipAt = 1
-			}
-			excess := 0
-			for i := 0; i < 256; i++ {
-				if hist[i] > clipAt {
-					excess += hist[i] - clipAt
-					hist[i] = clipAt
+				var cdf [256]int
+				running := 0
+				for i := 0; i < 256; i++ {
+					running += hist[i]
+					cdf[i] = running
 				}
-			}
-			redist := excess / 256
-			rem := excess - redist*256
-			for i := 0; i < 256; i++ {
-				hist[i] += redist
-				if i < rem {
-					hist[i]++
+				scale := 255.0 / float64(count)
+				for i := 0; i < 256; i++ {
+					mappings[ty][tx][i] = clampU8(float64(cdf[i]) * scale)
 				}
-			}
-
-			var cdf [256]int
-			running := 0
-			for i := 0; i < 256; i++ {
-				running += hist[i]
-				cdf[i] = running
-			}
-			scale := 255.0 / float64(count)
-			for i := 0; i < 256; i++ {
-				mappings[ty][tx][i] = clampU8(float64(cdf[i]) * scale)
 			}
 		}
-	}
+	})
 
 	out := make([]uint8, w*h)
 	// Tile centers, used as the bilinear interpolation grid.
 	centerX := func(tx int) float64 { return float64(tx)*float64(tileW) + float64(tileW)/2 }
 	centerY := func(ty int) float64 { return float64(ty)*float64(tileH) + float64(tileH)/2 }
 
-	for y := 0; y < h; y++ {
-		fy := float64(y)
-		ty0 := int((fy - float64(tileH)/2) / float64(tileH))
-		if ty0 < 0 {
-			ty0 = 0
-		}
-		ty1 := ty0 + 1
-		if ty1 >= tilesY {
-			ty1 = tilesY - 1
-		}
-		if ty0 >= tilesY {
-			ty0 = tilesY - 1
-		}
-		denomY := centerY(ty1) - centerY(ty0)
-		wy := 0.0
-		if denomY > 0 {
-			wy = (fy - centerY(ty0)) / denomY
-		}
-		wy = clampF(wy, 0, 1)
+	parallelRows(h, func(yLo, yHi int) {
+		for y := yLo; y < yHi; y++ {
+			fy := float64(y)
+			ty0 := int((fy - float64(tileH)/2) / float64(tileH))
+			if ty0 < 0 {
+				ty0 = 0
+			}
+			ty1 := ty0 + 1
+			if ty1 >= tilesY {
+				ty1 = tilesY - 1
+			}
+			if ty0 >= tilesY {
+				ty0 = tilesY - 1
+			}
+			denomY := centerY(ty1) - centerY(ty0)
+			wy := 0.0
+			if denomY > 0 {
+				wy = (fy - centerY(ty0)) / denomY
+			}
+			wy = clampF(wy, 0, 1)
 
-		for x := 0; x < w; x++ {
-			fx := float64(x)
-			tx0 := int((fx - float64(tileW)/2) / float64(tileW))
-			if tx0 < 0 {
-				tx0 = 0
-			}
-			tx1 := tx0 + 1
-			if tx1 >= tilesX {
-				tx1 = tilesX - 1
-			}
-			if tx0 >= tilesX {
-				tx0 = tilesX - 1
-			}
-			denomX := centerX(tx1) - centerX(tx0)
-			wx := 0.0
-			if denomX > 0 {
-				wx = (fx - centerX(tx0)) / denomX
-			}
-			wx = clampF(wx, 0, 1)
+			for x := 0; x < w; x++ {
+				fx := float64(x)
+				tx0 := int((fx - float64(tileW)/2) / float64(tileW))
+				if tx0 < 0 {
+					tx0 = 0
+				}
+				tx1 := tx0 + 1
+				if tx1 >= tilesX {
+					tx1 = tilesX - 1
+				}
+				if tx0 >= tilesX {
+					tx0 = tilesX - 1
+				}
+				denomX := centerX(tx1) - centerX(tx0)
+				wx := 0.0
+				if denomX > 0 {
+					wx = (fx - centerX(tx0)) / denomX
+				}
+				wx = clampF(wx, 0, 1)
 
-			v := gray[y*w+x]
-			v00 := float64(mappings[ty0][tx0][v])
-			v01 := float64(mappings[ty0][tx1][v])
-			v10 := float64(mappings[ty1][tx0][v])
-			v11 := float64(mappings[ty1][tx1][v])
-			top := v00 + (v01-v00)*wx
-			bot := v10 + (v11-v10)*wx
-			out[y*w+x] = clampU8(top + (bot-top)*wy)
+				v := gray[y*w+x]
+				v00 := float64(mappings[ty0][tx0][v])
+				v01 := float64(mappings[ty0][tx1][v])
+				v10 := float64(mappings[ty1][tx0][v])
+				v11 := float64(mappings[ty1][tx1][v])
+				top := v00 + (v01-v00)*wx
+				bot := v10 + (v11-v10)*wx
+				out[y*w+x] = clampU8(top + (bot-top)*wy)
+			}
 		}
-	}
+	})
 	return out
 }
 
@@ -157,15 +196,17 @@ func applyCLAHE(src *rgbImage) *rgbImage {
 	gray := src.toGray()
 	eq := claheGray(gray, src.W, src.H, 2.0, 8, 8)
 	out := newRGBImage(src.W, src.H)
-	for i := 0; i < src.W*src.H; i++ {
-		g := float64(gray[i])
-		gain := 1.0
-		if g > 1 {
-			gain = float64(eq[i]) / g
+	parallelRows(src.H, func(yLo, yHi int) {
+		for i := yLo * src.W; i < yHi*src.W; i++ {
+			g := float64(gray[i])
+			gain := 1.0
+			if g > 1 {
+				gain = float64(eq[i]) / g
+			}
+			out.Pix[i*3] = clampU8(float64(src.Pix[i*3]) * gain)
+			out.Pix[i*3+1] = clampU8(float64(src.Pix[i*3+1]) * gain)
+			out.Pix[i*3+2] = clampU8(float64(src.Pix[i*3+2]) * gain)
 		}
-		out.Pix[i*3] = clampU8(float64(src.Pix[i*3]) * gain)
-		out.Pix[i*3+1] = clampU8(float64(src.Pix[i*3+1]) * gain)
-		out.Pix[i*3+2] = clampU8(float64(src.Pix[i*3+2]) * gain)
-	}
+	})
 	return out
 }

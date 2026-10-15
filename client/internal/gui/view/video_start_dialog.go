@@ -117,8 +117,8 @@ type VideoStartDialog struct {
 	// playoutBufferCheck/playoutBufferHint: the moonlight-common-c fork's
 	// jitter buffer (service.SetPlayoutBufferEnabled) -- draft until
 	// Apply/Start. Only built/shown when service.PlayoutBufferSupported()
-	// is true (Windows/macOS/Linux/iOS/Android today); defaults off on
-	// desktop, on on mobile -- see playout_buffer_default_mobile.go.
+	// is true (Windows/macOS/Linux/iOS/Android today); defaults off
+	// everywhere -- see playout_buffer.go.
 	playoutBufferCheck *videoDialogCheckbox
 	playoutBufferHint  *videoDialogWrapText
 

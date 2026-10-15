@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	usbapi "usbridge-client/internal/api"
 	"usbridge-client/internal/api/moonlight"
 	"usbridge-client/internal/input"
 	"usbridge-client/internal/models"
@@ -1527,6 +1528,8 @@ func (vw *VideoWidget) SetAgentProtocol(protocol string) {
 	vw.resetHostLayout()
 	vw.updateInStreamContentRect()
 	logrus.Infof("[ABS] agent protocol=%q stream-space mouse=%v", p, vw.hostMapsMouseInStreamSpace())
+	// MCP's ui.parse/screen.get_image/click_at must share the host's space.
+	usbapi.SetMCPDesktopSpaceMouse(!vw.hostMapsMouseInStreamSpace())
 	if p != "" && vw.onAgentProtocolChanged != nil {
 		vw.onAgentProtocolChanged(p)
 	}

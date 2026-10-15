@@ -203,6 +203,12 @@ var errSunshineNoActiveSessionMarker = fmt.Errorf("sunshine: no active console s
 // here instead, so a Backend value is self-contained and safe to construct
 // more than once (e.g. in tests).
 type sunshineBackend struct {
+	// vibepollo: this instance runs Vibepollo (Nonary's Sunshine fork, from Streamers-Forks)
+	// instead of Sunshine. Same config file, state file, admin API and pairing -- Vibepollo
+	// is a Sunshine fork, and the two are never running at once -- so everything but the
+	// binary and the name is shared.
+	vibepollo bool
+
 	mu          sync.Mutex
 	exeDir      string
 	stateDir    string
@@ -328,9 +334,52 @@ var sunshineStageBinary atomic.Value // string
 // Sunshine is.
 func SetSunshineStageBinary(path string) { sunshineStageBinary.Store(path) }
 
+// vibepolloStageBinary is the Vibepollo the agent downloaded from Streamers-Forks
+// (forkrelease.VibepolloBinary), set by the app; there is no bundled one.
+var vibepolloStageBinary atomic.Value // string
+
+// SetVibepolloStageBinary tells a Vibepollo backend where the agent's downloaded
+// Vibepollo is.
+func SetVibepolloStageBinary(path string) { vibepolloStageBinary.Store(path) }
+
+// VibepolloAvailable reports whether a downloaded Vibepollo is on disk.
+func VibepolloAvailable() bool {
+	p, _ := vibepolloStageBinary.Load().(string)
+	if p == "" {
+		return false
+	}
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
+}
+
+// NewVibepollo constructs the Vibepollo-backed Backend: the Sunshine backend run on the
+// agent's downloaded Vibepollo. Its USB devices go through the USBridge USB broker when the
+// build carries the patch (`--usbridge-bridge` probe), like the Sunshine fork.
+func NewVibepollo(exeDir, stateDir, logPath string) Backend {
+	b := &sunshineBackend{
+		exeDir:    exeDir,
+		stateDir:  stateDir,
+		logPath:   logPath,
+		vibepollo: true,
+	}
+	b.launchPath = b.runtimeBinaryPath()
+	if runtime.GOOS == "windows" && b.launchPath != "" {
+		b.windowsDir = filepath.Dir(b.launchPath)
+	}
+	return b
+}
+
 // binaryPath returns the path to the sunshine binary, or "" if it can't be
 // found (not installed/bundled, or unsupported OS).
 func (b *sunshineBackend) binaryPath() string {
+	if b.vibepollo {
+		if p, _ := vibepolloStageBinary.Load().(string); p != "" {
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				return p
+			}
+		}
+		return ""
+	}
 	if p, _ := sunshineStageBinary.Load().(string); p != "" {
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
 			return p
@@ -391,6 +440,9 @@ func (b *sunshineBackend) binaryPath() string {
 func (b *sunshineBackend) runtimeBinaryPath() string {
 	src := b.binaryPath()
 	if runtime.GOOS != "linux" || src == "" || b.stateDir == "" {
+		return src
+	}
+	if b.vibepollo {
 		return src
 	}
 	if staged, _ := sunshineStageBinary.Load().(string); staged != "" && src == staged {
@@ -529,7 +581,12 @@ func copyDir(src, dst string) error {
 
 // DisplayName identifies this backend for display purposes only (GUI
 // status, /api/status, logs) — see streamhost.Identity.
-func (b *sunshineBackend) DisplayName() string { return "Sunshine (Open Source)" }
+func (b *sunshineBackend) DisplayName() string {
+	if b.vibepollo {
+		return "Vibepollo (Open Source)"
+	}
+	return "Sunshine (Open Source)"
+}
 
 // BinaryPath returns the (staged-if-needed) path Sunshine is launched from.
 func (b *sunshineBackend) BinaryPath() string { return b.launchPath }
@@ -659,6 +716,15 @@ func (b *sunshineBackend) Start(adminPort int) error {
 	// to the VPN/LAN interface). Requires our itsme228/Sunshine fork.
 	if err := b.setConfigKey("web_bind_address", "127.0.0.1"); err != nil {
 		log.Printf("[sunshine] warning: could not set web_bind_address: %v", err)
+	}
+	if b.vibepollo {
+		// Vibepollo brings its own virtual display driver and a per-client virtual monitor.
+		// The agent's display is the one every streamer shares (MttVDD, our driver, set up
+		// by vdisplay and attached by the capture config), so Vibepollo captures the
+		// configured output like Sunshine does.
+		if err := b.setConfigKey("virtual_display_mode", "disabled"); err != nil {
+			log.Printf("[vibepollo] warning: could not set virtual_display_mode: %v", err)
+		}
 	}
 
 	// The portable build expects sunshine_state.json to already

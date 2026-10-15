@@ -63,6 +63,10 @@ extern int vk_video_try_submit_nv12(const uint8_t *y, int y_stride,
                                      int width, int height);
 extern void vk_video_set_nv12_bt709(int bt709);
 // PyroWave decode (pyrowave_decode_linux.c).
+extern size_t pyrowave_linux_unframe(const uint8_t *in, size_t len, uint8_t *out);
+// Zero-copy GPU decode in the Vulkan renderer (vk_video_impl_linux.c).
+extern int vk_video_pyrowave_gpu(void);
+extern int vk_video_try_submit_pyrowave(const uint8_t *au, size_t len);
 extern uint8_t *pyrowave_linux_slot_begin(size_t total);
 extern void pyrowave_linux_slot_commit(size_t total);
 extern void pyrowave_linux_teardown(void);
@@ -743,6 +747,23 @@ static int pyrowave_submit(PDECODE_UNIT du) {
     size_t total = 0;
     for (PLENTRY e = du->bufferList; e; e = e->next) total += (size_t)e->length;
     if (total == 0) return DR_OK;
+    // Renderer decodes on the GPU (PyroWave shares its VkDevice): hand it the access unit's
+    // bytes and nothing else -- no CPU decode, readback or upload.
+    if (vk_video_pyrowave_gpu()) {
+        uint8_t *raw = (uint8_t *)malloc(total * 2);
+        if (!raw) return DR_NEED_IDR;
+        uint8_t *dense = raw + total;
+        size_t off = 0;
+        for (PLENTRY e = du->bufferList; e; e = e->next) {
+            memcpy(raw + off, e->data, (size_t)e->length);
+            off += (size_t)e->length;
+        }
+        size_t n = pyrowave_linux_unframe(raw, total, dense);
+        int ok = n ? vk_video_try_submit_pyrowave(dense, n) : 0;
+        free(raw);
+        // Reported like the CPU path does, so the video widget creates its overlay.
+        return DR_OK;
+    }
     uint8_t *slot = pyrowave_linux_slot_begin(total);
     if (!slot) return DR_NEED_IDR;
     size_t off = 0;

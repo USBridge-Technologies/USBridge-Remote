@@ -42,6 +42,12 @@ type mouseAbsoluteArgs struct {
 	ScreenHeight   *int   `json:"screen_height,omitempty"`
 	Button         *uint8 `json:"button,omitempty"`
 	CaptureAfterMs *int   `json:"capture_after_ms,omitempty"`
+	// Confirm=false skips click_at/double_click_at's before/after screenshot
+	// diff (default true). The diff costs two full captures (~0.8s on a
+	// typical desktop) -- pure overhead for a caller that verifies the
+	// outcome itself (e.g. the Client's proxy, which diffs the frames it is
+	// already decoding) or doesn't care.
+	Confirm *bool `json:"confirm,omitempty"`
 }
 
 // pixelToAbsoluteXY mirrors usbridge_service/web/handlers.go's function of
@@ -145,7 +151,12 @@ func (s *Server) mcpMouseActionAbsolute(args mouseAbsoluteArgs) ([]map[string]an
 	// call only proves the OS accepted the injected event, not that
 	// anything on screen reacted to it (wrong coordinates, an unfocused
 	// window, a disabled control all "succeed" identically).
-	beforePNG, beforeErr := s.currentScreenPNG()
+	wantDiff := args.Confirm == nil || *args.Confirm
+	var beforePNG []byte
+	beforeErr := fmt.Errorf("diff skipped")
+	if wantDiff {
+		beforePNG, beforeErr = s.currentScreenPNG()
+	}
 
 	for i := 0; i < clicks; i++ {
 		if err := s.app.Input().AbsoluteEvent(mask, absX, absY, 0); err != nil {

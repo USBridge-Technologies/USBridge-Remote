@@ -661,6 +661,7 @@ ensure_android_sdk_package() {
 setup_android_ndk_toolchain_env() {
     local ndk_dir="$1"
     local api_level="${2:-28}"
+    local triple="${3:-aarch64-linux-android}"
     local prebuilt_dir=""
 
     if [ -z "$ndk_dir" ] || [ ! -d "$ndk_dir" ]; then
@@ -674,8 +675,8 @@ setup_android_ndk_toolchain_env() {
 
     export AR="$prebuilt_dir/bin/llvm-ar"
     export AS="$prebuilt_dir/bin/llvm-as"
-    export CC="$prebuilt_dir/bin/aarch64-linux-android${api_level}-clang"
-    export CXX="$prebuilt_dir/bin/aarch64-linux-android${api_level}-clang++"
+    export CC="$prebuilt_dir/bin/${triple}${api_level}-clang"
+    export CXX="$prebuilt_dir/bin/${triple}${api_level}-clang++"
     export LD="$prebuilt_dir/bin/ld.lld"
     export NM="$prebuilt_dir/bin/llvm-nm"
     export OBJCOPY="$prebuilt_dir/bin/llvm-objcopy"

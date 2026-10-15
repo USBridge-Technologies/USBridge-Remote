@@ -634,6 +634,20 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		})
 		mw.awdlGrantBtn.Hide()
 	}
+	if mw.udpBufGrantBtn == nil {
+		// Same shape as awdlGrantBtn: an invitation to a one-time grant that fixes periodic
+		// frame loss (udpbuf_status.go), shown only while it is missing.
+		mw.udpBufGrantBtn = view.NewHeaderActionButton(mw.handleUDPBufferGrantTapped)
+		mw.udpBufGrantBtn.ApplySpec(view.HeaderActionButtonSpec{
+			Fill:       design.ColorAccent,
+			Foreground: design.ColorBackground,
+			Icon:       assets.WarningTriangleIcon,
+			IconSize:   fyne.NewSize(12, 12),
+			Text:       i18n.Current.UDPBufferGrantAccess,
+		})
+		mw.udpBufGrantBtn.Hide()
+		mw.refreshUDPBufferUI()
+	}
 	// Control's own reuse of the connections screen's header accessories
 	// (see connection_header.go's newHeaderSettingsMenuButton) -- same
 	// Info/Community/Language/Account actions as createConnectionAddressBar
@@ -684,6 +698,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	// directly instead of behind an overlay layout.
 	rightGroup := fyne.CanvasObject(container.NewHBox(
 		mw.awdlGrantBtn,
+		mw.udpBufGrantBtn,
 		settingsBtn,
 		mw.mainExitBtn,
 	))

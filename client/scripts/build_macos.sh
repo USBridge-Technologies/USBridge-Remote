@@ -12,11 +12,8 @@
 #              runtime lib (see fetch_onnxruntime.sh); its absence only
 #              disables that one optional feature, the rest of the build
 #              is unaffected.
-#   Optional:  molten-vk (brew) -- PyroWave decode (see
-#              scripts/build_pyrowave_macos.sh); its absence only disables
-#              that one optional codec, every other codec/decode path is
-#              unaffected.
-#   Moonlight streaming uses VideoToolbox + CoreAudio — no GStreamer needed.
+#   Moonlight streaming uses VideoToolbox + CoreAudio — no GStreamer needed;
+#   PyroWave decodes on Metal (scripts/build_pyrowave_macos.sh), no MoltenVK.
 
 set -e
 
@@ -266,6 +263,12 @@ HOMEBREW_PREFIX="/opt/homebrew"
 [ -d "/usr/local/lib" ] && [ ! -d "/opt/homebrew/lib" ] && HOMEBREW_PREFIX="/usr/local"
 export CGO_ENABLED=1
 export CGO_LDFLAGS="-L${HOMEBREW_PREFIX}/lib ${CGO_LDFLAGS:-}"
+# cmd/go adds -lobjc once per package with .m files (Fyne, systray, ours),
+# which Xcode 15's ld ("ld-NNNN", not the old "ld64-NNN") reports as
+# duplicates on every link. The flag is not allowed in #cgo LDFLAGS.
+if ld -v 2>&1 | grep -q 'PROJECT:ld-[0-9]'; then
+    export CGO_LDFLAGS="$CGO_LDFLAGS -Wl,-no_warn_duplicate_libraries"
+fi
 export CGO_CPPFLAGS="-I${HOMEBREW_PREFIX}/include ${CGO_CPPFLAGS:-}"
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 rm -rf "$DIST_DIR"
@@ -391,28 +394,6 @@ if [ -f "$ORT_CACHE_DIR/libonnxruntime.dylib" ]; then
     echo -e "   ${GREEN}✓${NC} Frameworks/libonnxruntime.dylib"
 else
     echo -e "   ${YELLOW}⚠${NC} Could not fetch libonnxruntime.dylib -- local ui.parse/AI Vision will stay unavailable in this build"
-fi
-
-# 5e. Bundle MoltenVK for PyroWave decode (internal/service/pyrowave_decode_darwin.m).
-# Not a link-time dependency of the binary (bundle_homebrew_dylibs above walks otool -L,
-# which never sees this: PyroWave's own Vulkan loader, volk, dlopens it at runtime instead,
-# see that file's moltenvk_preload) -- same reason the ONNX runtime above needs its own
-# explicit copy step rather than relying on the automatic dependency walk. Any failure here
-# only warns, matching the ONNX runtime step: PyroWave just won't be offered this build
-# (service.PyroWaveDecodeSupported() goes by whether the dylib decoder actually came up, not
-# by whether this file exists), every other codec is unaffected.
-echo -e "\n${YELLOW}🔎 Bundling MoltenVK for PyroWave decode...${NC}"
-MOLTENVK_LIB=""
-for _p in "$HOMEBREW_PREFIX/lib/libMoltenVK.dylib" "/opt/homebrew/lib/libMoltenVK.dylib" "/usr/local/lib/libMoltenVK.dylib"; do
-    if [ -f "$_p" ]; then MOLTENVK_LIB="$_p"; break; fi
-done
-if [ -n "$MOLTENVK_LIB" ]; then
-    cp -L "$MOLTENVK_LIB" "$APP_FRAMEWORKS_DIR/libMoltenVK.dylib"
-    chmod 755 "$APP_FRAMEWORKS_DIR/libMoltenVK.dylib"
-    install_name_tool -id "@rpath/libMoltenVK.dylib" "$APP_FRAMEWORKS_DIR/libMoltenVK.dylib" 2>/dev/null || true
-    echo -e "   ${GREEN}✓${NC} Frameworks/libMoltenVK.dylib"
-else
-    echo -e "   ${YELLOW}⚠${NC} libMoltenVK.dylib not found (brew install molten-vk) -- PyroWave decode will stay unavailable in this build"
 fi
 
 # 6. Info.plist (written after bundling so icons/plist don't interfere with lib walk)

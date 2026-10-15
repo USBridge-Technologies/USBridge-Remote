@@ -435,3 +435,4 @@ func TestClipboardWS_RequestRepliesWithCurrentClipboard(t *testing.T) {
 
 func (s *stubApp) VirtualDisplayPrimary() bool                 { return false }
 func (s *stubApp) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
+func (s *stubApp) SetVirtualDisplayExclusive(bool) error       { return nil }

@@ -156,6 +156,7 @@ type VideoWidget struct {
 	fullscreenDialog         *FullscreenDialog
 	startDialog              *view.VideoStartDialog
 	pairingPINDialog         *view.PairingPINDialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
+	gameStreamOnly           atomic.Bool            // plain Sunshine/GameStream host, no usbridge agent API (see SetGameStreamOnly)
 	parentWindow             fyne.Window
 	virtualKeyboard          *graphics.VirtualKeyboard
 	onKeyboardStackChanged   func()

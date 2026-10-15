@@ -13,6 +13,11 @@
 
 volatile uint16_t g_last_host_latency_tenths_ms = 0;
 
+// VIDEO_FORMAT_* the running decoder was set up for (amc_init), -1 when no
+// stream is decoding -- Net Graph's codec field.
+volatile int g_amc_negotiated_fmt = -1;
+int do_get_negotiated_video_format(void) { return g_amc_negotiated_fmt; }
+
 void do_get_rtp_video_stats(uint32_t *out) {
     const RTP_VIDEO_STATS *stats = LiGetRTPVideoStats();
     out[0] = stats->packetCountVideo;

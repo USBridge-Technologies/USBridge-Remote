@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image/color"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -91,9 +92,9 @@ type ScriptsTabWidget struct {
 	// downloadLocalUIModels runs. modelsDownloadCancel lets a second click
 	// on an in-flight download cancel it rather than starting a redundant
 	// concurrent one.
-	modelsDownloading       bool
-	modelsDownloadProgress  float64
-	modelsDownloadCancel    context.CancelFunc
+	modelsDownloading      bool
+	modelsDownloadProgress float64
+	modelsDownloadCancel   context.CancelFunc
 }
 
 // NewScriptsTabWidget creates the widget and builds the persistent UI tree.
@@ -152,6 +153,17 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 	// connection manager.
 	w.mcpProxy.UpdateClient(c)
 	w.mcpBridge.UpdateClient(c)
+
+	// Headless/test launches (USBRIDGE_MCP_AUTOSTART=1): bring the MCP proxy
+	// up as soon as a device connection exists, so an automated driver
+	// doesn't need someone to click Start in this tab first.
+	if c != nil && mcpAutostartRequested() && !w.mcpProxy.Running() {
+		if err := w.mcpProxy.Start(w.mcpPort, c); err != nil {
+			logrus.Warnf("mcp proxy autostart: %v", err)
+		} else {
+			logrus.Infof("mcp proxy autostarted on 127.0.0.1:%d (USBRIDGE_MCP_AUTOSTART)", w.mcpPort)
+		}
+	}
 
 	if w.isClosing.Load() {
 		return
@@ -218,6 +230,7 @@ func (w *ScriptsTabWidget) SetAgentOS(osName string) {
 	w.agentOS = strings.TrimSpace(osName)
 	w.mu.Unlock()
 }
+
 // and disables New Script -- SD/eMMC storage doesn't exist on a software
 // Agent. The MCP card stays fully usable regardless of agent type.
 func (w *ScriptsTabWidget) showScriptsLocked(msg string) {
@@ -520,9 +533,9 @@ func (w *ScriptsTabWidget) sectionData() view.ScriptsSectionData {
 
 	data := view.ScriptsSectionData{
 		MCP: view.ScriptsMCPData{
-			URL:     url,
-			Running: w.mcpProxy.Running(),
-			Enabled: client != nil,
+			URL:                    url,
+			Running:                w.mcpProxy.Running(),
+			Enabled:                client != nil,
 			LocalUI:                localUI,
 			ModelsPresent:          modelsPresent,
 			ModelsDownloading:      modelsDownloading,
@@ -1423,4 +1436,14 @@ func (l *scriptEditorStackLayout) MinSize(objects []fyne.CanvasObject) fyne.Size
 		}
 	}
 	return min
+}
+
+// mcpAutostartRequested reports whether USBRIDGE_MCP_AUTOSTART asks for the
+// MCP proxy to start itself on connect (1/true/yes/on).
+func mcpAutostartRequested() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("USBRIDGE_MCP_AUTOSTART"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }

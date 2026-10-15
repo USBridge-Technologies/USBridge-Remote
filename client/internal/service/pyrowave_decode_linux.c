@@ -21,6 +21,7 @@
 
 #include <vulkan/vulkan.h>
 #include <pyrowave.h>
+#include "pyrowave_framing.h"
 
 #include <pthread.h>
 #include <stdint.h>
@@ -160,7 +161,7 @@ static int pw_ensure_decoder(int w, int h) {
 // tightly packed w*h luma plane and *uv at an interleaved CbCr plane of (w/2)*2 bytes
 // per row and h/2 rows, both valid until the next call; *full_range reports whether
 // the stream signals full-range YCbCr. Returns 0 for a frame that cannot be decoded.
-static int pw_decode(const uint8_t *au, size_t len,
+static int pw_decode_dense(const uint8_t *au, size_t len,
                      const uint8_t **y, const uint8_t **uv,
                      int *w_out, int *h_out, int *full_range) {
     // BitstreamSequenceHeader (pyrowave_common.hpp), little endian: width-1 in bits
@@ -203,15 +204,28 @@ static int pw_decode(const uint8_t *au, size_t len,
     clock_gettime(CLOCK_MONOTONIC, &t1);
     g_pw_decode_us += (uint64_t)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000);
 
-    for (size_t i = 0; i < chroma; i++) {
-        puv[i * 2]     = pcb[i];
-        puv[i * 2 + 1] = pcr[i];
+    if ((w1 >> 30) & 1) {
+        for (size_t i = 0; i < chroma; i++) {
+            puv[i * 2]     = pcb[i];
+            puv[i * 2 + 1] = pcr[i];
+        }
+    } else {
+        // Full-range stream (rust-shine's scaled encode): the renderer samples limited
+        // range, so compress the levels here, fused with the interleave.
+        static uint8_t ly[256], lc[256];
+        static int luts = 0;
+        if (!luts) { pw_range_luts(ly, lc); luts = 1; }
+        for (size_t i = 0; i < luma; i++) py[i] = ly[py[i]];
+        for (size_t i = 0; i < chroma; i++) {
+            puv[i * 2]     = lc[pcb[i]];
+            puv[i * 2 + 1] = lc[pcr[i]];
+        }
     }
     *y = py;
     *uv = puv;
     *w_out = w;
     *h_out = h;
-    *full_range = ((w1 >> 30) & 1) ? 0 : 1;
+    *full_range = 0; // levels are limited range by now (compressed above if the stream was full)
     if (++g_pw_frames == 1) pw_log("pyrowave: first frame decoded (%dx%d)", w, h);
     if (g_pw_frames % 600 == 0) {
         pw_log("pyrowave: decode + readback %d us per frame (average of the last %d)",
@@ -221,6 +235,21 @@ static int pw_decode(const uint8_t *au, size_t len,
     ok = 1;
 out:
     pthread_mutex_unlock(&g_pw_mu);
+    return ok;
+}
+
+// pw_decode takes the frame payload as it came off the wire (dense, record framed or
+// length-prefixed -- see pyrowave_framing.h) and decodes it.
+static int pw_decode(const uint8_t *au, size_t len,
+                     const uint8_t **y, const uint8_t **uv,
+                     int *w_out, int *h_out, int *full_range) {
+    uint8_t *dense = (uint8_t *)malloc(len ? len : 1);
+    if (!dense) return 0;
+    size_t n = pw_unframe(au, len, dense);
+    int ok = 0;
+    if (n) ok = pw_decode_dense(dense, n, y, uv, w_out, h_out, full_range);
+    else pw_fail("malformed framing", (int)len);
+    free(dense);
     return ok;
 }
 
@@ -301,11 +330,23 @@ static void pw_stop_worker(void) {
     pthread_mutex_unlock(&g_pwq_mu);
 }
 
-// pyrowave_linux_frames counts the frames decoded since the stream started.
+// pyrowave_linux_unframe reduces a frame payload as it came off the wire (dense, record
+// framed or length-prefixed, see pyrowave_framing.h) to the dense access unit; `out` needs
+// room for `len` bytes. Returns the dense length, 0 for a malformed payload. Used by the
+// GPU path (vk_video_try_submit_pyrowave), which decodes inside the renderer.
+size_t pyrowave_linux_unframe(const uint8_t *in, size_t len, uint8_t *out) {
+    return pw_unframe(in, len, out);
+}
+
+extern unsigned long long vk_video_pyrowave_frames(void);
+
+// pyrowave_linux_frames counts the frames decoded since the stream started: those of the CPU
+// path plus those the renderer decoded on the GPU.
 uint64_t pyrowave_linux_frames(void) {
     pthread_mutex_lock(&g_pw_mu);
     uint64_t n = g_pw_frames;
     pthread_mutex_unlock(&g_pw_mu);
+    n += (uint64_t)vk_video_pyrowave_frames();
     return n;
 }
 

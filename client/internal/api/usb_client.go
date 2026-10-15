@@ -1992,12 +1992,13 @@ func (c *USBClient) SaveScript(path, content string) error {
 	return nil
 }
 
-func (c *USBClient) AddVirtualDisplay(width, height, fps int, primary bool) (*models.APIResponse, error) {
+func (c *USBClient) AddVirtualDisplay(width, height, fps int, primary, exclusive bool) (*models.APIResponse, error) {
 	payload := map[string]any{
-		"width":   width,
-		"height":  height,
-		"fps":     fps,
-		"primary": primary,
+		"width":     width,
+		"height":    height,
+		"fps":       fps,
+		"primary":   primary,
+		"exclusive": exclusive,
 	}
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {

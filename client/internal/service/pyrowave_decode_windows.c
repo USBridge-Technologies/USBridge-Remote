@@ -41,6 +41,7 @@
 #include <libavutil/hwcontext_vulkan.h>
 #include <stdio.h>
 #include <string.h>
+#include "pyrowave_framing.h"
 
 extern void goVTLog(char *msg);
 extern AVBufferRef *win_vk_hwdev_ctx_ref(void);
@@ -364,8 +365,8 @@ void pyrowave_win_release_slot(void *ctx) {
 // release (pyrowave_win_release_slot); returns 1. Returns 0 if the unit could
 // not be decoded or no slot is free (the frame is skipped -- every frame is a
 // keyframe, so skipping costs nothing beyond the frame itself).
-int pyrowave_win_decode(const uint8_t *au, size_t len, void **out_img, int *out_vkfmt, void **out_sem,
-                        uint64_t *out_val, int *out_w, int *out_h, void **out_slot) {
+static int pyrowave_win_decode_dense(const uint8_t *au, size_t len, void **out_img, int *out_vkfmt, void **out_sem,
+                                     uint64_t *out_val, int *out_w, int *out_h, int *out_narrow, void **out_slot) {
     InitOnceExecuteOnce(&g_pw_once, pw_init_once, NULL, NULL);
     // BitstreamSequenceHeader (pyrowave_common.hpp): width-1 in bits 0..13,
     // height-1 in 14..27, `extended` in bit 31 of word 0; chroma resolution in
@@ -379,6 +380,7 @@ int pyrowave_win_decode(const uint8_t *au, size_t len, void **out_img, int *out_
     int h = (int)((w0 >> 14) & 0x3fff) + 1;
     int c444 = (int)((w1 >> 26) & 1);
     int hdr = (int)((w1 >> 28) & 1);
+    int narrow = (int)((w1 >> 30) & 1); // YCbCr range: 1 = limited (rust-shine's scaled path sends full)
     if ((w | h) & 1) { pw_fail("odd size", w); return 0; }
 
     int ok = 0;
@@ -412,6 +414,7 @@ int pyrowave_win_decode(const uint8_t *au, size_t len, void **out_img, int *out_
     *out_val = v;
     *out_w = w;
     *out_h = h;
+    *out_narrow = narrow;
     *out_slot = slot;
     if (InterlockedIncrement64(&g_pw_frames) == 1) {
         char msg[128];
@@ -424,6 +427,20 @@ release:
     InterlockedExchange(&slot->busy, 0);
 out:
     LeaveCriticalSection(&g_pw_cs);
+    return ok;
+}
+
+// pyrowave_win_decode takes the frame payload as it came off the wire (dense, record framed
+// or length-prefixed -- see pyrowave_framing.h), reduces it to the dense access unit and decodes.
+int pyrowave_win_decode(const uint8_t *au, size_t len, void **out_img, int *out_vkfmt, void **out_sem,
+                        uint64_t *out_val, int *out_w, int *out_h, int *out_narrow, void **out_slot) {
+    uint8_t *dense = (uint8_t *)malloc(len ? len : 1);
+    if (!dense) return 0;
+    size_t n = pw_unframe(au, len, dense);
+    int ok = 0;
+    if (n) ok = pyrowave_win_decode_dense(dense, n, out_img, out_vkfmt, out_sem, out_val, out_w, out_h, out_narrow, out_slot);
+    else pw_fail("malformed framing", (int)len);
+    free(dense);
     return ok;
 }
 

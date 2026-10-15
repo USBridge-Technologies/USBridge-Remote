@@ -22,7 +22,7 @@ extern void vk_video_clear_pending_stats(void);
 extern void vk_video_get_diag(long long *hb, int *stage);
 extern void vk_video_get_gpu_name(char *out, int out_len);
 extern void vk_video_set_hidden(int hidden);
-extern void vk_video_set_canvas_hidden(int hidden);
+extern void vk_video_set_holes(const int *xywhr, int n);
 extern void vk_video_bring_to_top(void);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
 extern int  vk_video_create_standalone(uintptr_t hint_hwnd, int vsync);
@@ -169,16 +169,19 @@ func VKVideoSetHidden(hidden bool) {
 	C.vk_video_set_hidden(h)
 }
 
-// VKVideoSetCanvasHidden is VKVideoSetHidden's counterpart for "the Fyne canvas
-// currently has an overlay (popup/dialog/menu) open", polled by the video widget
-// every frame. It is a separate flag so it can't clear -- or be cleared by -- the
-// depth-counter driven VKVideoSetHidden request.
-func VKVideoSetCanvasHidden(hidden bool) {
-	h := C.int(0)
-	if hidden {
-		h = 1
+// VKVideoSetHoles cuts rounded rects (overlay-window pixels, [x,y,w,h,radius]
+// each) out of the Vulkan overlay window so Fyne menus underneath show through
+// while the rest of the video keeps playing. nil/empty clears every hole.
+func VKVideoSetHoles(holes [][5]int) {
+	if len(holes) == 0 {
+		C.vk_video_set_holes(nil, 0)
+		return
 	}
-	C.vk_video_set_canvas_hidden(h)
+	flat := make([]C.int, 0, len(holes)*5)
+	for _, h := range holes {
+		flat = append(flat, C.int(h[0]), C.int(h[1]), C.int(h[2]), C.int(h[3]), C.int(h[4]))
+	}
+	C.vk_video_set_holes(&flat[0], C.int(len(holes)))
 }
 
 // VKVideoCreateStandalone creates a standalone fullscreen Vulkan window covering

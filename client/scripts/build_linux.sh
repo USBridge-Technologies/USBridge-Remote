@@ -44,6 +44,18 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# USBRIDGE_FFMPEG_PREFIX: link against (and bundle) the FFmpeg that
+# build_ffmpeg_linux.sh built there instead of the system's. Release builds
+# use it so they can run on an older base (Ubuntu 22.04, for older glibc)
+# with the same FFmpeg 6.1 as before.
+if [[ -n "${USBRIDGE_FFMPEG_PREFIX:-}" ]]; then
+    export PKG_CONFIG_PATH="$USBRIDGE_FFMPEG_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    export CGO_LDFLAGS="-Wl,-rpath-link,$USBRIDGE_FFMPEG_PREFIX/lib${CGO_LDFLAGS:+ $CGO_LDFLAGS}"
+    # linuxdeploy resolves (and bundles) the binary's libraries through this.
+    export LD_LIBRARY_PATH="$USBRIDGE_FFMPEG_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    echo -e "${YELLOW}=> FFmpeg from $USBRIDGE_FFMPEG_PREFIX ($(pkg-config --modversion libavcodec))${NC}"
+fi
+
 echo -e "${YELLOW}=> Building Moonlight Core...${NC}"
 "$SCRIPT_DIR/build_moonlight.sh" || { echo -e "${RED}❌ Failed to build Moonlight Core${NC}"; exit 1; }
 
@@ -197,12 +209,24 @@ fi
 # libopenvino_onnx_frontend.so.*/libtbb.so.* out of usr/bin, per
 # libonnxruntime_providers_openvino.so's own DT_NEEDED entries -- see this
 # script's own comment above) and rewrites their RPATHs to match.
+# Never bundle the loaders that pick up the system's GPU drivers: libva
+# (VAAPI), libvdpau, libvulkan, libdrm. A bundled loader older than the
+# host's drivers can't load them at all -- confirmed live: 22.04's libva 1.14
+# fails vaGetDriverNameByIndex against a 2.22 host's driver, so VAAPI decode
+# silently fell back to software. The system's own loaders always match its
+# drivers (the agent build excludes libva for the same reason).
+SYSTEM_GPU_LIBS=(
+    --exclude-library="libva.so*" --exclude-library="libva-drm.so*" --exclude-library="libva-x11.so*"
+    --exclude-library="libva-wayland.so*" --exclude-library="libvdpau.so*"
+    --exclude-library="libvulkan.so*" --exclude-library="libdrm.so*"
+)
 echo -e "${YELLOW}Deploying dependencies...${NC}"
 ARCH=x86_64 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/$EXE_NAME" \
     --desktop-file "$APPDIR/$EXE_NAME.desktop" \
-    --icon-file "$APPDIR/$EXE_NAME.png" 2>&1
+    --icon-file "$APPDIR/$EXE_NAME.png" \
+    "${SYSTEM_GPU_LIBS[@]}" 2>&1
 
 # libusb-1.0 is on linuxdeploy's blacklist (treated as "system"), so the
 # deploy step above skips it even though we link it for usbpass_gousb.
@@ -269,6 +293,7 @@ find "$REPO_ROOT" -maxdepth 1 -name '*.AppImage' -delete
 
 ARCH=x86_64 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
+    "${SYSTEM_GPU_LIBS[@]}" \
     --output appimage 2>&1
 
 PRODUCED="$(find "$REPO_ROOT" -maxdepth 1 -name '*.AppImage' | head -1)"
@@ -300,4 +325,11 @@ if ! grep -qx "$VERSION" <<<"$BINARY_STRINGS"; then
 fi
 
 echo -e "${GREEN}✓${NC} AppImage: $OUTPUT_APPIMAGE"
+
+# Same AppDir as a .deb, updated by apt (see build_deb.sh).
+if command -v dpkg-deb >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build_deb.sh"
+else
+    echo -e "${YELLOW}dpkg-deb not found: skipping the .deb${NC}"
+fi
 echo "Binary: $OUTPUT_PATH"

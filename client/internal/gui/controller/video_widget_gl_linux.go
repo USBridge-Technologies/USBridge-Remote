@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,9 +32,24 @@ func (vw *VideoWidget) isNativeVideoActive() bool {
 // startMetalVideoOnWindow creates the Vulkan overlay on the X11 window.
 // Falls back to GLX overlay if Vulkan is unavailable.
 func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bool) {
-	// Wire hide/show hooks for Fyne menus — mirrors macOS Metal / Windows Vulkan pattern.
-	view.OnOverlayShow = func() { service.VKVideoSetHidden(true) }
-	view.OnOverlayHide = func() { service.VKVideoSetHidden(false) }
+	vw.startMetalVideoOnWindowAttempt(window, fullscreen, 0)
+}
+
+// videoCanvasZeroSizeRetries/Delay bound how long the native overlay waits
+// for the video canvas to get a layout size: a connect fired at launch
+// (usbridge:// deeplink with immediate=true) reaches this before the window
+// has been laid out once, and giving up there left a permanently black
+// window even though frames were decoding fine.
+const (
+	videoCanvasZeroSizeRetries = 50
+	videoCanvasZeroSizeDelay   = 100 * time.Millisecond
+)
+
+func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullscreen bool, attempt int) {
+	// Fyne menus no longer hide the video: syncVKOcclusion cuts their rects
+	// out of the Vulkan child window instead (see view.OverlayHoleRects).
+	view.OnOverlayShow = vw.scheduleVKOcclusionSync
+	view.OnOverlayHide = vw.scheduleVKOcclusionSync
 
 	if window == nil {
 		return
@@ -66,6 +82,15 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		if !fullscreen {
 			x, y, w, h := vw.videoCanvasFrame()
 			if w <= 0 || h <= 0 {
+				if attempt < videoCanvasZeroSizeRetries {
+					if attempt == 0 {
+						logrus.Info("[VK/Linux] videoCanvas has no size yet — retrying until the window is laid out")
+					}
+					time.AfterFunc(videoCanvasZeroSizeDelay, func() {
+						fyne.Do(func() { vw.startMetalVideoOnWindowAttempt(window, fullscreen, attempt+1) })
+					})
+					return
+				}
 				logrus.Warn("[VK/Linux] videoCanvas has zero size — skipped")
 				return
 			}
@@ -87,9 +112,8 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		if service.VKVideoCreate(xwin, px, py, pw, ph) {
 			logrus.Infof("[VK/Linux] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)",
 				fullscreen, px, py, pw, ph)
-			if view.OverlayActive() {
-				service.VKVideoSetHidden(true)
-			}
+			vkOcclusion.reset()
+			vw.syncVKOcclusion()
 			// Forward mouse events from Vulkan window to TouchpadWrapper.
 			// GLFW stops delivering mouse events to Fyne when the cursor is over
 			// the native child window, so we read them directly from the X11
@@ -154,6 +178,7 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			scale = vw.parentWindow.Canvas().Scale()
 		}
 		service.VKVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
+		vw.syncVKOcclusion()
 		if st.FW > 0 && st.FH > 0 {
 			vw.noteStreamPixelSize(float32(st.FW), float32(st.FH))
 		}
@@ -184,6 +209,46 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			scale = vw.parentWindow.Canvas().Scale()
 		}
 		service.GLVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
+	}
+}
+
+// vkOcclusion holds the holes pushed to the Vulkan child window.
+var vkOcclusion = overlayOcclusion[[4]int]{
+	setHidden: service.VKVideoSetHidden,
+	setHoles:  service.VKVideoSetHoles,
+}
+
+func (vw *VideoWidget) scheduleVKOcclusionSync() {
+	scheduleOcclusionSync(vw.syncVKOcclusion)
+}
+
+// syncVKOcclusion cuts open menus out of the Vulkan child window's X11
+// shape (see overlayOcclusion). Fyne main goroutine only.
+func (vw *VideoWidget) syncVKOcclusion() {
+	if !service.VKVideoIsActive() {
+		return
+	}
+	win := vkFullscreenWindow
+	if win == nil {
+		win = vw.parentWindow
+	}
+	var c fyne.Canvas
+	if win != nil {
+		c = win.Canvas()
+	}
+	_, changed := vkOcclusion.sync(c, func(rects []view.OverlayRect) [][4]int {
+		vx, vy, vwid, vh := vw.videoCanvasFrame()
+		scale := c.Scale()
+		var holes [][4]int
+		for _, r := range rects {
+			if x, y, w, h, ok := overlayHolePx(r, -vx, -vy, scale, 0, 0, int(vwid*scale)+1, int(vh*scale)+1); ok {
+				holes = appendRoundedHole(holes, x, y, w, h, int(math.Round(float64(r.R*scale))))
+			}
+		}
+		return holes
+	})
+	if changed {
+		c.Refresh(c.Content())
 	}
 }
 

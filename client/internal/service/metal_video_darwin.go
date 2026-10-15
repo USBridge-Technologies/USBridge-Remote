@@ -5,13 +5,11 @@ package service
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
 #cgo LDFLAGS: -framework AppKit -framework CoreVideo -framework QuartzCore -framework CoreFoundation -framework Metal -framework AVFoundation -framework CoreMedia
-// PyroWave decode (pyrowave_decode_darwin.m): one static archive from
-// scripts/build_pyrowave_macos.sh that exports only the pyrowave_* C API.
-// Vulkan headers come from the vendored tree (pinned to what the bitstream was built
-// against, see PUNKTFUNK-VENDOR.txt) -- MoltenVK itself is a runtime-only dependency
-// (dlopen'd, see pyrowave_decode_darwin.m's moltenvk_preload), not linked here.
-#cgo CFLAGS: -I${SRCDIR}/../../third_party/pyrowave/vendor/pyrowave -I${SRCDIR}/../../third_party/pyrowave/vendor/pyrowave/Granite/third_party/khronos/vulkan-headers/include
-#cgo LDFLAGS: -L${SRCDIR}/../../third_party/pyrowave/build -lusbridge-pyrowave -lstdc++ -lm
+// PyroWave decode (pyrowave_decode_darwin.m): PyroWave's native Metal decoder, one static
+// archive from scripts/build_pyrowave_macos.sh exporting the pwm_* C API
+// (third_party/pyrowave/metal/pyrowave_metal.h). No Vulkan or MoltenVK.
+#cgo CFLAGS: -I${SRCDIR}/../../third_party/pyrowave/metal
+#cgo LDFLAGS: -L${SRCDIR}/../../third_party/pyrowave/build -lusbridge-pyrowave -lc++ -framework IOSurface
 
 #include <stdint.h>
 #include <CoreVideo/CoreVideo.h>
@@ -25,6 +23,7 @@ extern void metal_video_update_frame(float x, float y, float w, float h);
 extern void metal_video_destroy(void);
 extern double metal_video_last_fps(void);
 extern void metal_video_set_hidden(int hidden);
+extern void metal_video_set_holes(const float *xywhr, int n);
 extern int  metal_video_get_last_frame_rgba(int *outW, int *outH, uint8_t **out);
 extern void metal_video_set_hdr(int enabled);
 extern void metal_video_set_upscale_mode(int mode);
@@ -320,6 +319,22 @@ func MetalVideoSetHidden(hidden bool) {
 		h = 1
 	}
 	C.metal_video_set_hidden(h)
+}
+
+// MetalVideoSetHoles cuts rounded rects ([x,y,w,h,radius] each, in points
+// relative to the overlay view's top-left) out of the Metal overlay so Fyne
+// menus underneath show through, and take clicks, while the rest of the
+// video keeps playing. nil/empty clears every hole.
+func MetalVideoSetHoles(holes [][5]float32) {
+	if len(holes) == 0 {
+		C.metal_video_set_holes(nil, 0)
+		return
+	}
+	flat := make([]C.float, 0, len(holes)*5)
+	for _, h := range holes {
+		flat = append(flat, C.float(h[0]), C.float(h[1]), C.float(h[2]), C.float(h[3]), C.float(h[4]))
+	}
+	C.metal_video_set_holes(&flat[0], C.int(len(holes)))
 }
 
 // MetalVideoSetHdr toggles the video layer's EDR (extended dynamic range)

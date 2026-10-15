@@ -107,6 +107,28 @@ func readSunshineTrustedFile(path string) (serverUUID string, clients []trustedC
 	return serverUUID, clients, nil
 }
 
+// A paired client's id is the 32 hex digits the Moonlight client sends as its uniqueid.
+// Sunshine keeps any string in a named device's `uuid`, but Vibepollo (a Sunshine fork) refuses
+// the whole state file unless every device uuid is a canonical 8-4-4-4-12 UUID -- and then
+// stops its HTTP interface ("durable pairing state could not be loaded"). So the id goes
+// to the file dashed; Sunshine itself accepts either form.
+func sunshineUUIDOut(id string) string {
+	if len(id) != 32 || !isHex(id) {
+		return id
+	}
+	return id[:8] + "-" + id[8:12] + "-" + id[12:16] + "-" + id[16:20] + "-" + id[20:]
+}
+
+func isHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
 // defaultSunshineStateTemplate mirrors sunshineBackend.ensureSunshineStateFile's
 // own bootstrap template (sunshine_backend.go) -- duplicated deliberately
 // rather than imported, since that method pre-creates the file before
@@ -169,7 +191,7 @@ func writeSunshineTrusted(stateDir, serverUUID string, clients []trustedClient) 
 		devices = append(devices, sunshineNamedDevice{
 			Name:    c.Name,
 			Cert:    derToPEM(c.CertDER),
-			UUID:    c.UniqueID,
+			UUID:    sunshineUUIDOut(c.UniqueID),
 			Enabled: enabled,
 		})
 	}

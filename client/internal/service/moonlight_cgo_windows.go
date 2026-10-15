@@ -308,7 +308,7 @@ extern void d3dx_release_slot(void *ctx);
 extern AVFrame *d3dx_download(AVFrame *frame);
 // PyroWave GPU decode (pyrowave_decode_windows.c).
 extern int pyrowave_win_decode(const uint8_t *au, size_t len, void **out_img, int *out_vkfmt, void **out_sem,
-                               uint64_t *out_val, int *out_w, int *out_h, void **out_slot);
+                               uint64_t *out_val, int *out_w, int *out_h, int *out_narrow, void **out_slot);
 extern void pyrowave_win_release_slot(void *ctx);
 extern void pyrowave_win_stream_reset(void);
 extern void vk_frame_release_avframe(void *ctx);
@@ -1084,10 +1084,10 @@ static int win_pyrowave_send(PDECODE_UNIT du) {
 
     dec_stage(DEC_STAGE_SEND);
     void *img = NULL, *sem = NULL, *slot = NULL;
-    int vkfmt = 0, w = 0, h = 0;
+    int vkfmt = 0, w = 0, h = 0, narrow = 1;
     uint64_t val = 0;
     g_dec_in++;
-    if (!pyrowave_win_decode(g_pw_au, total, &img, &vkfmt, &sem, &val, &w, &h, &slot)) {
+    if (!pyrowave_win_decode(g_pw_au, total, &img, &vkfmt, &sem, &val, &w, &h, &narrow, &slot)) {
         g_dec_out++;
         return DR_OK; // every frame is a keyframe: nothing to recover
     }
@@ -1098,7 +1098,7 @@ static int win_pyrowave_send(PDECODE_UNIT du) {
     ++g_vk_session_frames;
     goVTFrame(NULL, w, h, 0); // stats + overlay bootstrap on frame 1
     // layout 1 = VK_IMAGE_LAYOUT_GENERAL
-    if (!vk_video_try_submit_vkframe(img, vkfmt, 1, w, h, 1, sem, val, 2,
+    if (!vk_video_try_submit_vkframe(img, vkfmt, 1, w, h, narrow, sem, val, 2,
                                       slot, pyrowave_win_release_slot)) {
         pyrowave_win_release_slot(slot);
     }
@@ -2048,7 +2048,7 @@ func goAIVisionOverlay(rgba *C.uint8_t, width, height, stride C.int) {
 //
 //export goAIVisionShouldSample
 func goAIVisionShouldSample() C.int {
-	if usbapi.LiveFrameWanted() {
+	if usbapi.LiveFrameWanted() || usbapi.LiveLumaWanted() || usbapi.LiveRGBAWanted() {
 		return 1
 	}
 	if !aiVisionEnabled.Load() {

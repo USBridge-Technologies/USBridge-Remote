@@ -102,6 +102,15 @@ func Check(ctx context.Context, currentVersion string) *Manifest {
 func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress ProgressFunc) error {
 	log := logrus.WithField("component", "update")
 
+	if packageManagedApply != nil {
+		if handled, err := packageManagedApply(ctx, manifest.Version); handled {
+			if err != nil {
+				return fmt.Errorf("apply update: %w", err)
+			}
+			return nil
+		}
+	}
+
 	asset, ok := manifest.Platforms[platformKey()]
 	if !ok {
 		return fmt.Errorf("manifest has no artifact for platform %s", platformKey())

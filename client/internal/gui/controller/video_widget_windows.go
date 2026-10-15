@@ -4,6 +4,7 @@ package controller
 
 import (
 	"image"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -396,15 +397,10 @@ func (vw *VideoWidget) getNativeFPS() float64 {
 // startMetalVideoOnWindow creates the Vulkan child-window overlay (or falls back to GDI).
 // Called on the first decoded frame and on fullscreen transitions.
 func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bool) {
-	// Wire overlay lifecycle hooks: hide the Vulkan overlay whenever a Fyne popup or
-	// menu is visible, exactly mirroring the macOS Metal pattern.
-	view.OnOverlayShow = func() { service.VKVideoSetHidden(true) }
-	view.OnOverlayHide = func() {
-		if view.NavVideoHidden() || !service.VKVideoIsActive() {
-			return
-		}
-		service.VKVideoSetHidden(false)
-	}
+	// Fyne menus no longer hide the video: syncVKOcclusion cuts their rects
+	// out of the Vulkan overlay window instead (see view.OverlayHoleRects).
+	view.OnOverlayShow = vw.scheduleVKOcclusionSync
+	view.OnOverlayHide = vw.scheduleVKOcclusionSync
 
 	if window == nil {
 		logrus.Warn("[Vulkan/Win] startMetalVideoOnWindow: window=nil — skipped")
@@ -468,21 +464,17 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 
 		// Try Vulkan first; fall back to GDI if unavailable.
 		service.VKVideoResetLastFrame()
-		vkWinCanvasOverlayHidden = false // C side resets its flag on create
+		vkWinOcclusion.reset() // C side starts the new window without holes
 		logrus.Infof("[Vulkan/Win] RunNative: hwnd=%x rect=(%d,%d,%dx%d) fullscreen=%v onNativeReadySet=%v",
 			hwnd, x, y, w, h, fullscreen, vw.onNativeReady != nil)
 		if service.VKVideoCreate(hwnd, x, y, w, h, vw.enableVSync) {
 			logrus.Infof("[Vulkan/Win] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)", fullscreen, x, y, w, h)
-			// If a Fyne overlay (popup/menu) is already open when we start, hide immediately.
-			if vw.fyneOverlaysOpen() || view.NavVideoHidden() {
-				service.VKVideoSetHidden(true)
-			} else {
-				// Same ShowWindow + HWND_TOPMOST poke that a Control-tab
-				// switch performs — without it the popup HWND can sit
-				// behind Fyne after SetContent/RequestFocus and the
-				// picture only appears after switching tabs.
-				vw.revealNativeVideoOverlay()
-			}
+			// Same ShowWindow + HWND_TOPMOST poke that a Control-tab
+			// switch performs — without it the popup HWND can sit
+			// behind Fyne after SetContent/RequestFocus and the
+			// picture only appears after switching tabs. A Fyne overlay
+			// (popup/menu) already open gets its hole right away.
+			vw.revealNativeVideoOverlay()
 			// Start Fyne main-loop watchdog: detects if wglSwapBuffers or Win32 message
 			// dispatch hangs after the Vulkan overlay starts presenting.
 			if vw.parentWindow != nil {
@@ -528,33 +520,57 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 	})
 }
 
-// vkWinCanvasOverlayHidden is the last value pushed by syncCanvasOverlayHidden.
-// Fyne main goroutine only.
-var vkWinCanvasOverlayHidden bool
+// vkWinOcclusion holds the holes pushed to the Vulkan overlay window's
+// region. The C side hides at once and debounces the show, so popups
+// replacing each other don't flash the video.
+var vkWinOcclusion = overlayOcclusion[[5]int]{
+	setHidden: service.VKVideoSetHidden,
+	setHoles:  service.VKVideoSetHoles,
+}
 
-// syncCanvasOverlayHidden hides the native video whenever the Fyne canvas that
-// hosts it has ANY overlay open -- dialogs, context menus, popups. The
-// OnOverlayShow/Hide hook only sees popups that explicitly call overlayShow, so
-// everything else used to be painted over by the Vulkan window. The C side hides
-// immediately on true and debounces the show, so back-to-back popups don't flash
-// the video between them. Must run on the Fyne main goroutine (the overlay
-// stack isn't thread-safe); every caller of updateMetalVideoFrame does.
-func (vw *VideoWidget) syncCanvasOverlayHidden() {
-	var w fyne.Window
-	if vkWinFullscreenWin != nil {
-		w = vkWinFullscreenWin
-	} else {
-		w = vw.parentWindow
-	}
-	if w == nil || w.Canvas() == nil {
+func (vw *VideoWidget) scheduleVKOcclusionSync() {
+	scheduleOcclusionSync(vw.syncVKOcclusion)
+}
+
+// syncVKOcclusion cuts every open menu/popup/dialog on the canvas that hosts
+// the video out of the Vulkan overlay window as a rounded hole (see
+// overlayOcclusion). Fyne main goroutine only.
+func (vw *VideoWidget) syncVKOcclusion() {
+	if !service.VKVideoIsActive() {
 		return
 	}
-	open := w.Canvas().Overlays().Top() != nil
-	if open == vkWinCanvasOverlayHidden {
-		return
+	if vw.fullscreenDialog != nil && vw.fullscreenDialog.windowlessVKFullscreen {
+		return // standalone window: no Fyne canvas under it
 	}
-	vkWinCanvasOverlayHidden = open
-	service.VKVideoSetCanvasHidden(open)
+	win := vkWinFullscreenWin
+	if win == nil {
+		win = vw.parentWindow
+	}
+	var c fyne.Canvas
+	if win != nil {
+		c = win.Canvas()
+	}
+	_, changed := vkWinOcclusion.sync(c, func(rects []view.OverlayRect) [][5]int {
+		// The fullscreen overlay covers the whole canvas.
+		var vx, vy, vwid, vh float32
+		if vkWinFullscreenWin != nil {
+			sz := c.Size()
+			vwid, vh = sz.Width, sz.Height
+		} else {
+			vx, vy, vwid, vh = vw.videoCanvasFrame()
+		}
+		scale := c.Scale()
+		var holes [][5]int
+		for _, r := range rects {
+			if x, y, w, h, ok := overlayHolePx(r, -vx, -vy, scale, 0, 0, int(vwid*scale)+1, int(vh*scale)+1); ok {
+				holes = append(holes, [5]int{x, y, w, h, int(math.Round(float64(r.R * scale)))})
+			}
+		}
+		return holes
+	})
+	if changed {
+		c.Refresh(c.Content())
+	}
 }
 
 // revealNativeVideoOverlay repeats the Hide/Show + HWND_TOPMOST sequence
@@ -566,7 +582,7 @@ func (vw *VideoWidget) revealNativeVideoOverlay() {
 		vw.RefreshViewportGeometry()
 		return
 	}
-	if vw.fyneOverlaysOpen() || view.NavVideoHidden() {
+	if view.NavVideoHidden() {
 		service.VKVideoSetHidden(true)
 		return
 	}
@@ -575,7 +591,9 @@ func (vw *VideoWidget) revealNativeVideoOverlay() {
 		vw.videoCanvas.Translucency = 1.0
 		vw.videoCanvas.Refresh()
 	}
-	service.VKVideoSetHidden(false)
+	// Shows the overlay, with holes for any open Fyne menus. Via fyne.Do:
+	// the video trace watchdog calls this off the main goroutine.
+	fyne.Do(vw.syncVKOcclusion)
 	service.VKVideoBringToTop()
 	vw.RefreshViewportGeometry()
 }
@@ -592,10 +610,7 @@ func (vw *VideoWidget) stopMetalVideo() {
 
 // updateMetalVideoFrame repositions the overlay and logs stats at 1 Hz.
 func (vw *VideoWidget) updateMetalVideoFrame() {
-	vw.syncCanvasOverlayHidden()
-	if vw.fyneOverlaysOpen() {
-		return
-	}
+	vw.syncVKOcclusion()
 
 	// When fullscreen is active the Vulkan child-window belongs to the fullscreen
 	// window. The main-window VideoWidget must not call VKVideoUpdateFrame or it

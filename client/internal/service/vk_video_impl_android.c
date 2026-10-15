@@ -21,6 +21,9 @@
 #include <android/native_window_jni.h>
 #include <android/hardware_buffer.h>
 #include <android/log.h>
+#include <media/NdkImage.h>
+#include <dlfcn.h>
+#include <sys/system_properties.h>
 #include <jni.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -30,6 +33,9 @@
 #include <stdatomic.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "shader_arrays.h" // g_ycbcr_rect_vert_spv / g_ycbcr_frag_spv
+#include "gles_overlay_android.h"
 
 #define VTAG "USBridge/VulkanVideo"
 #define VLOGI(...) __android_log_print(ANDROID_LOG_INFO,  VTAG, __VA_ARGS__)
@@ -203,6 +209,30 @@ static volatile int     g_ahb_ready  = 0;
 static atomic_int       g_drop_last_ahb;
 static atomic_int       g_drop_last_cpu;
 
+// Decoder images (android_vk_try_submit_aimage). The render thread owns
+// every AImage it is handed and deletes it once no frame uses it:
+// g_pend_aimg waits for the render thread (under g_mu), g_cur_aimg is the one
+// on screen, redrawn for cursor moves (render thread only).
+static AImage          *g_pend_aimg = NULL;
+static AImage          *g_cur_aimg  = NULL;
+static atomic_int       g_drop_last_aimg;
+// android_vk_release_aimages asks the render thread to give back every
+// AImage before the decoder's AImageReader goes away; it acks by clearing it.
+static atomic_int       g_aimg_release_req;
+
+// No Vulkan device on this phone (e.g. PowerVR GE8320): the overlay draws
+// through OpenGL ES instead (gles_overlay_android.c), on the same
+// SurfaceView, with the same state and render thread. Set by
+// android_vk_create.
+static int              g_use_gles = 0;
+// GLES mode keeps its CPU frame here (Vulkan copies into g_stage_ptr).
+static uint8_t         *g_gles_cpu = NULL;
+static size_t           g_gles_cpu_sz = 0;
+// Cursor image for GLES mode, uploaded on the render thread.
+static uint8_t         *g_gles_cursor = NULL;
+static int              g_gles_cursor_w = 0, g_gles_cursor_h = 0;
+static atomic_int       g_gles_cursor_dirty;
+
 static pthread_mutex_t g_mu     = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t       g_thread = 0;
 static int             g_pipe_r = -1, g_pipe_w = -1;
@@ -281,6 +311,10 @@ static int            g_cursor_px_w   = 0, g_cursor_px_h = 0;
 static VkBuffer       g_cursor_vk_buf = VK_NULL_HANDLE;
 static VkDeviceMemory g_cursor_vk_mem = VK_NULL_HANDLE;
 static void          *g_cursor_vk_ptr = NULL;
+
+// video_latency_android.c
+extern void vlat_note_present(void);
+extern void vlat_note_dropped(void);
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -424,6 +458,12 @@ static void cursor_init(int scale) {
 // functional, just not zero-copy) on any device/driver that's missing one of
 // these -- never crashes or blanks the screen over it.
 static int g_hw_import_supported = 0;
+// Decoder-image path (AImageReader buffers sampled through a
+// VkSamplerYcbcrConversion): needs the hwbuffer extensions above plus the
+// samplerYcbcrConversion feature.
+static int g_ycbcr_supported = 0;
+static PFN_vkCreateSamplerYcbcrConversionKHR  p_vkCreateSamplerYcbcrConversionKHR  = NULL;
+static PFN_vkDestroySamplerYcbcrConversionKHR p_vkDestroySamplerYcbcrConversionKHR = NULL;
 static int g_inst_has_ext_mem_caps = 0; // both instance prereqs enabled successfully
 
 static int has_ext(VkExtensionProperties *avail, uint32_t n, const char *name) {
@@ -525,7 +565,21 @@ static int vk_create_device(void) {
     }
     free(avail);
 
+    VkPhysicalDeviceSamplerYcbcrConversionFeatures ycf = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES };
+    if (hwbuf_ok) {
+        PFN_vkGetPhysicalDeviceFeatures2KHR gpf2 = (PFN_vkGetPhysicalDeviceFeatures2KHR)
+            vkGetInstanceProcAddr(g_inst, "vkGetPhysicalDeviceFeatures2KHR");
+        if (gpf2) {
+            VkPhysicalDeviceFeatures2 f2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &ycf };
+            gpf2(g_pdev, &f2);
+        }
+    }
+    int ycbcr_ok = hwbuf_ok && ycf.samplerYcbcrConversion;
+    ycf.pNext = NULL;
+
     VkDeviceCreateInfo dci = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+    dci.pNext                   = ycbcr_ok ? &ycf : NULL;
     dci.queueCreateInfoCount    = 1;
     dci.pQueueCreateInfos       = &qci;
     dci.enabledExtensionCount   = n;
@@ -539,7 +593,9 @@ static int vk_create_device(void) {
             // coming up at all.
             VLOGE("vkCreateDevice with hwbuffer extensions failed, retrying without them");
             dci.enabledExtensionCount = 1;
+            dci.pNext = NULL;
             hwbuf_ok = 0;
+            ycbcr_ok = 0;
             if (vkCreateDevice(g_pdev, &dci, NULL, &g_dev) != VK_SUCCESS) return 0;
         } else {
             return 0;
@@ -553,6 +609,15 @@ static int vk_create_device(void) {
             vkGetDeviceProcAddr(g_dev, "vkGetAndroidHardwareBufferPropertiesANDROID");
         g_hw_import_supported = p_vkGetAndroidHardwareBufferPropertiesANDROID != NULL;
         VLOGI("AHardwareBuffer zero-copy import: %s", g_hw_import_supported ? "available" : "unavailable (proc addr)");
+        if (ycbcr_ok) {
+            p_vkCreateSamplerYcbcrConversionKHR = (PFN_vkCreateSamplerYcbcrConversionKHR)
+                vkGetDeviceProcAddr(g_dev, "vkCreateSamplerYcbcrConversionKHR");
+            p_vkDestroySamplerYcbcrConversionKHR = (PFN_vkDestroySamplerYcbcrConversionKHR)
+                vkGetDeviceProcAddr(g_dev, "vkDestroySamplerYcbcrConversionKHR");
+        }
+        g_ycbcr_supported = g_hw_import_supported && ycbcr_ok &&
+            p_vkCreateSamplerYcbcrConversionKHR && p_vkDestroySamplerYcbcrConversionKHR;
+        VLOGI("decoder-image YCbCr sampling: %s", g_ycbcr_supported ? "available" : "unavailable");
     } else {
         VLOGI("AHardwareBuffer zero-copy import: unavailable (missing extensions)");
     }
@@ -617,7 +682,11 @@ static int vk_create_swapchain(int w, int h) {
     // rotated, don't touch it" — but we haven't rotated, so the video would
     // appear as a vertical column in landscape mode.
     sci.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    sci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    // INHERIT: the SurfaceView's TRANSLUCENT format decides, so menu holes
+    // (alpha 0, see vk_cmd_punch_holes) show the Fyne window underneath.
+    sci.compositeAlpha   = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
+                               ? VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
+                               : VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     sci.presentMode      = pm;
     sci.clipped          = VK_TRUE;
 
@@ -645,7 +714,13 @@ static int vk_create_swapchain(int w, int h) {
     return 1;
 }
 
+static void vk_yc_destroy_framebuffers(void);
+
+static void vk_hud_destroy_framebuffers(void);
+
 static void vk_destroy_swapchain(void) {
+    vk_yc_destroy_framebuffers();
+    vk_hud_destroy_framebuffers();
     if (g_swap_views) {
         for (uint32_t i = 0; i < g_swap_count; i++)
             if (g_swap_views[i]) vkDestroyImageView(g_dev, g_swap_views[i], NULL);
@@ -856,6 +931,316 @@ static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
     vkCmdPipelineBarrier(cb, src_st, dst_st, 0, 0, NULL, 0, NULL, 1, &b);
 }
 
+// ─── Net Graph HUD ────────────────────────────────────────────────────────────
+//
+// Same native layer as Linux (vk_overlay_common.h): net_graph.go pushes its
+// 640x400 canvas ~10 times a second and the render thread draws it over the
+// frame, so the decoder image never has to come back to the CPU for a burn-in.
+// Shared by both backends: Vulkan draws it in its own small render pass (no
+// dynamic rendering on most Android drivers), GLES as one more blended quad.
+// Drawn before the menu holes so a menu still cuts through it.
+
+static VkRenderPass   g_hud_rp       = VK_NULL_HANDLE;
+static VkFormat       g_hud_rp_fmt   = VK_FORMAT_UNDEFINED;
+static VkFramebuffer *g_hud_fbs      = NULL;
+static uint32_t       g_hud_fb_count = 0;
+
+static VkShaderModule vk_shader_from_spv(const uint32_t *code, size_t size) {
+    VkShaderModuleCreateInfo ci = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    ci.codeSize = size;
+    ci.pCode    = code;
+    VkShaderModule m = VK_NULL_HANDLE;
+    if (vkCreateShaderModule(g_dev, &ci, NULL, &m) != VK_SUCCESS) return VK_NULL_HANDLE;
+    return m;
+}
+
+#define goVKLog(msg, lvl) do { if ((lvl) >= 2) VLOGE("%s", msg); else VLOGI("%s", msg); } while (0)
+#define VKOV_RENDER_PASS g_hud_rp
+#define VKOV_MUTEX_DECL static pthread_mutex_t g_hud_mu = PTHREAD_MUTEX_INITIALIZER;
+#define VKOV_LOCK()     pthread_mutex_lock(&g_hud_mu)
+#define VKOV_UNLOCK()   pthread_mutex_unlock(&g_hud_mu)
+#include "vk_overlay_common.h"
+
+// hud_place: where the HUD goes on the surface (top-left origin, pixels):
+// the bottom-right corner of the visible picture, sized like the old
+// burn-in at the unzoomed fit scale so zooming the video doesn't zoom it.
+static int hud_place(int fw, int fh, int dx, int dy, int dw, int dh, int sw, int sh, int out[4]) {
+    if (fw <= 0 || fh <= 0 || sw <= 0 || sh <= 0) return 0;
+    int vx0 = dx < 0 ? 0 : dx, vy0 = dy < 0 ? 0 : dy;
+    int vx1 = dx + dw > sw ? sw : dx + dw, vy1 = dy + dh > sh ? sh : dy + dh;
+    if (vx1 <= vx0 || vy1 <= vy0) return 0;
+    float s = (float)sw / (float)fw;
+    if ((float)sh / (float)fh < s) s = (float)sh / (float)fh;
+    float k = s * (float)atomic_load(&g_hud_scale_pct) / 100.0f;
+    int w = (int)(VK_HUD_W * k + 0.5f), h = (int)(VK_HUD_H * k + 0.5f);
+    int m = (int)(VK_HUD_MARGIN * s + 0.5f);
+    int x = vx1 - m - w, y = vy1 - m - h;
+    if (x < vx0 + m) x = vx0 + m;
+    if (y < vy0 + m) y = vy0 + m;
+    if (w <= 0 || h <= 0) return 0;
+    out[0] = x; out[1] = y; out[2] = w; out[3] = h;
+    return 1;
+}
+
+static void vk_hud_destroy_framebuffers(void) {
+    if (g_hud_fbs) {
+        for (uint32_t i = 0; i < g_hud_fb_count; i++)
+            if (g_hud_fbs[i]) vkDestroyFramebuffer(g_dev, g_hud_fbs[i], NULL);
+        free(g_hud_fbs);
+    }
+    g_hud_fbs = NULL;
+    g_hud_fb_count = 0;
+}
+
+// vk_hud_destroy_all: device teardown (the GPU is idle).
+static void vk_hud_destroy_all(void) {
+    vk_hud_destroy_framebuffers();
+    vk_hud_destroy();
+    if (g_hud_rp) { vkDestroyRenderPass(g_dev, g_hud_rp, NULL); g_hud_rp = VK_NULL_HANDLE; }
+    g_hud_rp_fmt = VK_FORMAT_UNDEFINED;
+}
+
+// vk_hud_ensure_rp: a pass that loads the finished frame (cursor included)
+// and leaves it in TRANSFER_DST for the holes blit that follows.
+static int vk_hud_ensure_rp(void) {
+    if (g_hud_rp && g_hud_rp_fmt == g_swap_fmt) return 1;
+    if (g_hud_rp) {
+        vkDeviceWaitIdle(g_dev);
+        vk_hud_destroy_all();
+    }
+    VkAttachmentDescription att = {0};
+    att.format         = g_swap_fmt;
+    att.samples        = VK_SAMPLE_COUNT_1_BIT;
+    att.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
+    att.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    att.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att.initialLayout  = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    att.finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    VkAttachmentReference ref = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription sub = {0};
+    sub.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub.colorAttachmentCount = 1;
+    sub.pColorAttachments    = &ref;
+    VkSubpassDependency deps[2] = {0};
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+    VkRenderPassCreateInfo rpci = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    rpci.attachmentCount = 1; rpci.pAttachments  = &att;
+    rpci.subpassCount    = 1; rpci.pSubpasses    = &sub;
+    rpci.dependencyCount = 2; rpci.pDependencies = deps;
+    if (vkCreateRenderPass(g_dev, &rpci, NULL, &g_hud_rp) != VK_SUCCESS) {
+        g_hud_rp = VK_NULL_HANDLE;
+        return 0;
+    }
+    g_hud_rp_fmt = g_swap_fmt;
+    return 1;
+}
+
+static int vk_hud_ensure_framebuffers(void) {
+    if (g_hud_fbs && g_hud_fb_count == g_swap_count) return 1;
+    vk_hud_destroy_framebuffers();
+    g_hud_fbs = calloc(g_swap_count, sizeof(VkFramebuffer));
+    if (!g_hud_fbs) return 0;
+    g_hud_fb_count = g_swap_count;
+    for (uint32_t i = 0; i < g_swap_count; i++) {
+        VkFramebufferCreateInfo fci = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+        fci.renderPass      = g_hud_rp;
+        fci.attachmentCount = 1;
+        fci.pAttachments    = &g_swap_views[i];
+        fci.width           = g_swap_ext.width;
+        fci.height          = g_swap_ext.height;
+        fci.layers          = 1;
+        if (vkCreateFramebuffer(g_dev, &fci, NULL, &g_hud_fbs[i]) != VK_SUCCESS) {
+            vk_hud_destroy_framebuffers();
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// vk_cmd_draw_hud records the HUD over swapchain image img_idx (in
+// TRANSFER_DST, left there). fw x fh is the frame, d* where it was drawn.
+// Costs nothing while Net Graph is off.
+static void vk_cmd_draw_hud(uint32_t img_idx, int fw, int fh, int dx, int dy, int dw, int dh) {
+    VKOV_LOCK();
+    int active = g_hud_active;
+    VKOV_UNLOCK();
+    if (!active) return;
+    if (!vk_hud_ensure_rp()) return;
+    if (!vk_hud_maybe_upload_cmds(g_cmdbuf)) return;
+    if (!vk_hud_ensure_framebuffers()) return;
+    int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
+    int r[4];
+    if (!hud_place(fw, fh, dx, dy, dw, dh, sw, sh, r)) return;
+
+    VkRenderPassBeginInfo rbi = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    rbi.renderPass  = g_hud_rp;
+    rbi.framebuffer = g_hud_fbs[img_idx];
+    rbi.renderArea.extent = g_swap_ext;
+    vkCmdBeginRenderPass(g_cmdbuf, &rbi, VK_SUBPASS_CONTENTS_INLINE);
+    int x0 = r[0] < 0 ? 0 : r[0], y0 = r[1] < 0 ? 0 : r[1];
+    int x1 = r[0] + r[2] > sw ? sw : r[0] + r[2], y1 = r[1] + r[3] > sh ? sh : r[1] + r[3];
+    if (x1 > x0 && y1 > y0) {
+        VkViewport vpt = { (float)r[0], (float)r[1], (float)r[2], (float)r[3], 0.0f, 1.0f };
+        VkRect2D sc = { { x0, y0 }, { (uint32_t)(x1 - x0), (uint32_t)(y1 - y0) } };
+        float rect[4] = { -1.0f, -1.0f, 1.0f, 1.0f };
+        vkCmdBindPipeline(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_hud_pipeline);
+        vkCmdSetViewport(g_cmdbuf, 0, 1, &vpt);
+        vkCmdSetScissor(g_cmdbuf, 0, 1, &sc);
+        vkCmdBindDescriptorSets(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_hud_playout, 0, 1, &g_hud_dset, 0, NULL);
+        vkCmdPushConstants(g_cmdbuf, g_hud_playout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(rect), rect);
+        vkCmdDraw(g_cmdbuf, 6, 1, 0, 0);
+    }
+    vkCmdEndRenderPass(g_cmdbuf);
+}
+
+// hud_gles_sync hands the GLES backend a newer canvas, if any. Render
+// thread, current context. Returns whether to draw the HUD.
+static int hud_gles_sync(void) {
+    int active;
+    VKOV_LOCK();
+    active = g_hud_active;
+    if (active && (g_hud_dirty || !gles_ov_hud_ready())) {
+        gles_ov_set_hud(g_hud_pixels, VK_HUD_W, VK_HUD_H);
+        g_hud_dirty = 0;
+    }
+    VKOV_UNLOCK();
+    return active && gles_ov_hud_ready();
+}
+
+// ─── menu holes ───────────────────────────────────────────────────────────────
+//
+// The SurfaceView sits above the Fyne window (setZOrderOnTop), so a Fyne menu
+// or popup opened over the video would be covered by it. Instead of hiding the
+// video, every presented frame gets the open menus' rects punched to alpha 0;
+// the surface is TRANSLUCENT (VulkanOverlayBridge), so SurfaceFlinger shows
+// the Fyne window through them while the rest of the video keeps playing.
+// Everything else stays alpha 1 (video, letterbox clear, cursor).
+//
+// g_holes is in swapchain pixels, written by android_vk_set_holes under
+// g_state_mu; a rounded card arrives as several plain rects (Go splits it).
+#define VK_MAX_HOLES 512
+static VkRect2D g_holes[VK_MAX_HOLES];
+static int      g_hole_count = 0;
+
+// 1x1 transparent-black image that vkCmdBlitImage stretches over each hole.
+// Render thread only.
+static VkImage        g_clear_img   = VK_NULL_HANDLE;
+static VkDeviceMemory g_clear_mem   = VK_NULL_HANDLE;
+static int            g_clear_ready = 0; // cleared and in TRANSFER_SRC_OPTIMAL
+static VkImageBlit    g_hole_blits[VK_MAX_HOLES];
+
+static int vk_ensure_clear_img(void) {
+    if (g_clear_img != VK_NULL_HANDLE) return 1;
+    VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    ici.imageType     = VK_IMAGE_TYPE_2D;
+    ici.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    ici.extent        = (VkExtent3D){1, 1, 1};
+    ici.mipLevels     = 1;
+    ici.arrayLayers   = 1;
+    ici.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage         = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ici.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(g_dev, &ici, NULL, &g_clear_img) != VK_SUCCESS) {
+        g_clear_img = VK_NULL_HANDLE;
+        return 0;
+    }
+    VkMemoryRequirements mr;
+    vkGetImageMemoryRequirements(g_dev, g_clear_img, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (mi == UINT32_MAX) mi = vk_find_mem(&mp, mr.memoryTypeBits, 0);
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    mai.allocationSize  = mr.size;
+    mai.memoryTypeIndex = mi;
+    if (mi == UINT32_MAX || vkAllocateMemory(g_dev, &mai, NULL, &g_clear_mem) != VK_SUCCESS) {
+        vkDestroyImage(g_dev, g_clear_img, NULL);
+        g_clear_img = VK_NULL_HANDLE;
+        g_clear_mem = VK_NULL_HANDLE;
+        return 0;
+    }
+    vkBindImageMemory(g_dev, g_clear_img, g_clear_mem, 0);
+    g_clear_ready = 0;
+    return 1;
+}
+
+static void vk_destroy_clear_img(void) {
+    if (g_clear_img) { vkDestroyImage(g_dev, g_clear_img, NULL); g_clear_img = VK_NULL_HANDLE; }
+    if (g_clear_mem) { vkFreeMemory(g_dev, g_clear_mem, NULL);   g_clear_mem = VK_NULL_HANDLE; }
+    g_clear_ready = 0;
+}
+
+// vk_cmd_punch_holes records the hole blits into g_cmdbuf over dst (in
+// TRANSFER_DST_OPTIMAL, after the video and cursor writes). No-op without holes.
+static void vk_cmd_punch_holes(VkImage dst) {
+    int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
+    int n = 0;
+    pthread_mutex_lock(&g_state_mu);
+    for (int i = 0; i < g_hole_count; i++) {
+        int x0 = g_holes[i].offset.x, y0 = g_holes[i].offset.y;
+        int x1 = x0 + (int)g_holes[i].extent.width, y1 = y0 + (int)g_holes[i].extent.height;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > sw) x1 = sw;
+        if (y1 > sh) y1 = sh;
+        if (x1 <= x0 || y1 <= y0) continue;
+        VkImageBlit *b = &g_hole_blits[n++];
+        memset(b, 0, sizeof(*b));
+        b->srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b->srcSubresource.layerCount = 1;
+        b->srcOffsets[1] = (VkOffset3D){1, 1, 1};
+        b->dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b->dstSubresource.layerCount = 1;
+        b->dstOffsets[0] = (VkOffset3D){x0, y0, 0};
+        b->dstOffsets[1] = (VkOffset3D){x1, y1, 1};
+    }
+    pthread_mutex_unlock(&g_state_mu);
+    if (n == 0 || !vk_ensure_clear_img()) return;
+
+    if (!g_clear_ready) {
+        vk_image_barrier(g_cmdbuf, g_clear_img,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        VkClearColorValue clear = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCmdClearColorImage(g_cmdbuf, g_clear_img,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &full);
+        vk_image_barrier(g_cmdbuf, g_clear_img,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        g_clear_ready = 1;
+    }
+
+    // Serialise the video/cursor writes before the hole writes.
+    VkMemoryBarrier mb = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(g_cmdbuf,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 1, &mb, 0, NULL, 0, NULL);
+
+    vkCmdBlitImage(g_cmdbuf,
+        g_clear_img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        dst,         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        (uint32_t)n, g_hole_blits, VK_FILTER_NEAREST);
+}
+
 // ─── render one frame ─────────────────────────────────────────────────────────
 
 // vk_render_frame presents the frame whose pixels are already sitting in
@@ -965,7 +1350,8 @@ static int vk_render_frame(int fw, int fh, int fs) {
                           &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
     vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
-    VkClearColorValue black = {0};
+    // Opaque black: the surface is translucent, alpha 0 is reserved for holes.
+    VkClearColorValue black = {{0.0f, 0.0f, 0.0f, 1.0f}};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
@@ -1045,6 +1431,9 @@ static int vk_render_frame(int fw, int fh, int fs) {
                 (uint32_t)nreg, regs);
     }
 
+    vk_cmd_draw_hud(img_idx, fw, fh, dx, dy, dw, dh);
+    vk_cmd_punch_holes(g_swap_imgs[img_idx]);
+
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         VK_ACCESS_TRANSFER_WRITE_BIT, 0,
@@ -1052,7 +1441,8 @@ static int vk_render_frame(int fw, int fh, int fs) {
 
     vkEndCommandBuffer(g_cmdbuf);
 
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT |
+                                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     si.waitSemaphoreCount   = 1; si.pWaitSemaphores   = &g_img_sem;
     si.pWaitDstStageMask    = &wait_stage;
@@ -1199,7 +1589,441 @@ static VkImage hwimport_get_or_create(void *ahb_void, int fw, int fh) {
     return img;
 }
 
-static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
+// ── Decoder-image path (AImageReader -> YCbCr sampling) ───────────────────────
+//
+// MediaCodec decodes into AImageReader buffers (moonlight_cgo_android.go);
+// each buffer is imported here as a VkImage of the decoder's own (usually
+// opaque, "external") YUV format and drawn to the swapchain through a
+// VkSamplerYcbcrConversion, so the hardware converts to RGB while sampling.
+// No GL pass, no glFinish, no intermediate RGBA copy. The conversion uses the
+// model/range/chroma siting the driver suggests for the buffer, which follows
+// the colour info the decoder attached to it.
+//
+// Buffers come from a small fixed pool, so imports are cached per buffer.
+// AImage hands out a new AHardwareBuffer* wrapper for every image, so the key
+// is the buffer's system-wide id (AHardwareBuffer_getId, Android 12+; older
+// systems fall back to the pointer and so import every frame). Each entry
+// holds a reference (AHardwareBuffer_acquire) so the buffer, and with it the
+// id, stays alive while cached. Render thread only, except
+// vk_yc_destroy_all at cleanup.
+
+#define YC_CACHE 24
+typedef struct {
+    AHardwareBuffer *ahb;
+    uint64_t         key;
+    VkImage          img;
+    VkDeviceMemory   mem;
+    VkImageView      view;
+    VkDescriptorSet  ds;   // bound to view once, at import
+    uint64_t         used;
+} yc_entry;
+static yc_entry g_yc[YC_CACHE];
+static uint64_t g_yc_tick = 0;
+
+typedef int (*pfn_ahb_get_id)(const AHardwareBuffer *, uint64_t *);
+static pfn_ahb_get_id p_ahb_get_id = NULL;
+static int            g_ahb_get_id_looked = 0;
+
+static uint64_t vk_yc_key(AHardwareBuffer *ahb) {
+    if (!g_ahb_get_id_looked) {
+        g_ahb_get_id_looked = 1;
+        void *lib = dlopen("libandroid.so", RTLD_NOW);
+        if (lib) p_ahb_get_id = (pfn_ahb_get_id)dlsym(lib, "AHardwareBuffer_getId");
+        VLOGI("ycbcr: AHardwareBuffer_getId %s", p_ahb_get_id ? "available" : "missing (import per frame)");
+    }
+    uint64_t id = 0;
+    if (p_ahb_get_id && p_ahb_get_id(ahb, &id) == 0 && id) return id;
+    return (uint64_t)(uintptr_t)ahb;
+}
+
+// Conversion + sampler, rebuilt when the decoder's format changes.
+static VkFormat                 g_yc_fmt      = VK_FORMAT_UNDEFINED;
+static uint64_t                 g_yc_extfmt   = 0;
+static int                      g_yc_have_fmt = 0;
+static VkSamplerYcbcrConversion g_yc_conv     = VK_NULL_HANDLE;
+static VkSampler                g_yc_sampler  = VK_NULL_HANDLE;
+// Pipeline objects, rebuilt with the conversion (immutable sampler) or when
+// the swapchain format changes (render pass).
+static VkDescriptorSetLayout    g_yc_dsl      = VK_NULL_HANDLE;
+static VkPipelineLayout         g_yc_pl       = VK_NULL_HANDLE;
+static VkRenderPass             g_yc_rp       = VK_NULL_HANDLE;
+static VkFormat                 g_yc_rp_fmt   = VK_FORMAT_UNDEFINED;
+static VkPipeline               g_yc_pipe     = VK_NULL_HANDLE;
+static VkDescriptorPool         g_yc_dpool    = VK_NULL_HANDLE;
+// One framebuffer per swapchain image, dropped with the swapchain.
+static VkFramebuffer           *g_yc_fbs      = NULL;
+static uint32_t                 g_yc_fb_count = 0;
+
+static void vk_yc_destroy_framebuffers(void) {
+    if (!g_yc_fbs) return;
+    for (uint32_t i = 0; i < g_yc_fb_count; i++)
+        if (g_yc_fbs[i]) vkDestroyFramebuffer(g_dev, g_yc_fbs[i], NULL);
+    free(g_yc_fbs);
+    g_yc_fbs = NULL;
+    g_yc_fb_count = 0;
+}
+
+static void vk_yc_entry_free(yc_entry *e) {
+    if (e->ds && g_yc_dpool) vkFreeDescriptorSets(g_dev, g_yc_dpool, 1, &e->ds);
+    if (e->view) vkDestroyImageView(g_dev, e->view, NULL);
+    if (e->img)  vkDestroyImage(g_dev, e->img, NULL);
+    if (e->mem)  vkFreeMemory(g_dev, e->mem, NULL);
+    if (e->ahb)  AHardwareBuffer_release(e->ahb);
+    memset(e, 0, sizeof(*e));
+}
+
+static void vk_yc_cache_clear(void) {
+    for (int i = 0; i < YC_CACHE; i++) vk_yc_entry_free(&g_yc[i]);
+}
+
+static void vk_yc_destroy_pipeline(void) {
+    // Descriptor sets live in g_yc_dpool: imports go with it.
+    vk_yc_cache_clear();
+    vk_yc_destroy_framebuffers();
+    if (g_yc_pipe)  { vkDestroyPipeline(g_dev, g_yc_pipe, NULL);             g_yc_pipe  = VK_NULL_HANDLE; }
+    if (g_yc_dpool) { vkDestroyDescriptorPool(g_dev, g_yc_dpool, NULL);      g_yc_dpool = VK_NULL_HANDLE; }
+    if (g_yc_pl)    { vkDestroyPipelineLayout(g_dev, g_yc_pl, NULL);         g_yc_pl    = VK_NULL_HANDLE; }
+    if (g_yc_dsl)   { vkDestroyDescriptorSetLayout(g_dev, g_yc_dsl, NULL);   g_yc_dsl   = VK_NULL_HANDLE; }
+    if (g_yc_rp)    { vkDestroyRenderPass(g_dev, g_yc_rp, NULL);             g_yc_rp    = VK_NULL_HANDLE; }
+    g_yc_rp_fmt = VK_FORMAT_UNDEFINED;
+}
+
+// vk_yc_destroy_all frees every decoder-image object. Device must be idle.
+static void vk_yc_destroy_all(void) {
+    if (!g_dev) return;
+    vk_yc_cache_clear();
+    vk_yc_destroy_pipeline();
+    if (g_yc_sampler) { vkDestroySampler(g_dev, g_yc_sampler, NULL); g_yc_sampler = VK_NULL_HANDLE; }
+    if (g_yc_conv)    { p_vkDestroySamplerYcbcrConversionKHR(g_dev, g_yc_conv, NULL); g_yc_conv = VK_NULL_HANDLE; }
+    g_yc_have_fmt = 0;
+}
+
+static VkShaderModule vk_yc_shader(const uint32_t *code, size_t size) {
+    VkShaderModuleCreateInfo ci = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    ci.codeSize = size;
+    ci.pCode    = code;
+    VkShaderModule m = VK_NULL_HANDLE;
+    if (vkCreateShaderModule(g_dev, &ci, NULL, &m) != VK_SUCCESS) return VK_NULL_HANDLE;
+    return m;
+}
+
+// vk_yc_build_pipeline builds the render pass (for g_swap_fmt) and the
+// pipeline around the current immutable sampler.
+static int vk_yc_build_pipeline(void) {
+    VkAttachmentDescription att = {0};
+    att.format         = g_swap_fmt;
+    att.samples        = VK_SAMPLE_COUNT_1_BIT;
+    att.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    att.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    att.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Cursor and menu holes are transfer writes after the pass.
+    att.finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    VkAttachmentReference ref = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription sub = {0};
+    sub.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub.colorAttachmentCount = 1;
+    sub.pColorAttachments    = &ref;
+    VkSubpassDependency deps[2] = {0};
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+    VkRenderPassCreateInfo rpci = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    rpci.attachmentCount = 1; rpci.pAttachments  = &att;
+    rpci.subpassCount    = 1; rpci.pSubpasses    = &sub;
+    rpci.dependencyCount = 2; rpci.pDependencies = deps;
+    if (vkCreateRenderPass(g_dev, &rpci, NULL, &g_yc_rp) != VK_SUCCESS) return 0;
+    g_yc_rp_fmt = g_swap_fmt;
+
+    VkDescriptorSetLayoutBinding b = {0};
+    b.binding            = 0;
+    b.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b.descriptorCount    = 1;
+    b.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    b.pImmutableSamplers = &g_yc_sampler; // required with a YCbCr conversion
+    VkDescriptorSetLayoutCreateInfo dslci = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    dslci.bindingCount = 1; dslci.pBindings = &b;
+    if (vkCreateDescriptorSetLayout(g_dev, &dslci, NULL, &g_yc_dsl) != VK_SUCCESS) return 0;
+
+    VkPushConstantRange pcr = { VK_SHADER_STAGE_VERTEX_BIT, 0, 4 * sizeof(float) };
+    VkPipelineLayoutCreateInfo plci = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    plci.setLayoutCount = 1; plci.pSetLayouts = &g_yc_dsl;
+    plci.pushConstantRangeCount = 1; plci.pPushConstantRanges = &pcr;
+    if (vkCreatePipelineLayout(g_dev, &plci, NULL, &g_yc_pl) != VK_SUCCESS) return 0;
+
+    // One set per cached import; a multi-planar format can take several
+    // descriptors per sampler.
+    VkDescriptorPoolSize ps = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * YC_CACHE };
+    VkDescriptorPoolCreateInfo dpci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    dpci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    dpci.maxSets = YC_CACHE; dpci.poolSizeCount = 1; dpci.pPoolSizes = &ps;
+    if (vkCreateDescriptorPool(g_dev, &dpci, NULL, &g_yc_dpool) != VK_SUCCESS) return 0;
+
+    VkShaderModule vs = vk_yc_shader(g_ycbcr_rect_vert_spv, sizeof(g_ycbcr_rect_vert_spv));
+    VkShaderModule fs = vk_yc_shader(g_ycbcr_frag_spv, sizeof(g_ycbcr_frag_spv));
+    int ok = 0;
+    if (vs && fs) {
+        VkPipelineShaderStageCreateInfo st[2] = {
+            { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, NULL, 0, VK_SHADER_STAGE_VERTEX_BIT,   vs, "main", NULL },
+            { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, NULL, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", NULL },
+        };
+        VkPipelineVertexInputStateCreateInfo vi = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+        VkPipelineInputAssemblyStateCreateInfo ia = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkPipelineViewportStateCreateInfo vp = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+        vp.viewportCount = 1; vp.scissorCount = 1;
+        VkPipelineRasterizationStateCreateInfo rs = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+        rs.polygonMode = VK_POLYGON_MODE_FILL;
+        rs.cullMode    = VK_CULL_MODE_NONE;
+        rs.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rs.lineWidth   = 1.0f;
+        VkPipelineMultisampleStateCreateInfo ms = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        VkPipelineColorBlendAttachmentState cba = {0};
+        cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendStateCreateInfo cb = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+        cb.attachmentCount = 1; cb.pAttachments = &cba;
+        VkDynamicState dyn[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo ds = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+        ds.dynamicStateCount = 2; ds.pDynamicStates = dyn;
+        VkGraphicsPipelineCreateInfo gpci = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        gpci.stageCount = 2; gpci.pStages = st;
+        gpci.pVertexInputState   = &vi;
+        gpci.pInputAssemblyState = &ia;
+        gpci.pViewportState      = &vp;
+        gpci.pRasterizationState = &rs;
+        gpci.pMultisampleState   = &ms;
+        gpci.pColorBlendState    = &cb;
+        gpci.pDynamicState       = &ds;
+        gpci.layout     = g_yc_pl;
+        gpci.renderPass = g_yc_rp;
+        ok = vkCreateGraphicsPipelines(g_dev, VK_NULL_HANDLE, 1, &gpci, NULL, &g_yc_pipe) == VK_SUCCESS;
+    }
+    if (vs) vkDestroyShaderModule(g_dev, vs, NULL);
+    if (fs) vkDestroyShaderModule(g_dev, fs, NULL);
+    return ok;
+}
+
+// vk_yc_ensure_format makes the conversion, sampler and pipeline match the
+// buffer format described by fp (and the current swapchain format).
+static int vk_yc_ensure_format(const VkAndroidHardwareBufferFormatPropertiesANDROID *fp) {
+    uint64_t ext = fp->format == VK_FORMAT_UNDEFINED ? fp->externalFormat : 0;
+    if (!g_yc_have_fmt || g_yc_fmt != fp->format || g_yc_extfmt != ext) {
+        vkDeviceWaitIdle(g_dev);
+        vk_yc_destroy_all();
+
+        VkExternalFormatANDROID ef = { VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID };
+        ef.externalFormat = ext;
+        VkSamplerYcbcrConversionCreateInfo cci = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO };
+        cci.pNext         = ext ? &ef : NULL;
+        cci.format        = fp->format;
+        cci.ycbcrModel    = fp->suggestedYcbcrModel;
+        cci.ycbcrRange    = fp->suggestedYcbcrRange;
+        cci.components    = fp->samplerYcbcrConversionComponents;
+        cci.xChromaOffset = fp->suggestedXChromaOffset;
+        cci.yChromaOffset = fp->suggestedYChromaOffset;
+        VkFilter filter = (fp->formatFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT)
+                              ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+        cci.chromaFilter  = filter;
+        if (p_vkCreateSamplerYcbcrConversionKHR(g_dev, &cci, NULL, &g_yc_conv) != VK_SUCCESS) {
+            VLOGE("ycbcr: conversion create failed (fmt=%d ext=0x%llx)", (int)fp->format, (unsigned long long)ext);
+            g_yc_conv = VK_NULL_HANDLE;
+            return 0;
+        }
+        VkSamplerYcbcrConversionInfo ci = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO };
+        ci.conversion = g_yc_conv;
+        VkSamplerCreateInfo sci = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, &ci };
+        sci.magFilter    = filter;
+        sci.minFilter    = filter;
+        sci.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        sci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sci.maxLod       = 0.0f;
+        if (vkCreateSampler(g_dev, &sci, NULL, &g_yc_sampler) != VK_SUCCESS) {
+            VLOGE("ycbcr: sampler create failed");
+            g_yc_sampler = VK_NULL_HANDLE;
+            return 0;
+        }
+        g_yc_fmt = fp->format; g_yc_extfmt = ext; g_yc_have_fmt = 1;
+        VLOGI("ycbcr: conversion for fmt=%d ext=0x%llx model=%d range=%d chroma=(%d,%d) filter=%s",
+              (int)fp->format, (unsigned long long)ext, (int)fp->suggestedYcbcrModel,
+              (int)fp->suggestedYcbcrRange, (int)fp->suggestedXChromaOffset,
+              (int)fp->suggestedYChromaOffset, filter == VK_FILTER_LINEAR ? "linear" : "nearest");
+    }
+    if (g_yc_pipe && g_yc_rp_fmt != g_swap_fmt) {
+        vkDeviceWaitIdle(g_dev);
+        vk_yc_destroy_pipeline();
+    }
+    if (!g_yc_pipe && !vk_yc_build_pipeline()) {
+        VLOGE("ycbcr: pipeline build failed");
+        vk_yc_destroy_pipeline();
+        return 0;
+    }
+    return 1;
+}
+
+// vk_yc_get returns the cached (or freshly imported) view of ahb.
+static yc_entry *vk_yc_get(AHardwareBuffer *ahb) {
+    g_yc_tick++;
+    uint64_t key = vk_yc_key(ahb);
+    if (g_yc_have_fmt && g_yc_pipe && g_yc_rp_fmt == g_swap_fmt) {
+        for (int i = 0; i < YC_CACHE; i++)
+            if (g_yc[i].ahb && g_yc[i].key == key) { g_yc[i].used = g_yc_tick; return &g_yc[i]; }
+    }
+
+    VkAndroidHardwareBufferFormatPropertiesANDROID fp = { VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID };
+    VkAndroidHardwareBufferPropertiesANDROID props = { VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID, &fp };
+    if (p_vkGetAndroidHardwareBufferPropertiesANDROID(g_dev, ahb, &props) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkGetAndroidHardwareBufferPropertiesANDROID failed");
+        return NULL;
+    }
+    if (!vk_yc_ensure_format(&fp)) return NULL;
+    // ensure_format may have flushed the cache; look again.
+    for (int i = 0; i < YC_CACHE; i++)
+        if (g_yc[i].ahb && g_yc[i].key == key) { g_yc[i].used = g_yc_tick; return &g_yc[i]; }
+
+    // Evict the least recently used entry. Its last use is a finished
+    // frame: the caller waited g_fence before getting here.
+    int slot = 0;
+    for (int i = 0; i < YC_CACHE; i++) {
+        if (!g_yc[i].ahb) { slot = i; break; }
+        if (g_yc[i].used < g_yc[slot].used) slot = i;
+    }
+    yc_entry *e = &g_yc[slot];
+    if (e->ahb) vk_yc_entry_free(e);
+
+    AHardwareBuffer_Desc desc;
+    AHardwareBuffer_describe(ahb, &desc);
+
+    VkExternalFormatANDROID ef = { VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID };
+    ef.externalFormat = g_yc_extfmt;
+    VkExternalMemoryImageCreateInfo emi = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO, &ef };
+    emi.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+    VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, &emi };
+    ici.imageType     = VK_IMAGE_TYPE_2D;
+    ici.format        = g_yc_fmt;
+    ici.extent        = (VkExtent3D){desc.width, desc.height, 1};
+    ici.mipLevels     = 1;
+    ici.arrayLayers   = 1;
+    ici.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage         = VK_IMAGE_USAGE_SAMPLED_BIT;
+    ici.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImage img = VK_NULL_HANDLE;
+    if (vkCreateImage(g_dev, &ici, NULL, &img) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkCreateImage failed (%ux%u fmt=%d)", desc.width, desc.height, (int)g_yc_fmt);
+        return NULL;
+    }
+
+    VkImportAndroidHardwareBufferInfoANDROID imp = { VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID };
+    imp.buffer = ahb;
+    VkMemoryDedicatedAllocateInfo ded = { VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, &imp };
+    ded.image = img;
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, props.memoryTypeBits, 0);
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &ded };
+    mai.allocationSize  = props.allocationSize;
+    mai.memoryTypeIndex = mi;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    if (mi == UINT32_MAX || vkAllocateMemory(g_dev, &mai, NULL, &mem) != VK_SUCCESS) {
+        VLOGE("ycbcr: import allocation failed");
+        vkDestroyImage(g_dev, img, NULL);
+        return NULL;
+    }
+    if (vkBindImageMemory(g_dev, img, mem, 0) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkBindImageMemory failed");
+        vkFreeMemory(g_dev, mem, NULL);
+        vkDestroyImage(g_dev, img, NULL);
+        return NULL;
+    }
+
+    VkSamplerYcbcrConversionInfo ci = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO };
+    ci.conversion = g_yc_conv;
+    VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, &ci };
+    vci.image    = img;
+    vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vci.format   = g_yc_fmt;
+    vci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vci.subresourceRange.levelCount = 1;
+    vci.subresourceRange.layerCount = 1;
+    VkImageView view = VK_NULL_HANDLE;
+    if (vkCreateImageView(g_dev, &vci, NULL, &view) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkCreateImageView failed");
+        vkFreeMemory(g_dev, mem, NULL);
+        vkDestroyImage(g_dev, img, NULL);
+        return NULL;
+    }
+
+    VkDescriptorSet ds = VK_NULL_HANDLE;
+    VkDescriptorSetAllocateInfo dsai = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    dsai.descriptorPool = g_yc_dpool; dsai.descriptorSetCount = 1; dsai.pSetLayouts = &g_yc_dsl;
+    if (vkAllocateDescriptorSets(g_dev, &dsai, &ds) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkAllocateDescriptorSets failed");
+        vkDestroyImageView(g_dev, view, NULL);
+        vkFreeMemory(g_dev, mem, NULL);
+        vkDestroyImage(g_dev, img, NULL);
+        return NULL;
+    }
+    VkDescriptorImageInfo dii = { VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+    VkWriteDescriptorSet w = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    w.dstSet = ds; w.dstBinding = 0; w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w.pImageInfo = &dii;
+    vkUpdateDescriptorSets(g_dev, 1, &w, 0, NULL);
+
+    AHardwareBuffer_acquire(ahb);
+    e->ahb = ahb; e->key = key; e->img = img; e->mem = mem; e->view = view; e->ds = ds; e->used = g_yc_tick;
+    VLOGI("ycbcr: imported decoder buffer %p %ux%u (slot %d)", (void *)ahb, desc.width, desc.height, slot);
+    return e;
+}
+
+static int vk_yc_ensure_framebuffers(void) {
+    if (g_yc_fbs && g_yc_fb_count == g_swap_count) return 1;
+    vk_yc_destroy_framebuffers();
+    g_yc_fbs = calloc(g_swap_count, sizeof(VkFramebuffer));
+    if (!g_yc_fbs) return 0;
+    g_yc_fb_count = g_swap_count;
+    for (uint32_t i = 0; i < g_swap_count; i++) {
+        VkFramebufferCreateInfo fci = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+        fci.renderPass      = g_yc_rp;
+        fci.attachmentCount = 1;
+        fci.pAttachments    = &g_swap_views[i];
+        fci.width           = g_swap_ext.width;
+        fci.height          = g_swap_ext.height;
+        fci.layers          = 1;
+        if (vkCreateFramebuffer(g_dev, &fci, NULL, &g_yc_fbs[i]) != VK_SUCCESS) {
+            vk_yc_destroy_framebuffers();
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// A decoder image to draw instead of an RGBA AHardwareBuffer: the buffer and
+// the visible crop of it (decoders pad to their block size).
+typedef struct {
+    AHardwareBuffer *ahb;
+    int buf_w, buf_h;
+    int crop_x, crop_y;
+} vk_yc_frame;
+
+// vk_render_frame_hw presents one frame from an AHardwareBuffer: an RGBA
+// buffer GL rendered (ahb_void, blitted), or, with ycf, a decoder buffer
+// sampled through the YCbCr pipeline. fw x fh is the visible frame size.
+static int vk_render_frame_hw(void *ahb_void, int fw, int fh, const vk_yc_frame *ycf) {
     if (!g_dev) return 0;
     if (!g_swap) { vk_recreate_swapchain(); return 0; }
 
@@ -1220,8 +2044,22 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
         }
     }
 
-    VkImage srcImg = hwimport_get_or_create(ahb_void, fw, fh);
-    if (srcImg == VK_NULL_HANDLE) return 0;
+    VkImage srcImg = VK_NULL_HANDLE;
+    yc_entry *yce = NULL;
+    if (ycf) {
+        // Importing may evict a cached image: the previous frame must be
+        // finished first.
+        // (Wait only; the reset happens after acquire as usual.)
+        if (vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL) == VK_TIMEOUT) {
+            VLOGE("vkWaitForFences timeout (2s)");
+            return 0;
+        }
+        yce = vk_yc_get(ycf->ahb);
+        if (!yce || !vk_yc_ensure_framebuffers()) return 0;
+    } else {
+        srcImg = hwimport_get_or_create(ahb_void, fw, fh);
+        if (srcImg == VK_NULL_HANDLE) return 0;
+    }
 
     uint32_t img_idx = 0;
     VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 2000000000ULL,
@@ -1240,21 +2078,38 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(g_cmdbuf, &bi);
 
-    // GL already wrote (and glFinish()'d) this frame's pixels straight into
-    // srcImg's backing memory -- there's nothing for us to copy in, just a
-    // layout transition before reading it. Treated as UNDEFINED->TRANSFER_SRC
-    // every frame rather than tracking Vulkan-side layout across GL/Vulkan API
-    // boundaries: we never write to this image via Vulkan ourselves, only
-    // ever blit-read it, so there's no prior Vulkan-tracked content to lose.
-    vk_image_barrier(g_cmdbuf, srcImg,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        0, VK_ACCESS_TRANSFER_READ_BIT,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    if (yce) {
+        // The decoder wrote this buffer (AImageReader waited its fence);
+        // take it from the foreign queue for sampling.
+        VkImageMemoryBarrier b = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
+        b.dstQueueFamilyIndex = g_qfam;
+        b.image = yce->img;
+        b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b.subresourceRange.levelCount = 1;
+        b.subresourceRange.layerCount = 1;
+        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(g_cmdbuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &b);
+    } else {
+        // GL already wrote (and glFinish()'d) this frame's pixels straight into
+        // srcImg's backing memory -- there's nothing for us to copy in, just a
+        // layout transition before reading it. Treated as UNDEFINED->TRANSFER_SRC
+        // every frame rather than tracking Vulkan-side layout across GL/Vulkan API
+        // boundaries: we never write to this image via Vulkan ourselves, only
+        // ever blit-read it, so there's no prior Vulkan-tracked content to lose.
+        vk_image_barrier(g_cmdbuf, srcImg,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        0, VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    }
 
     // Snapshot viewport + cursor state atomically, identical to vk_render_frame.
     pthread_mutex_lock(&g_state_mu);
@@ -1281,30 +2136,63 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
                           &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
     vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
-    VkClearColorValue black = {0};
-    VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-    vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
+    if (yce) {
+        // Render pass clears to opaque black (alpha 0 is reserved for menu
+        // holes) and leaves the image in TRANSFER_DST for cursor and holes.
+        VkClearValue clear = { .color = {{0.0f, 0.0f, 0.0f, 1.0f}} };
+        VkRenderPassBeginInfo rbi = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        rbi.renderPass  = g_yc_rp;
+        rbi.framebuffer = g_yc_fbs[img_idx];
+        rbi.renderArea.extent = g_swap_ext;
+        rbi.clearValueCount = 1; rbi.pClearValues = &clear;
+        vkCmdBeginRenderPass(g_cmdbuf, &rbi, VK_SUBPASS_CONTENTS_INLINE);
+        int sx0 = dx < 0 ? 0 : dx, sy0 = dy < 0 ? 0 : dy;
+        int sx1 = dx + dw > sw ? sw : dx + dw, sy1 = dy + dh > sh ? sh : dy + dh;
+        if (sx1 > sx0 && sy1 > sy0 && src_x1 > src_x0 && src_y1 > src_y0) {
+            VkViewport vpt = { (float)dx, (float)dy, (float)dw, (float)dh, 0.0f, 1.0f };
+            VkRect2D sc = { { sx0, sy0 }, { (uint32_t)(sx1 - sx0), (uint32_t)(sy1 - sy0) } };
+            float pc[4] = {
+                (float)(ycf->crop_x + src_x0) / (float)ycf->buf_w,
+                (float)(ycf->crop_y + src_y0) / (float)ycf->buf_h,
+                (float)(src_x1 - src_x0) / (float)ycf->buf_w,
+                (float)(src_y1 - src_y0) / (float)ycf->buf_h,
+            };
+            vkCmdBindPipeline(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_yc_pipe);
+            vkCmdSetViewport(g_cmdbuf, 0, 1, &vpt);
+            vkCmdSetScissor(g_cmdbuf, 0, 1, &sc);
+            vkCmdPushConstants(g_cmdbuf, g_yc_pl, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), pc);
+            vkCmdBindDescriptorSets(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_yc_pl,
+                                    0, 1, &yce->ds, 0, NULL);
+            vkCmdDraw(g_cmdbuf, 3, 1, 0, 0);
+        }
+        vkCmdEndRenderPass(g_cmdbuf);
+    } else {
+        // Opaque black: the surface is translucent, alpha 0 is reserved for holes.
+        VkClearColorValue black = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
 
-    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-    if (dw > 0 && dh > 0 && src_x1 > src_x0 && src_y1 > src_y0) {
-    VkImageBlit blt = {0};
-    blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blt.srcSubresource.layerCount = 1;
-    blt.srcOffsets[0] = (VkOffset3D){src_x0, src_y0, 0};
-    blt.srcOffsets[1] = (VkOffset3D){src_x1, src_y1, 1};
-    blt.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blt.dstSubresource.layerCount = 1;
-    blt.dstOffsets[0] = (VkOffset3D){dx,      dy,      0};
-    blt.dstOffsets[1] = (VkOffset3D){dx + dw, dy + dh, 1};
-    vkCmdBlitImage(g_cmdbuf,
-        srcImg,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1, &blt, VK_FILTER_LINEAR);
+        if (dw > 0 && dh > 0 && src_x1 > src_x0 && src_y1 > src_y0) {
+        VkImageBlit blt = {0};
+        blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blt.srcSubresource.layerCount = 1;
+        blt.srcOffsets[0] = (VkOffset3D){src_x0, src_y0, 0};
+        blt.srcOffsets[1] = (VkOffset3D){src_x1, src_y1, 1};
+        blt.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blt.dstSubresource.layerCount = 1;
+        blt.dstOffsets[0] = (VkOffset3D){dx,      dy,      0};
+        blt.dstOffsets[1] = (VkOffset3D){dx + dw, dy + dh, 1};
+        vkCmdBlitImage(g_cmdbuf,
+            srcImg,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &blt, VK_FILTER_LINEAR);
+        }
     }
 
     if (snap_vis && g_cursor_nspans > 0 &&
@@ -1357,6 +2245,9 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
                 (uint32_t)nreg, regs);
     }
 
+    vk_cmd_draw_hud(img_idx, fw, fh, dx, dy, dw, dh);
+    vk_cmd_punch_holes(g_swap_imgs[img_idx]);
+
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         VK_ACCESS_TRANSFER_WRITE_BIT, 0,
@@ -1364,7 +2255,8 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
 
     vkEndCommandBuffer(g_cmdbuf);
 
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT |
+                                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     si.waitSemaphoreCount   = 1; si.pWaitSemaphores   = &g_img_sem;
     si.pWaitDstStageMask    = &wait_stage;
@@ -1396,9 +2288,150 @@ static double mono_sec_vk(void) {
 
 // ─── render thread ────────────────────────────────────────────────────────────
 
+// vk_note_video_frame_rendered counts a newly presented video frame (not a
+// cursor-only redraw) toward FPS and latency stats.
+static void vk_note_video_frame_rendered(void) {
+    g_rendered++;
+    vlat_note_present();
+    g_fps_n++;
+    double now = mono_sec_vk();
+    if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }
+    if (now - g_fps_t0 >= 2.0 && g_fps_n > 0) {
+        g_stat_fps   = (float)((double)g_fps_n / (now - g_fps_t0));
+        g_stat_ready = 1;
+        g_fps_t0 = now; g_fps_n = 0;
+    }
+    if (g_rendered % 300 == 0) {
+        VLOGI("rendered %lld frames, submitted %lld, fps=%.1f",
+              (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps);
+    }
+}
+
+// vk_aimg_set_current puts img on screen and deletes the previous one once
+// the GPU is done with it.
+static void vk_aimg_set_current(AImage *img) {
+    if (g_cur_aimg && g_cur_aimg != img) {
+        if (g_use_gles) gles_ov_wait_idle();
+        else if (g_dev && g_fence) vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
+        AImage_delete(g_cur_aimg);
+    }
+    g_cur_aimg = img;
+}
+
+// vk_aimg_drop_all gives every decoder image back, and with them the cached
+// imports (which hold references to the reader's buffers).
+static void vk_aimg_drop_all(void) {
+    vk_aimg_set_current(NULL);
+    pthread_mutex_lock(&g_mu);
+    AImage *pend = g_pend_aimg;
+    g_pend_aimg = NULL;
+    pthread_mutex_unlock(&g_mu);
+    if (pend) AImage_delete(pend);
+    if (g_use_gles) {
+        gles_ov_drop_images();
+    } else if (g_dev) {
+        vkDeviceWaitIdle(g_dev);
+        vk_yc_cache_clear();
+    }
+}
+
+// gles_render presents one frame through the GLES fallback: a decoder image
+// (img) or a CPU RGBA frame (rgba, fw x fh, tightly packed). Same layout,
+// cursor and holes as the Vulkan path.
+static int gles_render(AImage *img, const uint8_t *rgba, int fw, int fh) {
+    int sw = 0, sh = 0;
+    if (!gles_ov_surface_size(&sw, &sh)) return 0;
+    if (atomic_exchange(&g_gles_cursor_dirty, 0)) {
+        pthread_mutex_lock(&g_mu);
+        gles_ov_set_cursor(g_gles_cursor, g_gles_cursor_w, g_gles_cursor_h);
+        pthread_mutex_unlock(&g_mu);
+    }
+
+    gles_ov_frame f;
+    memset(&f, 0, sizeof(f));
+    f.surf_w = sw; f.surf_h = sh;
+    int crop_x = 0, crop_y = 0;
+    if (img) {
+        AHardwareBuffer *ahb = NULL;
+        AImageCropRect crop;
+        if (AImage_getHardwareBuffer(img, &ahb) != AMEDIA_OK || !ahb) return 0;
+        AHardwareBuffer_Desc desc;
+        AHardwareBuffer_describe(ahb, &desc);
+        if (AImage_getCropRect(img, &crop) != AMEDIA_OK || crop.right <= crop.left || crop.bottom <= crop.top) {
+            crop.left = 0; crop.top = 0; crop.right = (int32_t)desc.width; crop.bottom = (int32_t)desc.height;
+        }
+        f.ahb = ahb;
+        f.tex_w = (int)desc.width; f.tex_h = (int)desc.height;
+        crop_x = crop.left; crop_y = crop.top;
+        fw = crop.right - crop.left; fh = crop.bottom - crop.top;
+    } else {
+        f.rgba = rgba;
+        f.tex_w = fw; f.tex_h = fh;
+    }
+
+    pthread_mutex_lock(&g_state_mu);
+    float snap_uc  = atomic_load(&g_cursor_uc_fp)  / 65536.0f;
+    float snap_vc  = atomic_load(&g_cursor_vc_fp)  / 65536.0f;
+    int   snap_vis = atomic_load(&g_cursor_visible);
+    int   snap_pan_x = atomic_load(&g_blit_pan_x);
+    int   snap_pan_y = atomic_load(&g_blit_pan_y);
+    float snap_zoom  = atomic_load(&g_blit_zoom_fp) / 65536.0f;
+    int holes[VK_MAX_HOLES * 4];
+    int nholes = 0;
+    for (int i = 0; i < g_hole_count; i++) {
+        holes[nholes * 4 + 0] = g_holes[i].offset.x;
+        holes[nholes * 4 + 1] = g_holes[i].offset.y;
+        holes[nholes * 4 + 2] = (int)g_holes[i].extent.width;
+        holes[nholes * 4 + 3] = (int)g_holes[i].extent.height;
+        nholes++;
+    }
+    pthread_mutex_unlock(&g_state_mu);
+
+    int src_x0 = 0, src_y0 = 0, src_x1 = fw, src_y1 = fh;
+    int dx = 0, dy = 0, dw = sw, dh = sh;
+    vk_layout_zoomed_dest(fw, fh, sw, sh, snap_zoom, snap_pan_x, snap_pan_y,
+                          &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
+    f.sx0 = crop_x + src_x0; f.sy0 = crop_y + src_y0;
+    f.sx1 = crop_x + src_x1; f.sy1 = crop_y + src_y1;
+    f.dx = dx; f.dy = dy; f.dw = dw; f.dh = dh;
+
+    if (snap_vis) {
+        // Same mapping as the Vulkan path's cursor spans: the image's
+        // top-left (the arrow tip) sits on the cursor point.
+        float su0 = fw > 0 ? (float)src_x0 / (float)fw : 0.0f, sv0 = fh > 0 ? (float)src_y0 / (float)fh : 0.0f;
+        float su1 = fw > 0 ? (float)src_x1 / (float)fw : 1.0f, sv1 = fh > 0 ? (float)src_y1 / (float)fh : 1.0f;
+        float tu = (su1 - su0 > 0.001f) ? (snap_uc - su0) / (su1 - su0) : 0.5f;
+        float tv = (sv1 - sv0 > 0.001f) ? (snap_vc - sv0) / (sv1 - sv0) : 0.5f;
+        f.cursor_visible = 1;
+        f.cursor_x = dx + (int)(tu * dw + 0.5f);
+        f.cursor_y = dy + (int)(tv * dh + 0.5f);
+    }
+    f.holes = holes; f.nholes = nholes;
+    if (hud_gles_sync() && hud_place(fw, fh, dx, dy, dw, dh, sw, sh, f.hud))
+        f.hud_visible = 1;
+    return gles_ov_draw(&f);
+}
+
+static int vk_render_aimage(AImage *img) {
+    if (!img) return 0;
+    if (g_use_gles) return gles_render(img, NULL, 0, 0);
+    AHardwareBuffer *ahb = NULL;
+    AImageCropRect crop;
+    if (AImage_getHardwareBuffer(img, &ahb) != AMEDIA_OK || !ahb) return 0;
+    AHardwareBuffer_Desc desc;
+    AHardwareBuffer_describe(ahb, &desc);
+    if (AImage_getCropRect(img, &crop) != AMEDIA_OK || crop.right <= crop.left || crop.bottom <= crop.top) {
+        crop.left = 0; crop.top = 0; crop.right = (int32_t)desc.width; crop.bottom = (int32_t)desc.height;
+    }
+    vk_yc_frame f = { ahb, (int)desc.width, (int)desc.height, crop.left, crop.top };
+    return vk_render_frame_hw(NULL, crop.right - crop.left, crop.bottom - crop.top, &f);
+}
+
 static void *vk_render_thread(void *unused) {
     (void)unused;
-    VLOGI("render thread started");
+    VLOGI("render thread started%s", g_use_gles ? " (OpenGL ES)" : "");
+    if (g_use_gles && !gles_ov_make_current()) VLOGE("GLES: eglMakeCurrent failed on the render thread");
     int last_fw = 0, last_fh = 0, last_fs = 0;
     int has_last_frame = 0;
     void *last_ahb = NULL;
@@ -1413,10 +2446,15 @@ static void *vk_render_thread(void *unused) {
             char tmp[64]; read(g_pipe_r, tmp, sizeof(tmp));
         }
         if (!atomic_load(&g_active)) break;
+        if (atomic_load(&g_aimg_release_req)) {
+            vk_aimg_drop_all();
+            atomic_store(&g_aimg_release_req, 0);
+        }
         if (atomic_load(&g_hidden))  continue;
 
         // Explicit swapchain recreation requested (e.g. after fullscreen entry/exit).
-        if (atomic_exchange(&g_force_recreate, 0)) {
+        // GLES: the EGL window surface follows the SurfaceView's size itself.
+        if (atomic_exchange(&g_force_recreate, 0) && !g_use_gles) {
             VLOGI("force swapchain recreate requested");
             vk_recreate_swapchain();
             continue;
@@ -1427,9 +2465,13 @@ static void *vk_render_thread(void *unused) {
         void *ahb = NULL;
         int ahb_w = 0, ahb_h = 0;
         int got_ahb = 0;
+        AImage *aimg = NULL;
 
         pthread_mutex_lock(&g_mu);
-        if (g_ahb_ready && g_pend_ahb) {
+        if (g_pend_aimg) {
+            aimg = g_pend_aimg;
+            g_pend_aimg = NULL;
+        } else if (g_ahb_ready && g_pend_ahb) {
             // Zero-copy path: nothing to copy, just the pointer + size GL
             // already rendered into (see android_vk_try_submit_hwbuffer).
             ahb = g_pend_ahb; ahb_w = g_pend_ahb_w; ahb_h = g_pend_ahb_h;
@@ -1444,7 +2486,19 @@ static void *vk_render_thread(void *unused) {
             // g_buf -> frame_buf -> g_stage_ptr double-hop. vk_ensure_staging
             // is cheap (no-op) once sized; it only does real work on the
             // first frame or a resolution change.
-            if (g_dev && vk_ensure_staging(sz) && g_stage_ptr) {
+            if (g_use_gles) {
+                size_t tight = (size_t)fw * 4 * (size_t)fh;
+                if (g_gles_cpu_sz < tight) {
+                    free(g_gles_cpu);
+                    g_gles_cpu = malloc(tight);
+                    g_gles_cpu_sz = g_gles_cpu ? tight : 0;
+                }
+                if (g_gles_cpu) {
+                    for (int y = 0; y < fh; y++)
+                        memcpy(g_gles_cpu + (size_t)y * fw * 4, g_buf + (size_t)y * (size_t)fs, (size_t)fw * 4);
+                    got_frame = 1;
+                }
+            } else if (g_dev && vk_ensure_staging(sz) && g_stage_ptr) {
                 // vk_render_frame's VkBufferImageCopy always describes the
                 // staging buffer as tightly packed (bufferRowLength = fw
                 // texels) since that's what it uploads to a GPU image with —
@@ -1473,6 +2527,16 @@ static void *vk_render_thread(void *unused) {
         if (atomic_exchange(&g_drop_last_cpu, 0)) {
             has_last_frame = 0;
         }
+        if (atomic_exchange(&g_drop_last_aimg, 0)) {
+            vk_aimg_set_current(NULL);
+        }
+
+        if (aimg || (cursor_dirty && g_cur_aimg)) {
+            int is_new = aimg != NULL;
+            if (is_new) vk_aimg_set_current(aimg);
+            if (vk_render_aimage(g_cur_aimg) && is_new) vk_note_video_frame_rendered();
+            continue;
+        }
 
         int is_video_frame = 0;
         if (got_ahb) {
@@ -1499,25 +2563,15 @@ static void *vk_render_thread(void *unused) {
 
         if (!got_frame && !got_ahb) continue;
 
-        int ok = got_ahb ? vk_render_frame_hw(ahb, ahb_w, ahb_h) : vk_render_frame(fw, fh, fs);
-        if (ok) {
-            g_rendered++;
-            // Only count real video frames toward FPS — cursor-only redraws skew the counter.
-            if (is_video_frame) {
-                g_fps_n++;
-                double now = mono_sec_vk();
-                if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }
-                if (now - g_fps_t0 >= 2.0 && g_fps_n > 0) {
-                    g_stat_fps   = (float)((double)g_fps_n / (now - g_fps_t0));
-                    g_stat_ready = 1;
-                    g_fps_t0 = now; g_fps_n = 0;
-                }
-            }
-            if (g_rendered % 300 == 0) {
-                VLOGI("rendered %lld frames, submitted %lld, fps=%.1f",
-                      (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps);
-            }
-        }
+        int ok = g_use_gles ? (got_frame ? gles_render(NULL, g_gles_cpu, fw, fh) : 0)
+               : got_ahb ? vk_render_frame_hw(ahb, ahb_w, ahb_h, NULL) : vk_render_frame(fw, fh, fs);
+        if (ok && is_video_frame) vk_note_video_frame_rendered();
+        else if (ok) g_rendered++;
+    }
+    if (g_use_gles) {
+        // The context is current here: release GL objects on this thread.
+        vk_aimg_set_current(NULL);
+        gles_ov_destroy();
     }
     VLOGI("render thread exiting");
     return NULL;
@@ -1532,9 +2586,28 @@ static void vk_full_cleanup(void) {
     if (g_pipe_r >= 0) { close(g_pipe_r); g_pipe_r = -1; }
     if (g_pipe_w >= 0) { close(g_pipe_w); g_pipe_w = -1; }
 
+    if (g_use_gles) {
+        // The render thread released GL on its way out; this covers a
+        // thread that never started, and the frame still waiting.
+        gles_ov_destroy();
+        vk_aimg_set_current(NULL);
+        pthread_mutex_lock(&g_mu);
+        AImage *pend = g_pend_aimg;
+        g_pend_aimg = NULL;
+        free(g_gles_cpu); g_gles_cpu = NULL; g_gles_cpu_sz = 0;
+        free(g_gles_cursor); g_gles_cursor = NULL;
+        pthread_mutex_unlock(&g_mu);
+        if (pend) AImage_delete(pend);
+        g_use_gles = 0;
+    }
+
     if (g_dev) {
         vkDeviceWaitIdle(g_dev);
+        vk_aimg_drop_all();
+        vk_yc_destroy_all();
+        vk_hud_destroy_all();
         cursor_destroy();
+        vk_destroy_clear_img();
         if (g_stage_ptr && g_stage_mem) { vkUnmapMemory(g_dev, g_stage_mem); g_stage_ptr = NULL; }
         if (g_stage_buf) { vkDestroyBuffer(g_dev, g_stage_buf, NULL); g_stage_buf = VK_NULL_HANDLE; }
         if (g_stage_mem) { vkFreeMemory(g_dev, g_stage_mem, NULL);   g_stage_mem = VK_NULL_HANDLE; }
@@ -1678,9 +2751,23 @@ int android_vk_create(int x, int y, int w, int h) {
     atomic_store(&g_cursor_uc_fp, 32768); atomic_store(&g_cursor_vc_fp, 32768);
     atomic_store(&g_cursor_dirty, 0);
 
-    if (!vk_create_instance())  { VLOGE("vkCreateInstance failed");  goto fail; }
-    if (!vk_select_device())    { VLOGE("no suitable GPU");          goto fail; }
-    if (!vk_create_device())    { VLOGE("vkCreateDevice failed");    goto fail; }
+    g_use_gles = 0;
+    // `adb shell setprop debug.usbridge.gles 1` takes the GLES path on a
+    // Vulkan device too, to test it.
+    char force_gles[PROP_VALUE_MAX] = {0};
+    __system_property_get("debug.usbridge.gles", force_gles);
+    if (force_gles[0] == '1' || !vk_create_instance() || !vk_select_device() || !vk_create_device()) {
+        // No usable Vulkan (e.g. PowerVR GE8320): draw through OpenGL ES on
+        // the same SurfaceView instead (gles_overlay_android.c).
+        if (g_dev)  { vkDestroyDevice(g_dev, NULL);    g_dev  = VK_NULL_HANDLE; }
+        if (g_inst) { vkDestroyInstance(g_inst, NULL); g_inst = VK_NULL_HANDLE; }
+        g_pdev = VK_NULL_HANDLE;
+        if (!gles_ov_init(win)) { VLOGE("no Vulkan and no OpenGL ES overlay"); goto fail; }
+        g_use_gles = 1;
+        ANativeWindow_release(win); win = NULL;
+        VLOGI("no Vulkan device: using the OpenGL ES overlay");
+        goto start_render_thread;
+    }
     // Cursor pixels are uploaded from Go via android_vk_set_cursor_pixels()
     // after create returns, so no pre-render needed here.
 
@@ -1717,6 +2804,7 @@ int android_vk_create(int x, int y, int w, int h) {
         if (vkCreateFence(g_dev, &fci, NULL, &g_fence)        != VK_SUCCESS) goto fail;
     }
 
+start_render_thread:
     {
         int fds[2];
         if (pipe(fds) != 0) { VLOGE("pipe failed"); goto fail; }
@@ -1764,6 +2852,7 @@ int android_vk_try_submit(uint8_t *rgba, int width, int height, int stride) {
         g_ahb_ready = 0;
         g_pend_ahb = NULL;
         atomic_store(&g_drop_last_ahb, 1);
+        atomic_store(&g_drop_last_aimg, 1);
     }
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
@@ -1788,6 +2877,7 @@ int android_vk_try_submit_hwbuffer(void *ahb, int width, int height) {
     g_ahb_ready = 1; g_submitted++;
     g_ready = 0;
     atomic_store(&g_drop_last_cpu, 1);
+    atomic_store(&g_drop_last_aimg, 1);
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
     return 1;
@@ -1800,6 +2890,55 @@ int android_vk_try_submit_hwbuffer(void *ahb, int width, int height) {
 // pending frame so a mid-session switch does not flicker.
 int android_vk_hwbuffer_supported(void) {
     return g_hw_import_supported;
+}
+
+// android_vk_aimage_supported reports whether decoder images can be drawn
+// directly (android_vk_try_submit_aimage).
+int android_vk_aimage_supported(void) {
+    return atomic_load(&g_active) && (g_ycbcr_supported || (g_use_gles && gles_ov_images_supported()));
+}
+
+// android_vk_try_submit_aimage hands a decoder image (AImageReader, already
+// filled) to the render thread, which takes ownership and deletes it. A
+// frame still waiting is replaced (and deleted) so only the newest is shown.
+// Returns 0 without taking img if the path is unavailable.
+int android_vk_try_submit_aimage(void *img) {
+    if (!img || !atomic_load(&g_active) || !android_vk_aimage_supported()) return 0;
+    pthread_mutex_lock(&g_mu);
+    if (!atomic_load(&g_active)) {
+        pthread_mutex_unlock(&g_mu);
+        return 0;
+    }
+    AImage *old = g_pend_aimg;
+    g_pend_aimg = (AImage *)img;
+    g_submitted++;
+    g_ready = 0;
+    g_ahb_ready = 0;
+    g_pend_ahb = NULL;
+    atomic_store(&g_drop_last_cpu, 1);
+    atomic_store(&g_drop_last_ahb, 1);
+    pthread_mutex_unlock(&g_mu);
+    if (old) {
+        AImage_delete(old); // replaced before it was shown
+        vlat_note_dropped();
+    }
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+    return 1;
+}
+
+// android_vk_release_aimages returns every decoder image the renderer holds
+// (and its imports of the reader's buffers). Call before deleting the
+// AImageReader they came from.
+void android_vk_release_aimages(void) {
+    if (!atomic_load(&g_active)) return; // vk_full_cleanup already dropped them
+    atomic_store(&g_aimg_release_req, 1);
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+    for (int i = 0; i < 300 && atomic_load(&g_aimg_release_req) && atomic_load(&g_active); i++) {
+        struct timespec ts = {0, 5000000}; // 5 ms
+        nanosleep(&ts, NULL);
+    }
+    if (atomic_load(&g_aimg_release_req) && atomic_load(&g_active))
+        VLOGE("android_vk_release_aimages: render thread did not answer in 1.5 s");
 }
 
 void android_vk_update_rect(int x, int y, int w, int h) {
@@ -1817,6 +2956,27 @@ void android_vk_set_hidden(int hidden) {
     java_set_visible(!want);
     // Samsung may have dropped the buffer while "hidden"; rebuild on show.
     if (!want) atomic_store(&g_force_recreate, 1);
+}
+
+// android_vk_set_holes replaces the menu holes; xywh holds n rects as
+// x,y,w,h quadruples in SurfaceView pixels. n == 0 clears every hole. Wakes
+// the render thread so a paused stream re-presents its last frame with them.
+void android_vk_set_holes(const int *xywh, int n) {
+    if (n < 0) n = 0;
+    if (n > VK_MAX_HOLES) n = VK_MAX_HOLES;
+    pthread_mutex_lock(&g_state_mu);
+    int k = 0;
+    for (int i = 0; i < n; i++) {
+        const int *h = xywh + i * 4;
+        if (h[2] <= 0 || h[3] <= 0) continue;
+        g_holes[k].offset = (VkOffset2D){h[0], h[1]};
+        g_holes[k].extent = (VkExtent2D){(uint32_t)h[2], (uint32_t)h[3]};
+        k++;
+    }
+    g_hole_count = k;
+    pthread_mutex_unlock(&g_state_mu);
+    atomic_store(&g_cursor_dirty, 1);
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
 }
 
 void android_vk_destroy(void) {
@@ -1905,6 +3065,20 @@ void android_vk_set_cursor_scale(int scale) {
 // Go. Replaces the current cursor buffer. Thread-safe: waits for GPU idle.
 // src_rgba: packed RGBA bytes, 4 bytes/pixel, row-major, w×h pixels.
 void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h) {
+    if (g_use_gles && src_rgba && w > 0 && h > 0) {
+        size_t n = (size_t)w * (size_t)h * 4;
+        uint8_t *copy = malloc(n);
+        if (!copy) return;
+        memcpy(copy, src_rgba, n);
+        pthread_mutex_lock(&g_mu);
+        free(g_gles_cursor);
+        g_gles_cursor = copy; g_gles_cursor_w = w; g_gles_cursor_h = h;
+        pthread_mutex_unlock(&g_mu);
+        atomic_store(&g_gles_cursor_dirty, 1);
+        atomic_store(&g_cursor_dirty, 1);
+        if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+        return;
+    }
     if (!g_dev || !g_pdev || !src_rgba || w <= 0 || h <= 0) return;
 
     int was_visible = atomic_exchange(&g_cursor_visible, 0);
@@ -2006,6 +3180,7 @@ void android_vk_get_stats(float *fps, int *fps_ready,
 // for the rationale -- copies the active Vulkan physical device's name into
 // out, empty when no device has been selected yet this session.
 void android_vk_get_gpu_name(char *out, int out_len) {
+    if (g_use_gles) { gles_ov_gpu_name(out, out_len); return; }
     if (!out || out_len <= 0) return;
     out[0] = '\0';
     if (g_pdev == VK_NULL_HANDLE) return;

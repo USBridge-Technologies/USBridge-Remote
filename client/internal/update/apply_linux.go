@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -83,6 +84,11 @@ func apply(ctx context.Context, artifactPath, version string) error {
 		return fmt.Errorf("replace running binary: %w", err)
 	}
 
+	return relaunch(exePath)
+}
+
+// relaunch starts exePath with this process's arguments and exits.
+func relaunch(exePath string) error {
 	cmd := exec.Command(exePath, os.Args[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -97,6 +103,53 @@ func apply(ctx context.Context, artifactPath, version string) error {
 
 	os.Exit(0)
 	return nil // unreachable
+}
+
+// debInstallDir is where the .deb (scripts/build_deb.sh) installs the
+// client; root-owned, so the binary can't be swapped in place.
+const debInstallDir = "/opt/usbridge-client"
+
+func init() { packageManagedApply = aptApply }
+
+// aptApply updates a .deb install through apt: pkexec runs the package's
+// own apt-upgrade script (root-owned, refreshes only the USBridge source
+// list), then the upgraded binary is relaunched. apt verifies the package
+// against the signed APT index, so nothing is downloaded here.
+func aptApply(ctx context.Context, version string) (bool, error) {
+	if os.Getenv("APPIMAGE") != "" {
+		return false, nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return false, nil
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if !strings.HasPrefix(exe, debInstallDir+"/") {
+		return false, nil
+	}
+
+	out, err := exec.CommandContext(ctx, "pkexec", filepath.Join(debInstallDir, "apt-upgrade")).CombinedOutput()
+	if err != nil {
+		return true, fmt.Errorf("apt upgrade (pkexec): %w: %s", err, lastLines(out, 5))
+	}
+	installed, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Version}", "usbridge-client").Output()
+	if err != nil {
+		return true, fmt.Errorf("read installed version: %w", err)
+	}
+	if isNewerVersion(version, string(installed)) {
+		return true, fmt.Errorf("apt still has %s, not %s yet — try again in a few minutes", installed, version)
+	}
+	return true, relaunch(exe)
+}
+
+func lastLines(b []byte, n int) string {
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // stageInDir copies srcPath's bytes into a new temp file inside dir, so the

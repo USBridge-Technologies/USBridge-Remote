@@ -335,3 +335,6 @@ func (b *sunshineBackend) VirtualDisplayPrimary() bool { return false }
 
 // SetVirtualDisplayPrimary: see VirtualDisplayPrimary.
 func (b *sunshineBackend) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
+
+// SetVirtualDisplayExclusive: see VirtualDisplayPrimary.
+func (b *sunshineBackend) SetVirtualDisplayExclusive(bool) error { return nil }

@@ -27,7 +27,7 @@ A row is enabled only when all of these hold:
    the host offers HDR but this client can't show it, the row says so instead
    of the hardware-unavailable hint.
 4. PyroWave only: this client can decode that mode
-   (`service.PyroWaveColorDecodeSupported`). Today that is Windows only.
+   (`service.PyroWaveColorDecodeSupported`). Today that is Windows and macOS.
 
 ## Host support (what the agent reports)
 
@@ -38,7 +38,7 @@ A row is enabled only when all of these hold:
 | Windows | NVIDIA (NVENC) | yes | yes |
 | Windows | Intel (QSV) | yes | yes |
 | Windows | AMD (AMF) | no (AMF has no 4:4:4 profile) | written, not verified on AMD hardware |
-| macOS | Apple Silicon (VideoToolbox) | no (no 4:4:4 encode in VideoToolbox) | yes |
+| macOS | Apple Silicon (VideoToolbox) | no (no 4:4:4 encode in VideoToolbox; PyroWave: yes) | yes |
 | SBC (Rockchip / Allwinner) | hardware encoder | no | no |
 
 With H.265, choosing HDR and 4:4:4 together negotiates HDR only: the host
@@ -47,10 +47,13 @@ the combined mode.
 
 ## PyroWave
 
-PyroWave (the intra-only wavelet codec) takes both options on every host GPU
-that encodes it. The host's Vulkan tonemap writes 4:4:4 as three full-size
-planes and HDR as 10-bit BT.2020 PQ planes (R16), and the PyroWave encoder
-reads them straight from GPU memory. The stream's sequence header says what
+PyroWave (the intra-only wavelet codec) takes both options on every Linux and
+macOS host GPU that encodes it; Windows hosts encode PyroWave 8-bit 4:2:0 only
+and don't offer them. On Linux the host's Vulkan tonemap writes 4:4:4 as three
+full-size planes and HDR as 10-bit BT.2020 PQ planes (R16); on macOS
+ScreenCaptureKit captures 4:4:4 (`444f` / `x444`) and HDR10 (`x420`, the BT.2100
+PQ colour space). Either way the PyroWave encoder reads them straight from GPU
+memory. The stream's sequence header says what
 each frame is: chroma resolution, primaries, transfer function and matrix.
 
 Negotiation (moonlight-common-c fork):
@@ -67,8 +70,12 @@ Negotiation (moonlight-common-c fork):
 
 The Windows client decodes all four modes on the GPU. See
 [WINDOWS_DECODE_PIPELINE.md](./WINDOWS_DECODE_PIPELINE.md#color-modes-444-and-hdr).
-The Linux and macOS decoders are 8-bit 4:2:0 only, so those clients never ask
-for the PyroWave options.
+The macOS client does too: PyroWave's native Metal port
+(`third_party/pyrowave/metal`) decodes straight into the IOSurface the
+renderer shows, 16-bit planes for HDR (`x420`, the format VideoToolbox gives
+HEVC Main10, BT.2020 / PQ tags, shown with EDR) and a full-size CbCr plane for
+4:4:4 (`444v` / `x444`). The Linux decoder is 8-bit 4:2:0 only, so that
+client never asks for the PyroWave options.
 
 On a Linux host whose desktop is itself in HDR mode (KDE/GNOME HDR on), an
 HDR stream carries the desktop's HDR picture as-is. An SDR stream from that
@@ -78,7 +85,7 @@ same desktop is tonemapped back to SDR on the host, so it doesn't look grey.
 
 | Client | 4:4:4 | HDR |
 |---|---|---|
-| macOS | decodes (not re-checked in this pass) | **yes**: VideoToolbox decodes to 10-bit, Core Animation shows it with EDR |
+| macOS | decodes (H.265 not re-checked in this pass; PyroWave on the Metal decoder) | **yes**: VideoToolbox (H.265) or the Metal PyroWave decoder decodes to 10-bit, Core Animation shows it with EDR |
 | Linux | decodes via the CPU fallback (`sws_scale` to RGBA), slower than the GPU NV12 path | no: the option is disabled (8-bit render path, no PQ handling) |
 | Windows | decodes (H.265 and PyroWave) | **yes** when Windows HDR is on for the monitor the client window is on, and (H.265) D3D11VA decodes HEVC Main10: HDR10 Vulkan swapchain (PQ, BT.2020); otherwise the option is disabled and the client asks the host for SDR. PyroWave HDR uses the same swapchain. See [WINDOWS_DECODE_PIPELINE.md](./WINDOWS_DECODE_PIPELINE.md#hdr10-output) |
 | Android / iOS / Web | not checked | no: the option is disabled |

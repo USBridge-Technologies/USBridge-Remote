@@ -77,6 +77,12 @@ type LocalizedStrings struct {
 	MonitorPowerToggle                string
 	MonitorPowerFailed                string
 	MonitorPowerLastDisplay           string
+	VirtualDisplayExclusive           string
+	VirtualDisplayExclusiveHint       string
+	VirtualDisplayOfferTitle          string
+	VirtualDisplayOfferSubtitle       string
+	VirtualDisplayOfferCreate         string
+	VirtualDisplayOfferSkip           string
 	TailscaleRedirectHint             string
 	AutoRegistrationBadge             string
 	ConnectionBadgeUnknown            string
@@ -624,6 +630,7 @@ type LocalizedStrings struct {
 	AWDLDisableDuringStreaming           string // "Disable AWDL While Streaming" (macOS footer icon menu toggle)
 	AWDLDisableDuringStreamingHint       string // subtitle under the AWDL toggle explaining what it does
 	AWDLGrantAccess                      string // prominent header button label: grant the one-time AWDL sudoers permission
+	UDPBufferGrantAccess                 string // header button label (Linux): raise the kernel's UDP receive-buffer cap once
 	ClipboardSend                        string // clipboard menu: push the local clipboard to the host now
 	ClipboardReceive                     string // clipboard menu: pull the host clipboard to this device now
 	ClipboardAutoSync                    string // clipboard menu: automatic two-way sync toggle
@@ -665,7 +672,7 @@ type LocalizedStrings struct {
 	FrameSmoothing                       string // "Smooth Motion" checkbox title, video parameters dialog -- motion-extrapolated stall concealment, pure local rendering fallback like AI Vision
 	FrameSmoothingHint                   string // hint shown under the Smooth Motion checkbox
 	FrameSmoothingBadge                  string // small badge next to the Smooth Motion title, e.g. "BETA"
-	PlayoutBuffer                        string // "Jitter Buffer" checkbox title, video parameters dialog -- moonlight-common-c fork's playout delay; off by default on desktop, on by default on mobile
+	PlayoutBuffer                        string // "Jitter Buffer" checkbox title, video parameters dialog -- moonlight-common-c fork's playout delay; off by default
 	PlayoutBufferHint                    string // hint shown under the Jitter Buffer checkbox
 	PlayoutBufferBadge                   string // small platform badge next to the Jitter Buffer title
 	OtherSettings                        string // labeled divider above the video-parameters toggle list, same style as OrEnterManually
@@ -804,6 +811,12 @@ func EN() *LocalizedStrings {
 		MonitorPowerToggle:                "On",
 		MonitorPowerFailed:                "Couldn't switch the monitor: %v",
 		MonitorPowerLastDisplay:           "This is the remote computer's only active screen -- switch another one on first.",
+		VirtualDisplayExclusive:           "Turn the other monitors off",
+		VirtualDisplayExclusiveHint:       "While a 60 Hz monitor stays on, Windows keeps the whole desktop at 60 Hz. They come back on when the virtual display goes away.",
+		VirtualDisplayOfferTitle:          "Virtual display for %d FPS",
+		VirtualDisplayOfferSubtitle:       "On Windows a physical monitor caps capture at its own refresh rate. A virtual display at %[2]dx%[3]d@%[1]d streams the full %[1]d FPS.",
+		VirtualDisplayOfferCreate:         "Create",
+		VirtualDisplayOfferSkip:           "Stream as is",
 		TailscaleRedirectHint:             "After connection, the redirect will open on the web.",
 		AutoRegistrationBadge:             "AUTO-REGISTRATION",
 		ConnectionBadgeUnknown:            "Unknown",
@@ -1348,6 +1361,7 @@ func EN() *LocalizedStrings {
 		AWDLDisableDuringStreaming:           "Disable AWDL While Streaming",
 		AWDLDisableDuringStreamingHint:       "Reduces Wi-Fi interference from AirDrop/Handoff during a stream",
 		AWDLGrantAccess:                      "Improve Wi-Fi Streaming",
+		UDPBufferGrantAccess:                 "Fix Video Packet Loss",
 		ClipboardSend:                        "Send Clipboard",
 		ClipboardReceive:                     "Get Clipboard",
 		ClipboardAutoSync:                    "Auto Sync (Both Ways)",
@@ -1390,7 +1404,7 @@ func EN() *LocalizedStrings {
 		FrameSmoothingHint:                   "When the network stalls, fills the gap with a motion-extrapolated frame instead of freezing -- never delays real frames, only bridges a late/lost one.",
 		FrameSmoothingBadge:                  "Beta",
 		PlayoutBuffer:                        "Jitter Buffer",
-		PlayoutBufferHint:                    "Holds each frame back by a few milliseconds to even out a jittery network. Smoother cadence on bad Wi-Fi or cellular, but adds latency -- off by default on desktop, on by default on mobile.",
+		PlayoutBufferHint:                    "Holds each frame back by a few milliseconds to even out a jittery network. Smoother cadence on bad Wi-Fi or cellular, but adds latency -- off by default.",
 		PlayoutBufferBadge:                   "Beta",
 		OtherSettings:                        "OTHER SETTINGS",
 		MuteAudio:                            "Mute Audio",
@@ -1451,7 +1465,7 @@ func EN() *LocalizedStrings {
 
 		// Moonlight manual pairing
 		PairingPINTitle:   "Pairing Required",
-		PairingPINMessage: "Enter this PIN on your host's pairing page:",
+		PairingPINMessage: "Enter this PIN on the host: in the USBridge agent window press + next to Moonlight, or on the streamer's pairing page.",
 		PairingPINWaiting: "Waiting for the host to accept it...",
 	}
 }
@@ -1522,6 +1536,12 @@ func ES() *LocalizedStrings {
 	locale.MonitorPowerToggle = "Encendido"
 	locale.MonitorPowerFailed = "No se pudo cambiar el monitor: %v"
 	locale.MonitorPowerLastDisplay = "Es la única pantalla activa del equipo remoto: enciende otra primero."
+	locale.VirtualDisplayExclusive = "Apagar los otros monitores"
+	locale.VirtualDisplayExclusiveHint = "Mientras un monitor de 60 Hz siga encendido, Windows mantiene todo el escritorio a 60 Hz. Se vuelven a encender cuando se quita la pantalla virtual."
+	locale.VirtualDisplayOfferTitle = "Pantalla virtual para %d FPS"
+	locale.VirtualDisplayOfferSubtitle = "En Windows un monitor fisico limita la captura a su propia frecuencia. Una pantalla virtual a %[2]dx%[3]d@%[1]d transmite los %[1]d FPS completos."
+	locale.VirtualDisplayOfferCreate = "Crear"
+	locale.VirtualDisplayOfferSkip = "Transmitir asi"
 	locale.TailscaleRedirectHint = "Tras conectar, la redireccion se abrira en el navegador."
 	locale.AutoRegistrationBadge = "AUTO-REGISTRO"
 	locale.QRScanSuccess = "Codigo QR escaneado"
@@ -1700,7 +1720,7 @@ func ES() *LocalizedStrings {
 	locale.VideoHighFidelityFmt = "Alta fidelidad (%.1f %s)"
 	locale.VideoParameters = "Parametros de video"
 	locale.PairingPINTitle = "Emparejamiento"
-	locale.PairingPINMessage = "Introduce este PIN en la pagina de pairing del host:"
+	locale.PairingPINMessage = "Introduce este PIN en el host: en la ventana del agente USBridge pulsa + junto a Moonlight, o en la página de emparejamiento del streamer."
 	locale.PairingPINWaiting = "Esperando a que el host lo acepte..."
 	locale.OtherSettings = "OTROS AJUSTES"
 	locale.NetGraphSize = "Tamano"
@@ -1980,6 +2000,12 @@ func UKProper() *LocalizedStrings {
 	locale.MonitorPowerToggle = "Увімк."
 	locale.MonitorPowerFailed = "Не вдалося перемкнути монітор: %v"
 	locale.MonitorPowerLastDisplay = "Це єдиний активний екран віддаленого комп'ютера -- спершу увімкніть інший."
+	locale.VirtualDisplayExclusive = "Вимкнути інші монітори"
+	locale.VirtualDisplayExclusiveHint = "Поки ввімкнений монітор на 60 Гц, Windows тримає весь робочий стіл на 60 Гц. Інші увімкнуться знову, коли віртуальний дисплей приберуть."
+	locale.VirtualDisplayOfferTitle = "Віртуальний дисплей для %d FPS"
+	locale.VirtualDisplayOfferSubtitle = "У Windows фізичний монітор обмежує захоплення своєю частотою оновлення. Віртуальний дисплей %[2]dx%[3]d@%[1]d дає повні %[1]d FPS."
+	locale.VirtualDisplayOfferCreate = "Створити"
+	locale.VirtualDisplayOfferSkip = "Як є"
 	locale.TailscaleRedirectHint = "Після конекту редірект відкриється в браузері."
 	locale.AutoRegistrationBadge = "АВТОРЕЄСТРАЦІЯ"
 	locale.QRScanSuccess = "QR-код відскановано"
@@ -2158,7 +2184,7 @@ func UKProper() *LocalizedStrings {
 	locale.VideoHighFidelityFmt = "Висока якість (%.1f %s)"
 	locale.VideoParameters = "Параметри відео"
 	locale.PairingPINTitle = "Потрібне парування"
-	locale.PairingPINMessage = "Введіть цей PIN на сторінці парування хоста:"
+	locale.PairingPINMessage = "Введіть цей PIN на хості: у вікні агента USBridge натисніть + біля Moonlight або на сторінці парування стрімера."
 	locale.PairingPINWaiting = "Чекаємо, поки хост підтвердить..."
 	locale.OtherSettings = "ІНШІ НАЛАШТУВАННЯ"
 	locale.NetGraphSize = "Розмір"

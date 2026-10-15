@@ -10,6 +10,8 @@ import (
 
 	"github.com/kbinani/screenshot"
 	"golang.org/x/sys/windows"
+
+	"usbridge_agent/internal/monitors"
 )
 
 const (
@@ -234,7 +236,13 @@ func setCursorAbsolute(x, y uint16) error {
 	bounds := primaryBounds()
 	px := bounds.Min.X + scaleAbsoluteCoordinate(x, bounds.Dx())
 	py := bounds.Min.Y + scaleAbsoluteCoordinate(y, bounds.Dy())
-	r1, _, err := procSetCursorPos.Call(uintptr(px), uintptr(py))
+	var r1 uintptr
+	var err error
+	// bounds come from the streamed-monitor provider in physical pixels, so
+	// the cursor must be positioned in the same space.
+	monitors.WithPhysicalDPI(func() {
+		r1, _, err = procSetCursorPos.Call(uintptr(px), uintptr(py))
+	})
 	if r1 == 0 {
 		if err != nil {
 			return err
@@ -244,7 +252,20 @@ func setCursorAbsolute(x, y uint16) error {
 	return nil
 }
 
+// streamedBoundsProvider reports the rectangle of the monitor being streamed
+// (set by the app once the capture service exists). Absolute mouse positions
+// are normalized over THIS monitor, not display 0.
+var streamedBoundsProvider func() (image.Rectangle, bool)
+
+// SetStreamedBoundsProvider wires the streamed-monitor lookup.
+func SetStreamedBoundsProvider(fn func() (image.Rectangle, bool)) { streamedBoundsProvider = fn }
+
 func primaryBounds() image.Rectangle {
+	if fn := streamedBoundsProvider; fn != nil {
+		if b, ok := fn(); ok && b.Dx() > 1 && b.Dy() > 1 {
+			return b
+		}
+	}
 	if screenshot.NumActiveDisplays() == 0 {
 		return image.Rect(0, 0, 1920, 1080)
 	}

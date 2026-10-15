@@ -578,6 +578,30 @@ func TestMCP_MouseAction_ClickAt_NoScreenChangeDetected(t *testing.T) {
 	}
 }
 
+func TestMCP_MouseAction_ClickAt_ConfirmFalseSkipsDiffAndStillClicks(t *testing.T) {
+	black := solidPNG(t, 20, 20, color.RGBA{0, 0, 0, 255})
+	white := solidPNG(t, 20, 20, color.RGBA{255, 255, 255, 255})
+	screen := &mcpTestSeqScreen{width: 20, height: 20, images: [][]byte{black, white}}
+	srv, input := mcpTestServerWithScreen(screen)
+
+	result := mcpCallTool(t, srv, "mouse.action", map[string]any{
+		"action": "click_at", "x": 5, "y": 5, "screen_width": 20, "screen_height": 20, "confirm": false,
+	})
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(mcpFirstText(t, result)), &payload); err != nil {
+		t.Fatalf("decode click_at result payload: %v", err)
+	}
+	if _, has := payload["screen_changed_pct"]; has {
+		t.Errorf("confirm:false still computed a diff: %v", payload)
+	}
+	if payload["status"] != "ok" {
+		t.Errorf("status = %v, want ok", payload["status"])
+	}
+	if got := len(input.absoluteCalls); got != 2 {
+		t.Errorf("injected %d absolute events, want 2 (press+release)", got)
+	}
+}
+
 func TestMCP_MouseAction_ClickAt_UndecodableScreenshotOmitsDiffButStillClicks(t *testing.T) {
 	// Default mcpTestScreen returns "Zm9v" ("foo"), not a valid PNG -- the
 	// diff must fail silently (best-effort) rather than block the click.
@@ -635,3 +659,4 @@ func TestMCP_MouseAction_LegacyAbsoluteActionNowWorks(t *testing.T) {
 
 func (s *mcpTestApp) VirtualDisplayPrimary() bool                 { return false }
 func (s *mcpTestApp) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
+func (s *mcpTestApp) SetVirtualDisplayExclusive(bool) error       { return nil }

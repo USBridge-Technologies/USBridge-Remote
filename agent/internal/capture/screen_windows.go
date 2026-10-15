@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
 	"image/png"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kbinani/screenshot"
@@ -20,6 +22,16 @@ import (
 
 type Service struct {
 	devices streamhost.CaptureDeviceLister
+
+	// Streamed-monitor resolution is cached: StreamedBounds sits on the
+	// absolute-mouse hot path (every pointer move) and resolving it parses
+	// the backend's device list and enumerates monitors. The cache is keyed
+	// by the selected output so picking another monitor in the client takes
+	// effect on the very next event, and expires so a hot-plug is noticed.
+	mu         sync.Mutex
+	cacheKey   string
+	cacheIdx   int
+	cacheValid time.Time
 }
 
 func New(devices streamhost.CaptureDeviceLister) *Service { return &Service{devices: devices} }
@@ -29,11 +41,60 @@ func New(devices streamhost.CaptureDeviceLister) *Service { return &Service{devi
 // the old one by value and nothing else here re-reads it.
 func (s *Service) SetDevices(devices streamhost.CaptureDeviceLister) { s.devices = devices }
 
+// StreamedDisplayIndex is the screenshot display index of the monitor being
+// streamed (see pickStreamedDisplay).
+func (s *Service) StreamedDisplayIndex() int {
+	n := screenshot.NumActiveDisplays()
+	if n == 0 || s.devices == nil {
+		return 0
+	}
+	output := ""
+	if o, ok := s.devices.(interface{ OutputName() string }); ok {
+		output = o.OutputName()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cacheKey == output && time.Now().Before(s.cacheValid) {
+		return s.cacheIdx
+	}
+	idx := pickStreamedDisplay(monitors.GDINames(), s.devices.ListCaptureDevices(), output)
+	if idx < 0 || idx >= n {
+		idx = 0
+	}
+	s.cacheKey, s.cacheIdx, s.cacheValid = output, idx, time.Now().Add(streamedDisplayCacheTTL)
+	return idx
+}
+
+// streamedDisplayCacheTTL bounds how stale the cached monitor index may get
+// when the selected output itself did not change (monitor hot-plug, a
+// re-enumeration after the streamer restarted).
+const streamedDisplayCacheTTL = 2 * time.Second
+
+// StreamedBounds is the streamed monitor's rectangle in virtual-desktop
+// pixels -- the space SetCursorPos works in. ok=false when no display exists.
+func (s *Service) StreamedBounds() (image.Rectangle, bool) {
+	if screenshot.NumActiveDisplays() == 0 {
+		return image.Rectangle{}, false
+	}
+	idx := s.StreamedDisplayIndex()
+	// Physical pixels by GDI name: the screenshot library reports whatever
+	// the process's DPI awareness yields (1280x720 for a 4K monitor at 300%),
+	// while the cursor is positioned in physical pixels.
+	if names := monitors.GDINames(); idx >= 0 && idx < len(names) {
+		if list, err := monitors.List(); err == nil {
+			if m, ok := monitors.Find(list, names[idx]); ok && m.Width > 1 && m.Height > 1 {
+				return image.Rect(m.X, m.Y, m.X+m.Width, m.Y+m.Height), true
+			}
+		}
+	}
+	return screenshot.GetDisplayBounds(idx), true
+}
+
 func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 	if screenshot.NumActiveDisplays() == 0 {
 		return nil, fmt.Errorf("no active displays")
 	}
-	bounds := screenshot.GetDisplayBounds(0)
+	bounds := screenshot.GetDisplayBounds(s.StreamedDisplayIndex())
 	img, err := screenshot.CaptureRect(bounds)
 	if err != nil {
 		return nil, err

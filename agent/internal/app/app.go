@@ -162,7 +162,7 @@ type App struct {
 	streamerExitMu     sync.Mutex
 	streamerLastExit   time.Time
 	streamerExitStreak int
-	streamKind         string // "sunshine" | "rustshine" | "punktfunk" -- bookkeeping only, mirrors which concrete type a.stream currently is
+	streamKind         string // "sunshine" | "rustshine" | "punktfunk" | "vibepollo" -- bookkeeping only, mirrors which concrete type a.stream currently is
 	// streamKindView mirrors streamKind for readers that must not wait on
 	// streamMu: SetStreamBackend holds it through the new backend's whole
 	// startup (~25-40 s for Sunshine), and currentStreamKind used to take
@@ -181,6 +181,7 @@ type App struct {
 	lastPunktfunkCheck    time.Time          // checkPunktfunkUpdate's last look at Streamers-Forks (entMu)
 	lastSunshineCheck     time.Time          // checkSunshineUpdate's, the same (entMu)
 	lastSunshineFetch     time.Time          // fetchSunshineInBackground's last first-run attempt (entMu)
+	lastVibepolloCheck    time.Time          // checkVibepolloUpdate's last look at Streamers-Forks (entMu)
 
 	// accMu guards the account-login fields below -- see StartAccountLogin's
 	// doc comment. Separate mutex/status from entMu above: this is a
@@ -616,16 +617,26 @@ func New() (*App, error) {
 	if cfg.PreferredBackend == "punktfunk" && streamhost.PunktfunkAvailable(instance.exeDir) {
 		instance.setStreamKind("punktfunk")
 	}
+	// Vibepollo: downloaded when picked (vibepollo_update.go), never shipped.
+	if forkrelease.VibepolloAssetName() != "" {
+		streamhost.SetVibepolloStageBinary(forkrelease.VibepolloBinary(cfg.StateDir))
+	}
+	if cfg.PreferredBackend == "vibepollo" && forkrelease.VibepolloStaged(cfg.StateDir) {
+		instance.setStreamKind("vibepollo")
+	}
 	if instance.streamKind == "rustshine" {
 		instance.stream = streamhost.NewRustshine(instance.exeDir, cfg.StateDir, instance.logPath)
 		applyStreamSharedSecret(instance.stream, masterKeyBytes)
 		applyStreamWebRTCEnabled(instance.stream, !cfg.RustShineWebRTCDisabled)
 	} else if instance.streamKind == "punktfunk" {
 		instance.stream = streamhost.NewPunktfunk(instance.exeDir, cfg.StateDir, instance.logPath)
+	} else if instance.streamKind == "vibepollo" {
+		instance.stream = streamhost.NewVibepollo(instance.exeDir, cfg.StateDir, instance.logPath)
 	} else {
 		instance.stream = streamhost.NewDefault(instance.exeDir, cfg.StateDir, instance.logPath)
 	}
 	instance.screen = capture.New(instance.stream)
+	instance.wireStreamedBounds()
 	instance.syncSunshineCaptureMode()
 	instance.removeLegacyKMSGrants()
 	instance.syncSunshineCapExec()
@@ -1064,6 +1075,11 @@ func (a *App) startSunshineNow() {
 		if err := a.RestartSunshine(); err != nil {
 			log.Printf("[app] restart Sunshine after encoder change: %v", err)
 		}
+	}
+	if a.streamKind == "vibepollo" && !forkrelease.VibepolloStaged(a.cfg.StateDir) {
+		// Vibepollo was uninstalled since it was picked: nothing to start.
+		log.Printf("[app] vibepollo is not downloaded; not starting it")
+		return
 	}
 	if a.streamKind == "sunshine" && a.sunshineMissing() {
 		// First start of an agent that doesn't ship Sunshine: fetch it,
@@ -1561,7 +1577,7 @@ func (a *App) RestartSunshineStartOnly() error {
 }
 
 // SetStreamBackend switches the active streamhost.Backend at runtime
-// between "sunshine", "rustshine" and "punktfunk" -- stops whichever is
+// between "sunshine", "rustshine", "punktfunk" and "vibepollo" -- stops whichever is
 // running, builds the other, and starts it. No-op if kind is already active. "rustshine"
 // requires the binary to already be staged (see entitlement.StageRustShine)
 // -- this method never downloads it itself, so callers (the GUI's license
@@ -1571,8 +1587,17 @@ func (a *App) RestartSunshineStartOnly() error {
 // (see New()'s local, offline re-derivation of the initial backend) without
 // needing to ask the entitlement backend again just to boot.
 func (a *App) SetStreamBackend(kind string) error {
-	if kind != "sunshine" && kind != "rustshine" && kind != "punktfunk" {
+	if kind != "sunshine" && kind != "rustshine" && kind != "punktfunk" && kind != "vibepollo" {
 		return fmt.Errorf("unknown stream backend %q", kind)
+	}
+	// Vibepollo is downloaded when picked (DownloadVibepollo), like Punktfunk.
+	if kind == "vibepollo" && !forkrelease.VibepolloStaged(a.cfg.StateDir) {
+		if forkrelease.VibepolloAssetName() == "" {
+			return fmt.Errorf("vibepollo is not available on this platform")
+		}
+		if err := a.DownloadVibepollo(nil); err != nil {
+			return err
+		}
 	}
 	// Punktfunk is downloaded when picked (DownloadPunktfunk), not shipped
 	// with the agent.
@@ -1647,6 +1672,8 @@ func (a *App) SetStreamBackend(kind string) error {
 		applyStreamUSBPassBridgeAddr(next, a.usbPassBridgeAddr)
 	case "punktfunk":
 		next = streamhost.NewPunktfunk(a.exeDir, a.cfg.StateDir, a.logPath)
+	case "vibepollo":
+		next = streamhost.NewVibepollo(a.exeDir, a.cfg.StateDir, a.logPath)
 	default:
 		next = streamhost.NewSunshine(a.exeDir, a.cfg.StateDir, a.logPath)
 	}
@@ -1872,6 +1899,9 @@ func (a *App) EntitlementStatus() entitlement.Status {
 	st.PunktfunkAvailable = streamhost.PunktfunkAvailable(a.exeDir) || forkrelease.PunktfunkAssetName() != ""
 	st.PunktfunkStaged = forkrelease.PunktfunkStaged(a.cfg.StateDir)
 	st.PunktfunkVersion = forkrelease.PunktfunkStagedVersion(a.cfg.StateDir)
+	st.VibepolloAvailable = forkrelease.VibepolloAssetName() != ""
+	st.VibepolloStaged = forkrelease.VibepolloStaged(a.cfg.StateDir)
+	st.VibepolloVersion = forkrelease.VibepolloStagedVersion(a.cfg.StateDir)
 	st.SunshineUpdatable = sunshineDownloadable()
 	st.SunshineVersion = forkrelease.SunshineStagedVersion(a.cfg.StateDir)
 	st.RustShineVersion = entitlement.StagedVersion(a.cfg.StateDir)
@@ -2121,6 +2151,13 @@ func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) bool {
 		log.Printf("[app] warning: failed to persist entitlement token: %v", err)
 	}
 	a.refreshLocalEntitlementStatus()
+	// A fresh install whose installer already picked RustShine and gave USB
+	// consent (preferred_backend / usb_broker_consent in config.yaml) gets
+	// both right away instead of on the next recheck.
+	if a.cfg.PreferredBackend == "rustshine" {
+		a.ensureRustShineFresh(ctx, res.Token)
+	}
+	a.ensureUSBBroker(ctx, res.Token)
 	return true
 }
 
@@ -2717,6 +2754,7 @@ func (a *App) streamerUpdateWatchdog(ctx context.Context) {
 func (a *App) tickStreamerUpdate(ctx context.Context) {
 	a.checkPunktfunkUpdate(ctx)
 	a.checkSunshineUpdate(ctx)
+	a.checkVibepolloUpdate(ctx)
 	token := a.cfg.EntitlementToken
 	if strings.TrimSpace(token) == "" {
 		return
@@ -3245,6 +3283,13 @@ func (a *App) ensureRustShineFresh(ctx context.Context, entitlementToken string)
 		a.entMu.Lock()
 		a.entStatus.RustShineStaged = a.rustshineStaged()
 		a.entMu.Unlock()
+		// New() fell back to Sunshine because the binary wasn't staged yet;
+		// honour a saved RustShine preference now that it is.
+		if a.cfg.PreferredBackend == "rustshine" && a.streamKindView.Load() != "rustshine" {
+			if err := a.SetStreamBackend("rustshine"); err != nil {
+				log.Printf("[app] switching to preferred rustshine: %v", err)
+			}
+		}
 		return
 	}
 	a.checkRustShineUpdate(ctx, entitlementToken)
@@ -4524,6 +4569,14 @@ func (a *App) SetVirtualDisplayPrimary(primary bool) (live bool, err error) {
 		return false, fmt.Errorf("no stream backend")
 	}
 	return a.stream.SetVirtualDisplayPrimary(primary)
+}
+
+// SetVirtualDisplayExclusive: see streamhost.Backend.SetVirtualDisplayExclusive.
+func (a *App) SetVirtualDisplayExclusive(exclusive bool) error {
+	if a.stream == nil {
+		return fmt.Errorf("no stream backend")
+	}
+	return a.stream.SetVirtualDisplayExclusive(exclusive)
 }
 
 // VirtualDisplaySupported reports whether the current stream backend

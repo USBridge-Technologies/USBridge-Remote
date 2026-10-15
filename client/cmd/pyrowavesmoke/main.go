@@ -23,6 +23,7 @@ import (
 
 func main() {
 	host := flag.String("host", "127.0.0.1", "GameStream host")
+	port := flag.Int("port", 47989, "GameStream base (HTTP) port of the host")
 	mode := flag.String("codec", models.VideoModePyroWave, "video mode (pyrowave, h264, h265, av1)")
 	width := flag.Int("width", 1920, "stream width")
 	height := flag.Int("height", 1080, "stream height")
@@ -33,6 +34,11 @@ func main() {
 	hdr := flag.Bool("hdr", false, "ask for HDR (only when this display is in HDR mode)")
 	flag.Parse()
 	logrus.SetLevel(logrus.InfoLevel)
+	if *port != 47989 {
+		// The admin port is the base port + 1 (Sunshine's convention); the client derives
+		// the HTTP/HTTPS ports from it.
+		service.SetSunshineAdminPort(*port + 1)
+	}
 
 	m := service.NewMoonlightService(models.DefaultConfig())
 	m.UpdateHost(*host)

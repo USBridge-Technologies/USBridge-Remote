@@ -4,14 +4,18 @@ package service
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/src -I${SRCDIR}/../../moonlight-common-c/enet/include
-#cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/build/android/opus/include/opus
 #cgo android CFLAGS: -D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
-#cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android -lmoonlight-common-c -lenet -lssl -lcrypto
-#cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android/opus/lib -lopus
+// Per-ABI static libs from scripts/build_moonlight.sh (MOONLIGHT_ANDROID_ABI).
+#cgo arm64 CFLAGS: -I${SRCDIR}/../../moonlight-common-c/build/android/opus/include/opus
+#cgo arm64 LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android -L${SRCDIR}/../../moonlight-common-c/build/android/opus/lib
+#cgo arm CFLAGS: -I${SRCDIR}/../../moonlight-common-c/build/android-armeabi-v7a/opus/include/opus
+#cgo arm LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android-armeabi-v7a -L${SRCDIR}/../../moonlight-common-c/build/android-armeabi-v7a/opus/lib
+#cgo LDFLAGS: -lmoonlight-common-c -lenet -lssl -lcrypto -lopus
 #cgo LDFLAGS: -lmediandk -laaudio -lm -ldl -landroid -lEGL -lGLESv2
 
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
+#include <media/NdkImageReader.h>
 #include <aaudio/AAudio.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
@@ -19,9 +23,11 @@ package service
 #include <Limelight.h>
 #include "bench_frames.h"
 #include <opus_multistream.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/system_properties.h>
 
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  "Moonlight/CGO", __VA_ARGS__)
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Moonlight/CGO", __VA_ARGS__)
@@ -31,7 +37,6 @@ extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
-extern int  goNetGraphWanted(void);
 extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride);
 
 // Declared in gl_video_impl_android.c
@@ -40,6 +45,23 @@ extern ANativeWindow *android_gl_init(int width, int height);
 extern uint8_t      *android_gl_get_frame(int width, int height);
 extern void         *android_gl_get_frame_hwbuffer(int width, int height);
 extern void          android_gl_release(void);
+extern void          android_gl_set_low_latency(int on);
+extern void          android_gl_log_vendor_params(const char *name);
+extern int           android_decoder_best_size(const char *mime, int w, int h, int fps, int *out);
+extern int           android_display_max_refresh(void);
+extern void          android_gl_detach_thread(void);
+extern uint8_t      *android_gl_get_frame_from_ahb(void *ahb, int crop_x, int crop_y, int crop_w, int crop_h);
+
+// Declared in video_sps_android.c
+extern int vsps_dims(const uint8_t *nal, size_t len, int hevc, int *w, int *h);
+extern size_t vsps_h264_fixup(const uint8_t *nal, size_t len, uint8_t *out, size_t cap, int *had_vui, int *had_restr);
+
+// Declared in video_latency_android.c
+extern void vlat_note_submit(uint64_t pts, uint64_t receive_us, uint64_t now_moonlight_us);
+extern void vlat_note_output(uint64_t pts);
+extern void vlat_note_handoff(void);
+extern void vlat_note_dropped(void);
+extern void vlat_reset(void);
 
 // Declared in vk_video_impl_android.c
 extern void android_vk_set_jvm(JavaVM *jvm, jobject ctx);
@@ -47,12 +69,16 @@ extern int  android_vk_is_active(void);
 extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stride);
 extern int  android_vk_try_submit_hwbuffer(void *ahb, int width, int height);
 extern int  android_vk_hwbuffer_supported(void);
+extern int  android_vk_aimage_supported(void);
+extern int  android_vk_try_submit_aimage(void *img);
+extern void android_vk_release_aimages(void);
 
 // Bodies in net_graph_stats_android.c (not inline here: this file has
 // //export, so a non-static function body in this preamble would be
 // duplicated into _cgo_export.c). g_last_host_latency_tenths_ms is
 // defined there for the same reason.
 extern volatile uint16_t g_last_host_latency_tenths_ms;
+extern volatile int g_amc_negotiated_fmt; // VIDEO_FORMAT_* of the running decoder, -1 = none
 void do_get_rtp_video_stats(uint32_t *out);
 int do_get_estimated_rtt_info(uint32_t *out);
 uint16_t do_get_last_host_latency_tenths_ms(void);
@@ -81,6 +107,8 @@ static AMediaCodec   *g_amc            = NULL;
 static int            g_amc_w          = 0;
 static int            g_amc_h          = 0;
 static uint64_t       g_amc_pts        = 0;
+static int            g_amc_hevc       = 0; // stream is HEVC (for SPS parsing)
+static int            g_sps_w = 0, g_sps_h = 0; // last coded size seen in an SPS
 
 // ── Connection callbacks ──────────────────────────────────────────────────────
 
@@ -315,52 +343,352 @@ static void ar_decode(char *data, int len) {
 
 // ── Video implementation (AMediaCodec) ──────────────────────────────────────
 
-static void amc_init(int fmt_codec, int width, int height) {
-    ALOGI("amc_init: fmt=0x%x %dx%d", fmt_codec, width, height);
-    // Safety: clean up stale codec and EGL if dr_cleanup wasn't called.
-    if (g_amc) {
-        ALOGE("amc_init: stale g_amc found — cleaning up");
-        AMediaCodec_stop(g_amc);
-        AMediaCodec_delete(g_amc);
-        g_amc = NULL;
-        android_gl_release();  // also tear down stale EGL context
+static void amc_present_output(int64_t pts);
+static void amc_present_image(AImage *img);
+static void amc_stop_output_thread(void);
+static void amc_start_output_thread(void);
+static void amc_teardown(void);
+
+// Low-latency decode (default on). `adb shell setprop debug.usbridge.lowlat 0`
+// before a stream starts restores the old pipeline -- plain MediaCodec
+// format, outputs collected inline by dr_submit, frame-available polling --
+// so the two can be compared with the same build (logcat USBridge/VideoLat).
+static int g_amc_lowlat = 1;
+
+// H.264 SPS fixup (default on, see vsps_h264_fixup). `adb shell setprop
+// debug.usbridge.spsfix 0` passes the host's SPS through unchanged.
+static int g_amc_spsfix = 1;
+static int g_amc_spsfix_logged;
+
+
+static int amc_read_prop_flag(const char *name) {
+    char v[PROP_VALUE_MAX] = {0};
+    if (__system_property_get(name, v) > 0 && v[0] == '0') return 0;
+    return 1;
+}
+
+// ── Decoder images (low-latency path) ────────────────────────────────────────
+//
+// MediaCodec decodes into an AImageReader; each decoded buffer goes to
+// Vulkan as is (sampled through a YCbCr conversion, see
+// vk_video_impl_android.c) -- no GL copy, no glFinish. GL only reads a
+// buffer back when CPU pixels are needed (Net Graph HUD, no Vulkan overlay).
+// `adb shell setprop debug.usbridge.zerocopy 0` keeps the SurfaceTexture/GL
+// copy instead.
+static AImageReader   *g_air = NULL;
+static pthread_mutex_t g_air_mu   = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  g_air_cond = PTHREAD_COND_INITIALIZER;
+static int             g_air_seq  = 0; // bumped by every new image
+
+static void air_on_image(void *ctx, AImageReader *r) {
+    (void)ctx; (void)r;
+    pthread_mutex_lock(&g_air_mu);
+    g_air_seq++;
+    pthread_cond_broadcast(&g_air_cond);
+    pthread_mutex_unlock(&g_air_mu);
+}
+
+// Images the reader can hand out at once: the one on screen and the one
+// waiting in Vulkan, the one being acquired, and slack for
+// acquireLatestImage.
+#define AIR_MAX_IMAGES 6
+
+static ANativeWindow *air_create(int width, int height) {
+    media_status_t st = AImageReader_newWithUsage(width, height, AIMAGE_FORMAT_PRIVATE,
+        AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, AIR_MAX_IMAGES, &g_air);
+    if (st != AMEDIA_OK || !g_air) {
+        ALOGE("AImageReader_newWithUsage failed (%d) — using SurfaceTexture", (int)st);
+        g_air = NULL;
+        return NULL;
     }
-    g_amc_w = width; g_amc_h = height;
-
-    ANativeWindow *nwin = android_gl_init(width, height);
-    if (!nwin) { ALOGE("amc_init: no native window"); return; }
-
-    const char *mime = "video/avc";
-    if (fmt_codec & 0x0F00) { // VIDEO_FORMAT_MASK_H265
-        mime = "video/hevc";
-    } else if (fmt_codec & 0xF000) { // VIDEO_FORMAT_MASK_AV1
-        mime = "video/av01";
+    AImageReader_ImageListener l = { NULL, air_on_image };
+    AImageReader_setImageListener(g_air, &l);
+    ANativeWindow *win = NULL;
+    if (AImageReader_getWindow(g_air, &win) != AMEDIA_OK || !win) {
+        ALOGE("AImageReader_getWindow failed — using SurfaceTexture");
+        AImageReader_delete(g_air);
+        g_air = NULL;
+        return NULL;
     }
+    ANativeWindow_acquire(win); // the reader owns its window; amc_init releases ours
+    return win;
+}
 
+// air_acquire waits (up to timeout_ms) for the image of the output buffer
+// just released and returns the newest one, or NULL.
+static AImage *air_acquire(int timeout_ms) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_nsec += (long)timeout_ms * 1000000L;
+    deadline.tv_sec += deadline.tv_nsec / 1000000000L;
+    deadline.tv_nsec %= 1000000000L;
+    for (;;) {
+        pthread_mutex_lock(&g_air_mu);
+        int seq = g_air_seq;
+        pthread_mutex_unlock(&g_air_mu);
+        AImage *img = NULL;
+        media_status_t st = AImageReader_acquireLatestImage(g_air, &img);
+        if (st == AMEDIA_OK && img) return img;
+        if (st == AMEDIA_IMGREADER_MAX_IMAGES_ACQUIRED) {
+            ALOGE("air_acquire: all %d images held", AIR_MAX_IMAGES);
+            return NULL;
+        }
+        pthread_mutex_lock(&g_air_mu);
+        int rc = 0;
+        while (g_air_seq == seq && rc == 0)
+            rc = pthread_cond_timedwait(&g_air_cond, &g_air_mu, &deadline);
+        pthread_mutex_unlock(&g_air_mu);
+        if (rc != 0) return NULL; // timed out
+    }
+}
+
+// amc_low_latency_format adds the keys that make decoders hand each frame
+// out as soon as it is decoded instead of holding a few for smoothness:
+// the standard KEY_LOW_LATENCY (Android 11+) and realtime priority, plus
+// the vendor switches older Qualcomm / Exynos / MediaTek / Amlogic
+// decoders read instead (MediaTek c2.mtk ignores KEY_LOW_LATENCY: Helio
+// G36, HEVC 1080p, held ~10 frames / ~100 ms without its own key).
+// Decoders ignore keys they don't know.
+static void amc_low_latency_format(AMediaFormat *fmt) {
+    AMediaFormat_setInt32(fmt, "low-latency", 1);
+    AMediaFormat_setInt32(fmt, "priority", 0); // realtime
+    AMediaFormat_setInt32(fmt, "vendor.qti-ext-dec-low-latency.enable", 1);
+    AMediaFormat_setInt32(fmt, "vendor.qti-ext-dec-picture-order.enable", 1);
+    AMediaFormat_setInt32(fmt, "vendor.rtc-ext-dec-low-latency.enable", 1);
+    AMediaFormat_setInt32(fmt, "vendor.low-latency.enable", 1);
+    AMediaFormat_setInt32(fmt, "vdec-lowlatency", 1); // MediaTek (Moonlight-Android uses it)
+    // MediaTek c2 (from its supportedVendorParameters): no post-processing
+    // (quality tuner / motion interpolation hold frames), CPU boost.
+    AMediaFormat_setInt32(fmt, "vendor.mtk.ext.vdec.vpp.disabled.value", 1);
+    AMediaFormat_setInt32(fmt, "vendor.mtk.vdec.cpu.boost.mode.value", 1);
+}
+
+// amc_is_qualcomm: Qualcomm parts get their own operating rate (see
+// amc_new_format) and low-latency component (amc_create_decoder).
+static int amc_is_qualcomm(const char *name) {
+    return strncmp(name, "OMX.qcom.", 9) == 0 || strncmp(name, "c2.qti.", 7) == 0;
+}
+
+// Format tiers amc_init tries in turn, dropping what a decoder refused.
+enum { AMC_FMT_PLAIN, AMC_FMT_LOWLAT, AMC_FMT_LOWLAT_RATE };
+
+static AMediaFormat *amc_new_format(const char *mime, int width, int height, int fps,
+                                    const char *decoder, int tier) {
     AMediaFormat *fmt = AMediaFormat_new();
     AMediaFormat_setString(fmt, "mime", mime);
     AMediaFormat_setInt32(fmt,  "width",  width);
     AMediaFormat_setInt32(fmt,  "height", height);
+    if (tier >= AMC_FMT_LOWLAT) amc_low_latency_format(fmt);
+    if (tier >= AMC_FMT_LOWLAT_RATE) {
+        // Without these the platform sizes decoder clocks for 30 fps:
+        // 4K at 60-120 fps then decodes at ~15-20 fps and backs up.
+        if (fps > 0) AMediaFormat_setInt32(fmt, "frame-rate", fps);
+        // Qualcomm (Snapdragon 695, HEVC 1080p60): twice the stream rate cut
+        // decode from ~17 to ~13 ms; the maximum made it fall behind (53-56
+        // of 60 fps decoded). `setprop debug.usbridge.oprate N` overrides.
+        char v[PROP_VALUE_MAX] = {0};
+        int oprate = __system_property_get("debug.usbridge.oprate", v) > 0 ? atoi(v) : -1;
+        if (oprate <= 0) oprate = amc_is_qualcomm(decoder) ? (fps > 0 ? fps * 2 : 0) : 32767;
+        if (oprate > 0) AMediaFormat_setInt32(fmt, "operating-rate", oprate);
+    }
+    return fmt;
+}
 
-    g_amc = AMediaCodec_createDecoderByType(mime);
-    if (g_amc && AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK) {
-        if (AMediaCodec_start(g_amc) == AMEDIA_OK) {
-            ALOGI("AMediaCodec started (%s)", mime);
-        } else { ALOGE("AMediaCodec_start failed (%s)", mime); }
-    } else { ALOGE("AMediaCodec configure failed (%s)", mime); }
+// amc_create_decoder creates the platform's decoder for mime, or with
+// lowlat on a Qualcomm part its separate low-latency component
+// ("<name>.low_latency", listed next to the regular one): the regular one
+// holds a frame back (output delay 1) even with the low-latency keys.
+// name receives the component created.
+static AMediaCodec *amc_create_decoder(const char *mime, int lowlat, char *name, size_t name_len) {
+    AMediaCodec *c = AMediaCodec_createDecoderByType(mime);
+    if (!c) return NULL;
+    char *n = NULL;
+    snprintf(name, name_len, "?");
+    if (AMediaCodec_getName(c, &n) == AMEDIA_OK && n) {
+        snprintf(name, name_len, "%s", n);
+        AMediaCodec_releaseName(c, n);
+    }
+    if (lowlat && amc_is_qualcomm(name) && !strstr(name, ".low_latency")) {
+        char ll[160];
+        snprintf(ll, sizeof(ll), "%s.low_latency", name);
+        AMediaCodec *l = AMediaCodec_createCodecByName(ll);
+        if (l) {
+            AMediaCodec_delete(c);
+            snprintf(name, name_len, "%s", ll);
+            return l;
+        }
+    }
+    return c;
+}
 
-    AMediaFormat_delete(fmt);
+static void amc_init(int fmt_codec, int width, int height, int fps) {
+    ALOGI("amc_init: fmt=0x%x %dx%d", fmt_codec, width, height);
+    // Safety: clean up stale codec and EGL if dr_cleanup wasn't called.
+    if (g_amc) {
+        ALOGE("amc_init: stale g_amc found — cleaning up");
+        amc_teardown();
+    }
+    g_amc_w = width; g_amc_h = height;
+    g_amc_lowlat = amc_read_prop_flag("debug.usbridge.lowlat");
+    g_amc_spsfix = amc_read_prop_flag("debug.usbridge.spsfix");
+    g_amc_spsfix_logged = 0;
+    g_amc_negotiated_fmt = fmt_codec;
+    vlat_reset();
+    android_gl_set_low_latency(g_amc_lowlat);
+
+    // GL is set up either way: it is the fallback for CPU pixels.
+    ANativeWindow *nwin = android_gl_init(width, height);
+    if (!nwin) { ALOGE("amc_init: no native window"); return; }
+    if (g_amc_lowlat && amc_read_prop_flag("debug.usbridge.zerocopy")) {
+        ANativeWindow *rwin = air_create(width, height);
+        if (rwin) {
+            ANativeWindow_release(nwin);
+            nwin = rwin;
+        }
+    }
+
+    const char *mime = "video/avc";
+    g_amc_hevc = 0; g_sps_w = 0; g_sps_h = 0;
+    if (fmt_codec & 0x0F00) { // VIDEO_FORMAT_MASK_H265
+        mime = "video/hevc";
+        g_amc_hevc = 1;
+    } else if (fmt_codec & 0xF000) { // VIDEO_FORMAT_MASK_AV1
+        mime = "video/av01";
+    }
+
+    // A decoder refuses the whole configure -- or, Qualcomm, the start --
+    // over one key it doesn't take (e.g. a frame rate above its rating), so
+    // step down until one sticks, on a fresh codec each time.
+    int started = 0;
+    char name[128] = "?";
+    int tier = g_amc_lowlat ? AMC_FMT_LOWLAT_RATE : AMC_FMT_PLAIN;
+    for (; tier >= AMC_FMT_PLAIN && !started; tier--) {
+        g_amc = amc_create_decoder(mime, tier >= AMC_FMT_LOWLAT, name, sizeof(name));
+        if (!g_amc) break;
+        AMediaFormat *fmt = amc_new_format(mime, width, height, fps, name, tier);
+        media_status_t st = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0);
+        AMediaFormat_delete(fmt);
+        const char *step = "configure";
+        if (st == AMEDIA_OK) {
+            step = "start";
+            st = AMediaCodec_start(g_amc);
+        }
+        if (st == AMEDIA_OK) {
+            started = 1;
+            android_gl_log_vendor_params(name);
+            ALOGI("AMediaCodec started (%s, %s, %dx%d@%d, lowlat=%d, format tier=%d, imagereader=%d)",
+                  mime, name, width, height, fps, g_amc_lowlat, tier, g_air != NULL);
+            if (g_amc_lowlat) amc_start_output_thread();
+        } else {
+            ALOGE("AMediaCodec %s failed (%s, %s, %dx%d@%d, tier %d, err %d)%s", step,
+                  mime, name, width, height, fps, tier, (int)st,
+                  tier > AMC_FMT_PLAIN ? " — retrying with fewer keys" : "");
+            AMediaCodec_delete(g_amc);
+            g_amc = NULL;
+        }
+    }
+
     if (nwin) ANativeWindow_release(nwin);
+}
+
+// ── Output thread (low-latency path) ─────────────────────────────────────────
+//
+// Waits on the decoder's output queue and shows each frame the moment it is
+// decoded. The old inline path only polled for output right after queueing
+// the next input, so every frame sat in the decoder until the following one
+// arrived -- a whole frame interval of added latency. When several outputs
+// are ready at once (a burst after a network stall), all but the newest are
+// dropped instead of shown late.
+static pthread_t   g_amc_out_thread;
+static _Atomic int g_amc_out_run = 0;
+static int         g_amc_out_started = 0;
+
+static void *amc_output_thread(void *arg) {
+    (void)arg;
+    ALOGI("amc output thread started");
+    while (atomic_load(&g_amc_out_run)) {
+        AMediaCodecBufferInfo info;
+        ssize_t idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 20000);
+        if (idx < 0) {
+            // Timeout or format/buffers changed: just poll again. Anything
+            // else is a codec error (e.g. a stream larger than it was
+            // configured for), and the call then fails at once: back off
+            // instead of spinning until the stream is torn down.
+            if (idx < AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) {
+                struct timespec ts = {0, 20000000}; // 20 ms
+                nanosleep(&ts, NULL);
+            }
+            continue;
+        }
+        for (;;) {
+            AMediaCodecBufferInfo next;
+            ssize_t n = AMediaCodec_dequeueOutputBuffer(g_amc, &next, 0);
+            if (n < 0) break;
+            AMediaCodec_releaseOutputBuffer(g_amc, (size_t)idx, 0);
+            vlat_note_dropped();
+            idx = n; info = next;
+        }
+        vlat_note_output((uint64_t)info.presentationTimeUs);
+        AMediaCodec_releaseOutputBuffer(g_amc, (size_t)idx, 1);
+        if (g_air) {
+            AImage *img = air_acquire(30);
+            if (img) amc_present_image(img);
+        } else {
+            amc_present_output(info.presentationTimeUs);
+        }
+    }
+    // get_env() in the GL bridge attached this thread to the JVM; a thread
+    // that exits attached aborts the process.
+    android_gl_detach_thread();
+    ALOGI("amc output thread stopped");
+    return NULL;
+}
+
+static void amc_start_output_thread(void) {
+    atomic_store(&g_amc_out_run, 1);
+    if (pthread_create(&g_amc_out_thread, NULL, amc_output_thread, NULL) == 0) {
+        g_amc_out_started = 1;
+    } else {
+        atomic_store(&g_amc_out_run, 0);
+        g_amc_lowlat = 0; // fall back to collecting outputs in dr_submit
+        ALOGE("amc output thread: pthread_create failed — inline output");
+    }
+}
+
+static void amc_stop_output_thread(void) {
+    if (!g_amc_out_started) return;
+    atomic_store(&g_amc_out_run, 0);
+    pthread_join(g_amc_out_thread, NULL);
+    g_amc_out_started = 0;
 }
 
 static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
     ALOGI("dr_setup: %dx%d@%d", w, h, rate);
-    amc_init(fmt, w, h);
+    amc_init(fmt, w, h, rate);
     return 0;
+}
+
+// amc_log_stream_size logs the coded size in an IDR's SPS whenever it
+// changes, next to what the decoder was configured for.
+static void amc_log_stream_size(PDECODE_UNIT du) {
+    if (du->frameType != FRAME_TYPE_IDR) return;
+    for (PLENTRY e = du->bufferList; e; e = e->next) {
+        if (e->bufferType != BUFFER_TYPE_SPS || e->length < 5) continue;
+        const uint8_t *d = (const uint8_t *)e->data;
+        size_t off = (d[2] == 1) ? 3 : 4; // 00 00 01 or 00 00 00 01
+        int w = 0, h = 0;
+        if (vsps_dims(d + off, (size_t)e->length - off, g_amc_hevc, &w, &h) && (w != g_sps_w || h != g_sps_h)) {
+            g_sps_w = w; g_sps_h = h;
+            ALOGI("stream SPS: coded %dx%d (decoder configured %dx%d)%s", w, h, g_amc_w, g_amc_h,
+                  (w > g_amc_w + 64 || h > g_amc_h + 64) ? " — LARGER than the decoder expects" : "");
+        }
+        return;
+    }
 }
 
 static int dr_submit(PDECODE_UNIT du) {
     g_last_host_latency_tenths_ms = du->frameHostProcessingLatency;
+    amc_log_stream_size(du);
     bench_frames_note(du);
     if (!g_amc) return DR_NEED_IDR;
 
@@ -386,29 +714,60 @@ static int dr_submit(PDECODE_UNIT du) {
     }
     size_t written = 0;
     for (PLENTRY e = du->bufferList; e && written < sz; e = e->next) {
+        if (e->bufferType == BUFFER_TYPE_SPS && !g_amc_hevc && g_amc_spsfix && e->length > 5 && sz - written > 8) {
+            const uint8_t *d = (const uint8_t *)e->data;
+            size_t sc = (d[2] == 1) ? 3 : 4;
+            int had_vui = 0, had_restr = 0;
+            size_t fixed = vsps_h264_fixup(d + sc, (size_t)e->length - sc, buf + written + sc,
+                                           sz - written - sc, &had_vui, &had_restr);
+            if (!g_amc_spsfix_logged) {
+                g_amc_spsfix_logged = 1;
+                ALOGI("SPS fixup: %s (host VUI=%d bitstream_restriction=%d, %d -> %zu bytes)",
+                      fixed ? "applied" : "parse failed, passing through", had_vui, had_restr,
+                      e->length, fixed + sc);
+            }
+            if (fixed) {
+                memcpy(buf + written, d, sc);
+                written += sc + fixed;
+                continue;
+            }
+        }
         size_t n = (e->length < sz - written) ? e->length : sz - written;
         memcpy(buf + written, e->data, n);
         written += n;
     }
-    AMediaCodec_queueInputBuffer(g_amc, idx, 0, written, g_amc_pts += 33333, 0);
+    g_amc_pts += 33333;
+    vlat_note_submit(g_amc_pts, du->receiveTimeUs, LiGetMicroseconds());
+    AMediaCodec_queueInputBuffer(g_amc, idx, 0, written, g_amc_pts, 0);
+
+    if (g_amc_out_started) return DR_OK; // amc_output_thread shows it
 
     AMediaCodecBufferInfo info;
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {
+        vlat_note_output((uint64_t)info.presentationTimeUs);
         AMediaCodec_releaseOutputBuffer(g_amc, out_idx, 1);
-        // Net Graph HUD needs a CPU-readable RGBA buffer (ApplyNetGraphOverlay
-        // in net_graph.go). The AHardwareBuffer zero-copy path never produces
-        // one, so while the HUD is on we take the glReadPixels staging path
-        // instead -- same cost as a device without AHB import, only for as
-        // long as the checkbox is ticked. Off (the default): keep zero-copy.
-        int hud = goNetGraphWanted();
-        if (android_vk_is_active() && android_vk_hwbuffer_supported() && !hud) {
+        amc_present_output(info.presentationTimeUs);
+    }
+    return DR_OK;
+}
+
+// amc_present_output copies the output just released to the SurfaceTexture
+// on to the screen. Called by whichever thread collects decoder output.
+static void amc_present_output(int64_t pts) {
+    (void)pts;
+    {
+        // Net Graph is drawn by the overlay itself (vk_cmd_draw_hud /
+        // GLES), so it never forces the CPU path; only the Fyne fallback
+        // (no native overlay) burns it into the pixels.
+        if (android_vk_is_active() && android_vk_hwbuffer_supported()) {
             // Zero-copy path: GL renders straight into an AHardwareBuffer
             // that Vulkan imports and blits from directly -- no glReadPixels,
             // no staging-buffer upload, no CPU touches the pixels at all.
             // See gl_video_impl_android.c/vk_video_impl_android.c.
             void *ahb = android_gl_get_frame_hwbuffer(g_amc_w, g_amc_h);
             if (ahb) {
+                vlat_note_handoff();
                 android_vk_try_submit_hwbuffer(ahb, g_amc_w, g_amc_h);
                 // NULL: frame counting/FPS only, goVTFrame never dereferences
                 // the pointer while Vulkan is active (see its Go side).
@@ -417,13 +776,14 @@ static int dr_submit(PDECODE_UNIT du) {
         } else {
             uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
             if (rgba) {
-                goNetGraphOverlay(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
                 if (android_vk_is_active()) {
+                    vlat_note_handoff();
                     // Vulkan overlay active but this device/driver lacks
                     // AHardwareBuffer import support -- fall back to the CPU
-                    // staging-buffer path, which works everywhere. Also used
-                    // while the Net Graph HUD is on (see hud check above).
+                    // staging-buffer path, which works everywhere.
                     android_vk_try_submit(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+                } else {
+                    goNetGraphOverlay(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
                 }
                 // Always notify Go for frame counting and FPS stats. goVTFrame detects
                 // NativeVideoOverlayIsActive() and delivers nil to the callback so no
@@ -432,17 +792,62 @@ static int dr_submit(PDECODE_UNIT du) {
             }
         }
     }
-    return DR_OK;
 }
 
-static void dr_cleanup(void) {
-    ALOGI("dr_cleanup");
+// amc_present_image shows a decoder image: straight to Vulkan when it can
+// sample it, else read back through GL like amc_present_output's CPU path.
+// Takes ownership of img.
+static void amc_present_image(AImage *img) {
+    if (android_vk_is_active() && android_vk_aimage_supported()) {
+        vlat_note_handoff();
+        if (android_vk_try_submit_aimage(img)) {
+            goVTFrame(NULL, g_amc_w, g_amc_h, g_amc_w * 4);
+            return;
+        }
+    }
+    AHardwareBuffer *ahb = NULL;
+    AImageCropRect c = {0, 0, g_amc_w, g_amc_h};
+    uint8_t *rgba = NULL;
+    int w = g_amc_w, h = g_amc_h;
+    if (AImage_getHardwareBuffer(img, &ahb) == AMEDIA_OK && ahb) {
+        if (AImage_getCropRect(img, &c) != AMEDIA_OK || c.right <= c.left || c.bottom <= c.top) {
+            c.left = 0; c.top = 0; c.right = g_amc_w; c.bottom = g_amc_h;
+        }
+        w = c.right - c.left; h = c.bottom - c.top;
+        rgba = android_gl_get_frame_from_ahb(ahb, c.left, c.top, w, h);
+    }
+    AImage_delete(img);
+    if (!rgba) return;
+    if (android_vk_is_active()) {
+        vlat_note_handoff();
+        android_vk_try_submit(rgba, w, h, w * 4);
+    } else {
+        goNetGraphOverlay(rgba, w, h, w * 4);
+    }
+    goVTFrame(rgba, w, h, w * 4);
+}
+
+// amc_teardown stops decoding and frees the codec, the image reader (once
+// Vulkan gave its images back) and the GL context.
+static void amc_teardown(void) {
+    g_amc_negotiated_fmt = -1;
     if (g_amc) {
+        amc_stop_output_thread();
         AMediaCodec_stop(g_amc);
         AMediaCodec_delete(g_amc);
         g_amc = NULL;
     }
+    if (g_air) {
+        android_vk_release_aimages();
+        AImageReader_delete(g_air);
+        g_air = NULL;
+    }
     android_gl_release();  // always release EGL, even if codec creation failed
+}
+
+static void dr_cleanup(void) {
+    ALOGI("dr_cleanup");
+    amc_teardown();
 }
 
 // ── Start/Stop ────────────────────────────────────────────────────────────────
@@ -675,6 +1080,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -746,6 +1152,11 @@ type MoonlightCgoWrapper struct {
 }
 
 func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
+	initVideoJNI()
+	return &MoonlightCgoWrapper{host: host}
+}
+
+func initVideoJNI() {
 	jniInitOnce.Do(func() {
 		_ = driver.RunNative(func(ctx any) error {
 			if ac, ok := ctx.(*driver.AndroidContext); ok && ac.VM != 0 && ac.Ctx != 0 {
@@ -756,7 +1167,38 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 			return nil
 		})
 	})
-	return &MoonlightCgoWrapper{host: host}
+}
+
+// displayMaxFPS is the highest refresh rate this phone's display offers
+// (0 if unknown): frames beyond it are decoded only to be dropped.
+func displayMaxFPS() int {
+	initVideoJNI()
+	return int(C.android_display_max_refresh())
+}
+
+// decoderFitSize returns the largest size up to w x h, same aspect ratio,
+// that this device's hardware decoder for videoMode accepts (it refuses to
+// configure above its maximum, so asking the host for more means no video)
+// and is rated to decode at fps -- a smaller picture at the requested rate
+// beats 4K at 30 on a 1080p phone -- plus the decoder's advertised
+// frame-rate ceiling there. ok is false when the platform gave no answer;
+// then w x h is used as is.
+func decoderFitSize(videoMode string, w, h, fps int) (fw, fh, maxFPS int, ok bool) {
+	initVideoJNI()
+	mime := "video/avc"
+	switch strings.ToLower(videoMode) {
+	case "h265", "hevc":
+		mime = "video/hevc"
+	case "av1":
+		mime = "video/av01"
+	}
+	cMime := C.CString(mime)
+	defer C.free(unsafe.Pointer(cMime))
+	var out [3]C.int
+	if C.android_decoder_best_size(cMime, C.int(w), C.int(h), C.int(fps), &out[0]) == 0 {
+		return w, h, 0, false
+	}
+	return int(out[0]), int(out[1]), int(out[2]), true
 }
 
 // stopConnectionSafely calls LiInterruptConnection() immediately (documented
@@ -836,7 +1278,7 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 			logrus.Infof("🌕 [Moonlight/CGO/Android] do_li_start waited %v for previous call to release liStartCallMu", waited)
 		}
 		// moonlight-common-c's playout (jitter) buffer -- see
-		// playout_buffer.go and playout_buffer_default_mobile.go -- is
+		// playout_buffer.go -- is
 		// driven by this env var on every platform (VideoDepacketizer.c
 		// re-reads it once per stream start). Same mechanism as
 		// moonlight_cgo_wrapper.go's macOS/Linux/iOS wiring.

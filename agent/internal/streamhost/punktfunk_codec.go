@@ -96,3 +96,6 @@ func (b *punktfunkBackend) VirtualDisplayPrimary() bool { return false }
 
 // SetVirtualDisplayPrimary: see VirtualDisplayPrimary.
 func (b *punktfunkBackend) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
+
+// SetVirtualDisplayExclusive: see VirtualDisplayPrimary.
+func (b *punktfunkBackend) SetVirtualDisplayExclusive(bool) error { return nil }

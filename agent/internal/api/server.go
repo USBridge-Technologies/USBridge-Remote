@@ -74,14 +74,19 @@ type Application interface {
 	// free-tier, no license check.
 	HdrStatus() (active bool, available bool)
 	// PyroWaveColorStatus reports whether 4:4:4 (Pro) and HDR can be offered
-	// with PyroWave, which takes them on any GPU it runs on -- independent of
-	// the HEVC encoder's Color444Status/HdrStatus.
+	// with PyroWave (Linux and macOS hosts take them on any GPU they encode on;
+	// Windows hosts encode 8-bit 4:2:0) -- independent of the HEVC encoder's
+	// Color444Status/HdrStatus.
 	PyroWaveColorStatus() (color444 bool, hdr bool)
 	// VirtualDisplayPrimary / SetVirtualDisplayPrimary: whether the virtual
 	// monitor is made the primary display; see
 	// streamhost.Backend.SetVirtualDisplayPrimary.
 	VirtualDisplayPrimary() bool
 	SetVirtualDisplayPrimary(primary bool) (live bool, err error)
+	// SetVirtualDisplayExclusive saves whether the next virtual monitor
+	// switches every other monitor off while it exists (back on when it goes
+	// away). Backends without it do nothing.
+	SetVirtualDisplayExclusive(exclusive bool) error
 	// VirtualDisplaySupported reports whether the current stream backend
 	// supports native virtual displays.
 	VirtualDisplaySupported() bool
@@ -185,8 +190,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/healthz", sec.Public(s.health))
 	mux.HandleFunc("/api/auth/qr/link", sec.Public(s.AuthQRLink))
 
-	// --- HMAC verified when present, allowed unsigned pre-pair ---
-	mux.HandleFunc("/api/moonlight/pin", sec.OptionalVerify(s.MoonlightPIN))
+	// --- HMAC-authenticated, PIN rate limit ---
+	mux.HandleFunc("/api/moonlight/pin", sec.LimitPIN(s.MoonlightPIN))
 
 	// --- AES-GCM auth only (no HMAC, rate-limited) ---
 	mux.HandleFunc("/api/auth/sync", sec.LimitSync(s.Sync))
@@ -883,8 +888,9 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		// comment.
 		"hdr_active":    hdrActive,
 		"hdr_available": hdrAvailable,
-		// The same two upgrades with PyroWave (any PyroWave GPU; 4:4:4 still
-		// license-gated) -- see Application.PyroWaveColorStatus.
+		// The same two upgrades with PyroWave (a Linux or macOS host's
+		// PyroWave GPU; 4:4:4 still license-gated) -- see
+		// Application.PyroWaveColorStatus.
 		"pyrowave_color_444_available": pyroWave444Available,
 		"pyrowave_hdr_available":       pyroWaveHdrAvailable,
 		"virtual_display_supported":    s.app.VirtualDisplaySupported(),
@@ -1075,6 +1081,9 @@ func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
 		// there). Omitted means yes -- a remote user can't see the
 		// physical screens.
 		Primary *bool `json:"primary,omitempty"`
+		// Exclusive: switch every other monitor off while it exists (back
+		// on when it goes away). Omitted means no.
+		Exclusive bool `json:"exclusive,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.fail(w, http.StatusBadRequest, "invalid_json", err)
@@ -1090,6 +1099,9 @@ func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
 	primary := req.Primary == nil || *req.Primary
 	if _, err := s.app.SetVirtualDisplayPrimary(primary); err != nil {
 		log.Printf("[api] virtual display create: primary=%v not applied: %v", primary, err)
+	}
+	if err := s.app.SetVirtualDisplayExclusive(req.Exclusive); err != nil {
+		log.Printf("[api] virtual display create: exclusive=%v not saved: %v", req.Exclusive, err)
 	}
 
 	s.virtMu.Lock()

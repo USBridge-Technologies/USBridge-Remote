@@ -18,8 +18,10 @@
 
 #define VK_USE_PLATFORM_XLIB_KHR
 #include <vulkan/vulkan.h>
+#include "pyrowave.h"
 #include <vulkan/vulkan_xlib.h>
 #include <X11/Xlib.h>
+#include <X11/extensions/shape.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -89,6 +91,56 @@ static VkImageView             *g_swap_views   = NULL;
 static VkFormat                 g_swap_fmt     = VK_FORMAT_UNDEFINED;
 static VkExtent2D               g_swap_ext     = {0, 0};
 static int                      g_have_vk13    = 0; // set by vk_create_instance
+
+// ─── Create infos kept alive for PyroWave ─────────────────────────────────────
+// pyrowave_create_device() reads the instance/device create infos (extensions and the
+// feature chain) the Vulkan device was created from, and they must stay valid for the
+// device's lifetime -- so they are file-static rather than locals of vk_create_*.
+static VkApplicationInfo        g_app_keep;
+static VkInstanceCreateInfo     g_ici_keep;
+static const char              *g_inst_exts_keep[2];
+static VkDeviceCreateInfo       g_dci_keep;
+static VkDeviceQueueCreateInfo  g_qci_keep;
+static const char              *g_dev_exts_keep[8];
+static float                    g_qpri_keep = 1.0f;
+static VkPhysicalDeviceVulkan11Features g_f11_keep;
+static VkPhysicalDeviceVulkan12Features g_f12_keep;
+static VkPhysicalDeviceVulkan13Features g_f13_keep;
+static VkPhysicalDeviceFeatures2        g_f2_keep;
+static int                      g_feats_keep_valid = 0;
+
+// ─── PyroWave GPU decode (zero-copy) ──────────────────────────────────────────
+// PyroWave runs on THIS renderer's VkDevice and records its decode dispatches straight into
+// the frame's command buffer (pyrowave_device_set_command_buffer), writing a 3-plane
+// G8_B8_R8 image that the fragment pass then samples through a YCbCr conversion. No CPU
+// readback, no upload, no cross-queue or cross-device sync: one submit per frame.
+static pyrowave_device          g_pwdev        = NULL;
+static pyrowave_decoder         g_pwdec        = NULL;
+static int                      g_pw_gpu_ok    = 0;  // device created and the 3-plane format is usable
+static int                      g_pw_w = 0, g_pw_h = 0;
+static VkImage                  g_pw_img       = VK_NULL_HANDLE;
+static VkDeviceMemory           g_pw_mem       = VK_NULL_HANDLE;
+static VkImageView              g_pw_view      = VK_NULL_HANDLE;
+static pyrowave_gpu_buffers     g_pw_bufs;
+static int                      g_pw_img_inited = 0;
+static VkSamplerYcbcrConversion g_y3conv       = VK_NULL_HANDLE;
+static VkSampler                g_y3sampler    = VK_NULL_HANDLE;
+static VkDescriptorSetLayout    g_y3dsl        = VK_NULL_HANDLE;
+static VkPipelineLayout         g_y3playout    = VK_NULL_HANDLE;
+static VkDescriptorPool         g_y3dpool      = VK_NULL_HANDLE;
+static VkDescriptorSet          g_y3dset       = VK_NULL_HANDLE;
+static VkPipeline               g_y3pipeline   = VK_NULL_HANDLE;
+static int                      g_y3pipeline_ok = 0;
+static int                      g_y3_limited    = 1; // range the 3-plane conversion was built for
+// Access-unit slot (network bytes only: a PyroWave frame is a few hundred KB): written by the
+// decode thread, picked up by the render thread. Capacity 1, newest frame wins.
+static uint8_t                 *g_pwau_buf[2];
+static size_t                   g_pwau_cap[2];
+static size_t                   g_pwau_len[2];
+static int                      g_pwau_back = 0;       // decode thread fills this one
+static volatile int             g_pwau_ready = 0;      // g_pwau_buf[1 - g_pwau_back] is a fresh frame
+static volatile unsigned long long g_pw_frames = 0;
+extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
 // Staging buffer (host-visible, coherent).
 static VkBuffer                 g_stage_buf    = VK_NULL_HANDLE;
@@ -195,23 +247,21 @@ static uint32_t vk_find_mem(VkPhysicalDeviceMemoryProperties *mp,
 // ─── Vulkan init helpers ──────────────────────────────────────────────────────
 
 static int vk_create_instance(void) {
-    const char *exts[] = {
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
-    };
+    g_inst_exts_keep[0] = VK_KHR_SURFACE_EXTENSION_NAME;
+    g_inst_exts_keep[1] = VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
     // apiVersion 1.3: the zero-copy dma-buf render path needs
     // VkSamplerYcbcrConversion and dynamic rendering (vkCmdBeginRendering),
     // both core since 1.3 -- requesting a plain 1.0 instance (the previous
     // default here) leaves those core entry points/features unavailable per
     // spec even though the underlying driver (checked: Mesa ANV 1.4.x)
-    // supports them.
-    VkApplicationInfo appInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-    appInfo.apiVersion = VK_API_VERSION_1_3;
-    VkInstanceCreateInfo ci = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    ci.pApplicationInfo       = &appInfo;
-    ci.enabledExtensionCount   = 2;
-    ci.ppEnabledExtensionNames = exts;
-    if (vkCreateInstance(&ci, NULL, &g_inst) == VK_SUCCESS) {
+    // supports them. PyroWave needs 1.3 as well.
+    g_app_keep = (VkApplicationInfo){ VK_STRUCTURE_TYPE_APPLICATION_INFO };
+    g_app_keep.apiVersion = VK_API_VERSION_1_3;
+    g_ici_keep = (VkInstanceCreateInfo){ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+    g_ici_keep.pApplicationInfo       = &g_app_keep;
+    g_ici_keep.enabledExtensionCount   = 2;
+    g_ici_keep.ppEnabledExtensionNames = g_inst_exts_keep;
+    if (vkCreateInstance(&g_ici_keep, NULL, &g_inst) == VK_SUCCESS) {
         g_have_vk13 = 1;
         return 1;
     }
@@ -219,8 +269,8 @@ static int vk_create_instance(void) {
     // zero-copy dma-buf render stays disabled (vk_ycbcr_ensure_pipeline
     // checks g_have_vk13), the RGBA blit path still works unchanged.
     g_have_vk13 = 0;
-    ci.pApplicationInfo = NULL;
-    return vkCreateInstance(&ci, NULL, &g_inst) == VK_SUCCESS;
+    g_ici_keep.pApplicationInfo = NULL;
+    return vkCreateInstance(&g_ici_keep, NULL, &g_inst) == VK_SUCCESS;
 }
 
 static int vk_select_device(void) {
@@ -303,30 +353,26 @@ static int vk_create_device(void) {
     g_zerocopy_supported = have_all_zc;
 
     // VkSamplerYcbcrConversion and dynamic rendering are core 1.3 but are
-    // still *features* that must be explicitly enabled at device creation
-    // (previously they weren't -- the dma-buf path relied on ANV tolerating
-    // that). Both the dma-buf zero-copy path and the NV12 upload path need
-    // them; without them both stay off and frames take the RGBA blit path.
-    VkPhysicalDeviceVulkan13Features f13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-    VkPhysicalDeviceVulkan11Features f11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, &f13 };
-    VkPhysicalDeviceFeatures2 feats = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f11 };
+    // still *features* that must be explicitly enabled at device creation.
+    // PyroWave's decoder (sharing this device) needs more of the same family: subgroup size
+    // control, 8/16-bit storage, shaderInt16, timeline semaphores... -- so the chain enables
+    // everything the GPU supports (robustBufferAccess excepted: it only costs speed), kept
+    // file-static because pyrowave_create_device reads it.
     int ycbcr_ok = 0;
+    g_feats_keep_valid = 0;
     if (g_have_vk13) {
         VkPhysicalDeviceProperties pr;
         vkGetPhysicalDeviceProperties(g_pdev, &pr);
         if (pr.apiVersion >= VK_API_VERSION_1_3) {
-            vkGetPhysicalDeviceFeatures2(g_pdev, &feats);
-            ycbcr_ok = f11.samplerYcbcrConversion && f13.dynamicRendering;
+            memset(&g_f11_keep, 0, sizeof(g_f11_keep)); g_f11_keep.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES; g_f11_keep.pNext = &g_f12_keep;
+            memset(&g_f12_keep, 0, sizeof(g_f12_keep)); g_f12_keep.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES; g_f12_keep.pNext = &g_f13_keep;
+            memset(&g_f13_keep, 0, sizeof(g_f13_keep)); g_f13_keep.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+            memset(&g_f2_keep, 0, sizeof(g_f2_keep));   g_f2_keep.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2; g_f2_keep.pNext = &g_f11_keep;
+            vkGetPhysicalDeviceFeatures2(g_pdev, &g_f2_keep);
+            g_f2_keep.features.robustBufferAccess = VK_FALSE;
+            ycbcr_ok = g_f11_keep.samplerYcbcrConversion && g_f13_keep.dynamicRendering;
+            g_feats_keep_valid = ycbcr_ok;
         }
-    }
-    if (ycbcr_ok) {
-        // Enable only what we use.
-        VkPhysicalDeviceFeatures2 keep = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f11 };
-        memset(&f11, 0, sizeof(f11)); f11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES; f11.pNext = &f13;
-        memset(&f13, 0, sizeof(f13)); f13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-        f11.samplerYcbcrConversion = VK_TRUE;
-        f13.dynamicRendering = VK_TRUE;
-        feats = keep;
     }
     g_ycbcr_supported = ycbcr_ok;
     if (!ycbcr_ok) g_zerocopy_supported = 0;
@@ -340,18 +386,18 @@ static int vk_create_device(void) {
     }
     if (getenv("USBRIDGE_VK_NO_NV12")) g_nv12_supported = 0;
 
-    float pri = 1.0f;
-    VkDeviceQueueCreateInfo qci = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
-    qci.queueFamilyIndex = g_qfam;
-    qci.queueCount       = 1;
-    qci.pQueuePriorities = &pri;
-    VkDeviceCreateInfo dci = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-    dci.queueCreateInfoCount    = 1;
-    dci.pQueueCreateInfos       = &qci;
-    dci.enabledExtensionCount   = next;
-    dci.ppEnabledExtensionNames = dev_exts;
-    if (ycbcr_ok) dci.pNext = &feats;
-    if (vkCreateDevice(g_pdev, &dci, NULL, &g_dev) != VK_SUCCESS) return 0;
+    for (uint32_t i = 0; i < next && i < 8; i++) g_dev_exts_keep[i] = dev_exts[i];
+    g_qci_keep = (VkDeviceQueueCreateInfo){ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
+    g_qci_keep.queueFamilyIndex = g_qfam;
+    g_qci_keep.queueCount       = 1;
+    g_qci_keep.pQueuePriorities = &g_qpri_keep;
+    g_dci_keep = (VkDeviceCreateInfo){ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+    g_dci_keep.queueCreateInfoCount    = 1;
+    g_dci_keep.pQueueCreateInfos       = &g_qci_keep;
+    g_dci_keep.enabledExtensionCount   = next;
+    g_dci_keep.ppEnabledExtensionNames = g_dev_exts_keep;
+    if (ycbcr_ok) g_dci_keep.pNext = &g_f2_keep;
+    if (vkCreateDevice(g_pdev, &g_dci_keep, NULL, &g_dev) != VK_SUCCESS) return 0;
     vkGetDeviceQueue(g_dev, g_qfam, 0, &g_queue);
 
     char msg[96];
@@ -764,6 +810,139 @@ static int vk_ycbcr_ensure_pipeline(void) {
 
     g_ypipeline_ok = 1;
     goVKLog("vk: zero-copy dma-buf NV12 pipeline ready", 0);
+    return 1;
+}
+
+static void vk_pw_destroy_decoder(void);
+static void vk_ycbcr3_destroy_pipeline(void);
+
+static int vk_ycbcr3_ensure_pipeline(int limited) {
+    if (g_y3pipeline_ok > 0 && g_y3_limited != limited) {
+        // The range lives in the immutable sampler conversion: rebuild it (and the ring views).
+        vkDeviceWaitIdle(g_dev);
+        vk_pw_destroy_decoder();
+        vk_ycbcr3_destroy_pipeline();
+    }
+    g_y3_limited = limited;
+    if (g_y3pipeline_ok) return g_y3pipeline_ok > 0;
+    g_y3pipeline_ok = -1; // assume failure; flipped to 1 at the end on success
+
+    VkSamplerYcbcrConversionCreateInfo convCI = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO };
+    convCI.format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
+    convCI.ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709;
+    convCI.ycbcrRange = limited ? VK_SAMPLER_YCBCR_RANGE_ITU_NARROW : VK_SAMPLER_YCBCR_RANGE_ITU_FULL;
+    convCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    convCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    convCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    convCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    convCI.xChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
+    convCI.yChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
+    convCI.chromaFilter = VK_FILTER_LINEAR;
+    if (vkCreateSamplerYcbcrConversion(g_dev, &convCI, NULL, &g_y3conv) != VK_SUCCESS) {
+        goVKLog("vk_ycbcr3_ensure_pipeline: vkCreateSamplerYcbcrConversion failed", 2);
+        return 0;
+    }
+
+    VkSamplerYcbcrConversionInfo convInfo = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO };
+    convInfo.conversion = g_y3conv;
+    VkSamplerCreateInfo sampCI = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, &convInfo };
+    sampCI.magFilter = VK_FILTER_LINEAR;
+    sampCI.minFilter = VK_FILTER_LINEAR;
+    sampCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(g_dev, &sampCI, NULL, &g_y3sampler) != VK_SUCCESS) {
+        goVKLog("vk_ycbcr3_ensure_pipeline: vkCreateSampler failed", 2);
+        return 0;
+    }
+
+    VkDescriptorSetLayoutBinding binding = {0};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    binding.pImmutableSamplers = &g_y3sampler;
+    VkDescriptorSetLayoutCreateInfo dslCI = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    dslCI.bindingCount = 1; dslCI.pBindings = &binding;
+    if (vkCreateDescriptorSetLayout(g_dev, &dslCI, NULL, &g_y3dsl) != VK_SUCCESS) {
+        goVKLog("vk_ycbcr3_ensure_pipeline: vkCreateDescriptorSetLayout failed", 2);
+        return 0;
+    }
+
+    VkPushConstantRange pcr = { VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float) * 2 };
+    VkPipelineLayoutCreateInfo plCI = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    plCI.setLayoutCount = 1; plCI.pSetLayouts = &g_y3dsl;
+    plCI.pushConstantRangeCount = 1; plCI.pPushConstantRanges = &pcr;
+    if (vkCreatePipelineLayout(g_dev, &plCI, NULL, &g_y3playout) != VK_SUCCESS) {
+        goVKLog("vk_ycbcr3_ensure_pipeline: vkCreatePipelineLayout failed", 2);
+        return 0;
+    }
+
+    VkDescriptorPoolSize poolSize = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 };
+    VkDescriptorPoolCreateInfo poolCI = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    poolCI.maxSets = 1; poolCI.poolSizeCount = 1; poolCI.pPoolSizes = &poolSize;
+    if (vkCreateDescriptorPool(g_dev, &poolCI, NULL, &g_y3dpool) != VK_SUCCESS) {
+        goVKLog("vk_ycbcr3_ensure_pipeline: vkCreateDescriptorPool failed", 2);
+        return 0;
+    }
+    VkDescriptorSetAllocateInfo dsai = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    dsai.descriptorPool = g_y3dpool; dsai.descriptorSetCount = 1; dsai.pSetLayouts = &g_y3dsl;
+    if (vkAllocateDescriptorSets(g_dev, &dsai, &g_y3dset) != VK_SUCCESS) {
+        goVKLog("vk_ycbcr3_ensure_pipeline: vkAllocateDescriptorSets failed", 2);
+        return 0;
+    }
+
+    VkShaderModule vs = vk_shader_from_spv(g_ycbcr_crop_vert_spv, sizeof(g_ycbcr_crop_vert_spv));
+    VkShaderModule fs = vk_shader_from_spv(g_ycbcr_frag_spv, sizeof(g_ycbcr_frag_spv));
+    if (!vs || !fs) {
+        if (vs) vkDestroyShaderModule(g_dev, vs, NULL);
+        if (fs) vkDestroyShaderModule(g_dev, fs, NULL);
+        goVKLog("vk_ycbcr3_ensure_pipeline: shader module creation failed", 2);
+        return 0;
+    }
+    VkPipelineShaderStageCreateInfo stages[2] = {0};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT; stages[0].module = vs; stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT; stages[1].module = fs; stages[1].pName = "main";
+
+    VkPipelineVertexInputStateCreateInfo vi = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+    VkPipelineInputAssemblyStateCreateInfo ia = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo vpState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+    vpState.viewportCount = 1; vpState.scissorCount = 1; // dynamic
+    VkDynamicState dynStates[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynCI = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+    dynCI.dynamicStateCount = 2; dynCI.pDynamicStates = dynStates;
+    VkPipelineRasterizationStateCreateInfo rs = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+    rs.polygonMode = VK_POLYGON_MODE_FILL; rs.cullMode = VK_CULL_MODE_NONE; rs.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo ms = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineColorBlendAttachmentState cba = {0};
+    cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo cb = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+    cb.attachmentCount = 1; cb.pAttachments = &cba;
+
+    VkPipelineRenderingCreateInfo renderingCI = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+    renderingCI.colorAttachmentCount = 1; renderingCI.pColorAttachmentFormats = &g_swap_fmt;
+
+    VkGraphicsPipelineCreateInfo pipeCI = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, &renderingCI };
+    pipeCI.stageCount = 2; pipeCI.pStages = stages;
+    pipeCI.pVertexInputState = &vi; pipeCI.pInputAssemblyState = &ia;
+    pipeCI.pViewportState = &vpState; pipeCI.pRasterizationState = &rs;
+    pipeCI.pMultisampleState = &ms; pipeCI.pColorBlendState = &cb;
+    pipeCI.pDynamicState = &dynCI;
+    pipeCI.layout = g_y3playout;
+    VkResult pr = vkCreateGraphicsPipelines(g_dev, VK_NULL_HANDLE, 1, &pipeCI, NULL, &g_y3pipeline);
+    vkDestroyShaderModule(g_dev, vs, NULL);
+    vkDestroyShaderModule(g_dev, fs, NULL);
+    if (pr != VK_SUCCESS) {
+        goVKLog("vk_ycbcr3_ensure_pipeline: vkCreateGraphicsPipelines failed", 2);
+        return 0;
+    }
+
+    g_y3pipeline_ok = 1;
+    goVKLog("vk: PyroWave 3-plane pipeline ready", 0);
     return 1;
 }
 
@@ -1398,7 +1577,377 @@ static int vk_render_frame_nv12(const Nv12Buf *fb) {
     return (res == VK_SUCCESS) ? 1 : 0;
 }
 
+static void vk_ycbcr3_destroy_pipeline(void) {
+    if (g_y3dpool)    { vkDestroyDescriptorPool(g_dev, g_y3dpool, NULL); g_y3dpool = VK_NULL_HANDLE; g_y3dset = VK_NULL_HANDLE; }
+    if (g_y3pipeline) { vkDestroyPipeline(g_dev, g_y3pipeline, NULL); g_y3pipeline = VK_NULL_HANDLE; }
+    if (g_y3playout)  { vkDestroyPipelineLayout(g_dev, g_y3playout, NULL); g_y3playout = VK_NULL_HANDLE; }
+    if (g_y3dsl)      { vkDestroyDescriptorSetLayout(g_dev, g_y3dsl, NULL); g_y3dsl = VK_NULL_HANDLE; }
+    if (g_y3sampler)  { vkDestroySampler(g_dev, g_y3sampler, NULL); g_y3sampler = VK_NULL_HANDLE; }
+    if (g_y3conv)     { vkDestroySamplerYcbcrConversion(g_dev, g_y3conv, NULL); g_y3conv = VK_NULL_HANDLE; }
+    g_y3pipeline_ok = 0;
+}
+
+// ─── PyroWave GPU decode: device, decoder, ring image ────────────────────────
+
+static void vk_pw_destroy_image(void) {
+    if (g_pw_view) { vkDestroyImageView(g_dev, g_pw_view, NULL); g_pw_view = VK_NULL_HANDLE; }
+    if (g_pw_img)  { vkDestroyImage(g_dev, g_pw_img, NULL);      g_pw_img  = VK_NULL_HANDLE; }
+    if (g_pw_mem)  { vkFreeMemory(g_dev, g_pw_mem, NULL);        g_pw_mem  = VK_NULL_HANDLE; }
+    g_pw_img_inited = 0;
+}
+
+static void vk_pw_destroy_decoder(void) {
+    if (g_pwdec) { pyrowave_decoder_destroy(g_pwdec); g_pwdec = NULL; }
+    vk_pw_destroy_image();
+    g_pw_w = g_pw_h = 0;
+}
+
+// vk_pw_init_device creates PyroWave's device on the renderer's VkDevice. Called once from
+// vk_video_create after the device exists. Sets g_pw_gpu_ok.
+static void vk_pw_init_device(void) {
+    g_pw_gpu_ok = 0;
+    if (!g_feats_keep_valid || !g_ycbcr_supported) return;
+    if (getenv("USBRIDGE_PYROWAVE_CPU")) return; // force the CPU-readback path
+    VkFormatProperties fp;
+    vkGetPhysicalDeviceFormatProperties(g_pdev, VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM, &fp);
+    VkFormatFeatureFlags need = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+                                VK_FORMAT_FEATURE_COSITED_CHROMA_SAMPLES_BIT |
+                                VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT;
+    if ((fp.optimalTilingFeatures & need) != need) return;
+    VkImageFormatProperties ifp;
+    if (vkGetPhysicalDeviceImageFormatProperties(g_pdev, VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM, VK_IMAGE_TYPE_2D,
+            VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+            VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT, &ifp) != VK_SUCCESS) return;
+
+    static pyrowave_device_create_queue_info pq;
+    pq = (pyrowave_device_create_queue_info){ g_queue, g_qfam, 0 };
+    pyrowave_device_create_info pci;
+    memset(&pci, 0, sizeof(pci));
+    pci.GetInstanceProcAddr = vkGetInstanceProcAddr;
+    pci.instance = g_inst;
+    pci.physical_device = g_pdev;
+    pci.device = g_dev;
+    pci.instance_create_info = &g_ici_keep;
+    pci.device_create_info = &g_dci_keep;
+    pci.queue_info = &pq;
+    pci.queue_info_count = 1;
+    // PyroWave only records into the frame's command buffer from the render thread (and its own
+    // creation-time uploads run there too); no other thread submits on the queue.
+    pyrowave_result r = pyrowave_create_device(&pci, &g_pwdev);
+    if (r != PYROWAVE_SUCCESS || !g_pwdev) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "pyrowave: pyrowave_create_device on the renderer's device failed (%d) -- CPU readback path", (int)r);
+        goVKLog(msg, 1);
+        g_pwdev = NULL;
+        return;
+    }
+    pyrowave_device_set_queue_type(g_pwdev, VK_QUEUE_GRAPHICS_BIT);
+    g_pw_gpu_ok = 1;
+    goVKLog("pyrowave: GPU decode on the renderer's device (zero-copy)", 0);
+}
+
+// vk_pw_ensure (re)creates the decoder and the ring image for a stream size. Render thread only,
+// after the previous frame's fence was waited.
+static int vk_pw_ensure(int w, int h) {
+    if (g_pwdec && g_pw_w == w && g_pw_h == h) return 1;
+    vk_pw_destroy_decoder();
+
+    pyrowave_decoder_create_info info;
+    memset(&info, 0, sizeof(info));
+    info.device = g_pwdev;
+    info.width = w;
+    info.height = h;
+    info.chroma = PYROWAVE_CHROMA_SUBSAMPLING_420;
+    info.fragment_path = false;
+    if (pyrowave_decoder_create(&info, &g_pwdec) != PYROWAVE_SUCCESS || !g_pwdec) {
+        g_pwdec = NULL;
+        goVKLog("pyrowave: decoder create failed", 2);
+        return 0;
+    }
+
+    VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    ici.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+    ici.imageType = VK_IMAGE_TYPE_2D;
+    ici.format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
+    ici.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
+    ici.mipLevels = 1; ici.arrayLayers = 1; ici.samples = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+    ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(g_dev, &ici, NULL, &g_pw_img) != VK_SUCCESS) { g_pw_img = VK_NULL_HANDLE; goto fail; }
+    VkMemoryRequirements mr;
+    vkGetImageMemoryRequirements(g_dev, g_pw_img, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (mi == UINT32_MAX) goto fail;
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    mai.allocationSize = mr.size; mai.memoryTypeIndex = mi;
+    if (vkAllocateMemory(g_dev, &mai, NULL, &g_pw_mem) != VK_SUCCESS) { g_pw_mem = VK_NULL_HANDLE; goto fail; }
+    if (vkBindImageMemory(g_dev, g_pw_img, g_pw_mem, 0) != VK_SUCCESS) goto fail;
+
+    // Sampling view: the YCbCr conversion; usage restricted to SAMPLED (the image also has STORAGE).
+    VkSamplerYcbcrConversionInfo convInfo = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO };
+    convInfo.conversion = g_y3conv;
+    VkImageViewUsageCreateInfo uci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO, &convInfo };
+    uci.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+    VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, &uci };
+    vci.image = g_pw_img;
+    vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vci.format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
+    vci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vci.subresourceRange.levelCount = 1; vci.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(g_dev, &vci, NULL, &g_pw_view) != VK_SUCCESS) { g_pw_view = VK_NULL_HANDLE; goto fail; }
+
+    for (int pl = 0; pl < 3; pl++) {
+        pyrowave_image_view *v = &g_pw_bufs.planes[pl];
+        memset(v, 0, sizeof(*v));
+        v->image = g_pw_img;
+        v->width = (uint32_t)w; v->height = (uint32_t)h;
+        v->image_format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
+        v->view_format = VK_FORMAT_R8_UNORM;
+        v->aspect = (VkImageAspectFlagBits)(VK_IMAGE_ASPECT_PLANE_0_BIT << pl);
+        v->swizzle = VK_COMPONENT_SWIZZLE_IDENTITY;
+        v->layout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+    g_pw_w = w; g_pw_h = h;
+    {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "pyrowave: GPU decoder ready %dx%d (zero-copy)", w, h);
+        goVKLog(msg, 0);
+    }
+    return 1;
+fail:
+    goVKLog("pyrowave: ring image creation failed", 2);
+    vk_pw_destroy_decoder();
+    return 0;
+}
+
+static int vk_render_frame_pyrowave(const uint8_t *au, size_t aulen) {
+    if (!g_dev || !g_swap || !g_pwdev) return 0;
+    char dbg[160];
+
+    // Wait for the previous submission FIRST: it may still be sampling the ring image.
+    g_render_stage = 4;
+    if (vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL) == VK_TIMEOUT) {
+        goVKLog("WaitForFences TIMEOUT 2s (pyrowave path) -- GPU hang?", 2);
+        g_render_stage = 1; return 0;
+    }
+    vk_dmabuf_release_prev();
+
+    // BitstreamSequenceHeader (pyrowave_common.hpp): width-1 in bits 0..13, height-1 in 14..27,
+    // `extended` in bit 31 of word 0; chroma resolution in bit 26 of word 1.
+    if (aulen < 8) { goVKLog("pyrowave: access unit too short", 1); g_render_stage = 1; return 0; }
+    uint32_t w0 = (uint32_t)au[0] | (uint32_t)au[1] << 8 | (uint32_t)au[2] << 16 | (uint32_t)au[3] << 24;
+    uint32_t w1 = (uint32_t)au[4] | (uint32_t)au[5] << 8 | (uint32_t)au[6] << 16 | (uint32_t)au[7] << 24;
+    if (!(w0 >> 31)) { goVKLog("pyrowave: no sequence header", 1); g_render_stage = 1; return 0; }
+    int fw = (int)(w0 & 0x3fff) + 1, fh = (int)((w0 >> 14) & 0x3fff) + 1;
+    if (((w1 >> 26) & 1) || ((fw | fh) & 1)) { g_render_stage = 1; return 0; } // 4:4:4 / odd: not negotiated here
+
+    if (!vk_ycbcr3_ensure_pipeline((int)((w1 >> 30) & 1))) { g_pw_gpu_ok = 0; g_render_stage = 1; return 0; }
+    g_render_stage = 2;
+    if (!vk_pw_ensure(fw, fh)) { g_render_stage = 1; return 0; }
+
+    pyrowave_decoder_clear(g_pwdec); // anything queued belongs to a frame that never completed
+    if (pyrowave_decoder_push_packet(g_pwdec, au, aulen) != PYROWAVE_SUCCESS) { g_render_stage = 1; return 0; }
+    if (!pyrowave_decoder_decode_is_ready(g_pwdec, false)) { g_render_stage = 1; return 0; }
+
+    {
+        static VkImageView bound = VK_NULL_HANDLE;
+        if (bound != g_pw_view) {
+            VkDescriptorImageInfo imgInfo = { VK_NULL_HANDLE, g_pw_view, VK_IMAGE_LAYOUT_GENERAL };
+            VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            write.dstSet = g_y3dset; write.dstBinding = 0; write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.pImageInfo = &imgInfo;
+            vkUpdateDescriptorSets(g_dev, 1, &write, 0, NULL);
+            bound = g_pw_view;
+        }
+    }
+
+    uint32_t img_idx = 0;
+    g_render_stage = 3;
+    double t0 = mono_sec();
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, g_img_sem, VK_NULL_HANDLE, &img_idx);
+    double dt = mono_sec() - t0;
+    if (dt > 0.1) {
+        snprintf(dbg, sizeof(dbg), "SLOW AcquireNextImage (pyrowave) %.0f ms res=%d", dt * 1000.0, (int)res);
+        goVKLog(dbg, 1);
+    }
+    if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+        g_render_stage = 7; vk_recreate_swapchain(); g_render_stage = 1; return 0;
+    }
+    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
+        snprintf(dbg, sizeof(dbg), "AcquireNextImage (pyrowave) failed res=%d", (int)res);
+        goVKLog(dbg, 2);
+        g_render_stage = 1; return 0;
+    }
+    // Reset only once we're certain to submit (an early return above must
+    // leave the fence signaled, or the next wait would hang for 2s).
+    vkResetFences(g_dev, 1, &g_fence);
+
+    vkResetCommandBuffer(g_cmdbuf, 0);
+    VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(g_cmdbuf, &bi);
+
+    // PyroWave records its decode dispatches into this very command buffer.
+    if (!g_pw_img_inited) {
+        VkImageMemoryBarrier ib = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        ib.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; ib.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        ib.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; ib.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ib.image = g_pw_img;
+        ib.subresourceRange.aspectMask = VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT | VK_IMAGE_ASPECT_PLANE_2_BIT;
+        ib.subresourceRange.levelCount = 1; ib.subresourceRange.layerCount = 1;
+        ib.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(g_cmdbuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0, 0, NULL, 0, NULL, 1, &ib);
+        g_pw_img_inited = 1;
+    }
+    pyrowave_device_set_command_buffer(g_pwdev, g_cmdbuf);
+    pyrowave_result dr = pyrowave_decoder_decode_gpu_buffer(g_pwdec, NULL, NULL, &g_pw_bufs);
+    pyrowave_device_set_command_buffer(g_pwdev, VK_NULL_HANDLE);
+    if (dr != PYROWAVE_SUCCESS) {
+        // Nothing useful was recorded; submit an empty command buffer so the fence still signals.
+        snprintf(dbg, sizeof(dbg), "pyrowave: GPU decode failed (%d)", (int)dr);
+        goVKLog(dbg, 1);
+    }
+    {
+        // Decode (compute) writes -> the fragment pass samples.
+        VkMemoryBarrier mb = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+        mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        mb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(g_cmdbuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 1, &mb, 0, NULL, 0, NULL);
+    }
+
+    // Overlay textures (Net Graph HUD, AI Vision) upload outside the pass.
+    int draw_hud = vk_hud_maybe_upload_cmds(g_cmdbuf);
+    vk_aivision_maybe_upload_cmds(g_cmdbuf);
+
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+    int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
+    float fa = (float)fw / (float)(fh ? fh : 1);
+    float wa = (float)sw / (float)(sh ? sh : 1);
+    int dx = 0, dy = 0, dw = sw, dh = sh;
+    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
+    else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
+
+    VkRenderingAttachmentInfo colorAtt = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+    colorAtt.imageView = g_swap_views[img_idx];
+    colorAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAtt.clearValue.color = (VkClearColorValue){{0,0,0,1}};
+    VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+    renderInfo.renderArea = (VkRect2D){ {0,0}, g_swap_ext };
+    renderInfo.layerCount = 1;
+    renderInfo.colorAttachmentCount = 1;
+    renderInfo.pColorAttachments = &colorAtt;
+    vkCmdBeginRendering(g_cmdbuf, &renderInfo);
+
+    VkViewport vp = { (float)dx, (float)dy, (float)dw, (float)dh, 0.0f, 1.0f };
+    VkRect2D scissor = { {dx, dy}, {(uint32_t)dw, (uint32_t)dh} };
+    vkCmdSetViewport(g_cmdbuf, 0, 1, &vp);
+    vkCmdSetScissor(g_cmdbuf, 0, 1, &scissor);
+    vkCmdBindPipeline(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_y3pipeline);
+    vkCmdBindDescriptorSets(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_y3playout, 0, 1, &g_y3dset, 0, NULL);
+    float uvScale[2] = { 1.0f, 1.0f };
+    vkCmdPushConstants(g_cmdbuf, g_y3playout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uvScale), uvScale);
+    vkCmdDraw(g_cmdbuf, 3, 1, 0, 0);
+    vk_aivision_record_draw(g_cmdbuf, fw, fh);
+    if (draw_hud) vk_hud_record_draw(g_cmdbuf, fw, fh);
+    vkCmdEndRendering(g_cmdbuf);
+
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    vkEndCommandBuffer(g_cmdbuf);
+
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &g_img_sem; si.pWaitDstStageMask = &wait_stage;
+    si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
+    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    g_render_stage = 5;
+    vkQueueSubmit(g_queue, 1, &si, g_fence);
+
+    VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
+    pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
+    g_render_stage = 6;
+    t0 = mono_sec();
+    res = vkQueuePresentKHR(g_queue, &pi);
+    dt = mono_sec() - t0;
+    if (dt > 0.1) {
+        snprintf(dbg, sizeof(dbg), "SLOW QueuePresent (pyrowave) %.0f ms res=%d", dt * 1000.0, (int)res);
+        goVKLog(dbg, 1);
+    }
+    g_render_stage = 1;
+    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+        g_render_stage = 7; vk_recreate_swapchain(); g_render_stage = 1;
+        return 1;
+    }
+    if (res != VK_SUCCESS) {
+        snprintf(dbg, sizeof(dbg), "QueuePresent (pyrowave) failed res=%d", (int)res);
+        goVKLog(dbg, 2);
+    }
+    if (res == VK_SUCCESS) {
+        g_pw_frames++;
+        goVTFrame(NULL, fw, fh, 0);
+    }
+    return (res == VK_SUCCESS) ? 1 : 0;
+}
+
+
 int vk_video_nv12_supported(void) { return g_nv12_supported; }
+
+// vk_video_pyrowave_gpu reports whether PyroWave frames can be decoded on the renderer's GPU
+// (the caller then submits access units with vk_video_try_submit_pyrowave instead of decoding on
+// the CPU side and uploading).
+int vk_video_pyrowave_gpu(void) { return atomic_load(&g_active) && g_pw_gpu_ok; }
+
+unsigned long long vk_video_pyrowave_frames(void) { return g_pw_frames; }
+
+// vk_video_try_submit_pyrowave queues one dense PyroWave access unit for the render thread, which
+// decodes it on the GPU and presents it. Only the network bytes are copied here. Decoder thread.
+int vk_video_try_submit_pyrowave(const uint8_t *au, size_t len) {
+    if (!atomic_load(&g_active) || !g_pw_gpu_ok || len < 8) return 0;
+    pthread_mutex_lock(&g_mu);
+    if (!atomic_load(&g_active)) { pthread_mutex_unlock(&g_mu); return 0; }
+    int b = g_pwau_back;
+    if (g_pwau_cap[b] < len) {
+        free(g_pwau_buf[b]);
+        g_pwau_buf[b] = malloc(len);
+        g_pwau_cap[b] = g_pwau_buf[b] ? len : 0;
+        if (!g_pwau_buf[b]) { pthread_mutex_unlock(&g_mu); return 0; }
+    }
+    memcpy(g_pwau_buf[b], au, len);
+    g_pwau_len[b] = len;
+    g_pwau_back = 1 - b; // the filled one is now the "ready" one; the render thread consumes it
+    g_pwau_ready = 1;
+    // Only one frame mode is live at a time -- drop stale frames of the others.
+    if (g_dmabuf_ready) {
+        close(g_dmabuf_pending.fd);
+        if (g_dmabuf_pending.release_fn) g_dmabuf_pending.release_fn(g_dmabuf_pending.release_ctx);
+        g_dmabuf_ready = 0;
+    }
+    g_ready = 0;
+    g_nv12_ready = 0;
+    g_submitted++;
+    pthread_mutex_unlock(&g_mu);
+    if (g_pipe_w >= 0) pipe_wake(g_pipe_w, 1);
+    return 1;
+}
+
+
 
 // vk_video_set_nv12_bt709 selects the YCbCr matrix of the NV12 frames submitted from
 // now on (see g_nv12_submit_bt709). Called by the decoder thread.
@@ -1670,8 +2219,11 @@ static void *vk_render_thread(void *unused) {
         int have_dmabuf = 0;
         DmabufFrame dmaf;
         int have_nv12 = 0;
+        int have_pw = 0;
         pthread_mutex_lock(&g_mu);
-        if (g_nv12_ready) {
+        if (g_pwau_ready) {
+            have_pw = 1;
+        } else if (g_nv12_ready) {
             int t = g_nv12_front; g_nv12_front = g_nv12_pending; g_nv12_pending = t;
             g_nv12_ready = 0;
             have_nv12 = 1;
@@ -1686,12 +2238,26 @@ static void *vk_render_thread(void *unused) {
             if (tmp) memcpy(tmp, g_buf, sz);
             g_ready = 0;
         }
+        // A PyroWave access unit is decoded straight out of its slot. The decode thread writes
+        // g_pwau_buf[g_pwau_back] and then flips; the ready one is read here, and the render
+        // thread finishes with it (decode + record) before it comes back to this loop.
+        const uint8_t *pw_au = NULL;
+        size_t pw_len = 0;
+        if (have_pw) {
+            int rdy = 1 - g_pwau_back;
+            pw_au = g_pwau_buf[rdy];
+            pw_len = g_pwau_len[rdy];
+            g_pwau_ready = 0;
+        }
         pthread_mutex_unlock(&g_mu);
-        if (!tmp && !have_dmabuf && !have_nv12) continue;
+        if (!tmp && !have_dmabuf && !have_nv12 && !have_pw) continue;
 
         g_render_stage = 1;
         int rf;
-        if (have_nv12) {
+        if (have_pw) {
+            rf = vk_render_frame_pyrowave(pw_au, pw_len);
+            fw = g_pw_w; fh = g_pw_h;
+        } else if (have_nv12) {
             rf = vk_render_frame_nv12(&g_nv12_bufs[g_nv12_front]);
             fw = g_nv12_bufs[g_nv12_front].w; fh = g_nv12_bufs[g_nv12_front].h;
         } else {
@@ -1772,17 +2338,26 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     return 1;
 }
 
+static int g_hole_count, g_shape_w, g_shape_h;
+static void vk_apply_holes(void);
+
 // vk_video_update_frame — reposition the X11 child window and apply hide/show.
 // Called from CGO thread only; safe to call X11 here.
 void vk_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active)) return;
+    vk_pw_init_device();
+
     atomic_store(&g_dst_x, x);
     atomic_store(&g_dst_y, y);
     atomic_store(&g_dst_w, w);
     atomic_store(&g_dst_h, h);
 
-    if (g_dpy && g_win && w > 0 && h > 0)
+    if (g_dpy && g_win && w > 0 && h > 0) {
         XMoveResizeWindow(g_dpy, g_win, x, y, (unsigned)w, (unsigned)h);
+        // An explicit bounding shape does not grow with the window, so
+        // re-cut the holes against the new size.
+        if (g_hole_count > 0 && (w != g_shape_w || h != g_shape_h)) vk_apply_holes();
+    }
 
     // Apply visibility (g_hidden may have been updated by vk_video_set_hidden).
     int want_hidden = atomic_load(&g_hidden);
@@ -1794,6 +2369,59 @@ void vk_video_update_frame(int x, int y, int w, int h) {
         g_win_visible = 1;
     }
     if (g_dpy) XFlush(g_dpy);
+}
+
+// Menu holes: rects (child-window pixels; rounded corners arrive as rows) cut out of the overlay's X11
+// shape so Fyne menus drawn in the parent GLFW window show through while
+// the rest of the video keeps playing. CGO thread only, like the X calls
+// above.
+#define VK_MAX_HOLES 1024 // rects, not menus: a rounded hole is ~2r+1 of them
+static XRectangle g_holes[VK_MAX_HOLES];
+static int g_hole_count = 0;
+static int g_shape_w = 0, g_shape_h = 0;
+static int g_shape_ok = -1; // -1 unknown, 0 no SHAPE extension, 1 available
+
+static void vk_apply_holes(void) {
+    if (!g_dpy || !g_win) return;
+    if (g_shape_ok < 0) {
+        int ev, er;
+        g_shape_ok = XShapeQueryExtension(g_dpy, &ev, &er) ? 1 : 0;
+    }
+    if (!g_shape_ok) return;
+    int w = atomic_load(&g_dst_w), h = atomic_load(&g_dst_h);
+    if (g_hole_count == 0 || w <= 0 || h <= 0) {
+        // None restores the default rectangular shape.
+        XShapeCombineMask(g_dpy, g_win, ShapeBounding, 0, 0, None, ShapeSet);
+        g_shape_w = g_shape_h = 0;
+    } else {
+        XRectangle full = { 0, 0, (unsigned short)w, (unsigned short)h };
+        XShapeCombineRectangles(g_dpy, g_win, ShapeBounding, 0, 0, &full, 1, ShapeSet, Unsorted);
+        XShapeCombineRectangles(g_dpy, g_win, ShapeBounding, 0, 0, g_holes, g_hole_count,
+                                ShapeSubtract, Unsorted);
+        g_shape_w = w; g_shape_h = h;
+    }
+    XFlush(g_dpy);
+}
+
+// vk_video_set_holes replaces the hole list; xywh holds n rects as
+// x,y,w,h quadruples. n == 0 clears every hole.
+void vk_video_set_holes(const int *xywh, int n) {
+    if (n > VK_MAX_HOLES) n = VK_MAX_HOLES;
+    int k = 0;
+    for (int i = 0; i < n; i++) {
+        int x = xywh[i*4], y = xywh[i*4+1], w = xywh[i*4+2], h = xywh[i*4+3];
+        if (w <= 0 || h <= 0) continue;
+        if (x < -32000) { w += x + 32000; x = -32000; }
+        if (y < -32000) { h += y + 32000; y = -32000; }
+        if (w > 65535) w = 65535;
+        if (h > 65535) h = 65535;
+        g_holes[k].x = (short)x; g_holes[k].y = (short)y;
+        g_holes[k].width = (unsigned short)w; g_holes[k].height = (unsigned short)h;
+        k++;
+    }
+    if (k == 0 && g_hole_count == 0) return;
+    g_hole_count = k;
+    vk_apply_holes();
 }
 
 // Called from CGO thread — safe to call X11 immediately.
@@ -1834,6 +2462,11 @@ static void vk_full_cleanup(void) {
         // (pending, never picked up) and tear down the fixed NV12 pipeline.
         vk_dmabuf_release_prev();
         vk_nv12_destroy_image();
+        // PyroWave's decoder and device go before the VkDevice they were created on.
+        vk_pw_destroy_decoder();
+        if (g_pwdev) { pyrowave_device_destroy(g_pwdev); g_pwdev = NULL; }
+        g_pw_gpu_ok = 0;
+        vk_ycbcr3_destroy_pipeline();
         vk_hud_destroy();
         if (g_dmabuf_ready) {
             close(g_dmabuf_pending.fd);
@@ -1860,6 +2493,7 @@ static void vk_full_cleanup(void) {
     g_pdev = VK_NULL_HANDLE;
 
     if (g_win && g_dpy)  { XDestroyWindow(g_dpy, g_win); g_win = 0; }
+    g_hole_count = 0; g_shape_w = g_shape_h = 0; g_shape_ok = -1;
     if (g_dpy)           { XCloseDisplay(g_dpy);          g_dpy = NULL; }
     g_parent_win = 0;
 
@@ -1867,6 +2501,9 @@ static void vk_full_cleanup(void) {
     if (g_buf) { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
     g_ready = 0;
     g_nv12_ready = 0;
+    g_pwau_ready = 0;
+    for (int i = 0; i < 2; i++) { free(g_pwau_buf[i]); g_pwau_buf[i] = NULL; g_pwau_cap[i] = 0; g_pwau_len[i] = 0; }
+    g_pwau_back = 0;
     for (int i = 0; i < 3; i++) { free(g_nv12_bufs[i].p); g_nv12_bufs[i].p = NULL; g_nv12_bufs[i].cap = 0; }
     pthread_mutex_unlock(&g_mu);
     g_ready = 0;

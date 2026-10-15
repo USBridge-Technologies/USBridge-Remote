@@ -150,6 +150,7 @@ var mcpToolCatalog = []mcpTool{
 				"y":                map[string]any{"type": "integer", "description": "move_to/click_at/double_click_at: target Y in screen pixels. absolute: raw 0..32767 axis position"},
 				"screen_width":     map[string]any{"type": "integer", "description": "move_to/click_at/double_click_at: width of the capture x/y are expressed in (ui.parse result.image_width, or screen.get_image's width)"},
 				"screen_height":    map[string]any{"type": "integer", "description": "move_to/click_at/double_click_at: height of the capture x/y are expressed in (ui.parse result.image_height, or screen.get_image's height)"},
+				"confirm":          map[string]any{"type": "boolean", "description": "click_at/double_click_at only: false skips the before/after screen diff (saves ~0.8s; the reply is just {\"status\":\"ok\"}). Default true."},
 				"capture_after_ms": map[string]any{"type": "integer", "minimum": 1, "maximum": 5000, "description": "move_to only: return a screenshot taken this many ms after the move, in the same response"},
 				"button_state":     map[string]any{"type": "integer", "description": "absolute only: bitmask, 0x01=left, 0x02=right, 0x04=middle"},
 			},
