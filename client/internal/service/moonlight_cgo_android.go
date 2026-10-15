@@ -470,6 +470,33 @@ static AMediaFormat *amc_new_format(const char *mime, int width, int height, int
     return fmt;
 }
 
+// amc_create_decoder creates the platform's decoder for mime, or with
+// lowlat on a Qualcomm part its separate low-latency component
+// ("<name>.low_latency", listed next to the regular one): the regular one
+// holds a frame back (output delay 1) even with the low-latency keys.
+// name receives the component created.
+static AMediaCodec *amc_create_decoder(const char *mime, int lowlat, char *name, size_t name_len) {
+    AMediaCodec *c = AMediaCodec_createDecoderByType(mime);
+    if (!c) return NULL;
+    char *n = NULL;
+    snprintf(name, name_len, "?");
+    if (AMediaCodec_getName(c, &n) == AMEDIA_OK && n) {
+        snprintf(name, name_len, "%s", n);
+        AMediaCodec_releaseName(c, n);
+    }
+    if (lowlat && amc_is_qualcomm(name) && !strstr(name, ".low_latency")) {
+        char ll[160];
+        snprintf(ll, sizeof(ll), "%s.low_latency", name);
+        AMediaCodec *l = AMediaCodec_createCodecByName(ll);
+        if (l) {
+            AMediaCodec_delete(c);
+            snprintf(name, name_len, "%s", ll);
+            return l;
+        }
+    }
+    return c;
+}
+
 static void amc_init(int fmt_codec, int width, int height, int fps) {
     ALOGI("amc_init: fmt=0x%x %dx%d", fmt_codec, width, height);
     // Safety: clean up stale codec and EGL if dr_cleanup wasn't called.
@@ -502,37 +529,36 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
         mime = "video/av01";
     }
 
-    // A decoder refuses the whole configure over one key it doesn't take
-    // (e.g. a frame rate above its rating), so step down until one sticks,
-    // on a fresh codec each time.
-    int configured = 0;
+    // A decoder refuses the whole configure -- or, Qualcomm, the start --
+    // over one key it doesn't take (e.g. a frame rate above its rating), so
+    // step down until one sticks, on a fresh codec each time.
+    int started = 0;
     char name[128] = "?";
     int tier = g_amc_lowlat ? AMC_FMT_LOWLAT_RATE : AMC_FMT_PLAIN;
-    for (; tier >= AMC_FMT_PLAIN && !configured; tier--) {
-        if (!g_amc) g_amc = AMediaCodec_createDecoderByType(mime);
+    for (; tier >= AMC_FMT_PLAIN && !started; tier--) {
+        g_amc = amc_create_decoder(mime, tier >= AMC_FMT_LOWLAT, name, sizeof(name));
         if (!g_amc) break;
-        char *n = NULL;
-        if (AMediaCodec_getName(g_amc, &n) == AMEDIA_OK && n) {
-            snprintf(name, sizeof(name), "%s", n);
-            AMediaCodec_releaseName(g_amc, n);
-        }
         AMediaFormat *fmt = amc_new_format(mime, width, height, fps, name, tier);
-        configured = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK;
+        media_status_t st = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0);
         AMediaFormat_delete(fmt);
-        if (!configured) {
-            ALOGE("AMediaCodec configure failed (%s, %s, %dx%d@%d, tier %d)%s",
-                  mime, name, width, height, fps, tier, tier > AMC_FMT_PLAIN ? " — retrying with fewer keys" : "");
+        const char *step = "configure";
+        if (st == AMEDIA_OK) {
+            step = "start";
+            st = AMediaCodec_start(g_amc);
+        }
+        if (st == AMEDIA_OK) {
+            started = 1;
+            ALOGI("AMediaCodec started (%s, %s, %dx%d@%d, lowlat=%d, format tier=%d, imagereader=%d)",
+                  mime, name, width, height, fps, g_amc_lowlat, tier, g_air != NULL);
+            if (g_amc_lowlat) amc_start_output_thread();
+        } else {
+            ALOGE("AMediaCodec %s failed (%s, %s, %dx%d@%d, tier %d, err %d)%s", step,
+                  mime, name, width, height, fps, tier, (int)st,
+                  tier > AMC_FMT_PLAIN ? " — retrying with fewer keys" : "");
             AMediaCodec_delete(g_amc);
             g_amc = NULL;
         }
     }
-    if (configured) {
-        if (AMediaCodec_start(g_amc) == AMEDIA_OK) {
-            ALOGI("AMediaCodec started (%s, %s, %dx%d@%d, lowlat=%d, format tier=%d, imagereader=%d)",
-                  mime, name, width, height, fps, g_amc_lowlat, tier + 1, g_air != NULL);
-            if (g_amc_lowlat) amc_start_output_thread();
-        } else { ALOGE("AMediaCodec_start failed (%s)", mime); }
-    } else { ALOGE("AMediaCodec configure failed (%s)", mime); }
 
     if (nwin) ANativeWindow_release(nwin);
 }
