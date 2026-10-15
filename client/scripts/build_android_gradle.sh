@@ -72,7 +72,7 @@ ensure_moonlight_libs() {
         return 0
     fi
     echo "📦 Building moonlight-common-c + OpenSSL + Opus for $abi..."
-    MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_ANDROID_ABI="$abi" ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
+    MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 MOONLIGHT_ANDROID_ABI="$abi" ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
         "$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ native libs for $abi failed${NC}"; exit 1; }
 }
 
