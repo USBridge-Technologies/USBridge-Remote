@@ -21,6 +21,8 @@
 #include <android/native_window_jni.h>
 #include <android/hardware_buffer.h>
 #include <android/log.h>
+#include <media/NdkImage.h>
+#include <dlfcn.h>
 #include <jni.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -30,6 +32,8 @@
 #include <stdatomic.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "shader_arrays.h" // g_ycbcr_rect_vert_spv / g_ycbcr_frag_spv
 
 #define VTAG "USBridge/VulkanVideo"
 #define VLOGI(...) __android_log_print(ANDROID_LOG_INFO,  VTAG, __VA_ARGS__)
@@ -203,6 +207,17 @@ static volatile int     g_ahb_ready  = 0;
 static atomic_int       g_drop_last_ahb;
 static atomic_int       g_drop_last_cpu;
 
+// Decoder images (android_vk_try_submit_aimage). The render thread owns
+// every AImage it is handed and deletes it once no frame uses it:
+// g_pend_aimg waits for the render thread (under g_mu), g_cur_aimg is the one
+// on screen, redrawn for cursor moves (render thread only).
+static AImage          *g_pend_aimg = NULL;
+static AImage          *g_cur_aimg  = NULL;
+static atomic_int       g_drop_last_aimg;
+// android_vk_release_aimages asks the render thread to give back every
+// AImage before the decoder's AImageReader goes away; it acks by clearing it.
+static atomic_int       g_aimg_release_req;
+
 static pthread_mutex_t g_mu     = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t       g_thread = 0;
 static int             g_pipe_r = -1, g_pipe_w = -1;
@@ -284,6 +299,7 @@ static void          *g_cursor_vk_ptr = NULL;
 
 // video_latency_android.c
 extern void vlat_note_present(void);
+extern void vlat_note_dropped(void);
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -427,6 +443,12 @@ static void cursor_init(int scale) {
 // functional, just not zero-copy) on any device/driver that's missing one of
 // these -- never crashes or blanks the screen over it.
 static int g_hw_import_supported = 0;
+// Decoder-image path (AImageReader buffers sampled through a
+// VkSamplerYcbcrConversion): needs the hwbuffer extensions above plus the
+// samplerYcbcrConversion feature.
+static int g_ycbcr_supported = 0;
+static PFN_vkCreateSamplerYcbcrConversionKHR  p_vkCreateSamplerYcbcrConversionKHR  = NULL;
+static PFN_vkDestroySamplerYcbcrConversionKHR p_vkDestroySamplerYcbcrConversionKHR = NULL;
 static int g_inst_has_ext_mem_caps = 0; // both instance prereqs enabled successfully
 
 static int has_ext(VkExtensionProperties *avail, uint32_t n, const char *name) {
@@ -528,7 +550,21 @@ static int vk_create_device(void) {
     }
     free(avail);
 
+    VkPhysicalDeviceSamplerYcbcrConversionFeatures ycf = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES };
+    if (hwbuf_ok) {
+        PFN_vkGetPhysicalDeviceFeatures2KHR gpf2 = (PFN_vkGetPhysicalDeviceFeatures2KHR)
+            vkGetInstanceProcAddr(g_inst, "vkGetPhysicalDeviceFeatures2KHR");
+        if (gpf2) {
+            VkPhysicalDeviceFeatures2 f2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &ycf };
+            gpf2(g_pdev, &f2);
+        }
+    }
+    int ycbcr_ok = hwbuf_ok && ycf.samplerYcbcrConversion;
+    ycf.pNext = NULL;
+
     VkDeviceCreateInfo dci = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+    dci.pNext                   = ycbcr_ok ? &ycf : NULL;
     dci.queueCreateInfoCount    = 1;
     dci.pQueueCreateInfos       = &qci;
     dci.enabledExtensionCount   = n;
@@ -542,7 +578,9 @@ static int vk_create_device(void) {
             // coming up at all.
             VLOGE("vkCreateDevice with hwbuffer extensions failed, retrying without them");
             dci.enabledExtensionCount = 1;
+            dci.pNext = NULL;
             hwbuf_ok = 0;
+            ycbcr_ok = 0;
             if (vkCreateDevice(g_pdev, &dci, NULL, &g_dev) != VK_SUCCESS) return 0;
         } else {
             return 0;
@@ -556,6 +594,15 @@ static int vk_create_device(void) {
             vkGetDeviceProcAddr(g_dev, "vkGetAndroidHardwareBufferPropertiesANDROID");
         g_hw_import_supported = p_vkGetAndroidHardwareBufferPropertiesANDROID != NULL;
         VLOGI("AHardwareBuffer zero-copy import: %s", g_hw_import_supported ? "available" : "unavailable (proc addr)");
+        if (ycbcr_ok) {
+            p_vkCreateSamplerYcbcrConversionKHR = (PFN_vkCreateSamplerYcbcrConversionKHR)
+                vkGetDeviceProcAddr(g_dev, "vkCreateSamplerYcbcrConversionKHR");
+            p_vkDestroySamplerYcbcrConversionKHR = (PFN_vkDestroySamplerYcbcrConversionKHR)
+                vkGetDeviceProcAddr(g_dev, "vkDestroySamplerYcbcrConversionKHR");
+        }
+        g_ycbcr_supported = g_hw_import_supported && ycbcr_ok &&
+            p_vkCreateSamplerYcbcrConversionKHR && p_vkDestroySamplerYcbcrConversionKHR;
+        VLOGI("decoder-image YCbCr sampling: %s", g_ycbcr_supported ? "available" : "unavailable");
     } else {
         VLOGI("AHardwareBuffer zero-copy import: unavailable (missing extensions)");
     }
@@ -652,7 +699,10 @@ static int vk_create_swapchain(int w, int h) {
     return 1;
 }
 
+static void vk_yc_destroy_framebuffers(void);
+
 static void vk_destroy_swapchain(void) {
+    vk_yc_destroy_framebuffers();
     if (g_swap_views) {
         for (uint32_t i = 0; i < g_swap_count; i++)
             if (g_swap_views[i]) vkDestroyImageView(g_dev, g_swap_views[i], NULL);
@@ -1331,7 +1381,441 @@ static VkImage hwimport_get_or_create(void *ahb_void, int fw, int fh) {
     return img;
 }
 
-static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
+// ── Decoder-image path (AImageReader -> YCbCr sampling) ───────────────────────
+//
+// MediaCodec decodes into AImageReader buffers (moonlight_cgo_android.go);
+// each buffer is imported here as a VkImage of the decoder's own (usually
+// opaque, "external") YUV format and drawn to the swapchain through a
+// VkSamplerYcbcrConversion, so the hardware converts to RGB while sampling.
+// No GL pass, no glFinish, no intermediate RGBA copy. The conversion uses the
+// model/range/chroma siting the driver suggests for the buffer, which follows
+// the colour info the decoder attached to it.
+//
+// Buffers come from a small fixed pool, so imports are cached per buffer.
+// AImage hands out a new AHardwareBuffer* wrapper for every image, so the key
+// is the buffer's system-wide id (AHardwareBuffer_getId, Android 12+; older
+// systems fall back to the pointer and so import every frame). Each entry
+// holds a reference (AHardwareBuffer_acquire) so the buffer, and with it the
+// id, stays alive while cached. Render thread only, except
+// vk_yc_destroy_all at cleanup.
+
+#define YC_CACHE 24
+typedef struct {
+    AHardwareBuffer *ahb;
+    uint64_t         key;
+    VkImage          img;
+    VkDeviceMemory   mem;
+    VkImageView      view;
+    VkDescriptorSet  ds;   // bound to view once, at import
+    uint64_t         used;
+} yc_entry;
+static yc_entry g_yc[YC_CACHE];
+static uint64_t g_yc_tick = 0;
+
+typedef int (*pfn_ahb_get_id)(const AHardwareBuffer *, uint64_t *);
+static pfn_ahb_get_id p_ahb_get_id = NULL;
+static int            g_ahb_get_id_looked = 0;
+
+static uint64_t vk_yc_key(AHardwareBuffer *ahb) {
+    if (!g_ahb_get_id_looked) {
+        g_ahb_get_id_looked = 1;
+        void *lib = dlopen("libandroid.so", RTLD_NOW);
+        if (lib) p_ahb_get_id = (pfn_ahb_get_id)dlsym(lib, "AHardwareBuffer_getId");
+        VLOGI("ycbcr: AHardwareBuffer_getId %s", p_ahb_get_id ? "available" : "missing (import per frame)");
+    }
+    uint64_t id = 0;
+    if (p_ahb_get_id && p_ahb_get_id(ahb, &id) == 0 && id) return id;
+    return (uint64_t)(uintptr_t)ahb;
+}
+
+// Conversion + sampler, rebuilt when the decoder's format changes.
+static VkFormat                 g_yc_fmt      = VK_FORMAT_UNDEFINED;
+static uint64_t                 g_yc_extfmt   = 0;
+static int                      g_yc_have_fmt = 0;
+static VkSamplerYcbcrConversion g_yc_conv     = VK_NULL_HANDLE;
+static VkSampler                g_yc_sampler  = VK_NULL_HANDLE;
+// Pipeline objects, rebuilt with the conversion (immutable sampler) or when
+// the swapchain format changes (render pass).
+static VkDescriptorSetLayout    g_yc_dsl      = VK_NULL_HANDLE;
+static VkPipelineLayout         g_yc_pl       = VK_NULL_HANDLE;
+static VkRenderPass             g_yc_rp       = VK_NULL_HANDLE;
+static VkFormat                 g_yc_rp_fmt   = VK_FORMAT_UNDEFINED;
+static VkPipeline               g_yc_pipe     = VK_NULL_HANDLE;
+static VkDescriptorPool         g_yc_dpool    = VK_NULL_HANDLE;
+// One framebuffer per swapchain image, dropped with the swapchain.
+static VkFramebuffer           *g_yc_fbs      = NULL;
+static uint32_t                 g_yc_fb_count = 0;
+
+static void vk_yc_destroy_framebuffers(void) {
+    if (!g_yc_fbs) return;
+    for (uint32_t i = 0; i < g_yc_fb_count; i++)
+        if (g_yc_fbs[i]) vkDestroyFramebuffer(g_dev, g_yc_fbs[i], NULL);
+    free(g_yc_fbs);
+    g_yc_fbs = NULL;
+    g_yc_fb_count = 0;
+}
+
+static void vk_yc_entry_free(yc_entry *e) {
+    if (e->ds && g_yc_dpool) vkFreeDescriptorSets(g_dev, g_yc_dpool, 1, &e->ds);
+    if (e->view) vkDestroyImageView(g_dev, e->view, NULL);
+    if (e->img)  vkDestroyImage(g_dev, e->img, NULL);
+    if (e->mem)  vkFreeMemory(g_dev, e->mem, NULL);
+    if (e->ahb)  AHardwareBuffer_release(e->ahb);
+    memset(e, 0, sizeof(*e));
+}
+
+static void vk_yc_cache_clear(void) {
+    for (int i = 0; i < YC_CACHE; i++) vk_yc_entry_free(&g_yc[i]);
+}
+
+static void vk_yc_destroy_pipeline(void) {
+    // Descriptor sets live in g_yc_dpool: imports go with it.
+    vk_yc_cache_clear();
+    vk_yc_destroy_framebuffers();
+    if (g_yc_pipe)  { vkDestroyPipeline(g_dev, g_yc_pipe, NULL);             g_yc_pipe  = VK_NULL_HANDLE; }
+    if (g_yc_dpool) { vkDestroyDescriptorPool(g_dev, g_yc_dpool, NULL);      g_yc_dpool = VK_NULL_HANDLE; }
+    if (g_yc_pl)    { vkDestroyPipelineLayout(g_dev, g_yc_pl, NULL);         g_yc_pl    = VK_NULL_HANDLE; }
+    if (g_yc_dsl)   { vkDestroyDescriptorSetLayout(g_dev, g_yc_dsl, NULL);   g_yc_dsl   = VK_NULL_HANDLE; }
+    if (g_yc_rp)    { vkDestroyRenderPass(g_dev, g_yc_rp, NULL);             g_yc_rp    = VK_NULL_HANDLE; }
+    g_yc_rp_fmt = VK_FORMAT_UNDEFINED;
+}
+
+// vk_yc_destroy_all frees every decoder-image object. Device must be idle.
+static void vk_yc_destroy_all(void) {
+    if (!g_dev) return;
+    vk_yc_cache_clear();
+    vk_yc_destroy_pipeline();
+    if (g_yc_sampler) { vkDestroySampler(g_dev, g_yc_sampler, NULL); g_yc_sampler = VK_NULL_HANDLE; }
+    if (g_yc_conv)    { p_vkDestroySamplerYcbcrConversionKHR(g_dev, g_yc_conv, NULL); g_yc_conv = VK_NULL_HANDLE; }
+    g_yc_have_fmt = 0;
+}
+
+static VkShaderModule vk_yc_shader(const uint32_t *code, size_t size) {
+    VkShaderModuleCreateInfo ci = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    ci.codeSize = size;
+    ci.pCode    = code;
+    VkShaderModule m = VK_NULL_HANDLE;
+    if (vkCreateShaderModule(g_dev, &ci, NULL, &m) != VK_SUCCESS) return VK_NULL_HANDLE;
+    return m;
+}
+
+// vk_yc_build_pipeline builds the render pass (for g_swap_fmt) and the
+// pipeline around the current immutable sampler.
+static int vk_yc_build_pipeline(void) {
+    VkAttachmentDescription att = {0};
+    att.format         = g_swap_fmt;
+    att.samples        = VK_SAMPLE_COUNT_1_BIT;
+    att.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    att.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    att.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Cursor and menu holes are transfer writes after the pass.
+    att.finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    VkAttachmentReference ref = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription sub = {0};
+    sub.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub.colorAttachmentCount = 1;
+    sub.pColorAttachments    = &ref;
+    VkSubpassDependency deps[2] = {0};
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+    VkRenderPassCreateInfo rpci = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    rpci.attachmentCount = 1; rpci.pAttachments  = &att;
+    rpci.subpassCount    = 1; rpci.pSubpasses    = &sub;
+    rpci.dependencyCount = 2; rpci.pDependencies = deps;
+    if (vkCreateRenderPass(g_dev, &rpci, NULL, &g_yc_rp) != VK_SUCCESS) return 0;
+    g_yc_rp_fmt = g_swap_fmt;
+
+    VkDescriptorSetLayoutBinding b = {0};
+    b.binding            = 0;
+    b.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b.descriptorCount    = 1;
+    b.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    b.pImmutableSamplers = &g_yc_sampler; // required with a YCbCr conversion
+    VkDescriptorSetLayoutCreateInfo dslci = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    dslci.bindingCount = 1; dslci.pBindings = &b;
+    if (vkCreateDescriptorSetLayout(g_dev, &dslci, NULL, &g_yc_dsl) != VK_SUCCESS) return 0;
+
+    VkPushConstantRange pcr = { VK_SHADER_STAGE_VERTEX_BIT, 0, 4 * sizeof(float) };
+    VkPipelineLayoutCreateInfo plci = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    plci.setLayoutCount = 1; plci.pSetLayouts = &g_yc_dsl;
+    plci.pushConstantRangeCount = 1; plci.pPushConstantRanges = &pcr;
+    if (vkCreatePipelineLayout(g_dev, &plci, NULL, &g_yc_pl) != VK_SUCCESS) return 0;
+
+    // One set per cached import; a multi-planar format can take several
+    // descriptors per sampler.
+    VkDescriptorPoolSize ps = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * YC_CACHE };
+    VkDescriptorPoolCreateInfo dpci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    dpci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    dpci.maxSets = YC_CACHE; dpci.poolSizeCount = 1; dpci.pPoolSizes = &ps;
+    if (vkCreateDescriptorPool(g_dev, &dpci, NULL, &g_yc_dpool) != VK_SUCCESS) return 0;
+
+    VkShaderModule vs = vk_yc_shader(g_ycbcr_rect_vert_spv, sizeof(g_ycbcr_rect_vert_spv));
+    VkShaderModule fs = vk_yc_shader(g_ycbcr_frag_spv, sizeof(g_ycbcr_frag_spv));
+    int ok = 0;
+    if (vs && fs) {
+        VkPipelineShaderStageCreateInfo st[2] = {
+            { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, NULL, 0, VK_SHADER_STAGE_VERTEX_BIT,   vs, "main", NULL },
+            { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, NULL, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", NULL },
+        };
+        VkPipelineVertexInputStateCreateInfo vi = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+        VkPipelineInputAssemblyStateCreateInfo ia = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkPipelineViewportStateCreateInfo vp = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+        vp.viewportCount = 1; vp.scissorCount = 1;
+        VkPipelineRasterizationStateCreateInfo rs = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+        rs.polygonMode = VK_POLYGON_MODE_FILL;
+        rs.cullMode    = VK_CULL_MODE_NONE;
+        rs.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rs.lineWidth   = 1.0f;
+        VkPipelineMultisampleStateCreateInfo ms = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        VkPipelineColorBlendAttachmentState cba = {0};
+        cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendStateCreateInfo cb = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+        cb.attachmentCount = 1; cb.pAttachments = &cba;
+        VkDynamicState dyn[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo ds = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+        ds.dynamicStateCount = 2; ds.pDynamicStates = dyn;
+        VkGraphicsPipelineCreateInfo gpci = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        gpci.stageCount = 2; gpci.pStages = st;
+        gpci.pVertexInputState   = &vi;
+        gpci.pInputAssemblyState = &ia;
+        gpci.pViewportState      = &vp;
+        gpci.pRasterizationState = &rs;
+        gpci.pMultisampleState   = &ms;
+        gpci.pColorBlendState    = &cb;
+        gpci.pDynamicState       = &ds;
+        gpci.layout     = g_yc_pl;
+        gpci.renderPass = g_yc_rp;
+        ok = vkCreateGraphicsPipelines(g_dev, VK_NULL_HANDLE, 1, &gpci, NULL, &g_yc_pipe) == VK_SUCCESS;
+    }
+    if (vs) vkDestroyShaderModule(g_dev, vs, NULL);
+    if (fs) vkDestroyShaderModule(g_dev, fs, NULL);
+    return ok;
+}
+
+// vk_yc_ensure_format makes the conversion, sampler and pipeline match the
+// buffer format described by fp (and the current swapchain format).
+static int vk_yc_ensure_format(const VkAndroidHardwareBufferFormatPropertiesANDROID *fp) {
+    uint64_t ext = fp->format == VK_FORMAT_UNDEFINED ? fp->externalFormat : 0;
+    if (!g_yc_have_fmt || g_yc_fmt != fp->format || g_yc_extfmt != ext) {
+        vkDeviceWaitIdle(g_dev);
+        vk_yc_destroy_all();
+
+        VkExternalFormatANDROID ef = { VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID };
+        ef.externalFormat = ext;
+        VkSamplerYcbcrConversionCreateInfo cci = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO };
+        cci.pNext         = ext ? &ef : NULL;
+        cci.format        = fp->format;
+        cci.ycbcrModel    = fp->suggestedYcbcrModel;
+        cci.ycbcrRange    = fp->suggestedYcbcrRange;
+        cci.components    = fp->samplerYcbcrConversionComponents;
+        cci.xChromaOffset = fp->suggestedXChromaOffset;
+        cci.yChromaOffset = fp->suggestedYChromaOffset;
+        VkFilter filter = (fp->formatFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT)
+                              ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+        cci.chromaFilter  = filter;
+        if (p_vkCreateSamplerYcbcrConversionKHR(g_dev, &cci, NULL, &g_yc_conv) != VK_SUCCESS) {
+            VLOGE("ycbcr: conversion create failed (fmt=%d ext=0x%llx)", (int)fp->format, (unsigned long long)ext);
+            g_yc_conv = VK_NULL_HANDLE;
+            return 0;
+        }
+        VkSamplerYcbcrConversionInfo ci = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO };
+        ci.conversion = g_yc_conv;
+        VkSamplerCreateInfo sci = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, &ci };
+        sci.magFilter    = filter;
+        sci.minFilter    = filter;
+        sci.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        sci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sci.maxLod       = 0.0f;
+        if (vkCreateSampler(g_dev, &sci, NULL, &g_yc_sampler) != VK_SUCCESS) {
+            VLOGE("ycbcr: sampler create failed");
+            g_yc_sampler = VK_NULL_HANDLE;
+            return 0;
+        }
+        g_yc_fmt = fp->format; g_yc_extfmt = ext; g_yc_have_fmt = 1;
+        VLOGI("ycbcr: conversion for fmt=%d ext=0x%llx model=%d range=%d chroma=(%d,%d) filter=%s",
+              (int)fp->format, (unsigned long long)ext, (int)fp->suggestedYcbcrModel,
+              (int)fp->suggestedYcbcrRange, (int)fp->suggestedXChromaOffset,
+              (int)fp->suggestedYChromaOffset, filter == VK_FILTER_LINEAR ? "linear" : "nearest");
+    }
+    if (g_yc_pipe && g_yc_rp_fmt != g_swap_fmt) {
+        vkDeviceWaitIdle(g_dev);
+        vk_yc_destroy_pipeline();
+    }
+    if (!g_yc_pipe && !vk_yc_build_pipeline()) {
+        VLOGE("ycbcr: pipeline build failed");
+        vk_yc_destroy_pipeline();
+        return 0;
+    }
+    return 1;
+}
+
+// vk_yc_get returns the cached (or freshly imported) view of ahb.
+static yc_entry *vk_yc_get(AHardwareBuffer *ahb) {
+    g_yc_tick++;
+    uint64_t key = vk_yc_key(ahb);
+    if (g_yc_have_fmt && g_yc_pipe && g_yc_rp_fmt == g_swap_fmt) {
+        for (int i = 0; i < YC_CACHE; i++)
+            if (g_yc[i].ahb && g_yc[i].key == key) { g_yc[i].used = g_yc_tick; return &g_yc[i]; }
+    }
+
+    VkAndroidHardwareBufferFormatPropertiesANDROID fp = { VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID };
+    VkAndroidHardwareBufferPropertiesANDROID props = { VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID, &fp };
+    if (p_vkGetAndroidHardwareBufferPropertiesANDROID(g_dev, ahb, &props) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkGetAndroidHardwareBufferPropertiesANDROID failed");
+        return NULL;
+    }
+    if (!vk_yc_ensure_format(&fp)) return NULL;
+    // ensure_format may have flushed the cache; look again.
+    for (int i = 0; i < YC_CACHE; i++)
+        if (g_yc[i].ahb && g_yc[i].key == key) { g_yc[i].used = g_yc_tick; return &g_yc[i]; }
+
+    // Evict the least recently used entry. Its last use is a finished
+    // frame: the caller waited g_fence before getting here.
+    int slot = 0;
+    for (int i = 0; i < YC_CACHE; i++) {
+        if (!g_yc[i].ahb) { slot = i; break; }
+        if (g_yc[i].used < g_yc[slot].used) slot = i;
+    }
+    yc_entry *e = &g_yc[slot];
+    if (e->ahb) vk_yc_entry_free(e);
+
+    AHardwareBuffer_Desc desc;
+    AHardwareBuffer_describe(ahb, &desc);
+
+    VkExternalFormatANDROID ef = { VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID };
+    ef.externalFormat = g_yc_extfmt;
+    VkExternalMemoryImageCreateInfo emi = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO, &ef };
+    emi.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+    VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, &emi };
+    ici.imageType     = VK_IMAGE_TYPE_2D;
+    ici.format        = g_yc_fmt;
+    ici.extent        = (VkExtent3D){desc.width, desc.height, 1};
+    ici.mipLevels     = 1;
+    ici.arrayLayers   = 1;
+    ici.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage         = VK_IMAGE_USAGE_SAMPLED_BIT;
+    ici.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImage img = VK_NULL_HANDLE;
+    if (vkCreateImage(g_dev, &ici, NULL, &img) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkCreateImage failed (%ux%u fmt=%d)", desc.width, desc.height, (int)g_yc_fmt);
+        return NULL;
+    }
+
+    VkImportAndroidHardwareBufferInfoANDROID imp = { VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID };
+    imp.buffer = ahb;
+    VkMemoryDedicatedAllocateInfo ded = { VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, &imp };
+    ded.image = img;
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, props.memoryTypeBits, 0);
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &ded };
+    mai.allocationSize  = props.allocationSize;
+    mai.memoryTypeIndex = mi;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    if (mi == UINT32_MAX || vkAllocateMemory(g_dev, &mai, NULL, &mem) != VK_SUCCESS) {
+        VLOGE("ycbcr: import allocation failed");
+        vkDestroyImage(g_dev, img, NULL);
+        return NULL;
+    }
+    if (vkBindImageMemory(g_dev, img, mem, 0) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkBindImageMemory failed");
+        vkFreeMemory(g_dev, mem, NULL);
+        vkDestroyImage(g_dev, img, NULL);
+        return NULL;
+    }
+
+    VkSamplerYcbcrConversionInfo ci = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO };
+    ci.conversion = g_yc_conv;
+    VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, &ci };
+    vci.image    = img;
+    vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vci.format   = g_yc_fmt;
+    vci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vci.subresourceRange.levelCount = 1;
+    vci.subresourceRange.layerCount = 1;
+    VkImageView view = VK_NULL_HANDLE;
+    if (vkCreateImageView(g_dev, &vci, NULL, &view) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkCreateImageView failed");
+        vkFreeMemory(g_dev, mem, NULL);
+        vkDestroyImage(g_dev, img, NULL);
+        return NULL;
+    }
+
+    VkDescriptorSet ds = VK_NULL_HANDLE;
+    VkDescriptorSetAllocateInfo dsai = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    dsai.descriptorPool = g_yc_dpool; dsai.descriptorSetCount = 1; dsai.pSetLayouts = &g_yc_dsl;
+    if (vkAllocateDescriptorSets(g_dev, &dsai, &ds) != VK_SUCCESS) {
+        VLOGE("ycbcr: vkAllocateDescriptorSets failed");
+        vkDestroyImageView(g_dev, view, NULL);
+        vkFreeMemory(g_dev, mem, NULL);
+        vkDestroyImage(g_dev, img, NULL);
+        return NULL;
+    }
+    VkDescriptorImageInfo dii = { VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+    VkWriteDescriptorSet w = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    w.dstSet = ds; w.dstBinding = 0; w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w.pImageInfo = &dii;
+    vkUpdateDescriptorSets(g_dev, 1, &w, 0, NULL);
+
+    AHardwareBuffer_acquire(ahb);
+    e->ahb = ahb; e->key = key; e->img = img; e->mem = mem; e->view = view; e->ds = ds; e->used = g_yc_tick;
+    VLOGI("ycbcr: imported decoder buffer %p %ux%u (slot %d)", (void *)ahb, desc.width, desc.height, slot);
+    return e;
+}
+
+static int vk_yc_ensure_framebuffers(void) {
+    if (g_yc_fbs && g_yc_fb_count == g_swap_count) return 1;
+    vk_yc_destroy_framebuffers();
+    g_yc_fbs = calloc(g_swap_count, sizeof(VkFramebuffer));
+    if (!g_yc_fbs) return 0;
+    g_yc_fb_count = g_swap_count;
+    for (uint32_t i = 0; i < g_swap_count; i++) {
+        VkFramebufferCreateInfo fci = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+        fci.renderPass      = g_yc_rp;
+        fci.attachmentCount = 1;
+        fci.pAttachments    = &g_swap_views[i];
+        fci.width           = g_swap_ext.width;
+        fci.height          = g_swap_ext.height;
+        fci.layers          = 1;
+        if (vkCreateFramebuffer(g_dev, &fci, NULL, &g_yc_fbs[i]) != VK_SUCCESS) {
+            vk_yc_destroy_framebuffers();
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// A decoder image to draw instead of an RGBA AHardwareBuffer: the buffer and
+// the visible crop of it (decoders pad to their block size).
+typedef struct {
+    AHardwareBuffer *ahb;
+    int buf_w, buf_h;
+    int crop_x, crop_y;
+} vk_yc_frame;
+
+// vk_render_frame_hw presents one frame from an AHardwareBuffer: an RGBA
+// buffer GL rendered (ahb_void, blitted), or, with ycf, a decoder buffer
+// sampled through the YCbCr pipeline. fw x fh is the visible frame size.
+static int vk_render_frame_hw(void *ahb_void, int fw, int fh, const vk_yc_frame *ycf) {
     if (!g_dev) return 0;
     if (!g_swap) { vk_recreate_swapchain(); return 0; }
 
@@ -1352,8 +1836,22 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
         }
     }
 
-    VkImage srcImg = hwimport_get_or_create(ahb_void, fw, fh);
-    if (srcImg == VK_NULL_HANDLE) return 0;
+    VkImage srcImg = VK_NULL_HANDLE;
+    yc_entry *yce = NULL;
+    if (ycf) {
+        // Importing may evict a cached image: the previous frame must be
+        // finished first.
+        // (Wait only; the reset happens after acquire as usual.)
+        if (vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL) == VK_TIMEOUT) {
+            VLOGE("vkWaitForFences timeout (2s)");
+            return 0;
+        }
+        yce = vk_yc_get(ycf->ahb);
+        if (!yce || !vk_yc_ensure_framebuffers()) return 0;
+    } else {
+        srcImg = hwimport_get_or_create(ahb_void, fw, fh);
+        if (srcImg == VK_NULL_HANDLE) return 0;
+    }
 
     uint32_t img_idx = 0;
     VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 2000000000ULL,
@@ -1372,21 +1870,38 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(g_cmdbuf, &bi);
 
-    // GL already wrote (and glFinish()'d) this frame's pixels straight into
-    // srcImg's backing memory -- there's nothing for us to copy in, just a
-    // layout transition before reading it. Treated as UNDEFINED->TRANSFER_SRC
-    // every frame rather than tracking Vulkan-side layout across GL/Vulkan API
-    // boundaries: we never write to this image via Vulkan ourselves, only
-    // ever blit-read it, so there's no prior Vulkan-tracked content to lose.
-    vk_image_barrier(g_cmdbuf, srcImg,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        0, VK_ACCESS_TRANSFER_READ_BIT,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    if (yce) {
+        // The decoder wrote this buffer (AImageReader waited its fence);
+        // take it from the foreign queue for sampling.
+        VkImageMemoryBarrier b = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
+        b.dstQueueFamilyIndex = g_qfam;
+        b.image = yce->img;
+        b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b.subresourceRange.levelCount = 1;
+        b.subresourceRange.layerCount = 1;
+        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(g_cmdbuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &b);
+    } else {
+        // GL already wrote (and glFinish()'d) this frame's pixels straight into
+        // srcImg's backing memory -- there's nothing for us to copy in, just a
+        // layout transition before reading it. Treated as UNDEFINED->TRANSFER_SRC
+        // every frame rather than tracking Vulkan-side layout across GL/Vulkan API
+        // boundaries: we never write to this image via Vulkan ourselves, only
+        // ever blit-read it, so there's no prior Vulkan-tracked content to lose.
+        vk_image_barrier(g_cmdbuf, srcImg,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        0, VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    }
 
     // Snapshot viewport + cursor state atomically, identical to vk_render_frame.
     pthread_mutex_lock(&g_state_mu);
@@ -1413,31 +1928,63 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
                           &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
     vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
-    // Opaque black: the surface is translucent, alpha 0 is reserved for holes.
-    VkClearColorValue black = {{0.0f, 0.0f, 0.0f, 1.0f}};
-    VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-    vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
+    if (yce) {
+        // Render pass clears to opaque black (alpha 0 is reserved for menu
+        // holes) and leaves the image in TRANSFER_DST for cursor and holes.
+        VkClearValue clear = { .color = {{0.0f, 0.0f, 0.0f, 1.0f}} };
+        VkRenderPassBeginInfo rbi = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        rbi.renderPass  = g_yc_rp;
+        rbi.framebuffer = g_yc_fbs[img_idx];
+        rbi.renderArea.extent = g_swap_ext;
+        rbi.clearValueCount = 1; rbi.pClearValues = &clear;
+        vkCmdBeginRenderPass(g_cmdbuf, &rbi, VK_SUBPASS_CONTENTS_INLINE);
+        int sx0 = dx < 0 ? 0 : dx, sy0 = dy < 0 ? 0 : dy;
+        int sx1 = dx + dw > sw ? sw : dx + dw, sy1 = dy + dh > sh ? sh : dy + dh;
+        if (sx1 > sx0 && sy1 > sy0 && src_x1 > src_x0 && src_y1 > src_y0) {
+            VkViewport vpt = { (float)dx, (float)dy, (float)dw, (float)dh, 0.0f, 1.0f };
+            VkRect2D sc = { { sx0, sy0 }, { (uint32_t)(sx1 - sx0), (uint32_t)(sy1 - sy0) } };
+            float pc[4] = {
+                (float)(ycf->crop_x + src_x0) / (float)ycf->buf_w,
+                (float)(ycf->crop_y + src_y0) / (float)ycf->buf_h,
+                (float)(src_x1 - src_x0) / (float)ycf->buf_w,
+                (float)(src_y1 - src_y0) / (float)ycf->buf_h,
+            };
+            vkCmdBindPipeline(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_yc_pipe);
+            vkCmdSetViewport(g_cmdbuf, 0, 1, &vpt);
+            vkCmdSetScissor(g_cmdbuf, 0, 1, &sc);
+            vkCmdPushConstants(g_cmdbuf, g_yc_pl, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), pc);
+            vkCmdBindDescriptorSets(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_yc_pl,
+                                    0, 1, &yce->ds, 0, NULL);
+            vkCmdDraw(g_cmdbuf, 3, 1, 0, 0);
+        }
+        vkCmdEndRenderPass(g_cmdbuf);
+    } else {
+        // Opaque black: the surface is translucent, alpha 0 is reserved for holes.
+        VkClearColorValue black = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
 
-    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-    if (dw > 0 && dh > 0 && src_x1 > src_x0 && src_y1 > src_y0) {
-    VkImageBlit blt = {0};
-    blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blt.srcSubresource.layerCount = 1;
-    blt.srcOffsets[0] = (VkOffset3D){src_x0, src_y0, 0};
-    blt.srcOffsets[1] = (VkOffset3D){src_x1, src_y1, 1};
-    blt.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blt.dstSubresource.layerCount = 1;
-    blt.dstOffsets[0] = (VkOffset3D){dx,      dy,      0};
-    blt.dstOffsets[1] = (VkOffset3D){dx + dw, dy + dh, 1};
-    vkCmdBlitImage(g_cmdbuf,
-        srcImg,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1, &blt, VK_FILTER_LINEAR);
+        if (dw > 0 && dh > 0 && src_x1 > src_x0 && src_y1 > src_y0) {
+        VkImageBlit blt = {0};
+        blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blt.srcSubresource.layerCount = 1;
+        blt.srcOffsets[0] = (VkOffset3D){src_x0, src_y0, 0};
+        blt.srcOffsets[1] = (VkOffset3D){src_x1, src_y1, 1};
+        blt.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blt.dstSubresource.layerCount = 1;
+        blt.dstOffsets[0] = (VkOffset3D){dx,      dy,      0};
+        blt.dstOffsets[1] = (VkOffset3D){dx + dw, dy + dh, 1};
+        vkCmdBlitImage(g_cmdbuf,
+            srcImg,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &blt, VK_FILTER_LINEAR);
+        }
     }
 
     if (snap_vis && g_cursor_nspans > 0 &&
@@ -1499,7 +2046,8 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
 
     vkEndCommandBuffer(g_cmdbuf);
 
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT |
+                                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     si.waitSemaphoreCount   = 1; si.pWaitSemaphores   = &g_img_sem;
     si.pWaitDstStageMask    = &wait_stage;
@@ -1531,6 +2079,64 @@ static double mono_sec_vk(void) {
 
 // ─── render thread ────────────────────────────────────────────────────────────
 
+// vk_note_video_frame_rendered counts a newly presented video frame (not a
+// cursor-only redraw) toward FPS and latency stats.
+static void vk_note_video_frame_rendered(void) {
+    g_rendered++;
+    vlat_note_present();
+    g_fps_n++;
+    double now = mono_sec_vk();
+    if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }
+    if (now - g_fps_t0 >= 2.0 && g_fps_n > 0) {
+        g_stat_fps   = (float)((double)g_fps_n / (now - g_fps_t0));
+        g_stat_ready = 1;
+        g_fps_t0 = now; g_fps_n = 0;
+    }
+    if (g_rendered % 300 == 0) {
+        VLOGI("rendered %lld frames, submitted %lld, fps=%.1f",
+              (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps);
+    }
+}
+
+// vk_aimg_set_current puts img on screen and deletes the previous one once
+// the GPU is done with it.
+static void vk_aimg_set_current(AImage *img) {
+    if (g_cur_aimg && g_cur_aimg != img) {
+        if (g_dev && g_fence) vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
+        AImage_delete(g_cur_aimg);
+    }
+    g_cur_aimg = img;
+}
+
+// vk_aimg_drop_all gives every decoder image back, and with them the cached
+// imports (which hold references to the reader's buffers).
+static void vk_aimg_drop_all(void) {
+    vk_aimg_set_current(NULL);
+    pthread_mutex_lock(&g_mu);
+    AImage *pend = g_pend_aimg;
+    g_pend_aimg = NULL;
+    pthread_mutex_unlock(&g_mu);
+    if (pend) AImage_delete(pend);
+    if (g_dev) {
+        vkDeviceWaitIdle(g_dev);
+        vk_yc_cache_clear();
+    }
+}
+
+static int vk_render_aimage(AImage *img) {
+    if (!img) return 0;
+    AHardwareBuffer *ahb = NULL;
+    AImageCropRect crop;
+    if (AImage_getHardwareBuffer(img, &ahb) != AMEDIA_OK || !ahb) return 0;
+    AHardwareBuffer_Desc desc;
+    AHardwareBuffer_describe(ahb, &desc);
+    if (AImage_getCropRect(img, &crop) != AMEDIA_OK || crop.right <= crop.left || crop.bottom <= crop.top) {
+        crop.left = 0; crop.top = 0; crop.right = (int32_t)desc.width; crop.bottom = (int32_t)desc.height;
+    }
+    vk_yc_frame f = { ahb, (int)desc.width, (int)desc.height, crop.left, crop.top };
+    return vk_render_frame_hw(NULL, crop.right - crop.left, crop.bottom - crop.top, &f);
+}
+
 static void *vk_render_thread(void *unused) {
     (void)unused;
     VLOGI("render thread started");
@@ -1548,6 +2154,10 @@ static void *vk_render_thread(void *unused) {
             char tmp[64]; read(g_pipe_r, tmp, sizeof(tmp));
         }
         if (!atomic_load(&g_active)) break;
+        if (atomic_load(&g_aimg_release_req)) {
+            vk_aimg_drop_all();
+            atomic_store(&g_aimg_release_req, 0);
+        }
         if (atomic_load(&g_hidden))  continue;
 
         // Explicit swapchain recreation requested (e.g. after fullscreen entry/exit).
@@ -1562,9 +2172,13 @@ static void *vk_render_thread(void *unused) {
         void *ahb = NULL;
         int ahb_w = 0, ahb_h = 0;
         int got_ahb = 0;
+        AImage *aimg = NULL;
 
         pthread_mutex_lock(&g_mu);
-        if (g_ahb_ready && g_pend_ahb) {
+        if (g_pend_aimg) {
+            aimg = g_pend_aimg;
+            g_pend_aimg = NULL;
+        } else if (g_ahb_ready && g_pend_ahb) {
             // Zero-copy path: nothing to copy, just the pointer + size GL
             // already rendered into (see android_vk_try_submit_hwbuffer).
             ahb = g_pend_ahb; ahb_w = g_pend_ahb_w; ahb_h = g_pend_ahb_h;
@@ -1608,6 +2222,16 @@ static void *vk_render_thread(void *unused) {
         if (atomic_exchange(&g_drop_last_cpu, 0)) {
             has_last_frame = 0;
         }
+        if (atomic_exchange(&g_drop_last_aimg, 0)) {
+            vk_aimg_set_current(NULL);
+        }
+
+        if (aimg || (cursor_dirty && g_cur_aimg)) {
+            int is_new = aimg != NULL;
+            if (is_new) vk_aimg_set_current(aimg);
+            if (vk_render_aimage(g_cur_aimg) && is_new) vk_note_video_frame_rendered();
+            continue;
+        }
 
         int is_video_frame = 0;
         if (got_ahb) {
@@ -1634,26 +2258,9 @@ static void *vk_render_thread(void *unused) {
 
         if (!got_frame && !got_ahb) continue;
 
-        int ok = got_ahb ? vk_render_frame_hw(ahb, ahb_w, ahb_h) : vk_render_frame(fw, fh, fs);
-        if (ok) {
-            g_rendered++;
-            // Only count real video frames toward FPS — cursor-only redraws skew the counter.
-            if (is_video_frame) {
-                vlat_note_present();
-                g_fps_n++;
-                double now = mono_sec_vk();
-                if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }
-                if (now - g_fps_t0 >= 2.0 && g_fps_n > 0) {
-                    g_stat_fps   = (float)((double)g_fps_n / (now - g_fps_t0));
-                    g_stat_ready = 1;
-                    g_fps_t0 = now; g_fps_n = 0;
-                }
-            }
-            if (g_rendered % 300 == 0) {
-                VLOGI("rendered %lld frames, submitted %lld, fps=%.1f",
-                      (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps);
-            }
-        }
+        int ok = got_ahb ? vk_render_frame_hw(ahb, ahb_w, ahb_h, NULL) : vk_render_frame(fw, fh, fs);
+        if (ok && is_video_frame) vk_note_video_frame_rendered();
+        else if (ok) g_rendered++;
     }
     VLOGI("render thread exiting");
     return NULL;
@@ -1670,6 +2277,8 @@ static void vk_full_cleanup(void) {
 
     if (g_dev) {
         vkDeviceWaitIdle(g_dev);
+        vk_aimg_drop_all();
+        vk_yc_destroy_all();
         cursor_destroy();
         vk_destroy_clear_img();
         if (g_stage_ptr && g_stage_mem) { vkUnmapMemory(g_dev, g_stage_mem); g_stage_ptr = NULL; }
@@ -1901,6 +2510,7 @@ int android_vk_try_submit(uint8_t *rgba, int width, int height, int stride) {
         g_ahb_ready = 0;
         g_pend_ahb = NULL;
         atomic_store(&g_drop_last_ahb, 1);
+        atomic_store(&g_drop_last_aimg, 1);
     }
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
@@ -1925,6 +2535,7 @@ int android_vk_try_submit_hwbuffer(void *ahb, int width, int height) {
     g_ahb_ready = 1; g_submitted++;
     g_ready = 0;
     atomic_store(&g_drop_last_cpu, 1);
+    atomic_store(&g_drop_last_aimg, 1);
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
     return 1;
@@ -1937,6 +2548,55 @@ int android_vk_try_submit_hwbuffer(void *ahb, int width, int height) {
 // pending frame so a mid-session switch does not flicker.
 int android_vk_hwbuffer_supported(void) {
     return g_hw_import_supported;
+}
+
+// android_vk_aimage_supported reports whether decoder images can be drawn
+// directly (android_vk_try_submit_aimage).
+int android_vk_aimage_supported(void) {
+    return atomic_load(&g_active) && g_ycbcr_supported;
+}
+
+// android_vk_try_submit_aimage hands a decoder image (AImageReader, already
+// filled) to the render thread, which takes ownership and deletes it. A
+// frame still waiting is replaced (and deleted) so only the newest is shown.
+// Returns 0 without taking img if the path is unavailable.
+int android_vk_try_submit_aimage(void *img) {
+    if (!img || !atomic_load(&g_active) || !g_ycbcr_supported) return 0;
+    pthread_mutex_lock(&g_mu);
+    if (!atomic_load(&g_active)) {
+        pthread_mutex_unlock(&g_mu);
+        return 0;
+    }
+    AImage *old = g_pend_aimg;
+    g_pend_aimg = (AImage *)img;
+    g_submitted++;
+    g_ready = 0;
+    g_ahb_ready = 0;
+    g_pend_ahb = NULL;
+    atomic_store(&g_drop_last_cpu, 1);
+    atomic_store(&g_drop_last_ahb, 1);
+    pthread_mutex_unlock(&g_mu);
+    if (old) {
+        AImage_delete(old); // replaced before it was shown
+        vlat_note_dropped();
+    }
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+    return 1;
+}
+
+// android_vk_release_aimages returns every decoder image the renderer holds
+// (and its imports of the reader's buffers). Call before deleting the
+// AImageReader they came from.
+void android_vk_release_aimages(void) {
+    if (!atomic_load(&g_active)) return; // vk_full_cleanup already dropped them
+    atomic_store(&g_aimg_release_req, 1);
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+    for (int i = 0; i < 300 && atomic_load(&g_aimg_release_req) && atomic_load(&g_active); i++) {
+        struct timespec ts = {0, 5000000}; // 5 ms
+        nanosleep(&ts, NULL);
+    }
+    if (atomic_load(&g_aimg_release_req) && atomic_load(&g_active))
+        VLOGE("android_vk_release_aimages: render thread did not answer in 1.5 s");
 }
 
 void android_vk_update_rect(int x, int y, int w, int h) {

@@ -12,6 +12,7 @@ package service
 
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
+#include <media/NdkImageReader.h>
 #include <aaudio/AAudio.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
@@ -44,6 +45,7 @@ extern void         *android_gl_get_frame_hwbuffer(int width, int height);
 extern void          android_gl_release(void);
 extern void          android_gl_set_low_latency(int on);
 extern void          android_gl_detach_thread(void);
+extern uint8_t      *android_gl_get_frame_from_ahb(void *ahb, int crop_x, int crop_y, int crop_w, int crop_h);
 
 // Declared in video_latency_android.c
 extern void vlat_note_submit(uint64_t pts, uint64_t receive_us, uint64_t now_moonlight_us);
@@ -58,6 +60,9 @@ extern int  android_vk_is_active(void);
 extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stride);
 extern int  android_vk_try_submit_hwbuffer(void *ahb, int width, int height);
 extern int  android_vk_hwbuffer_supported(void);
+extern int  android_vk_aimage_supported(void);
+extern int  android_vk_try_submit_aimage(void *img);
+extern void android_vk_release_aimages(void);
 
 // Bodies in net_graph_stats_android.c (not inline here: this file has
 // //export, so a non-static function body in this preamble would be
@@ -327,8 +332,10 @@ static void ar_decode(char *data, int len) {
 // ── Video implementation (AMediaCodec) ──────────────────────────────────────
 
 static void amc_present_output(int64_t pts);
+static void amc_present_image(AImage *img);
 static void amc_stop_output_thread(void);
 static void amc_start_output_thread(void);
+static void amc_teardown(void);
 
 // Low-latency decode (default on). `adb shell setprop debug.usbridge.lowlat 0`
 // before a stream starts restores the old pipeline -- plain MediaCodec
@@ -336,10 +343,85 @@ static void amc_start_output_thread(void);
 // so the two can be compared with the same build (logcat USBridge/VideoLat).
 static int g_amc_lowlat = 1;
 
-static int amc_read_lowlat_prop(void) {
+static int amc_read_prop_flag(const char *name) {
     char v[PROP_VALUE_MAX] = {0};
-    if (__system_property_get("debug.usbridge.lowlat", v) > 0 && v[0] == '0') return 0;
+    if (__system_property_get(name, v) > 0 && v[0] == '0') return 0;
     return 1;
+}
+
+// ── Decoder images (low-latency path) ────────────────────────────────────────
+//
+// MediaCodec decodes into an AImageReader; each decoded buffer goes to
+// Vulkan as is (sampled through a YCbCr conversion, see
+// vk_video_impl_android.c) -- no GL copy, no glFinish. GL only reads a
+// buffer back when CPU pixels are needed (Net Graph HUD, no Vulkan overlay).
+// `adb shell setprop debug.usbridge.zerocopy 0` keeps the SurfaceTexture/GL
+// copy instead.
+static AImageReader   *g_air = NULL;
+static pthread_mutex_t g_air_mu   = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  g_air_cond = PTHREAD_COND_INITIALIZER;
+static int             g_air_seq  = 0; // bumped by every new image
+
+static void air_on_image(void *ctx, AImageReader *r) {
+    (void)ctx; (void)r;
+    pthread_mutex_lock(&g_air_mu);
+    g_air_seq++;
+    pthread_cond_broadcast(&g_air_cond);
+    pthread_mutex_unlock(&g_air_mu);
+}
+
+// Images the reader can hand out at once: the one on screen and the one
+// waiting in Vulkan, the one being acquired, and slack for
+// acquireLatestImage.
+#define AIR_MAX_IMAGES 6
+
+static ANativeWindow *air_create(int width, int height) {
+    media_status_t st = AImageReader_newWithUsage(width, height, AIMAGE_FORMAT_PRIVATE,
+        AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, AIR_MAX_IMAGES, &g_air);
+    if (st != AMEDIA_OK || !g_air) {
+        ALOGE("AImageReader_newWithUsage failed (%d) — using SurfaceTexture", (int)st);
+        g_air = NULL;
+        return NULL;
+    }
+    AImageReader_ImageListener l = { NULL, air_on_image };
+    AImageReader_setImageListener(g_air, &l);
+    ANativeWindow *win = NULL;
+    if (AImageReader_getWindow(g_air, &win) != AMEDIA_OK || !win) {
+        ALOGE("AImageReader_getWindow failed — using SurfaceTexture");
+        AImageReader_delete(g_air);
+        g_air = NULL;
+        return NULL;
+    }
+    ANativeWindow_acquire(win); // the reader owns its window; amc_init releases ours
+    return win;
+}
+
+// air_acquire waits (up to timeout_ms) for the image of the output buffer
+// just released and returns the newest one, or NULL.
+static AImage *air_acquire(int timeout_ms) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_nsec += (long)timeout_ms * 1000000L;
+    deadline.tv_sec += deadline.tv_nsec / 1000000000L;
+    deadline.tv_nsec %= 1000000000L;
+    for (;;) {
+        pthread_mutex_lock(&g_air_mu);
+        int seq = g_air_seq;
+        pthread_mutex_unlock(&g_air_mu);
+        AImage *img = NULL;
+        media_status_t st = AImageReader_acquireLatestImage(g_air, &img);
+        if (st == AMEDIA_OK && img) return img;
+        if (st == AMEDIA_IMGREADER_MAX_IMAGES_ACQUIRED) {
+            ALOGE("air_acquire: all %d images held", AIR_MAX_IMAGES);
+            return NULL;
+        }
+        pthread_mutex_lock(&g_air_mu);
+        int rc = 0;
+        while (g_air_seq == seq && rc == 0)
+            rc = pthread_cond_timedwait(&g_air_cond, &g_air_mu, &deadline);
+        pthread_mutex_unlock(&g_air_mu);
+        if (rc != 0) return NULL; // timed out
+    }
 }
 
 // amc_low_latency_format adds the keys that make decoders hand each frame
@@ -356,33 +438,51 @@ static void amc_low_latency_format(AMediaFormat *fmt) {
     AMediaFormat_setInt32(fmt, "vendor.low-latency.enable", 1);
 }
 
-static AMediaFormat *amc_new_format(const char *mime, int width, int height, int lowlat) {
+// amc_is_qualcomm: Qualcomm decoders drop out of low-latency mode when an
+// operating rate is set (Moonlight-Android avoids it there for the same
+// reason).
+static int amc_is_qualcomm(const char *name) {
+    return strncmp(name, "OMX.qcom.", 9) == 0 || strncmp(name, "c2.qti.", 7) == 0;
+}
+
+static AMediaFormat *amc_new_format(const char *mime, int width, int height, int fps,
+                                    const char *decoder, int lowlat) {
     AMediaFormat *fmt = AMediaFormat_new();
     AMediaFormat_setString(fmt, "mime", mime);
     AMediaFormat_setInt32(fmt,  "width",  width);
     AMediaFormat_setInt32(fmt,  "height", height);
-    if (lowlat) amc_low_latency_format(fmt);
+    if (lowlat) {
+        amc_low_latency_format(fmt);
+        // Without these the platform sizes decoder clocks for 30 fps:
+        // 4K at 60-120 fps then decodes at ~15-20 fps and backs up.
+        if (fps > 0) AMediaFormat_setInt32(fmt, "frame-rate", fps);
+        if (!amc_is_qualcomm(decoder)) AMediaFormat_setInt32(fmt, "operating-rate", 32767);
+    }
     return fmt;
 }
 
-static void amc_init(int fmt_codec, int width, int height) {
+static void amc_init(int fmt_codec, int width, int height, int fps) {
     ALOGI("amc_init: fmt=0x%x %dx%d", fmt_codec, width, height);
     // Safety: clean up stale codec and EGL if dr_cleanup wasn't called.
     if (g_amc) {
         ALOGE("amc_init: stale g_amc found — cleaning up");
-        amc_stop_output_thread();
-        AMediaCodec_stop(g_amc);
-        AMediaCodec_delete(g_amc);
-        g_amc = NULL;
-        android_gl_release();  // also tear down stale EGL context
+        amc_teardown();
     }
     g_amc_w = width; g_amc_h = height;
-    g_amc_lowlat = amc_read_lowlat_prop();
+    g_amc_lowlat = amc_read_prop_flag("debug.usbridge.lowlat");
     vlat_reset();
     android_gl_set_low_latency(g_amc_lowlat);
 
+    // GL is set up either way: it is the fallback for CPU pixels.
     ANativeWindow *nwin = android_gl_init(width, height);
     if (!nwin) { ALOGE("amc_init: no native window"); return; }
+    if (g_amc_lowlat && amc_read_prop_flag("debug.usbridge.zerocopy")) {
+        ANativeWindow *rwin = air_create(width, height);
+        if (rwin) {
+            ANativeWindow_release(nwin);
+            nwin = rwin;
+        }
+    }
 
     const char *mime = "video/avc";
     if (fmt_codec & 0x0F00) { // VIDEO_FORMAT_MASK_H265
@@ -393,8 +493,14 @@ static void amc_init(int fmt_codec, int width, int height) {
 
     g_amc = AMediaCodec_createDecoderByType(mime);
     int configured = 0;
+    char name[128] = "?";
     if (g_amc) {
-        AMediaFormat *fmt = amc_new_format(mime, width, height, g_amc_lowlat);
+        char *n = NULL;
+        if (AMediaCodec_getName(g_amc, &n) == AMEDIA_OK && n) {
+            snprintf(name, sizeof(name), "%s", n);
+            AMediaCodec_releaseName(g_amc, n);
+        }
+        AMediaFormat *fmt = amc_new_format(mime, width, height, fps, name, g_amc_lowlat);
         configured = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK;
         AMediaFormat_delete(fmt);
         if (!configured && g_amc_lowlat) {
@@ -404,7 +510,7 @@ static void amc_init(int fmt_codec, int width, int height) {
             AMediaCodec_delete(g_amc);
             g_amc = AMediaCodec_createDecoderByType(mime);
             if (g_amc) {
-                fmt = amc_new_format(mime, width, height, 0);
+                fmt = amc_new_format(mime, width, height, fps, name, 0);
                 configured = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK;
                 AMediaFormat_delete(fmt);
             }
@@ -412,13 +518,8 @@ static void amc_init(int fmt_codec, int width, int height) {
     }
     if (configured) {
         if (AMediaCodec_start(g_amc) == AMEDIA_OK) {
-            char name[128] = "?";
-            char *n = NULL;
-            if (AMediaCodec_getName(g_amc, &n) == AMEDIA_OK && n) {
-                snprintf(name, sizeof(name), "%s", n);
-                AMediaCodec_releaseName(g_amc, n);
-            }
-            ALOGI("AMediaCodec started (%s, %s, lowlat=%d)", mime, name, g_amc_lowlat);
+            ALOGI("AMediaCodec started (%s, %s, %dx%d@%d, lowlat=%d, imagereader=%d)",
+                  mime, name, width, height, fps, g_amc_lowlat, g_air != NULL);
             if (g_amc_lowlat) amc_start_output_thread();
         } else { ALOGE("AMediaCodec_start failed (%s)", mime); }
     } else { ALOGE("AMediaCodec configure failed (%s)", mime); }
@@ -455,7 +556,12 @@ static void *amc_output_thread(void *arg) {
         }
         vlat_note_output((uint64_t)info.presentationTimeUs);
         AMediaCodec_releaseOutputBuffer(g_amc, (size_t)idx, 1);
-        amc_present_output(info.presentationTimeUs);
+        if (g_air) {
+            AImage *img = air_acquire(30);
+            if (img) amc_present_image(img);
+        } else {
+            amc_present_output(info.presentationTimeUs);
+        }
     }
     // get_env() in the GL bridge attached this thread to the JVM; a thread
     // that exits attached aborts the process.
@@ -484,7 +590,7 @@ static void amc_stop_output_thread(void) {
 
 static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
     ALOGI("dr_setup: %dx%d@%d", w, h, rate);
-    amc_init(fmt, w, h);
+    amc_init(fmt, w, h, rate);
     return 0;
 }
 
@@ -580,15 +686,59 @@ static void amc_present_output(int64_t pts) {
     }
 }
 
-static void dr_cleanup(void) {
-    ALOGI("dr_cleanup");
+// amc_present_image shows a decoder image: straight to Vulkan when it can
+// sample it, else read back through GL like amc_present_output's CPU path.
+// Takes ownership of img.
+static void amc_present_image(AImage *img) {
+    int hud = goNetGraphWanted();
+    if (!hud && android_vk_is_active() && android_vk_aimage_supported()) {
+        vlat_note_handoff();
+        if (android_vk_try_submit_aimage(img)) {
+            goVTFrame(NULL, g_amc_w, g_amc_h, g_amc_w * 4);
+            return;
+        }
+    }
+    AHardwareBuffer *ahb = NULL;
+    AImageCropRect c = {0, 0, g_amc_w, g_amc_h};
+    uint8_t *rgba = NULL;
+    int w = g_amc_w, h = g_amc_h;
+    if (AImage_getHardwareBuffer(img, &ahb) == AMEDIA_OK && ahb) {
+        if (AImage_getCropRect(img, &c) != AMEDIA_OK || c.right <= c.left || c.bottom <= c.top) {
+            c.left = 0; c.top = 0; c.right = g_amc_w; c.bottom = g_amc_h;
+        }
+        w = c.right - c.left; h = c.bottom - c.top;
+        rgba = android_gl_get_frame_from_ahb(ahb, c.left, c.top, w, h);
+    }
+    AImage_delete(img);
+    if (!rgba) return;
+    goNetGraphOverlay(rgba, w, h, w * 4);
+    if (android_vk_is_active()) {
+        vlat_note_handoff();
+        android_vk_try_submit(rgba, w, h, w * 4);
+    }
+    goVTFrame(rgba, w, h, w * 4);
+}
+
+// amc_teardown stops decoding and frees the codec, the image reader (once
+// Vulkan gave its images back) and the GL context.
+static void amc_teardown(void) {
     if (g_amc) {
         amc_stop_output_thread();
         AMediaCodec_stop(g_amc);
         AMediaCodec_delete(g_amc);
         g_amc = NULL;
     }
+    if (g_air) {
+        android_vk_release_aimages();
+        AImageReader_delete(g_air);
+        g_air = NULL;
+    }
     android_gl_release();  // always release EGL, even if codec creation failed
+}
+
+static void dr_cleanup(void) {
+    ALOGI("dr_cleanup");
+    amc_teardown();
 }
 
 // ── Start/Stop ────────────────────────────────────────────────────────────────

@@ -405,6 +405,17 @@ static void resize_fbo(int w, int h) {
 // Full-screen quad: pos(x,y) + texcoord(u,v), triangle-strip order.
 // Y positions are flipped so glReadPixels (bottom-up) produces a top-down image
 // without any CPU row-reversal on the Go side.
+// Decoder-image source (android_gl_get_frame_from_ahb): when set,
+// render_and_readback samples this AHardwareBuffer through a per-frame
+// EGLImage instead of latching the SurfaceTexture, with g_src_mtx standing in
+// for SurfaceTexture's transform (crop + the same vertical flip).
+static AHardwareBuffer *g_src_ahb = NULL;
+static float            g_src_mtx[16];
+static GLuint           g_src_tex = 0;
+
+static EGLImageKHR src_ahb_bind(AHardwareBuffer *ahb);
+static void        src_ahb_unbind(EGLImageKHR img);
+
 static const float kVerts[] = {
     -1.0f, +1.0f,  0.0f, 0.0f,
      1.0f, +1.0f,  1.0f, 0.0f,
@@ -426,16 +437,33 @@ static uint8_t *render_and_readback(int w, int h) {
         return NULL;
     }
 
-    // Latch the latest decoded frame onto the OES texture — but only after
-    // confirming the buffer we released actually arrived at the consumer.
-    wait_for_frame_available();
-    java_update_tex();
-
     float mtx[16];
-    java_get_transform(mtx);
+    GLuint tex = g_oes_tex;
+    EGLImageKHR src_img = EGL_NO_IMAGE_KHR;
+    if (g_src_ahb) {
+        src_img = src_ahb_bind(g_src_ahb);
+        if (src_img == EGL_NO_IMAGE_KHR) {
+            eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            atomic_store(&g_egl_busy, 0);
+            return NULL;
+        }
+        memcpy(mtx, g_src_mtx, sizeof(mtx));
+        tex = g_src_tex;
+    } else {
+        // Latch the latest decoded frame onto the OES texture — but only after
+        // confirming the buffer we released actually arrived at the consumer.
+        wait_for_frame_available();
+        java_update_tex();
+        java_get_transform(mtx);
+    }
 
     resize_fbo(w, h);
-    if (!g_readback) return NULL;
+    if (!g_readback) {
+        src_ahb_unbind(src_img);
+        eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        atomic_store(&g_egl_busy, 0);
+        return NULL;
+    }
 
     // Render OES texture into RGBA FBO.
     glBindFramebuffer(GL_FRAMEBUFFER, g_fbo);
@@ -443,7 +471,7 @@ static uint8_t *render_and_readback(int w, int h) {
     glUseProgram(g_prog);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_oes_tex);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex);
     glUniform1i(g_loc_tex, 0);
     glUniformMatrix4fv(g_loc_mtx, 1, GL_FALSE, mtx);
 
@@ -487,6 +515,7 @@ static uint8_t *render_and_readback(int w, int h) {
         glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, g_readback);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
+    src_ahb_unbind(src_img);
 
     // Unbind and release the EGL lock so android_gl_release can proceed.
     eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -673,7 +702,57 @@ static AHardwareBuffer *render_to_hwbuffer(int w, int h) {
     return g_hwbuf[slot];
 }
 
+// src_ahb_bind wraps g_src_ahb in an EGLImage on g_src_tex (EGL context
+// current). The image only lives for one render_and_readback.
+static EGLImageKHR src_ahb_bind(AHardwareBuffer *ahb) {
+    if (!hwbuf_load_ext_procs()) return EGL_NO_IMAGE_KHR;
+    EGLClientBuffer cb = p_eglGetNativeClientBufferANDROID(ahb);
+    if (!cb) return EGL_NO_IMAGE_KHR;
+    const EGLint attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
+    EGLImageKHR img = p_eglCreateImageKHR(g_display, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, cb, attrs);
+    if (img == EGL_NO_IMAGE_KHR) { VLOGE("src_ahb_bind: eglCreateImageKHR failed"); return img; }
+    if (!g_src_tex) {
+        glGenTextures(1, &g_src_tex);
+        glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_src_tex);
+        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_src_tex);
+    p_glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, (GLeglImageOES)img);
+    return img;
+}
+
+static void src_ahb_unbind(EGLImageKHR img) {
+    if (img != EGL_NO_IMAGE_KHR && p_eglDestroyImageKHR) p_eglDestroyImageKHR(g_display, img);
+}
+
 // ── Public C API (called from moonlight_cgo_android.go) ───────────────────────
+
+// android_gl_get_frame_from_ahb reads a decoder image (AImageReader buffer)
+// back as top-down RGBA of its crop rect, for the paths that need CPU pixels
+// (Net Graph HUD, no Vulkan overlay). Returns NULL on failure.
+uint8_t *android_gl_get_frame_from_ahb(void *ahb_void, int crop_x, int crop_y, int crop_w, int crop_h) {
+    if (g_context == EGL_NO_CONTEXT || !g_prog || !ahb_void || crop_w <= 0 || crop_h <= 0) return NULL;
+    AHardwareBuffer *ahb = (AHardwareBuffer *)ahb_void;
+    AHardwareBuffer_Desc d;
+    AHardwareBuffer_describe(ahb, &d);
+    float bw = (float)d.width, bh = (float)d.height;
+    // Same convention as SurfaceTexture's matrix: v = 0 is the image's
+    // bottom row, so render_and_readback's flip comes out top-down.
+    memset(g_src_mtx, 0, sizeof(g_src_mtx));
+    g_src_mtx[0]  = (float)crop_w / bw;
+    g_src_mtx[5]  = -(float)crop_h / bh;
+    g_src_mtx[10] = 1.0f;
+    g_src_mtx[12] = (float)crop_x / bw;
+    g_src_mtx[13] = (float)(crop_y + crop_h) / bh;
+    g_src_mtx[15] = 1.0f;
+    g_src_ahb = ahb;
+    uint8_t *out = render_and_readback(crop_w, crop_h);
+    g_src_ahb = NULL;
+    return out;
+}
 
 void android_gl_set_jvm(JavaVM *jvm, jobject ctx) {
     if (g_jvm != NULL && g_cls_vsb != NULL) {
@@ -799,6 +878,7 @@ void android_gl_release(void) {
     if (g_fbo)     { glDeleteFramebuffers(1, &g_fbo); g_fbo = 0; }
     if (g_fbo_tex) { glDeleteTextures(1, &g_fbo_tex); g_fbo_tex = 0; }
     if (g_oes_tex) { glDeleteTextures(1, &g_oes_tex); g_oes_tex = 0; }
+    if (g_src_tex) { glDeleteTextures(1, &g_src_tex); g_src_tex = 0; }
     for (int i = 0; i < HWBUF_COUNT; i++) hwbuf_destroy_slot(i);
     g_hwbuf_w = g_hwbuf_h = 0; g_hwbuf_wr = 0;
 
