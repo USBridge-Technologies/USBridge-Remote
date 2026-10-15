@@ -237,7 +237,16 @@ jobs:
         # Staple the .app itself, not just the .dmg — if the ticket only
         # lives on the disk image, an app dragged out of it to /Applications
         # has no local ticket (Gatekeeper falls back to an online check).
-        run: xcrun stapler staple "agent/dist/macos/USBridgeAgent.app"
+        # Apple's ticket service (api.apple-cloudkit.com) drops the
+        # connection now and then ("network connection was lost", error 68)
+        # right after an Accepted notarization: retry instead of failing.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler staple "agent/dist/macos/USBridgeAgent.app" && break
+            [ "$attempt" -eq 5 ] && { echo "::error::stapling failed after 5 attempts"; exit 1; }
+            echo "::warning::stapling failed (attempt $attempt/5) -- retrying in 30s"
+            sleep 30
+          done
 
       - name: Rebuild disk image with the stapled app
         run: |
@@ -309,7 +318,12 @@ jobs:
           echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc" && { echo "::error::ad-hoc signed"; exit 1; }
           echo "$CODESIGN_INFO" | grep -q "Authority=Developer ID Application" || { echo "::error::wrong cert"; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$APP"
-          xcrun stapler validate "$APP" || { echo "::error::ticket not stapled"; exit 1; }
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler validate "$APP" && break
+            [ "$attempt" -eq 5 ] && { echo "::error::ticket not stapled"; exit 1; }
+            echo "::warning::stapler validate failed (attempt $attempt/5) -- retrying in 30s"
+            sleep 30
+          done
           SPCTL_OUTPUT="$(spctl --assess --type execute -vv "$APP" 2>&1)" || { echo "$SPCTL_OUTPUT"; echo "::error::spctl rejected"; exit 1; }
           echo "$SPCTL_OUTPUT" | grep -q "source=Notarized Developer ID" || { echo "::error::not notarized"; exit 1; }
           echo "✓ agent macOS ready to distribute"
@@ -803,7 +817,16 @@ jobs:
         # Staple the .app itself, not just the .dmg — if the ticket only
         # lives on the disk image, an app dragged out of it to /Applications
         # has no local ticket (Gatekeeper falls back to an online check).
-        run: xcrun stapler staple "client/dist/macos/USBridgeClient.app"
+        # Apple's ticket service (api.apple-cloudkit.com) drops the
+        # connection now and then ("network connection was lost", error 68)
+        # right after an Accepted notarization: retry instead of failing.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler staple "client/dist/macos/USBridgeClient.app" && break
+            [ "$attempt" -eq 5 ] && { echo "::error::stapling failed after 5 attempts"; exit 1; }
+            echo "::warning::stapling failed (attempt $attempt/5) -- retrying in 30s"
+            sleep 30
+          done
 
       - name: Rebuild disk image with the stapled app
         run: |
@@ -875,7 +898,12 @@ jobs:
           echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc" && { echo "::error::ad-hoc signed"; exit 1; }
           echo "$CODESIGN_INFO" | grep -q "Authority=Developer ID Application" || { echo "::error::wrong cert"; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$APP"
-          xcrun stapler validate "$APP" || { echo "::error::ticket not stapled"; exit 1; }
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler validate "$APP" && break
+            [ "$attempt" -eq 5 ] && { echo "::error::ticket not stapled"; exit 1; }
+            echo "::warning::stapler validate failed (attempt $attempt/5) -- retrying in 30s"
+            sleep 30
+          done
           SPCTL_OUTPUT="$(spctl --assess --type execute -vv "$APP" 2>&1)" || { echo "$SPCTL_OUTPUT"; echo "::error::spctl rejected"; exit 1; }
           echo "$SPCTL_OUTPUT" | grep -q "source=Notarized Developer ID" || { echo "::error::not notarized"; exit 1; }
           echo "✓ client macOS ready to distribute"
@@ -1061,7 +1089,11 @@ jobs:
           ln -s /Applications "$SRC/Applications"
           ls -la "$SRC"
           for app in "$SRC"/*.app; do
-            xcrun stapler validate "$app"
+            for attempt in 1 2 3 4 5; do
+              xcrun stapler validate "$app" && break
+              [ "$attempt" -eq 5 ] && exit 1
+              sleep 30
+            done
             spctl --assess --type execute -vv "$app"
           done
           OUT="dist/USBridge-macOS-arm64-$VERSION.dmg"
