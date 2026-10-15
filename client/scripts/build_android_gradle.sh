@@ -27,6 +27,74 @@ fi
 DIST_DIR="$REPO_ROOT/dist/android"
 mkdir -p "$DIST_DIR"
 
+# ABIs to ship. armeabi-v7a covers 32-bit-only budget phones (e.g. Redmi A2,
+# Helio G36 -- no arm64 userspace at all); `ANDROID_ABIS=arm64-v8a` for a
+# faster single-ABI dev build.
+ANDROID_ABIS="${ANDROID_ABIS:-arm64-v8a armeabi-v7a}"
+
+android_abi_goarch() {
+    case "$1" in
+        arm64-v8a) echo arm64 ;;
+        armeabi-v7a) echo arm ;;
+        *) echo "unsupported ABI $1" >&2; exit 1 ;;
+    esac
+}
+
+# NDK clang target triple prefix / sysroot lib dir name for an ABI.
+android_abi_clang_triple() {
+    case "$1" in
+        arm64-v8a) echo aarch64-linux-android ;;
+        armeabi-v7a) echo armv7a-linux-androideabi ;;
+    esac
+}
+android_abi_sysroot_dir() {
+    case "$1" in
+        arm64-v8a) echo aarch64-linux-android ;;
+        armeabi-v7a) echo arm-linux-androideabi ;;
+    esac
+}
+
+# Where scripts/build_moonlight.sh puts an ABI's static libs (must match
+# the per-arch #cgo lines in internal/service/moonlight_cgo_android.go).
+android_moonlight_dir() {
+    case "$1" in
+        arm64-v8a) echo "$REPO_ROOT/moonlight-common-c/build/android" ;;
+        *) echo "$REPO_ROOT/moonlight-common-c/build/android-$1" ;;
+    esac
+}
+
+# ensure_moonlight_libs builds moonlight-common-c/OpenSSL/Opus for an ABI
+# the first time it's needed.
+ensure_moonlight_libs() {
+    local abi="$1" dir
+    dir="$(android_moonlight_dir "$abi")"
+    if [ -f "$dir/libmoonlight-common-c.a" ] && [ -f "$dir/opus/lib/libopus.a" ]; then
+        return 0
+    fi
+    echo "📦 Building moonlight-common-c + OpenSSL + Opus for $abi..."
+    MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_ANDROID_ABI="$abi" ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
+        "$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ native libs for $abi failed${NC}"; exit 1; }
+}
+
+# setup_fyne_abi_toolchain points CC/CXX at the ABI's API 26 NDK clang (Go's
+# own default resolves to API 21, where libaaudio/libvulkan aren't
+# linkable) and adds that ABI's API 26 sysroot lib dir to CGO_LDFLAGS.
+setup_fyne_abi_toolchain() {
+    local abi="$1" prebuilt triple libdir
+    setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 26 "$(android_abi_clang_triple "$abi")"
+    prebuilt="$(find "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -1)"
+    libdir="${prebuilt}/sysroot/usr/lib/$(android_abi_sysroot_dir "$abi")/26"
+    export CGO_LDFLAGS="$CGO_LDFLAGS_BASE"
+    if [ -d "$libdir" ]; then
+        export CGO_LDFLAGS="$CGO_LDFLAGS -L$libdir"
+    fi
+}
+
+GOMOBILE_TARGETS=""
+for abi in $ANDROID_ABIS; do
+    GOMOBILE_TARGETS="${GOMOBILE_TARGETS:+$GOMOBILE_TARGETS,}android/$(android_abi_goarch "$abi")"
+done
+
 # Distribution channel: which flavor (client/android/app/build.gradle.kts)
 # and Go build tag (client/internal/update/update_disabled.go) this build
 # gets.
@@ -342,13 +410,21 @@ fi
 if [ "${FORCE_GOMOBILE:-0}" = "1" ]; then
     NEED_GOMOBILE=1
 fi
+# An AAR built before an ABI was added to ANDROID_ABIS lacks its jni/<abi>.
+if [ "$NEED_GOMOBILE" -eq 0 ]; then
+    for abi in $ANDROID_ABIS; do
+        if ! unzip -l "$AAR_OUT" 2>/dev/null | grep -q "jni/$abi/"; then
+            NEED_GOMOBILE=1
+        fi
+    done
+fi
 
 if [ "$NEED_GOMOBILE" -eq 1 ]; then
     rm -f "$AAR_OUT"
-    # -target android/arm64, not just "android" (which silently builds all
-    # four ABIs -- arm/arm64/x86/x86_64 -- since gomobile defaults to
-    # every ABI it knows when none is named). This project only ever
-    # ships arm64-v8a; the other three were pure wasted build time here.
+    # -target lists exactly ANDROID_ABIS, not just "android" (which
+    # silently builds all four ABIs -- arm/arm64/x86/x86_64 -- since
+    # gomobile defaults to every ABI it knows when none is named); x86
+    # builds were pure wasted build time here.
     #
     # Retried up to 3x: `gomobile bind` runs its own `go mod tidy` on
     # ./androidbridge first, which (like ensure_go_tool's `go install`
@@ -361,7 +437,7 @@ if [ "$NEED_GOMOBILE" -eq 1 ]; then
     # blip.
     GOMOBILE_BIND_OK=0
     for attempt in 1 2 3; do
-        if $GOMOBILE_CMD bind -target android/arm64 -androidapi 26 -o "$AAR_OUT" ./androidbridge; then
+        if $GOMOBILE_CMD bind -target "$GOMOBILE_TARGETS" -androidapi 26 -o "$AAR_OUT" ./androidbridge; then
             GOMOBILE_BIND_OK=1
             break
         fi
@@ -375,7 +451,7 @@ if [ "$NEED_GOMOBILE" -eq 1 ]; then
         echo -e "${RED}❌ gomobile bind failed after 3 attempts. Install it manually:${NC}"
         echo "   go install golang.org/x/mobile/cmd/gomobile@latest"
         echo "   gomobile init"
-        echo "   $GOMOBILE_CMD bind -target android/arm64 -o $AAR_OUT ./androidbridge"
+        echo "   $GOMOBILE_CMD bind -target $GOMOBILE_TARGETS -o $AAR_OUT ./androidbridge"
         exit 1
     fi
 fi
@@ -397,7 +473,7 @@ ANDROID_SRC="$REPO_ROOT/cmd/android"
 # cmd/android/main.go embeds this copy (go:embed can't reach a parent dir) to
 # show the real app version in-UI; keep it in sync with the source of truth.
 cp "$REPO_ROOT/VERSION" "$ANDROID_SRC/VERSION"
-mkdir -p "$ANDROID_SRC/libs/arm64-v8a"
+for abi in $ANDROID_ABIS; do mkdir -p "$ANDROID_SRC/libs/$abi"; done
 
 if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
     export_android_env
@@ -426,18 +502,9 @@ export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
 # only the extra -L was added here, which fixed nothing: the link still
 # failed with "unable to find library -laaudio"/"-lvulkan" even though the
 # files plainly exist at that path.
-setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 26
-
-# Belt-and-suspenders: also add the API 26 sysroot lib dir explicitly, in
-# case a future Go toolchain version stops honoring CC for this and needs
-# the extra search path again.
-_NDK_PREBUILT="$(find "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt" \
-    -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -1)"
-_NDK_API26_LIB="${_NDK_PREBUILT}/sysroot/usr/lib/aarch64-linux-android/26"
-if [ -d "${_NDK_API26_LIB}" ]; then
-    export CGO_LDFLAGS="${CGO_LDFLAGS:-} -L${_NDK_API26_LIB}"
-fi
-unset _NDK_PREBUILT _NDK_API26_LIB
+# The NDK compiler itself is set per ABI in the fyne loop below
+# (setup_fyne_abi_toolchain), since each ABI needs its own target triple.
+CGO_LDFLAGS_BASE="${CGO_LDFLAGS:-}"
 if [ -d "$GOPATH_BIN" ] && [[ ":$PATH:" != *":$GOPATH_BIN:"* ]]; then
     export PATH="$GOPATH_BIN:$PATH"
 fi
@@ -492,84 +559,98 @@ FYNE_TAGS_STAMP="$REPO_ROOT/.build-cache/android/fyne_tags.stamp"
 mkdir -p "$(dirname "$FYNE_TAGS_STAMP")"
 PREV_FYNE_TAGS="$(cat "$FYNE_TAGS_STAMP" 2>/dev/null || true)"
 
-NEED_FYNE_BUILD=0
-[ ! -f "$FYNE_APK" ] && NEED_FYNE_BUILD=1
-if [ "${FORCE_FYNE:-0}" = "1" ]; then
-    NEED_FYNE_BUILD=1
-fi
-if [ "$NEED_FYNE_BUILD" -eq 0 ] && [ "$PREV_FYNE_TAGS" != "$FYNE_TAGS" ]; then
-    echo "   Build tags changed ($PREV_FYNE_TAGS → $FYNE_TAGS) — rebuilding"
-    NEED_FYNE_BUILD=1
-fi
-if [ "$NEED_FYNE_BUILD" -eq 0 ] && tree_has_newer_files "$FYNE_APK" \
-    "$REPO_ROOT/cmd/android" \
-    "$REPO_ROOT/internal" \
-    "$REPO_ROOT/androidbridge" \
-    "$REPO_ROOT/android/jniLibs/arm64-v8a"; then
-    NEED_FYNE_BUILD=1
-fi
-if [ "$NEED_FYNE_BUILD" -eq 0 ] && path_is_newer_than "$FYNE_APK" \
-    "$REPO_ROOT/go.mod" \
-    "$REPO_ROOT/go.sum" \
-    "$REPO_ROOT/FyneApp.toml" \
-    "$REPO_ROOT/Icon.png" \
-    "$AAR_OUT"; then
-    NEED_FYNE_BUILD=1
-fi
-
-if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
-    VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
-    cd "$ANDROID_SRC"
-    "$FYNE_BIN" package \
-        --target android/arm64 \
-        --tags "$FYNE_TAGS" \
-        --app-id io.usbridge.client \
-        --name "USBridge Client" \
-        --app-version "$VERSION" \
-        --icon "$REPO_ROOT/Icon.png" \
-        --release
-    cd "$REPO_ROOT"
-    printf '%s' "$FYNE_TAGS" > "$FYNE_TAGS_STAMP"
-    if [ ! -f "$FYNE_APK" ] && [ -f "$REPO_ROOT/USBridge_Client.apk" ]; then
-        FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
-    fi
-    echo -e "${GREEN}✓${NC} Fyne APK rebuilt (tags: $FYNE_TAGS)"
-else
-    echo "⚡ Fyne APK is already up to date (tags: $FYNE_TAGS)"
-fi
-echo ""
-
-# 3. Extracting .so from the Fyne APK
-echo "📂 Step 3/4: Extracting native libraries..."
 if ! ensure_command_available unzip unzip; then
     echo -e "${RED}❌ unzip not found${NC}"
     exit 1
 fi
-if [ ! -f "$FYNE_APK" ]; then
-    echo -e "${RED}❌ Fyne APK not found${NC}"
-    exit 1
-fi
 
-mkdir -p android/app/src/main/jniLibs/arm64-v8a
-EXTRACTED_SO="android/app/src/main/jniLibs/arm64-v8a/libUSBridge_Client.so"
-NEED_EXTRACT_FYNE_SO=0
-[ ! -f "$EXTRACTED_SO" ] && NEED_EXTRACT_FYNE_SO=1
-if [ "$NEED_EXTRACT_FYNE_SO" -eq 0 ] && [ "$FYNE_APK" -nt "$EXTRACTED_SO" ]; then
-    NEED_EXTRACT_FYNE_SO=1
-fi
+# 3. One fyne package per ABI (fyne cross-compiles a single target cleanly only
+# when CC is that target's NDK clang, see setup_fyne_abi_toolchain); each
+# ABI's APK is cached under .build-cache and its libUSBridge_Client.so
+# copied into android/app/src/main/jniLibs/<abi>/ for the Gradle build.
+FYNE_CACHE_DIR="$REPO_ROOT/.build-cache/android"
+mkdir -p "$FYNE_CACHE_DIR"
+for abi in $ANDROID_ABIS; do
+    goarch="$(android_abi_goarch "$abi")"
+    ensure_moonlight_libs "$abi"
+    ABI_FYNE_APK="$FYNE_CACHE_DIR/fyne-$abi.apk"
 
-if [ "$NEED_EXTRACT_FYNE_SO" -eq 1 ]; then
-    TEMP_APK=$(mktemp -d)
-    unzip -q "$FYNE_APK" -d "$TEMP_APK"
-    rm -f android/app/src/main/jniLibs/arm64-v8a/libUSBridge_Client.so
-    rm -f android/app/src/main/jniLibs/arm64-v8a/libUSB_Bridge_Client.so
-    cp "$TEMP_APK/lib/arm64-v8a/libUSBridge_Client.so" android/app/src/main/jniLibs/arm64-v8a/
-    rm -rf "$TEMP_APK"
-    echo -e "${GREEN}✓${NC} libUSBridge_Client.so extracted from Fyne APK"
-else
-    echo "⚡ libUSBridge_Client.so is already up to date"
-fi
-echo -e "${GREEN}✓${NC} Native libraries synchronized"
+    NEED_FYNE_BUILD=0
+    [ ! -f "$ABI_FYNE_APK" ] && NEED_FYNE_BUILD=1
+    if [ "${FORCE_FYNE:-0}" = "1" ]; then
+        NEED_FYNE_BUILD=1
+    fi
+    if [ "$NEED_FYNE_BUILD" -eq 0 ] && [ "$PREV_FYNE_TAGS" != "$FYNE_TAGS" ]; then
+        echo "   Build tags changed ($PREV_FYNE_TAGS → $FYNE_TAGS) — rebuilding $abi"
+        NEED_FYNE_BUILD=1
+    fi
+    if [ "$NEED_FYNE_BUILD" -eq 0 ] && tree_has_newer_files "$ABI_FYNE_APK" \
+        "$REPO_ROOT/cmd/android" \
+        "$REPO_ROOT/internal" \
+        "$REPO_ROOT/androidbridge" \
+        "$(android_moonlight_dir "$abi")"; then
+        NEED_FYNE_BUILD=1
+    fi
+    if [ "$NEED_FYNE_BUILD" -eq 0 ] && path_is_newer_than "$ABI_FYNE_APK" \
+        "$REPO_ROOT/go.mod" \
+        "$REPO_ROOT/go.sum" \
+        "$REPO_ROOT/FyneApp.toml" \
+        "$REPO_ROOT/Icon.png" \
+        "$AAR_OUT"; then
+        NEED_FYNE_BUILD=1
+    fi
+
+    if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
+        VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
+        setup_fyne_abi_toolchain "$abi"
+        rm -f "$FYNE_APK"
+        cd "$ANDROID_SRC"
+        "$FYNE_BIN" package \
+            --target "android/$goarch" \
+            --tags "$FYNE_TAGS" \
+            --app-id io.usbridge.client \
+            --name "USBridge Client" \
+            --app-version "$VERSION" \
+            --icon "$REPO_ROOT/Icon.png" \
+            --release
+        cd "$REPO_ROOT"
+        if [ ! -f "$FYNE_APK" ] && [ -f "$REPO_ROOT/USBridge_Client.apk" ]; then
+            FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
+        fi
+        if [ ! -f "$FYNE_APK" ]; then
+            echo -e "${RED}❌ Fyne APK not found for $abi${NC}"
+            exit 1
+        fi
+        mv "$FYNE_APK" "$ABI_FYNE_APK"
+        echo -e "${GREEN}✓${NC} Fyne APK rebuilt for $abi (tags: $FYNE_TAGS)"
+    else
+        echo "⚡ Fyne APK for $abi is already up to date (tags: $FYNE_TAGS)"
+    fi
+
+    JNI_DIR="android/app/src/main/jniLibs/$abi"
+    mkdir -p "$JNI_DIR"
+    EXTRACTED_SO="$JNI_DIR/libUSBridge_Client.so"
+    if [ ! -f "$EXTRACTED_SO" ] || [ "$ABI_FYNE_APK" -nt "$EXTRACTED_SO" ]; then
+        TEMP_APK=$(mktemp -d)
+        unzip -q "$ABI_FYNE_APK" -d "$TEMP_APK"
+        rm -f "$JNI_DIR/libUSBridge_Client.so" "$JNI_DIR/libUSB_Bridge_Client.so"
+        cp "$TEMP_APK/lib/$abi/libUSBridge_Client.so" "$JNI_DIR/"
+        rm -rf "$TEMP_APK"
+        echo -e "${GREEN}✓${NC} libUSBridge_Client.so extracted for $abi"
+    else
+        echo "⚡ libUSBridge_Client.so for $abi is already up to date"
+    fi
+done
+printf '%s' "$FYNE_TAGS" > "$FYNE_TAGS_STAMP"
+# ABIs dropped from ANDROID_ABIS must not linger in the APK.
+for dir in android/app/src/main/jniLibs/*/; do
+    abi="$(basename "$dir")"
+    case " $ANDROID_ABIS " in
+        *" $abi "*) ;;
+        *) rm -rf "$dir"; echo "   Removed stale jniLibs/$abi" ;;
+    esac
+done
+echo -e "${GREEN}✓${NC} Native libraries synchronized ($ANDROID_ABIS)"
 echo ""
 
 # 4. Gradle build

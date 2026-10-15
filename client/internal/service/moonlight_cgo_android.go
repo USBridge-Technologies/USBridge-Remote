@@ -4,10 +4,13 @@ package service
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/src -I${SRCDIR}/../../moonlight-common-c/enet/include
-#cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/build/android/opus/include/opus
 #cgo android CFLAGS: -D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
-#cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android -lmoonlight-common-c -lenet -lssl -lcrypto
-#cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android/opus/lib -lopus
+// Per-ABI static libs from scripts/build_moonlight.sh (MOONLIGHT_ANDROID_ABI).
+#cgo arm64 CFLAGS: -I${SRCDIR}/../../moonlight-common-c/build/android/opus/include/opus
+#cgo arm64 LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android -L${SRCDIR}/../../moonlight-common-c/build/android/opus/lib
+#cgo arm CFLAGS: -I${SRCDIR}/../../moonlight-common-c/build/android-armeabi-v7a/opus/include/opus
+#cgo arm LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android-armeabi-v7a -L${SRCDIR}/../../moonlight-common-c/build/android-armeabi-v7a/opus/lib
+#cgo LDFLAGS: -lmoonlight-common-c -lenet -lssl -lcrypto -lopus
 #cgo LDFLAGS: -lmediandk -laaudio -lm -ldl -landroid -lEGL -lGLESv2
 
 #include <media/NdkMediaCodec.h>

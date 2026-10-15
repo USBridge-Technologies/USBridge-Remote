@@ -33,10 +33,17 @@ if ! grep -q "include(CheckFunctionExists)" "${BUILD_DIR}/CMakeLists.txt"; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Android arm64-v8a / API 26
+# Android / API 26. MOONLIGHT_ANDROID_ABI picks the ABI: arm64-v8a (the
+# default, into build/android) or armeabi-v7a (32-bit-only budget phones,
+# e.g. Helio G36, into build/android-armeabi-v7a).
 # ────────────────────────────────────────────────────────────────────────────
 if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "${ANDROID_NDK_HOME}" ]; then
-    ANDROID_OUT="${BUILD_DIR}/build/android"
+    ANDROID_ABI="${MOONLIGHT_ANDROID_ABI:-arm64-v8a}"
+    case "${ANDROID_ABI}" in
+        arm64-v8a)   ANDROID_OUT="${BUILD_DIR}/build/android";             OPENSSL_TARGET="android-arm64" ;;
+        armeabi-v7a) ANDROID_OUT="${BUILD_DIR}/build/android-armeabi-v7a"; OPENSSL_TARGET="android-arm" ;;
+        *) echo "❌ Unsupported MOONLIGHT_ANDROID_ABI=${ANDROID_ABI}"; exit 1 ;;
+    esac
     OPENSSL_OUT="${ANDROID_OUT}/openssl"
     NDK_PREBUILT="$(find "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt" \
         -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -1)"
@@ -44,7 +51,7 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
     mkdir -p "${ANDROID_OUT}"
 
     echo ""
-    echo "=== Android arm64-v8a (API 26) ==="
+    echo "=== Android ${ANDROID_ABI} (API 26) ==="
 
     # ── Resolve OpenSSL for Android ──────────────────────────────────────────
     # Priority:
@@ -83,7 +90,7 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
             # ── Build OpenSSL from source ──────────────────────────────────
             OPENSSL_VERSION="3.3.2"
             OPENSSL_SRC="${BUILD_DIR}/openssl-${OPENSSL_VERSION}"
-            echo "📦 Building OpenSSL ${OPENSSL_VERSION} for Android arm64..."
+            echo "📦 Building OpenSSL ${OPENSSL_VERSION} for Android ${ANDROID_ABI}..."
 
             if [ ! -d "${OPENSSL_SRC}" ]; then
                 TARBALL="${BUILD_DIR}/openssl-${OPENSSL_VERSION}.tar.gz"
@@ -109,7 +116,7 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
             cd "${OPENSSL_SRC}"
             ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}" \
             PATH="${NDK_PREBUILT}/bin:${PATH}" \
-                ./Configure android-arm64 \
+                ./Configure "${OPENSSL_TARGET}" \
                     -D__ANDROID_API__=26 \
                     --prefix="${OPENSSL_OUT}" \
                     --openssldir="${OPENSSL_OUT}" \
@@ -125,7 +132,7 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
             PATH="${NDK_PREBUILT}/bin:${PATH}" \
                 make install_dev
             cd "${BUILD_DIR}"
-            echo "✅ OpenSSL built for Android arm64"
+            echo "✅ OpenSSL built for Android ${ANDROID_ABI}"
         fi
     fi
 
@@ -136,7 +143,7 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
     if [ -f "${OPUS_OUT}/lib/libopus.a" ]; then
         echo "⚡ Opus already present at ${OPUS_OUT}"
     else
-        echo "📦 Building Opus ${OPUS_VERSION} for Android arm64..."
+        echo "📦 Building Opus ${OPUS_VERSION} for Android ${ANDROID_ABI}..."
         OPUS_SRC="${BUILD_DIR}/opus-${OPUS_VERSION}"
 
         if [ ! -d "${OPUS_SRC}" ]; then
@@ -160,13 +167,13 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
             tar xzf "${OPUS_TARBALL}" -C "${BUILD_DIR}"
         fi
 
-        OPUS_CMAKE_BUILD="${BUILD_DIR}/opus-cmake-build"
+        OPUS_CMAKE_BUILD="${BUILD_DIR}/opus-cmake-build-${ANDROID_ABI}"
         mkdir -p "${OPUS_CMAKE_BUILD}"
 
         cmake "${OPUS_SRC}" \
             -B "${OPUS_CMAKE_BUILD}" \
             -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_ABI="${ANDROID_ABI}" \
             -DANDROID_PLATFORM=android-26 \
             -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_BUILD_TYPE=Release \
@@ -177,13 +184,13 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
         cmake --build "${OPUS_CMAKE_BUILD}" -j"${NCPU}"
         cmake --install "${OPUS_CMAKE_BUILD}"
 
-        echo "✅ Opus ${OPUS_VERSION} built for Android arm64"
+        echo "✅ Opus ${OPUS_VERSION} built for Android ${ANDROID_ABI}"
         echo "   Outputs: ${OPUS_OUT}/"
     fi
 
     # ── moonlight-common-c ────────────────────────────────────────────────────
     if [ ! -f "${ANDROID_OUT}/libmoonlight-common-c.a" ]; then
-        echo "⚙️ Cross-compiling moonlight-common-c for Android arm64..."
+        echo "⚙️ Cross-compiling moonlight-common-c for Android ${ANDROID_ABI}..."
         ANDROID_CMAKE_BUILD="${ANDROID_OUT}/cmake-build"
         mkdir -p "${ANDROID_CMAKE_BUILD}"
 
@@ -200,7 +207,7 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
         cmake "${BUILD_DIR}" \
             -B "${ANDROID_CMAKE_BUILD}" \
             -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_ABI="${ANDROID_ABI}" \
             -DANDROID_PLATFORM=android-26 \
             -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_BUILD_TYPE="${MOONLIGHT_CMAKE_BUILD_TYPE:-Release}" \
@@ -216,10 +223,10 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
         cp "${OPENSSL_OUT}/lib/libssl.a"                     "${ANDROID_OUT}/"
         cp "${OPENSSL_OUT}/lib/libcrypto.a"                  "${ANDROID_OUT}/"
 
-        echo "✅ moonlight-common-c built for Android arm64"
+        echo "✅ moonlight-common-c built for Android ${ANDROID_ABI}"
         echo "   Outputs: ${ANDROID_OUT}/"
     else
-        echo "⚡ moonlight-common-c already built for Android"
+        echo "⚡ moonlight-common-c already built for Android ${ANDROID_ABI}"
     fi
 fi
 
