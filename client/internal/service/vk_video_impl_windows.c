@@ -145,8 +145,52 @@ static HANDLE g_hwnd_ready  = NULL; // signaled once g_child_hwnd is assigned
 typedef struct { HWND parent; int x, y, w, h; int standalone; } VkWndArgs;
 static VkWndArgs g_hwnd_args;
 
+// ─── menu holes ───────────────────────────────────────────────────────────────
+// Rounded rects (overlay-window pixels) cut out of the overlay's window region
+// so Fyne menus drawn by the owner window underneath show through while the
+// rest of the video keeps playing. Clicks inside a hole hit the owner window.
+// Go writes the list under g_holes_lock and posts WM_USER+3; the window thread
+// builds the region (and re-cuts it on WM_SIZE, since a window region does not
+// grow with the window).
+#define VK_MAX_HOLES 64
+static SRWLOCK g_holes_lock = SRWLOCK_INIT;
+static int     g_holes[VK_MAX_HOLES][5]; // x, y, w, h, corner radius
+static int     g_hole_count = 0;
+static HRGN    g_hole_rgn = NULL;        // window thread only: union of the holes
+
+static void vk_apply_holes(HWND hw) {
+    int holes[VK_MAX_HOLES][5];
+    AcquireSRWLockShared(&g_holes_lock);
+    int n = g_hole_count;
+    memcpy(holes, g_holes, sizeof(holes[0]) * (size_t)n);
+    ReleaseSRWLockShared(&g_holes_lock);
+
+    if (g_hole_rgn) { DeleteObject(g_hole_rgn); g_hole_rgn = NULL; }
+    RECT rc;
+    if (n == 0 || !GetClientRect(hw, &rc) || rc.right <= 0 || rc.bottom <= 0) {
+        SetWindowRgn(hw, NULL, TRUE); // back to the plain rectangle
+        return;
+    }
+    HRGN cut = CreateRectRgn(0, 0, 0, 0);
+    for (int i = 0; i < n; i++) {
+        int x = holes[i][0], y = holes[i][1], w = holes[i][2], h = holes[i][3], r = holes[i][4];
+        // CreateRoundRectRgn leaves the right/bottom edge out; +1 covers it.
+        HRGN one = r > 0 ? CreateRoundRectRgn(x, y, x + w + 1, y + h + 1, 2 * r, 2 * r)
+                         : CreateRectRgn(x, y, x + w, y + h);
+        CombineRgn(cut, cut, one, RGN_OR);
+        DeleteObject(one);
+    }
+    // WS_POPUP has no frame, so window and client coordinates coincide.
+    HRGN vis = CreateRectRgn(0, 0, rc.right, rc.bottom);
+    CombineRgn(vis, vis, cut, RGN_DIFF);
+    SetWindowRgn(hw, vis, TRUE); // the system now owns vis
+    g_hole_rgn = cut;
+}
+
 static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
+    if (msg == WM_USER+3) { vk_apply_holes(hw); return 0; }
+    if (msg == WM_SIZE && g_hole_rgn) vk_apply_holes(hw); // falls through to DefWindowProc
     // In overlay mode: don't steal keyboard focus on click.
     // In standalone mode: allow activation so keyboard works.
     if (msg == WM_MOUSEACTIVATE) {
@@ -244,6 +288,11 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
                             if (hw && GetClientRect(hw, &rc)) {
                                 inside = PtInRect(&rc, cur);
                             }
+                            // A Fyne menu shows through a hole: hovering it
+                            // must not move the remote cursor.
+                            if (inside && g_hole_rgn && PtInRegion(g_hole_rgn, cur.x, cur.y)) {
+                                inside = FALSE;
+                            }
                             if (inside || g_btn_down_mask != 0) {
                                 vk_eq_push(1, cur.x, cur.y, 0);
                             }
@@ -287,7 +336,11 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msg == WM_CLOSE)   { DestroyWindow(hw); return 0; }
-    if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }
+    if (msg == WM_DESTROY) {
+        if (g_hole_rgn) { DeleteObject(g_hole_rgn); g_hole_rgn = NULL; }
+        PostQuitMessage(0);
+        return 0;
+    }
     return DefWindowProcW(hw, msg, wp, lp);
 }
 
@@ -3596,9 +3649,9 @@ static int vk_render_frame_conceal(void) {
 }
 
 // ─── overlay visibility ───────────────────────────────────────────────────────
-// Two independent Go-side hide requests (g_hidden: popup/nav hooks; g_hidden_canvas:
-// "some Fyne canvas overlay is open", polled per frame) plus the minimised state
-// decide whether the overlay window is shown. g_vis_applied is what was last
+// The Go-side hide request (g_hidden: nav away from Control, or a Fyne overlay
+// that can't be cut out as a menu hole) plus the minimised state decide whether
+// the overlay window is shown. g_vis_applied is what was last
 // posted to the window thread (-1 = nothing posted yet for this session).
 //
 // Hide is applied IMMEDIATELY from whichever thread asked, so the overlay is gone
@@ -3606,7 +3659,6 @@ static int vk_render_frame_conceal(void) {
 // closed and replaced by another in the same handler (dropdown swaps, dialog ->
 // dialog) must not flash the video in between.
 #define VK_UNHIDE_DEBOUNCE_S 0.07
-static volatile atomic_int g_hidden_canvas;
 static atomic_int          g_vis_applied = -1;
 static volatile double     g_unhide_req_t = 0.0;
 
@@ -3614,7 +3666,7 @@ static void vk_apply_visibility(void) {
     HWND hw = g_child_hwnd, parent = g_parent_hwnd;
     if (!hw || !parent) return; // standalone / not created
     int iconic = IsIconic(parent) ? 1 : 0;
-    int req    = atomic_load(&g_hidden) | atomic_load(&g_hidden_canvas);
+    int req    = atomic_load(&g_hidden);
     int want   = iconic | req;
     int applied = atomic_load(&g_vis_applied);
     if (want == applied) return;
@@ -3623,8 +3675,8 @@ static void vk_apply_visibility(void) {
     if (!atomic_compare_exchange_strong(&g_vis_applied, &applied, want)) return;
     char vis[128];
     snprintf(vis, sizeof(vis),
-        "overlay visibility change: want_hidden=%d (iconic=%d g_hidden=%d canvas=%d)",
-        want, iconic, (int)atomic_load(&g_hidden), (int)atomic_load(&g_hidden_canvas));
+        "overlay visibility change: want_hidden=%d (iconic=%d g_hidden=%d)",
+        want, iconic, (int)atomic_load(&g_hidden));
     goVKLog(vis, want ? 1 : 0);
     // Post to window thread — ShowWindow cross-thread needs message pump.
     PostMessageW(hw, want ? WM_USER+1 : WM_USER+2, 0, 0);
@@ -4392,7 +4444,9 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
     g_parent_hwnd = parent;
     g_standalone = 0;
     atomic_store(&g_vis_applied, -1);
-    atomic_store(&g_hidden_canvas, 0);
+    AcquireSRWLockExclusive(&g_holes_lock);
+    g_hole_count = 0; // the new window starts as a plain rectangle
+    ReleaseSRWLockExclusive(&g_holes_lock);
     g_hwnd_args.parent = parent; g_hwnd_args.x = x; g_hwnd_args.y = y;
     g_hwnd_args.w = w; g_hwnd_args.h = h; g_hwnd_args.standalone = 0;
 
@@ -4557,12 +4611,24 @@ void vk_video_set_hidden(int hidden) {
     vk_set_hide_flag(&g_hidden, hidden);
 }
 
-// vk_video_set_canvas_hidden -- same effect as vk_video_set_hidden but a separate
-// flag, driven by polling whether the Fyne canvas currently has ANY overlay open
-// (covers popups/dialogs/menus that never call the overlayShow hook). Kept apart
-// so the two sources can't clear each other's request.
-void vk_video_set_canvas_hidden(int hidden) {
-    vk_set_hide_flag(&g_hidden_canvas, hidden);
+// vk_video_set_holes replaces the menu-hole list; xywhr holds n holes as
+// x,y,w,h,radius quintuples in overlay-window pixels. n == 0 clears every hole.
+// Ignored in standalone fullscreen: no Fyne window sits under it.
+void vk_video_set_holes(const int *xywhr, int n) {
+    if (g_standalone) return;
+    if (n > VK_MAX_HOLES) n = VK_MAX_HOLES;
+    AcquireSRWLockExclusive(&g_holes_lock);
+    int k = 0;
+    for (int i = 0; i < n; i++) {
+        const int *h = xywhr + i * 5;
+        if (h[2] <= 0 || h[3] <= 0) continue;
+        memcpy(g_holes[k++], h, sizeof(g_holes[0]));
+    }
+    g_hole_count = k;
+    ReleaseSRWLockExclusive(&g_holes_lock);
+    // SetWindowRgn belongs on the window thread (it sends messages there).
+    HWND hw = g_child_hwnd;
+    if (hw) PostMessageW(hw, WM_USER+3, 0, 0);
 }
 
 // vk_video_bring_to_top — re-assert HWND_TOPMOST on the overlay window.
