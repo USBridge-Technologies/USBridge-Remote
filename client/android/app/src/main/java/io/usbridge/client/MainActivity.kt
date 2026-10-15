@@ -218,17 +218,25 @@ class MainActivity : GoNativeActivity() {
         setupSystemBack()
     }
 
-    private var reviewProbeStarted = false
+    private val reviewGate by lazy {
+        InAppReviewGate(getSharedPreferences("in_app_review", MODE_PRIVATE))
+    }
+    private var reviewAskStarted = false
 
     override fun onResume() {
         super.onResume()
-        // Temporary probe: fire the Play review flow once per process so we
-        // can see the call work. The real trigger (when, how often) is not
-        // decided yet.
-        if (!reviewProbeStarted) {
-            reviewProbeStarted = true
+        reviewGate.onForeground(SystemClock.elapsedRealtime())
+        if (!reviewAskStarted && reviewGate.shouldAsk()) {
+            reviewAskStarted = true
+            reviewGate.markAsked()
+            Log.i(TAG, "in-app review: asking (${reviewGate.status()})")
             window.decorView.post { requestInAppReview() }
         }
+    }
+
+    override fun onPause() {
+        reviewGate.onBackground(SystemClock.elapsedRealtime())
+        super.onPause()
     }
 
     private fun requestInAppReview() {
