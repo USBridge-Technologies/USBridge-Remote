@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 // On Windows the virtual monitor comes from VirtualDrivers' MttVDD driver
@@ -82,6 +84,34 @@ func hasMttVDD(ids []string) bool {
 
 // DriverInstalled reports whether MttVDD's adapter is present and running.
 func DriverInstalled() bool { return hasMttVDD(displayDeviceIDs()) }
+
+// DriverRegistered reports whether an MttVDD device node exists, from the registry.
+// Unlike DriverInstalled it also works in the Session 0 service, whose
+// EnumDisplayDevicesW does not see the console session's display adapters; it does
+// not tell whether the device is running (attaching it does).
+func DriverRegistered() bool {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Enum\ROOT\DISPLAY`, registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	names, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return false
+	}
+	for _, n := range names {
+		dk, err := registry.OpenKey(k, n, registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+		ids, _, err := dk.GetStringsValue("HardwareID")
+		dk.Close()
+		if err == nil && hasMttVDD(ids) {
+			return true
+		}
+	}
+	return false
+}
 
 // AccessGranted: nothing to grant beyond having the driver.
 func AccessGranted() bool { return DriverInstalled() }

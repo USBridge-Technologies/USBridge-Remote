@@ -718,14 +718,23 @@ func (b *sunshineBackend) Start(adminPort int) error {
 		log.Printf("[sunshine] warning: could not set web_bind_address: %v", err)
 	}
 	if b.vibepollo {
-		// Vibepollo brings its own virtual display driver and a per-client virtual monitor.
-		// The agent's display is the one every streamer shares (MttVDD, our driver, set up
-		// by vdisplay and attached by the capture config), so Vibepollo captures the
-		// configured output like Sunshine does.
+		// Vibepollo brings its own virtual display driver (SudoVDA) and a per-client
+		// virtual monitor. The agent's display is the one every streamer shares (MttVDD,
+		// installed by vdisplay and attached by applyVirtualDisplayLocked below), so
+		// Vibepollo captures the configured output like Sunshine does.
 		if err := b.setConfigKey("virtual_display_mode", "disabled"); err != nil {
 			log.Printf("[vibepollo] warning: could not set virtual_display_mode: %v", err)
 		}
+		// Its display helper (a separate process that re-modes the captured display per
+		// client) is not wanted either: the agent sets the virtual monitor's mode. Left
+		// on, it only fails to launch under the session broker (ERROR_ACCESS_DENIED) on
+		// every session start and arms retry cooldowns.
+		if err := b.setConfigKey("dd_configuration_option", "disabled"); err != nil {
+			log.Printf("[vibepollo] warning: could not set dd_configuration_option: %v", err)
+		}
 	}
+	// The agent's own virtual monitor, when it is the selected output (Windows).
+	b.applyVirtualDisplayLocked()
 
 	// The portable build expects sunshine_state.json to already
 	// exist before --creds can write into it; create an empty-but-valid
@@ -946,6 +955,7 @@ func (b *sunshineBackend) Stop() error {
 		_ = b.watchdog.Process.Kill()
 		b.watchdog = nil
 	}
+	b.releaseVirtualDisplayLocked()
 	return err
 }
 

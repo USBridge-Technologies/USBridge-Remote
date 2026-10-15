@@ -7,8 +7,10 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -16,6 +18,7 @@ import (
 
 	"usbridge_agent/internal/sessionlaunch"
 	"usbridge_agent/internal/usbpass"
+	"usbridge_agent/internal/vdisplay"
 )
 
 // init wires Start()'s session-broker hooks the same way
@@ -35,6 +38,10 @@ func init() {
 	}
 	useSunshineSessionBroker = func() bool { return isSvc }
 	sunshineSessionBrokerLaunch = sunshineSessionBrokerLaunchImpl
+	virtualDriverInstalled = func() bool { return vdisplay.DriverInstalled() || vdisplay.DriverRegistered() }
+	sessionDisplayHelperRun = func(exe string, args []string) ([]byte, error) {
+		return sessionlaunch.RunAndCaptureOutput(exe, args, filepath.Dir(exe), nil, 30*time.Second)
+	}
 }
 
 // sunshineSessionBrokerLaunchImpl launches exe inside the active console

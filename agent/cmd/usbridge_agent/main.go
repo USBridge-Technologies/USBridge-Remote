@@ -7,6 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"usbridge_agent/internal/app"
+	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/logcap"
 	"usbridge_agent/internal/ui"
 )
@@ -22,6 +23,13 @@ func main() {
 	// scoped tightly around the one Fyne app constructor call that actually
 	// needs it -- see that file's doc comment for why the process-wide
 	// version broke clipboard sync, capture, and autostart on Linux.
+
+	// A short-lived copy of the agent the service runs in the user's session to attach or
+	// restore the virtual monitor (displaypower.RunHelper); it logs to its output only.
+	if len(os.Args) > 1 && os.Args[1] == displaypower.HelperArg {
+		log.SetOutput(os.Stdout)
+		os.Exit(displaypower.RunHelper(os.Args[2:]))
+	}
 
 	headless := flag.Bool("headless", false, "run without a GUI (HTTP server, Sunshine, Tailscale only); a later normal launch attaches a GUI to this instance instead of starting a second one")
 	installService := flag.Bool("install-service", false, "install Windows service (requires elevation)")

@@ -217,12 +217,6 @@ func (b *sunshineBackend) HdrStatus() (active bool, available bool) {
 	return false, false
 }
 
-// VirtualDisplaySupported: Sunshine (opensource) does not support our native
-// virtual display APIs.
-func (b *sunshineBackend) VirtualDisplaySupported() bool {
-	return false
-}
-
 // RawHIDSupported is true only for a Sunshine built with the USBridge patch
 // (Streamers-Forks, src/usbridge.cpp), which hands LiSendRawHidEvent to the
 // USB broker -- see usbBrokerEnv. Stock Sunshine has no handler for it.
@@ -328,13 +322,3 @@ func fetchServerCodecFlags(adminPort int) (flags int, ok bool) {
 
 	return info.ServerCodecModeSupport, true
 }
-
-// VirtualDisplayPrimary: making the virtual monitor primary is RustShine's
-// (see rustshineBackend.SetVirtualDisplayPrimary); nothing to switch here.
-func (b *sunshineBackend) VirtualDisplayPrimary() bool { return false }
-
-// SetVirtualDisplayPrimary: see VirtualDisplayPrimary.
-func (b *sunshineBackend) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
-
-// SetVirtualDisplayExclusive: see VirtualDisplayPrimary.
-func (b *sunshineBackend) SetVirtualDisplayExclusive(bool) error { return nil }

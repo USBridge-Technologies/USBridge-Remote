@@ -20,6 +20,7 @@ func TestStructSizesMatchTheSDK(t *testing.T) {
 		{"DISPLAYCONFIG_MODE_INFO", unsafe.Sizeof(modeInfo{}), 64},
 		{"DISPLAYCONFIG_TARGET_DEVICE_NAME", unsafe.Sizeof(targetDeviceName{}), 420},
 		{"DISPLAYCONFIG_SOURCE_DEVICE_NAME", unsafe.Sizeof(sourceDeviceName{}), 84},
+		{"DEVMODEW", unsafe.Sizeof(devMode{}), 220},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s: %d bytes, want %d", c.name, c.got, c.want)

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"usbridge_agent/internal/displaypower"
 )
 
 // sunshineDataDir is where this agent keeps EVERY file its managed Sunshine
@@ -327,12 +329,34 @@ func (b *sunshineBackend) AudioSink() string {
 // connected monitor Sunshine captures, addressed by Sunshine's own
 // connected-output index (see display.Connectors). An empty name removes
 // the key (Sunshine auto-picks the first output it finds).
+//
+// "virtual:WxH@HZ" selects the agent's virtual monitor instead (Windows, see
+// sunshine_vdisplay.go): saved for the next start, which attaches it and points
+// output_name at it.
 func (b *sunshineBackend) SetOutputName(name string) error {
+	v := b.loadVirtualDisplay()
+	if spec, ok := strings.CutPrefix(name, "virtual:"); ok {
+		if _, err := displaypower.ParseMode(spec); err != nil {
+			return err
+		}
+		v.Spec = spec
+		return b.saveVirtualDisplay(v)
+	}
+	if v.Spec != "" {
+		v.Spec = ""
+		if err := b.saveVirtualDisplay(v); err != nil {
+			return err
+		}
+	}
 	return b.setConfigKey("output_name", name)
 }
 
 // OutputName reads the current "output_name" value from sunshine.conf, or
-// "" if unset (auto-pick).
+// "" if unset (auto-pick) -- or "virtual:WxH@HZ" while the virtual monitor is
+// the selected output.
 func (b *sunshineBackend) OutputName() string {
+	if v := b.loadVirtualDisplay(); v.Spec != "" {
+		return "virtual:" + v.Spec
+	}
 	return b.ConfigKey("output_name")
 }

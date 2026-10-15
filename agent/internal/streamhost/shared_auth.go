@@ -106,6 +106,9 @@ type trustedClient struct {
 	Name        string `json:"name,omitempty"`
 	Enabled     string `json:"enabled,omitempty"` // Sunshine's "true"/"false" string, preserved verbatim if a backend ever sets it
 	CertDER     []byte `json:"cert_der"`
+	// HostUUID is the uuid Sunshine's own file gives this client (what its client list
+	// and unpair calls use) when it differs from UniqueID; read from that file only.
+	HostUUID string `json:"-"`
 }
 
 // trustStoreFile is the canonical store's on-disk shape.
@@ -746,6 +749,17 @@ func RemoveTrustedClientEverywhere(stateDir, activeBackend, identifier string) e
 	return nil
 }
 
+// sameClientID compares two client ids the way every host means them: Sunshine and
+// Vibepollo keep a dashed UUID, RustShine and Moonlight the bare 32 hex digits, in
+// either case.
+func sameClientID(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	norm := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, "-", "")) }
+	return norm(a) == norm(b)
+}
+
 // resolveFingerprint turns a backend-specific unpair identifier into the
 // canonical fingerprint key. Checked in this order: the active backend's
 // own native file (authoritative, works even for clients predating this
@@ -760,7 +774,7 @@ func resolveFingerprint(stateDir, activeBackend, identifier string) string {
 		_, clients, err := readSunshineTrusted(stateDir)
 		if err == nil {
 			for _, c := range clients {
-				if c.UniqueID == identifier {
+				if sameClientID(c.UniqueID, identifier) || sameClientID(c.HostUUID, identifier) {
 					return c.Fingerprint
 				}
 			}
@@ -769,7 +783,7 @@ func resolveFingerprint(stateDir, activeBackend, identifier string) string {
 		clients, err := readRustshineTrusted(stateDir)
 		if err == nil {
 			for _, c := range clients {
-				if c.UniqueID == identifier {
+				if sameClientID(c.UniqueID, identifier) {
 					return c.Fingerprint
 				}
 			}
@@ -787,7 +801,7 @@ func resolveFingerprint(stateDir, activeBackend, identifier string) string {
 
 	store := loadCanonicalStore(stateDir)
 	for _, c := range store.Clients {
-		if c.UniqueID == identifier || c.Fingerprint == strings.ToLower(identifier) {
+		if sameClientID(c.UniqueID, identifier) || c.Fingerprint == strings.ToLower(identifier) {
 			return c.Fingerprint
 		}
 	}

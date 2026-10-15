@@ -30,4 +30,7 @@ var (
 	ErrNotFound = errors.New("no such monitor")
 	// ErrLastDisplay: refusing to switch off the only active monitor.
 	ErrLastDisplay = errors.New("this is the only active display -- switching it off would leave the desktop with no screen")
+	// ErrNoVirtualDriver: the MttVDD virtual display driver is not installed (or its
+	// monitor has no free display output).
+	ErrNoVirtualDriver = errors.New("the MttVDD virtual display is not available -- is its driver installed?")
 )

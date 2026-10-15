@@ -38,6 +38,10 @@ type sunshineNamedDevice struct {
 	Cert    string `json:"cert"`
 	UUID    string `json:"uuid"`
 	Enabled string `json:"enabled"`
+	// ClientID is the client's own id when UUID could not be it (not a UUID, or shared
+	// with another client -- see sunshineDeviceUUIDs), so unpairing by that id still
+	// finds the device. Both hosts keep keys they do not know.
+	ClientID string `json:"usbridge_client_id,omitempty"`
 }
 
 func sunshineStatePath(stateDir string) string {
@@ -96,9 +100,14 @@ func readSunshineTrustedFile(path string) (serverUUID string, clients []trustedC
 			// one from round-tripping -- skip just this one.
 			continue
 		}
+		id := d.UUID
+		if d.ClientID != "" {
+			id = d.ClientID
+		}
 		clients = append(clients, trustedClient{
 			Fingerprint: fingerprintOf(der),
-			UniqueID:    d.UUID,
+			UniqueID:    id,
+			HostUUID:    d.UUID,
 			Name:        d.Name,
 			Enabled:     d.Enabled,
 			CertDER:     der,
@@ -117,6 +126,47 @@ func sunshineUUIDOut(id string) string {
 		return id
 	}
 	return id[:8] + "-" + id[8:12] + "-" + id[12:16] + "-" + id[16:20] + "-" + id[20:]
+}
+
+// sunshineDeviceUUIDs is each client's named-device uuid: its id dashed
+// (sunshineUUIDOut), unless that is not a UUID or another client has it too --
+// then one made from its certificate fingerprint. USBridge clients before 3.0.122
+// all sent the same id (the first 16 bytes of their certificate's DER, a fixed ASN.1
+// header), and Vibepollo refuses a state file whose device uuids repeat.
+func sunshineDeviceUUIDs(clients []trustedClient) []string {
+	out := make([]string, len(clients))
+	count := map[string]int{}
+	for i, c := range clients {
+		out[i] = sunshineUUIDOut(c.UniqueID)
+		count[strings.ToLower(out[i])]++
+	}
+	for i, c := range clients {
+		if isCanonicalUUID(out[i]) && count[strings.ToLower(out[i])] == 1 {
+			continue
+		}
+		fp := c.Fingerprint
+		if len(fp) < 32 {
+			fp = fingerprintOf(c.CertDER)
+		}
+		out[i] = sunshineUUIDOut(fp[:32])
+	}
+	return out
+}
+
+func isCanonicalUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if s[i] != '-' {
+				return false
+			}
+		} else if !isHex(s[i : i+1]) {
+			return false
+		}
+	}
+	return true
 }
 
 func isHex(s string) bool {
@@ -182,18 +232,23 @@ func writeSunshineTrusted(stateDir, serverUUID string, clients []trustedClient) 
 	uidBytes, _ := json.Marshal(serverUUID)
 	root["uniqueid"] = uidBytes
 
+	uuids := sunshineDeviceUUIDs(clients)
 	devices := make([]sunshineNamedDevice, 0, len(clients))
-	for _, c := range clients {
+	for i, c := range clients {
 		enabled := c.Enabled
 		if enabled == "" {
 			enabled = "true"
 		}
-		devices = append(devices, sunshineNamedDevice{
+		d := sunshineNamedDevice{
 			Name:    c.Name,
 			Cert:    derToPEM(c.CertDER),
-			UUID:    sunshineUUIDOut(c.UniqueID),
+			UUID:    uuids[i],
 			Enabled: enabled,
-		})
+		}
+		if c.UniqueID != "" && !sameClientID(c.UniqueID, d.UUID) {
+			d.ClientID = c.UniqueID
+		}
+		devices = append(devices, d)
 	}
 	// Stable order (by uuid) so an unrelated re-provision doesn't produce
 	// unnecessary diffs/log noise.

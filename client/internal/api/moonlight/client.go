@@ -3,6 +3,7 @@ package moonlight
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/xml"
@@ -53,9 +54,11 @@ func NewClient(host string, port, httpsPort int, identity *Identity) *Client {
 	if identity == nil {
 		panic("moonlight.NewClient: identity must not be nil — LoadOrGenerateIdentity failed")
 	}
-	// Unique ID is a hex representation of the public key or a random string.
-	// We'll use the first 16 bytes of the cert's hash as a consistent client ID.
-	hash := ExtractPlainCert(identity.CertPEM)
+	// The client ID is the first 16 bytes of the certificate's SHA-256 as hex: stable
+	// for this identity and unique per client. It used to be the first 16 bytes of the
+	// DER itself -- the same ASN.1 header for every certificate -- so every client
+	// paired under one id, and Vibepollo refuses a pairing state with duplicate ids.
+	hash := sha256.Sum256(ExtractPlainCert(identity.CertPEM))
 	clientID := hex.EncodeToString(hash[:16])
 
 	// Unauthenticated HTTP client
