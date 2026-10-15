@@ -9,10 +9,10 @@ import "sync/atomic"
 // Moonlight clients have nothing like it -- so it is opt-in from the video
 // settings dialog wherever PlayoutBufferSupported() is true (Windows,
 // macOS, Linux, iOS, Android -- see each platform's own
-// playout_buffer_supported_*.go). The zero value here is off, matching the
-// desktop default; playout_buffer_default_mobile.go flips mobile's default
-// to on at init. See docs/WINDOWS_DECODE_PIPELINE.md for the measurements
-// behind the buffer itself.
+// playout_buffer_supported_*.go). The zero value here is off on every
+// platform, mobile included: phones are latency-bound too, and a bad Wi-Fi
+// link can still opt in. See docs/WINDOWS_DECODE_PIPELINE.md for the
+// measurements behind the buffer itself.
 var playoutBufferEnabled atomic.Bool
 
 // SetPlayoutBufferEnabled turns the buffer on or off for the next stream

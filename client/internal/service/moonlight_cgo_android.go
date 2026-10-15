@@ -37,7 +37,6 @@ extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
-extern int  goNetGraphWanted(void);
 extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride);
 
 // Declared in gl_video_impl_android.c
@@ -732,13 +731,10 @@ static int dr_submit(PDECODE_UNIT du) {
 static void amc_present_output(int64_t pts) {
     (void)pts;
     {
-        // Net Graph HUD needs a CPU-readable RGBA buffer (ApplyNetGraphOverlay
-        // in net_graph.go). The AHardwareBuffer zero-copy path never produces
-        // one, so while the HUD is on we take the glReadPixels staging path
-        // instead -- same cost as a device without AHB import, only for as
-        // long as the checkbox is ticked. Off (the default): keep zero-copy.
-        int hud = goNetGraphWanted();
-        if (android_vk_is_active() && android_vk_hwbuffer_supported() && !hud) {
+        // Net Graph is drawn by the overlay itself (vk_cmd_draw_hud /
+        // GLES), so it never forces the CPU path; only the Fyne fallback
+        // (no native overlay) burns it into the pixels.
+        if (android_vk_is_active() && android_vk_hwbuffer_supported()) {
             // Zero-copy path: GL renders straight into an AHardwareBuffer
             // that Vulkan imports and blits from directly -- no glReadPixels,
             // no staging-buffer upload, no CPU touches the pixels at all.
@@ -754,14 +750,14 @@ static void amc_present_output(int64_t pts) {
         } else {
             uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
             if (rgba) {
-                goNetGraphOverlay(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
                 if (android_vk_is_active()) {
                     vlat_note_handoff();
                     // Vulkan overlay active but this device/driver lacks
                     // AHardwareBuffer import support -- fall back to the CPU
-                    // staging-buffer path, which works everywhere. Also used
-                    // while the Net Graph HUD is on (see hud check above).
+                    // staging-buffer path, which works everywhere.
                     android_vk_try_submit(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+                } else {
+                    goNetGraphOverlay(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
                 }
                 // Always notify Go for frame counting and FPS stats. goVTFrame detects
                 // NativeVideoOverlayIsActive() and delivers nil to the callback so no
@@ -776,8 +772,7 @@ static void amc_present_output(int64_t pts) {
 // sample it, else read back through GL like amc_present_output's CPU path.
 // Takes ownership of img.
 static void amc_present_image(AImage *img) {
-    int hud = goNetGraphWanted();
-    if (!hud && android_vk_is_active() && android_vk_aimage_supported()) {
+    if (android_vk_is_active() && android_vk_aimage_supported()) {
         vlat_note_handoff();
         if (android_vk_try_submit_aimage(img)) {
             goVTFrame(NULL, g_amc_w, g_amc_h, g_amc_w * 4);
@@ -797,10 +792,11 @@ static void amc_present_image(AImage *img) {
     }
     AImage_delete(img);
     if (!rgba) return;
-    goNetGraphOverlay(rgba, w, h, w * 4);
     if (android_vk_is_active()) {
         vlat_note_handoff();
         android_vk_try_submit(rgba, w, h, w * 4);
+    } else {
+        goNetGraphOverlay(rgba, w, h, w * 4);
     }
     goVTFrame(rgba, w, h, w * 4);
 }
@@ -1254,7 +1250,7 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 			logrus.Infof("🌕 [Moonlight/CGO/Android] do_li_start waited %v for previous call to release liStartCallMu", waited)
 		}
 		// moonlight-common-c's playout (jitter) buffer -- see
-		// playout_buffer.go and playout_buffer_default_mobile.go -- is
+		// playout_buffer.go -- is
 		// driven by this env var on every platform (VideoDepacketizer.c
 		// re-reads it once per stream start). Same mechanism as
 		// moonlight_cgo_wrapper.go's macOS/Linux/iOS wiring.

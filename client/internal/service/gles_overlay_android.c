@@ -44,6 +44,8 @@ static GLuint g_rgba_tex = 0;
 static int    g_rgba_w = 0, g_rgba_h = 0;
 static GLuint g_cursor_tex = 0;
 static int    g_cursor_w = 0, g_cursor_h = 0;
+static GLuint g_hud_tex = 0;
+static int    g_hud_w = 0, g_hud_h = 0;
 static char   g_renderer[128];
 
 static PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC p_getNativeClientBuffer = NULL;
@@ -272,6 +274,36 @@ void gles_ov_set_cursor(const uint8_t *rgba, int w, int h) {
     g_cursor_w = w; g_cursor_h = h;
 }
 
+void gles_ov_set_hud(const uint8_t *rgba, int w, int h) {
+    if (!rgba || w <= 0 || h <= 0) return;
+    if (!g_hud_tex) {
+        glGenTextures(1, &g_hud_tex);
+        glBindTexture(GL_TEXTURE_2D, g_hud_tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glBindTexture(GL_TEXTURE_2D, g_hud_tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    if (g_hud_w != w || g_hud_h != h) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        g_hud_w = w; g_hud_h = h;
+    } else {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    }
+}
+
+int gles_ov_hud_ready(void) { return g_hud_tex != 0 && g_hud_w > 0; }
+
+// blend_over: straight-alpha "over" for color, but the surface's alpha
+// stays 1 -- it is translucent, and alpha below 1 would show the Fyne
+// window through the video.
+static void blend_over(void) {
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+}
+
 // draw_quad draws the bound texture with prog into the surface-pixel rect
 // (x, y, w, h; top-left origin), sampling uv = {u0, v0, u1, v1} (v0 = top).
 static void draw_quad(GLuint prog, GLint loc_uv, int sh, int x, int y, int w, int h, const float uv[4]) {
@@ -325,11 +357,19 @@ int gles_ov_draw(const gles_ov_frame *f) {
 
     if (f->cursor_visible && g_cursor_tex && g_cursor_w > 0) {
         static const float full[4] = { 0, 0, 1, 1 };
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        blend_over();
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, g_cursor_tex);
         draw_quad(g_prog_2d, g_2d_loc_uv, sh, f->cursor_x, f->cursor_y, g_cursor_w, g_cursor_h, full);
+        glDisable(GL_BLEND);
+    }
+
+    if (f->hud_visible && g_hud_tex) {
+        static const float full[4] = { 0, 0, 1, 1 };
+        blend_over();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, g_hud_tex);
+        draw_quad(g_prog_2d, g_2d_loc_uv, sh, f->hud[0], f->hud[1], f->hud[2], f->hud[3], full);
         glDisable(GL_BLEND);
     }
 
@@ -376,11 +416,13 @@ void gles_ov_destroy(void) {
         gles_ov_drop_images();
         if (g_rgba_tex)   { glDeleteTextures(1, &g_rgba_tex);   g_rgba_tex = 0; }
         if (g_cursor_tex) { glDeleteTextures(1, &g_cursor_tex); g_cursor_tex = 0; }
+        if (g_hud_tex)    { glDeleteTextures(1, &g_hud_tex);    g_hud_tex = 0; }
         if (g_prog_ext)   { glDeleteProgram(g_prog_ext); g_prog_ext = 0; }
         if (g_prog_2d)    { glDeleteProgram(g_prog_2d);  g_prog_2d = 0; }
     }
     g_rgba_w = g_rgba_h = 0;
     g_cursor_w = g_cursor_h = 0;
+    g_hud_tex = 0; g_hud_w = g_hud_h = 0;
     if (g_dpy != EGL_NO_DISPLAY) {
         eglMakeCurrent(g_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (g_surf != EGL_NO_SURFACE) eglDestroySurface(g_dpy, g_surf);

@@ -1,5 +1,5 @@
 // vk_overlay_common.h -- Net Graph HUD + AI Vision overlay compositing shared
-// by the Vulkan renderers (vk_video_impl_linux.c today; vk_video_impl_windows.c
+// by the Vulkan renderers (vk_video_impl_linux.c and vk_video_impl_android.c; vk_video_impl_windows.c
 // carries an older private copy of the same logic that can be switched to
 // this header once verified on a Windows build).
 //
@@ -20,6 +20,9 @@
 //   - VKOV_MUTEX_DECL: declares the overlay handoff lock (guards the pixel
 //     buffers/dirty flags between Go goroutines and the render thread)
 //   - VKOV_LOCK() / VKOV_UNLOCK(): lock primitives for that lock
+//   - optionally VKOV_RENDER_PASS: a render pass the HUD pipeline is built
+//     for, where dynamic rendering isn't available (Android); the includer
+//     then begins that pass itself around vk_hud_record_draw
 // Exposes (for cgo): vk_hud_set_pixels/clear/set_scale,
 // vk_aivision_set_pixels/clear. Render-thread entry points:
 // vk_hud_maybe_upload_cmds/vk_hud_record_draw,
@@ -251,10 +254,15 @@ static int vk_hud_ensure_resources(void) {
         cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         VkPipelineColorBlendStateCreateInfo cb = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
         cb.attachmentCount = 1; cb.pAttachments = &cba;
+#ifdef VKOV_RENDER_PASS
+        VkGraphicsPipelineCreateInfo pipeCI = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        pipeCI.renderPass = VKOV_RENDER_PASS;
+#else
         VkPipelineRenderingCreateInfo renderingCI = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
         renderingCI.colorAttachmentCount = 1; renderingCI.pColorAttachmentFormats = &g_swap_fmt;
 
         VkGraphicsPipelineCreateInfo pipeCI = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, &renderingCI };
+#endif
         pipeCI.stageCount = 2; pipeCI.pStages = stages;
         pipeCI.pVertexInputState = &vi; pipeCI.pInputAssemblyState = &ia;
         pipeCI.pViewportState = &vpState; pipeCI.pRasterizationState = &rs;

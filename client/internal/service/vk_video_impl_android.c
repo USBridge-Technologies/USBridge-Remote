@@ -23,6 +23,7 @@
 #include <android/log.h>
 #include <media/NdkImage.h>
 #include <dlfcn.h>
+#include <sys/system_properties.h>
 #include <jni.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -715,8 +716,11 @@ static int vk_create_swapchain(int w, int h) {
 
 static void vk_yc_destroy_framebuffers(void);
 
+static void vk_hud_destroy_framebuffers(void);
+
 static void vk_destroy_swapchain(void) {
     vk_yc_destroy_framebuffers();
+    vk_hud_destroy_framebuffers();
     if (g_swap_views) {
         for (uint32_t i = 0; i < g_swap_count; i++)
             if (g_swap_views[i]) vkDestroyImageView(g_dev, g_swap_views[i], NULL);
@@ -925,6 +929,194 @@ static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
     b.srcAccessMask = src_acc;
     b.dstAccessMask = dst_acc;
     vkCmdPipelineBarrier(cb, src_st, dst_st, 0, 0, NULL, 0, NULL, 1, &b);
+}
+
+// ─── Net Graph HUD ────────────────────────────────────────────────────────────
+//
+// Same native layer as Linux (vk_overlay_common.h): net_graph.go pushes its
+// 640x400 canvas ~10 times a second and the render thread draws it over the
+// frame, so the decoder image never has to come back to the CPU for a burn-in.
+// Shared by both backends: Vulkan draws it in its own small render pass (no
+// dynamic rendering on most Android drivers), GLES as one more blended quad.
+// Drawn before the menu holes so a menu still cuts through it.
+
+static VkRenderPass   g_hud_rp       = VK_NULL_HANDLE;
+static VkFormat       g_hud_rp_fmt   = VK_FORMAT_UNDEFINED;
+static VkFramebuffer *g_hud_fbs      = NULL;
+static uint32_t       g_hud_fb_count = 0;
+
+static VkShaderModule vk_shader_from_spv(const uint32_t *code, size_t size) {
+    VkShaderModuleCreateInfo ci = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    ci.codeSize = size;
+    ci.pCode    = code;
+    VkShaderModule m = VK_NULL_HANDLE;
+    if (vkCreateShaderModule(g_dev, &ci, NULL, &m) != VK_SUCCESS) return VK_NULL_HANDLE;
+    return m;
+}
+
+#define goVKLog(msg, lvl) do { if ((lvl) >= 2) VLOGE("%s", msg); else VLOGI("%s", msg); } while (0)
+#define VKOV_RENDER_PASS g_hud_rp
+#define VKOV_MUTEX_DECL static pthread_mutex_t g_hud_mu = PTHREAD_MUTEX_INITIALIZER;
+#define VKOV_LOCK()     pthread_mutex_lock(&g_hud_mu)
+#define VKOV_UNLOCK()   pthread_mutex_unlock(&g_hud_mu)
+#include "vk_overlay_common.h"
+
+// hud_place: where the HUD goes on the surface (top-left origin, pixels):
+// the bottom-right corner of the visible picture, sized like the old
+// burn-in at the unzoomed fit scale so zooming the video doesn't zoom it.
+static int hud_place(int fw, int fh, int dx, int dy, int dw, int dh, int sw, int sh, int out[4]) {
+    if (fw <= 0 || fh <= 0 || sw <= 0 || sh <= 0) return 0;
+    int vx0 = dx < 0 ? 0 : dx, vy0 = dy < 0 ? 0 : dy;
+    int vx1 = dx + dw > sw ? sw : dx + dw, vy1 = dy + dh > sh ? sh : dy + dh;
+    if (vx1 <= vx0 || vy1 <= vy0) return 0;
+    float s = (float)sw / (float)fw;
+    if ((float)sh / (float)fh < s) s = (float)sh / (float)fh;
+    float k = s * (float)atomic_load(&g_hud_scale_pct) / 100.0f;
+    int w = (int)(VK_HUD_W * k + 0.5f), h = (int)(VK_HUD_H * k + 0.5f);
+    int m = (int)(VK_HUD_MARGIN * s + 0.5f);
+    int x = vx1 - m - w, y = vy1 - m - h;
+    if (x < vx0 + m) x = vx0 + m;
+    if (y < vy0 + m) y = vy0 + m;
+    if (w <= 0 || h <= 0) return 0;
+    out[0] = x; out[1] = y; out[2] = w; out[3] = h;
+    return 1;
+}
+
+static void vk_hud_destroy_framebuffers(void) {
+    if (g_hud_fbs) {
+        for (uint32_t i = 0; i < g_hud_fb_count; i++)
+            if (g_hud_fbs[i]) vkDestroyFramebuffer(g_dev, g_hud_fbs[i], NULL);
+        free(g_hud_fbs);
+    }
+    g_hud_fbs = NULL;
+    g_hud_fb_count = 0;
+}
+
+// vk_hud_destroy_all: device teardown (the GPU is idle).
+static void vk_hud_destroy_all(void) {
+    vk_hud_destroy_framebuffers();
+    vk_hud_destroy();
+    if (g_hud_rp) { vkDestroyRenderPass(g_dev, g_hud_rp, NULL); g_hud_rp = VK_NULL_HANDLE; }
+    g_hud_rp_fmt = VK_FORMAT_UNDEFINED;
+}
+
+// vk_hud_ensure_rp: a pass that loads the finished frame (cursor included)
+// and leaves it in TRANSFER_DST for the holes blit that follows.
+static int vk_hud_ensure_rp(void) {
+    if (g_hud_rp && g_hud_rp_fmt == g_swap_fmt) return 1;
+    if (g_hud_rp) {
+        vkDeviceWaitIdle(g_dev);
+        vk_hud_destroy_all();
+    }
+    VkAttachmentDescription att = {0};
+    att.format         = g_swap_fmt;
+    att.samples        = VK_SAMPLE_COUNT_1_BIT;
+    att.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
+    att.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    att.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    att.initialLayout  = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    att.finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    VkAttachmentReference ref = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription sub = {0};
+    sub.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub.colorAttachmentCount = 1;
+    sub.pColorAttachments    = &ref;
+    VkSubpassDependency deps[2] = {0};
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+    VkRenderPassCreateInfo rpci = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    rpci.attachmentCount = 1; rpci.pAttachments  = &att;
+    rpci.subpassCount    = 1; rpci.pSubpasses    = &sub;
+    rpci.dependencyCount = 2; rpci.pDependencies = deps;
+    if (vkCreateRenderPass(g_dev, &rpci, NULL, &g_hud_rp) != VK_SUCCESS) {
+        g_hud_rp = VK_NULL_HANDLE;
+        return 0;
+    }
+    g_hud_rp_fmt = g_swap_fmt;
+    return 1;
+}
+
+static int vk_hud_ensure_framebuffers(void) {
+    if (g_hud_fbs && g_hud_fb_count == g_swap_count) return 1;
+    vk_hud_destroy_framebuffers();
+    g_hud_fbs = calloc(g_swap_count, sizeof(VkFramebuffer));
+    if (!g_hud_fbs) return 0;
+    g_hud_fb_count = g_swap_count;
+    for (uint32_t i = 0; i < g_swap_count; i++) {
+        VkFramebufferCreateInfo fci = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+        fci.renderPass      = g_hud_rp;
+        fci.attachmentCount = 1;
+        fci.pAttachments    = &g_swap_views[i];
+        fci.width           = g_swap_ext.width;
+        fci.height          = g_swap_ext.height;
+        fci.layers          = 1;
+        if (vkCreateFramebuffer(g_dev, &fci, NULL, &g_hud_fbs[i]) != VK_SUCCESS) {
+            vk_hud_destroy_framebuffers();
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// vk_cmd_draw_hud records the HUD over swapchain image img_idx (in
+// TRANSFER_DST, left there). fw x fh is the frame, d* where it was drawn.
+// Costs nothing while Net Graph is off.
+static void vk_cmd_draw_hud(uint32_t img_idx, int fw, int fh, int dx, int dy, int dw, int dh) {
+    VKOV_LOCK();
+    int active = g_hud_active;
+    VKOV_UNLOCK();
+    if (!active) return;
+    if (!vk_hud_ensure_rp()) return;
+    if (!vk_hud_maybe_upload_cmds(g_cmdbuf)) return;
+    if (!vk_hud_ensure_framebuffers()) return;
+    int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
+    int r[4];
+    if (!hud_place(fw, fh, dx, dy, dw, dh, sw, sh, r)) return;
+
+    VkRenderPassBeginInfo rbi = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    rbi.renderPass  = g_hud_rp;
+    rbi.framebuffer = g_hud_fbs[img_idx];
+    rbi.renderArea.extent = g_swap_ext;
+    vkCmdBeginRenderPass(g_cmdbuf, &rbi, VK_SUBPASS_CONTENTS_INLINE);
+    int x0 = r[0] < 0 ? 0 : r[0], y0 = r[1] < 0 ? 0 : r[1];
+    int x1 = r[0] + r[2] > sw ? sw : r[0] + r[2], y1 = r[1] + r[3] > sh ? sh : r[1] + r[3];
+    if (x1 > x0 && y1 > y0) {
+        VkViewport vpt = { (float)r[0], (float)r[1], (float)r[2], (float)r[3], 0.0f, 1.0f };
+        VkRect2D sc = { { x0, y0 }, { (uint32_t)(x1 - x0), (uint32_t)(y1 - y0) } };
+        float rect[4] = { -1.0f, -1.0f, 1.0f, 1.0f };
+        vkCmdBindPipeline(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_hud_pipeline);
+        vkCmdSetViewport(g_cmdbuf, 0, 1, &vpt);
+        vkCmdSetScissor(g_cmdbuf, 0, 1, &sc);
+        vkCmdBindDescriptorSets(g_cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_hud_playout, 0, 1, &g_hud_dset, 0, NULL);
+        vkCmdPushConstants(g_cmdbuf, g_hud_playout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(rect), rect);
+        vkCmdDraw(g_cmdbuf, 6, 1, 0, 0);
+    }
+    vkCmdEndRenderPass(g_cmdbuf);
+}
+
+// hud_gles_sync hands the GLES backend a newer canvas, if any. Render
+// thread, current context. Returns whether to draw the HUD.
+static int hud_gles_sync(void) {
+    int active;
+    VKOV_LOCK();
+    active = g_hud_active;
+    if (active && (g_hud_dirty || !gles_ov_hud_ready())) {
+        gles_ov_set_hud(g_hud_pixels, VK_HUD_W, VK_HUD_H);
+        g_hud_dirty = 0;
+    }
+    VKOV_UNLOCK();
+    return active && gles_ov_hud_ready();
 }
 
 // ─── menu holes ───────────────────────────────────────────────────────────────
@@ -1239,6 +1431,7 @@ static int vk_render_frame(int fw, int fh, int fs) {
                 (uint32_t)nreg, regs);
     }
 
+    vk_cmd_draw_hud(img_idx, fw, fh, dx, dy, dw, dh);
     vk_cmd_punch_holes(g_swap_imgs[img_idx]);
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
@@ -1248,7 +1441,8 @@ static int vk_render_frame(int fw, int fh, int fs) {
 
     vkEndCommandBuffer(g_cmdbuf);
 
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT |
+                                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     si.waitSemaphoreCount   = 1; si.pWaitSemaphores   = &g_img_sem;
     si.pWaitDstStageMask    = &wait_stage;
@@ -2051,6 +2245,7 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh, const vk_yc_frame 
                 (uint32_t)nreg, regs);
     }
 
+    vk_cmd_draw_hud(img_idx, fw, fh, dx, dy, dw, dh);
     vk_cmd_punch_holes(g_swap_imgs[img_idx]);
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
@@ -2213,6 +2408,8 @@ static int gles_render(AImage *img, const uint8_t *rgba, int fw, int fh) {
         f.cursor_y = dy + (int)(tv * dh + 0.5f);
     }
     f.holes = holes; f.nholes = nholes;
+    if (hud_gles_sync() && hud_place(fw, fh, dx, dy, dw, dh, sw, sh, f.hud))
+        f.hud_visible = 1;
     return gles_ov_draw(&f);
 }
 
@@ -2408,6 +2605,7 @@ static void vk_full_cleanup(void) {
         vkDeviceWaitIdle(g_dev);
         vk_aimg_drop_all();
         vk_yc_destroy_all();
+        vk_hud_destroy_all();
         cursor_destroy();
         vk_destroy_clear_img();
         if (g_stage_ptr && g_stage_mem) { vkUnmapMemory(g_dev, g_stage_mem); g_stage_ptr = NULL; }
@@ -2554,7 +2752,11 @@ int android_vk_create(int x, int y, int w, int h) {
     atomic_store(&g_cursor_dirty, 0);
 
     g_use_gles = 0;
-    if (!vk_create_instance() || !vk_select_device() || !vk_create_device()) {
+    // `adb shell setprop debug.usbridge.gles 1` takes the GLES path on a
+    // Vulkan device too, to test it.
+    char force_gles[PROP_VALUE_MAX] = {0};
+    __system_property_get("debug.usbridge.gles", force_gles);
+    if (force_gles[0] == '1' || !vk_create_instance() || !vk_select_device() || !vk_create_device()) {
         // No usable Vulkan (e.g. PowerVR GE8320): draw through OpenGL ES on
         // the same SurfaceView instead (gles_overlay_android.c).
         if (g_dev)  { vkDestroyDevice(g_dev, NULL);    g_dev  = VK_NULL_HANDLE; }
