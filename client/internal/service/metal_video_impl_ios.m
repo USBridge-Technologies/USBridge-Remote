@@ -29,6 +29,14 @@ static UIView    *g_clip_view = nil;   // clips video to the touchpad widget bou
 static CALayer   *g_layer     = nil;
 static float      g_keyboard_height_pt = 0.0f;  // current on-screen keyboard height in points
 
+// Menu holes: rounded rects (window points, top-left origin; r is the corner
+// radius) cut out of g_clip_view so Fyne menus drawn underneath show through
+// while the rest of the video keeps playing. Main thread only.
+#define METAL_MAX_HOLES 64
+static CGRect  g_holes[METAL_MAX_HOLES];
+static CGFloat g_hole_radius[METAL_MAX_HOLES];
+static int     g_hole_count = 0;
+
 // Net Graph HUD layer -- added as a sublayer of g_clip_view.layer (the
 // widget's own stable bounds, unaffected by zoom/pan -- see
 // metal_video_update_layout's clip/content split) rather than of g_view
@@ -324,6 +332,7 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
         clip.userInteractionEnabled = NO;
         [win addSubview:clip];
         g_clip_view = clip;
+        g_hole_count = 0;
 
         // Video view sits inside clip, initially at the same size.
         // metal_video_update_layout repositions it for zoom/pan.
@@ -582,11 +591,101 @@ void metal_video_set_cursor_image(uint8_t *pixels, int w, int h) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
+// Last cursor request from Go (window points), so the cursor can be
+// re-evaluated against holes that change while it stands still.
+static CGPoint g_cursor_pos = {0, 0};
+static int     g_cursor_want = 0;
+
+static int metal_point_in_hole(CGPoint p) {
+    for (int i = 0; i < g_hole_count; i++)
+        if (CGRectContainsPoint(g_holes[i], p)) return 1;
+    return 0;
+}
+
+// The cursor layer sits above everything on the window layer; keep it from
+// drawing over an open menu.
+static void metal_apply_cursor_visibility(void) {
+    if (!g_cursor_layer) return;
+    g_cursor_layer.hidden = !g_cursor_want || metal_point_in_hole(g_cursor_pos);
+}
+
+// metal_apply_holes rebuilds g_clip_view's mask from g_holes against its
+// current frame; no holes removes the mask.
+static void metal_apply_holes(void) {
+    if (!g_clip_view) return;
+    CALayer *root = g_clip_view.layer;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if (g_hole_count == 0) {
+        root.mask = nil;
+    } else {
+        CGRect b = root.bounds;
+        CGPoint org = g_clip_view.frame.origin;
+        CGMutablePathRef cut = CGPathCreateMutable();
+        for (int i = 0; i < g_hole_count; i++) {
+            CGRect r = CGRectOffset(g_holes[i], -org.x, -org.y);
+            CGFloat rad = MIN(g_hole_radius[i], MIN(r.size.width, r.size.height) / 2);
+            if (rad > 0) CGPathAddRoundedRect(cut, NULL, r, rad, rad);
+            else         CGPathAddRect(cut, NULL, r);
+        }
+        CAShapeLayer *mask = [root.mask isKindOfClass:[CAShapeLayer class]]
+                                 ? (CAShapeLayer *)root.mask : [CAShapeLayer layer];
+        mask.frame = b;
+        mask.fillColor = [UIColor blackColor].CGColor;
+        CGPathRef shape = NULL;
+        if (@available(iOS 16.0, *)) {
+            // Non-zero subtraction: overlapping holes stay cut out.
+            CGPathRef full = CGPathCreateWithRect(b, NULL);
+            shape = CGPathCreateCopyBySubtractingPath(full, cut, false);
+            CGPathRelease(full);
+            mask.fillRule = kCAFillRuleNonZero;
+        }
+        if (!shape) {
+            CGMutablePathRef eo = CGPathCreateMutable();
+            CGPathAddRect(eo, NULL, b);
+            CGPathAddPath(eo, NULL, cut);
+            shape = eo;
+            mask.fillRule = kCAFillRuleEvenOdd;
+        }
+        CGPathRelease(cut);
+        mask.path = shape;
+        CGPathRelease(shape);
+        root.mask = mask;
+    }
+    metal_apply_cursor_visibility();
+    [CATransaction commit];
+}
+
+// metal_video_set_holes replaces the hole list; xywhr holds n holes as
+// x,y,w,h,radius quintuples in window points. n == 0 clears every hole.
+void metal_video_set_holes(const float *xywhr, int n) {
+    if (n < 0) n = 0;
+    if (n > METAL_MAX_HOLES) n = METAL_MAX_HOLES;
+    NSData *d = [NSData dataWithBytes:xywhr length:(NSUInteger)n * 5 * sizeof(float)];
+    dispatch_block_t blk = ^{
+        const float *v = d.bytes;
+        int k = 0;
+        for (int i = 0; i < n; i++) {
+            const float *h = v + i * 5;
+            if (h[2] <= 0 || h[3] <= 0) continue;
+            g_holes[k] = CGRectMake(h[0], h[1], h[2], h[3]);
+            g_hole_radius[k] = h[4];
+            k++;
+        }
+        if (k == 0 && g_hole_count == 0) return;
+        g_hole_count = k;
+        metal_apply_holes();
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
 void metal_video_update_cursor(float x, float y, int visible) {
     if (!g_view && !g_layer) return;
     float cx = x, cy = y;
     int   cv = visible;
     dispatch_block_t blk = ^{
+        g_cursor_pos  = CGPointMake(cx, cy);
+        g_cursor_want = cv;
         if (cv && !g_cursor_layer) {
             g_cursor_layer = [CALayer layer];
             // Anchor at top-left so position = cursor hotspot (tip of arrow).
@@ -601,7 +700,7 @@ void metal_video_update_cursor(float x, float y, int visible) {
             if (win) [win.layer addSublayer:g_cursor_layer];
         }
         if (g_cursor_layer) {
-            g_cursor_layer.hidden = !cv;
+            metal_apply_cursor_visibility();
             if (cv) {
                 [CATransaction begin];
                 [CATransaction setDisableActions:YES];
@@ -637,9 +736,13 @@ void metal_video_update_layout(float clip_x, float clip_y, float clip_w, float c
 
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
-        g_clip_view.frame = CGRectMake(fcx, fcy, fcw, fch);
+        CGRect clipFrame = CGRectMake(fcx, fcy, fcw, fch);
+        BOOL clipMoved = !CGRectEqualToRect(g_clip_view.frame, clipFrame);
+        g_clip_view.frame = clipFrame;
         // Position video view relative to the clip view's coordinate space.
         g_view.frame = CGRectMake(vx - fcx, vy - fcy, vw, vh);
+        // The mask is cut in clip coordinates; re-cut it when the clip moves.
+        if (clipMoved && g_hole_count > 0) metal_apply_holes();
         [CATransaction commit];
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
@@ -689,6 +792,7 @@ void metal_video_destroy(void) {
         g_view  = nil;
         g_layer = nil;
         g_hud_layer = nil;
+        g_hole_count = 0;
         atomic_store(&g_hud_dirty, 0);
         pthread_mutex_lock(&g_hud_pending_mu);
         g_hud_pending_data = nil;

@@ -23,6 +23,7 @@ extern void   metal_video_set_cursor_image(uint8_t *pixels, int w, int h);
 extern void   metal_video_destroy(void);
 extern double metal_video_last_fps(void);
 extern void   metal_video_set_hidden(int hidden);
+extern void   metal_video_set_holes(const float *xywhr, int n);
 extern void   usbridge_syslog(const char* msg);
 extern void   set_streaming_active(int active);
 
@@ -194,13 +195,29 @@ func MetalVideoLastFPS() float64 {
 }
 
 // MetalVideoSetHidden hides or shows the Metal overlay UIView without destroying it.
-// Use this to let Fyne popups/menus render on top of the video.
+// Used when navigation leaves Control or a popup of unknown shape opens.
 func MetalVideoSetHidden(hidden bool) {
 	h := C.int(0)
 	if hidden {
 		h = 1
 	}
 	C.metal_video_set_hidden(h)
+}
+
+// MetalVideoSetHoles cuts rounded rects ([x,y,w,h,radius] each, in window
+// points) out of the Metal overlay so Fyne menus underneath show through
+// while the rest of the video keeps playing; the cursor hides inside them.
+// nil/empty clears every hole.
+func MetalVideoSetHoles(holes [][5]float32) {
+	if len(holes) == 0 {
+		C.metal_video_set_holes(nil, 0)
+		return
+	}
+	flat := make([]C.float, 0, len(holes)*5)
+	for _, h := range holes {
+		flat = append(flat, C.float(h[0]), C.float(h[1]), C.float(h[2]), C.float(h[3]), C.float(h[4]))
+	}
+	C.metal_video_set_holes(&flat[0], C.int(len(holes)))
 }
 
 func Syslog(msg string) {

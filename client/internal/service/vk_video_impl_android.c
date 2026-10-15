@@ -617,7 +617,11 @@ static int vk_create_swapchain(int w, int h) {
     // rotated, don't touch it" — but we haven't rotated, so the video would
     // appear as a vertical column in landscape mode.
     sci.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    sci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    // INHERIT: the SurfaceView's TRANSLUCENT format decides, so menu holes
+    // (alpha 0, see vk_cmd_punch_holes) show the Fyne window underneath.
+    sci.compositeAlpha   = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
+                               ? VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
+                               : VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     sci.presentMode      = pm;
     sci.clipped          = VK_TRUE;
 
@@ -856,6 +860,128 @@ static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
     vkCmdPipelineBarrier(cb, src_st, dst_st, 0, 0, NULL, 0, NULL, 1, &b);
 }
 
+// ─── menu holes ───────────────────────────────────────────────────────────────
+//
+// The SurfaceView sits above the Fyne window (setZOrderOnTop), so a Fyne menu
+// or popup opened over the video would be covered by it. Instead of hiding the
+// video, every presented frame gets the open menus' rects punched to alpha 0;
+// the surface is TRANSLUCENT (VulkanOverlayBridge), so SurfaceFlinger shows
+// the Fyne window through them while the rest of the video keeps playing.
+// Everything else stays alpha 1 (video, letterbox clear, cursor).
+//
+// g_holes is in swapchain pixels, written by android_vk_set_holes under
+// g_state_mu; a rounded card arrives as several plain rects (Go splits it).
+#define VK_MAX_HOLES 512
+static VkRect2D g_holes[VK_MAX_HOLES];
+static int      g_hole_count = 0;
+
+// 1x1 transparent-black image that vkCmdBlitImage stretches over each hole.
+// Render thread only.
+static VkImage        g_clear_img   = VK_NULL_HANDLE;
+static VkDeviceMemory g_clear_mem   = VK_NULL_HANDLE;
+static int            g_clear_ready = 0; // cleared and in TRANSFER_SRC_OPTIMAL
+static VkImageBlit    g_hole_blits[VK_MAX_HOLES];
+
+static int vk_ensure_clear_img(void) {
+    if (g_clear_img != VK_NULL_HANDLE) return 1;
+    VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    ici.imageType     = VK_IMAGE_TYPE_2D;
+    ici.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    ici.extent        = (VkExtent3D){1, 1, 1};
+    ici.mipLevels     = 1;
+    ici.arrayLayers   = 1;
+    ici.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage         = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ici.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(g_dev, &ici, NULL, &g_clear_img) != VK_SUCCESS) {
+        g_clear_img = VK_NULL_HANDLE;
+        return 0;
+    }
+    VkMemoryRequirements mr;
+    vkGetImageMemoryRequirements(g_dev, g_clear_img, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (mi == UINT32_MAX) mi = vk_find_mem(&mp, mr.memoryTypeBits, 0);
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    mai.allocationSize  = mr.size;
+    mai.memoryTypeIndex = mi;
+    if (mi == UINT32_MAX || vkAllocateMemory(g_dev, &mai, NULL, &g_clear_mem) != VK_SUCCESS) {
+        vkDestroyImage(g_dev, g_clear_img, NULL);
+        g_clear_img = VK_NULL_HANDLE;
+        g_clear_mem = VK_NULL_HANDLE;
+        return 0;
+    }
+    vkBindImageMemory(g_dev, g_clear_img, g_clear_mem, 0);
+    g_clear_ready = 0;
+    return 1;
+}
+
+static void vk_destroy_clear_img(void) {
+    if (g_clear_img) { vkDestroyImage(g_dev, g_clear_img, NULL); g_clear_img = VK_NULL_HANDLE; }
+    if (g_clear_mem) { vkFreeMemory(g_dev, g_clear_mem, NULL);   g_clear_mem = VK_NULL_HANDLE; }
+    g_clear_ready = 0;
+}
+
+// vk_cmd_punch_holes records the hole blits into g_cmdbuf over dst (in
+// TRANSFER_DST_OPTIMAL, after the video and cursor writes). No-op without holes.
+static void vk_cmd_punch_holes(VkImage dst) {
+    int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
+    int n = 0;
+    pthread_mutex_lock(&g_state_mu);
+    for (int i = 0; i < g_hole_count; i++) {
+        int x0 = g_holes[i].offset.x, y0 = g_holes[i].offset.y;
+        int x1 = x0 + (int)g_holes[i].extent.width, y1 = y0 + (int)g_holes[i].extent.height;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > sw) x1 = sw;
+        if (y1 > sh) y1 = sh;
+        if (x1 <= x0 || y1 <= y0) continue;
+        VkImageBlit *b = &g_hole_blits[n++];
+        memset(b, 0, sizeof(*b));
+        b->srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b->srcSubresource.layerCount = 1;
+        b->srcOffsets[1] = (VkOffset3D){1, 1, 1};
+        b->dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b->dstSubresource.layerCount = 1;
+        b->dstOffsets[0] = (VkOffset3D){x0, y0, 0};
+        b->dstOffsets[1] = (VkOffset3D){x1, y1, 1};
+    }
+    pthread_mutex_unlock(&g_state_mu);
+    if (n == 0 || !vk_ensure_clear_img()) return;
+
+    if (!g_clear_ready) {
+        vk_image_barrier(g_cmdbuf, g_clear_img,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        VkClearColorValue clear = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCmdClearColorImage(g_cmdbuf, g_clear_img,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &full);
+        vk_image_barrier(g_cmdbuf, g_clear_img,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        g_clear_ready = 1;
+    }
+
+    // Serialise the video/cursor writes before the hole writes.
+    VkMemoryBarrier mb = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(g_cmdbuf,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 1, &mb, 0, NULL, 0, NULL);
+
+    vkCmdBlitImage(g_cmdbuf,
+        g_clear_img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        dst,         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        (uint32_t)n, g_hole_blits, VK_FILTER_NEAREST);
+}
+
 // ─── render one frame ─────────────────────────────────────────────────────────
 
 // vk_render_frame presents the frame whose pixels are already sitting in
@@ -965,7 +1091,8 @@ static int vk_render_frame(int fw, int fh, int fs) {
                           &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
     vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
-    VkClearColorValue black = {0};
+    // Opaque black: the surface is translucent, alpha 0 is reserved for holes.
+    VkClearColorValue black = {{0.0f, 0.0f, 0.0f, 1.0f}};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
@@ -1044,6 +1171,8 @@ static int vk_render_frame(int fw, int fh, int fs) {
                 g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 (uint32_t)nreg, regs);
     }
+
+    vk_cmd_punch_holes(g_swap_imgs[img_idx]);
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -1281,7 +1410,8 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
                           &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
     vk_store_video_dest(dx, dy, dw, dh, sw, sh);
 
-    VkClearColorValue black = {0};
+    // Opaque black: the surface is translucent, alpha 0 is reserved for holes.
+    VkClearColorValue black = {{0.0f, 0.0f, 0.0f, 1.0f}};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
@@ -1356,6 +1486,8 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
                 g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 (uint32_t)nreg, regs);
     }
+
+    vk_cmd_punch_holes(g_swap_imgs[img_idx]);
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -1535,6 +1667,7 @@ static void vk_full_cleanup(void) {
     if (g_dev) {
         vkDeviceWaitIdle(g_dev);
         cursor_destroy();
+        vk_destroy_clear_img();
         if (g_stage_ptr && g_stage_mem) { vkUnmapMemory(g_dev, g_stage_mem); g_stage_ptr = NULL; }
         if (g_stage_buf) { vkDestroyBuffer(g_dev, g_stage_buf, NULL); g_stage_buf = VK_NULL_HANDLE; }
         if (g_stage_mem) { vkFreeMemory(g_dev, g_stage_mem, NULL);   g_stage_mem = VK_NULL_HANDLE; }
@@ -1817,6 +1950,27 @@ void android_vk_set_hidden(int hidden) {
     java_set_visible(!want);
     // Samsung may have dropped the buffer while "hidden"; rebuild on show.
     if (!want) atomic_store(&g_force_recreate, 1);
+}
+
+// android_vk_set_holes replaces the menu holes; xywh holds n rects as
+// x,y,w,h quadruples in SurfaceView pixels. n == 0 clears every hole. Wakes
+// the render thread so a paused stream re-presents its last frame with them.
+void android_vk_set_holes(const int *xywh, int n) {
+    if (n < 0) n = 0;
+    if (n > VK_MAX_HOLES) n = VK_MAX_HOLES;
+    pthread_mutex_lock(&g_state_mu);
+    int k = 0;
+    for (int i = 0; i < n; i++) {
+        const int *h = xywh + i * 4;
+        if (h[2] <= 0 || h[3] <= 0) continue;
+        g_holes[k].offset = (VkOffset2D){h[0], h[1]};
+        g_holes[k].extent = (VkExtent2D){(uint32_t)h[2], (uint32_t)h[3]};
+        k++;
+    }
+    g_hole_count = k;
+    pthread_mutex_unlock(&g_state_mu);
+    atomic_store(&g_cursor_dirty, 1);
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
 }
 
 void android_vk_destroy(void) {

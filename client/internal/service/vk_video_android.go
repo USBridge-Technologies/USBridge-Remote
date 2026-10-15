@@ -17,6 +17,7 @@ extern int  android_vk_create(int x, int y, int w, int h);
 extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stride);
 extern void android_vk_update_rect(int x, int y, int w, int h);
 extern void android_vk_set_hidden(int hidden);
+extern void android_vk_set_holes(const int *xywh, int n);
 extern void android_vk_destroy(void);
 extern void android_vk_force_recreate_swapchain(void);
 extern void android_vk_set_viewport(float u0, float v0, float u1, float v1);
@@ -84,6 +85,22 @@ func VKVideoAndroidSetHidden(hidden bool) {
 		h = 1
 	}
 	C.android_vk_set_hidden(h)
+}
+
+// VKVideoAndroidSetHoles punches rects ([x,y,w,h] each, in pixels relative
+// to the SurfaceView's top-left) out of every presented frame, so Fyne menus
+// under the SurfaceView show through while the rest of the video keeps
+// playing. nil/empty clears every hole.
+func VKVideoAndroidSetHoles(holes [][4]int) {
+	if len(holes) == 0 {
+		C.android_vk_set_holes(nil, 0)
+		return
+	}
+	flat := make([]C.int, 0, len(holes)*4)
+	for _, h := range holes {
+		flat = append(flat, C.int(h[0]), C.int(h[1]), C.int(h[2]), C.int(h[3]))
+	}
+	C.android_vk_set_holes(&flat[0], C.int(len(holes)))
 }
 
 func VKVideoAndroidDestroy() {

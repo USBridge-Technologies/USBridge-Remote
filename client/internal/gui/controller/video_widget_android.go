@@ -5,6 +5,7 @@ package controller
 import (
 	"image"
 	"math"
+	"slices"
 	"time"
 
 	"usbridge-client/internal/gui/assets"
@@ -44,9 +45,10 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 		return
 	}
 
-	// Wire overlay lifecycle hooks so menus/popups hide the VK SurfaceView.
-	view.OnOverlayShow = func() { service.VKVideoAndroidSetHidden(true) }
-	view.OnOverlayHide = func() { service.VKVideoAndroidSetHidden(view.VideoShouldBeHidden()) }
+	// Fyne menus no longer hide the video: syncAndroidOcclusion punches their
+	// rects out of the Vulkan frames instead (see view.OverlayHoleRects).
+	view.OnOverlayShow = vw.scheduleAndroidOcclusionSync
+	view.OnOverlayHide = vw.scheduleAndroidOcclusionSync
 
 	// Compute the actual pixel rect for the video area now, before creating
 	// the overlay.  Passing (0,0,0,0) would cause the SurfaceView to be
@@ -70,9 +72,12 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 		logrus.Infof("[Android/VK] Vulkan overlay created at (%d,%d) %dx%d px", px, py, pw, ph)
 		// Reinitialize cursor at the correct display density scale.
 		vw.initAndroidCursorScale(vw.androidCursorScale())
-		if view.OverlayActive() {
-			service.VKVideoAndroidSetHidden(true)
-		}
+		// A Fyne overlay (popup/menu) already open when Vulkan starts gets
+		// its hole right away so the UI stays on top.
+		fyne.Do(func() {
+			androidHolesApplied = nil
+			vw.syncAndroidOcclusion()
+		})
 		if cb := vw.onNativeReady; cb != nil {
 			vw.onNativeReady = nil
 			cb()
@@ -141,14 +146,12 @@ func (vw *VideoWidget) HandleAppBackgrounded() {
 // scheduleVideoReconcile only acts if desiredStreaming/isStreaming actually
 // disagree (or a restart is already pending), so this is a no-op on a
 // normal resume where nothing went stale while backgrounded. The overlay
-// itself is only unhidden if a Fyne overlay (menu/dialog) isn't *also*
-// currently covering it -- OnOverlayShow/OnOverlayHide already owns that
-// signal independently (see startMetalVideoOnWindow), so deferring to
-// view.OverlayActive() here avoids fighting that mechanism.
+// itself is only unhidden if syncAndroidOcclusion agrees: still on Control,
+// and any open Fyne overlay (menu/dialog) is one it can cut a hole for.
 func (vw *VideoWidget) HandleAppForegrounded() {
 	vw.scheduleVideoReconcile("app-resumed")
 	if service.VKVideoAndroidIsActive() {
-		service.VKVideoAndroidSetHidden(view.VideoShouldBeHidden())
+		fyne.Do(func() { vw.syncAndroidOcclusion() })
 	}
 }
 
@@ -239,9 +242,7 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	}
 	// Hide first, even if the Control container already has a 0-size after
 	// a tab switch (zoom + Devices used to skip this and leave Vulkan up).
-	hidden := view.VideoShouldBeHidden()
-	service.VKVideoAndroidSetHidden(hidden)
-	if hidden {
+	if !vw.syncAndroidOcclusion() {
 		return
 	}
 	x, y, w, h := vw.videoCanvasFrame()
@@ -270,6 +271,86 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		}
 	}
 	vw.updateNativeViewportAndCursor()
+}
+
+// androidHolesApplied is the last hole list pushed to the Vulkan renderer
+// (nil = none). Fyne main goroutine only.
+var androidHolesApplied [][4]int
+
+// scheduleAndroidOcclusionSync runs syncAndroidOcclusion now and again
+// shortly after: overlay show/hide fires from popup watchers off the main
+// goroutine, often before the popup's panel has its first layout, and a
+// paused stream has no frame tick to pick the final rect up.
+func (vw *VideoWidget) scheduleAndroidOcclusionSync() {
+	fyne.Do(func() { vw.syncAndroidOcclusion() })
+	for _, d := range []time.Duration{60 * time.Millisecond, 250 * time.Millisecond} {
+		time.AfterFunc(d, func() { fyne.Do(func() { vw.syncAndroidOcclusion() }) })
+	}
+}
+
+// syncAndroidOcclusion keeps Fyne overlays visible over the Vulkan
+// SurfaceView, which sits above the Fyne window: open menus/popups become
+// transparent holes in every presented frame so the rest of the video keeps
+// playing; navigation away from Control, or an overlay of unknown shape,
+// still hides it outright. Reports whether the video is showing. Fyne main
+// goroutine only.
+func (vw *VideoWidget) syncAndroidOcclusion() bool {
+	if !service.VKVideoAndroidIsActive() {
+		return false
+	}
+	var c fyne.Canvas
+	if vw.parentWindow != nil {
+		c = vw.parentWindow.Canvas()
+	}
+	if c == nil || view.NavVideoHidden() {
+		service.VKVideoAndroidSetHidden(true)
+		return false
+	}
+	rects, ok := view.OverlayHoleRects(c)
+	if !ok {
+		service.VKVideoAndroidSetHidden(true)
+		return false
+	}
+	var holes [][4]int
+	if len(rects) > 0 {
+		x, y, w, h := vw.videoCanvasFrame()
+		scale := c.Scale()
+		sx, sy, sw, sh := vkSurfacePx(x, y, w, h, scale)
+		inset := vw.androidOverlayInset(c)
+		for _, r := range rects {
+			// Overlay rect relative to the SurfaceView, in pixels, grown to
+			// whole pixels so no sliver of video covers the menu's edge.
+			// Overlay positions are InteractiveArea-relative like the
+			// video container's, so they get the same inset.
+			ox, oy := r.X+inset.X, r.Y+inset.Y
+			x0 := int(math.Floor(float64(ox*scale))) - sx
+			y0 := int(math.Floor(float64(oy*scale))) - sy
+			x1 := int(math.Ceil(float64((ox+r.W)*scale))) - sx
+			y1 := int(math.Ceil(float64((oy+r.H)*scale))) - sy
+			if x1 <= 0 || y1 <= 0 || x0 >= sw || y0 >= sh {
+				continue // overlay does not touch the video
+			}
+			holes = appendRoundedHole(holes, x0, y0, x1-x0, y1-y0, int(math.Round(float64(r.R*scale))))
+		}
+	}
+	if !slices.Equal(holes, androidHolesApplied) {
+		service.VKVideoAndroidSetHoles(holes)
+		androidHolesApplied = holes
+	}
+	service.VKVideoAndroidSetHidden(false)
+	return true
+}
+
+// androidOverlayInset maps Fyne's InteractiveArea-relative positions to the
+// Activity window (see overlayWindowPos).
+func (vw *VideoWidget) androidOverlayInset(c fyne.Canvas) fyne.Position {
+	inset := canvasInteractiveOrigin(c)
+	// Keyboard stack owns the cutout band and zeros the top inset. Skip a
+	// stale safe-top so Vulkan does not slide over the special keys.
+	if vw.specialKeysHeaderReserve > 0 {
+		inset = fyne.NewPos(inset.X, 0)
+	}
+	return inset
 }
 
 func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window) {
@@ -486,13 +567,7 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	}
 	sz := vw.container.Size()
 	abs := vw.videoContainerOrigin()
-	inset := canvasInteractiveOrigin(c)
-	// Keyboard stack owns the cutout band and zeros the top inset. Skip a
-	// stale safe-top so Vulkan does not slide over the special keys.
-	if vw.specialKeysHeaderReserve > 0 {
-		inset = fyne.NewPos(inset.X, 0)
-	}
-	pos := overlayWindowPos(abs, inset)
+	pos := overlayWindowPos(abs, vw.androidOverlayInset(c))
 	// Stop at the container bottom so the Control footer hairline stays
 	// visible. A dp bleed used to cover that 1dp TopLine.
 	keysH := vw.specialKeysOverlayHeightDp()

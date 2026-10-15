@@ -64,9 +64,12 @@ object VulkanOverlayBridge {
             val sv = SurfaceView(activity)
             sv.holder.addCallback(holderCallback)
             // Render on top of EVERYTHING. This ensures visibility even if the Fyne window is opaque.
-            // We use hooks in Go to hide this overlay when Fyne menus or dialogs are shown.
+            // Fyne menus/popups drawn underneath show through transparent holes the
+            // Vulkan renderer punches at their rects (alpha 0; every other pixel is
+            // opaque), hence TRANSLUCENT. Go still hides the overlay outright for
+            // navigation away from Control or a popup of unknown shape.
             sv.setZOrderOnTop(true)
-            sv.holder.setFormat(android.graphics.PixelFormat.OPAQUE)
+            sv.holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
             // Never steal focus from GoNativeActivity's IME EditText — otherwise
             // dragging/tapping video dismisses the sticky system keyboard.
             sv.isFocusable = false
@@ -128,7 +131,7 @@ object VulkanOverlayBridge {
         }
     }
 
-    /** Show or hide the SurfaceView overlay (e.g. when a Fyne menu opens). */
+    /** Show or hide the SurfaceView overlay (e.g. when leaving the Control tab). */
     @JvmStatic
     fun setVisible(visible: Boolean) {
         val sv = surfaceView ?: return
