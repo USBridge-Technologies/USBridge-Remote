@@ -137,13 +137,14 @@ object VideoSurfaceBridge {
 
     /**
      * The largest size up to w x h, same aspect ratio, that the hardware
-     * decoder for [mime] accepts, as [width, height, maxFpsAtThatSize];
+     * decoder for [mime] accepts and is rated to decode at [fps] (else the
+     * largest it accepts at all), as [width, height, maxFpsAtThatSize];
      * null if there is no hardware decoder (or no answer). Decoders refuse
      * to configure above their maximum size at all, e.g. Snapdragon 695
      * tops out at 1920x1088, so a 4K stream would never start.
      */
     @JvmStatic
-    fun bestDecoderSize(mime: String, w: Int, h: Int): IntArray? {
+    fun bestDecoderSize(mime: String, w: Int, h: Int, fps: Int): IntArray? {
         if (w <= 0 || h <= 0) return null
         return try {
             val caps = hardwareDecoderCaps(mime) ?: return null
@@ -153,13 +154,21 @@ object VideoSurfaceBridge {
             val ha = vc.heightAlignment.coerceAtLeast(2)
             val heights = listOf(h, 2160, 1600, 1440, 1200, 1080, 900, 720, 540, 480)
                 .filter { it <= h }.distinct()
+            var largest: IntArray? = null
             for (ch0 in heights) {
                 val ch = ch0 / ha * ha
                 val cw = ((ch.toLong() * w / h).toInt()) / wa * wa
                 if (cw <= 0 || ch <= 0 || !vc.isSizeSupported(cw, ch)) continue
                 val maxFps = vc.getSupportedFrameRatesFor(cw, ch).upper.toInt()
-                Log.i(TAG, "bestDecoderSize($mime ${w}x$h): $name -> ${cw}x$ch (max ${maxFps} fps)")
-                return intArrayOf(cw, ch, maxFps)
+                if (largest == null) largest = intArrayOf(cw, ch, maxFps)
+                if (maxFps + 1 >= fps) {
+                    Log.i(TAG, "bestDecoderSize($mime ${w}x$h@$fps): $name -> ${cw}x$ch (max ${maxFps} fps)")
+                    return intArrayOf(cw, ch, maxFps)
+                }
+            }
+            if (largest != null) {
+                Log.i(TAG, "bestDecoderSize($mime ${w}x$h@$fps): $name rated below $fps fps at every size -> ${largest[0]}x${largest[1]} (max ${largest[2]} fps)")
+                return largest
             }
             Log.w(TAG, "bestDecoderSize($mime ${w}x$h): $name supports none of the candidate sizes")
             null

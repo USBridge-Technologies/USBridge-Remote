@@ -47,13 +47,14 @@ extern void         *android_gl_get_frame_hwbuffer(int width, int height);
 extern void          android_gl_release(void);
 extern void          android_gl_set_low_latency(int on);
 extern void          android_gl_log_vendor_params(const char *name);
-extern int           android_decoder_best_size(const char *mime, int w, int h, int *out);
+extern int           android_decoder_best_size(const char *mime, int w, int h, int fps, int *out);
 extern int           android_display_max_refresh(void);
 extern void          android_gl_detach_thread(void);
 extern uint8_t      *android_gl_get_frame_from_ahb(void *ahb, int crop_x, int crop_y, int crop_w, int crop_h);
 
 // Declared in video_sps_android.c
 extern int vsps_dims(const uint8_t *nal, size_t len, int hevc, int *w, int *h);
+extern size_t vsps_h264_fixup(const uint8_t *nal, size_t len, uint8_t *out, size_t cap, int *had_vui, int *had_restr);
 
 // Declared in video_latency_android.c
 extern void vlat_note_submit(uint64_t pts, uint64_t receive_us, uint64_t now_moonlight_us);
@@ -354,6 +355,11 @@ static void amc_teardown(void);
 // so the two can be compared with the same build (logcat USBridge/VideoLat).
 static int g_amc_lowlat = 1;
 
+// H.264 SPS fixup (default on, see vsps_h264_fixup). `adb shell setprop
+// debug.usbridge.spsfix 0` passes the host's SPS through unchanged.
+static int g_amc_spsfix = 1;
+static int g_amc_spsfix_logged;
+
 
 static int amc_read_prop_flag(const char *name) {
     char v[PROP_VALUE_MAX] = {0};
@@ -524,6 +530,8 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
     }
     g_amc_w = width; g_amc_h = height;
     g_amc_lowlat = amc_read_prop_flag("debug.usbridge.lowlat");
+    g_amc_spsfix = amc_read_prop_flag("debug.usbridge.spsfix");
+    g_amc_spsfix_logged = 0;
     g_amc_negotiated_fmt = fmt_codec;
     vlat_reset();
     android_gl_set_low_latency(g_amc_lowlat);
@@ -706,6 +714,24 @@ static int dr_submit(PDECODE_UNIT du) {
     }
     size_t written = 0;
     for (PLENTRY e = du->bufferList; e && written < sz; e = e->next) {
+        if (e->bufferType == BUFFER_TYPE_SPS && !g_amc_hevc && g_amc_spsfix && e->length > 5 && sz - written > 8) {
+            const uint8_t *d = (const uint8_t *)e->data;
+            size_t sc = (d[2] == 1) ? 3 : 4;
+            int had_vui = 0, had_restr = 0;
+            size_t fixed = vsps_h264_fixup(d + sc, (size_t)e->length - sc, buf + written + sc,
+                                           sz - written - sc, &had_vui, &had_restr);
+            if (!g_amc_spsfix_logged) {
+                g_amc_spsfix_logged = 1;
+                ALOGI("SPS fixup: %s (host VUI=%d bitstream_restriction=%d, %d -> %zu bytes)",
+                      fixed ? "applied" : "parse failed, passing through", had_vui, had_restr,
+                      e->length, fixed + sc);
+            }
+            if (fixed) {
+                memcpy(buf + written, d, sc);
+                written += sc + fixed;
+                continue;
+            }
+        }
         size_t n = (e->length < sz - written) ? e->length : sz - written;
         memcpy(buf + written, e->data, n);
         written += n;
@@ -1152,10 +1178,12 @@ func displayMaxFPS() int {
 
 // decoderFitSize returns the largest size up to w x h, same aspect ratio,
 // that this device's hardware decoder for videoMode accepts (it refuses to
-// configure above its maximum, so asking the host for more means no video),
-// and the decoder's advertised frame-rate ceiling there. ok is false when
-// the platform gave no answer; then w x h is used as is.
-func decoderFitSize(videoMode string, w, h int) (fw, fh, maxFPS int, ok bool) {
+// configure above its maximum, so asking the host for more means no video)
+// and is rated to decode at fps -- a smaller picture at the requested rate
+// beats 4K at 30 on a 1080p phone -- plus the decoder's advertised
+// frame-rate ceiling there. ok is false when the platform gave no answer;
+// then w x h is used as is.
+func decoderFitSize(videoMode string, w, h, fps int) (fw, fh, maxFPS int, ok bool) {
 	initVideoJNI()
 	mime := "video/avc"
 	switch strings.ToLower(videoMode) {
@@ -1167,7 +1195,7 @@ func decoderFitSize(videoMode string, w, h int) (fw, fh, maxFPS int, ok bool) {
 	cMime := C.CString(mime)
 	defer C.free(unsafe.Pointer(cMime))
 	var out [3]C.int
-	if C.android_decoder_best_size(cMime, C.int(w), C.int(h), &out[0]) == 0 {
+	if C.android_decoder_best_size(cMime, C.int(w), C.int(h), C.int(fps), &out[0]) == 0 {
 		return w, h, 0, false
 	}
 	return int(out[0]), int(out[1]), int(out[2]), true

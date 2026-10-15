@@ -845,18 +845,19 @@ void *android_gl_get_frame_hwbuffer(int width, int height) {
 
 // android_decoder_best_size asks VideoSurfaceBridge.bestDecoderSize for the
 // largest size up to w x h (same aspect) the hardware decoder for mime can
-// be configured with. out = {width, height, max fps there}. Returns 0 when
-// there is no answer (no JVM yet, no hardware decoder).
-int android_decoder_best_size(const char *mime, int w, int h, int *out) {
+// be configured with and is rated to decode at fps (falling back to the
+// largest it accepts at all). out = {width, height, max fps there}. Returns
+// 0 when there is no answer (no JVM yet, no hardware decoder).
+int android_decoder_best_size(const char *mime, int w, int h, int fps, int *out) {
     if (!g_cls_vsb) return 0;
     int detach;
     JNIEnv *env = get_env(&detach);
     if (!env) return 0;
     int ok = 0;
-    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "bestDecoderSize", "(Ljava/lang/String;II)[I");
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "bestDecoderSize", "(Ljava/lang/String;III)[I");
     if (mid && !(*env)->ExceptionCheck(env)) {
         jstring jm = (*env)->NewStringUTF(env, mime);
-        jintArray arr = (jintArray)(*env)->CallStaticObjectMethod(env, g_cls_vsb, mid, jm, (jint)w, (jint)h);
+        jintArray arr = (jintArray)(*env)->CallStaticObjectMethod(env, g_cls_vsb, mid, jm, (jint)w, (jint)h, (jint)fps);
         if (!(*env)->ExceptionCheck(env) && arr && (*env)->GetArrayLength(env, arr) >= 3) {
             jint v[3];
             (*env)->GetIntArrayRegion(env, arr, 0, 3, v);
