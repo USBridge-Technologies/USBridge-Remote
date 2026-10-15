@@ -282,6 +282,9 @@ static VkBuffer       g_cursor_vk_buf = VK_NULL_HANDLE;
 static VkDeviceMemory g_cursor_vk_mem = VK_NULL_HANDLE;
 static void          *g_cursor_vk_ptr = NULL;
 
+// video_latency_android.c
+extern void vlat_note_present(void);
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 static uint32_t vk_find_mem(VkPhysicalDeviceMemoryProperties *mp,
@@ -1636,6 +1639,7 @@ static void *vk_render_thread(void *unused) {
             g_rendered++;
             // Only count real video frames toward FPS — cursor-only redraws skew the counter.
             if (is_video_frame) {
+                vlat_note_present();
                 g_fps_n++;
                 double now = mono_sec_vk();
                 if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }

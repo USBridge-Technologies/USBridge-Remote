@@ -1,6 +1,9 @@
 package io.usbridge.client
 
 import android.graphics.SurfaceTexture
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,6 +37,19 @@ object VideoSurfaceBridge {
     // far more likely to trigger against an encoder with jittery per-frame
     // timing (e.g. Allwinner VE2 h264_omx) than a consistent one.
     private val frameAvailable = AtomicBoolean(false)
+    private val frameLock = Object()
+
+    // Low-latency mode: onFrameAvailable runs on this thread instead of the
+    // main looper, so a busy UI thread cannot delay the decoder thread
+    // waiting in waitFrameAvailable.
+    @Volatile private var frameThread: HandlerThread? = null
+
+    private val onFrame = SurfaceTexture.OnFrameAvailableListener {
+        synchronized(frameLock) {
+            frameAvailable.set(true)
+            frameLock.notifyAll()
+        }
+    }
 
     /**
      * Create a SurfaceTexture bound to the given OpenGL ES texture name.
@@ -41,15 +57,22 @@ object VideoSurfaceBridge {
      * current on the calling thread.
      */
     @JvmStatic
-    fun createSurface(texName: Int): Surface? {
+    fun createSurface(texName: Int, lowLatency: Boolean): Surface? {
         release()
         return try {
             val st = SurfaceTexture(texName)
-            st.setOnFrameAvailableListener { frameAvailable.set(true) }
+            if (lowLatency) {
+                val t = HandlerThread("usbridge-video-frames", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                t.start()
+                frameThread = t
+                st.setOnFrameAvailableListener(onFrame, Handler(t.looper))
+            } else {
+                st.setOnFrameAvailableListener(onFrame)
+            }
             val s = Surface(st)
             surfaceTexture = st
             surface = s
-            Log.i(TAG, "createSurface: texName=$texName")
+            Log.i(TAG, "createSurface: texName=$texName lowLatency=$lowLatency")
             s
         } catch (e: Exception) {
             Log.e(TAG, "createSurface failed", e)
@@ -63,6 +86,24 @@ object VideoSurfaceBridge {
      */
     @JvmStatic
     fun consumeFrameAvailable(): Boolean = frameAvailable.getAndSet(false)
+
+    /**
+     * Block until a new frame has arrived (and consume it), or timeoutMs
+     * passes. Returns false on timeout.
+     */
+    @JvmStatic
+    fun waitFrameAvailable(timeoutMs: Int): Boolean {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        synchronized(frameLock) {
+            while (!frameAvailable.get()) {
+                val left = deadline - SystemClock.uptimeMillis()
+                if (left <= 0) return false
+                frameLock.wait(left)
+            }
+            frameAvailable.set(false)
+            return true
+        }
+    }
 
     @JvmStatic
     fun setDefaultBufferSize(width: Int, height: Int) {
@@ -97,6 +138,8 @@ object VideoSurfaceBridge {
         surfaceTexture?.release()
         surface = null
         surfaceTexture = null
+        frameThread?.quitSafely()
+        frameThread = null
         frameAvailable.set(false)
         Log.i(TAG, "release")
     }

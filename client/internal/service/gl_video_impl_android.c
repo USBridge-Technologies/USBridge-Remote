@@ -57,6 +57,11 @@ static atomic_int g_egl_busy = 0;
 static int     g_pbo_wr     = 0;     // which PBO we just wrote into
 static int     g_pbo_primed = 0;     // 1 after first frame (other PBO ready)
 
+// Low-latency path (moonlight_cgo_android.go's g_amc_lowlat): frame-available
+// is delivered on its own HandlerThread and waited for with a blocking call
+// instead of 0.5 ms sleep polling. Set before android_gl_init.
+static int     g_low_latency = 0;
+
 // ── JNI helpers ───────────────────────────────────────────────────────────────
 
 // get_env/detach_env used to attach-then-detach the calling native thread on
@@ -243,7 +248,7 @@ static ANativeWindow *java_create_surface(int width, int height) {
     jclass cls = g_cls_vsb;
 
     jmethodID mid_create = (*env)->GetStaticMethodID(env, cls,
-        "createSurface", "(I)Landroid/view/Surface;");
+        "createSurface", "(IZ)Landroid/view/Surface;");
     if (!mid_create || (*env)->ExceptionCheck(env)) {
         (*env)->ExceptionClear(env);
         VLOGE("createSurface method not found");
@@ -251,7 +256,8 @@ static ANativeWindow *java_create_surface(int width, int height) {
         return NULL;
     }
 
-    jobject surf = (*env)->CallStaticObjectMethod(env, cls, mid_create, (jint)g_oes_tex);
+    jobject surf = (*env)->CallStaticObjectMethod(env, cls, mid_create, (jint)g_oes_tex,
+                                                  (jboolean)(g_low_latency ? JNI_TRUE : JNI_FALSE));
     if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); surf = NULL; }
     if (!surf) {
         VLOGE("createSurface returned null");
@@ -308,7 +314,28 @@ static int java_consume_frame_available(void) {
 // against encoders with jittery per-frame completion timing (e.g. Allwinner
 // VE2 h264_omx). Bounded to avoid stalling the decoder thread indefinitely if
 // something upstream never signals.
+// java_wait_frame_available blocks until VideoSurfaceBridge's
+// onFrameAvailable fires (or timeout_ms passes) and consumes it.
+static int java_wait_frame_available(int timeout_ms) {
+    if (!g_cls_vsb) return 0;
+    int detach;
+    JNIEnv *env = get_env(&detach);
+    if (!env) return 0;
+    static jmethodID mid = NULL;
+    if (!mid) mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "waitFrameAvailable", "(I)Z");
+    if (!mid || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); mid = NULL; return 0; }
+    jboolean ret = (*env)->CallStaticBooleanMethod(env, g_cls_vsb, mid, (jint)timeout_ms);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); ret = 0; }
+    detach_env(detach);
+    return ret ? 1 : 0;
+}
+
 static void wait_for_frame_available(void) {
+    if (g_low_latency) {
+        if (!java_wait_frame_available(20))
+            VLOGE("wait_for_frame_available: timed out — latching whatever is current");
+        return;
+    }
     for (int i = 0; i < 40; i++) { // up to ~20ms
         if (java_consume_frame_available()) return;
         struct timespec ts = {0, 500000}; // 0.5ms
@@ -735,6 +762,17 @@ uint8_t *android_gl_get_frame(int width, int height) {
 void *android_gl_get_frame_hwbuffer(int width, int height) {
     if (g_context == EGL_NO_CONTEXT || !g_prog) return NULL;
     return (void *)render_to_hwbuffer(width, height);
+}
+
+void android_gl_set_low_latency(int on) { g_low_latency = on ? 1 : 0; }
+
+// android_gl_detach_thread balances get_env()'s standing attach for a thread
+// that is about to exit (moonlight_cgo_android.go's output thread).
+void android_gl_detach_thread(void) {
+    if (!g_jvm) return;
+    JNIEnv *env = NULL;
+    if ((*g_jvm)->GetEnv(g_jvm, (void **)&env, JNI_VERSION_1_6) == JNI_OK)
+        (*g_jvm)->DetachCurrentThread(g_jvm);
 }
 
 void android_gl_release(void) {

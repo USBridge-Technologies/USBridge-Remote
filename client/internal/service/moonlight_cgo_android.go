@@ -19,9 +19,11 @@ package service
 #include <Limelight.h>
 #include "bench_frames.h"
 #include <opus_multistream.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/system_properties.h>
 
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  "Moonlight/CGO", __VA_ARGS__)
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Moonlight/CGO", __VA_ARGS__)
@@ -40,6 +42,15 @@ extern ANativeWindow *android_gl_init(int width, int height);
 extern uint8_t      *android_gl_get_frame(int width, int height);
 extern void         *android_gl_get_frame_hwbuffer(int width, int height);
 extern void          android_gl_release(void);
+extern void          android_gl_set_low_latency(int on);
+extern void          android_gl_detach_thread(void);
+
+// Declared in video_latency_android.c
+extern void vlat_note_submit(uint64_t pts, uint64_t receive_us, uint64_t now_moonlight_us);
+extern void vlat_note_output(uint64_t pts);
+extern void vlat_note_handoff(void);
+extern void vlat_note_dropped(void);
+extern void vlat_reset(void);
 
 // Declared in vk_video_impl_android.c
 extern void android_vk_set_jvm(JavaVM *jvm, jobject ctx);
@@ -315,17 +326,60 @@ static void ar_decode(char *data, int len) {
 
 // ── Video implementation (AMediaCodec) ──────────────────────────────────────
 
+static void amc_present_output(int64_t pts);
+static void amc_stop_output_thread(void);
+static void amc_start_output_thread(void);
+
+// Low-latency decode (default on). `adb shell setprop debug.usbridge.lowlat 0`
+// before a stream starts restores the old pipeline -- plain MediaCodec
+// format, outputs collected inline by dr_submit, frame-available polling --
+// so the two can be compared with the same build (logcat USBridge/VideoLat).
+static int g_amc_lowlat = 1;
+
+static int amc_read_lowlat_prop(void) {
+    char v[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.usbridge.lowlat", v) > 0 && v[0] == '0') return 0;
+    return 1;
+}
+
+// amc_low_latency_format adds the keys that make decoders hand each frame
+// out as soon as it is decoded instead of holding a few for smoothness:
+// the standard KEY_LOW_LATENCY (Android 11+) and realtime priority, plus
+// the vendor switches older Qualcomm / Exynos / MediaTek / Amlogic
+// decoders read instead. Decoders ignore keys they don't know.
+static void amc_low_latency_format(AMediaFormat *fmt) {
+    AMediaFormat_setInt32(fmt, "low-latency", 1);
+    AMediaFormat_setInt32(fmt, "priority", 0); // realtime
+    AMediaFormat_setInt32(fmt, "vendor.qti-ext-dec-low-latency.enable", 1);
+    AMediaFormat_setInt32(fmt, "vendor.qti-ext-dec-picture-order.enable", 1);
+    AMediaFormat_setInt32(fmt, "vendor.rtc-ext-dec-low-latency.enable", 1);
+    AMediaFormat_setInt32(fmt, "vendor.low-latency.enable", 1);
+}
+
+static AMediaFormat *amc_new_format(const char *mime, int width, int height, int lowlat) {
+    AMediaFormat *fmt = AMediaFormat_new();
+    AMediaFormat_setString(fmt, "mime", mime);
+    AMediaFormat_setInt32(fmt,  "width",  width);
+    AMediaFormat_setInt32(fmt,  "height", height);
+    if (lowlat) amc_low_latency_format(fmt);
+    return fmt;
+}
+
 static void amc_init(int fmt_codec, int width, int height) {
     ALOGI("amc_init: fmt=0x%x %dx%d", fmt_codec, width, height);
     // Safety: clean up stale codec and EGL if dr_cleanup wasn't called.
     if (g_amc) {
         ALOGE("amc_init: stale g_amc found — cleaning up");
+        amc_stop_output_thread();
         AMediaCodec_stop(g_amc);
         AMediaCodec_delete(g_amc);
         g_amc = NULL;
         android_gl_release();  // also tear down stale EGL context
     }
     g_amc_w = width; g_amc_h = height;
+    g_amc_lowlat = amc_read_lowlat_prop();
+    vlat_reset();
+    android_gl_set_low_latency(g_amc_lowlat);
 
     ANativeWindow *nwin = android_gl_init(width, height);
     if (!nwin) { ALOGE("amc_init: no native window"); return; }
@@ -337,20 +391,95 @@ static void amc_init(int fmt_codec, int width, int height) {
         mime = "video/av01";
     }
 
-    AMediaFormat *fmt = AMediaFormat_new();
-    AMediaFormat_setString(fmt, "mime", mime);
-    AMediaFormat_setInt32(fmt,  "width",  width);
-    AMediaFormat_setInt32(fmt,  "height", height);
-
     g_amc = AMediaCodec_createDecoderByType(mime);
-    if (g_amc && AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK) {
+    int configured = 0;
+    if (g_amc) {
+        AMediaFormat *fmt = amc_new_format(mime, width, height, g_amc_lowlat);
+        configured = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK;
+        AMediaFormat_delete(fmt);
+        if (!configured && g_amc_lowlat) {
+            // Some decoders reject a key they don't support; a fresh codec
+            // with the plain format still works, just without low latency.
+            ALOGE("AMediaCodec configure with low-latency keys failed (%s) — retrying plain", mime);
+            AMediaCodec_delete(g_amc);
+            g_amc = AMediaCodec_createDecoderByType(mime);
+            if (g_amc) {
+                fmt = amc_new_format(mime, width, height, 0);
+                configured = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK;
+                AMediaFormat_delete(fmt);
+            }
+        }
+    }
+    if (configured) {
         if (AMediaCodec_start(g_amc) == AMEDIA_OK) {
-            ALOGI("AMediaCodec started (%s)", mime);
+            char name[128] = "?";
+            char *n = NULL;
+            if (AMediaCodec_getName(g_amc, &n) == AMEDIA_OK && n) {
+                snprintf(name, sizeof(name), "%s", n);
+                AMediaCodec_releaseName(g_amc, n);
+            }
+            ALOGI("AMediaCodec started (%s, %s, lowlat=%d)", mime, name, g_amc_lowlat);
+            if (g_amc_lowlat) amc_start_output_thread();
         } else { ALOGE("AMediaCodec_start failed (%s)", mime); }
     } else { ALOGE("AMediaCodec configure failed (%s)", mime); }
 
-    AMediaFormat_delete(fmt);
     if (nwin) ANativeWindow_release(nwin);
+}
+
+// ── Output thread (low-latency path) ─────────────────────────────────────────
+//
+// Waits on the decoder's output queue and shows each frame the moment it is
+// decoded. The old inline path only polled for output right after queueing
+// the next input, so every frame sat in the decoder until the following one
+// arrived -- a whole frame interval of added latency. When several outputs
+// are ready at once (a burst after a network stall), all but the newest are
+// dropped instead of shown late.
+static pthread_t   g_amc_out_thread;
+static _Atomic int g_amc_out_run = 0;
+static int         g_amc_out_started = 0;
+
+static void *amc_output_thread(void *arg) {
+    (void)arg;
+    ALOGI("amc output thread started");
+    while (atomic_load(&g_amc_out_run)) {
+        AMediaCodecBufferInfo info;
+        ssize_t idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 20000);
+        if (idx < 0) continue; // timeout, format/buffers changed
+        for (;;) {
+            AMediaCodecBufferInfo next;
+            ssize_t n = AMediaCodec_dequeueOutputBuffer(g_amc, &next, 0);
+            if (n < 0) break;
+            AMediaCodec_releaseOutputBuffer(g_amc, (size_t)idx, 0);
+            vlat_note_dropped();
+            idx = n; info = next;
+        }
+        vlat_note_output((uint64_t)info.presentationTimeUs);
+        AMediaCodec_releaseOutputBuffer(g_amc, (size_t)idx, 1);
+        amc_present_output(info.presentationTimeUs);
+    }
+    // get_env() in the GL bridge attached this thread to the JVM; a thread
+    // that exits attached aborts the process.
+    android_gl_detach_thread();
+    ALOGI("amc output thread stopped");
+    return NULL;
+}
+
+static void amc_start_output_thread(void) {
+    atomic_store(&g_amc_out_run, 1);
+    if (pthread_create(&g_amc_out_thread, NULL, amc_output_thread, NULL) == 0) {
+        g_amc_out_started = 1;
+    } else {
+        atomic_store(&g_amc_out_run, 0);
+        g_amc_lowlat = 0; // fall back to collecting outputs in dr_submit
+        ALOGE("amc output thread: pthread_create failed — inline output");
+    }
+}
+
+static void amc_stop_output_thread(void) {
+    if (!g_amc_out_started) return;
+    atomic_store(&g_amc_out_run, 0);
+    pthread_join(g_amc_out_thread, NULL);
+    g_amc_out_started = 0;
 }
 
 static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
@@ -390,12 +519,27 @@ static int dr_submit(PDECODE_UNIT du) {
         memcpy(buf + written, e->data, n);
         written += n;
     }
-    AMediaCodec_queueInputBuffer(g_amc, idx, 0, written, g_amc_pts += 33333, 0);
+    g_amc_pts += 33333;
+    vlat_note_submit(g_amc_pts, du->receiveTimeUs, LiGetMicroseconds());
+    AMediaCodec_queueInputBuffer(g_amc, idx, 0, written, g_amc_pts, 0);
+
+    if (g_amc_out_started) return DR_OK; // amc_output_thread shows it
 
     AMediaCodecBufferInfo info;
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {
+        vlat_note_output((uint64_t)info.presentationTimeUs);
         AMediaCodec_releaseOutputBuffer(g_amc, out_idx, 1);
+        amc_present_output(info.presentationTimeUs);
+    }
+    return DR_OK;
+}
+
+// amc_present_output copies the output just released to the SurfaceTexture
+// on to the screen. Called by whichever thread collects decoder output.
+static void amc_present_output(int64_t pts) {
+    (void)pts;
+    {
         // Net Graph HUD needs a CPU-readable RGBA buffer (ApplyNetGraphOverlay
         // in net_graph.go). The AHardwareBuffer zero-copy path never produces
         // one, so while the HUD is on we take the glReadPixels staging path
@@ -409,6 +553,7 @@ static int dr_submit(PDECODE_UNIT du) {
             // See gl_video_impl_android.c/vk_video_impl_android.c.
             void *ahb = android_gl_get_frame_hwbuffer(g_amc_w, g_amc_h);
             if (ahb) {
+                vlat_note_handoff();
                 android_vk_try_submit_hwbuffer(ahb, g_amc_w, g_amc_h);
                 // NULL: frame counting/FPS only, goVTFrame never dereferences
                 // the pointer while Vulkan is active (see its Go side).
@@ -419,6 +564,7 @@ static int dr_submit(PDECODE_UNIT du) {
             if (rgba) {
                 goNetGraphOverlay(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
                 if (android_vk_is_active()) {
+                    vlat_note_handoff();
                     // Vulkan overlay active but this device/driver lacks
                     // AHardwareBuffer import support -- fall back to the CPU
                     // staging-buffer path, which works everywhere. Also used
@@ -432,12 +578,12 @@ static int dr_submit(PDECODE_UNIT du) {
             }
         }
     }
-    return DR_OK;
 }
 
 static void dr_cleanup(void) {
     ALOGI("dr_cleanup");
     if (g_amc) {
+        amc_stop_output_thread();
         AMediaCodec_stop(g_amc);
         AMediaCodec_delete(g_amc);
         g_amc = NULL;
