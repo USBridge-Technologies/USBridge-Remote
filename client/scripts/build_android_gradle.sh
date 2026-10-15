@@ -76,6 +76,44 @@ ensure_moonlight_libs() {
         "$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ native libs for $abi failed${NC}"; exit 1; }
 }
 
+# install_ndk_link_wrappers copies a small Windows exe next to the NDK's
+# API 21 clang scripts. Fyne invokes those scripts for the final link, and
+# on Windows they run through cmd.exe, which stops at 8191 characters.
+# Linux and macOS execute the scripts directly and must not have them renamed.
+install_ndk_link_wrappers() {
+    case "$(uname -s 2>/dev/null || true)" in
+        MINGW*|MSYS*|CYGWIN*) ;;
+        *) return 0 ;;
+    esac
+    local prebuilt bin wrap src
+    prebuilt="$(find "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -1)"
+    bin="${prebuilt}/bin"
+    [ -d "$bin" ] || return 0
+    wrap="$REPO_ROOT/.build-cache/android/ndkclangwrap.exe"
+    mkdir -p "$(dirname "$wrap")"
+    if [ ! -f "$wrap" ] || [ "$SCRIPTS_DIR/ndkclangwrap.go" -nt "$wrap" ]; then
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 CC= CXX= \
+            go build -o "$wrap" "$SCRIPTS_DIR/ndkclangwrap.go"
+    fi
+    for src in \
+        "$bin/armv7a-linux-androideabi21-clang" \
+        "$bin/armv7a-linux-androideabi21-clang++" \
+        "$bin/aarch64-linux-android21-clang" \
+        "$bin/aarch64-linux-android21-clang++"
+    do
+        [ -f "$src.usbridge-bak" ] || [ -f "$src" ] || [ -f "$src.exe" ] || continue
+        if [ ! -f "$src.usbridge-bak" ] && [ -f "$src" ]; then
+            case "$(head -c 2 "$src" 2>/dev/null || true)" in
+                '#!') mv "$src" "$src.usbridge-bak" ;;
+            esac
+        fi
+        # Go on Windows ignores an extensionless program and runs the .cmd
+        # sibling. cmd.exe dies at 8191 characters. name.exe is what it
+        # actually executes.
+        cp -f "$wrap" "$src.exe"
+    done
+}
+
 # setup_fyne_abi_toolchain points CC/CXX at the ABI's API 26 NDK clang (Go's
 # own default resolves to API 21, where libaaudio/libvulkan aren't
 # linkable) and adds that ABI's API 26 sysroot lib dir to CGO_LDFLAGS.
@@ -86,6 +124,10 @@ setup_fyne_abi_toolchain() {
     libdir="${prebuilt}/sysroot/usr/lib/$(android_abi_sysroot_dir "$abi")/26"
     export CGO_LDFLAGS="$CGO_LDFLAGS_BASE"
     if [ -d "$libdir" ]; then
+        # Windows ld.lld (native go.exe) does not understand MSYS paths.
+        if command -v cygpath >/dev/null 2>&1; then
+            libdir="$(cygpath -m "$libdir" 2>/dev/null || echo "$libdir")"
+        fi
         export CGO_LDFLAGS="$CGO_LDFLAGS -L$libdir"
     fi
 }
@@ -602,6 +644,7 @@ for abi in $ANDROID_ABIS; do
 
     if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
         VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
+        install_ndk_link_wrappers
         setup_fyne_abi_toolchain "$abi"
         rm -f "$FYNE_APK"
         cd "$ANDROID_SRC"

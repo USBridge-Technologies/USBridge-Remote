@@ -155,18 +155,45 @@ add_android_sdk_tools_to_path() {
 
 normalize_android_path() {
     local path_value="$1"
+    local converted=""
+    local drive=""
+    local rest=""
 
     if [ -z "$path_value" ]; then
         return 1
     fi
 
+    # Windows env vars (LOCALAPPDATA etc.) arrive as C:\... — MSYS -d accepts
+    # them, but putting those on PATH breaks OpenSSL/NDK tool lookup
+    # ("no NDK aarch64-linux-android-gcc on $PATH"). Always prefer /c/... .
+    case "$path_value" in
+        [A-Za-z]:[\\/]*|[A-Za-z]:\\*)
+            drive="$(printf '%s' "${path_value:0:1}" | tr 'A-Z' 'a-z')"
+            rest="${path_value:2}"
+            rest="${rest//\\//}"
+            converted="/${drive}${rest}"
+            # Collapse accidental duplicate slashes after the drive.
+            converted="$(printf '%s' "$converted" | sed -E 's#/+#/#g')"
+            if [ -d "$converted" ]; then
+                echo "$converted"
+                return 0
+            fi
+            ;;
+    esac
+
     if [ -d "$path_value" ]; then
+        if command -v cygpath >/dev/null 2>&1; then
+            converted="$(cygpath -u "$path_value" 2>/dev/null || true)"
+            if [ -n "$converted" ] && [ -d "$converted" ]; then
+                echo "$converted"
+                return 0
+            fi
+        fi
         echo "$path_value"
         return 0
     fi
 
     if command -v cygpath >/dev/null 2>&1; then
-        local converted=""
         converted="$(cygpath -u "$path_value" 2>/dev/null || true)"
         if [ -n "$converted" ] && [ -d "$converted" ]; then
             echo "$converted"
@@ -663,6 +690,8 @@ setup_android_ndk_toolchain_env() {
     local api_level="${2:-28}"
     local triple="${3:-aarch64-linux-android}"
     local prebuilt_dir=""
+    local cc_path=""
+    local cxx_path=""
 
     if [ -z "$ndk_dir" ] || [ ! -d "$ndk_dir" ]; then
         return 1
@@ -673,10 +702,26 @@ setup_android_ndk_toolchain_env() {
         return 1
     fi
 
+    cc_path="$prebuilt_dir/bin/${triple}${api_level}-clang"
+    cxx_path="$prebuilt_dir/bin/${triple}${api_level}-clang++"
+    # Windows go.exe cannot reliably exec the NDK's bash clang wrappers; the
+    # .cmd shims work with CreateProcess. Prefer them when present.
+    if [ -f "${cc_path}.cmd" ]; then
+        cc_path="${cc_path}.cmd"
+    fi
+    if [ -f "${cxx_path}.cmd" ]; then
+        cxx_path="${cxx_path}.cmd"
+    fi
+    if command -v cygpath >/dev/null 2>&1; then
+        cc_path="$(cygpath -m "$cc_path" 2>/dev/null || echo "$cc_path")"
+        cxx_path="$(cygpath -m "$cxx_path" 2>/dev/null || echo "$cxx_path")"
+        prebuilt_dir="$(cygpath -m "$prebuilt_dir" 2>/dev/null || echo "$prebuilt_dir")"
+    fi
+
     export AR="$prebuilt_dir/bin/llvm-ar"
     export AS="$prebuilt_dir/bin/llvm-as"
-    export CC="$prebuilt_dir/bin/${triple}${api_level}-clang"
-    export CXX="$prebuilt_dir/bin/${triple}${api_level}-clang++"
+    export CC="$cc_path"
+    export CXX="$cxx_path"
     export LD="$prebuilt_dir/bin/ld.lld"
     export NM="$prebuilt_dir/bin/llvm-nm"
     export OBJCOPY="$prebuilt_dir/bin/llvm-objcopy"

@@ -1477,12 +1477,15 @@ func (vw *VideoWidget) updateInStreamContentRect() {
 func (vw *VideoWidget) updateInStreamContentRectWith(streamW, streamH float32) {
 	vw.ensureHostDesktopSize()
 	var x, y, w, h float32
-	if vw.hostMapsMouseInStreamSpace() {
+	if vw.hostMapsMouseInStreamSpace() || vw.kvmCaptureIsTheFrame() {
 		// Sunshine's touch_port already contain-fits the desktop into the
 		// encode (client_offset / scalar_inv). 0..32767 must stay in stream
 		// space — the same mapping Moonlight-qt sends. Cropping to the inner
 		// desktop here double-applies that letterbox: the host cursor lags
 		// and never reaches the physical edge.
+		// A hardware KVM is the other identity case: the chosen capture
+		// mode is the whole frame. The largest mode in the list is just
+		// another output size, not a monitor letterboxed inside this one.
 		x, y, w, h = 0, 0, 1, 1
 	} else {
 		hostW, hostH := vw.hostDesktopSize()
@@ -1532,6 +1535,23 @@ func (vw *VideoWidget) SetAgentProtocol(protocol string) {
 	usbapi.SetMCPDesktopSpaceMouse(!vw.hostMapsMouseInStreamSpace())
 	if p != "" && vw.onAgentProtocolChanged != nil {
 		vw.onAgentProtocolChanged(p)
+	}
+}
+
+// kvmCaptureIsTheFrame reports a hardware KVM session. Its capture chip
+// scales the HDMI source into the selected mode, so 640×480 is the entire
+// desktop, not a 16:9 picture padded inside a 4:3 frame. Treating the
+// largest advertised mode as that inner desktop squashes the pointer on
+// the axis where the aspects differ.
+func (vw *VideoWidget) kvmCaptureIsTheFrame() bool {
+	if vw == nil || IsSoftwareAgentOS(vw.agentOS) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(vw.agentProtocol)) {
+	case "opensource", "open source", "sunshine", "pro", "free", "enterprise":
+		return false
+	default:
+		return true
 	}
 }
 
