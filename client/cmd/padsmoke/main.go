@@ -1,3 +1,5 @@
+//go:build windows
+
 // padsmoke streams from a paired GameStream host and drives one virtual
 // gamepad over the stream's input channel (ENet), the way the client does,
 // then checks on this machine through XInput that the host built the pad:

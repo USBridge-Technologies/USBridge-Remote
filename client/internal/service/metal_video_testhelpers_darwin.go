@@ -72,13 +72,3 @@ func metalTestMakeWindow() uintptr {
 func metalTestReleaseWindow(win uintptr) {
 	C.metal_test_release_window(C.uintptr_t(win))
 }
-
-// goMetalMouseEvent stub: metal_video_impl_darwin.m's USBridgeMetalView
-// references this cgo export directly (normally supplied by
-// internal/gui/controller/video_widget_metal_darwin.go, which this package
-// doesn't import) -- without it the test binary fails to link. Mirrors
-// cmd/metalspike/main.go's own stub; the leak test never generates real
-// mouse events, so a no-op body is fine.
-//
-//export goMetalMouseEvent
-func goMetalMouseEvent(typ C.int, x, y C.float, btn C.int) {}

@@ -263,6 +263,12 @@ HOMEBREW_PREFIX="/opt/homebrew"
 [ -d "/usr/local/lib" ] && [ ! -d "/opt/homebrew/lib" ] && HOMEBREW_PREFIX="/usr/local"
 export CGO_ENABLED=1
 export CGO_LDFLAGS="-L${HOMEBREW_PREFIX}/lib ${CGO_LDFLAGS:-}"
+# cmd/go adds -lobjc once per package with .m files (Fyne, systray, ours),
+# which Xcode 15's ld ("ld-NNNN", not the old "ld64-NNN") reports as
+# duplicates on every link. The flag is not allowed in #cgo LDFLAGS.
+if ld -v 2>&1 | grep -q 'PROJECT:ld-[0-9]'; then
+    export CGO_LDFLAGS="$CGO_LDFLAGS -Wl,-no_warn_duplicate_libraries"
+fi
 export CGO_CPPFLAGS="-I${HOMEBREW_PREFIX}/include ${CGO_CPPFLAGS:-}"
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 rm -rf "$DIST_DIR"

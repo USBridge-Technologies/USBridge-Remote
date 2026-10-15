@@ -360,10 +360,12 @@ static uint64_t g_vt_frame_count = 0;
 // 0x0001=H264, 0x0100=H265, 0x1000=AV1_MAIN8 (matches VIDEO_FORMAT_* constants)
 static int g_video_format = 0x0001;
 
-// VIDEO_FORMAT_MASK_10BIT (Limelight.h) -- HEVC Main10, HEVC RExt10_444,
-// AV1 Main10, AV1 High10_444: every format bit this project's RustShine
-// HDR color upgrade (see docs/COLOR_MODES.md) can end up negotiating.
-#define VIDEO_FORMAT_MASK_10BIT 0xAA00
+// VT_FORMAT_MASK_10BIT: the part of Limelight.h's VIDEO_FORMAT_MASK_10BIT
+// that VideoToolbox decodes -- HEVC Main10, HEVC RExt10_444, AV1 Main10,
+// AV1 High10_444: every format bit this project's RustShine HDR color
+// upgrade (see docs/COLOR_MODES.md) can end up negotiating. Limelight's
+// mask also carries PyroWave's HDR bits, which never reach a VT session.
+#define VT_FORMAT_MASK_10BIT 0xAA00
 // VIDEO_FORMAT_PYROWAVE_HDR | VIDEO_FORMAT_PYROWAVE_444_HDR: PyroWave's own
 // HDR10 upgrades, decoded into the same 10-bit BT.2020 PQ surfaces
 // (pyrowave_decode_darwin.m) and so shown through the same EDR layer.
@@ -378,7 +380,7 @@ void platform_set_video_format(int videoFormat) {
     // first frame reaches metal_render_main_with_buf) -- see
     // metal_video_set_hdr's own doc comment for why this is the only
     // render-side change HDR needs.
-    metal_video_set_hdr((g_video_format & (VIDEO_FORMAT_MASK_10BIT | VIDEO_FORMAT_MASK_PYROWAVE_HDR)) != 0);
+    metal_video_set_hdr((g_video_format & (VT_FORMAT_MASK_10BIT | VIDEO_FORMAT_MASK_PYROWAVE_HDR)) != 0);
 #endif
 }
 
@@ -511,7 +513,7 @@ static void vt_callback(
     // succeeds -- see that function's own doc comment) -- but "essentially
     // always" isn't "always", so this stays a clean dropped-frame instead
     // of a crash if it ever is.
-    if (g_video_format & VIDEO_FORMAT_MASK_10BIT) {
+    if (g_video_format & VT_FORMAT_MASK_10BIT) {
         goVTLog((char*)"VT: HDR frame missed the zero-copy IOSurface path -- dropping (CPU fallback doesn't support 10-bit YCbCr)");
         goVTFrame(NULL, (int)CVPixelBufferGetWidth(img), (int)CVPixelBufferGetHeight(img), 0);
         return;
@@ -632,7 +634,7 @@ static int vt_create_session(void) {
     // VideoToolbox attaches from this session's format description (which
     // carries the stream's own signaled colorimetry) -- see
     // metal_video_set_hdr's doc comment for the full reasoning.
-    int32_t fmt = ((g_video_format & VIDEO_FORMAT_MASK_10BIT) != 0)
+    int32_t fmt = ((g_video_format & VT_FORMAT_MASK_10BIT) != 0)
         ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
         : kCVPixelFormatType_32BGRA;
     CFNumberRef cfFmt = CFNumberCreate(NULL, kCFNumberSInt32Type, &fmt);

@@ -21,12 +21,10 @@ package main
 #import <CoreVideo/CoreVideo.h>
 #include <stdint.h>
 
-// Implemented in internal/service/metal_video_impl_darwin.m -- this package
-// doesn't import internal/gui/controller (which normally provides
-// goMetalMouseEvent), so it must supply its own stub below to satisfy the
-// linker; and it calls metal_video_try_submit directly via cgo rather than
-// through any Go wrapper, since internal/service doesn't export one (real
-// callers reach it from moonlight_cgo_apple.go's C-side vt_callback).
+// Implemented in internal/service/metal_video_impl_darwin.m -- called
+// directly via cgo rather than through any Go wrapper, since
+// internal/service doesn't export one (real callers reach it from
+// moonlight_cgo_apple.go's C-side vt_callback).
 extern int metal_video_try_submit(CVImageBufferRef img);
 
 static uintptr_t spike_make_window(void) {
@@ -192,9 +190,6 @@ import (
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
 )
-
-//export goMetalMouseEvent
-func goMetalMouseEvent(typ C.int, x, y C.float, btn C.int) {}
 
 func main() {
 	// Exercises the REAL end-to-end wiring (service.SetUpscaleMode -> the
