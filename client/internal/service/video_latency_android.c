@@ -54,6 +54,7 @@ static atomic_int g_output_pending;    // frames out of the decoder
 static atomic_int g_handoff_pending;   // frames handed to Vulkan
 static int        g_shown;             // frames presented (render thread)
 static _Atomic double g_last_total_ms;
+static _Atomic double g_last_decode_ms; // dec + gl + vk: submit -> present
 
 void vlat_note_submit(uint64_t pts, uint64_t receive_us, uint64_t now_moonlight_us) {
     uint64_t net = now_moonlight_us > receive_us ? now_moonlight_us - receive_us : 0;
@@ -129,6 +130,7 @@ void vlat_note_present(void) {
     double secs = (double)(now - g_win_t0) / 1e6;
     double n = (double)g_win_n;
     atomic_store(&g_last_total_ms, (double)g_sum[4] / n / 1000.0);
+    atomic_store(&g_last_decode_ms, (double)(g_sum[1] + g_sum[2] + g_sum[3]) / n / 1000.0);
     LLOGI("fps in %.1f decoded %.1f handed %.1f shown %.1f, avg/max ms: net %.1f/%.1f dec %.1f/%.1f gl %.1f/%.1f vk %.1f/%.1f total %.1f/%.1f dropped=%d",
           in / secs, out / secs, handed / secs, g_shown / secs,
           g_sum[0] / n / 1000.0, g_max[0] / 1000.0,
@@ -145,6 +147,10 @@ void vlat_note_present(void) {
 // the first one.
 double vlat_last_total_ms(void) { return atomic_load(&g_last_total_ms); }
 
+// vlat_last_decode_ms: average decoder-submit -> present of the last window
+// (Net Graph's DEC row, same span as Metal's), 0 before the first one.
+double vlat_last_decode_ms(void) { return atomic_load(&g_last_decode_ms); }
+
 void vlat_reset(void) {
     pthread_mutex_lock(&g_in_mu);
     for (int i = 0; i < VLAT_RING; i++) g_in[i].submit_us = 0, g_in[i].pts = 0;
@@ -154,6 +160,7 @@ void vlat_reset(void) {
     pthread_mutex_unlock(&g_pend_mu);
     g_cur_valid = 0;
     atomic_store(&g_last_total_ms, 0.0);
+    atomic_store(&g_last_decode_ms, 0.0);
 }
 
 #endif // __ANDROID__

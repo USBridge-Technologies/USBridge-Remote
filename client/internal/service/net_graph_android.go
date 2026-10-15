@@ -10,6 +10,8 @@ extern int      do_get_estimated_rtt_info(uint32_t *out);
 extern uint16_t do_get_last_host_latency_tenths_ms(void);
 extern uint64_t do_get_playout_jitter_us(void);
 extern uint64_t do_get_playout_applied_delay_us(void);
+extern double   vlat_last_decode_ms(void); // video_latency_android.c
+extern int      do_get_negotiated_video_format(void);
 */
 import "C"
 
@@ -69,11 +71,21 @@ func GetPlayoutAppliedDelayMs() float64 {
 
 func init() {
 	// Same role as net_graph_linux.go: HUD FPS comes from the native
-	// overlay that is actually painting the video (Vulkan here). Decode
-	// ms is left nil -- AMediaCodec has no submit-to-display timer
-	// equivalent to Metal's g_decodeMsSum, so the DEC row reads 0.
+	// overlay that is actually painting the video (Vulkan here). DEC is
+	// video_latency_android.c's decoder-submit -> present average (the
+	// same span Metal's g_decodeMsSum covers), "--" until its first 2 s
+	// window.
 	netGraphRenderFPS = func() float64 {
 		return VKVideoAndroidGetFPS()
+	}
+	netGraphDecodeMs = func() float64 {
+		return float64(C.vlat_last_decode_ms())
+	}
+	netGraphDecodeMsValid = func() bool {
+		return C.vlat_last_decode_ms() > 0
+	}
+	netGraphCodecFn = func() (string, bool) {
+		return videoFormatCodecName(int32(C.do_get_negotiated_video_format()))
 	}
 	netGraphGPUNameFn = VKVideoAndroidGetGPUName
 	netGraphNetworkStatsFn = func() netGraphRawNetworkStats {

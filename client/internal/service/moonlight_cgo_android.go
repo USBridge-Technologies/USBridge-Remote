@@ -73,6 +73,7 @@ extern void android_vk_release_aimages(void);
 // duplicated into _cgo_export.c). g_last_host_latency_tenths_ms is
 // defined there for the same reason.
 extern volatile uint16_t g_last_host_latency_tenths_ms;
+extern volatile int g_amc_negotiated_fmt; // VIDEO_FORMAT_* of the running decoder, -1 = none
 void do_get_rtp_video_stats(uint32_t *out);
 int do_get_estimated_rtt_info(uint32_t *out);
 uint16_t do_get_last_host_latency_tenths_ms(void);
@@ -349,6 +350,7 @@ static void amc_teardown(void);
 // so the two can be compared with the same build (logcat USBridge/VideoLat).
 static int g_amc_lowlat = 1;
 
+
 static int amc_read_prop_flag(const char *name) {
     char v[PROP_VALUE_MAX] = {0};
     if (__system_property_get(name, v) > 0 && v[0] == '0') return 0;
@@ -444,9 +446,8 @@ static void amc_low_latency_format(AMediaFormat *fmt) {
     AMediaFormat_setInt32(fmt, "vendor.low-latency.enable", 1);
 }
 
-// amc_is_qualcomm: Qualcomm decoders drop out of low-latency mode when an
-// operating rate is set (Moonlight-Android avoids it there for the same
-// reason).
+// amc_is_qualcomm: Qualcomm parts get their own operating rate (see
+// amc_new_format) and low-latency component (amc_create_decoder).
 static int amc_is_qualcomm(const char *name) {
     return strncmp(name, "OMX.qcom.", 9) == 0 || strncmp(name, "c2.qti.", 7) == 0;
 }
@@ -465,7 +466,13 @@ static AMediaFormat *amc_new_format(const char *mime, int width, int height, int
         // Without these the platform sizes decoder clocks for 30 fps:
         // 4K at 60-120 fps then decodes at ~15-20 fps and backs up.
         if (fps > 0) AMediaFormat_setInt32(fmt, "frame-rate", fps);
-        if (!amc_is_qualcomm(decoder)) AMediaFormat_setInt32(fmt, "operating-rate", 32767);
+        // Qualcomm (Snapdragon 695, HEVC 1080p60): twice the stream rate cut
+        // decode from ~17 to ~13 ms; the maximum made it fall behind (53-56
+        // of 60 fps decoded). `setprop debug.usbridge.oprate N` overrides.
+        char v[PROP_VALUE_MAX] = {0};
+        int oprate = __system_property_get("debug.usbridge.oprate", v) > 0 ? atoi(v) : -1;
+        if (oprate <= 0) oprate = amc_is_qualcomm(decoder) ? (fps > 0 ? fps * 2 : 0) : 32767;
+        if (oprate > 0) AMediaFormat_setInt32(fmt, "operating-rate", oprate);
     }
     return fmt;
 }
@@ -506,6 +513,7 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
     }
     g_amc_w = width; g_amc_h = height;
     g_amc_lowlat = amc_read_prop_flag("debug.usbridge.lowlat");
+    g_amc_negotiated_fmt = fmt_codec;
     vlat_reset();
     android_gl_set_low_latency(g_amc_lowlat);
 
@@ -787,6 +795,7 @@ static void amc_present_image(AImage *img) {
 // amc_teardown stops decoding and frees the codec, the image reader (once
 // Vulkan gave its images back) and the GL context.
 static void amc_teardown(void) {
+    g_amc_negotiated_fmt = -1;
     if (g_amc) {
         amc_stop_output_thread();
         AMediaCodec_stop(g_amc);
