@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"usbridge_agent/internal/displaypower"
 )
@@ -163,27 +162,13 @@ func (b *sunshineBackend) applyVirtualDisplayLocked() {
 	}
 	st := res.State
 	log.Printf("[sunshine] virtual display attached: %s %q in %s (primary=%v exclusive=%v)", st.GDIName, st.FriendlyName, st.Mode, v.primary(), v.Exclusive)
-	if err := b.setConfigKey("output_name", b.virtualOutputName(st)); err != nil {
+	// The friendly name, which both forks map to the display (Vibepollo upstream,
+	// Sunshine through the Streamers-Forks patch in display_device.cpp). A Sunshine
+	// without that patch maps it to nothing and captures its first output: the virtual
+	// monitor, as long as it is primary.
+	if err := b.setConfigKey("output_name", st.FriendlyName); err != nil {
 		log.Printf("[sunshine] could not point output_name at the virtual display: %v", err)
 	}
-}
-
-// virtualOutputName is what output_name has to say for the host to capture the virtual
-// monitor. Vibepollo maps a friendly name to the display itself. Sunshine takes only its
-// own device_id, which the agent can read back from Sunshine's log (it lists every
-// monitor, attached or not, at startup), so any run after the first has it; until then
-// "" -- Sunshine's own pick, the first output of the adapter showing the primary
-// display, which is the virtual monitor when it is primary.
-func (b *sunshineBackend) virtualOutputName(st *displaypower.VirtualState) string {
-	if b.vibepollo {
-		return st.FriendlyName
-	}
-	for _, d := range b.ListCaptureDevices() {
-		if st.FriendlyName != "" && strings.EqualFold(d.DisplayName, st.FriendlyName) {
-			return d.OutputName
-		}
-	}
-	return ""
 }
 
 // releaseVirtualDisplayLocked runs after the stream host stopped (b.mu held): the
