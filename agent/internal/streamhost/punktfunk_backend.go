@@ -21,6 +21,7 @@ package streamhost
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"log"
 	"net"
 	"os"
@@ -48,6 +49,10 @@ const punktfunkAdminTokenEnv = "PUNKTFUNK_MGMT_TOKEN"
 // (confirmed env var from punktfunk's management-api.md: "<config> is
 // ~/.config/punktfunk ... (PUNKTFUNK_CONFIG_DIR overrides it)").
 const punktfunkConfigDirEnv = "PUNKTFUNK_CONFIG_DIR"
+
+// punktfunkSessionLaunch starts punktfunk-host in the active console session when the
+// agent is the Session 0 service; set on Windows (punktfunk_process_windows.go).
+var punktfunkSessionLaunch func(exe string, args []string, workDir string, out *os.File, extraEnv map[string]string) (punktfunkProcess, error)
 
 type punktfunkProcess interface {
 	Pid() int
@@ -349,14 +354,12 @@ func (b *punktfunkBackend) Start(adminPort int) error {
 		args = append(args, "--mgmt-bind", net.JoinHostPort(adminHost(), strconv.Itoa(adminPort)))
 	}
 
-	cmd := exec.Command(bin, args...)
-	configureProcess(cmd)
-	env := append(os.Environ(), punktfunkAdminTokenEnv+"="+token)
+	extra := map[string]string{punktfunkAdminTokenEnv: token}
 	if dir != "" {
-		env = append(env, punktfunkConfigDirEnv+"="+dir)
+		extra[punktfunkConfigDirEnv] = dir
 	}
 	if monitor := b.OutputName(); monitor != "" && !strings.HasPrefix(monitor, punktfunkVirtualPrefix) {
-		env = append(env, punktfunkCaptureMonitorEnv+"="+monitor)
+		extra[punktfunkCaptureMonitorEnv] = monitor
 	}
 	// One line a second while a client streams: frames sent, how many were
 	// new ones (uniq) rather than repeats, and the slowest capture/encode/
@@ -364,35 +367,64 @@ func (b *punktfunkBackend) Start(adminPort int) error {
 	// frame rate it actually delivered, which is the first thing to look at
 	// when a benchmark run comes out slow. RustShine logs the same kind of
 	// line unasked ("frame stage timing sample").
-	env = append(env, "PUNKTFUNK_PERF=1")
-	env = append(env, usbBrokerEnviron())
-	cmd.Env = env
-	if launchDir := filepath.Dir(bin); launchDir != "" && launchDir != "." {
-		cmd.Dir = launchDir
+	extra["PUNKTFUNK_PERF"] = "1"
+	if k, v, ok := strings.Cut(usbBrokerEnviron(), "="); ok {
+		extra[k] = v
 	}
+	launchDir := filepath.Dir(bin)
 
+	var logFile *os.File
 	if b.logPath != "" {
 		if err := os.MkdirAll(filepath.Dir(b.logPath), 0o755); err != nil {
 			log.Printf("[punktfunk] failed to create log dir for %s: %v", b.logPath, err)
 		} else if f, err := os.OpenFile(b.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
 			log.Printf("[punktfunk] failed to open log file %s: %v", b.logPath, err)
 		} else {
-			cmd.Stdout = f
-			cmd.Stderr = f
+			logFile = f
 		}
 	}
 
-	if err := cmd.Start(); err != nil {
-		return err
+	var proc punktfunkProcess
+	if useSunshineSessionBroker() && punktfunkSessionLaunch != nil {
+		p, err := punktfunkSessionLaunch(bin, args, launchDir, logFile, extra)
+		if err != nil {
+			if errors.Is(err, errSunshineNoActiveSessionMarker) {
+				// Nobody is logged on yet: the watchdog calls Start again.
+				log.Printf("[punktfunk] no active console session yet, deferring start")
+				return nil
+			}
+			return err
+		}
+		log.Printf("[punktfunk] started (session-broker) pid=%d launch=%s", p.Pid(), bin)
+		proc = p
+	} else {
+		cmd := exec.Command(bin, args...)
+		configureProcess(cmd)
+		env := os.Environ()
+		for k, v := range extra {
+			env = append(env, k+"="+v)
+		}
+		cmd.Env = env
+		if launchDir != "" && launchDir != "." {
+			cmd.Dir = launchDir
+		}
+		if logFile != nil {
+			cmd.Stdout = logFile
+			cmd.Stderr = logFile
+		}
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		log.Printf("[punktfunk] started pid=%d launch=%s", cmd.Process.Pid, bin)
+		afterStartPunktfunk(cmd)
+		proc = punktfunkExecCmdProcess{cmd}
 	}
-	log.Printf("[punktfunk] started pid=%d launch=%s", cmd.Process.Pid, bin)
-	afterStartPunktfunk(cmd)
 
 	// Only commit the token/proc once the process has actually started --
 	// an error path above must leave b.token at its previous value rather
 	// than claim credentials for a process that never launched.
 	b.token = token
-	tracked := newTrackedPunktfunkProc(punktfunkExecCmdProcess{cmd})
+	tracked := newTrackedPunktfunkProc(proc)
 	b.proc = tracked
 	b.unhealthySince = time.Time{}
 	go b.watchProcessExit(tracked)

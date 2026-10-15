@@ -3,13 +3,37 @@
 package streamhost
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	"golang.org/x/sys/windows"
+
+	"usbridge_agent/internal/sessionlaunch"
 )
+
+func init() {
+	punktfunkSessionLaunch = punktfunkSessionLaunchImpl
+}
+
+// punktfunkSessionLaunchImpl starts punktfunk-host in the active console session, as
+// Sunshine and RustShine are: the agent's service lives in Session 0, which has no
+// desktop to capture (the host came up, paired and launched, then sent no video, "No
+// video received from host"), and the shared MttVDD monitor it attaches would not be
+// the user's either. extraEnv goes on top of that session's environment.
+func punktfunkSessionLaunchImpl(exe string, args []string, workDir string, out *os.File, extraEnv map[string]string) (punktfunkProcess, error) {
+	h, err := sessionlaunch.LaunchInActiveSession(exe, args, workDir, out, out, extraEnv)
+	if err != nil {
+		if err == sessionlaunch.ErrNoActiveSession {
+			return nil, fmt.Errorf("%w: %v", errSunshineNoActiveSessionMarker, err)
+		}
+		return nil, err
+	}
+	assignToKillOnCloseJob(h.Pid())
+	return sessionProcAdapter{h}, nil
+}
 
 // repairPunktfunkConfigDir gives the agent's user write access back to
 // punktfunk-host's config dir when an upstream punktfunk-host has locked it.
