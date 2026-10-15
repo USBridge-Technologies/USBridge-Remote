@@ -1409,7 +1409,7 @@ void metal_video_set_hud_scale(float s) {
 // pointer, not a direct reference to that export, so binaries that link
 // this package without the controller (tests, cmd tools) still link.
 typedef void (*metal_mouse_cb)(int typ, float x, float y, int btn);
-static _Atomic(metal_mouse_cb) g_mouse_cb = NULL;
+static _Atomic(metal_mouse_cb) g_mouse_cb; // zero = none; no NULL initializer (Xcode 15 clang rejects it)
 
 void metal_video_set_mouse_callback(metal_mouse_cb cb) { atomic_store(&g_mouse_cb, cb); }
 
