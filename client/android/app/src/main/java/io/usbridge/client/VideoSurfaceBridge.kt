@@ -1,6 +1,9 @@
 package io.usbridge.client
 
 import android.graphics.SurfaceTexture
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
@@ -130,6 +133,58 @@ object VideoSurfaceBridge {
     @JvmStatic
     fun getTransformMatrix(mtx: FloatArray) {
         surfaceTexture?.getTransformMatrix(mtx)
+    }
+
+    /**
+     * The largest size up to w x h, same aspect ratio, that the hardware
+     * decoder for [mime] accepts, as [width, height, maxFpsAtThatSize];
+     * null if there is no hardware decoder (or no answer). Decoders refuse
+     * to configure above their maximum size at all, e.g. Snapdragon 695
+     * tops out at 1920x1088, so a 4K stream would never start.
+     */
+    @JvmStatic
+    fun bestDecoderSize(mime: String, w: Int, h: Int): IntArray? {
+        if (w <= 0 || h <= 0) return null
+        return try {
+            val caps = hardwareDecoderCaps(mime) ?: return null
+            val name = caps.first
+            val vc = caps.second
+            val wa = vc.widthAlignment.coerceAtLeast(2)
+            val ha = vc.heightAlignment.coerceAtLeast(2)
+            val heights = listOf(h, 2160, 1600, 1440, 1200, 1080, 900, 720, 540, 480)
+                .filter { it <= h }.distinct()
+            for (ch0 in heights) {
+                val ch = ch0 / ha * ha
+                val cw = ((ch.toLong() * w / h).toInt()) / wa * wa
+                if (cw <= 0 || ch <= 0 || !vc.isSizeSupported(cw, ch)) continue
+                val maxFps = vc.getSupportedFrameRatesFor(cw, ch).upper.toInt()
+                Log.i(TAG, "bestDecoderSize($mime ${w}x$h): $name -> ${cw}x$ch (max ${maxFps} fps)")
+                return intArrayOf(cw, ch, maxFps)
+            }
+            Log.w(TAG, "bestDecoderSize($mime ${w}x$h): $name supports none of the candidate sizes")
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "bestDecoderSize failed", e)
+            null
+        }
+    }
+
+    // The decoder MediaCodec.createDecoderByType picks for mime: the first
+    // hardware one in the platform list.
+    private fun hardwareDecoderCaps(mime: String): Pair<String, MediaCodecInfo.VideoCapabilities>? {
+        for (info in MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos) {
+            if (info.isEncoder) continue
+            val type = info.supportedTypes.firstOrNull { it.equals(mime, ignoreCase = true) } ?: continue
+            val hw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                info.isHardwareAccelerated && !info.isSoftwareOnly
+            } else {
+                !info.name.startsWith("OMX.google.") && !info.name.startsWith("c2.android.")
+            }
+            if (!hw) continue
+            val vc = info.getCapabilitiesForType(type).videoCapabilities ?: continue
+            return Pair(info.name, vc)
+        }
+        return null
     }
 
     @JvmStatic

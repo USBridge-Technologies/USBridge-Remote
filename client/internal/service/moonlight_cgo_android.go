@@ -44,8 +44,12 @@ extern uint8_t      *android_gl_get_frame(int width, int height);
 extern void         *android_gl_get_frame_hwbuffer(int width, int height);
 extern void          android_gl_release(void);
 extern void          android_gl_set_low_latency(int on);
+extern int           android_decoder_best_size(const char *mime, int w, int h, int *out);
 extern void          android_gl_detach_thread(void);
 extern uint8_t      *android_gl_get_frame_from_ahb(void *ahb, int crop_x, int crop_y, int crop_w, int crop_h);
+
+// Declared in video_sps_android.c
+extern int vsps_dims(const uint8_t *nal, size_t len, int hevc, int *w, int *h);
 
 // Declared in video_latency_android.c
 extern void vlat_note_submit(uint64_t pts, uint64_t receive_us, uint64_t now_moonlight_us);
@@ -97,6 +101,8 @@ static AMediaCodec   *g_amc            = NULL;
 static int            g_amc_w          = 0;
 static int            g_amc_h          = 0;
 static uint64_t       g_amc_pts        = 0;
+static int            g_amc_hevc       = 0; // stream is HEVC (for SPS parsing)
+static int            g_sps_w = 0, g_sps_h = 0; // last coded size seen in an SPS
 
 // ── Connection callbacks ──────────────────────────────────────────────────────
 
@@ -445,14 +451,17 @@ static int amc_is_qualcomm(const char *name) {
     return strncmp(name, "OMX.qcom.", 9) == 0 || strncmp(name, "c2.qti.", 7) == 0;
 }
 
+// Format tiers amc_init tries in turn, dropping what a decoder refused.
+enum { AMC_FMT_PLAIN, AMC_FMT_LOWLAT, AMC_FMT_LOWLAT_RATE };
+
 static AMediaFormat *amc_new_format(const char *mime, int width, int height, int fps,
-                                    const char *decoder, int lowlat) {
+                                    const char *decoder, int tier) {
     AMediaFormat *fmt = AMediaFormat_new();
     AMediaFormat_setString(fmt, "mime", mime);
     AMediaFormat_setInt32(fmt,  "width",  width);
     AMediaFormat_setInt32(fmt,  "height", height);
-    if (lowlat) {
-        amc_low_latency_format(fmt);
+    if (tier >= AMC_FMT_LOWLAT) amc_low_latency_format(fmt);
+    if (tier >= AMC_FMT_LOWLAT_RATE) {
         // Without these the platform sizes decoder clocks for 30 fps:
         // 4K at 60-120 fps then decodes at ~15-20 fps and backs up.
         if (fps > 0) AMediaFormat_setInt32(fmt, "frame-rate", fps);
@@ -485,41 +494,42 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
     }
 
     const char *mime = "video/avc";
+    g_amc_hevc = 0; g_sps_w = 0; g_sps_h = 0;
     if (fmt_codec & 0x0F00) { // VIDEO_FORMAT_MASK_H265
         mime = "video/hevc";
+        g_amc_hevc = 1;
     } else if (fmt_codec & 0xF000) { // VIDEO_FORMAT_MASK_AV1
         mime = "video/av01";
     }
 
-    g_amc = AMediaCodec_createDecoderByType(mime);
+    // A decoder refuses the whole configure over one key it doesn't take
+    // (e.g. a frame rate above its rating), so step down until one sticks,
+    // on a fresh codec each time.
     int configured = 0;
     char name[128] = "?";
-    if (g_amc) {
+    int tier = g_amc_lowlat ? AMC_FMT_LOWLAT_RATE : AMC_FMT_PLAIN;
+    for (; tier >= AMC_FMT_PLAIN && !configured; tier--) {
+        if (!g_amc) g_amc = AMediaCodec_createDecoderByType(mime);
+        if (!g_amc) break;
         char *n = NULL;
         if (AMediaCodec_getName(g_amc, &n) == AMEDIA_OK && n) {
             snprintf(name, sizeof(name), "%s", n);
             AMediaCodec_releaseName(g_amc, n);
         }
-        AMediaFormat *fmt = amc_new_format(mime, width, height, fps, name, g_amc_lowlat);
+        AMediaFormat *fmt = amc_new_format(mime, width, height, fps, name, tier);
         configured = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK;
         AMediaFormat_delete(fmt);
-        if (!configured && g_amc_lowlat) {
-            // Some decoders reject a key they don't support; a fresh codec
-            // with the plain format still works, just without low latency.
-            ALOGE("AMediaCodec configure with low-latency keys failed (%s) — retrying plain", mime);
+        if (!configured) {
+            ALOGE("AMediaCodec configure failed (%s, %s, %dx%d@%d, tier %d)%s",
+                  mime, name, width, height, fps, tier, tier > AMC_FMT_PLAIN ? " — retrying with fewer keys" : "");
             AMediaCodec_delete(g_amc);
-            g_amc = AMediaCodec_createDecoderByType(mime);
-            if (g_amc) {
-                fmt = amc_new_format(mime, width, height, fps, name, 0);
-                configured = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK;
-                AMediaFormat_delete(fmt);
-            }
+            g_amc = NULL;
         }
     }
     if (configured) {
         if (AMediaCodec_start(g_amc) == AMEDIA_OK) {
-            ALOGI("AMediaCodec started (%s, %s, %dx%d@%d, lowlat=%d, imagereader=%d)",
-                  mime, name, width, height, fps, g_amc_lowlat, g_air != NULL);
+            ALOGI("AMediaCodec started (%s, %s, %dx%d@%d, lowlat=%d, format tier=%d, imagereader=%d)",
+                  mime, name, width, height, fps, g_amc_lowlat, tier + 1, g_air != NULL);
             if (g_amc_lowlat) amc_start_output_thread();
         } else { ALOGE("AMediaCodec_start failed (%s)", mime); }
     } else { ALOGE("AMediaCodec configure failed (%s)", mime); }
@@ -545,7 +555,17 @@ static void *amc_output_thread(void *arg) {
     while (atomic_load(&g_amc_out_run)) {
         AMediaCodecBufferInfo info;
         ssize_t idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 20000);
-        if (idx < 0) continue; // timeout, format/buffers changed
+        if (idx < 0) {
+            // Timeout or format/buffers changed: just poll again. Anything
+            // else is a codec error (e.g. a stream larger than it was
+            // configured for), and the call then fails at once: back off
+            // instead of spinning until the stream is torn down.
+            if (idx < AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) {
+                struct timespec ts = {0, 20000000}; // 20 ms
+                nanosleep(&ts, NULL);
+            }
+            continue;
+        }
         for (;;) {
             AMediaCodecBufferInfo next;
             ssize_t n = AMediaCodec_dequeueOutputBuffer(g_amc, &next, 0);
@@ -594,8 +614,27 @@ static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
     return 0;
 }
 
+// amc_log_stream_size logs the coded size in an IDR's SPS whenever it
+// changes, next to what the decoder was configured for.
+static void amc_log_stream_size(PDECODE_UNIT du) {
+    if (du->frameType != FRAME_TYPE_IDR) return;
+    for (PLENTRY e = du->bufferList; e; e = e->next) {
+        if (e->bufferType != BUFFER_TYPE_SPS || e->length < 5) continue;
+        const uint8_t *d = (const uint8_t *)e->data;
+        size_t off = (d[2] == 1) ? 3 : 4; // 00 00 01 or 00 00 00 01
+        int w = 0, h = 0;
+        if (vsps_dims(d + off, (size_t)e->length - off, g_amc_hevc, &w, &h) && (w != g_sps_w || h != g_sps_h)) {
+            g_sps_w = w; g_sps_h = h;
+            ALOGI("stream SPS: coded %dx%d (decoder configured %dx%d)%s", w, h, g_amc_w, g_amc_h,
+                  (w > g_amc_w + 64 || h > g_amc_h + 64) ? " — LARGER than the decoder expects" : "");
+        }
+        return;
+    }
+}
+
 static int dr_submit(PDECODE_UNIT du) {
     g_last_host_latency_tenths_ms = du->frameHostProcessingLatency;
+    amc_log_stream_size(du);
     bench_frames_note(du);
     if (!g_amc) return DR_NEED_IDR;
 
@@ -971,6 +1010,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1042,6 +1082,11 @@ type MoonlightCgoWrapper struct {
 }
 
 func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
+	initVideoJNI()
+	return &MoonlightCgoWrapper{host: host}
+}
+
+func initVideoJNI() {
 	jniInitOnce.Do(func() {
 		_ = driver.RunNative(func(ctx any) error {
 			if ac, ok := ctx.(*driver.AndroidContext); ok && ac.VM != 0 && ac.Ctx != 0 {
@@ -1052,7 +1097,29 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 			return nil
 		})
 	})
-	return &MoonlightCgoWrapper{host: host}
+}
+
+// decoderFitSize returns the largest size up to w x h, same aspect ratio,
+// that this device's hardware decoder for videoMode accepts (it refuses to
+// configure above its maximum, so asking the host for more means no video),
+// and the decoder's advertised frame-rate ceiling there. ok is false when
+// the platform gave no answer; then w x h is used as is.
+func decoderFitSize(videoMode string, w, h int) (fw, fh, maxFPS int, ok bool) {
+	initVideoJNI()
+	mime := "video/avc"
+	switch strings.ToLower(videoMode) {
+	case "h265", "hevc":
+		mime = "video/hevc"
+	case "av1":
+		mime = "video/av01"
+	}
+	cMime := C.CString(mime)
+	defer C.free(unsafe.Pointer(cMime))
+	var out [3]C.int
+	if C.android_decoder_best_size(cMime, C.int(w), C.int(h), &out[0]) == 0 {
+		return w, h, 0, false
+	}
+	return int(out[0]), int(out[1]), int(out[2]), true
 }
 
 // stopConnectionSafely calls LiInterruptConnection() immediately (documented

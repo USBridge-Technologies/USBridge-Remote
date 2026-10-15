@@ -322,6 +322,17 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		bitrate = m.bitrate
 	}
 
+	// A decoder refuses to configure above its maximum size (Snapdragon 695:
+	// 1920x1088), so a 4K request would launch a stream nothing can show.
+	// Ask the host for the largest size this device decodes instead.
+	if m.width > 0 && m.height > 0 {
+		if fw, fh, maxFPS, ok := decoderFitSize(m.videoMode, m.width, m.height); ok && (fw != m.width || fh != m.height) {
+			logrus.Infof("🌕 [Moonlight] %dx%d is beyond this device's %s decoder; asking the host for %dx%d (decoder rated up to %d fps there)",
+				m.width, m.height, m.videoMode, fw, fh, maxFPS)
+			m.width, m.height = fw, fh
+		}
+	}
+
 	t2 := time.Now()
 	logrus.Infof("🎯 [CODEC-TRACE] ConnectToMoonlight: about to call client.Launch(appId=%d, videoMode=%q, %dx%d@%d, bitrate=%d) -- videoMode here is what m.SetVideoMode last set",
 		appId, m.videoMode, m.width, m.height, fps, bitrate)
