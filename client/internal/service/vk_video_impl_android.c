@@ -34,6 +34,7 @@
 #include <unistd.h>
 
 #include "shader_arrays.h" // g_ycbcr_rect_vert_spv / g_ycbcr_frag_spv
+#include "gles_overlay_android.h"
 
 #define VTAG "USBridge/VulkanVideo"
 #define VLOGI(...) __android_log_print(ANDROID_LOG_INFO,  VTAG, __VA_ARGS__)
@@ -217,6 +218,19 @@ static atomic_int       g_drop_last_aimg;
 // android_vk_release_aimages asks the render thread to give back every
 // AImage before the decoder's AImageReader goes away; it acks by clearing it.
 static atomic_int       g_aimg_release_req;
+
+// No Vulkan device on this phone (e.g. PowerVR GE8320): the overlay draws
+// through OpenGL ES instead (gles_overlay_android.c), on the same
+// SurfaceView, with the same state and render thread. Set by
+// android_vk_create.
+static int              g_use_gles = 0;
+// GLES mode keeps its CPU frame here (Vulkan copies into g_stage_ptr).
+static uint8_t         *g_gles_cpu = NULL;
+static size_t           g_gles_cpu_sz = 0;
+// Cursor image for GLES mode, uploaded on the render thread.
+static uint8_t         *g_gles_cursor = NULL;
+static int              g_gles_cursor_w = 0, g_gles_cursor_h = 0;
+static atomic_int       g_gles_cursor_dirty;
 
 static pthread_mutex_t g_mu     = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t       g_thread = 0;
@@ -2102,7 +2116,8 @@ static void vk_note_video_frame_rendered(void) {
 // the GPU is done with it.
 static void vk_aimg_set_current(AImage *img) {
     if (g_cur_aimg && g_cur_aimg != img) {
-        if (g_dev && g_fence) vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
+        if (g_use_gles) gles_ov_wait_idle();
+        else if (g_dev && g_fence) vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
         AImage_delete(g_cur_aimg);
     }
     g_cur_aimg = img;
@@ -2117,14 +2132,93 @@ static void vk_aimg_drop_all(void) {
     g_pend_aimg = NULL;
     pthread_mutex_unlock(&g_mu);
     if (pend) AImage_delete(pend);
-    if (g_dev) {
+    if (g_use_gles) {
+        gles_ov_drop_images();
+    } else if (g_dev) {
         vkDeviceWaitIdle(g_dev);
         vk_yc_cache_clear();
     }
 }
 
+// gles_render presents one frame through the GLES fallback: a decoder image
+// (img) or a CPU RGBA frame (rgba, fw x fh, tightly packed). Same layout,
+// cursor and holes as the Vulkan path.
+static int gles_render(AImage *img, const uint8_t *rgba, int fw, int fh) {
+    int sw = 0, sh = 0;
+    if (!gles_ov_surface_size(&sw, &sh)) return 0;
+    if (atomic_exchange(&g_gles_cursor_dirty, 0)) {
+        pthread_mutex_lock(&g_mu);
+        gles_ov_set_cursor(g_gles_cursor, g_gles_cursor_w, g_gles_cursor_h);
+        pthread_mutex_unlock(&g_mu);
+    }
+
+    gles_ov_frame f;
+    memset(&f, 0, sizeof(f));
+    f.surf_w = sw; f.surf_h = sh;
+    int crop_x = 0, crop_y = 0;
+    if (img) {
+        AHardwareBuffer *ahb = NULL;
+        AImageCropRect crop;
+        if (AImage_getHardwareBuffer(img, &ahb) != AMEDIA_OK || !ahb) return 0;
+        AHardwareBuffer_Desc desc;
+        AHardwareBuffer_describe(ahb, &desc);
+        if (AImage_getCropRect(img, &crop) != AMEDIA_OK || crop.right <= crop.left || crop.bottom <= crop.top) {
+            crop.left = 0; crop.top = 0; crop.right = (int32_t)desc.width; crop.bottom = (int32_t)desc.height;
+        }
+        f.ahb = ahb;
+        f.tex_w = (int)desc.width; f.tex_h = (int)desc.height;
+        crop_x = crop.left; crop_y = crop.top;
+        fw = crop.right - crop.left; fh = crop.bottom - crop.top;
+    } else {
+        f.rgba = rgba;
+        f.tex_w = fw; f.tex_h = fh;
+    }
+
+    pthread_mutex_lock(&g_state_mu);
+    float snap_uc  = atomic_load(&g_cursor_uc_fp)  / 65536.0f;
+    float snap_vc  = atomic_load(&g_cursor_vc_fp)  / 65536.0f;
+    int   snap_vis = atomic_load(&g_cursor_visible);
+    int   snap_pan_x = atomic_load(&g_blit_pan_x);
+    int   snap_pan_y = atomic_load(&g_blit_pan_y);
+    float snap_zoom  = atomic_load(&g_blit_zoom_fp) / 65536.0f;
+    int holes[VK_MAX_HOLES * 4];
+    int nholes = 0;
+    for (int i = 0; i < g_hole_count; i++) {
+        holes[nholes * 4 + 0] = g_holes[i].offset.x;
+        holes[nholes * 4 + 1] = g_holes[i].offset.y;
+        holes[nholes * 4 + 2] = (int)g_holes[i].extent.width;
+        holes[nholes * 4 + 3] = (int)g_holes[i].extent.height;
+        nholes++;
+    }
+    pthread_mutex_unlock(&g_state_mu);
+
+    int src_x0 = 0, src_y0 = 0, src_x1 = fw, src_y1 = fh;
+    int dx = 0, dy = 0, dw = sw, dh = sh;
+    vk_layout_zoomed_dest(fw, fh, sw, sh, snap_zoom, snap_pan_x, snap_pan_y,
+                          &dx, &dy, &dw, &dh, &src_x0, &src_y0, &src_x1, &src_y1);
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
+    f.sx0 = crop_x + src_x0; f.sy0 = crop_y + src_y0;
+    f.sx1 = crop_x + src_x1; f.sy1 = crop_y + src_y1;
+    f.dx = dx; f.dy = dy; f.dw = dw; f.dh = dh;
+
+    if (snap_vis) {
+        // Same mapping as the Vulkan path's cursor spans: the image's
+        // top-left (the arrow tip) sits on the cursor point.
+        float su0 = fw > 0 ? (float)src_x0 / (float)fw : 0.0f, sv0 = fh > 0 ? (float)src_y0 / (float)fh : 0.0f;
+        float su1 = fw > 0 ? (float)src_x1 / (float)fw : 1.0f, sv1 = fh > 0 ? (float)src_y1 / (float)fh : 1.0f;
+        float tu = (su1 - su0 > 0.001f) ? (snap_uc - su0) / (su1 - su0) : 0.5f;
+        float tv = (sv1 - sv0 > 0.001f) ? (snap_vc - sv0) / (sv1 - sv0) : 0.5f;
+        f.cursor_visible = 1;
+        f.cursor_x = dx + (int)(tu * dw + 0.5f);
+        f.cursor_y = dy + (int)(tv * dh + 0.5f);
+    }
+    f.holes = holes; f.nholes = nholes;
+    return gles_ov_draw(&f);
+}
+
 static int vk_render_aimage(AImage *img) {
     if (!img) return 0;
+    if (g_use_gles) return gles_render(img, NULL, 0, 0);
     AHardwareBuffer *ahb = NULL;
     AImageCropRect crop;
     if (AImage_getHardwareBuffer(img, &ahb) != AMEDIA_OK || !ahb) return 0;
@@ -2139,7 +2233,8 @@ static int vk_render_aimage(AImage *img) {
 
 static void *vk_render_thread(void *unused) {
     (void)unused;
-    VLOGI("render thread started");
+    VLOGI("render thread started%s", g_use_gles ? " (OpenGL ES)" : "");
+    if (g_use_gles && !gles_ov_make_current()) VLOGE("GLES: eglMakeCurrent failed on the render thread");
     int last_fw = 0, last_fh = 0, last_fs = 0;
     int has_last_frame = 0;
     void *last_ahb = NULL;
@@ -2161,7 +2256,8 @@ static void *vk_render_thread(void *unused) {
         if (atomic_load(&g_hidden))  continue;
 
         // Explicit swapchain recreation requested (e.g. after fullscreen entry/exit).
-        if (atomic_exchange(&g_force_recreate, 0)) {
+        // GLES: the EGL window surface follows the SurfaceView's size itself.
+        if (atomic_exchange(&g_force_recreate, 0) && !g_use_gles) {
             VLOGI("force swapchain recreate requested");
             vk_recreate_swapchain();
             continue;
@@ -2193,7 +2289,19 @@ static void *vk_render_thread(void *unused) {
             // g_buf -> frame_buf -> g_stage_ptr double-hop. vk_ensure_staging
             // is cheap (no-op) once sized; it only does real work on the
             // first frame or a resolution change.
-            if (g_dev && vk_ensure_staging(sz) && g_stage_ptr) {
+            if (g_use_gles) {
+                size_t tight = (size_t)fw * 4 * (size_t)fh;
+                if (g_gles_cpu_sz < tight) {
+                    free(g_gles_cpu);
+                    g_gles_cpu = malloc(tight);
+                    g_gles_cpu_sz = g_gles_cpu ? tight : 0;
+                }
+                if (g_gles_cpu) {
+                    for (int y = 0; y < fh; y++)
+                        memcpy(g_gles_cpu + (size_t)y * fw * 4, g_buf + (size_t)y * (size_t)fs, (size_t)fw * 4);
+                    got_frame = 1;
+                }
+            } else if (g_dev && vk_ensure_staging(sz) && g_stage_ptr) {
                 // vk_render_frame's VkBufferImageCopy always describes the
                 // staging buffer as tightly packed (bufferRowLength = fw
                 // texels) since that's what it uploads to a GPU image with —
@@ -2258,9 +2366,15 @@ static void *vk_render_thread(void *unused) {
 
         if (!got_frame && !got_ahb) continue;
 
-        int ok = got_ahb ? vk_render_frame_hw(ahb, ahb_w, ahb_h, NULL) : vk_render_frame(fw, fh, fs);
+        int ok = g_use_gles ? (got_frame ? gles_render(NULL, g_gles_cpu, fw, fh) : 0)
+               : got_ahb ? vk_render_frame_hw(ahb, ahb_w, ahb_h, NULL) : vk_render_frame(fw, fh, fs);
         if (ok && is_video_frame) vk_note_video_frame_rendered();
         else if (ok) g_rendered++;
+    }
+    if (g_use_gles) {
+        // The context is current here: release GL objects on this thread.
+        vk_aimg_set_current(NULL);
+        gles_ov_destroy();
     }
     VLOGI("render thread exiting");
     return NULL;
@@ -2274,6 +2388,21 @@ static void vk_full_cleanup(void) {
     if (g_thread) { pthread_join(g_thread, NULL); g_thread = 0; }
     if (g_pipe_r >= 0) { close(g_pipe_r); g_pipe_r = -1; }
     if (g_pipe_w >= 0) { close(g_pipe_w); g_pipe_w = -1; }
+
+    if (g_use_gles) {
+        // The render thread released GL on its way out; this covers a
+        // thread that never started, and the frame still waiting.
+        gles_ov_destroy();
+        vk_aimg_set_current(NULL);
+        pthread_mutex_lock(&g_mu);
+        AImage *pend = g_pend_aimg;
+        g_pend_aimg = NULL;
+        free(g_gles_cpu); g_gles_cpu = NULL; g_gles_cpu_sz = 0;
+        free(g_gles_cursor); g_gles_cursor = NULL;
+        pthread_mutex_unlock(&g_mu);
+        if (pend) AImage_delete(pend);
+        g_use_gles = 0;
+    }
 
     if (g_dev) {
         vkDeviceWaitIdle(g_dev);
@@ -2424,9 +2553,19 @@ int android_vk_create(int x, int y, int w, int h) {
     atomic_store(&g_cursor_uc_fp, 32768); atomic_store(&g_cursor_vc_fp, 32768);
     atomic_store(&g_cursor_dirty, 0);
 
-    if (!vk_create_instance())  { VLOGE("vkCreateInstance failed");  goto fail; }
-    if (!vk_select_device())    { VLOGE("no suitable GPU");          goto fail; }
-    if (!vk_create_device())    { VLOGE("vkCreateDevice failed");    goto fail; }
+    g_use_gles = 0;
+    if (!vk_create_instance() || !vk_select_device() || !vk_create_device()) {
+        // No usable Vulkan (e.g. PowerVR GE8320): draw through OpenGL ES on
+        // the same SurfaceView instead (gles_overlay_android.c).
+        if (g_dev)  { vkDestroyDevice(g_dev, NULL);    g_dev  = VK_NULL_HANDLE; }
+        if (g_inst) { vkDestroyInstance(g_inst, NULL); g_inst = VK_NULL_HANDLE; }
+        g_pdev = VK_NULL_HANDLE;
+        if (!gles_ov_init(win)) { VLOGE("no Vulkan and no OpenGL ES overlay"); goto fail; }
+        g_use_gles = 1;
+        ANativeWindow_release(win); win = NULL;
+        VLOGI("no Vulkan device: using the OpenGL ES overlay");
+        goto start_render_thread;
+    }
     // Cursor pixels are uploaded from Go via android_vk_set_cursor_pixels()
     // after create returns, so no pre-render needed here.
 
@@ -2463,6 +2602,7 @@ int android_vk_create(int x, int y, int w, int h) {
         if (vkCreateFence(g_dev, &fci, NULL, &g_fence)        != VK_SUCCESS) goto fail;
     }
 
+start_render_thread:
     {
         int fds[2];
         if (pipe(fds) != 0) { VLOGE("pipe failed"); goto fail; }
@@ -2553,7 +2693,7 @@ int android_vk_hwbuffer_supported(void) {
 // android_vk_aimage_supported reports whether decoder images can be drawn
 // directly (android_vk_try_submit_aimage).
 int android_vk_aimage_supported(void) {
-    return atomic_load(&g_active) && g_ycbcr_supported;
+    return atomic_load(&g_active) && (g_ycbcr_supported || (g_use_gles && gles_ov_images_supported()));
 }
 
 // android_vk_try_submit_aimage hands a decoder image (AImageReader, already
@@ -2561,7 +2701,7 @@ int android_vk_aimage_supported(void) {
 // frame still waiting is replaced (and deleted) so only the newest is shown.
 // Returns 0 without taking img if the path is unavailable.
 int android_vk_try_submit_aimage(void *img) {
-    if (!img || !atomic_load(&g_active) || !g_ycbcr_supported) return 0;
+    if (!img || !atomic_load(&g_active) || !android_vk_aimage_supported()) return 0;
     pthread_mutex_lock(&g_mu);
     if (!atomic_load(&g_active)) {
         pthread_mutex_unlock(&g_mu);
@@ -2723,6 +2863,20 @@ void android_vk_set_cursor_scale(int scale) {
 // Go. Replaces the current cursor buffer. Thread-safe: waits for GPU idle.
 // src_rgba: packed RGBA bytes, 4 bytes/pixel, row-major, w×h pixels.
 void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h) {
+    if (g_use_gles && src_rgba && w > 0 && h > 0) {
+        size_t n = (size_t)w * (size_t)h * 4;
+        uint8_t *copy = malloc(n);
+        if (!copy) return;
+        memcpy(copy, src_rgba, n);
+        pthread_mutex_lock(&g_mu);
+        free(g_gles_cursor);
+        g_gles_cursor = copy; g_gles_cursor_w = w; g_gles_cursor_h = h;
+        pthread_mutex_unlock(&g_mu);
+        atomic_store(&g_gles_cursor_dirty, 1);
+        atomic_store(&g_cursor_dirty, 1);
+        if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+        return;
+    }
     if (!g_dev || !g_pdev || !src_rgba || w <= 0 || h <= 0) return;
 
     int was_visible = atomic_exchange(&g_cursor_visible, 0);
@@ -2824,6 +2978,7 @@ void android_vk_get_stats(float *fps, int *fps_ready,
 // for the rationale -- copies the active Vulkan physical device's name into
 // out, empty when no device has been selected yet this session.
 void android_vk_get_gpu_name(char *out, int out_len) {
+    if (g_use_gles) { gles_ov_gpu_name(out, out_len); return; }
     if (!out || out_len <= 0) return;
     out[0] = '\0';
     if (g_pdev == VK_NULL_HANDLE) return;

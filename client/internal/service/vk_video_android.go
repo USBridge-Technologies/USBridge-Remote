@@ -3,7 +3,7 @@
 package service
 
 /*
-#cgo LDFLAGS: -lvulkan -landroid
+#cgo LDFLAGS: -lvulkan -landroid -lEGL -lGLESv2
 
 #include <stdint.h>
 #include <jni.h>

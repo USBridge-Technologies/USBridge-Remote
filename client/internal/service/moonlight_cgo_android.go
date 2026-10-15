@@ -47,7 +47,9 @@ extern uint8_t      *android_gl_get_frame(int width, int height);
 extern void         *android_gl_get_frame_hwbuffer(int width, int height);
 extern void          android_gl_release(void);
 extern void          android_gl_set_low_latency(int on);
+extern void          android_gl_log_vendor_params(const char *name);
 extern int           android_decoder_best_size(const char *mime, int w, int h, int *out);
+extern int           android_display_max_refresh(void);
 extern void          android_gl_detach_thread(void);
 extern uint8_t      *android_gl_get_frame_from_ahb(void *ahb, int crop_x, int crop_y, int crop_w, int crop_h);
 
@@ -439,7 +441,9 @@ static AImage *air_acquire(int timeout_ms) {
 // out as soon as it is decoded instead of holding a few for smoothness:
 // the standard KEY_LOW_LATENCY (Android 11+) and realtime priority, plus
 // the vendor switches older Qualcomm / Exynos / MediaTek / Amlogic
-// decoders read instead. Decoders ignore keys they don't know.
+// decoders read instead (MediaTek c2.mtk ignores KEY_LOW_LATENCY: Helio
+// G36, HEVC 1080p, held ~10 frames / ~100 ms without its own key).
+// Decoders ignore keys they don't know.
 static void amc_low_latency_format(AMediaFormat *fmt) {
     AMediaFormat_setInt32(fmt, "low-latency", 1);
     AMediaFormat_setInt32(fmt, "priority", 0); // realtime
@@ -447,6 +451,11 @@ static void amc_low_latency_format(AMediaFormat *fmt) {
     AMediaFormat_setInt32(fmt, "vendor.qti-ext-dec-picture-order.enable", 1);
     AMediaFormat_setInt32(fmt, "vendor.rtc-ext-dec-low-latency.enable", 1);
     AMediaFormat_setInt32(fmt, "vendor.low-latency.enable", 1);
+    AMediaFormat_setInt32(fmt, "vdec-lowlatency", 1); // MediaTek (Moonlight-Android uses it)
+    // MediaTek c2 (from its supportedVendorParameters): no post-processing
+    // (quality tuner / motion interpolation hold frames), CPU boost.
+    AMediaFormat_setInt32(fmt, "vendor.mtk.ext.vdec.vpp.disabled.value", 1);
+    AMediaFormat_setInt32(fmt, "vendor.mtk.vdec.cpu.boost.mode.value", 1);
 }
 
 // amc_is_qualcomm: Qualcomm parts get their own operating rate (see
@@ -559,6 +568,7 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
         }
         if (st == AMEDIA_OK) {
             started = 1;
+            android_gl_log_vendor_params(name);
             ALOGI("AMediaCodec started (%s, %s, %dx%d@%d, lowlat=%d, format tier=%d, imagereader=%d)",
                   mime, name, width, height, fps, g_amc_lowlat, tier, g_air != NULL);
             if (g_amc_lowlat) amc_start_output_thread();
@@ -1135,6 +1145,13 @@ func initVideoJNI() {
 			return nil
 		})
 	})
+}
+
+// displayMaxFPS is the highest refresh rate this phone's display offers
+// (0 if unknown): frames beyond it are decoded only to be dropped.
+func displayMaxFPS() int {
+	initVideoJNI()
+	return int(C.android_display_max_refresh())
 }
 
 // decoderFitSize returns the largest size up to w x h, same aspect ratio,

@@ -873,6 +873,38 @@ int android_decoder_best_size(const char *mime, int w, int h, int *out) {
 
 void android_gl_set_low_latency(int on) { g_low_latency = on ? 1 : 0; }
 
+// android_display_max_refresh asks VideoSurfaceBridge.maxRefreshRate for the
+// display's highest refresh rate (Hz, rounded), 0 if unknown.
+int android_display_max_refresh(void) {
+    if (!g_cls_vsb) return 0;
+    int detach;
+    JNIEnv *env = get_env(&detach);
+    if (!env) return 0;
+    jint hz = 0;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "maxRefreshRate", "()I");
+    if (mid && !(*env)->ExceptionCheck(env)) hz = (*env)->CallStaticIntMethod(env, g_cls_vsb, mid);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); hz = 0; }
+    detach_env(detach);
+    return (int)hz;
+}
+
+// android_gl_log_vendor_params logs decoder `name`'s vendor parameters
+// (VideoSurfaceBridge.logVendorParameters).
+void android_gl_log_vendor_params(const char *name) {
+    if (!g_cls_vsb || !name) return;
+    int detach;
+    JNIEnv *env = get_env(&detach);
+    if (!env) return;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "logVendorParameters", "(Ljava/lang/String;)V");
+    if (mid && !(*env)->ExceptionCheck(env)) {
+        jstring jn = (*env)->NewStringUTF(env, name);
+        (*env)->CallStaticVoidMethod(env, g_cls_vsb, mid, jn);
+        (*env)->DeleteLocalRef(env, jn);
+    }
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    detach_env(detach);
+}
+
 // android_gl_detach_thread balances get_env()'s standing attach for a thread
 // that is about to exit (moonlight_cgo_android.go's output thread).
 void android_gl_detach_thread(void) {

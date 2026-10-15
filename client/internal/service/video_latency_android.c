@@ -113,7 +113,7 @@ void vlat_note_present(void) {
     // handoff can take the slot first, so g_shown is the frame count.
     if (f.valid) {
         uint64_t v[5];
-        v[0] = f.net_us; v[1] = f.dec_us; v[2] = f.gl_us; v[3] = now - f.handoff_us;
+        v[0] = f.net_us; v[1] = f.dec_us; v[2] = f.gl_us; v[3] = now > f.handoff_us ? now - f.handoff_us : 0;
         v[4] = v[0] + v[1] + v[2] + v[3];
         for (int i = 0; i < 5; i++) {
             g_sum[i] += v[i];

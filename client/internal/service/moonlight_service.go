@@ -317,6 +317,13 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 	if fps > maxSupportedFPS {
 		fps = maxSupportedFPS
 	}
+	// Android: no more frames than the display can show (a 60 Hz Redmi A2
+	// asked for 120 decoded ~100 fps to show 60, and its decoder fell
+	// behind). 0 = unknown / not Android.
+	if hz := displayMaxFPS(); hz > 0 && fps > hz {
+		logrus.Infof("🌕 [Moonlight] %d fps is above this display's %d Hz; asking the host for %d", fps, hz, hz)
+		fps = hz
+	}
 	bitrate := 10000 // 10 Mbps default, overridden by SetBitrate (wired to the video-start dialog's slider)
 	if m.bitrate > 0 {
 		bitrate = m.bitrate

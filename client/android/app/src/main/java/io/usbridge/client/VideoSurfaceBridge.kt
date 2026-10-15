@@ -169,6 +169,40 @@ object VideoSurfaceBridge {
         }
     }
 
+    /** The display's highest refresh rate in Hz (rounded), 0 if unknown. */
+    @JvmStatic
+    fun maxRefreshRate(): Int {
+        val activity = MainActivity.getInstance() ?: return 0
+        return try {
+            @Suppress("DEPRECATION")
+            val display = activity.windowManager.defaultDisplay
+            display.supportedModes.maxOfOrNull { it.refreshRate }?.let { Math.round(it) } ?: 0
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    /**
+     * Logs the vendor parameters decoder [name] accepts (Android 12+), once
+     * per decoder per process: where a new chip's own low-latency switch
+     * shows up when the standard KEY_LOW_LATENCY isn't honored.
+     */
+    @JvmStatic
+    fun logVendorParameters(name: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !loggedVendorParams.add(name)) return
+        try {
+            val codec = android.media.MediaCodec.createByCodecName(name)
+            try {
+                Log.i(TAG, "vendor parameters of $name: ${codec.supportedVendorParameters.sorted().joinToString(", ")}")
+            } finally {
+                codec.release()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "vendor parameters of $name unavailable: $e")
+        }
+    }
+    private val loggedVendorParams = java.util.Collections.synchronizedSet(HashSet<String>())
+
     // The decoder MediaCodec.createDecoderByType picks for mime: the first
     // hardware one in the platform list.
     private fun hardwareDecoderCaps(mime: String): Pair<String, MediaCodecInfo.VideoCapabilities>? {

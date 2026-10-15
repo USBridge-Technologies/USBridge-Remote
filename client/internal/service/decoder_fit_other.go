@@ -7,3 +7,6 @@ package service
 func decoderFitSize(videoMode string, w, h int) (fw, fh, maxFPS int, ok bool) {
 	return w, h, 0, false
 }
+
+// displayMaxFPS: only Android caps the requested rate at the display's.
+func displayMaxFPS() int { return 0 }
