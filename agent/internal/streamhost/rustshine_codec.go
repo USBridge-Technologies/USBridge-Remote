@@ -66,6 +66,13 @@ func (b *rustshineBackend) VirtualDisplayPrimary() bool {
 	return v != "false" && v != "0" && v != "no" && v != "off"
 }
 
+// SetVirtualDisplayExclusive saves sunshine.conf `virtual_display_exclusive`
+// for the next virtual monitor: the streamer switches the other monitors off
+// once it is up and back on when it goes away.
+func (b *rustshineBackend) SetVirtualDisplayExclusive(exclusive bool) error {
+	return b.SetConfigKey("virtual_display_exclusive", strconv.FormatBool(exclusive))
+}
+
 // SetVirtualDisplayPrimary saves the choice for the next virtual monitor and
 // applies it to the live one through the streamer's admin API
 // (/admin/virtual-display/primary) -- no restart. live reports whether a

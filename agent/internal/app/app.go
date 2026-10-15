@@ -4571,6 +4571,14 @@ func (a *App) SetVirtualDisplayPrimary(primary bool) (live bool, err error) {
 	return a.stream.SetVirtualDisplayPrimary(primary)
 }
 
+// SetVirtualDisplayExclusive: see streamhost.Backend.SetVirtualDisplayExclusive.
+func (a *App) SetVirtualDisplayExclusive(exclusive bool) error {
+	if a.stream == nil {
+		return fmt.Errorf("no stream backend")
+	}
+	return a.stream.SetVirtualDisplayExclusive(exclusive)
+}
+
 // VirtualDisplaySupported reports whether the current stream backend
 // supports native virtual displays (without external physical monitors).
 func (a *App) VirtualDisplaySupported() bool {

@@ -83,6 +83,10 @@ type Application interface {
 	// streamhost.Backend.SetVirtualDisplayPrimary.
 	VirtualDisplayPrimary() bool
 	SetVirtualDisplayPrimary(primary bool) (live bool, err error)
+	// SetVirtualDisplayExclusive saves whether the next virtual monitor
+	// switches every other monitor off while it exists (back on when it goes
+	// away). Backends without it do nothing.
+	SetVirtualDisplayExclusive(exclusive bool) error
 	// VirtualDisplaySupported reports whether the current stream backend
 	// supports native virtual displays.
 	VirtualDisplaySupported() bool
@@ -1077,6 +1081,9 @@ func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
 		// there). Omitted means yes -- a remote user can't see the
 		// physical screens.
 		Primary *bool `json:"primary,omitempty"`
+		// Exclusive: switch every other monitor off while it exists (back
+		// on when it goes away). Omitted means no.
+		Exclusive bool `json:"exclusive,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.fail(w, http.StatusBadRequest, "invalid_json", err)
@@ -1092,6 +1099,9 @@ func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
 	primary := req.Primary == nil || *req.Primary
 	if _, err := s.app.SetVirtualDisplayPrimary(primary); err != nil {
 		log.Printf("[api] virtual display create: primary=%v not applied: %v", primary, err)
+	}
+	if err := s.app.SetVirtualDisplayExclusive(req.Exclusive); err != nil {
+		log.Printf("[api] virtual display create: exclusive=%v not saved: %v", req.Exclusive, err)
 	}
 
 	s.virtMu.Lock()

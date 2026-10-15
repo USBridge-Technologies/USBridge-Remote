@@ -98,7 +98,7 @@ func (dw *DiskWidget) handleAddVirtualDisplay() {
 		dw.userOperationInFlight.Store(true)
 		defer dw.userOperationInFlight.Store(false)
 
-		_, err := dw.usbClient.AddVirtualDisplay(w, h, f, primaryChecked())
+		_, err := dw.usbClient.AddVirtualDisplay(w, h, f, primaryChecked(), false)
 		if err != nil {
 			logrus.Errorf("Failed to add virtual display: %v", err)
 			view.ShowErrorDialog(fmt.Errorf("Failed to add virtual display: %v", err), dw.window)

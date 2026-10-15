@@ -892,6 +892,16 @@ func (vw *VideoWidget) ApplyVideoFPS(fps int) error {
 		}
 	}
 	cfg.VideoFPS = fps
+	if vw.shouldOfferVirtualDisplay(cfg) {
+		fyne.Do(func() {
+			vw.showVirtualDisplayOffer(cfg, func(cfg models.VideoDeviceConfig) {
+				if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
+					logrus.Warnf("⚠️ failed to apply fps %d: %v", fps, err)
+				}
+			})
+		})
+		return nil
+	}
 	return vw.applyVideoDeviceConfig(cfg, true)
 }
 
@@ -989,14 +999,19 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 				applied := videoDeviceConfigFromRequest(device.Path, device.Name, request)
 				logrus.Infof("💾 applying video settings for %s: %dx%d @ %d fps", device.Path, applied.VideoWidth, applied.VideoHeight, applied.VideoFPS)
 				logrus.Infof("🎯 [CODEC-TRACE] ShowVideoDeviceSettings onApply: VideoMode=%q restartOnApply=%v -- if false, the stream is NOT restarted and the old codec keeps running on the server regardless of what was just saved", applied.VideoMode, restartOnApply)
-				go func() {
+				applyCfg := func(applied models.VideoDeviceConfig) {
 					if err := vw.applyVideoDeviceConfig(applied, restartOnApply); err != nil {
 						logrus.Warnf("⚠️ failed to apply video config: %v", err)
 						fyne.Do(func() {
 							vw.statusLabel.SetText(fmt.Sprintf("❌ %v", err))
 						})
 					}
-				}()
+				}
+				if restartOnApply {
+					vw.applyOfferingVirtualDisplay(applied, applyCfg)
+				} else {
+					go applyCfg(applied)
+				}
 			})
 		}
 

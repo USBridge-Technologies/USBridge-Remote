@@ -143,6 +143,10 @@ type CodecProbe interface {
 	// nothing.
 	VirtualDisplayPrimary() bool
 	SetVirtualDisplayPrimary(primary bool) (live bool, err error)
+	// SetVirtualDisplayExclusive saves whether the next virtual monitor
+	// switches every other monitor off while it exists (back on when it goes
+	// away). Backends without it do nothing.
+	SetVirtualDisplayExclusive(exclusive bool) error
 	// VirtualDisplaySupported reports whether this backend supports native
 	// virtual displays (creation and streaming) without external physical monitors.
 	VirtualDisplaySupported() bool
