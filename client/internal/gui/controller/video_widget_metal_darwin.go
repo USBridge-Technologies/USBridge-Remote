@@ -5,10 +5,8 @@ package controller
 import (
 	"C"
 	"image"
-	"slices"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
@@ -234,7 +232,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			logrus.Infof("🍎 [Metal] overlay active (fullscreen=%v)", fullscreen)
 			// A Fyne overlay (popup/menu) already open when Metal starts
 			// gets its hole right away so the UI stays on top.
-			metalHolesApplied = nil
+			metalOcclusion.reset()
 			vw.syncMetalOcclusion()
 			// Clear the static Fyne canvas frame — Metal overlay now handles rendering.
 			// Also clear Translucency so the darkened pause frame doesn't bleed through.
@@ -315,25 +313,18 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	)
 }
 
-// metalHolesApplied is the last hole list pushed to the Metal overlay
-// (nil = none). Fyne main goroutine only.
-var metalHolesApplied [][5]float32
-
-// scheduleMetalOcclusionSync runs syncMetalOcclusion now and again shortly
-// after: overlay show/hide fires from popup watchers off the main goroutine,
-// often before the popup's panel has its first layout, and a paused stream
-// has no frame tick to pick the final rect up.
-func (vw *VideoWidget) scheduleMetalOcclusionSync() {
-	fyne.Do(vw.syncMetalOcclusion)
-	for _, d := range []time.Duration{60 * time.Millisecond, 250 * time.Millisecond} {
-		time.AfterFunc(d, func() { fyne.Do(vw.syncMetalOcclusion) })
-	}
+// metalOcclusion holds the holes pushed to the Metal NSView's layer mask.
+var metalOcclusion = overlayOcclusion[[5]float32]{
+	setHidden: service.MetalVideoSetHidden,
+	setHoles:  service.MetalVideoSetHoles,
 }
 
-// syncMetalOcclusion keeps Fyne overlays visible over the Metal NSView: open
-// menus/popups become rounded holes in its layer mask so the rest of the
-// video keeps playing; navigation away from Control, or an overlay of
-// unknown shape, still hides it outright. Fyne main goroutine only.
+func (vw *VideoWidget) scheduleMetalOcclusionSync() {
+	scheduleOcclusionSync(vw.syncMetalOcclusion)
+}
+
+// syncMetalOcclusion cuts open menus out of the Metal NSView as rounded
+// holes in its layer mask (see overlayOcclusion). Fyne main goroutine only.
 func (vw *VideoWidget) syncMetalOcclusion() {
 	if !service.MetalVideoIsActive() {
 		return
@@ -342,41 +333,34 @@ func (vw *VideoWidget) syncMetalOcclusion() {
 	if win == nil {
 		win = vw.parentWindow
 	}
-	if win == nil || win.Canvas() == nil || view.NavVideoHidden() {
-		service.MetalVideoSetHidden(true)
-		return
+	var c fyne.Canvas
+	if win != nil {
+		c = win.Canvas()
 	}
-	rects, ok := view.OverlayHoleRects(win.Canvas())
-	if !ok {
-		service.MetalVideoSetHidden(true)
-		return
-	}
-	// The fullscreen overlay covers the whole contentView.
-	var vx, vy, vwid, vh float32
-	if metalFullscreenWindow != nil {
-		sz := win.Canvas().Size()
-		vwid, vh = sz.Width, sz.Height
-	} else {
-		vx, vy, vwid, vh = vw.videoCanvasFrame()
-	}
-	var holes [][5]float32
-	for _, r := range rects {
-		// Overlay rect relative to the Metal view, in points (Fyne units
-		// map 1:1 to AppKit points, see videoCanvasFrame).
-		x, y := r.X-vx, r.Y-vy
-		if x+r.W <= 0 || y+r.H <= 0 || x >= vwid || y >= vh {
-			continue // overlay does not touch the video
+	_, changed := metalOcclusion.sync(c, func(rects []view.OverlayRect) [][5]float32 {
+		// The fullscreen overlay covers the whole contentView.
+		var vx, vy, vwid, vh float32
+		if metalFullscreenWindow != nil {
+			sz := c.Size()
+			vwid, vh = sz.Width, sz.Height
+		} else {
+			vx, vy, vwid, vh = vw.videoCanvasFrame()
 		}
-		holes = append(holes, [5]float32{x, y, r.W, r.H, r.R})
+		var holes [][5]float32
+		for _, r := range rects {
+			// Relative to the Metal view, in points (Fyne units map 1:1 to
+			// AppKit points, see videoCanvasFrame).
+			x, y := r.X-vx, r.Y-vy
+			if x+r.W <= 0 || y+r.H <= 0 || x >= vwid || y >= vh {
+				continue // overlay does not touch the video
+			}
+			holes = append(holes, [5]float32{x, y, r.W, r.H, r.R})
+		}
+		return holes
+	})
+	if changed {
+		c.Refresh(c.Content())
 	}
-	if !slices.Equal(holes, metalHolesApplied) {
-		service.MetalVideoSetHoles(holes)
-		metalHolesApplied = holes
-		// Fyne's pixels under a fresh hole are only as fresh as its last
-		// paint; repaint so the menu shows up at once.
-		win.Canvas().Refresh(win.Canvas().Content())
-	}
-	service.MetalVideoSetHidden(false)
 }
 
 // videoCanvasFrame returns the video widget's bounds in window-local dp coordinates

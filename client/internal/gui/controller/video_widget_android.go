@@ -5,7 +5,6 @@ package controller
 import (
 	"image"
 	"math"
-	"slices"
 	"time"
 
 	"usbridge-client/internal/gui/assets"
@@ -75,7 +74,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 		// A Fyne overlay (popup/menu) already open when Vulkan starts gets
 		// its hole right away so the UI stays on top.
 		fyne.Do(func() {
-			androidHolesApplied = nil
+			androidOcclusion.reset()
 			vw.syncAndroidOcclusion()
 		})
 		if cb := vw.onNativeReady; cb != nil {
@@ -273,26 +272,19 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	vw.updateNativeViewportAndCursor()
 }
 
-// androidHolesApplied is the last hole list pushed to the Vulkan renderer
-// (nil = none). Fyne main goroutine only.
-var androidHolesApplied [][4]int
-
-// scheduleAndroidOcclusionSync runs syncAndroidOcclusion now and again
-// shortly after: overlay show/hide fires from popup watchers off the main
-// goroutine, often before the popup's panel has its first layout, and a
-// paused stream has no frame tick to pick the final rect up.
-func (vw *VideoWidget) scheduleAndroidOcclusionSync() {
-	fyne.Do(func() { vw.syncAndroidOcclusion() })
-	for _, d := range []time.Duration{60 * time.Millisecond, 250 * time.Millisecond} {
-		time.AfterFunc(d, func() { fyne.Do(func() { vw.syncAndroidOcclusion() }) })
-	}
+// androidOcclusion holds the holes pushed to the Vulkan renderer.
+var androidOcclusion = overlayOcclusion[[4]int]{
+	setHidden: service.VKVideoAndroidSetHidden,
+	setHoles:  service.VKVideoAndroidSetHoles,
 }
 
-// syncAndroidOcclusion keeps Fyne overlays visible over the Vulkan
-// SurfaceView, which sits above the Fyne window: open menus/popups become
-// transparent holes in every presented frame so the rest of the video keeps
-// playing; navigation away from Control, or an overlay of unknown shape,
-// still hides it outright. Reports whether the video is showing. Fyne main
+func (vw *VideoWidget) scheduleAndroidOcclusionSync() {
+	scheduleOcclusionSync(func() { vw.syncAndroidOcclusion() })
+}
+
+// syncAndroidOcclusion cuts open menus out of the Vulkan SurfaceView, which
+// sits above the Fyne window (alpha 0 in every presented frame, see
+// overlayOcclusion). Reports whether the video is showing. Fyne main
 // goroutine only.
 func (vw *VideoWidget) syncAndroidOcclusion() bool {
 	if !service.VKVideoAndroidIsActive() {
@@ -302,43 +294,22 @@ func (vw *VideoWidget) syncAndroidOcclusion() bool {
 	if vw.parentWindow != nil {
 		c = vw.parentWindow.Canvas()
 	}
-	if c == nil || view.NavVideoHidden() {
-		service.VKVideoAndroidSetHidden(true)
-		return false
-	}
-	rects, ok := view.OverlayHoleRects(c)
-	if !ok {
-		service.VKVideoAndroidSetHidden(true)
-		return false
-	}
-	var holes [][4]int
-	if len(rects) > 0 {
+	shown, _ := androidOcclusion.sync(c, func(rects []view.OverlayRect) [][4]int {
 		x, y, w, h := vw.videoCanvasFrame()
 		scale := c.Scale()
 		sx, sy, sw, sh := vkSurfacePx(x, y, w, h, scale)
+		// Overlay positions are InteractiveArea-relative like the video
+		// container's, so they get the same inset.
 		inset := vw.androidOverlayInset(c)
+		var holes [][4]int
 		for _, r := range rects {
-			// Overlay rect relative to the SurfaceView, in pixels, grown to
-			// whole pixels so no sliver of video covers the menu's edge.
-			// Overlay positions are InteractiveArea-relative like the
-			// video container's, so they get the same inset.
-			ox, oy := r.X+inset.X, r.Y+inset.Y
-			x0 := int(math.Floor(float64(ox*scale))) - sx
-			y0 := int(math.Floor(float64(oy*scale))) - sy
-			x1 := int(math.Ceil(float64((ox+r.W)*scale))) - sx
-			y1 := int(math.Ceil(float64((oy+r.H)*scale))) - sy
-			if x1 <= 0 || y1 <= 0 || x0 >= sw || y0 >= sh {
-				continue // overlay does not touch the video
+			if hx, hy, hw, hh, ok := overlayHolePx(r, inset.X, inset.Y, scale, sx, sy, sw, sh); ok {
+				holes = appendRoundedHole(holes, hx, hy, hw, hh, int(math.Round(float64(r.R*scale))))
 			}
-			holes = appendRoundedHole(holes, x0, y0, x1-x0, y1-y0, int(math.Round(float64(r.R*scale))))
 		}
-	}
-	if !slices.Equal(holes, androidHolesApplied) {
-		service.VKVideoAndroidSetHoles(holes)
-		androidHolesApplied = holes
-	}
-	service.VKVideoAndroidSetHidden(false)
-	return true
+		return holes
+	})
+	return shown
 }
 
 // androidOverlayInset maps Fyne's InteractiveArea-relative positions to the

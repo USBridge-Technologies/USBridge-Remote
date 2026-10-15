@@ -331,12 +331,22 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 
 	// A decoder refuses to configure above its maximum size (Snapdragon 695:
 	// 1920x1088), so a 4K request would launch a stream nothing can show.
-	// Ask the host for the largest size this device decodes instead.
+	// Ask the host for the largest size this device decodes instead, and no
+	// faster than the decoder is rated for there: an OMX decoder on a 90 Hz
+	// Snapdragon 460 fed 1080p90 (rated 60) ran out of input buffers and
+	// fell to ~12 fps of IDR recoveries.
 	if m.width > 0 && m.height > 0 {
-		if fw, fh, maxFPS, ok := decoderFitSize(m.videoMode, m.width, m.height); ok && (fw != m.width || fh != m.height) {
-			logrus.Infof("🌕 [Moonlight] %dx%d is beyond this device's %s decoder; asking the host for %dx%d (decoder rated up to %d fps there)",
-				m.width, m.height, m.videoMode, fw, fh, maxFPS)
-			m.width, m.height = fw, fh
+		if fw, fh, maxFPS, ok := decoderFitSize(m.videoMode, m.width, m.height); ok {
+			if fw != m.width || fh != m.height {
+				logrus.Infof("🌕 [Moonlight] %dx%d is beyond this device's %s decoder; asking the host for %dx%d (decoder rated up to %d fps there)",
+					m.width, m.height, m.videoMode, fw, fh, maxFPS)
+				m.width, m.height = fw, fh
+			}
+			if maxFPS >= 30 && fps > maxFPS {
+				logrus.Infof("🌕 [Moonlight] %d fps is above this device's %s decoder rating at %dx%d; asking the host for %d",
+					fps, m.videoMode, fw, fh, maxFPS)
+				fps = maxFPS
+			}
 		}
 	}
 
