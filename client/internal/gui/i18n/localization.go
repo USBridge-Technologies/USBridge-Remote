@@ -82,6 +82,7 @@ type LocalizedStrings struct {
 	VirtualDisplayOfferTitle          string
 	VirtualDisplayOfferSubtitle       string
 	VirtualDisplayOfferCreate         string
+	VirtualDisplayOfferMode           string
 	VirtualDisplayOfferSkip           string
 	TailscaleRedirectHint             string
 	AutoRegistrationBadge             string
@@ -848,7 +849,8 @@ func EN() *LocalizedStrings {
 		VirtualDisplayExclusiveHint:       "While a 60 Hz monitor stays on, Windows keeps the whole desktop at 60 Hz. They come back on when the virtual display goes away.",
 		VirtualDisplayOfferTitle:          "Virtual display for %d FPS",
 		VirtualDisplayOfferSubtitle:       "On Windows a physical monitor caps capture at its own refresh rate. A virtual display at %[2]dx%[3]d@%[1]d streams the full %[1]d FPS.",
-		VirtualDisplayOfferCreate:         "Create",
+		VirtualDisplayOfferCreate:         "Virtual",
+		VirtualDisplayOfferMode:           "Mode",
 		VirtualDisplayOfferSkip:           "Stream as is",
 		TailscaleRedirectHint:             "After connection, the redirect will open on the web.",
 		AutoRegistrationBadge:             "AUTO-REGISTRATION",
@@ -1609,7 +1611,8 @@ func ES() *LocalizedStrings {
 	locale.VirtualDisplayExclusiveHint = "Mientras un monitor de 60 Hz siga encendido, Windows mantiene todo el escritorio a 60 Hz. Se vuelven a encender cuando se quita la pantalla virtual."
 	locale.VirtualDisplayOfferTitle = "Pantalla virtual para %d FPS"
 	locale.VirtualDisplayOfferSubtitle = "En Windows un monitor fisico limita la captura a su propia frecuencia. Una pantalla virtual a %[2]dx%[3]d@%[1]d transmite los %[1]d FPS completos."
-	locale.VirtualDisplayOfferCreate = "Crear"
+	locale.VirtualDisplayOfferCreate = "Virtual"
+	locale.VirtualDisplayOfferMode = "Modo"
 	locale.VirtualDisplayOfferSkip = "Transmitir asi"
 	locale.WLANStreamingMode = "Modo streaming de Wi-Fi"
 	locale.WLANStreamingModeHint = "Sin escaneos Wi-Fi en segundo plano durante la transmision: elimina los tirones periodicos"
@@ -2104,7 +2107,8 @@ func UKProper() *LocalizedStrings {
 	locale.VirtualDisplayExclusiveHint = "Поки ввімкнений монітор на 60 Гц, Windows тримає весь робочий стіл на 60 Гц. Інші увімкнуться знову, коли віртуальний дисплей приберуть."
 	locale.VirtualDisplayOfferTitle = "Віртуальний дисплей для %d FPS"
 	locale.VirtualDisplayOfferSubtitle = "У Windows фізичний монітор обмежує захоплення своєю частотою оновлення. Віртуальний дисплей %[2]dx%[3]d@%[1]d дає повні %[1]d FPS."
-	locale.VirtualDisplayOfferCreate = "Створити"
+	locale.VirtualDisplayOfferCreate = "Віртуальний"
+	locale.VirtualDisplayOfferMode = "Режим"
 	locale.VirtualDisplayOfferSkip = "Як є"
 	locale.WLANStreamingMode = "Режим стрімінгу Wi-Fi"
 	locale.WLANStreamingModeHint = "Без фонових сканувань Wi-Fi під час стріму: прибирає періодичні ривки"

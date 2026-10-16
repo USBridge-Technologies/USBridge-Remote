@@ -121,6 +121,41 @@ func (vw *VideoWidget) connectVirtualOfferConfig() (models.VideoDeviceConfig, bo
 	return cfg, vw.shouldOfferVirtualDisplay(cfg)
 }
 
+// virtualOfferResolutions and virtualOfferFPS are the offer's choices besides the
+// asked one.
+var (
+	virtualOfferResolutions = []string{"1280x720", "1920x1080", "2560x1440", "2560x1600", "3440x1440", "3840x2160"}
+	virtualOfferFPS         = []string{"30 fps", "60 fps", "90 fps", "120 fps", "144 fps", "165 fps", "240 fps"}
+)
+
+// virtualOfferChoices is choices with current added (first) when it isn't one.
+func virtualOfferChoices(current string, choices []string) []string {
+	for _, c := range choices {
+		if c == current {
+			return choices
+		}
+	}
+	return append([]string{current}, choices...)
+}
+
+// physicalVideoConfig is cfg moved onto one of the host's physical monitors (the
+// first one listed); never on the UI goroutine.
+func (vw *VideoWidget) physicalVideoConfig(cfg models.VideoDeviceConfig) (models.VideoDeviceConfig, bool) {
+	devices, err := vw.GetAvailableVideoDevices()
+	if err != nil {
+		return cfg, false
+	}
+	for _, d := range devices {
+		if d.Bus == "virtual" || strings.HasPrefix(d.Path, "virtual:") || strings.Contains(strings.ToUpper(d.Name), "VDD") || !d.Connected {
+			continue
+		}
+		next := cfg
+		next.DevicePath, next.DeviceName = d.Path, d.Name
+		return next, true
+	}
+	return cfg, false
+}
+
 // virtualSpecMode parses a "virtual:WxH@FPS" device path.
 func virtualSpecMode(path string) (w, h, fps int, ok bool) {
 	spec, found := strings.CutPrefix(path, "virtual:")
@@ -195,9 +230,27 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 		width, height, fps = w, h, f
 	}
 
+	// The mode, preset to the asked one, open to another.
+	resolution := fmt.Sprintf("%dx%d", width, height)
+	resPicker := view.NewDeviceDashboardModePicker(virtualOfferChoices(resolution, virtualOfferResolutions), resolution, func(s string) {
+		var w, h int
+		if n, _ := fmt.Sscanf(s, "%dx%d", &w, &h); n == 2 && w > 0 && h > 0 {
+			width, height = w, h
+		}
+	})
+	fpsText := fmt.Sprintf("%d fps", fps)
+	fpsPicker := view.NewDeviceDashboardModePicker(virtualOfferChoices(fpsText, virtualOfferFPS), fpsText, func(s string) {
+		var f int
+		if n, _ := fmt.Sscanf(s, "%d", &f); n == 1 && f > 0 {
+			fps = f
+		}
+	})
+	modeRow := container.NewBorder(nil, nil, newVirtualDisplayFieldLabel(i18n.Current.VirtualDisplayOfferMode), nil,
+		container.NewGridWithColumns(2, resPicker, fpsPicker))
+
 	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 340, true, nil)
 	exclusiveRow, exclusiveChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayExclusive, "", i18n.Current.VirtualDisplayExclusiveHint, 340, true, nil)
-	body := container.NewVBox(primaryRow, exclusiveRow)
+	body := container.NewVBox(modeRow, primaryRow, exclusiveRow)
 
 	var closePopup func()
 	answered := false
@@ -219,6 +272,23 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 		onTapped: func() {
 			answer()
 			virtualOfferDeclined.Store(cfg.DevicePath, true)
+			if strings.HasPrefix(cfg.DevicePath, "virtual:") {
+				// "As is" is the host's own screens: off the virtual display,
+				// onto a physical monitor, the local ones left as they are.
+				go func() {
+					if next, ok := vw.physicalVideoConfig(cfg); ok {
+						logrus.Infof("🖥️ streaming %s as is instead of the virtual display", next.DevicePath)
+						apply(next)
+						return
+					}
+					if dismissed != nil {
+						dismissed()
+						return
+					}
+					apply(cfg)
+				}()
+				return
+			}
 			if dismissed != nil {
 				dismissed()
 				return
