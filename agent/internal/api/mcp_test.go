@@ -661,3 +661,4 @@ func (s *mcpTestApp) VirtualDisplayPrimary() bool                 { return false
 func (s *mcpTestApp) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
 func (s *mcpTestApp) SetVirtualDisplayExclusive(bool) error       { return nil }
 func (s *mcpTestApp) ClientSessionEnded()                         {}
+func (s *mcpTestApp) ClientSessionStarting(time.Duration)         {}

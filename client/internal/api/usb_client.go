@@ -1014,6 +1014,17 @@ func (c *USBClient) StopAudio() error {
 	return nil
 }
 
+// BeginVideoSession tells the agent this client is about to start its stream, so a
+// Windows host brings its virtual monitor up first (when that is the one streamed)
+// and the stream host captures it from the first frame. Returns once it is up;
+// best-effort, bounded by timeout; an older agent answers 404.
+func (c *USBClient) BeginVideoSession(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_, err := c.makeRequestWithContext(ctx, "POST", "/api/video/session_start", nil, nil)
+	return err
+}
+
 // EndVideoSession tells the agent this client's stream is over (it disconnects or
 // quits), so a Windows host puts its monitors back at once instead of waiting to
 // see the session gone. Best-effort, bounded by timeout; an older agent answers 404.

@@ -280,22 +280,14 @@ func activeVirtual() (gdi, friendly, devicePath string, ok bool) {
 	return "", "", "", false
 }
 
-// attachVirtualTarget attaches the virtual monitor as a display of its own, extending
-// the desktop. A path mirroring it onto another source (Windows puts a newly seen
-// virtual monitor into "duplicate" with the main screen) is dropped. Windows picks the
-// mode and position; the caller sets both afterwards.
-func attachVirtualTarget() error {
-	all, _, err := query(qdcAllPaths)
-	if err != nil {
-		return err
-	}
-	var sel []pathInfo
+// freeVirtualPath splits all paths into the active non-virtual ones and the path the
+// virtual monitor gets attached on: its first one whose source no active display uses.
+func freeVirtualPath(all []pathInfo) (sel []pathInfo, free *pathInfo) {
 	for i := range all {
 		if all[i].Flags&pathActive != 0 && !isVirtual(&all[i]) {
 			sel = append(sel, all[i])
 		}
 	}
-	var free *pathInfo
 	for i := range all {
 		p := &all[i]
 		if !isVirtual(p) || p.Target.TargetAvailable == 0 {
@@ -309,10 +301,41 @@ func attachVirtualTarget() error {
 			}
 		}
 		if !used {
-			free = p
-			break
+			return sel, p
 		}
 	}
+	return sel, nil
+}
+
+// PlannedVirtual is the GDI and friendly name the virtual monitor has, or gets once
+// attached (attachVirtualTarget's choice of path), without attaching it: what a
+// stream host is pointed at before a session brings the monitor up.
+func PlannedVirtual() (gdi, friendly string, err error) {
+	if g, f, _, ok := activeVirtual(); ok {
+		return g, f, nil
+	}
+	all, _, err := query(qdcAllPaths)
+	if err != nil {
+		return "", "", err
+	}
+	_, free := freeVirtualPath(all)
+	if free == nil {
+		return "", "", ErrNoVirtualDriver
+	}
+	f, _, _ := targetName(free)
+	return sourceGDIName(free), f, nil
+}
+
+// attachVirtualTarget attaches the virtual monitor as a display of its own, extending
+// the desktop. A path mirroring it onto another source (Windows puts a newly seen
+// virtual monitor into "duplicate" with the main screen) is dropped. Windows picks the
+// mode and position; the caller sets both afterwards.
+func attachVirtualTarget() error {
+	all, _, err := query(qdcAllPaths)
+	if err != nil {
+		return err
+	}
+	sel, free := freeVirtualPath(all)
 	if free == nil {
 		return ErrNoVirtualDriver
 	}

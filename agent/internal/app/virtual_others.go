@@ -13,17 +13,51 @@ import (
 	"usbridge_agent/internal/streamhost"
 )
 
-// "Only the virtual monitor" on a Windows host is the agent's own, for every stream
-// host: whether the virtual monitor came from the stream host (RustShine attaches
-// it itself) or from the agent (Sunshine, Vibepollo), the agent switches the other
-// monitors off while a session streams it and back on once the session is over, so
-// a client that quits leaves the host's screens as they were. What to put back is
-// kept in a state file, so it survives the agent or the stream host dying in between
-// (RustShine did this in-process before, and an agent restart that killed it left
-// the screens off).
+// The virtual monitor on a Windows host is the agent's, for every stream host, and
+// it exists for the length of a session only: it comes up when a session on it
+// starts (made the primary display unless turned off, and the only one with "only
+// the virtual monitor"), and once the session is over the other monitors come back,
+// the primary role goes back and the virtual monitor goes away -- left attached, it
+// stayed as an extra, primary screen new windows opened on. The stream hosts are
+// only told its name (displaypower.PlannedVirtual) and attach nothing. What to undo
+// is kept in a state file, so it survives the agent or the stream host dying.
+//
+// A session starts when the client says so before it starts its stream
+// (ClientSessionStarting, so the monitor is there for the stream host's first
+// frame), or, from an older client, when the stream host reports one. It ends when
+// the client says so (ClientSessionEnded) or the stream host has reported none for
+// virtualSessionGrace.
+
+// virtualSessionGrace is how long a session may be gone, without the client saying
+// it left (a dropped network, a crash), before the virtual monitor goes: a stream
+// host restart (codec or audio device switch) has the client back within 1-3s.
+const virtualSessionGrace = 3 * time.Second
+
+// virtualOthersRecheck is how often a session checks the other monitors are still
+// off (each check is a helper process in the user's session).
+const virtualOthersRecheck = 10 * time.Second
+
+// legacyVirtualExclusive is a stream host that kept "only the virtual monitor" itself
+// before.
+type legacyVirtualExclusive interface {
+	TakeLegacyVirtualExclusive() bool
+}
+
+func (a *App) virtualSessionStatePath() string {
+	return filepath.Join(a.cfg.StateDir, "virtual_session_state.json")
+}
+
+// virtualSpec is the streamed virtual monitor's "WxH@HZ", or "" for a physical one.
+func (a *App) virtualSpec() string {
+	spec, ok := strings.CutPrefix(a.SunshineOutputName(), "virtual:")
+	if !ok {
+		return ""
+	}
+	return spec
+}
 
 // ClientSessionEnded is the client saying its stream is over (it disconnects or
-// quits): the other monitors come back at once.
+// quits): the virtual monitor goes and the other monitors come back at once.
 func (a *App) ClientSessionEnded() {
 	select {
 	case a.clientLeft <- struct{}{}:
@@ -31,37 +65,35 @@ func (a *App) ClientSessionEnded() {
 	}
 }
 
-// virtualOthersGrace is how long a session may be gone before the monitors come
-// back, when the client didn't say it left (a dropped network, a crash): a stream reconnect (a codec or audio device switch restarts the stream
-// host, the client is back within 1-3s) shouldn't flash them on and off. Short, so
-// a client that quits gets them back about at once (10s was long enough for a
-// quick reconnect to find them still off).
-const virtualOthersGrace = 3 * time.Second
-
-// virtualOthersRecheck is how often a session checks the others are still off (each
-// check is a helper process in the user's session).
-const virtualOthersRecheck = 10 * time.Second
-
-// legacyVirtualExclusive is a stream host that kept this choice itself before.
-type legacyVirtualExclusive interface {
-	TakeLegacyVirtualExclusive() bool
+// ClientSessionStarting is the client saying it is about to start its stream: the
+// virtual monitor, when it is the one streamed, is brought up before this returns
+// (or timeout passes), so the stream host captures it from the first frame.
+func (a *App) ClientSessionStarting(timeout time.Duration) {
+	done := make(chan struct{})
+	select {
+	case a.clientStarting <- done:
+	case <-time.After(timeout):
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
 }
 
-func (a *App) virtualOthersStatePath() string {
-	return filepath.Join(a.cfg.StateDir, "virtual_others_state.json")
-}
-
-// virtualOthersWanted: "only the virtual monitor" is on and the virtual monitor is
-// the streamed output.
-func (a *App) virtualOthersWanted() bool {
-	return a.cfg.VirtualDisplayExclusive && strings.HasPrefix(a.SunshineOutputName(), "virtual:")
-}
-
-// virtualOthersWatchdog keeps the other monitors off while they should be and puts
-// them back when not. Windows only; elsewhere it returns at once.
+// virtualOthersWatchdog brings the virtual monitor up and down with the sessions on
+// it. Windows only; elsewhere it only answers the client's calls.
 func (a *App) virtualOthersWatchdog(ctx context.Context) {
 	if runtime.GOOS != "windows" {
-		return
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case done := <-a.clientStarting:
+				close(done)
+			case <-a.clientLeft:
+			}
+		}
 	}
 	a.streamMu.Lock()
 	stream := a.stream
@@ -74,48 +106,80 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		log.Printf("[app] only the virtual monitor: moved from the stream host's settings to the agent's")
 	}
 
-	state := a.virtualOthersStatePath()
+	state := a.virtualSessionStatePath()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	var idleSince, lastOff time.Time
+	// up: the spec the virtual monitor was brought up in, "" while it is down.
+	up := ""
+	if displaypower.LoadState(state) != nil {
+		up = "?" // left up by an earlier run: taken down below unless a session needs it
+	}
 	// left: the client said it left. The stream host may report its session for a
 	// moment longer; that no longer counts until it has reported none.
 	left := false
 	lastErr := ""
-	run := func(arg string) {
-		res, err := streamhost.RunDisplayHelper("others", state, arg)
+	run := func(what string, args ...string) bool {
+		res, err := streamhost.RunDisplayHelper(args...)
 		msg := res.Error
 		if err != nil {
 			msg = err.Error()
 		}
 		if msg != "" && msg != lastErr {
-			log.Printf("[app] other monitors (%s): %s", map[string]string{"0": "off", "1": "back on"}[arg], msg)
+			log.Printf("[app] virtual monitor (%s): %s", what, msg)
 		}
 		lastErr = msg
+		return msg == ""
 	}
-	restore := func() {
-		if displaypower.LoadState(state) != nil {
-			run("1")
-			log.Printf("[app] the other monitors are back on")
+	bringUp := func(spec string) {
+		if up == spec {
+			return
 		}
+		primary, exclusive := a.VirtualDisplayPrimary(), a.cfg.VirtualDisplayExclusive
+		ok := run("up", "apply", state, spec, boolArg(primary), boolArg(exclusive))
+		if st := displaypower.LoadState(state); st != nil {
+			up = spec
+			lastOff = time.Now()
+			log.Printf("[app] session on the virtual monitor: %s %s up (primary=%v, others off=%v, ok=%v)", st.GDIName, spec, primary, exclusive, ok)
+		}
+	}
+	takeDown := func(why string) {
+		if up == "" && displaypower.LoadState(state) == nil {
+			return
+		}
+		run("down", "apply", state)
+		up = ""
+		log.Printf("[app] %s -- the virtual monitor is down, the other monitors are back", why)
 	}
 	for {
+		var starting chan struct{}
 		select {
 		case <-ctx.Done():
-			restore()
+			takeDown("agent stopping")
 			return
-		case <-ticker.C:
 		case <-a.clientLeft:
 			left = true
-			idleSince, lastOff = time.Time{}, time.Time{}
-			restore()
+			idleSince = time.Time{}
+			takeDown("the client left")
+			continue
+		case starting = <-a.clientStarting:
+			left = false
+		case <-ticker.C:
+		}
+		spec := a.virtualSpec()
+		if starting != nil {
+			if spec != "" {
+				idleSince = time.Time{}
+				bringUp(spec)
+			}
+			close(starting)
 			continue
 		}
-		if !a.virtualOthersWanted() {
-			// Turned off, or a physical monitor is streamed now: no reason to wait.
+		if spec == "" {
+			// A physical monitor is streamed now: no reason to wait.
 			idleSince = time.Time{}
-			restore()
+			takeDown("a physical monitor is streamed")
 			continue
 		}
 		a.streamMu.Lock()
@@ -130,28 +194,34 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		}
 		if active {
 			idleSince = time.Time{}
-			// Again every virtualOthersRecheck: a stream host restart re-attaches the
-			// virtual monitor and Windows brings the others back with it. A no-op
-			// while it is the only one, or before it is attached (then retried on
-			// the next tick).
-			if time.Since(lastOff) >= virtualOthersRecheck {
-				wasOff := displaypower.LoadState(state) != nil
-				run("0")
-				if lastErr == "" && displaypower.LoadState(state) != nil {
-					if !wasOff {
-						log.Printf("[app] session on the virtual monitor -- the other monitors are off")
-					}
-					lastOff = time.Now()
-				}
+			if up != spec {
+				// An older client, which doesn't say it starts.
+				bringUp(spec)
+				continue
+			}
+			// Again every virtualOthersRecheck: Windows can bring the others back
+			// (a stream host restart). A no-op while the virtual one is the only one.
+			if a.cfg.VirtualDisplayExclusive && time.Since(lastOff) >= virtualOthersRecheck {
+				run("others off", "others", state, "0")
+				lastOff = time.Now()
 			}
 			continue
 		}
-		lastOff = time.Time{}
+		if up == "" {
+			continue
+		}
 		if idleSince.IsZero() {
 			idleSince = time.Now()
 		}
-		if time.Since(idleSince) >= virtualOthersGrace {
-			restore()
+		if time.Since(idleSince) >= virtualSessionGrace {
+			takeDown("the session is over")
 		}
 	}
+}
+
+func boolArg(v bool) string {
+	if v {
+		return "1"
+	}
+	return "0"
 }

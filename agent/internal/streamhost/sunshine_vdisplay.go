@@ -138,53 +138,38 @@ func boolArg(v bool) string {
 }
 
 // applyVirtualDisplayLocked runs right before the stream host launches (b.mu held): it
-// takes off whatever monitor a previous run left attached, then attaches the selected
-// one and points output_name at it. Failing to attach is not fatal: the host then
-// streams whatever output_name already names, as RustShine falls back to its
-// configured monitor.
+// points output_name at the virtual monitor when that is the selected output. The
+// monitor itself is the agent's, up for a session only (app.virtualOthersWatchdog);
+// one an agent from before that left attached is taken off here.
 func (b *sunshineBackend) applyVirtualDisplayLocked() {
 	if runtime.GOOS != "windows" {
 		return
 	}
-	state := b.virtualDisplayStatePath()
-	if state == "" {
-		return
-	}
+	b.releaseVirtualDisplayLocked()
 	v := b.loadVirtualDisplay()
 	if v.Spec == "" {
-		if displaypower.LoadState(state) == nil {
-			return
-		}
-		if res, err := runDisplayHelper("apply", state); err != nil || res.Error != "" {
-			log.Printf("[sunshine] taking the virtual display off: %v %s", err, res.Error)
-		}
 		return
 	}
 	if !virtualDriverInstalled() {
 		log.Printf("[sunshine] virtual display %s selected but the MttVDD driver is not installed -- streaming the configured monitor", v.Spec)
 		return
 	}
-	res, err := runDisplayHelper("apply", state, v.Spec, boolArg(v.primary()), boolArg(v.Exclusive))
-	if err != nil || res.State == nil || res.State.GDIName == "" {
-		log.Printf("[sunshine] virtual display %s not attached (%v %s) -- streaming the configured monitor", v.Spec, err, res.Error)
+	res, err := runDisplayHelper("vname", "-")
+	if err != nil || res.State == nil || res.State.FriendlyName == "" {
+		log.Printf("[sunshine] virtual display %s: no name for it (%v %s) -- streaming the configured monitor", v.Spec, err, res.Error)
 		return
 	}
-	if res.Error != "" {
-		log.Printf("[sunshine] virtual display %s: %s", v.Spec, res.Error)
-	}
-	st := res.State
-	log.Printf("[sunshine] virtual display attached: %s %q in %s (primary=%v exclusive=%v)", st.GDIName, st.FriendlyName, st.Mode, v.primary(), v.Exclusive)
 	// The friendly name, which both forks map to the display (Vibepollo upstream,
-	// Sunshine through the Streamers-Forks patch in display_device.cpp). A Sunshine
-	// without that patch maps it to nothing and captures its first output: the virtual
-	// monitor, as long as it is primary.
-	if err := b.setConfigKey("output_name", st.FriendlyName); err != nil {
+	// Sunshine through the Streamers-Forks patch in display_device.cpp); it is up by
+	// the time a session asks for it.
+	log.Printf("[sunshine] virtual display %s is %q (up for sessions only)", v.Spec, res.State.FriendlyName)
+	if err := b.setConfigKey("output_name", res.State.FriendlyName); err != nil {
 		log.Printf("[sunshine] could not point output_name at the virtual display: %v", err)
 	}
 }
 
-// releaseVirtualDisplayLocked runs after the stream host stopped (b.mu held): the
-// virtual monitor comes off and the desktop goes back to how it was.
+// releaseVirtualDisplayLocked takes off a monitor an agent from before session-long
+// virtual monitors left attached (b.mu held).
 func (b *sunshineBackend) releaseVirtualDisplayLocked() {
 	if runtime.GOOS != "windows" {
 		return

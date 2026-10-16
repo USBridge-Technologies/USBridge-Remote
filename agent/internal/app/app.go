@@ -36,6 +36,7 @@ import (
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/devicecert"
+	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/forkrelease"
 	"usbridge_agent/internal/hwid"
@@ -112,8 +113,10 @@ type App struct {
 	usbBroker       *usbpass.Service
 	adminSrv        *adminapi.Server
 
-	// clientLeft wakes virtualOthersWatchdog when a client says its stream is over.
-	clientLeft chan struct{}
+	// clientLeft and clientStarting wake virtualOthersWatchdog when a client says
+	// its stream is over or about to start (the latter closed once handled).
+	clientLeft     chan struct{}
+	clientStarting chan chan struct{}
 
 	// usbPassBridgeAddr is StartUSBPassBridge's localhost address (see
 	// api.Server.StartUSBPassBridge's doc comment) -- rustshine dials this
@@ -661,6 +664,7 @@ func New() (*App, error) {
 		usbBridgeAddr = ""
 	}
 	instance.clientLeft = make(chan struct{}, 1)
+	instance.clientStarting = make(chan chan struct{})
 	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort, usbBridgeAddr)
 	apiServer.SetUSBPassthrough(instance.usbBroker)
 	if addr, err := apiServer.StartUSBPassBridge(); err != nil {
@@ -4583,7 +4587,24 @@ func (a *App) SetVirtualDisplayPrimary(primary bool) (live bool, err error) {
 	if a.stream == nil {
 		return false, fmt.Errorf("no stream backend")
 	}
-	return a.stream.SetVirtualDisplayPrimary(primary)
+	live, err = a.stream.SetVirtualDisplayPrimary(primary)
+	if err != nil || runtime.GOOS != "windows" {
+		return live, err
+	}
+	// On Windows the virtual monitor is the agent's, up for a session
+	// (virtual_others.go): the choice applies to it right away.
+	state := a.virtualSessionStatePath()
+	if displaypower.LoadState(state) == nil {
+		return false, nil
+	}
+	res, herr := streamhost.RunDisplayHelper("primary", state, boolArg(primary))
+	if herr != nil {
+		return true, herr
+	}
+	if res.Error != "" {
+		return true, errors.New(res.Error)
+	}
+	return true, nil
 }
 
 // SetVirtualDisplayExclusive saves "only the virtual monitor" in the agent's config:

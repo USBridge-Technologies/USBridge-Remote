@@ -124,6 +124,7 @@ func saveState(path string, st *VirtualState) error {
 //	others STATEFILE 0|1                  monitors around a virtual one: off (0), back on (1)
 //	list -                                every monitor (List)
 //	enable - MONITOR_ID 0|1               switch one monitor off or on (SetEnabled)
+//	vname -                               the virtual monitor's GDI/friendly name, attached or not
 //
 // The state file is rewritten after every change, so a crash in between never loses
 // what there is to undo. Returns the process exit code.
@@ -150,6 +151,12 @@ func runHelper(args []string) HelperResult {
 			return HelperResult{Error: err.Error()}
 		}
 		return HelperResult{Monitors: m}
+	case "vname":
+		gdi, friendly, err := PlannedVirtual()
+		if err != nil {
+			return HelperResult{Error: err.Error()}
+		}
+		return HelperResult{State: &VirtualState{GDIName: gdi, FriendlyName: friendly}}
 	case "enable":
 		if len(args) < 4 {
 			return HelperResult{Error: "usage: enable - MONITOR_ID 0|1"}

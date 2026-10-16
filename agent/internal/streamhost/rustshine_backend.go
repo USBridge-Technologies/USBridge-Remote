@@ -974,7 +974,6 @@ func (b *rustshineBackend) Stop() error {
 		}
 	}
 	b.launchedWithVirtualDisplay = false
-	b.releaseAgentVirtualDisplayLocked()
 	// Drop the cached path so the next Start() re-resolves BinaryPath
 	// (it may now point at a Windows sidecar written while dest was locked).
 	b.launchPath = ""

@@ -334,6 +334,14 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		})
 	}
 
+	// A Windows host brings its virtual monitor up for the session; asked first so
+	// the stream host captures it from the first frame.
+	if vw.usbClient != nil && vw.isWindowsAgent() {
+		if err := vw.usbClient.BeginVideoSession(12 * time.Second); err != nil {
+			logrus.Debugf("🖥️ session start not announced to the agent: %v", err)
+		}
+	}
+
 	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToMoonlight (Moonlight)")
 	vw.debugLogSpinner("before-ConnectToMoonlight")
 	// ConnectToMoonlight itself blocks for the entire negotiation --

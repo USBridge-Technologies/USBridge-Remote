@@ -89,6 +89,9 @@ type Application interface {
 	SetVirtualDisplayExclusive(exclusive bool) error
 	// ClientSessionEnded: the client says its stream is over (it disconnects or quits).
 	ClientSessionEnded()
+	// ClientSessionStarting: the client is about to start its stream; returns once the
+	// virtual monitor (when streamed) is up, or after timeout.
+	ClientSessionStarting(timeout time.Duration)
 	// VirtualDisplaySupported reports whether the current stream backend
 	// supports native virtual displays.
 	VirtualDisplaySupported() bool
@@ -236,6 +239,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/video/set_device", sec.LimitPolling(s.videoSetDevice))
 	mux.HandleFunc("/api/video/session_end", sec.LimitPolling(s.videoSessionEnd))
+	mux.HandleFunc("/api/video/session_start", sec.LimitPolling(s.videoSessionStart))
 	mux.HandleFunc("POST /api/video/virtual_displays", sec.LimitPolling(s.virtualDisplayCreate))
 	mux.HandleFunc("DELETE /api/video/virtual_displays/{id}", sec.LimitPolling(s.virtualDisplayDelete))
 	mux.HandleFunc("POST /api/video/virtual_displays/{id}/primary", sec.LimitPolling(s.virtualDisplaySetPrimary))
@@ -1127,6 +1131,14 @@ func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) videoSessionEnd(w http.ResponseWriter, r *http.Request) {
 	s.app.ClientSessionEnded()
 	s.ok(w, "session_end", nil)
+}
+
+// videoSessionStart is the client saying it is about to start its stream: on a
+// Windows host the agent brings the virtual monitor up first, when it is the one
+// streamed, so the stream host captures it from the first frame.
+func (s *Server) videoSessionStart(w http.ResponseWriter, r *http.Request) {
+	s.app.ClientSessionStarting(10 * time.Second)
+	s.ok(w, "session_start", nil)
 }
 
 func (s *Server) monitorSetEnabled(w http.ResponseWriter, r *http.Request) {
