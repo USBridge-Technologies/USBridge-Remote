@@ -252,8 +252,20 @@ type sunshineBackend struct {
 
 var _ Backend = (*sunshineBackend)(nil)
 
-// supportedCodecsCacheTTL is documented on SupportedVideoCodecs.
-const supportedCodecsCacheTTL = 30 * time.Minute
+// forgetSupportedCodecs drops the cached /serverinfo codec list: a (re)started
+// stream host is asked again (see supportedCodecsCacheTTL).
+func (b *sunshineBackend) forgetSupportedCodecs() {
+	b.supportedCodecsCache.mu.Lock()
+	b.supportedCodecsCache.fetchedAt = time.Time{}
+	b.supportedCodecsCache.mu.Unlock()
+}
+
+// supportedCodecsCacheTTL is documented on SupportedVideoCodecs. Short, and the
+// cache is dropped on every (re)start (forgetSupportedCodecs): a stream host asked
+// right after it starts answers before its encoder probe is through (Vibepollo
+// probes PyroWave last: 0x301 for a minute, 0x01010301 after), and 30 minutes kept
+// PyroWave and AV1 off the client's codec list.
+const supportedCodecsCacheTTL = time.Minute
 
 // NewSunshine constructs the Sunshine-backed Backend implementation. exeDir
 // is the agent binary's own directory (used to locate the bundled Sunshine
@@ -850,6 +862,7 @@ func (b *sunshineBackend) Start(adminPort int) error {
 			return err
 		}
 		log.Printf("[sunshine] started (session-broker) pid=%d launch=%s", sp.Pid(), launchExe)
+		b.forgetSupportedCodecs()
 		proc = sp
 	} else {
 		cmd := exec.Command(launchExe, launchArgs...)
@@ -866,6 +879,7 @@ func (b *sunshineBackend) Start(adminPort int) error {
 			return err
 		}
 		log.Printf("[sunshine] started pid=%d launch=%s", cmd.Process.Pid, launchExe)
+		b.forgetSupportedCodecs()
 		afterStart(b, cmd)
 		proc = sunshineExecCmdProcess{cmd}
 	}

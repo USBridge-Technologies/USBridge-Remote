@@ -189,6 +189,14 @@ type rustshineBackend struct {
 
 var _ Backend = (*rustshineBackend)(nil)
 
+// forgetSupportedCodecs drops the cached /serverinfo codec list: a (re)started
+// stream host is asked again (see supportedCodecsCacheTTL).
+func (b *rustshineBackend) forgetSupportedCodecs() {
+	b.supportedCodecsCache.mu.Lock()
+	b.supportedCodecsCache.fetchedAt = time.Time{}
+	b.supportedCodecsCache.mu.Unlock()
+}
+
 // NewRustshine constructs the rust-shine-backed Backend implementation.
 // exeDir/stateDir/logPath have the same meaning as NewSunshine's.
 func NewRustshine(exeDir, stateDir, logPath string) Backend {
@@ -794,6 +802,7 @@ func (b *rustshineBackend) Start(adminPort int) error {
 			return err
 		}
 		log.Printf("[rustshine] started pid=%d launch=%s", cmd.Process.Pid, launchPath)
+		b.forgetSupportedCodecs()
 		rustshineAfterStart(b, cmd)
 		proc = execCmdProcess{cmd}
 	}
@@ -860,6 +869,7 @@ func (b *rustshineBackend) startViaSessionBroker(launchPath string, args []strin
 		return nil, err
 	}
 	log.Printf("[rustshine] started (session-broker) pid=%d launch=%s", proc.Pid(), launchPath)
+	b.forgetSupportedCodecs()
 	return proc, nil
 }
 
