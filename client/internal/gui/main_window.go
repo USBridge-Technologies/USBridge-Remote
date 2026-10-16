@@ -272,6 +272,9 @@ type MainWindow struct {
 	// androidWiFiLock: a low latency WifiLock is held for the stream
 	// (wlan_android.go).
 	androidWiFiLock atomic.Bool
+	// monitorsStreaming: the stream state the Devices monitor list was last
+	// re-read for (see syncMonitorListWithStream).
+	monitorsStreaming atomic.Bool
 	// udpBufGrantBtn: Linux-only header button raising the kernel's UDP receive-buffer cap
 	// (see udpbuf_status.go); hidden once the cap fits whole video frames.
 	udpBufGrantBtn *view.HeaderActionButton

@@ -1600,6 +1600,7 @@ func (mw *MainWindow) updateStatus() {
 	mw.syncAWDLStreamingState(mw.isStreaming)
 	mw.syncWLANStreamingState(mw.isStreaming)
 	mw.syncAndroidWiFiLock(mw.isStreaming)
+	mw.syncMonitorListWithStream(mw.isStreaming)
 
 	fyne.Do(func() {
 		mw.updateStatusBar()
@@ -1670,4 +1671,20 @@ func splitAPIHostPort(host string) (string, int) {
 		return host, 0
 	}
 	return h, n
+}
+
+// syncMonitorListWithStream re-reads the agent's monitors a few seconds after a
+// stream starts or stops: with "only the virtual monitor" on, a Windows agent
+// switches the other monitors off once the session is up and back on a while
+// after it ends (agent app.virtualOthersWatchdog), after the list was last read --
+// the rows kept showing them on.
+func (mw *MainWindow) syncMonitorListWithStream(isStreaming bool) {
+	if mw.monitorsStreaming.Swap(isStreaming) == isStreaming || mw.diskWidget == nil {
+		return
+	}
+	delays := []time.Duration{4 * time.Second, 10 * time.Second}
+	if !isStreaming {
+		delays = []time.Duration{13 * time.Second}
+	}
+	mw.diskWidget.ReloadVideoDevicesAfter(delays...)
 }

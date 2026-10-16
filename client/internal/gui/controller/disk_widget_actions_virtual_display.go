@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
+	"time"
 
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
@@ -270,4 +271,19 @@ func (dw *DiskWidget) handleDeleteVirtualDisplay(id string) {
 
 		dw.loadVideoDevices()
 	}, dw.window)
+}
+
+// ReloadVideoDevicesAfter re-reads the agent's monitors after each delay (from now),
+// for changes the agent makes on its own a while after an action.
+func (dw *DiskWidget) ReloadVideoDevicesAfter(delays ...time.Duration) {
+	go func() {
+		start := time.Now()
+		for _, d := range delays {
+			time.Sleep(time.Until(start.Add(d)))
+			if dw.isClosing.Load() || dw.usbClient == nil {
+				return
+			}
+			dw.loadVideoDevices()
+		}
+	}()
 }

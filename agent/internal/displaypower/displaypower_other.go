@@ -16,3 +16,9 @@ func (st *VirtualState) SetPrimary(bool) error { return ErrUnsupported }
 
 // RestoreVirtual reports ErrUnsupported off Windows.
 func RestoreVirtual(*VirtualState) error { return ErrUnsupported }
+
+// OthersOff reports ErrUnsupported off Windows.
+func OthersOff(st *VirtualState) (*VirtualState, error) { return st, ErrUnsupported }
+
+// OthersOn reports ErrUnsupported off Windows.
+func OthersOn(*VirtualState) error { return ErrUnsupported }

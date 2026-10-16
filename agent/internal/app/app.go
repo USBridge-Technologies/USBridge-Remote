@@ -841,6 +841,7 @@ func (a *App) Run(headless, startHidden bool) error {
 	go a.x11SessionEnvWatchdog(ctx)
 	go a.awdlWatchdog(ctx)
 	go a.wlanStreamingWatchdog(ctx)
+	go a.virtualOthersWatchdog(ctx)
 	// Always started, even before ever linking -- recheckEntitlement no-ops
 	// immediately (no network call) whenever cfg.EntitlementToken is
 	// empty, so this is cheap, and it means a purchase/trial made
@@ -4572,12 +4573,18 @@ func (a *App) SetVirtualDisplayPrimary(primary bool) (live bool, err error) {
 	return a.stream.SetVirtualDisplayPrimary(primary)
 }
 
-// SetVirtualDisplayExclusive: see streamhost.Backend.SetVirtualDisplayExclusive.
+// SetVirtualDisplayExclusive saves "only the virtual monitor" in the agent's config:
+// the agent switches the other monitors off for a session itself, for every stream
+// host (virtualOthersWatchdog), so the stream host's own switch stays off.
 func (a *App) SetVirtualDisplayExclusive(exclusive bool) error {
-	if a.stream == nil {
-		return fmt.Errorf("no stream backend")
+	a.cfg.VirtualDisplayExclusive = exclusive
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		return err
 	}
-	return a.stream.SetVirtualDisplayExclusive(exclusive)
+	if a.stream != nil {
+		return a.stream.SetVirtualDisplayExclusive(false)
+	}
+	return nil
 }
 
 // VirtualDisplaySupported reports whether the current stream backend

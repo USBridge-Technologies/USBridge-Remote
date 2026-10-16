@@ -96,6 +96,18 @@ func (b *sunshineBackend) SetVirtualDisplayExclusive(exclusive bool) error {
 	return b.saveVirtualDisplay(v)
 }
 
+// TakeLegacyVirtualExclusive reports an Exclusive saved before the agent took "only the
+// virtual monitor" over for every stream host (app.virtualOthersWatchdog), and turns
+// it off.
+func (b *sunshineBackend) TakeLegacyVirtualExclusive() bool {
+	v := b.loadVirtualDisplay()
+	if !v.Exclusive {
+		return false
+	}
+	v.Exclusive = false
+	return b.saveVirtualDisplay(v) == nil
+}
+
 // SetVirtualDisplayPrimary saves the choice for the next virtual monitor and applies it
 // to the attached one right away. live reports whether one was attached.
 func (b *sunshineBackend) SetVirtualDisplayPrimary(primary bool) (live bool, err error) {
@@ -220,4 +232,11 @@ var runDisplayHelper = func(args ...string) (displaypower.HelperResult, error) {
 		return res, perr
 	}
 	return res, nil
+}
+
+// RunDisplayHelper runs a displaypower helper command in the user's session (see
+// runDisplayHelper), for the agent's own display changes around a stream host's
+// virtual monitor.
+func RunDisplayHelper(args ...string) (displaypower.HelperResult, error) {
+	return runDisplayHelper(args...)
 }

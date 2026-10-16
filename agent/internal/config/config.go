@@ -108,6 +108,10 @@ type Config struct {
 	// matching gamestream-server's own default) so existing installs keep
 	// the web client working without needing to opt in.
 	RustShineWebRTCDisabled bool `yaml:"rustshine_webrtc_disabled,omitempty"`
+	// VirtualDisplayExclusive: while a session streams a virtual monitor, the other
+	// monitors are switched off, and back on once it is over -- the agent's own, for
+	// every stream host (app.virtualOthersWatchdog).
+	VirtualDisplayExclusive bool `yaml:"virtual_display_exclusive,omitempty"`
 	// DisableAWDLDuringStreaming (macOS only): bring the awdl0 interface
 	// down for the duration of an active streaming session and back up
 	// once it ends, since AWDL (AirDrop/Handoff/Sidecar's mesh protocol)

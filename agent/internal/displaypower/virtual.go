@@ -120,6 +120,7 @@ func saveState(path string, st *VirtualState) error {
 //	apply STATEFILE                       restore and detach (whatever STATEFILE recorded)
 //	apply STATEFILE WxH@HZ PRIMARY EXCL   ...then attach in that mode (PRIMARY/EXCL: 0 or 1)
 //	primary STATEFILE 0|1                 make the attached monitor primary, or undo that
+//	others STATEFILE 0|1                  monitors around a virtual one: off (0), back on (1)
 //
 // The state file is rewritten after every change, so a crash in between never loses
 // what there is to undo. Returns the process exit code.
@@ -156,6 +157,32 @@ func runHelper(args []string) HelperResult {
 		}
 		st, err := AttachVirtual(m, args[3] == "1", args[4] == "1")
 		if st != nil {
+			if serr := saveState(path, st); serr != nil && err == nil {
+				err = serr
+			}
+		}
+		if err != nil {
+			return HelperResult{State: st, Error: err.Error()}
+		}
+		return HelperResult{State: st}
+	case "others":
+		// The other monitors around a virtual one the stream host attached itself:
+		// "others STATEFILE 0" switches them off, "others STATEFILE 1" back on.
+		if len(args) < 3 {
+			return HelperResult{Error: "usage: others STATEFILE 0|1"}
+		}
+		if args[2] == "1" {
+			err := OthersOn(st)
+			if serr := saveState(path, nil); serr != nil && err == nil {
+				err = serr
+			}
+			if err != nil {
+				return HelperResult{Error: err.Error()}
+			}
+			return HelperResult{}
+		}
+		st, err := OthersOff(st)
+		if st != nil && st.Topology != "" {
 			if serr := saveState(path, st); serr != nil && err == nil {
 				err = serr
 			}

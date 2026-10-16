@@ -646,3 +646,28 @@ func RestoreVirtual(st *VirtualState) error {
 	}
 	return detachVirtualTarget()
 }
+
+// OthersOff switches every monitor but the attached virtual one off, for a virtual
+// monitor someone else attached (RustShine attaches its own), remembering in st the
+// topology from before so OthersOn can put it back. st may be nil (nothing switched
+// off yet). A no-op returning st when the virtual monitor already is the only one, or
+// is not attached (nothing to keep on).
+func OthersOff(st *VirtualState) (*VirtualState, error) {
+	gdi, friendly, path, ok := activeVirtual()
+	if !ok {
+		return st, nil
+	}
+	if st == nil {
+		st = &VirtualState{}
+	}
+	st.GDIName, st.FriendlyName, st.DevicePath = gdi, friendly, path
+	return st, st.makeExclusive()
+}
+
+// OthersOn puts back the topology OthersOff switched off. A no-op without one.
+func OthersOn(st *VirtualState) error {
+	if st == nil {
+		return nil
+	}
+	return st.restoreExclusive()
+}

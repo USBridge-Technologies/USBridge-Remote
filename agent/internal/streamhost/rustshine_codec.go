@@ -66,11 +66,22 @@ func (b *rustshineBackend) VirtualDisplayPrimary() bool {
 	return v != "false" && v != "0" && v != "no" && v != "off"
 }
 
-// SetVirtualDisplayExclusive saves sunshine.conf `virtual_display_exclusive`
-// for the next virtual monitor: the streamer switches the other monitors off
-// once it is up and back on when it goes away.
+// SetVirtualDisplayExclusive saves sunshine.conf `virtual_display_exclusive`.
+// The agent keeps it false: "only the virtual monitor" is the agent's own,
+// for every stream host (app.virtualOthersWatchdog).
 func (b *rustshineBackend) SetVirtualDisplayExclusive(exclusive bool) error {
 	return b.SetConfigKey("virtual_display_exclusive", strconv.FormatBool(exclusive))
+}
+
+// TakeLegacyVirtualExclusive reports a `virtual_display_exclusive = true`
+// saved before the agent took "only the virtual monitor" over, and turns it
+// off.
+func (b *rustshineBackend) TakeLegacyVirtualExclusive() bool {
+	v := strings.ToLower(strings.TrimSpace(b.ConfigKey("virtual_display_exclusive")))
+	if v != "true" && v != "1" && v != "yes" && v != "on" {
+		return false
+	}
+	return b.SetVirtualDisplayExclusive(false) == nil
 }
 
 // SetVirtualDisplayPrimary saves the choice for the next virtual monitor and
