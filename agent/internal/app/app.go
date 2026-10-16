@@ -2417,7 +2417,7 @@ func (a *App) LogoutAccount() error {
 func (a *App) DownloadPunktfunk(onProgress forkrelease.ProgressFunc) error {
 	a.entMu.Lock()
 	a.entStatus.DownloadInProgress = true
-	a.entStatus.DownloadName = "USBridge Streamer"
+	a.entStatus.DownloadName = "Punktfunk"
 	a.entStatus.Progress = -1
 	a.entStatus.LastError = ""
 	a.entMu.Unlock()
@@ -2568,7 +2568,7 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 
 	a.entMu.Lock()
 	a.entStatus.DownloadInProgress = true
-	a.entStatus.DownloadName = "Punktfunk"
+	a.entStatus.DownloadName = "USBridge Streamer"
 	a.entStatus.Progress = -1
 	a.entStatus.LastError = ""
 	a.entMu.Unlock()
