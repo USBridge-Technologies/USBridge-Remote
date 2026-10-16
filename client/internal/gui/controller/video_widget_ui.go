@@ -156,6 +156,7 @@ func (vw *VideoWidget) handleStartVideo() {
 				vw.startDialog.SetAppliedToggles(true, false, false)
 			}
 			vw.startDialog.SetDeviceLabel("")
+			vw.startDialog.SetHostVirtualDisplayOption(vw.hostVirtualDisplayCapable())
 			vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
 			vw.startDialog.SetExtraAction("", nil)
 			vw.debugLogSpinner("startDialog-shown")
@@ -1949,4 +1950,14 @@ func parseBitrateKbps(value string) (int, bool) {
 		}
 		return v, true
 	}
+}
+
+// hostVirtualDisplayCapable: a plain Apollo/Vibepollo host with its own
+// virtual display is connected (no usbridge agent).
+func (vw *VideoWidget) hostVirtualDisplayCapable() bool {
+	if !vw.gameStreamOnly.Load() {
+		return false
+	}
+	c, ok := vw.videoClient.(interface{ HostVirtualDisplayCapable() bool })
+	return ok && c.HostVirtualDisplayCapable()
 }

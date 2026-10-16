@@ -1,10 +1,11 @@
-//go:build !(linux || windows) || android
+//go:build !(linux && !android) && !windows && !(cgo && (darwin || android))
 
 package platform
 
 import "fmt"
 
-// ListMIDIInputs: MIDI input capture is implemented on Linux and Windows.
+// ListMIDIInputs: no MIDI input without cgo, or in the browser (the web
+// client streams over WebRTC, which has no uplink).
 func ListMIDIInputs() []MIDIInputInfo { return nil }
 
 // StartMIDICapture: see ListMIDIInputs.

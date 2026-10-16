@@ -141,7 +141,7 @@ func TestDisconnectWaitsForCancelBeforeNextLaunchWins(t *testing.T) {
 			// Seed state as if an H264 session is already running -- what the
 			// video widget's live state looks like right before the user
 			// applies a codec change in the settings popup.
-			if _, _, err := client.Launch(1, "h264", 1920, 1080, 60, 10000); err != nil {
+			if _, _, err := client.Launch(1, "h264", 1920, 1080, 60, 10000, nil); err != nil {
 				t.Fatalf("seed Launch: %v", err)
 			}
 			m.lastAppId = 1
@@ -161,7 +161,7 @@ func TestDisconnectWaitsForCancelBeforeNextLaunchWins(t *testing.T) {
 
 			// Mirrors reconcileVideoState: restart immediately with the new
 			// VideoMode (H265, lower resolution/fps -- the user's new choice).
-			if _, _, err := client.Launch(1, "h265", 1280, 720, 30, 8000); err != nil {
+			if _, _, err := client.Launch(1, "h265", 1280, 720, 30, 8000, nil); err != nil {
 				t.Fatalf("post-Disconnect Launch: %v", err)
 			}
 
@@ -204,7 +204,7 @@ func TestDisconnectNeverBlocksForever(t *testing.T) {
 
 	client := newTestMoonlightClient(t, srv)
 	m := &MoonlightService{client: client}
-	if _, _, err := client.Launch(1, "h264", 1920, 1080, 60, 10000); err != nil {
+	if _, _, err := client.Launch(1, "h264", 1920, 1080, 60, 10000, nil); err != nil {
 		t.Fatalf("seed Launch: %v", err)
 	}
 	m.lastAppId = 1

@@ -134,6 +134,9 @@ if [ -f "$INFO_PLIST" ]; then
     /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST" 2>/dev/null || \
     /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST"
     echo -e "   ${GREEN}✓${NC} NSCameraUsageDescription added"
+    /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'Use this microphone as the microphone of the remote PC'" "$INFO_PLIST" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription 'Use this microphone as the microphone of the remote PC'" "$INFO_PLIST"
+    echo -e "   ${GREEN}✓${NC} NSMicrophoneUsageDescription added"
 fi
 
 # 5. Inject LaunchScreen.storyboardc (fyne doesn't generate it, iOS needs it)

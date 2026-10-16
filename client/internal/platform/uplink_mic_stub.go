@@ -1,13 +1,13 @@
-//go:build !(linux || windows) || android || !cgo
+//go:build !cgo || (!linux && !windows && !darwin)
 
 package platform
 
 import "fmt"
 
-// MicSupported: microphone capture is implemented on Linux and Windows.
+// MicSupported: no microphone capture without cgo, or in the browser (the
+// web client streams over WebRTC, which has no uplink).
 func MicSupported() bool { return false }
 
-// StartMicCapture: see MicSupported.
-func StartMicCapture(onFrame func(seq uint16, opus []byte)) (UplinkCapture, error) {
+func openMic() (micSource, error) {
 	return nil, fmt.Errorf("microphone capture is not supported on this platform")
 }

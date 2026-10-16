@@ -33,11 +33,20 @@ type Client struct {
 }
 
 type ServerInfo struct {
+	// StatusCode is the root's status_code: a host answers an unpaired
+	// client's HTTPS request with HTTP 200 and status_code 401 inside.
+	StatusCode             int    `xml:"status_code,attr"`
 	AppVersion             string `xml:"appversion"`
 	GfeVersion             string `xml:"GfeVersion"`
 	PairStatus             int    `xml:"PairStatus"`
 	ServerCodecModeSupport int    `xml:"ServerCodecModeSupport"`
 	MacAddress             string `xml:"mac"`
+	// Apollo/Vibepollo's virtual display (SudoVDA on Windows), reported on
+	// both the paired and the unpaired /serverinfo. Capable: the host can
+	// stream a per-client virtual monitor; DriverReady: its driver is
+	// installed and up right now. Both false on any other host.
+	VirtualDisplayCapable     bool `xml:"VirtualDisplayCapable"`
+	VirtualDisplayDriverReady bool `xml:"VirtualDisplayDriverReady"`
 }
 
 type App struct {
@@ -138,16 +147,18 @@ func (c *Client) getURL(secure bool, path string, params map[string]string) stri
 }
 
 func (c *Client) GetServerInfo() (*ServerInfo, error) {
-	// First try secure, fallback to insecure if we are not paired or host is fresh
-	// Normally GameStream returns 401 on HTTPS if unpaired.
-	url := c.getURL(true, "/serverinfo", nil)
-	resp, err := c.httpsClient.Get(url)
-
-	if err != nil || resp.StatusCode == 401 {
-		url = c.getURL(false, "/serverinfo", nil)
-		resp, err = c.httpClient.Get(url)
+	// Paired: the HTTPS answer (PairStatus 1, the MAC). Unpaired, a host
+	// refuses the certificate -- some with HTTP 401, Sunshine's forks with
+	// HTTP 200 and status_code 401 in the XML -- and the plain HTTP answer
+	// is the one to read.
+	if info, err := c.fetchServerInfo(c.httpsClient, c.getURL(true, "/serverinfo", nil)); err == nil && info.StatusCode != 401 {
+		return info, nil
 	}
+	return c.fetchServerInfo(c.httpClient, c.getURL(false, "/serverinfo", nil))
+}
 
+func (c *Client) fetchServerInfo(client *http.Client, url string) (*ServerInfo, error) {
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch server info: %v", err)
 	}
@@ -237,7 +248,10 @@ type launchRoot struct {
 // moonlightVideoFormat/StartStream), which this HTTP call has no part in.
 // codecFormat is accepted here purely so callers/logs can show what codec
 // was intended alongside this HTTP request.
-func (c *Client) Launch(appId int, codecFormat string, width, height, fps, bitrate int) (string, []byte, error) {
+//
+// extra holds further /launch and /resume parameters for this session, e.g.
+// Apollo/Vibepollo's virtualDisplay (see MoonlightService.stockHostLaunchParams).
+func (c *Client) Launch(appId int, codecFormat string, width, height, fps, bitrate int, extra map[string]string) (string, []byte, error) {
 	logrus.Infof("🎯 [CODEC-TRACE] Client.Launch: appId=%d codecFormat=%q(unused by this HTTP call, see doc comment) mode=%dx%dx%d",
 		appId, codecFormat, width, height, fps)
 	rikeyBytes := make([]byte, 16)
@@ -261,6 +275,9 @@ func (c *Client) Launch(appId int, codecFormat string, width, height, fps, bitra
 		sessionParams["usbridgeDisplayCursor"] = "0"
 	case 2:
 		sessionParams["usbridgeDisplayCursor"] = "1"
+	}
+	for k, v := range extra {
+		sessionParams[k] = v
 	}
 
 	// Try /launch first; fall back to /resume if an app is already running.

@@ -93,6 +93,9 @@ INFO_PLIST="$APP_BUNDLE/Info.plist"
 if [ -f "$INFO_PLIST" ]; then
     /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST" 2>/dev/null || \
     /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST"
+    # The microphone row on the Devices screen (plays it on the remote PC).
+    /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'Use this microphone as the microphone of the remote PC'" "$INFO_PLIST" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription 'Use this microphone as the microphone of the remote PC'" "$INFO_PLIST"
 
     # fyne.io/tools hardcodes IPHONEOS_DEPLOYMENT_TARGET=9.0 in the Xcode
     # project it generates (cmd/fyne/internal/mobile/build_iosapp.go), which

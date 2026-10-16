@@ -133,7 +133,7 @@ func TestLaunchAppliesModeButResumeDoesNot(t *testing.T) {
 	c := newTestClient(t, srv)
 
 	// First launch: fresh session, /launch succeeds, mode is applied.
-	if _, _, err := c.Launch(1, "h264", 1920, 1080, 60, 10000); err != nil {
+	if _, _, err := c.Launch(1, "h264", 1920, 1080, 60, 10000, nil); err != nil {
 		t.Fatalf("first Launch: %v", err)
 	}
 	if running, mode, launches, resumes, _ := f.snapshot(); !running || mode != "1920x1080x60" || launches != 1 || resumes != 0 {
@@ -145,7 +145,7 @@ func TestLaunchAppliesModeButResumeDoesNot(t *testing.T) {
 	// Sunshine to end the previous session first -- the server still thinks
 	// the old app is running, so /launch is rejected and the client falls
 	// back to /resume, which does not apply the new mode.
-	if _, _, err := c.Launch(1, "h265", 1280, 720, 30, 8000); err != nil {
+	if _, _, err := c.Launch(1, "h265", 1280, 720, 30, 8000, nil); err != nil {
 		t.Fatalf("second Launch (expected to fall back to /resume, not error): %v", err)
 	}
 	if running, mode, launches, resumes, _ := f.snapshot(); !running || mode != "1920x1080x60" || launches != 2 || resumes != 1 {
@@ -159,7 +159,7 @@ func TestLaunchAppliesModeButResumeDoesNot(t *testing.T) {
 	if err := c.Quit(1); err != nil {
 		t.Fatalf("Quit: %v", err)
 	}
-	if _, _, err := c.Launch(1, "h265", 1280, 720, 30, 8000); err != nil {
+	if _, _, err := c.Launch(1, "h265", 1280, 720, 30, 8000, nil); err != nil {
 		t.Fatalf("third Launch (after Quit): %v", err)
 	}
 	if running, mode, launches, resumes, cancels := f.snapshot(); !running || mode != "1280x720x30" || launches != 3 || resumes != 1 || cancels != 1 {
@@ -177,7 +177,7 @@ func TestQuitEndsSession(t *testing.T) {
 	defer srv.Close()
 	c := newTestClient(t, srv)
 
-	if _, _, err := c.Launch(1, "h264", 1920, 1080, 60, 10000); err != nil {
+	if _, _, err := c.Launch(1, "h264", 1920, 1080, 60, 10000, nil); err != nil {
 		t.Fatalf("Launch: %v", err)
 	}
 	if err := c.Quit(1); err != nil {
@@ -187,7 +187,7 @@ func TestQuitEndsSession(t *testing.T) {
 		t.Fatalf("after Quit: running=%v cancels=%d, want false/1", running, cancels)
 	}
 
-	if _, _, err := c.Launch(1, "h265", 1280, 720, 30, 8000); err != nil {
+	if _, _, err := c.Launch(1, "h265", 1280, 720, 30, 8000, nil); err != nil {
 		t.Fatalf("Launch after Quit: %v", err)
 	}
 	if _, mode, launches, resumes, _ := f.snapshot(); mode != "1280x720x30" || launches != 2 || resumes != 0 {

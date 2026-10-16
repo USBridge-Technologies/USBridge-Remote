@@ -434,23 +434,6 @@ void do_send_pen(unsigned char eventType, unsigned char toolType, unsigned char 
     LiSendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance,
         0.0f, 0.0f, rotation, tilt);
 }
-// MIDI input and microphone played by a USBridge host (see moonlight_uplink.go).
-int do_host_uplink_flags(void) {
-    uint32_t f = LiGetHostFeatureFlags();
-    return ((f & LI_FF_USBRIDGE_MIDI) ? 1 : 0) | ((f & LI_FF_USBRIDGE_MIC) ? 2 : 0);
-}
-int do_send_midi(const unsigned char *data, unsigned short length) {
-    return LiSendMidiEvent(data, length);
-}
-int do_send_mic(unsigned short sequence, const unsigned char *data, unsigned short length) {
-    return LiSendMicAudio(sequence, data, length);
-}
-int do_host_camera(void) {
-    return (LiGetHostFeatureFlags() & LI_FF_USBRIDGE_CAMERA) != 0;
-}
-int do_send_camera(unsigned short frame, unsigned char flags, const unsigned char *data, unsigned int length) {
-    return LiSendCameraFrame(frame, flags, data, length);
-}
 // Raw HID devices rebuilt by a USBridge host (see moonlight_rawhid.go).
 int do_host_supports_raw_hid(void) {
     return (LiGetHostFeatureFlags() & LI_FF_USBRIDGE_RAW_HID) != 0;

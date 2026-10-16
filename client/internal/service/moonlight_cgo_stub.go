@@ -5,6 +5,8 @@ package service
 import (
 	"fmt"
 	"os"
+
+	"usbridge-client/internal/platform"
 )
 
 // MoonlightCgoWrapper is a stub on unsupported platforms.
@@ -65,4 +67,12 @@ func (w *MoonlightCgoWrapper) RawHIDEpoch() uint64 { return 0 }
 
 func (w *MoonlightCgoWrapper) SendMoonlightRawHID(kind, slot, endpoint uint8, total, offset uint16, data []byte, reliable bool) bool {
 	return false
+}
+
+// MicUplinkSupported: no microphone uplink without the native stream.
+func MicUplinkSupported() bool { return false }
+
+// StartMicUplink: see MicUplinkSupported.
+func StartMicUplink(send func(seq uint16, opus []byte)) (platform.UplinkCapture, error) {
+	return nil, fmt.Errorf("microphone uplink is not supported on this platform")
 }

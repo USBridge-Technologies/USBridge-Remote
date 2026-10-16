@@ -1392,13 +1392,6 @@ func (w *MoonlightCgoWrapper) IsInputActive() bool { return liStartConnectionAct
 
 // Raw HID (moonlight_rawhid.go) is not wired on Android: its USB devices go
 // through USB/IP.
-func (w *MoonlightCgoWrapper) UplinkSupport() (midi, mic bool)                    { return false, false }
-func (w *MoonlightCgoWrapper) SendMoonlightMIDI(data []byte) bool                 { return false }
-func (w *MoonlightCgoWrapper) SendMoonlightMic(sequence uint16, opus []byte) bool { return false }
-func (w *MoonlightCgoWrapper) CameraUplinkSupported() bool                        { return false }
-func (w *MoonlightCgoWrapper) SendMoonlightCamera(frame uint16, keyframe bool, au []byte) bool {
-	return false
-}
 
 func (w *MoonlightCgoWrapper) RawHIDEpoch() uint64 { return 0 }
 func (w *MoonlightCgoWrapper) SendMoonlightRawHID(kind, slot, endpoint uint8, total, offset uint16, data []byte, reliable bool) bool {

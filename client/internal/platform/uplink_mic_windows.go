@@ -3,119 +3,154 @@
 package platform
 
 /*
-#cgo pkg-config: opus
-#cgo LDFLAGS: -lwinmm
+#cgo LDFLAGS: -lole32
+#define COBJMACROS
 #include <windows.h>
-#include <mmsystem.h>
+#include <mmdeviceapi.h>
+#include <audioclient.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <opus.h>
+#include "uplink_mic_ring.h"
 
-#define MIC_FRAME 960
-#define MIC_BUFS  6
+#ifndef AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+#define AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM 0x80000000
+#endif
+#ifndef AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
+#define AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY 0x08000000
+#endif
 
+// Own copies, so nothing depends on which IIDs libuuid carries.
+static const GUID kMicCLSID_MMDeviceEnumerator = {0xBCDE0395, 0xE52F, 0x467C, {0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E}};
+static const GUID kMicIID_IMMDeviceEnumerator = {0xA95664D2, 0x9614, 0x4F35, {0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6}};
+static const GUID kMicIID_IAudioClient = {0x1CB9AD4C, 0xDBFA, 0x4C32, {0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2}};
+static const GUID kMicIID_IAudioCaptureClient = {0xC8ADBD64, 0xE71E, 0x48A0, {0xA4, 0xDE, 0x18, 0x5C, 0x39, 0x5C, 0xD3, 0x17}};
+
+// The default capture device in shared mode, event driven, converted by
+// WASAPI itself to 48kHz mono S16 (AUTOCONVERTPCM, Windows 7+), on a thread
+// of its own that owns the COM objects.
 typedef struct {
-    HWAVEIN wi;
-    HANDLE ev;
-    WAVEHDR hdr[MIC_BUFS];
-    short pcm[MIC_BUFS][MIC_FRAME];
-    int next;
-    OpusEncoder *enc;
-} mic_t;
+    mic_ring ring; // first: the mic_ring* handed out is this struct
+    HANDLE thread, stop_ev, ready_ev;
+    HRESULT init_hr;
+    char init_where[64];
+} win_mic;
 
-static void mic_free(mic_t *m) {
-    if (m->wi) {
-        waveInStop(m->wi);
-        waveInReset(m->wi);
-        for (int i = 0; i < MIC_BUFS; i++) {
-            if (m->hdr[i].dwFlags & WHDR_PREPARED) waveInUnprepareHeader(m->wi, &m->hdr[i], sizeof(WAVEHDR));
+static DWORD WINAPI win_mic_thread(LPVOID arg) {
+    win_mic *m = (win_mic *)arg;
+    IMMDeviceEnumerator *en = NULL;
+    IMMDevice *dev = NULL;
+    IAudioClient *client = NULL;
+    IAudioCaptureClient *cap = NULL;
+    HANDLE buf_ev = CreateEventW(NULL, FALSE, FALSE, NULL);
+    HRESULT hr;
+    int started = 0;
+
+    HRESULT co = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+#define FAIL(where) do { m->init_hr = hr; snprintf(m->init_where, sizeof(m->init_where), "%s", where); goto out; } while (0)
+    hr = CoCreateInstance(&kMicCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &kMicIID_IMMDeviceEnumerator, (void **)&en);
+    if (FAILED(hr)) FAIL("MMDeviceEnumerator");
+    hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(en, eCapture, eConsole, &dev);
+    if (FAILED(hr)) FAIL("no default microphone");
+    hr = IMMDevice_Activate(dev, &kMicIID_IAudioClient, CLSCTX_ALL, NULL, (void **)&client);
+    if (FAILED(hr)) FAIL("IMMDevice::Activate");
+    WAVEFORMATEX wfx = {
+        .wFormatTag = WAVE_FORMAT_PCM, .nChannels = 1, .nSamplesPerSec = 48000,
+        .wBitsPerSample = 16, .nBlockAlign = 2, .nAvgBytesPerSec = 96000, .cbSize = 0,
+    };
+    hr = IAudioClient_Initialize(client, AUDCLNT_SHAREMODE_SHARED,
+        AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+        200000, 0, &wfx, NULL); // 20 ms
+    if (FAILED(hr)) FAIL("IAudioClient::Initialize");
+    hr = IAudioClient_SetEventHandle(client, buf_ev);
+    if (FAILED(hr)) FAIL("IAudioClient::SetEventHandle");
+    hr = IAudioClient_GetService(client, &kMicIID_IAudioCaptureClient, (void **)&cap);
+    if (FAILED(hr)) FAIL("IAudioCaptureClient");
+    hr = IAudioClient_Start(client);
+    if (FAILED(hr)) FAIL("IAudioClient::Start");
+#undef FAIL
+    started = 1;
+    m->init_hr = S_OK;
+    SetEvent(m->ready_ev);
+
+    HANDLE waits[2] = {m->stop_ev, buf_ev};
+    for (;;) {
+        DWORD w = WaitForMultipleObjects(2, waits, FALSE, 200);
+        if (w == WAIT_OBJECT_0) break;
+        UINT32 packet = 0;
+        while (SUCCEEDED(hr = IAudioCaptureClient_GetNextPacketSize(cap, &packet)) && packet > 0) {
+            BYTE *data = NULL;
+            UINT32 frames = 0;
+            DWORD flags = 0;
+            hr = IAudioCaptureClient_GetBuffer(cap, &data, &frames, &flags, NULL, NULL);
+            if (FAILED(hr)) break;
+            mic_ring_push(&m->ring, (flags & AUDCLNT_BUFFERFLAGS_SILENT) ? NULL : (const int16_t *)data, (int)frames);
+            IAudioCaptureClient_ReleaseBuffer(cap, frames);
         }
-        waveInClose(m->wi);
+        if (FAILED(hr)) { // e.g. AUDCLNT_E_DEVICE_INVALIDATED: unplugged
+            mic_ring_fail(&m->ring);
+            break;
+        }
     }
-    if (m->ev) CloseHandle(m->ev);
-    if (m->enc) opus_encoder_destroy(m->enc);
+
+out:
+    if (!started) SetEvent(m->ready_ev);
+    if (client && started) IAudioClient_Stop(client);
+    if (cap) IAudioCaptureClient_Release(cap);
+    if (client) IAudioClient_Release(client);
+    if (dev) IMMDevice_Release(dev);
+    if (en) IMMDeviceEnumerator_Release(en);
+    CloseHandle(buf_ev);
+    if (SUCCEEDED(co)) CoUninitialize();
+    return 0;
+}
+
+static void win_mic_free(win_mic *m) {
+    if (m->thread) { SetEvent(m->stop_ev); WaitForSingleObject(m->thread, INFINITE); CloseHandle(m->thread); }
+    if (m->stop_ev) CloseHandle(m->stop_ev);
+    if (m->ready_ev) CloseHandle(m->ready_ev);
+    mic_ring_destroy(&m->ring);
     free(m);
 }
 
-// The default recording device (WAVE_MAPPER: what Windows' Sound settings
-// pick, resampled by the system to 48kHz mono 16-bit), 20ms buffers.
-static mic_t *mic_open(char *err, int errlen) {
-    int e = 0;
-    mic_t *m = calloc(1, sizeof(*m));
-    if (!m) { snprintf(err, errlen, "out of memory"); return NULL; }
-    m->ev = CreateEventW(NULL, FALSE, FALSE, NULL);
-    WAVEFORMATEX wf = {0};
-    wf.wFormatTag = WAVE_FORMAT_PCM;
-    wf.nChannels = 1;
-    wf.nSamplesPerSec = 48000;
-    wf.wBitsPerSample = 16;
-    wf.nBlockAlign = 2;
-    wf.nAvgBytesPerSec = 96000;
-    MMRESULT r = waveInOpen(&m->wi, WAVE_MAPPER, &wf, (DWORD_PTR)m->ev, 0, CALLBACK_EVENT);
-    if (r != MMSYSERR_NOERROR) {
-        m->wi = NULL;
-        if (r == MMSYSERR_BADDEVICEID || r == MMSYSERR_NODRIVER)
-            snprintf(err, errlen, "no microphone (waveInOpen %u)", r);
-        else
-            snprintf(err, errlen, "waveInOpen: %u (microphone access off in Windows privacy settings?)", r);
-        mic_free(m);
+mic_ring *plat_mic_open(char *err, int errlen) {
+    win_mic *m = (win_mic *)calloc(1, sizeof(*m));
+    if (!m || mic_ring_init(&m->ring, 48000) != 0) { snprintf(err, errlen, "out of memory"); free(m); return NULL; }
+    m->stop_ev = CreateEventW(NULL, TRUE, FALSE, NULL);
+    m->ready_ev = CreateEventW(NULL, TRUE, FALSE, NULL);
+    m->thread = CreateThread(NULL, 0, win_mic_thread, m, 0, NULL);
+    if (!m->thread) { snprintf(err, errlen, "CreateThread failed"); win_mic_free(m); return NULL; }
+    WaitForSingleObject(m->ready_ev, INFINITE);
+    if (FAILED(m->init_hr)) {
+        snprintf(err, errlen, "WASAPI: %s (0x%08lx)", m->init_where, (unsigned long)m->init_hr);
+        win_mic_free(m);
         return NULL;
     }
-    for (int i = 0; i < MIC_BUFS; i++) {
-        m->hdr[i].lpData = (LPSTR)m->pcm[i];
-        m->hdr[i].dwBufferLength = sizeof(m->pcm[i]);
-        waveInPrepareHeader(m->wi, &m->hdr[i], sizeof(WAVEHDR));
-        waveInAddBuffer(m->wi, &m->hdr[i], sizeof(WAVEHDR));
-    }
-    m->enc = opus_encoder_create(48000, 1, OPUS_APPLICATION_VOIP, &e);
-    if (!m->enc) { snprintf(err, errlen, "opus_encoder_create: %d", e); mic_free(m); return NULL; }
-    opus_encoder_ctl(m->enc, OPUS_SET_BITRATE(48000));
-    opus_encoder_ctl(m->enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
-    if (waveInStart(m->wi) != MMSYSERR_NOERROR) {
-        snprintf(err, errlen, "waveInStart failed");
-        mic_free(m);
-        return NULL;
-    }
-    return m;
+    return &m->ring;
 }
 
-// One 20ms frame: waits up to 200ms for the next buffer, encodes it into
-// out and gives the buffer back. 0 when nothing came (the caller checks
-// for Stop), -1 on error.
-static int mic_read_encode(mic_t *m, unsigned char *out, int outlen) {
-    WAVEHDR *h = &m->hdr[m->next];
-    while (!(h->dwFlags & WHDR_DONE)) {
-        if (WaitForSingleObject(m->ev, 200) == WAIT_TIMEOUT && !(h->dwFlags & WHDR_DONE)) return 0;
-    }
-    int n = 0;
-    if (h->dwBytesRecorded == sizeof(m->pcm[0])) {
-        n = opus_encode(m->enc, (const opus_int16 *)h->lpData, MIC_FRAME, out, outlen);
-    }
-    h->dwFlags &= ~WHDR_DONE;
-    h->dwBytesRecorded = 0;
-    if (waveInAddBuffer(m->wi, h, sizeof(WAVEHDR)) != MMSYSERR_NOERROR) return -1;
-    m->next = (m->next + 1) % MIC_BUFS;
-    return n < 0 ? -1 : (n == 0 ? -2 : n);
-}
-
-static void mic_close(mic_t *m) { mic_free(m); }
+void plat_mic_close(mic_ring *r) { win_mic_free((win_mic *)r); }
 */
 import "C"
 
 import (
-	"fmt"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"unsafe"
 
 	"golang.org/x/sys/windows/registry"
 )
 
+// MicSupported reports whether StartMicCapture can work in this build.
+func MicSupported() bool { return true }
+
+func openMic() (micSource, error) {
+	src, err := openRingMic()
+	if err != nil && micConsentDenied() {
+		return nil, ErrMicAccessDenied
+	}
+	return src, err
+}
+
 // micConsentDenied: Settings → Privacy & security → Microphone has
-// microphone access (system-wide, this user, or desktop apps) off. waveIn
-// then only says MMSYSERR_ERROR.
+// microphone access (system-wide, this user, or desktop apps) off. WASAPI
+// then only says E_ACCESSDENIED.
 func micConsentDenied() bool {
 	const store = `Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone`
 	denied := func(root registry.Key, path string) bool {
@@ -129,56 +164,4 @@ func micConsentDenied() bool {
 	}
 	return denied(registry.LOCAL_MACHINE, store) || denied(registry.CURRENT_USER, store) ||
 		denied(registry.CURRENT_USER, store+`\NonPackaged`)
-}
-
-type micCapture struct {
-	stop atomic.Bool
-	done chan struct{}
-	once sync.Once
-}
-
-func (c *micCapture) Stop() {
-	c.once.Do(func() {
-		c.stop.Store(true)
-		<-c.done
-	})
-}
-
-// MicSupported reports whether StartMicCapture can work in this build.
-func MicSupported() bool { return true }
-
-// StartMicCapture records the default microphone (winmm waveIn, the device
-// picked in Windows' Sound settings) and hands each 20ms frame to onFrame
-// Opus-encoded (48kHz mono, at most 200 bytes) with a running sequence
-// number, from its own goroutine -- as uplink_mic_linux.go does.
-func StartMicCapture(onFrame func(seq uint16, opus []byte)) (UplinkCapture, error) {
-	var errBuf [256]C.char
-	m := C.mic_open(&errBuf[0], C.int(len(errBuf)))
-	if m == nil {
-		if micConsentDenied() {
-			return nil, ErrMicAccessDenied
-		}
-		return nil, fmt.Errorf("%s", C.GoString(&errBuf[0]))
-	}
-	c := &micCapture{done: make(chan struct{})}
-	go func() {
-		defer close(c.done)
-		defer C.mic_close(m)
-		out := make([]byte, 200)
-		var seq uint16
-		for !c.stop.Load() {
-			n := C.mic_read_encode(m, (*C.uchar)(unsafe.Pointer(&out[0])), C.int(len(out)))
-			switch {
-			case n == -1:
-				return
-			case n == 0: // nothing yet: check Stop
-			case n == -2: // short buffer: counts as a frame, nothing to send
-				seq++
-			default:
-				seq++
-				onFrame(seq, append([]byte(nil), out[:n]...))
-			}
-		}
-	}()
-	return c, nil
 }

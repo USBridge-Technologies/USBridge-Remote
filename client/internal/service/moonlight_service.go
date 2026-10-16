@@ -72,6 +72,12 @@ type MoonlightService struct {
 	activeWrapper      *MoonlightCgoWrapper // set while a stream is running, used for input routing
 	tailscaleSvc       *TailscaleService    // optional; if set, Moonlight uses its dialer for Tailscale IPs
 	stopMoonlightProxy func()               // non-nil when a tsnet proxy is active for internet streaming
+
+	// The plain GameStream host case (no usbridge agent, see
+	// SetGameStreamOnly and host_virtual_display.go).
+	gameStreamOnly       atomic.Bool
+	hostVirtualDisplay   atomic.Bool // its /serverinfo reports VirtualDisplayCapable
+	hostVirtualDisplayOK atomic.Bool // ... and VirtualDisplayDriverReady
 }
 
 // SetAPISecret stores the master secret used to HMAC-sign requests to the usbridge API.
@@ -284,6 +290,7 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 	}
 
 	logrus.Infof("🖥️ Sunshine Server Info: AppVersion=%s, GfeVersion=%s", serverInfo.AppVersion, serverInfo.GfeVersion)
+	m.noteHostVirtualDisplay(serverInfo)
 
 	// 3. Fetch App List to find 'Desktop'
 	t1 := time.Now()
@@ -354,7 +361,7 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 	t2 := time.Now()
 	logrus.Infof("🎯 [CODEC-TRACE] ConnectToMoonlight: about to call client.Launch(appId=%d, videoMode=%q, %dx%d@%d, bitrate=%d) -- videoMode here is what m.SetVideoMode last set",
 		appId, m.videoMode, m.width, m.height, fps, bitrate)
-	sessionUrl, rikey, err := m.client.Launch(appId, m.videoMode, m.width, m.height, fps, bitrate)
+	sessionUrl, rikey, err := m.client.Launch(appId, m.videoMode, m.width, m.height, fps, bitrate, m.stockHostLaunchParams())
 	logrus.Infof("⏱️ [Moonlight] launch/resume HTTP: %.0fms (total %.0fms)", float64(time.Since(t2).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
 	if err != nil {
 		m.isRunning = false
@@ -908,7 +915,10 @@ func (m *MoonlightService) ProbeGameStreamHost(ctx context.Context) error {
 	m.prepareGameStreamClient()
 	done := make(chan error, 1)
 	go func() {
-		_, err := m.client.GetServerInfo()
+		info, err := m.client.GetServerInfo()
+		if err == nil {
+			m.noteHostVirtualDisplay(info)
+		}
 		done <- err
 	}()
 	select {

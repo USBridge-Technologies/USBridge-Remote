@@ -703,6 +703,8 @@ type LocalizedStrings struct {
 	PlayoutBuffer                        string // "Jitter Buffer" checkbox title, video parameters dialog -- moonlight-common-c fork's playout delay; off by default
 	PlayoutBufferHint                    string // hint shown under the Jitter Buffer checkbox
 	PlayoutBufferBadge                   string // small platform badge next to the Jitter Buffer title
+	HostVirtualDisplay                   string // "Virtual display" checkbox title, video parameters dialog -- only against a plain Apollo/Vibepollo host
+	HostVirtualDisplayHint               string // hint shown under the host Virtual display checkbox
 	OtherSettings                        string // labeled divider above the video-parameters toggle list, same style as OrEnterManually
 	MuteAudio                            string // "Mute Audio"
 	UnmuteAudio                          string // "Unmute Audio"
@@ -1461,6 +1463,8 @@ func EN() *LocalizedStrings {
 		PlayoutBuffer:                        "Jitter Buffer",
 		PlayoutBufferHint:                    "Holds each frame back by a few milliseconds to even out a jittery network. Smoother cadence on bad Wi-Fi or cellular, but adds latency -- off by default.",
 		PlayoutBufferBadge:                   "Beta",
+		HostVirtualDisplay:                   "Virtual display",
+		HostVirtualDisplayHint:               "The host streams its own virtual monitor in this resolution and refresh rate instead of a physical screen. Turn off to stream the host's monitor as it is.",
 		OtherSettings:                        "OTHER SETTINGS",
 		MuteAudio:                            "Mute Audio",
 		UnmuteAudio:                          "Unmute Audio",
@@ -1587,6 +1591,8 @@ func ES() *LocalizedStrings {
 	locale.AddVirtualDisplaySubtitle = "Elige un preset o una resolucion personalizada para el video pipe."
 	locale.DeleteVirtualDisplayConfirm = "Quitar este display virtual?"
 	locale.VirtualDisplayPrimary = "Hacerla la pantalla principal"
+	locale.HostVirtualDisplay = "Pantalla virtual"
+	locale.HostVirtualDisplayHint = "El host transmite su propio monitor virtual con esta resolucion y frecuencia en lugar de una pantalla fisica. Desactivalo para transmitir el monitor del host tal cual."
 	locale.VirtualDisplayPrimaryHint = "La barra de tareas y las ventanas nuevas se abren en ella. Desactivalo cuando quieras con el interruptor Principal."
 	locale.VirtualDisplayPrimaryToggle = "Principal"
 	locale.VirtualDisplayPrimaryFailed = "No se pudo cambiar la pantalla principal: %v"
@@ -2077,6 +2083,8 @@ func UKProper() *LocalizedStrings {
 	locale.AddVirtualDisplaySubtitle = "Оберіть пресет або свою роздільність для video pipe."
 	locale.DeleteVirtualDisplayConfirm = "Прибрати цей віртуальний дисплей?"
 	locale.VirtualDisplayPrimary = "Зробити основним дисплеєм"
+	locale.HostVirtualDisplay = "Віртуальний дисплей"
+	locale.HostVirtualDisplayHint = "Хост транслює власний віртуальний монітор у цій роздільній здатності й частоті замість фізичного екрана. Вимкніть, щоб транслювати монітор хоста як є."
 	locale.VirtualDisplayPrimaryHint = "Панель завдань і нові вікна відкриваються на ньому. Вимкнути можна будь-коли перемикачем «Основний»."
 	locale.VirtualDisplayPrimaryToggle = "Основний"
 	locale.VirtualDisplayPrimaryFailed = "Не вдалося змінити основний дисплей: %v"

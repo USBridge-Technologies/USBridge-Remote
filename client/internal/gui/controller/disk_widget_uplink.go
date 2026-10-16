@@ -76,7 +76,7 @@ func midiInputsEqual(a, b []platform.MIDIInputInfo) bool {
 // carries each row's toggle over the rebuild.
 func (dw *DiskWidget) uplinkItems(oldMounted map[string]bool) []DriveItem {
 	var items []DriveItem
-	if platform.MicSupported() {
+	if service.MicUplinkSupported() {
 		items = append(items, DriveItem{
 			Name:      i18n.Current.UplinkMicrophone,
 			Size:      "N/A",
@@ -167,7 +167,7 @@ func (dw *DiskWidget) syncUplinkCaptures() {
 
 func (dw *DiskWidget) startUplinkCapture(key string) (platform.UplinkCapture, error) {
 	if key == uplinkMicKey {
-		return platform.StartMicCapture(func(seq uint16, opus []byte) {
+		return service.StartMicUplink(func(seq uint16, opus []byte) {
 			s := dw.uplinkSender()
 			if s == nil {
 				return

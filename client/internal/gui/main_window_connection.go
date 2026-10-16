@@ -1123,6 +1123,9 @@ func (mw *MainWindow) setGameStreamOnly(enabled bool) {
 	if mw.videoWidget != nil {
 		mw.videoWidget.SetGameStreamOnly(enabled)
 	}
+	if gs, ok := mw.videoClient.(interface{ SetGameStreamOnly(bool) }); ok {
+		gs.SetGameStreamOnly(enabled)
+	}
 	if !enabled {
 		return
 	}

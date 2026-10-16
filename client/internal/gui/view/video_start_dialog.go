@@ -121,6 +121,13 @@ type VideoStartDialog struct {
 	// everywhere -- see playout_buffer.go.
 	playoutBufferCheck *videoDialogCheckbox
 	playoutBufferHint  *videoDialogWrapText
+	// hostVirtualDisplayCheck: a plain Apollo/Vibepollo host's own virtual
+	// display (service.SetHostVirtualDisplayEnabled) -- draft until
+	// Apply/Start. The row shows only while SetHostVirtualDisplayOption
+	// says the connected host has one.
+	hostVirtualDisplayCheck *videoDialogCheckbox
+	hostVirtualDisplayHint  *videoDialogWrapText
+	hostVirtualDisplayRow   fyne.CanvasObject
 
 	startBtn  *videoDialogPillButton
 	cancelBtn *videoDialogPillButton
@@ -1818,6 +1825,16 @@ func (vsd *VideoStartDialog) createInterface() {
 		)
 	}
 
+	vsd.hostVirtualDisplayCheck = newVideoDialogCheckbox(service.HostVirtualDisplayEnabled(), nil)
+	vsd.hostVirtualDisplayHint = newVideoDialogDescription(i18n.Current.HostVirtualDisplayHint, videoDialogToggleDescWidthFor(hintPanelW))
+	vsd.hostVirtualDisplayRow = NewInsetExact(newVideoDialogToggleRow(
+		vsd.hostVirtualDisplayCheck,
+		newVideoDialogRowTitle(i18n.Current.HostVirtualDisplay),
+		newVideoDialogBadge("Apollo", design.ColorConnectionBadgeText),
+		vsd.hostVirtualDisplayHint,
+	), videoDialogToggleAlignLeft, 0, 0, 0)
+	vsd.hostVirtualDisplayRow.Hide()
+
 	vsyncRow = NewInsetExact(vsyncRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	fsrRow = NewInsetExact(fsrRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	aiVisionRow = NewInsetExact(aiVisionRow, videoDialogToggleAlignLeft, 0, 0, 0)
@@ -1967,6 +1984,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	if playoutBufferRow != nil {
 		otherRows = append(otherRows, playoutBufferRow)
 	}
+	otherRows = append(otherRows, vsd.hostVirtualDisplayRow)
 	bodyChildren = append(bodyChildren, newVideoDialogOtherSettingsCard(otherRows...), videoDialogVSpace(4))
 	bodyContent := container.NewVBox(bodyChildren...)
 
@@ -2753,6 +2771,9 @@ func (vsd *VideoStartDialog) applyLocalOverlaySettings() {
 	if vsd.playoutBufferCheck != nil {
 		service.SetPlayoutBufferEnabled(vsd.playoutBufferCheck.Checked)
 	}
+	if vsd.hostVirtualDisplayRow != nil && vsd.hostVirtualDisplayRow.Visible() {
+		service.SetHostVirtualDisplayEnabled(vsd.hostVirtualDisplayCheck.Checked)
+	}
 }
 
 func (vsd *VideoStartDialog) revertLocalOverlayDrafts() {
@@ -2768,6 +2789,26 @@ func (vsd *VideoStartDialog) revertLocalOverlayDrafts() {
 	}
 	if vsd.playoutBufferCheck != nil {
 		vsd.playoutBufferCheck.SetChecked(service.PlayoutBufferEnabled())
+	}
+	if vsd.hostVirtualDisplayCheck != nil {
+		vsd.hostVirtualDisplayCheck.SetChecked(service.HostVirtualDisplayEnabled())
+	}
+}
+
+// SetHostVirtualDisplayOption shows the "Virtual display" row while the
+// connected host is a plain Apollo/Vibepollo with its own virtual display
+// (see service.MoonlightService.HostVirtualDisplayCapable), and hides it for
+// any other host -- with the usbridge agent the virtual display is managed
+// on the Devices screen instead.
+func (vsd *VideoStartDialog) SetHostVirtualDisplayOption(available bool) {
+	if vsd.hostVirtualDisplayRow == nil {
+		return
+	}
+	vsd.hostVirtualDisplayCheck.SetChecked(service.HostVirtualDisplayEnabled())
+	if available {
+		vsd.hostVirtualDisplayRow.Show()
+	} else {
+		vsd.hostVirtualDisplayRow.Hide()
 	}
 }
 
