@@ -3,6 +3,7 @@ package streamhost
 import (
 	"encoding/json"
 	"net/http"
+	"runtime"
 )
 
 // punktfunkRuntimeStatus is the subset of punktfunk-host's RuntimeStatus
@@ -90,9 +91,10 @@ func (b *punktfunkBackend) RawHIDSupported() bool {
 	return streamerHasUSBBridge(b.binaryPath(), "usbridge-bridge", nil)
 }
 
-// VirtualDisplayPrimary: making the virtual monitor primary is RustShine's
-// (see rustshineBackend.SetVirtualDisplayPrimary); nothing to switch here.
-func (b *punktfunkBackend) VirtualDisplayPrimary() bool { return false }
+// VirtualDisplayPrimary: on Windows the agent brings its virtual monitor up for a
+// Punktfunk session too, and makes it the primary display as Punktfunk itself
+// did (pf-vdisplay: primary=true). The choice isn't kept per backend here.
+func (b *punktfunkBackend) VirtualDisplayPrimary() bool { return runtime.GOOS == "windows" }
 
 // SetVirtualDisplayPrimary: see VirtualDisplayPrimary.
 func (b *punktfunkBackend) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
