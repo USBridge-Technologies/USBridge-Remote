@@ -524,8 +524,11 @@ func (s *Server) audioInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The streamer always streams this sink's sound (it captures its
+	// monitor), so it counts as the selected one: the client's Audio card
+	// marks a device only while "streaming" is set.
 	s.ok(w, "audio_info", map[string]any{
-		"streaming":   false,
+		"streaming":   sink != "",
 		"device_path": sink,
 		"device_name": deviceName,
 		"muted":       false,

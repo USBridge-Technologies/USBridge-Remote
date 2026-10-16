@@ -910,7 +910,11 @@ func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
 		if usbAudioWasMounted {
 			dw.disconnectUSBAudioGadget()
 		}
-		if dw.onAudioDisconnect != nil {
+		// A board stops its loopback before starting the next one. A PC
+		// agent's stop is "back to the system default sink" with a streamer
+		// restart of its own, so there it would cost a second restart (and
+		// a second stream reconnect) on the way to the device picked.
+		if dw.onAudioDisconnect != nil && (knownUSBridgeHardware(dw.agentOS) || usbAudioWasMounted) {
 			dw.onAudioDisconnect()
 		}
 		if dw.onAudioConnect != nil {
