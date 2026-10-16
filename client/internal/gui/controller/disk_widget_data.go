@@ -536,10 +536,12 @@ func (dw *DiskWidget) combineDrives() {
 			USBAudioMode: oldUSBAudioMode,
 		}
 		dw.allDrives = append(dw.allDrives, usbAudioItem)
-		// The other direction: this client's microphone and MIDI inputs
-		// into the target PC (disk_widget_uplink.go).
-		dw.allDrives = append(dw.allDrives, dw.uplinkItems(oldUplinkMounted)...)
 	}
+	// The other direction: this client's microphone, MIDI inputs and
+	// cameras into the target PC (disk_widget_uplink.go) -- a board's own
+	// USB gadget, or the streamer's virtual USB devices on a PC running
+	// the agent.
+	dw.allDrives = append(dw.allDrives, dw.uplinkItems(oldUplinkMounted)...)
 
 	for i := range dw.usbPassDevices {
 		d := dw.usbPassDevices[i]
