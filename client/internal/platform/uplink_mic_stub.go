@@ -1,10 +1,10 @@
-//go:build !linux || android || !cgo
+//go:build !(linux || windows) || android || !cgo
 
 package platform
 
 import "fmt"
 
-// MicSupported: microphone capture is only implemented on Linux so far.
+// MicSupported: microphone capture is implemented on Linux and Windows.
 func MicSupported() bool { return false }
 
 // StartMicCapture: see MicSupported.

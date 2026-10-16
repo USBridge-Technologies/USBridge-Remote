@@ -1,10 +1,10 @@
-//go:build !linux || android
+//go:build !(linux || windows) || android
 
 package platform
 
 import "fmt"
 
-// ListMIDIInputs: MIDI input capture is only implemented on Linux so far.
+// ListMIDIInputs: MIDI input capture is implemented on Linux and Windows.
 func ListMIDIInputs() []MIDIInputInfo { return nil }
 
 // StartMIDICapture: see ListMIDIInputs.
