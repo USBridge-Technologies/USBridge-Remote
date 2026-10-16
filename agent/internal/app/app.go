@@ -3378,6 +3378,15 @@ func (a *App) applyRustShineUpdate(ctx context.Context, entitlementToken, versio
 	if a.cfg.USBBrokerConsentGiven() {
 		if err := entitlement.StageUSBBroker(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
 			log.Printf("[app] usb-broker not re-staged (USB passthrough unavailable): %v", err)
+		} else if a.usbBroker != nil && a.usbBroker.Staged() {
+			// The running broker keeps the old build until it restarts (on
+			// Windows the new one waits beside it as a ".new"); the streamer
+			// restarts below anyway, so its USB devices re-attach right after.
+			if err := a.usbBroker.Restart(); err != nil {
+				log.Printf("[app] usb-broker restart after its update: %v", err)
+			} else {
+				log.Printf("[app] usb-broker updated and restarted")
+			}
 		}
 	}
 	a.entMu.Lock()

@@ -263,13 +263,25 @@ func resolveStagedStreamer(dir string) string {
 		return ""
 	}
 	dest := filepath.Join(dir, "usbridge-streamer", binaryName())
+	old := dest + ".old"
+	_ = os.Remove(old) // left by an earlier swap, unlocked by now
 	sidecar := dest + ".new"
 	if fileExists(sidecar) {
 		if err := os.Rename(sidecar, dest); err == nil {
 			return dest
 		}
-		if fileExists(sidecar) {
-			return sidecar
+		// dest is still locked (a streamer that hasn't let go of its image
+		// yet): Windows lets a locked .exe be renamed, not replaced. Moving
+		// it aside keeps the streamer running under its own name -- running
+		// the sidecar itself did not, so the next update's
+		// `taskkill /IM usbridge-streamer.exe` missed it and its rename
+		// failed for good.
+		if err := os.Rename(dest, old); err == nil {
+			if err := os.Rename(sidecar, dest); err == nil {
+				log.Printf("[rustshine] swapped in the staged update (the old binary was still locked; moved aside)")
+				return dest
+			}
+			_ = os.Rename(old, dest)
 		}
 	}
 	if fileExists(dest) {

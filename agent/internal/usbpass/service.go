@@ -230,6 +230,49 @@ func (s *Service) resolveBroker() string {
 	return ""
 }
 
+// promoteBrokerSidecar puts an update staged beside the broker in its place:
+// on Windows an update that lands while the broker runs is staged as
+// exe+".new" (entitlement's extract), and nothing else ever swapped it in --
+// the broker kept running the old build indefinitely. Called with no broker
+// running (killOrphanBrokers first). The image lock of one just killed can
+// linger, so the rename is retried; past that, the old file is moved aside
+// (Windows lets a locked .exe be renamed, not replaced) and removed on a
+// later start. The broker always runs under its own name, so the next
+// update's kill by name finds it.
+func promoteBrokerSidecar(exe string) string {
+	old := exe + ".old"
+	_ = os.Remove(old) // left by an earlier swap, unlocked by now
+	sidecar := exe + ".new"
+	if _, err := os.Stat(sidecar); err != nil {
+		return exe
+	}
+	var err error
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+		if err = os.Rename(sidecar, exe); err == nil {
+			log.Printf("[usbpass] updated %s from its staged update", filepath.Base(exe))
+			return exe
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+	if err2 := os.Rename(exe, old); err2 == nil {
+		if err = os.Rename(sidecar, exe); err == nil {
+			log.Printf("[usbpass] updated %s from its staged update (the old one was still locked; moved aside)", filepath.Base(exe))
+			return exe
+		}
+		_ = os.Rename(old, exe)
+	}
+	log.Printf("[usbpass] could not swap in the staged broker update (%v) -- keeping the current one until the next start", err)
+	return exe
+}
+
+// Restart stops the broker and starts it again (picking up a staged update).
+func (s *Service) Restart() error {
+	s.Stop()
+	return s.Start()
+}
+
 // Staged reports whether the usb-broker binary is present on disk.
 func (s *Service) Staged() bool { return s.resolveBroker() != "" }
 
@@ -244,6 +287,7 @@ func (s *Service) Start() error {
 		return fmt.Errorf("usbridge-usb-broker not staged (closed rust-shine binary)")
 	}
 	s.killOrphanBrokers()
+	exe = promoteBrokerSidecar(exe)
 	port := s.pickURBPort()
 	s.urbPort = port
 	args := []string{

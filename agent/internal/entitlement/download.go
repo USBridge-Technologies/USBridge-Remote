@@ -493,6 +493,20 @@ func writeAtomic(dest string, src io.Reader, perm os.FileMode) error {
 		// Stage beside the locked file instead of spinning renameWithRetry
 		// for 20s; rustshine BinaryPath prefers dest+".new" on the next launch.
 		if runtime.GOOS == "windows" && strings.HasSuffix(strings.ToLower(dest), ".exe") {
+			// A locked .exe can still be renamed: move it aside and put the
+			// new one in its place, so the next launch runs it under its own
+			// name (the .old goes on the next swap, see
+			// streamhost.resolveStagedStreamer / usbpass.promoteBrokerSidecar).
+			old := dest + ".old"
+			_ = os.Remove(old)
+			if os.Rename(dest, old) == nil {
+				if os.Rename(tmpPath, dest) == nil {
+					_ = os.Remove(dest + ".new") // an older staged update
+					ok = true
+					return nil
+				}
+				_ = os.Rename(old, dest)
+			}
 			sidecar := dest + ".new"
 			_ = os.Remove(sidecar)
 			if err2 := os.Rename(tmpPath, sidecar); err2 == nil {
