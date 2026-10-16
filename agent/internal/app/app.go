@@ -112,6 +112,9 @@ type App struct {
 	usbBroker       *usbpass.Service
 	adminSrv        *adminapi.Server
 
+	// clientLeft wakes virtualOthersWatchdog when a client says its stream is over.
+	clientLeft chan struct{}
+
 	// usbPassBridgeAddr is StartUSBPassBridge's localhost address (see
 	// api.Server.StartUSBPassBridge's doc comment) -- rustshine dials this
 	// to relay browser-sourced USB/IP passthrough DataChannel bytes into
@@ -657,6 +660,7 @@ func New() (*App, error) {
 		log.Printf("[app] usb tunnel bridge: %v (USB passthrough over Tailscale will not work; Direct/LAN unaffected)", err)
 		usbBridgeAddr = ""
 	}
+	instance.clientLeft = make(chan struct{}, 1)
 	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort, usbBridgeAddr)
 	apiServer.SetUSBPassthrough(instance.usbBroker)
 	if addr, err := apiServer.StartUSBPassBridge(); err != nil {

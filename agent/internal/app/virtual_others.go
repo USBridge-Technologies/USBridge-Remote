@@ -22,8 +22,17 @@ import (
 // (RustShine did this in-process before, and an agent restart that killed it left
 // the screens off).
 
+// ClientSessionEnded is the client saying its stream is over (it disconnects or
+// quits): the other monitors come back at once.
+func (a *App) ClientSessionEnded() {
+	select {
+	case a.clientLeft <- struct{}{}:
+	default:
+	}
+}
+
 // virtualOthersGrace is how long a session may be gone before the monitors come
-// back: a stream reconnect (a codec or audio device switch restarts the stream
+// back, when the client didn't say it left (a dropped network, a crash): a stream reconnect (a codec or audio device switch restarts the stream
 // host, the client is back within 1-3s) shouldn't flash them on and off. Short, so
 // a client that quits gets them back about at once (10s was long enough for a
 // quick reconnect to find them still off).
@@ -70,6 +79,9 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 	defer ticker.Stop()
 
 	var idleSince, lastOff time.Time
+	// left: the client said it left. The stream host may report its session for a
+	// moment longer; that no longer counts until it has reported none.
+	left := false
 	lastErr := ""
 	run := func(arg string) {
 		res, err := streamhost.RunDisplayHelper("others", state, arg)
@@ -94,6 +106,11 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 			restore()
 			return
 		case <-ticker.C:
+		case <-a.clientLeft:
+			left = true
+			idleSince, lastOff = time.Time{}, time.Time{}
+			restore()
+			continue
 		}
 		if !a.virtualOthersWanted() {
 			// Turned off, or a physical monitor is streamed now: no reason to wait.
@@ -104,7 +121,14 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		a.streamMu.Lock()
 		stream := a.stream
 		a.streamMu.Unlock()
-		if stream != nil && stream.SessionActive() {
+		active := stream != nil && stream.SessionActive()
+		if left {
+			if active {
+				continue
+			}
+			left = false
+		}
+		if active {
 			idleSince = time.Time{}
 			// Again every virtualOthersRecheck: a stream host restart re-attaches the
 			// virtual monitor and Windows brings the others back with it. A no-op

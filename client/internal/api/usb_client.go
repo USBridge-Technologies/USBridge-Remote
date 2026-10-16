@@ -1014,6 +1014,16 @@ func (c *USBClient) StopAudio() error {
 	return nil
 }
 
+// EndVideoSession tells the agent this client's stream is over (it disconnects or
+// quits), so a Windows host puts its monitors back at once instead of waiting to
+// see the session gone. Best-effort, bounded by timeout; an older agent answers 404.
+func (c *USBClient) EndVideoSession(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_, err := c.makeRequestWithContext(ctx, "POST", "/api/video/session_end", nil, nil)
+	return err
+}
+
 // makeRequest makes HTTP request
 func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, error) {
 	return c.makeRequestWithContext(context.Background(), method, endpoint, body, nil)

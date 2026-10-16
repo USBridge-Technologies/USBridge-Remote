@@ -87,6 +87,8 @@ type Application interface {
 	// switches every other monitor off while it exists (back on when it goes
 	// away). Backends without it do nothing.
 	SetVirtualDisplayExclusive(exclusive bool) error
+	// ClientSessionEnded: the client says its stream is over (it disconnects or quits).
+	ClientSessionEnded()
 	// VirtualDisplaySupported reports whether the current stream backend
 	// supports native virtual displays.
 	VirtualDisplaySupported() bool
@@ -233,6 +235,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
 	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/video/set_device", sec.LimitPolling(s.videoSetDevice))
+	mux.HandleFunc("/api/video/session_end", sec.LimitPolling(s.videoSessionEnd))
 	mux.HandleFunc("POST /api/video/virtual_displays", sec.LimitPolling(s.virtualDisplayCreate))
 	mux.HandleFunc("DELETE /api/video/virtual_displays/{id}", sec.LimitPolling(s.virtualDisplayDelete))
 	mux.HandleFunc("POST /api/video/virtual_displays/{id}/primary", sec.LimitPolling(s.virtualDisplaySetPrimary))
@@ -1118,6 +1121,14 @@ func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
 // monitor) on or off, like Windows' "Disconnect this display": its display path
 // is dropped or added, no elevation needed (displaypower). Switching off the
 // only active display is refused. Windows only.
+// videoSessionEnd is the client saying its stream is over (it disconnects or quits):
+// the agent then puts the host's monitors back at once instead of waiting to see the
+// session gone (app.virtualOthersWatchdog).
+func (s *Server) videoSessionEnd(w http.ResponseWriter, r *http.Request) {
+	s.app.ClientSessionEnded()
+	s.ok(w, "session_end", nil)
+}
+
 func (s *Server) monitorSetEnabled(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		MonitorID string `json:"monitor_id"`

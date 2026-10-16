@@ -1413,6 +1413,25 @@ func (mw *MainWindow) handleDisconnect() {
 		video.MarkUserStopped()
 	}
 
+	// Tell the agent the stream is over, so a Windows host switches its other
+	// monitors back on right away (they were off for the virtual display).
+	// Waited for briefly only when the app is quitting, which would cut it off.
+	if client != nil && mw.isConnected {
+		sessionEnded := make(chan struct{})
+		go func() {
+			defer close(sessionEnded)
+			if err := client.EndVideoSession(1500 * time.Millisecond); err != nil {
+				logrus.Debugf("[shutdown] session end not sent to the agent: %v", err)
+			}
+		}()
+		if mw.isClosing.Load() {
+			select {
+			case <-sessionEnded:
+			case <-time.After(1500 * time.Millisecond):
+			}
+		}
+	}
+
 	// Stop any running Tailscale registration poll goroutine.
 	if mw.tailscalePollCancel != nil {
 		mw.tailscalePollCancel()
