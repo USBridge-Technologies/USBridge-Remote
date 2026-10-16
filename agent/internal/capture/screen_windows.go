@@ -170,7 +170,7 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 // is out[i]'s GDI name, "" when unknown -- and lists the switched-off monitors after them,
 // so the client can switch them back on.
 func withMonitorPower(out []api.VideoDeviceInfo, gdi []string) []api.VideoDeviceInfo {
-	all, err := displaypower.List()
+	all, err := displaypower.ListInSession()
 	if err != nil {
 		return out
 	}

@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 
+	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/sessionlaunch"
 	"usbridge_agent/internal/usbpass"
 	"usbridge_agent/internal/vdisplay"
@@ -37,6 +38,10 @@ func init() {
 		isSvc = false
 	}
 	useSunshineSessionBroker = func() bool { return isSvc }
+	if isSvc {
+		// Monitor listing and switching from session 0 see the wrong desktop.
+		displaypower.SetSessionRunner(func(args ...string) (displaypower.HelperResult, error) { return runDisplayHelper(args...) })
+	}
 	sunshineSessionBrokerLaunch = sunshineSessionBrokerLaunchImpl
 	virtualDriverInstalled = func() bool { return vdisplay.DriverInstalled() || vdisplay.DriverRegistered() }
 	sessionDisplayHelperRun = func(exe string, args []string) ([]byte, error) {

@@ -1127,7 +1127,7 @@ func (s *Server) monitorSetEnabled(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, "invalid_json", err)
 		return
 	}
-	err := displaypower.SetEnabled(req.MonitorID, req.Enabled)
+	err := displaypower.SetEnabledInSession(req.MonitorID, req.Enabled)
 	switch {
 	case errors.Is(err, displaypower.ErrUnsupported):
 		s.fail(w, http.StatusNotImplemented, "monitor_power_unsupported", err)

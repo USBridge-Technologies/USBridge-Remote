@@ -77,8 +77,9 @@ const HelperResultPrefix = "VDISPLAY-RESULT "
 
 // HelperResult is that line's JSON.
 type HelperResult struct {
-	State *VirtualState `json:"state,omitempty"`
-	Error string        `json:"error,omitempty"`
+	State    *VirtualState `json:"state,omitempty"`
+	Monitors []Monitor     `json:"monitors,omitempty"`
+	Error    string        `json:"error,omitempty"`
 }
 
 // LoadState reads a state file; nil when there is none.
@@ -121,6 +122,8 @@ func saveState(path string, st *VirtualState) error {
 //	apply STATEFILE WxH@HZ PRIMARY EXCL   ...then attach in that mode (PRIMARY/EXCL: 0 or 1)
 //	primary STATEFILE 0|1                 make the attached monitor primary, or undo that
 //	others STATEFILE 0|1                  monitors around a virtual one: off (0), back on (1)
+//	list -                                every monitor (List)
+//	enable - MONITOR_ID 0|1               switch one monitor off or on (SetEnabled)
 //
 // The state file is rewritten after every change, so a crash in between never loses
 // what there is to undo. Returns the process exit code.
@@ -140,6 +143,22 @@ func runHelper(args []string) HelperResult {
 		return HelperResult{Error: "usage: apply|primary STATEFILE ..."}
 	}
 	cmd, path := args[0], args[1]
+	switch cmd {
+	case "list":
+		m, err := List()
+		if err != nil {
+			return HelperResult{Error: err.Error()}
+		}
+		return HelperResult{Monitors: m}
+	case "enable":
+		if len(args) < 4 {
+			return HelperResult{Error: "usage: enable - MONITOR_ID 0|1"}
+		}
+		if err := SetEnabled(args[2], args[3] == "1"); err != nil {
+			return HelperResult{Error: err.Error()}
+		}
+		return HelperResult{}
+	}
 	st := LoadState(path)
 	switch cmd {
 	case "apply":
