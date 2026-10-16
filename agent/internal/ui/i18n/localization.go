@@ -80,6 +80,8 @@ type LocalizedStrings struct {
 	USBDongleInfoBody    string
 	USBDongleInfoCTA     string
 	VirtualDisplayAccess string
+	WiFiTuneAccess       string // Permissions line: one-time Wi-Fi tune for streaming
+	WiFiTuneInfo         string // what that tune does (info dialog)
 	InstallUSBDriver     string
 	GetUSBIPDriver       string
 	MoonlightClients     string
@@ -396,6 +398,8 @@ func EN() *LocalizedStrings {
 		USBDongleInfoBody:    "macOS has no USB/IP driver of its own, so this works through a small hardware dongle instead of software. Plug one into this Mac and a USB device from the other side of the stream -- a graphics tablet, for example -- shows up here with full pressure and tilt, just like it were connected locally.",
 		USBDongleInfoCTA:     "See It In Action",
 		VirtualDisplayAccess: "Virtual Display",
+		WiFiTuneAccess:       "Wi-Fi Without Scans",
+		WiFiTuneInfo:         "Wi-Fi drivers keep scanning other channels in the background, taking the radio off your network for a moment every 30-60 s: on a stream that shows as periodic stutters.\n\nGrant once (administrator rights) to turn those scans off for good: on Windows the Intel driver's \"Global BG Scan blocking\" is set to Always; on Linux Wi-Fi power saving and iwd's periodic scans are turned off. Wi-Fi reconnects for a few seconds while this is applied.\n\nDuring a stream the agent also holds Windows' own Wi-Fi scans off by itself, nothing to grant for that.",
 		InstallUSBDriver:     "Install USB Driver",
 		GetUSBIPDriver:       "Get USB/IP Driver",
 		MoonlightClients:     "Moonlight Clients",
@@ -652,6 +656,8 @@ func ES() *LocalizedStrings {
 	locale.USBPassthrough = "Driver USB Passthrough"
 	locale.USBAccess = "USB Passthrough"
 	locale.VirtualDisplayAccess = "Display virtual"
+	locale.WiFiTuneAccess = "Wi-Fi sin escaneos"
+	locale.WiFiTuneInfo = "Los drivers Wi-Fi escanean otros canales en segundo plano y sacan la radio de tu red un momento cada 30-60 s: en un stream se ve como tirones periodicos.\n\nConcede una vez (permisos de administrador) para desactivar esos escaneos para siempre: en Windows el \"Global BG Scan blocking\" del driver Intel pasa a Siempre; en Linux se desactivan el ahorro de energia del Wi-Fi y los escaneos periodicos de iwd. El Wi-Fi se reconecta unos segundos mientras se aplica.\n\nDurante un stream el agente tambien detiene por si mismo los escaneos Wi-Fi de Windows, sin conceder nada."
 	locale.InstallUSBDriver = "Instalar driver USB"
 	locale.GetUSBIPDriver = "Obtener driver USB/IP"
 	locale.MoonlightClients = "Clientes Moonlight"
@@ -897,6 +903,8 @@ func UK() *LocalizedStrings {
 	locale.USBPassthrough = "USB Passthrough Driver"
 	locale.USBAccess = "USB Passthrough"
 	locale.VirtualDisplayAccess = "Віртуальний дисплей"
+	locale.WiFiTuneAccess = "Wi-Fi без сканувань"
+	locale.WiFiTuneInfo = "Драйвери Wi-Fi постійно сканують інші канали у фоні й щоразу на мить відводять радіо від вашої мережі, кожні 30-60 с: на стрімі це періодичні ривки.\n\nНадайте один раз (права адміністратора), щоб вимкнути ці сканування назавжди: у Windows параметр драйвера Intel \"Global BG Scan blocking\" стає Always; у Linux вимикаються енергозбереження Wi-Fi і періодичні сканування iwd. Поки це застосовується, Wi-Fi перепідключиться на кілька секунд.\n\nПід час стріму агент і сам вимикає власні сканування Wi-Fi у Windows, для цього нічого надавати не треба."
 	locale.InstallUSBDriver = "Встановити USB driver"
 	locale.GetUSBIPDriver = "Отримати USB/IP Driver"
 	locale.MoonlightClients = "Клієнти Moonlight"

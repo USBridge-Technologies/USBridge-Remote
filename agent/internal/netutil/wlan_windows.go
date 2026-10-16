@@ -14,16 +14,17 @@ import (
 // connected (location, the network flyout, any app asking for the network
 // list); each scan takes the radio off the AP's channel for a few seconds
 // in bursts -- with 6 GHz enabled there are a lot of channels to visit.
-// Confirmed live on an AX210 host: pinging the router every 30 ms showed
+// Confirmed live on an AX210: pinging the router every 30 ms showed
 // multi-second windows of 40-180 ms round trips and lost packets every
 // 20-30 s, which on a stream are exactly the periodic stutters. With the
 // interface in media streaming mode and background scans off the p99 went
 // 51 -> 20 ms and the bursts were gone.
 //
-// Both settings belong to the WLAN client handle that set them: Windows
-// undoes them when the handle closes (or the process exits), so the
-// handle is held for the whole session. moonlight-common-c does the same
-// on the client side (enterLowLatencyMode); this is the host side.
+// On a client moonlight-common-c already sets media streaming mode
+// (enterLowLatencyMode) but leaves background scans on. Both settings
+// belong to the WLAN client handle that set them: Windows undoes them when
+// the handle closes (or the process exits), so the handle is held for the
+// whole stream, on the host (agent) and the client alike.
 
 var (
 	modWlanapi             = windows.NewLazySystemDLL("wlanapi.dll")
@@ -48,6 +49,61 @@ var wlanStreaming struct {
 	tuned  map[windows.GUID]bool
 }
 
+func wlanOpen() (uintptr, error) {
+	if err := modWlanapi.Load(); err != nil {
+		return 0, nil // Server SKU without the wireless feature
+	}
+	var negotiated uint32
+	var h uintptr
+	r, _, _ := procWlanOpenHandle.Call(2, 0, uintptr(unsafe.Pointer(&negotiated)), uintptr(unsafe.Pointer(&h)))
+	if r != 0 {
+		if windows.Errno(r) == windows.ERROR_SERVICE_NOT_ACTIVE {
+			return 0, nil // WLAN AutoConfig off: no Wi-Fi in use
+		}
+		return 0, fmt.Errorf("WlanOpenHandle: %w", windows.Errno(r))
+	}
+	return h, nil
+}
+
+// wlanInterfaces lists every interface on handle with whether it is
+// connected.
+func wlanInterfaces(handle uintptr) (map[windows.GUID]bool, error) {
+	var list *byte
+	r, _, _ := procWlanEnumInterfaces.Call(handle, 0, uintptr(unsafe.Pointer(&list)))
+	if r != 0 {
+		return nil, fmt.Errorf("WlanEnumInterfaces: %w", windows.Errno(r))
+	}
+	defer procWlanFreeMemory.Call(uintptr(unsafe.Pointer(list)))
+
+	count := *(*uint32)(unsafe.Pointer(list))
+	out := make(map[windows.GUID]bool, count)
+	for i := uintptr(0); i < uintptr(count); i++ {
+		info := unsafe.Add(unsafe.Pointer(list), 8+i*wlanInterfaceInfoSize)
+		state := *(*uint32)(unsafe.Add(info, 16+256*2))
+		out[*(*windows.GUID)(info)] = state == wlanInterfaceStateConnected
+	}
+	return out, nil
+}
+
+// WLANConnected reports whether any Wi-Fi interface is connected.
+func WLANConnected() bool {
+	h, err := wlanOpen()
+	if err != nil || h == 0 {
+		return false
+	}
+	defer procWlanCloseHandle.Call(h, 0)
+	ifaces, err := wlanInterfaces(h)
+	if err != nil {
+		return false
+	}
+	for _, connected := range ifaces {
+		if connected {
+			return true
+		}
+	}
+	return false
+}
+
 // SetWLANStreamingMode(true) puts every connected Wi-Fi interface into
 // media streaming mode with background scans off and keeps them so until
 // SetWLANStreamingMode(false). Safe to call repeatedly: an interface that
@@ -64,37 +120,21 @@ func SetWLANStreamingMode(on bool) error {
 		}
 		return nil
 	}
-	if err := modWlanapi.Load(); err != nil {
-		return nil // Server SKU without the wireless feature
-	}
 	if wlanStreaming.handle == 0 {
-		var negotiated uint32
-		var h uintptr
-		r, _, _ := procWlanOpenHandle.Call(2, 0, uintptr(unsafe.Pointer(&negotiated)), uintptr(unsafe.Pointer(&h)))
-		if r != 0 {
-			if windows.Errno(r) == windows.ERROR_SERVICE_NOT_ACTIVE {
-				return nil // WLAN AutoConfig off: no Wi-Fi in use
-			}
-			return fmt.Errorf("WlanOpenHandle: %w", windows.Errno(r))
+		h, err := wlanOpen()
+		if err != nil || h == 0 {
+			return err
 		}
 		wlanStreaming.handle = h
 		wlanStreaming.tuned = map[windows.GUID]bool{}
 	}
-
-	var list *byte
-	r, _, _ := procWlanEnumInterfaces.Call(wlanStreaming.handle, 0, uintptr(unsafe.Pointer(&list)))
-	if r != 0 {
-		return fmt.Errorf("WlanEnumInterfaces: %w", windows.Errno(r))
+	ifaces, err := wlanInterfaces(wlanStreaming.handle)
+	if err != nil {
+		return err
 	}
-	defer procWlanFreeMemory.Call(uintptr(unsafe.Pointer(list)))
-
-	count := *(*uint32)(unsafe.Pointer(list))
 	var firstErr error
-	for i := uint32(0); i < count; i++ {
-		info := unsafe.Add(unsafe.Pointer(list), 8+uintptr(i)*wlanInterfaceInfoSize)
-		guid := *(*windows.GUID)(info)
-		state := *(*uint32)(unsafe.Add(info, 16+256*2))
-		if state != wlanInterfaceStateConnected {
+	for guid, connected := range ifaces {
+		if !connected {
 			delete(wlanStreaming.tuned, guid)
 			continue
 		}

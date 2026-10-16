@@ -218,6 +218,12 @@ type Window struct {
 	// the polkit rule that lets `modprobe [-r] vkms` (virtual monitor) run
 	// without a password prompt (see internal/vdisplay/access_linux.go).
 	vdisplayAccessCheck *permStatusChip
+	// wifiTuneCheck: Windows/Linux, only while the host has Wi-Fi with
+	// something to tune -- one admin prompt that turns the Wi-Fi driver's
+	// own background scans (and on Linux power saving) off for good (see
+	// netutil/wifitune_*.go). Per-session tuning needs no grant (see
+	// app/wlan_streaming.go).
+	wifiTuneCheck *permStatusChip
 
 	// Screen Capture: a single unified control for how video gets captured.
 	// On Linux this is Sunshine's capture backend, picked automatically from
@@ -470,6 +476,7 @@ type uiStatus struct {
 	accessGranted   bool
 	moonlightCount  int
 	usbStatus       usbpass.Status
+	wifiTune        wifiTuneState
 	streamerRunning bool
 	sessionActive   bool
 }
@@ -1458,6 +1465,25 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.vdisplayAccessCheck.SetChecked(vdisplay.AccessGranted())
 		permStatusRow.Add(w.vdisplayAccessCheck)
 	}
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		w.wifiTuneCheck = newPermStatusChip(loc().WiFiTuneAccess, func() {
+			go func() {
+				err := netutil.ApplyWiFiTune()
+				fyne.Do(func() {
+					w.wifiTuneCheck.requestDone()
+					if err != nil {
+						showErrorDialog(err, win)
+					}
+				})
+				w.performRefresh()
+			}()
+		})
+		w.wifiTuneCheck.SetInfo(loc().PermInfo, func() {
+			showInfoDialog(loc().WiFiTuneAccess, loc().WiFiTuneInfo, win)
+		})
+		w.wifiTuneCheck.Hide()
+		permStatusRow.Add(w.wifiTuneCheck)
+	}
 	w.refreshPermRequestLabels()
 
 	var permTop []fyne.CanvasObject
@@ -2070,6 +2096,9 @@ func (w *Window) applyLanguage() {
 	}
 	if w.vdisplayAccessCheck != nil {
 		w.vdisplayAccessCheck.SetBaseLabel(c.VirtualDisplayAccess)
+	}
+	if w.wifiTuneCheck != nil {
+		w.wifiTuneCheck.SetBaseLabel(c.WiFiTuneAccess)
 	}
 	w.refreshPermRequestLabels()
 	w.refreshAutostartChrome()
@@ -2738,6 +2767,7 @@ func (w *Window) performRefresh() {
 			}
 			entStatus = w.token.EntitlementStatus()
 			status.usbStatus = w.token.USBPassthroughStatus()
+			status.wifiTune.applicable, status.wifiTune.done = netutil.WiFiTuneStatus()
 			status.streamerRunning = w.token.StreamerRunning()
 			status.sessionActive = w.token.SessionActive()
 			certStatus = w.token.CertStatus()
@@ -2751,6 +2781,7 @@ func (w *Window) performRefresh() {
 			w.refreshAccountAvatar()
 			w.refreshRustShineUI(entStatus)
 			w.refreshUSBPassthroughUI(entStatus, status.usbStatus)
+			w.refreshWiFiTuneUI(status.wifiTune)
 			w.refreshCertStatusUI(certStatus, certLoggedIn)
 			setStatusDot(w.streamerStatusDot, status.streamerRunning)
 			if w.token != nil {
