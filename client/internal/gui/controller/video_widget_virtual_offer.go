@@ -111,7 +111,26 @@ func (vw *VideoWidget) connectVirtualOfferConfig() (models.VideoDeviceConfig, bo
 			return models.VideoDeviceConfig{}, false
 		}
 	}
+	if strings.HasPrefix(cfg.DevicePath, "virtual:") {
+		// Already on the virtual display: still asked on every connect, since
+		// "only the virtual display" (the agent switches the other monitors
+		// off for the session) is chosen here.
+		info, err := getVideoInfoData(client)
+		return cfg, err == nil && info != nil && info.VirtualDisplaySupported
+	}
 	return cfg, vw.shouldOfferVirtualDisplay(cfg)
+}
+
+// virtualSpecMode parses a "virtual:WxH@FPS" device path.
+func virtualSpecMode(path string) (w, h, fps int, ok bool) {
+	spec, found := strings.CutPrefix(path, "virtual:")
+	if !found {
+		return 0, 0, 0, false
+	}
+	if n, err := fmt.Sscanf(spec, "%dx%d@%d", &w, &h, &fps); err != nil || n != 3 || w <= 0 || h <= 0 || fps <= 0 {
+		return 0, 0, 0, false
+	}
+	return w, h, fps, true
 }
 
 // applyOfferingVirtualDisplay hands cfg to apply, unless the host is Windows
@@ -170,6 +189,10 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 	fps := cfg.VideoFPS
 	if fps <= 60 {
 		fps = virtualOfferDefaultFPS
+	}
+	if w, h, f, ok := virtualSpecMode(cfg.DevicePath); ok {
+		// The virtual display already streamed: its own mode, as it is.
+		width, height, fps = w, h, f
 	}
 
 	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 340, true, nil)
