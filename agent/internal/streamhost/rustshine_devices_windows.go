@@ -51,6 +51,16 @@ func (b *rustshineBackend) ListCaptureDevices() []CaptureDevice {
 		log.Printf("[rustshine] --list-capture-devices skipped -- update in progress")
 		return nil
 	}
+	return b.listCaptureDevices()
+}
+
+// listCaptureDevices is ListCaptureDevices without the update check, for callers
+// already holding b.mu (Start).
+func (b *rustshineBackend) listCaptureDevices() []CaptureDevice {
+	binPath := b.BinaryPath()
+	if binPath == "" {
+		return nil
+	}
 
 	var out []byte
 	if useSessionBroker() {
@@ -127,4 +137,15 @@ func rustshineAdapterName(deviceField, lastWord string) string {
 		f = f[1:]
 	}
 	return strings.Join(append(f, lastWord), " ")
+}
+
+func init() {
+	rustshineMonitorIndexOf = func(b *rustshineBackend, gdi string) string {
+		for _, d := range b.listCaptureDevices() {
+			if strings.EqualFold(d.GDIName, gdi) {
+				return d.OutputName
+			}
+		}
+		return ""
+	}
 }

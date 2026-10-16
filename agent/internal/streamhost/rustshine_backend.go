@@ -509,6 +509,10 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	// Best-effort: never blocks Start over it.
 	ReconcileSharedAuth(b.stateDir)
 
+	// Windows: the agent's own virtual monitor (rustshine_vdisplay_agent.go),
+	// attached before the streamer looks at the displays.
+	b.applyAgentVirtualDisplayLocked()
+
 	// A client's MIDI input, microphone and camera (sent over ENet with its
 	// other input; the camera as H.264) become a USB MIDI port, a USB
 	// microphone and a USB webcam of this machine: gamestream-server exports
@@ -970,6 +974,7 @@ func (b *rustshineBackend) Stop() error {
 		}
 	}
 	b.launchedWithVirtualDisplay = false
+	b.releaseAgentVirtualDisplayLocked()
 	// Drop the cached path so the next Start() re-resolves BinaryPath
 	// (it may now point at a Windows sidecar written while dest was locked).
 	b.launchPath = ""

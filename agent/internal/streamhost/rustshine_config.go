@@ -111,10 +111,9 @@ func (b *rustshineBackend) AudioSink() string {
 // "cardPath|connector" (see its doc comment) for this to split back apart.
 func (b *rustshineBackend) SetOutputName(name string) error {
 	if strings.HasPrefix(name, "virtual:") {
-		spec := strings.TrimPrefix(name, "virtual:")
-		return b.SetConfigKey("virtual_display", spec)
+		return b.setVirtualSpec(strings.TrimPrefix(name, "virtual:"))
 	}
-	_ = b.SetConfigKey("virtual_display", "")
+	_ = b.setVirtualSpec("")
 
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		return b.SetConfigKey("monitor_index", name)
@@ -153,7 +152,7 @@ func (b *rustshineBackend) SetOutputName(name string) error {
 }
 
 func (b *rustshineBackend) OutputName() string {
-	if virt := b.ConfigKey("virtual_display"); virt != "" {
+	if virt := b.virtualSpec(); virt != "" {
 		return "virtual:" + virt
 	}
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {

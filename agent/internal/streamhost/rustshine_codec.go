@@ -92,6 +92,10 @@ func (b *rustshineBackend) SetVirtualDisplayPrimary(primary bool) (live bool, er
 	if err := b.SetConfigKey("virtual_display_primary", strconv.FormatBool(primary)); err != nil {
 		return false, err
 	}
+	if agentVirtualDisplays() {
+		// The agent's monitor (rustshine_vdisplay_agent.go), not the streamer's.
+		return b.setAgentVirtualDisplayPrimary(primary)
+	}
 	b.mu.Lock()
 	adminPort := b.adminPort
 	b.mu.Unlock()
@@ -241,7 +245,11 @@ func (b *rustshineBackend) PyroWaveColorStatus() (color444 bool, hdr bool) {
 // same feature vkms support is gated behind -- so unconditionally true
 // here mirrors Windows/macOS, not a runtime capability probe.
 func (b *rustshineBackend) VirtualDisplaySupported() bool {
-	return runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "linux"
+	if agentVirtualDisplays() {
+		// The agent's MttVDD monitor (rustshine_vdisplay_agent.go).
+		return virtualDriverInstalled()
+	}
+	return runtime.GOOS == "darwin" || runtime.GOOS == "linux"
 }
 
 // RawHIDSupported is true: rust-shine's own streamer is the only backend
