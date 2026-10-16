@@ -14,6 +14,7 @@ package platform
 #include "uplink_mic_ring.h"
 
 extern void usbridgeMIDIData(int handle, unsigned char *data, int length);
+extern void usbridgeMicPermissionResult(int granted);
 
 // ── Microphone: AAudio, converted here to 48kHz mono when the device
 // gives another rate or more channels.
@@ -120,8 +121,14 @@ JNIEXPORT void JNICALL Java_io_usbridge_client_UplinkBridge_nativeMidiData(JNIEn
     }
 }
 
+__attribute__((used))
+JNIEXPORT void JNICALL Java_io_usbridge_client_UplinkBridge_nativeMicPermissionResult(JNIEnv *env, jclass cls, jboolean granted) {
+    usbridgeMicPermissionResult(granted ? 1 : 0);
+}
+
 void uplinkKeepJNISymbols(void) {
     (void)Java_io_usbridge_client_UplinkBridge_nativeMidiData;
+    (void)Java_io_usbridge_client_UplinkBridge_nativeMicPermissionResult;
 }
 
 // uplink_bridge loads UplinkBridge through the activity's class loader (a
@@ -152,6 +159,17 @@ static int jni_mic_permission(uintptr_t envp, uintptr_t ctxp, int request) {
     if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); ok = JNI_FALSE; }
     (*env)->DeleteLocalRef(env, cls);
     return ok ? 1 : 0;
+}
+
+static void jni_open_app_settings(uintptr_t envp, uintptr_t ctxp) {
+    JNIEnv *env = (JNIEnv *)envp;
+    jobject ctx = (jobject)ctxp;
+    jclass cls = uplink_bridge(env, ctx);
+    if (!cls) return;
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "openAppSettings", "(Landroid/app/Activity;)V");
+    if (mid) (*env)->CallStaticVoidMethod(env, cls, mid, ctx);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    (*env)->DeleteLocalRef(env, cls);
 }
 
 // jni_midi_list: malloc'd "id\tname\n" lines, NULL on failure.
@@ -229,19 +247,14 @@ func withJNI(fn func(env, ctx C.uintptr_t)) error {
 // MicSupported reports whether StartMicCapture can work in this build.
 func MicSupported() bool { return true }
 
-// micPermissionWait is how long a switched-on microphone waits for the
-// user to answer the RECORD_AUDIO prompt.
-const micPermissionWait = 2 * time.Minute
-
-// droidMic opens AAudio once RECORD_AUDIO is granted: the first read asks
-// for it, and reads come back empty until the user allows it.
-type droidMic struct {
-	inner   micSource
-	asked   time.Time
-	checked time.Time
+// openMic opens AAudio; without RECORD_AUDIO it would fail with a bare
+// error, so that is ErrMicAccessDenied (RequestMicPermission asks for it).
+func openMic() (micSource, error) {
+	if !micPermission(false) {
+		return nil, ErrMicAccessDenied
+	}
+	return openRingMic()
 }
-
-func openMic() (micSource, error) { return &droidMic{}, nil }
 
 func micPermission(request bool) bool {
 	granted := false
@@ -258,35 +271,36 @@ func boolInt(v bool) C.int {
 	return 0
 }
 
-func (m *droidMic) read(pcm []int16) (bool, error) {
-	if m.inner != nil {
-		return m.inner.read(pcm)
+// MicPermission: Android can't tell "not asked yet" from "refused for
+// good" up front; a refused-for-good request answers no right away, which
+// RequestMicPermission passes on.
+func MicPermission() MicAuth {
+	if micPermission(false) {
+		return MicAuthGranted
 	}
-	if !m.checked.IsZero() && time.Since(m.checked) < 250*time.Millisecond {
-		time.Sleep(20 * time.Millisecond)
-		return false, nil
-	}
-	m.checked = time.Now()
-	if !micPermission(m.asked.IsZero()) {
-		if m.asked.IsZero() {
-			m.asked = time.Now()
-		} else if time.Since(m.asked) > micPermissionWait {
-			return false, fmt.Errorf("microphone permission not granted")
-		}
-		return false, nil
-	}
-	inner, err := openRingMic()
-	if err != nil {
-		return false, err
-	}
-	m.inner = inner
-	return m.inner.read(pcm)
+	return MicAuthUndetermined
 }
 
-func (m *droidMic) close() {
-	if m.inner != nil {
-		m.inner.close()
-	}
+// RequestMicPermission shows the RECORD_AUDIO prompt and calls done with
+// the answer (MainActivity.onRequestPermissionsResult), from another
+// goroutine.
+func RequestMicPermission(done func(granted bool)) {
+	micPermRequest(done, func() {
+		if micPermission(true) {
+			go micPermAnswered(true)
+		}
+	})
+}
+
+//export usbridgeMicPermissionResult
+func usbridgeMicPermissionResult(granted C.int) {
+	go micPermAnswered(granted != 0)
+}
+
+// OpenMicSettings opens the app's page in Android's settings, where its
+// permissions are.
+func OpenMicSettings() {
+	_ = withJNI(func(env, ctx C.uintptr_t) { C.jni_open_app_settings(env, ctx) })
 }
 
 var (

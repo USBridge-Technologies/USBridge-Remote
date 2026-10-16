@@ -3,7 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"net/url"
+	"runtime"
 	"strings"
 	"sync/atomic"
 
@@ -12,7 +12,6 @@ import (
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/service"
 
-	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -146,23 +145,61 @@ func (dw *DiskWidget) syncUplinkCaptures() {
 		if _, ok := dw.activeUplink[key]; ok {
 			continue
 		}
+		if key == uplinkMicKey && !dw.micPermissionReady() {
+			continue
+		}
 		c, err := dw.startUplinkCapture(key)
 		if err != nil {
-			logrus.Warnf("🎤 [UPLINK] %s: %v", key, err)
-			// Switch the row back off rather than retry on every refresh,
-			// and say why once.
-			for i := range dw.allDrives {
-				if dw.allDrives[i].IsUplink && dw.allDrives[i].UplinkKey == key {
-					dw.allDrives[i].IsMounted = false
-				}
-			}
-			dw.showUplinkError(key, err)
-			dw.requestDevicesRefresh()
+			dw.uplinkStartFailed(key, err)
 			continue
 		}
 		logrus.Infof("🎤 [UPLINK] started %s", key)
 		dw.activeUplink[key] = c
 	}
+}
+
+// uplinkStartFailed switches the row back off rather than retry on every
+// refresh, and says why once.
+func (dw *DiskWidget) uplinkStartFailed(key string, err error) {
+	logrus.Warnf("🎤 [UPLINK] %s: %v", key, err)
+	for i := range dw.allDrives {
+		if dw.allDrives[i].IsUplink && dw.allDrives[i].UplinkKey == key {
+			dw.allDrives[i].IsMounted = false
+		}
+	}
+	dw.showUplinkError(key, err)
+	dw.requestDevicesRefresh()
+}
+
+// micPermissionReady: whether the microphone may open now (macOS, iOS and
+// Android ask per app). The first switch-on shows the OS prompt; the row
+// stays on meanwhile and the capture starts on yes. Refused, the row
+// switches back off with the way to the settings.
+func (dw *DiskWidget) micPermissionReady() bool {
+	switch platform.MicPermission() {
+	case platform.MicAuthGranted:
+		return true
+	case platform.MicAuthDenied:
+		dw.uplinkStartFailed(uplinkMicKey, platform.ErrMicAccessDenied)
+		return false
+	}
+	if dw.micAsking {
+		return false
+	}
+	dw.micAsking = true
+	logrus.Infof("🎤 [UPLINK] asking for the microphone permission")
+	platform.RequestMicPermission(func(granted bool) {
+		dw.updateUIAsync(func() {
+			dw.micAsking = false
+			if !granted {
+				dw.uplinkStartFailed(uplinkMicKey, platform.ErrMicAccessDenied)
+				return
+			}
+			dw.syncUplinkCaptures()
+			dw.requestDevicesRefresh()
+		})
+	})
+	return false
 }
 
 func (dw *DiskWidget) startUplinkCapture(key string) (platform.UplinkCapture, error) {
@@ -224,24 +261,34 @@ func (dw *DiskWidget) startCameraUplink(id string) (platform.UplinkCapture, erro
 }
 
 // showUplinkError tells why a microphone/MIDI/camera row didn't switch on;
-// for the microphone with access off in Windows, with a button to the
-// privacy page that turns it on.
+// for the microphone with access off in the OS, with a button to the
+// settings page that turns it on.
 func (dw *DiskWidget) showUplinkError(key string, err error) {
 	if dw.window == nil {
 		return
 	}
 	if key == uplinkMicKey && errors.Is(err, platform.ErrMicAccessDenied) {
-		view.ShowErrorDialogWithAction(errors.New(i18n.Current.UplinkMicAccessOff), i18n.Current.UplinkMicOpenSettings, func() {
-			if u, perr := url.Parse("ms-settings:privacy-microphone"); perr == nil {
-				_ = fyne.CurrentApp().OpenURL(u)
-			}
-		}, dw.window)
+		view.ShowErrorDialogWithAction(errors.New(micAccessOffText()), i18n.Current.UplinkMicOpenSettings,
+			platform.OpenMicSettings, dw.window)
 		return
 	}
 	if key == uplinkMicKey {
 		err = fmt.Errorf(i18n.Current.UplinkMicFailed, err)
 	}
 	view.ShowErrorDialog(err, dw.window)
+}
+
+// micAccessOffText says where this OS turns the microphone back on.
+func micAccessOffText() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return i18n.Current.UplinkMicAccessOffMacOS
+	case "ios":
+		return i18n.Current.UplinkMicAccessOffIOS
+	case "android":
+		return i18n.Current.UplinkMicAccessOffAndroid
+	}
+	return i18n.Current.UplinkMicAccessOff
 }
 
 // newUplinkToggle switches a microphone/MIDI row; looked up by key at click

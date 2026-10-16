@@ -36,7 +36,8 @@ static void apple_mic_cb(void *ud, AudioQueueRef q, AudioQueueBufferRef b,
 // iOS records only in a PlayAndRecord audio session. The stream's own audio
 // keeps playing through the speaker (DefaultToSpeaker) or a headset; when
 // the microphone stops, the session goes back to what it was. The first
-// recording asks for the microphone permission (NSMicrophoneUsageDescription).
+// recording asks for the microphone permission (NSMicrophoneUsageDescription)
+// unless the Devices screen asked first (RequestMicPermission).
 static id ios_saved_category = NULL;
 static unsigned long ios_saved_options = 0;
 
@@ -132,4 +133,11 @@ import "C"
 // MicSupported reports whether StartMicCapture can work in this build.
 func MicSupported() bool { return true }
 
-func openMic() (micSource, error) { return openRingMic() }
+// openMic: with the permission refused, AudioQueue would record silence
+// (macOS) or fail with a bare status (iOS); say so instead.
+func openMic() (micSource, error) {
+	if MicPermission() == MicAuthDenied {
+		return nil, ErrMicAccessDenied
+	}
+	return openRingMic()
+}

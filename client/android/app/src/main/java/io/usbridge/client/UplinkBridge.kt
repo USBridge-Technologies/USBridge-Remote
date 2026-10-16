@@ -3,14 +3,17 @@ package io.usbridge.client
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.midi.MidiDevice
 import android.media.midi.MidiDeviceInfo
 import android.media.midi.MidiManager
 import android.media.midi.MidiOutputPort
 import android.media.midi.MidiReceiver
+import android.net.Uri
 import android.os.Handler
 import android.os.HandlerThread
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -38,6 +41,9 @@ object UplinkBridge {
     @JvmStatic
     external fun nativeMidiData(handle: Int, data: ByteArray, offset: Int, count: Int)
 
+    @JvmStatic
+    external fun nativeMicPermissionResult(granted: Boolean)
+
     private class OpenInput(val device: MidiDevice, val port: MidiOutputPort)
 
     private val inputs = ConcurrentHashMap<Int, OpenInput>()
@@ -60,6 +66,31 @@ object UplinkBridge {
             }
         }
         return false
+    }
+
+    /** MainActivity.onRequestPermissionsResult: true when it was the microphone's request. */
+    @JvmStatic
+    fun onPermissionResult(requestCode: Int, grantResults: IntArray): Boolean {
+        if (requestCode != MIC_PERMISSION_REQUEST_CODE) return false
+        val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+        Log.i(TAG, "RECORD_AUDIO granted=$granted")
+        nativeMicPermissionResult(granted)
+        return true
+    }
+
+    /** The app's page in Settings, where a microphone refused for good is allowed again. */
+    @JvmStatic
+    fun openAppSettings(activity: Activity) {
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "app settings could not be opened", e)
+            }
+        }
     }
 
     private fun midiManager(ctx: Context): MidiManager? {

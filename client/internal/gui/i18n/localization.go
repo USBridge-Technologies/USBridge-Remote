@@ -245,6 +245,9 @@ type LocalizedStrings struct {
 	UplinkCameraPrefix                string
 	UplinkMicFailed                   string
 	UplinkMicAccessOff                string
+	UplinkMicAccessOffMacOS           string
+	UplinkMicAccessOffIOS             string
+	UplinkMicAccessOffAndroid         string
 	UplinkMicOpenSettings             string
 	DevicesEmptyStorage               string
 	DevicesEmptyUSB                   string
@@ -1009,6 +1012,9 @@ func EN() *LocalizedStrings {
 		UplinkCameraPrefix:                "Camera → remote PC: ",
 		UplinkMicFailed:                   "The microphone could not be opened: %s",
 		UplinkMicAccessOff:                "Windows does not let apps use the microphone. Turn on Microphone access (and \"Let desktop apps access your microphone\") in Settings → Privacy & security → Microphone, then switch the microphone on again.",
+		UplinkMicAccessOffMacOS:           "macOS does not let USBridge use the microphone. Turn USBridge on in System Settings → Privacy & Security → Microphone, then switch the microphone on again.",
+		UplinkMicAccessOffIOS:             "USBridge is not allowed to use the microphone. Turn on Microphone in this app's page in Settings, then switch the microphone on again.",
+		UplinkMicAccessOffAndroid:         "USBridge is not allowed to use the microphone. Allow Microphone in App info → Permissions, then switch the microphone on again.",
 		UplinkMicOpenSettings:             "Open Settings",
 		DevicesEmptyStorage:               "No storage or ISO media",
 		DevicesEmptyUSB:                   "No USB devices",
@@ -1842,6 +1848,9 @@ func ES() *LocalizedStrings {
 	locale.UplinkCameraPrefix = "Cámara → PC remoto: "
 	locale.UplinkMicFailed = "No se pudo abrir el micrófono: %s"
 	locale.UplinkMicAccessOff = "Windows no permite que las aplicaciones usen el micrófono. Activa el acceso al micrófono (y \"Permitir que las aplicaciones de escritorio accedan al micrófono\") en Configuración → Privacidad y seguridad → Micrófono y vuelve a activar el micrófono."
+	locale.UplinkMicAccessOffMacOS = "macOS no permite que USBridge use el micrófono. Activa USBridge en Ajustes del Sistema → Privacidad y seguridad → Micrófono y vuelve a activar el micrófono."
+	locale.UplinkMicAccessOffIOS = "USBridge no tiene permiso para usar el micrófono. Activa Micrófono en la página de esta app en Ajustes y vuelve a activar el micrófono."
+	locale.UplinkMicAccessOffAndroid = "USBridge no tiene permiso para usar el micrófono. Permite Micrófono en Información de la app → Permisos y vuelve a activar el micrófono."
 	locale.UplinkMicOpenSettings = "Abrir Configuración"
 	locale.DevicesEmptyStorage = "Sin storage ni ISO"
 	locale.DevicesEmptyUSB = "Sin USB"
@@ -2333,6 +2342,9 @@ func UKProper() *LocalizedStrings {
 	locale.UplinkCameraPrefix = "Камера → віддалений ПК: "
 	locale.UplinkMicFailed = "Не вдалося відкрити мікрофон: %s"
 	locale.UplinkMicAccessOff = "Windows не дозволяє програмам користуватися мікрофоном. Увімкніть доступ до мікрофона (і \"Дозволити класичним програмам доступ до мікрофона\") у Параметри → Конфіденційність і захист → Мікрофон, потім знову увімкніть мікрофон."
+	locale.UplinkMicAccessOffMacOS = "macOS не дозволяє USBridge користуватися мікрофоном. Увімкніть USBridge у Системні параметри → Приватність і безпека → Мікрофон, потім знову увімкніть мікрофон."
+	locale.UplinkMicAccessOffIOS = "USBridge не має дозволу на мікрофон. Увімкніть Мікрофон на сторінці цієї програми в Параметрах, потім знову увімкніть мікрофон."
+	locale.UplinkMicAccessOffAndroid = "USBridge не має дозволу на мікрофон. Дозвольте Мікрофон у Про застосунок → Дозволи, потім знову увімкніть мікрофон."
 	locale.UplinkMicOpenSettings = "Відкрити Параметри"
 	locale.DevicesEmptyStorage = "Немає storage / ISO"
 	locale.DevicesEmptyUSB = "Немає USB"

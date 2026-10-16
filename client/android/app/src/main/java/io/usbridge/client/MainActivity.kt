@@ -940,6 +940,7 @@ class MainActivity : GoNativeActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (UplinkBridge.onPermissionResult(requestCode, grantResults)) return
         when (requestCode) {
             CAMERA_PERMISSION_REQUEST_CODE -> {
                 if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {

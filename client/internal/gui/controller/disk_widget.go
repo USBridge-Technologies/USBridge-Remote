@@ -180,6 +180,7 @@ type DiskWidget struct {
 	midiInputs   []platform.MIDIInputInfo
 	cameras      []platform.CameraInfo
 	activeUplink map[string]platform.UplinkCapture
+	micAsking    bool // the OS microphone prompt is up (micPermissionReady)
 
 	onStorageInfoUpdate func(usedPct float64, available, total int64)
 	userImages          []*models.DiskInfo
