@@ -631,6 +631,11 @@ type LocalizedStrings struct {
 	ClipboardSyncEnabled                 string // "Shared Clipboard" (toggle clipboard sync with the agent)
 	AWDLDisableDuringStreaming           string // "Disable AWDL While Streaming" (macOS footer icon menu toggle)
 	AWDLDisableDuringStreamingHint       string // subtitle under the AWDL toggle explaining what it does
+	WLANStreamingMode                    string // "Wi-Fi Streaming Mode" (Windows footer icon menu toggle)
+	WLANStreamingModeHint                string // subtitle under the Wi-Fi streaming mode toggle
+	WiFiTune                             string // Wi-Fi footer menu: one-time admin tune (driver scans / power saving off)
+	WiFiTuneHint                         string // subtitle while the tune is still needed
+	WiFiTuneDoneHint                     string // subtitle once the tune is in place
 	AWDLGrantAccess                      string // prominent header button label: grant the one-time AWDL sudoers permission
 	UDPBufferGrantAccess                 string // header button label (Linux): raise the kernel's UDP receive-buffer cap once
 	ClipboardSend                        string // clipboard menu: push the local clipboard to the host now
@@ -1365,6 +1370,11 @@ func EN() *LocalizedStrings {
 		AWDLDisableDuringStreaming:           "Disable AWDL While Streaming",
 		AWDLDisableDuringStreamingHint:       "Reduces Wi-Fi interference from AirDrop/Handoff during a stream",
 		AWDLGrantAccess:                      "Improve Wi-Fi Streaming",
+		WLANStreamingMode:                    "Wi-Fi Streaming Mode",
+		WLANStreamingModeHint:                "No background Wi-Fi scans during a stream: removes periodic stutters",
+		WiFiTune:                             "Turn Off Wi-Fi Driver Scans",
+		WiFiTuneHint:                         "Needed: the driver still scans every 30-60 s. Admin rights once; Wi-Fi reconnects for a few seconds",
+		WiFiTuneDoneHint:                     "Done: the Wi-Fi driver no longer scans in the background",
 		UDPBufferGrantAccess:                 "Fix Video Packet Loss",
 		ClipboardSend:                        "Send Clipboard",
 		ClipboardReceive:                     "Get Clipboard",
@@ -1548,6 +1558,11 @@ func ES() *LocalizedStrings {
 	locale.VirtualDisplayOfferSubtitle = "En Windows un monitor fisico limita la captura a su propia frecuencia. Una pantalla virtual a %[2]dx%[3]d@%[1]d transmite los %[1]d FPS completos."
 	locale.VirtualDisplayOfferCreate = "Crear"
 	locale.VirtualDisplayOfferSkip = "Transmitir asi"
+	locale.WLANStreamingMode = "Modo streaming de Wi-Fi"
+	locale.WLANStreamingModeHint = "Sin escaneos Wi-Fi en segundo plano durante la transmision: elimina los tirones periodicos"
+	locale.WiFiTune = "Desactivar escaneos del driver Wi-Fi"
+	locale.WiFiTuneHint = "Necesario: el driver aun escanea cada 30-60 s. Permisos de administrador una vez; el Wi-Fi se reconecta unos segundos"
+	locale.WiFiTuneDoneHint = "Hecho: el driver Wi-Fi ya no escanea en segundo plano"
 	locale.TailscaleRedirectHint = "Tras conectar, la redireccion se abrira en el navegador."
 	locale.AutoRegistrationBadge = "AUTO-REGISTRO"
 	locale.QRScanSuccess = "Codigo QR escaneado"
@@ -2014,6 +2029,11 @@ func UKProper() *LocalizedStrings {
 	locale.VirtualDisplayOfferSubtitle = "У Windows фізичний монітор обмежує захоплення своєю частотою оновлення. Віртуальний дисплей %[2]dx%[3]d@%[1]d дає повні %[1]d FPS."
 	locale.VirtualDisplayOfferCreate = "Створити"
 	locale.VirtualDisplayOfferSkip = "Як є"
+	locale.WLANStreamingMode = "Режим стрімінгу Wi-Fi"
+	locale.WLANStreamingModeHint = "Без фонових сканувань Wi-Fi під час стріму: прибирає періодичні ривки"
+	locale.WiFiTune = "Вимкнути сканування драйвера Wi-Fi"
+	locale.WiFiTuneHint = "Потрібно: драйвер досі сканує кожні 30-60 с. Права адміністратора один раз; Wi-Fi перепідключиться на кілька секунд"
+	locale.WiFiTuneDoneHint = "Готово: драйвер Wi-Fi більше не сканує у фоні"
 	locale.TailscaleRedirectHint = "Після конекту редірект відкриється в браузері."
 	locale.AutoRegistrationBadge = "АВТОРЕЄСТРАЦІЯ"
 	locale.QRScanSuccess = "QR-код відскановано"

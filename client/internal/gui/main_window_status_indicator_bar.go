@@ -453,6 +453,7 @@ func (mw *MainWindow) applyControlFooterIconHover() {
 	style(mw.audioIcon, assets.AudioIconFooterHover)
 	style(mw.rndisIcon, assets.NetworkIconFooterHover)
 	style(mw.awdlIcon, assets.AWDLIconFooterHover)
+	style(mw.wlanIcon, assets.WLANIconFooterHover)
 }
 
 type controlFooterTheme struct {
@@ -527,6 +528,7 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 		controlFooterIconBox(mw.audioIcon),
 		controlFooterIconBox(mw.rndisIcon),
 		controlFooterIconBox(mw.awdlIcon),
+		controlFooterIconBox(mw.wlanIcon),
 		controlFooterIconBox(mw.scriptIcon),
 	)
 	mw.statusBarIndicatorsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},

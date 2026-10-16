@@ -258,6 +258,20 @@ type MainWindow struct {
 	awdlIcon        *headerStatusBadgeButton
 	awdlGrantBtn    *view.HeaderActionButton
 	awdlSuppressing bool
+	// wlanIcon/wlanPresent/wlanStreamingOn: Windows-only Wi-Fi streaming
+	// mode (wlan_status.go) -- the AWDL toggle's counterpart, shown only
+	// while a Wi-Fi interface is connected.
+	wlanIcon        *headerStatusBadgeButton
+	wlanPresent     atomic.Bool
+	wlanStreamingOn atomic.Bool
+	// wifiTuneApplicable/wifiTuneNeeded/wifiTuneBusy: the one-time Wi-Fi
+	// tune behind the same icon (Windows and Linux).
+	wifiTuneApplicable atomic.Bool
+	wifiTuneNeeded     atomic.Bool
+	wifiTuneBusy       atomic.Bool
+	// androidWiFiLock: a low latency WifiLock is held for the stream
+	// (wlan_android.go).
+	androidWiFiLock atomic.Bool
 	// udpBufGrantBtn: Linux-only header button raising the kernel's UDP receive-buffer cap
 	// (see udpbuf_status.go); hidden once the cap fits whole video frames.
 	udpBufGrantBtn *view.HeaderActionButton

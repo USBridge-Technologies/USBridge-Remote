@@ -1595,10 +1595,13 @@ func (mw *MainWindow) updateStatus() {
 	// awdlSupported() is false on every non-macOS-desktop build, so this is
 	// a no-op call everywhere else -- see awdl_status.go.
 	mw.syncAWDLStreamingState(mw.isStreaming)
+	mw.syncWLANStreamingState(mw.isStreaming)
+	mw.syncAndroidWiFiLock(mw.isStreaming)
 
 	fyne.Do(func() {
 		mw.updateStatusBar()
 		mw.refreshAWDLUI()
+		mw.refreshWLANUI()
 		mw.refreshUDPBufferUI()
 	})
 }

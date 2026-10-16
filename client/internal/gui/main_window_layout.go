@@ -1437,6 +1437,14 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.awdlIcon.SetIconSize(fyne.NewSize(14, 14))
 	mw.awdlIcon.SetBadgeText("")
 	mw.awdlIcon.Hide()
+	// wlanIcon: Windows-only, shown by refreshWLANUI (wlan_status.go) while
+	// a Wi-Fi interface is connected.
+	mw.wlanIcon = newHeaderStatusBadgeButton(assets.WLANIcon, func() {
+		mw.showWLANMenu()
+	})
+	mw.wlanIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.wlanIcon.SetBadgeText("")
+	mw.wlanIcon.Hide()
 	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are plain display-only
 	// indicators (newHeaderPassiveIndicator -- a bare canvas.Image, not a
 	// widget.Button) -- they used to be tappable shortcuts into the Devices/

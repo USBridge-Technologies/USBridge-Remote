@@ -294,6 +294,7 @@ func (mw *MainWindow) Show() {
 	mw.checkDeepLink()
 	mw.startDeepLinkMonitoring()
 	mw.startAWDLWatchdog()
+	mw.startWLANWatchdog()
 	if mw.onReadyCallback != nil {
 		go mw.onReadyCallback()
 	}
