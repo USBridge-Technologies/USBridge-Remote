@@ -2,5 +2,5 @@
 Icon = "../Icon.png"
 Name = "USBridge Client"
 ID = "io.usbridge.client"
-Version = "3.1.6"
+Version = "3.1.7"
 Build = 42
