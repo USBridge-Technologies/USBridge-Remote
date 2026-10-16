@@ -59,6 +59,11 @@ func main() {
 
 func doStart(headless, tray bool, attach string) {
 	if err := app.Start(app.StartOptions{Headless: headless, Tray: tray, Attach: attach}, version); err != nil {
+		if !headless && !tray {
+			// A windowed launch that fails before any window exists would
+			// otherwise just vanish (no console on Windows).
+			showStartError(err)
+		}
 		log.Fatalf("start app: %v", err)
 	}
 }

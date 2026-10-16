@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -79,14 +78,9 @@ func runningServiceAdminSocket() (string, bool) {
 	if st.CurrentState != windows.SERVICE_RUNNING && st.CurrentState != windows.SERVICE_START_PENDING {
 		return "", false
 	}
-	sysDir, err := windows.GetSystemDirectory()
-	if err != nil {
-		return "", false
-	}
-	// LocalSystem's os.UserConfigDir() -- the same state dir the installer
-	// seeds (ServiceStateDir in USBridgeAgent.iss).
-	stateDir := filepath.Join(sysDir, "config", "systemprofile", "AppData", "Roaming", "usbridge-agent")
-	return adminapi.SocketPath(stateDir), true
+	// The pipe name is machine-wide, not under LocalSystem's profile (which a
+	// standard user cannot traverse) -- see adminapi.PipeName.
+	return adminapi.PipeName, true
 }
 
 type agentService struct{}
@@ -228,4 +222,13 @@ func manageService(action string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown service action: %s", action)
+}
+
+// showStartError tells the user why the window never appeared, e.g. the
+// service's admin pipe not answering.
+func showStartError(err error) {
+	title, _ := windows.UTF16PtrFromString("USBridge Agent")
+	text, _ := windows.UTF16PtrFromString("USBridge Agent could not start:\n\n" + err.Error() +
+		"\n\nIf the USBridge Agent service is running, restarting it (or the PC) usually helps.")
+	windows.MessageBox(0, text, title, windows.MB_OK|windows.MB_ICONERROR)
 }

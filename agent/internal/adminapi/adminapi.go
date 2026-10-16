@@ -6,14 +6,15 @@
 // token/perms/ts calls) plus a stream of Tailscale AuthURL events.
 package adminapi
 
-import "path/filepath"
-
 // SocketPath returns the path of the admin unix socket for a given agent
 // state directory. Both the headless engine and any GUI attaching to it
 // must agree on this path, which is why it lives here rather than being
 // passed around ad hoc.
+//
+// On Windows it is a fixed named pipe instead (stateDir is ignored, see
+// transport_windows.go's PipeName), elsewhere a unix socket in stateDir.
 func SocketPath(stateDir string) string {
-	return filepath.Join(stateDir, "admin.sock")
+	return socketPath(stateDir)
 }
 
 // errorBody is the JSON shape written on any handler failure.

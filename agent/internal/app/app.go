@@ -257,7 +257,7 @@ func Start(opts StartOptions, version string) error {
 	// one to come forward and exits, instead of piling up windows and tray
 	// icons (see acquireGUILock).
 	if !opts.Headless {
-		if !acquireGUILockForStart() {
+		if !acquireGUILockForStart(!opts.Tray) {
 			return nil
 		}
 	}

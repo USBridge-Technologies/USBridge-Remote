@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -129,10 +128,11 @@ type TSBackend interface {
 }
 
 // Server exposes TokenBackend/PermsBackend/TSBackend over a local unix
-// socket so a GUI process can attach to an already-running headless agent
-// instead of starting a second engine. Never listens on any network
-// interface — socketPath is a filesystem path under the agent's StateDir,
-// permissioned 0600 so only the owning user can connect.
+// socket (a named pipe on Windows, see transport_windows.go) so a GUI
+// process can attach to an already-running headless agent instead of
+// starting a second engine. Never listens on any network interface —
+// socketPath is a filesystem path under the agent's StateDir, permissioned
+// 0600 so only the owning user can connect.
 type Server struct {
 	socketPath string
 	token      TokenBackend
@@ -151,20 +151,9 @@ type Server struct {
 // NewServer builds the socket listener and route table but does not start
 // serving — call Serve (typically in its own goroutine) to do that.
 func NewServer(socketPath string, token TokenBackend, perms PermsBackend, ts TSBackend, cfgFn func() config.Config) (*Server, error) {
-	// A stale socket file left behind by a previous crash makes a fresh
-	// Listen fail with "address already in use" even though nothing is
-	// listening on it — remove it first. If another instance actually IS
-	// live, the caller already probed for that via Dial before ever
-	// reaching here (see app.Start), so this is safe.
-	_ = os.Remove(socketPath)
-
-	ln, err := net.Listen("unix", socketPath)
+	ln, err := listen(socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("listen admin socket: %w", err)
-	}
-	if err := os.Chmod(socketPath, 0o600); err != nil {
-		ln.Close()
-		return nil, fmt.Errorf("chmod admin socket: %w", err)
 	}
 
 	s := &Server{
@@ -198,7 +187,7 @@ func (s *Server) Serve() error {
 // Close shuts down the listener and removes the socket file.
 func (s *Server) Close() error {
 	err := s.httpSrv.Close()
-	_ = os.Remove(s.socketPath)
+	cleanup(s.socketPath)
 	return err
 }
 

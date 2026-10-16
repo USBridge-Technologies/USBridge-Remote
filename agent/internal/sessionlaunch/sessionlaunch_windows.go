@@ -206,7 +206,42 @@ func LaunchInActiveSession(exe string, args []string, workDir string, stdout, st
 		return nil, err
 	}
 	defer primaryToken.Close()
+	return launchWithToken(primaryToken, exe, args, workDir, stdout, stderr, extraEnv)
+}
 
+// LaunchAsActiveSessionUser starts exe in the active console session under
+// the logged-in user's own (non-elevated) token, not SYSTEM's -- for the
+// tray/window UI, which must not run as SYSTEM on the user's desktop (its
+// file dialogs and child processes would all be SYSTEM). The stream host
+// keeps using LaunchInActiveSession: capture and input on the logon screen,
+// UAC prompts and Task Manager need SYSTEM. Returns ErrNoActiveSession when
+// nobody is logged on to the console (WTSQueryUserToken: ERROR_NO_TOKEN).
+func LaunchAsActiveSessionUser(exe string, args []string) (*Handle, error) {
+	sessionID, ok := ActiveConsoleSessionID()
+	if !ok {
+		return nil, ErrNoActiveSession
+	}
+	if err := enableSeTcbPrivilege(); err != nil {
+		return nil, fmt.Errorf("enable SeTcbPrivilege: %w", err)
+	}
+	var userToken windows.Token
+	if err := windows.WTSQueryUserToken(sessionID, &userToken); err != nil {
+		if err == windows.ERROR_NO_TOKEN {
+			return nil, ErrNoActiveSession
+		}
+		return nil, fmt.Errorf("WTSQueryUserToken: %w", err)
+	}
+	defer userToken.Close()
+	var primaryToken windows.Token
+	if err := windows.DuplicateTokenEx(userToken, windows.MAXIMUM_ALLOWED, nil,
+		windows.SecurityIdentification, windows.TokenPrimary, &primaryToken); err != nil {
+		return nil, fmt.Errorf("DuplicateTokenEx: %w", err)
+	}
+	defer primaryToken.Close()
+	return launchWithToken(primaryToken, exe, args, "", nil, nil, nil)
+}
+
+func launchWithToken(primaryToken windows.Token, exe string, args []string, workDir string, stdout, stderr *os.File, extraEnv map[string]string) (*Handle, error) {
 	var envBlock *uint16
 	if err := windows.CreateEnvironmentBlock(&envBlock, primaryToken, false); err != nil {
 		return nil, fmt.Errorf("CreateEnvironmentBlock: %w", err)

@@ -32,11 +32,13 @@ func guiStateDir() string {
 }
 
 // acquireGUILockForStart makes a normal/tray launch the state dir's only GUI.
-// If another GUI already holds gui.lock it asks that process to come forward
-// and returns false (the caller exits). Retries briefly so a self-update
+// If another GUI already holds gui.lock it returns false (the caller exits),
+// first asking that process to come forward unless raise is false -- a tray
+// helper the service starts at logon or after its own restart must not pop
+// a window the user already has open. Retries briefly so a self-update
 // relaunch, which starts before its predecessor has fully exited, still gets
 // the lock. Any lock trouble fails open: better a second window than none.
-func acquireGUILockForStart() bool {
+func acquireGUILockForStart(raise bool) bool {
 	dir := guiStateDir()
 	if dir == "" {
 		return true
@@ -66,6 +68,10 @@ func acquireGUILockForStart() bool {
 		pid := readLockPID(f)
 		_ = f.Close()
 		if time.Now().After(deadline) {
+			if !raise {
+				log.Printf("[app] another GUI (pid=%d) is already running -- tray launch exiting", pid)
+				return false
+			}
 			log.Printf("[app] another GUI (pid=%d) is already running -- asking it to come forward and exiting", pid)
 			raiseOtherGUI(pid)
 			return false

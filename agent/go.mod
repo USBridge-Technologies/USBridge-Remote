@@ -16,7 +16,10 @@ require (
 	tailscale.com v1.102.3
 )
 
-require github.com/google/gousb v1.1.3 // indirect
+require (
+	github.com/Microsoft/go-winio v0.6.2
+	github.com/google/gousb v1.1.3 // indirect
+)
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect

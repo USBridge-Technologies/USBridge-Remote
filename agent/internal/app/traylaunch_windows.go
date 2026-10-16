@@ -61,7 +61,13 @@ func LaunchTrayHelperInActiveSession(adminSocketPath string) {
 		return
 	}
 
-	h, err := sessionlaunch.LaunchInActiveSession(exe, []string{"--tray", "--attach", adminSocketPath}, "", nil, nil, nil)
+	// As the logged-in user, not SYSTEM: the UI only talks to this service
+	// over the admin pipe, which interactive users may open (see
+	// adminapi.PipeName), and a SYSTEM-owned window on the user's desktop
+	// would hand out SYSTEM file dialogs. It also shares the user's
+	// gui.lock with a window opened from the Start menu, so the two never
+	// pile up.
+	h, err := sessionlaunch.LaunchAsActiveSessionUser(exe, []string{"--tray", "--attach", adminSocketPath})
 	if err != nil {
 		if err == sessionlaunch.ErrNoActiveSession {
 			return

@@ -46,8 +46,7 @@ func Dial(socketPath string) (*Client, error) {
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-					d := net.Dialer{Timeout: 2 * time.Second}
-					return d.DialContext(ctx, "unix", socketPath)
+					return dial(ctx, socketPath)
 				},
 			},
 		},
