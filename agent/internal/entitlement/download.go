@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -143,7 +144,50 @@ func CheckRustShineUpdate(ctx context.Context, stateDir, entitlementToken string
 		}
 		return false, info.Version, nil
 	}
+	if staged := StagedVersion(stateDir); versionOlder(info.Version, staged) {
+		// A newer build than the published one is staged (a build put in by
+		// hand, or the release it came from not published yet): "differs" is
+		// not "newer" -- replacing it was a downgrade.
+		return false, info.Version, nil
+	}
 	return true, info.Version, nil
+}
+
+// versionOlder reports whether release tag a ("usbridge-streamer-v0.3.146") is an older
+// version than b. False when either has no parsable version.
+func versionOlder(a, b string) bool {
+	pa, oka := parseVersion(a)
+	pb, okb := parseVersion(b)
+	if !oka || !okb {
+		return false
+	}
+	for i := range pa {
+		if pa[i] != pb[i] {
+			return pa[i] < pb[i]
+		}
+	}
+	return false
+}
+
+// parseVersion takes the last "vX.Y.Z" (or "X.Y.Z") in a release tag.
+func parseVersion(tag string) ([3]int, bool) {
+	var v [3]int
+	s := strings.TrimSpace(tag)
+	if i := strings.LastIndex(s, "v"); i >= 0 {
+		s = s[i+1:]
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return v, false
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return v, false
+		}
+		v[i] = n
+	}
+	return v, true
 }
 
 // BundlePresent reports whether the signed release bundle
