@@ -267,7 +267,7 @@ func (cm *ConnectionManager) showLinkMenu(anchor fyne.CanvasObject, items []view
 // ShowInfoMenu is the connections header "?" button: Software / Hardware
 // GitHub plus the public website — same teal popup as the language menu.
 func (cm *ConnectionManager) ShowInfoMenu(anchor fyne.CanvasObject) {
-	cm.showLinkMenu(anchor, []view.StyledMenuItem{
+	cm.showLinkMenu(anchor, append(wifiTipsMenuItem(cm.window), []view.StyledMenuItem{
 		{
 			Label: "Software",
 			Icon:  assets.GitHubIconTeal,
@@ -289,7 +289,7 @@ func (cm *ConnectionManager) ShowInfoMenu(anchor fyne.CanvasObject) {
 				cm.openExternalLink("https://www.usbridge.io/", "website URL")
 			},
 		},
-	})
+	}...))
 }
 
 // ShowCommunityMenu is the connections header community button: Discord

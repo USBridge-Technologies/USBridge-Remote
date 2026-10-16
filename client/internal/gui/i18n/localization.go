@@ -636,6 +636,24 @@ type LocalizedStrings struct {
 	WiFiTune                             string // Wi-Fi footer menu: one-time admin tune (driver scans / power saving off)
 	WiFiTuneHint                         string // subtitle while the tune is still needed
 	WiFiTuneDoneHint                     string // subtitle once the tune is in place
+	// Android Wi-Fi tips dialog (controller/wifi_tips.go): settings no app can change.
+	WiFiTipsMenu           string
+	WiFiTipsTitle          string
+	WiFiTipsSubtitle       string
+	WiFiTipsNowOn          string
+	WiFiTipsNowOff         string
+	WiFiTipScanTitle       string
+	WiFiTipScanWhere       string
+	WiFiTipAdaptiveTitle   string
+	WiFiTipAdaptiveWhere   string
+	WiFiTipMobileDataTitle string
+	WiFiTipMobileDataWhere string
+	WiFiTipThrottleTitle   string
+	WiFiTipThrottleWhere   string
+	WiFiTipsAppNote        string
+	WiFiTipsOpen           string
+	WiFiTipsOK             string
+	WiFiTipsDontShow       string
 	AWDLGrantAccess                      string // prominent header button label: grant the one-time AWDL sudoers permission
 	UDPBufferGrantAccess                 string // header button label (Linux): raise the kernel's UDP receive-buffer cap once
 	ClipboardSend                        string // clipboard menu: push the local clipboard to the host now
@@ -1375,6 +1393,23 @@ func EN() *LocalizedStrings {
 		WiFiTune:                             "Turn Off Wi-Fi Driver Scans",
 		WiFiTuneHint:                         "Needed: the driver still scans every 30-60 s. Admin rights once; Wi-Fi reconnects for a few seconds",
 		WiFiTuneDoneHint:                     "Done: the Wi-Fi driver no longer scans in the background",
+		WiFiTipsMenu:                         "Wi-Fi tips for streaming",
+		WiFiTipsTitle:                        "Smooth streaming over Wi-Fi",
+		WiFiTipsSubtitle:                     "Every background Wi-Fi scan is a stutter on the stream. These settings only you can change:",
+		WiFiTipsNowOn:                        "Now: on",
+		WiFiTipsNowOff:                       "Now: off -- all good",
+		WiFiTipScanTitle:                     "Wi-Fi scanning: Off",
+		WiFiTipScanWhere:                     "Settings → Location → Location services → Wi-Fi scanning. Apps and Google services scan for your location every 30-60 s even while connected.",
+		WiFiTipAdaptiveTitle:                 "Adaptive connectivity: Off",
+		WiFiTipAdaptiveWhere:                 "Pixel / stock Android: Settings → Network & internet → Adaptive connectivity. It retunes the Wi-Fi during a session.",
+		WiFiTipMobileDataTitle:               "Switch to mobile data: Off",
+		WiFiTipMobileDataWhere:               "Samsung: Wi-Fi → ⋮ → Intelligent Wi-Fi → Switch to mobile data. Xiaomi: Wi-Fi → Wi-Fi assistant → Auto-select best network. Otherwise a ping spike can move the stream to LTE.",
+		WiFiTipThrottleTitle:                 "Wi-Fi scan throttling: On",
+		WiFiTipThrottleWhere:                 "Developer options (tap Build number 7 times in About phone) → Wi-Fi scan throttling. On by default; keep it on so apps cannot scan more than a few times per 2 minutes.",
+		WiFiTipsAppNote:                      "While streaming, USBridge itself holds the Wi-Fi in high performance / low latency mode (as Moonlight does): no power saving, no scans by the system.",
+		WiFiTipsOpen:                         "Open",
+		WiFiTipsOK:                           "OK",
+		WiFiTipsDontShow:                     "Don't show again",
 		UDPBufferGrantAccess:                 "Fix Video Packet Loss",
 		ClipboardSend:                        "Send Clipboard",
 		ClipboardReceive:                     "Get Clipboard",
@@ -1563,6 +1598,22 @@ func ES() *LocalizedStrings {
 	locale.WiFiTune = "Desactivar escaneos del driver Wi-Fi"
 	locale.WiFiTuneHint = "Necesario: el driver aun escanea cada 30-60 s. Permisos de administrador una vez; el Wi-Fi se reconecta unos segundos"
 	locale.WiFiTuneDoneHint = "Hecho: el driver Wi-Fi ya no escanea en segundo plano"
+	locale.WiFiTipsMenu = "Consejos Wi-Fi para streaming"
+	locale.WiFiTipsTitle = "Streaming fluido por Wi-Fi"
+	locale.WiFiTipsSubtitle = "Cada escaneo Wi-Fi en segundo plano es un tiron en el stream. Estos ajustes solo los puedes cambiar tu:"
+	locale.WiFiTipsNowOn = "Ahora: activado"
+	locale.WiFiTipsNowOff = "Ahora: desactivado -- todo bien"
+	locale.WiFiTipScanTitle = "Busqueda de redes Wi-Fi: desactivada"
+	locale.WiFiTipScanWhere = "Ajustes → Ubicacion → Servicios de ubicacion → Busqueda de redes Wi-Fi. Las apps y los servicios de Google escanean tu ubicacion cada 30-60 s incluso conectado."
+	locale.WiFiTipAdaptiveTitle = "Conectividad adaptativa: desactivada"
+	locale.WiFiTipAdaptiveWhere = "Pixel / Android puro: Ajustes → Redes e Internet → Conectividad adaptativa. Reajusta el Wi-Fi durante la sesion."
+	locale.WiFiTipMobileDataTitle = "Cambiar a datos moviles: desactivado"
+	locale.WiFiTipMobileDataWhere = "Samsung: Wi-Fi → ⋮ → Wi-Fi inteligente → Cambiar a datos moviles. Xiaomi: Wi-Fi → Asistente Wi-Fi → Elegir la mejor red. Si no, un pico de ping puede pasar el stream a LTE."
+	locale.WiFiTipThrottleTitle = "Limitacion de busqueda de Wi-Fi: activada"
+	locale.WiFiTipThrottleWhere = "Opciones de desarrollador (toca 7 veces Numero de compilacion en Acerca del telefono) → Limitacion de busqueda de Wi-Fi. Activada por defecto; dejala asi para que las apps no escaneen mas de unas pocas veces cada 2 minutos."
+	locale.WiFiTipsAppNote = "Durante el stream, USBridge mantiene el Wi-Fi en modo de alto rendimiento / baja latencia (como Moonlight): sin ahorro de energia ni escaneos del sistema."
+	locale.WiFiTipsOpen = "Abrir"
+	locale.WiFiTipsDontShow = "No volver a mostrar"
 	locale.TailscaleRedirectHint = "Tras conectar, la redireccion se abrira en el navegador."
 	locale.AutoRegistrationBadge = "AUTO-REGISTRO"
 	locale.QRScanSuccess = "Codigo QR escaneado"
@@ -2034,6 +2085,22 @@ func UKProper() *LocalizedStrings {
 	locale.WiFiTune = "Вимкнути сканування драйвера Wi-Fi"
 	locale.WiFiTuneHint = "Потрібно: драйвер досі сканує кожні 30-60 с. Права адміністратора один раз; Wi-Fi перепідключиться на кілька секунд"
 	locale.WiFiTuneDoneHint = "Готово: драйвер Wi-Fi більше не сканує у фоні"
+	locale.WiFiTipsMenu = "Поради щодо Wi-Fi для стріму"
+	locale.WiFiTipsTitle = "Плавний стрім через Wi-Fi"
+	locale.WiFiTipsSubtitle = "Кожне фонове сканування Wi-Fi -- це ривок на стрімі. Ці налаштування можете змінити лише ви:"
+	locale.WiFiTipsNowOn = "Зараз: увімкнено"
+	locale.WiFiTipsNowOff = "Зараз: вимкнено -- все добре"
+	locale.WiFiTipScanTitle = "Пошук мереж Wi-Fi: вимкнути"
+	locale.WiFiTipScanWhere = "Налаштування → Місцезнаходження → Служби визначення місцезнаходження → Пошук мереж Wi-Fi. Додатки й сервіси Google сканують ефір кожні 30-60 с навіть під час підключення."
+	locale.WiFiTipAdaptiveTitle = "Адаптивне підключення: вимкнути"
+	locale.WiFiTipAdaptiveWhere = "Pixel / чистий Android: Налаштування → Мережа й інтернет → Адаптивне підключення. Воно переналаштовує Wi-Fi під час сеансу."
+	locale.WiFiTipMobileDataTitle = "Перемикання на мобільні дані: вимкнути"
+	locale.WiFiTipMobileDataWhere = "Samsung: Wi-Fi → ⋮ → Інтелектуальний Wi-Fi → Перемикатися на мобільні дані. Xiaomi: Wi-Fi → Помічник Wi-Fi → Автовибір найкращої мережі. Інакше стрибок пінгу може перекинути стрім на LTE."
+	locale.WiFiTipThrottleTitle = "Обмеження пошуку Wi-Fi: увімкнено"
+	locale.WiFiTipThrottleWhere = "Параметри розробника (7 разів торкніться Номер збірки в Про телефон) → Обмеження пошуку Wi-Fi. Увімкнено за замовчуванням; не вимикайте, щоб додатки не сканували частіше кількох разів на 2 хвилини."
+	locale.WiFiTipsAppNote = "Під час стріму USBridge сам тримає Wi-Fi у режимі високої продуктивності / низької затримки (як Moonlight): без енергозбереження й системних сканувань."
+	locale.WiFiTipsOpen = "Відкрити"
+	locale.WiFiTipsDontShow = "Більше не показувати"
 	locale.TailscaleRedirectHint = "Після конекту редірект відкриється в браузері."
 	locale.AutoRegistrationBadge = "АВТОРЕЄСТРАЦІЯ"
 	locale.QRScanSuccess = "QR-код відскановано"
