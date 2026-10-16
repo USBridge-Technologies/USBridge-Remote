@@ -243,6 +243,9 @@ type LocalizedStrings struct {
 	UplinkMicrophone                  string
 	UplinkMIDIPrefix                  string
 	UplinkCameraPrefix                string
+	UplinkMicFailed                   string
+	UplinkMicAccessOff                string
+	UplinkMicOpenSettings             string
 	DevicesEmptyStorage               string
 	DevicesEmptyUSB                   string
 	DevicesCardUSBPassthrough         string
@@ -1002,6 +1005,9 @@ func EN() *LocalizedStrings {
 		UplinkMicrophone:                  "Microphone → remote PC",
 		UplinkMIDIPrefix:                  "MIDI → remote PC: ",
 		UplinkCameraPrefix:                "Camera → remote PC: ",
+		UplinkMicFailed:                   "The microphone could not be opened: %s",
+		UplinkMicAccessOff:                "Windows does not let apps use the microphone. Turn on Microphone access (and \"Let desktop apps access your microphone\") in Settings → Privacy & security → Microphone, then switch the microphone on again.",
+		UplinkMicOpenSettings:             "Open Settings",
 		DevicesEmptyStorage:               "No storage or ISO media",
 		DevicesEmptyUSB:                   "No USB devices",
 		DevicesCardUSBPassthrough:         "USB-Passthrough",
@@ -1828,6 +1834,9 @@ func ES() *LocalizedStrings {
 	locale.UplinkMicrophone = "Micrófono → PC remoto"
 	locale.UplinkMIDIPrefix = "MIDI → PC remoto: "
 	locale.UplinkCameraPrefix = "Cámara → PC remoto: "
+	locale.UplinkMicFailed = "No se pudo abrir el micrófono: %s"
+	locale.UplinkMicAccessOff = "Windows no permite que las aplicaciones usen el micrófono. Activa el acceso al micrófono (y \"Permitir que las aplicaciones de escritorio accedan al micrófono\") en Configuración → Privacidad y seguridad → Micrófono y vuelve a activar el micrófono."
+	locale.UplinkMicOpenSettings = "Abrir Configuración"
 	locale.DevicesEmptyStorage = "Sin storage ni ISO"
 	locale.DevicesEmptyUSB = "Sin USB"
 	locale.DevicesCardUSBPassthrough = "USB-Passthrough"
@@ -2314,6 +2323,9 @@ func UKProper() *LocalizedStrings {
 	locale.UplinkMicrophone = "Мікрофон → віддалений ПК"
 	locale.UplinkMIDIPrefix = "MIDI → віддалений ПК: "
 	locale.UplinkCameraPrefix = "Камера → віддалений ПК: "
+	locale.UplinkMicFailed = "Не вдалося відкрити мікрофон: %s"
+	locale.UplinkMicAccessOff = "Windows не дозволяє програмам користуватися мікрофоном. Увімкніть доступ до мікрофона (і \"Дозволити класичним програмам доступ до мікрофона\") у Параметри → Конфіденційність і захист → Мікрофон, потім знову увімкніть мікрофон."
+	locale.UplinkMicOpenSettings = "Відкрити Параметри"
 	locale.DevicesEmptyStorage = "Немає storage / ISO"
 	locale.DevicesEmptyUSB = "Немає USB"
 	locale.DevicesCardUSBPassthrough = "USB-Passthrough"

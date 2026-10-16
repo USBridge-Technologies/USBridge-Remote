@@ -105,10 +105,31 @@ import "C"
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"golang.org/x/sys/windows/registry"
 )
+
+// micConsentDenied: Settings → Privacy & security → Microphone has
+// microphone access (system-wide, this user, or desktop apps) off. waveIn
+// then only says MMSYSERR_ERROR.
+func micConsentDenied() bool {
+	const store = `Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone`
+	denied := func(root registry.Key, path string) bool {
+		k, err := registry.OpenKey(root, path, registry.QUERY_VALUE)
+		if err != nil {
+			return false
+		}
+		defer k.Close()
+		v, _, err := k.GetStringValue("Value")
+		return err == nil && strings.EqualFold(v, "Deny")
+	}
+	return denied(registry.LOCAL_MACHINE, store) || denied(registry.CURRENT_USER, store) ||
+		denied(registry.CURRENT_USER, store+`\NonPackaged`)
+}
 
 type micCapture struct {
 	stop atomic.Bool
@@ -134,6 +155,9 @@ func StartMicCapture(onFrame func(seq uint16, opus []byte)) (UplinkCapture, erro
 	var errBuf [256]C.char
 	m := C.mic_open(&errBuf[0], C.int(len(errBuf)))
 	if m == nil {
+		if micConsentDenied() {
+			return nil, ErrMicAccessDenied
+		}
 		return nil, fmt.Errorf("%s", C.GoString(&errBuf[0]))
 	}
 	c := &micCapture{done: make(chan struct{})}
