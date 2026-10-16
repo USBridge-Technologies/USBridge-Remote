@@ -1610,8 +1610,17 @@ func (a *App) SetStreamBackend(kind string) error {
 		}
 	}
 	// Punktfunk is downloaded when picked (DownloadPunktfunk), not shipped
-	// with the agent.
-	if kind == "punktfunk" && !streamhost.PunktfunkAvailable(a.exeDir) {
+	// with the agent -- also when another punktfunk-host is on PATH (an
+	// upstream install): that one has no PyroWave, which the fork adds. It
+	// is only the fallback when the download fails.
+	if kind == "punktfunk" && forkrelease.PunktfunkAssetName() != "" && !forkrelease.PunktfunkStaged(a.cfg.StateDir) {
+		if err := a.DownloadPunktfunk(nil); err != nil {
+			if !streamhost.PunktfunkAvailable(a.exeDir) {
+				return err
+			}
+			log.Printf("[app] punktfunk fork not downloaded (%v) -- using the punktfunk-host found on this machine", err)
+		}
+	} else if kind == "punktfunk" && !streamhost.PunktfunkAvailable(a.exeDir) {
 		if err := a.DownloadPunktfunk(nil); err != nil {
 			return err
 		}
@@ -2454,7 +2463,9 @@ const punktfunkUpdateInterval = 6 * time.Hour
 // swap and started again; on Windows its .exe can't be replaced while it
 // runs.
 func (a *App) checkPunktfunkUpdate(ctx context.Context) {
-	if !forkrelease.PunktfunkStaged(a.cfg.StateDir) {
+	// Not downloaded yet while Punktfunk runs anyway: an upstream install
+	// found on PATH (no PyroWave). The fork replaces it here.
+	if !forkrelease.PunktfunkStaged(a.cfg.StateDir) && (forkrelease.PunktfunkAssetName() == "" || a.currentStreamKind() != "punktfunk") {
 		return
 	}
 	a.entMu.Lock()
@@ -4395,6 +4406,13 @@ func (a *App) AudioSinks() ([]api.AudioSink, error) {
 // CurrentAudioSink returns the sink Sunshine is configured to use, falling
 // back to the system default sink if Sunshine has no explicit override.
 func (a *App) CurrentAudioSink() (string, error) {
+	if runtime.GOOS == "windows" {
+		// Every stream host captures the default playback device there (see
+		// SetAudioSink), whatever audio_sink says.
+		if sink, err := audio.DefaultSink(); err == nil {
+			return sink, nil
+		}
+	}
 	if a.stream != nil {
 		if sink := a.stream.AudioSink(); sink != "" {
 			return sink, nil
@@ -4919,6 +4937,16 @@ func (a *App) SubmitMoonlightPIN(pin string) error {
 // when nothing changed, causing a needless restart (and brief capture
 // interruption) on every connect.
 func (a *App) SetAudioSink(sink string) error {
+	if runtime.GOOS == "windows" && sink != "" {
+		// RustShine's WASAPI loopback (and a stream host given no audio_sink)
+		// captures the default playback device: picking one makes it the
+		// default. audio_sink is still written for Sunshine/Vibepollo below.
+		// "" (stop) leaves the default as it is.
+		if err := audio.SetDefaultSink(sink); err != nil {
+			return fmt.Errorf("make %s the default playback device: %w", sink, err)
+		}
+		log.Printf("[app] default playback device is now %s", sink)
+	}
 	if a.stream == nil {
 		return nil
 	}

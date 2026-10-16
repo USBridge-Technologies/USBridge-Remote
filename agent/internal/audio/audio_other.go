@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package audio
 
@@ -17,4 +17,9 @@ func ListSinks() ([]api.AudioSink, error) {
 
 func DefaultSink() (string, error) {
 	return "", fmt.Errorf("audio device enumeration not implemented on this platform")
+}
+
+// SetDefaultSink is Windows only.
+func SetDefaultSink(string) error {
+	return fmt.Errorf("audio device selection not implemented on this platform")
 }

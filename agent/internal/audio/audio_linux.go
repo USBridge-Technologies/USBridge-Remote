@@ -55,3 +55,8 @@ func DefaultSink() (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// SetDefaultSink is Windows only: Sunshine on Linux takes audio_sink itself.
+func SetDefaultSink(string) error {
+	return fmt.Errorf("not used on Linux: the stream host takes audio_sink")
+}
