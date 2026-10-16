@@ -24,8 +24,10 @@ import (
 
 // virtualOthersGrace is how long a session may be gone before the monitors come
 // back: a stream reconnect (a codec or audio device switch restarts the stream
-// host) shouldn't flash them on and off.
-const virtualOthersGrace = 10 * time.Second
+// host, the client is back within 1-3s) shouldn't flash them on and off. Short, so
+// a client that quits gets them back about at once (10s was long enough for a
+// quick reconnect to find them still off).
+const virtualOthersGrace = 3 * time.Second
 
 // virtualOthersRecheck is how often a session checks the others are still off (each
 // check is a helper process in the user's session).
@@ -109,8 +111,12 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 			// while it is the only one, or before it is attached (then retried on
 			// the next tick).
 			if time.Since(lastOff) >= virtualOthersRecheck {
+				wasOff := displaypower.LoadState(state) != nil
 				run("0")
 				if lastErr == "" && displaypower.LoadState(state) != nil {
+					if !wasOff {
+						log.Printf("[app] session on the virtual monitor -- the other monitors are off")
+					}
 					lastOff = time.Now()
 				}
 			}
