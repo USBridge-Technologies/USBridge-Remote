@@ -840,6 +840,7 @@ func (a *App) Run(headless, startHidden bool) error {
 	go a.sunshineWatchdog(ctx)
 	go a.x11SessionEnvWatchdog(ctx)
 	go a.awdlWatchdog(ctx)
+	go a.wlanStreamingWatchdog(ctx)
 	// Always started, even before ever linking -- recheckEntitlement no-ops
 	// immediately (no network call) whenever cfg.EntitlementToken is
 	// empty, so this is cheap, and it means a purchase/trial made
