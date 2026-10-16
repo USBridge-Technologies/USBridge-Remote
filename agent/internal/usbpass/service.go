@@ -219,9 +219,8 @@ func (s *Service) resolveBroker() string {
 		filepath.Join(s.exeDir, "usb-broker", brokerName()),
 		filepath.Join(s.exeDir, brokerName()),
 	}
-	if env := os.Getenv("USBRIDGE_USB_BROKER"); env != "" {
-		candidates = append([]string{env}, candidates...)
-	}
+	// Never one named by an environment variable: the broker runs as SYSTEM
+	// on Windows, so only the signed build the agent staged or shipped runs.
 	for _, p := range candidates {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
 			return p

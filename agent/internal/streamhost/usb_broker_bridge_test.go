@@ -35,7 +35,7 @@ func TestStreamerHasUSBBridge(t *testing.T) {
 	}
 	b := &punktfunkBackend{}
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv(punktfunkBinEnv, bin)
+	usePunktfunkStage(t, bin)
 	if !b.RawHIDSupported() {
 		t.Error("RawHIDSupported should follow the probe")
 	}

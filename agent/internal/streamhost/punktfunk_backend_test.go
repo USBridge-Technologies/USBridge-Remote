@@ -289,26 +289,19 @@ func TestPunktfunkBinaryLookup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv(punktfunkBinEnv, "")
 	exeDir := t.TempDir()
 	if PunktfunkAvailable(exeDir) {
 		t.Fatal("available with no binary anywhere")
 	}
 
-	external := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(external, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	// A punktfunk-host on PATH is somebody else's build: never run.
+	onPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(onPath, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(punktfunkBinEnv, external)
-	want := external
-	if runtime.GOOS == "windows" {
-		// Launched as SYSTEM there: never a binary from outside the agent's
-		// own install or its signature-checked download.
-		want = ""
-	}
-	if got := punktfunkBinaryPath(exeDir); got != want {
-		t.Fatalf("with %s set: %q, want %q", punktfunkBinEnv, got, want)
+	t.Setenv("PATH", onPath)
+	if got := punktfunkBinaryPath(exeDir); got != "" {
+		t.Fatalf("took %q from PATH; only the bundled or downloaded fork may run", got)
 	}
 
 	bundled := filepath.Join(exeDir, "punktfunk", name)
@@ -321,6 +314,15 @@ func TestPunktfunkBinaryLookup(t *testing.T) {
 	if got := punktfunkBinaryPath(exeDir); got != bundled {
 		t.Fatalf("bundled copy must win: %q, want %q", got, bundled)
 	}
+}
+
+// usePunktfunkStage makes bin (named punktfunk-host) the punktfunk-host the
+// agent downloaded, for the test: the only place besides the bundle it is taken from.
+func usePunktfunkStage(t *testing.T, bin string) {
+	t.Helper()
+	prev, _ := punktfunkStageDir.Load().(string)
+	SetPunktfunkStageDir(filepath.Dir(bin))
+	t.Cleanup(func() { SetPunktfunkStageDir(prev) })
 }
 
 // fakePunktfunkHost writes a stand-in punktfunk-host whose probe-compositor
@@ -351,7 +353,7 @@ func TestPunktfunkCaptureGrant(t *testing.T) {
 	bin := fakePunktfunkHost(t, home)
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir()) // no kbuildsycoca, no other punktfunk-host
-	t.Setenv(punktfunkBinEnv, bin)
+	usePunktfunkStage(t, bin)
 	t.Setenv("XDG_CURRENT_DESKTOP", "KDE")
 	punktfunkCaptureCache.Lock()
 	punktfunkCaptureCache.at = time.Time{}
@@ -389,7 +391,7 @@ func TestPunktfunkCaptureInstalledBeforeStart(t *testing.T) {
 	bin := fakePunktfunkHost(t, home)
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv(punktfunkBinEnv, bin)
+	usePunktfunkStage(t, bin)
 	entry := filepath.Join(home, ".local", "share", "applications", punktfunkDesktopFile)
 	resetCache := func() {
 		punktfunkCaptureCache.Lock()
@@ -420,7 +422,7 @@ func TestPunktfunkCaptureInstalledBeforeStart(t *testing.T) {
 	if werr := os.WriteFile(gnome, []byte("#!/bin/sh\necho 'Mutter ready'\n"), 0o755); werr != nil {
 		t.Fatal(werr)
 	}
-	t.Setenv(punktfunkBinEnv, gnome)
+	usePunktfunkStage(t, gnome)
 	resetCache()
 	if rerr := b.RequestCapture(); rerr != nil || !b.CaptureGranted() {
 		t.Errorf("a ready GNOME host must need nothing: err=%v", rerr)
@@ -429,7 +431,7 @@ func TestPunktfunkCaptureInstalledBeforeStart(t *testing.T) {
 	if _, statErr := os.Stat(entry); statErr == nil {
 		t.Fatal("nothing is installed for a GNOME host")
 	}
-	t.Setenv(punktfunkBinEnv, bin)
+	usePunktfunkStage(t, bin)
 
 	t.Setenv("XDG_CURRENT_DESKTOP", "ubuntu:KDE")
 	resetCache()
@@ -472,7 +474,7 @@ func TestPunktfunkUnavailableOffLinuxAndWindows(t *testing.T) {
 	if err := os.WriteFile(bundled, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(punktfunkBinEnv, bundled)
+	usePunktfunkStage(t, bundled)
 	t.Setenv("PATH", filepath.Dir(bundled))
 	if PunktfunkAvailable(exeDir) {
 		t.Fatalf("Punktfunk reported available on %s", runtime.GOOS)
@@ -494,7 +496,7 @@ func fakePunktfunkMonitors(t *testing.T) {
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(punktfunkBinEnv, bin)
+	usePunktfunkStage(t, bin)
 	t.Setenv("PATH", t.TempDir())
 }
 

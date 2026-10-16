@@ -158,9 +158,6 @@ func NewPunktfunk(exeDir, stateDir, logPath string) Backend {
 // plane is not in use by this agent yet (see package doc comment).
 func (b *punktfunkBackend) DisplayName() string { return "Punktfunk (GameStream)" }
 
-// punktfunkBinEnv names a punktfunk-host outside the agent's own bundle.
-const punktfunkBinEnv = "USBRIDGE_PUNKTFUNK_HOST"
-
 // punktfunkStageDir is where the agent downloads punktfunk-host to
 // (forkrelease.PunktfunkDir: <stateDir>/punktfunk, signature-verified from
 // Streamers-Forks' latest release); set once at startup.
@@ -172,8 +169,8 @@ func SetPunktfunkStageDir(dir string) { punktfunkStageDir.Store(dir) }
 
 // punktfunkBinaryPath locates punktfunk-host, or returns "" when there is
 // none: the copy bundled next to the agent (<exeDir>/punktfunk/), then the
-// one the agent downloaded (SetPunktfunkStageDir), then the one
-// punktfunkBinEnv names, then a system-installed one on PATH. On KDE the path matters beyond finding the binary:
+// one the agent downloaded and checked against the release signature
+// (SetPunktfunkStageDir). On KDE the path matters beyond finding the binary:
 // KWin only lets a punktfunk-host capture when an installed .desktop file
 // names that exact executable path (see ListCaptureDevices' doc comment),
 // which a copy inside an AppImage's per-run mount point can never satisfy.
@@ -201,23 +198,11 @@ func punktfunkBinaryPath(exeDir string) string {
 			return p
 		}
 	}
-	if runtime.GOOS == "windows" {
-		// The agent runs as a LocalSystem service there and launches this as
-		// SYSTEM: only the copy its installer put next to it (Program Files,
-		// admin-only) or the one it downloaded and checked against the
-		// release signature. A punktfunk-host on PATH or named by
-		// punktfunkBinEnv is anybody's -- one dropped into a user-writable PATH
-		// directory would have run as SYSTEM.
-		return ""
-	}
-	if p := os.Getenv(punktfunkBinEnv); p != "" {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	if p, err := exec.LookPath(name); err == nil {
-		return p
-	}
+	// Only those two: our signed fork. A punktfunk-host on PATH or named by an
+	// environment variable is anybody's build -- on Windows the agent runs it
+	// as SYSTEM, so one dropped into a user-writable PATH directory would
+	// have run as SYSTEM (seen live: an upstream install in Program Files,
+	// without PyroWave, picked up from PATH).
 	return ""
 }
 

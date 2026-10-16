@@ -423,14 +423,8 @@ func (b *sunshineBackend) binaryPath() string {
 				return staged
 			}
 		}
-		// Last resort: a system-installed sunshine (e.g. an apt/distro
-		// package). This is NOT built from our fork — it will have upstream
-		// defaults (tray icon enabled, no web_bind_address localhost patch,
-		// etc.) — so only ever reached when no bundled copy exists anywhere.
-		if path, err := exec.LookPath("sunshine"); err == nil {
-			log.Printf("[sunshine] WARNING: no bundled Sunshine found near %s or in staged runtime; falling back to system PATH: %s (this is NOT our fork's build and may misbehave, e.g. show a tray icon)", exeDir, path)
-			return path
-		}
+		// Never a system-installed sunshine (an apt/distro package on PATH):
+		// only our signed fork, bundled or staged, is ever run.
 		return ""
 	case "windows":
 		return filepath.Join(exeDir, "sunshine", "sunshine.exe")
