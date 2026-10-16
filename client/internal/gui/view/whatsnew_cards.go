@@ -158,6 +158,90 @@ func markWhatsNewCatalogSeen() {
 func whatsNewCatalog() []whatsNewCard {
 	return []whatsNewCard{
 		{
+			Version: "3.1.8",
+			Date:    "October 2026",
+			Items: []whatsNewItem{
+				{
+					Kind: whatsNewKindFree,
+					Points: []whatsNewPoint{
+						{
+							Glyph: whatsNewGlyphUSB,
+							Title: whatsNewCopy{
+								EN: "Microphone and MIDI on the remote PC",
+								ES: "Microfono y MIDI en el PC remoto",
+								UK: "Мікрофон і MIDI на віддаленому ПК",
+							},
+							Body: whatsNewCopy{
+								EN: "Switch them on in Devices: the PC gets your microphone and MIDI keyboard as its own, from any platform.",
+								ES: "Activalos en Dispositivos: el PC recibe tu microfono y tu teclado MIDI como propios, desde cualquier plataforma.",
+								UK: "Увімкніть у Пристроях: ПК отримує ваш мікрофон і MIDI-клавіатуру як власні, з будь-якої платформи.",
+							},
+						},
+						{
+							Glyph: whatsNewGlyphDisplay,
+							Title: whatsNewCopy{
+								EN: "Virtual display on connect",
+								ES: "Pantalla virtual al conectar",
+								UK: "Віртуальний дисплей при підключенні",
+							},
+							Body: whatsNewCopy{
+								EN: "A Windows host, or plain Vibepollo and Apollo, can open a screen sized for this device.",
+								ES: "Un host Windows, o Vibepollo y Apollo sin agente, abre una pantalla a la medida de este dispositivo.",
+								UK: "Хост на Windows або Vibepollo і Apollo без агента відкривають екран під розмір цього пристрою.",
+							},
+						},
+					},
+				},
+				{
+					Kind: whatsNewKindOpensource,
+					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphColor,
+						Title: whatsNewCopy{
+							EN: "PyroWave on Mac",
+							ES: "PyroWave en Mac",
+							UK: "PyroWave на Mac",
+						},
+						Body: whatsNewCopy{
+							EN: "Native Metal decoding with 4:4:4 and HDR10, and plain Sunshine hosts connect without a master key.",
+							ES: "Decodificacion nativa en Metal con 4:4:4 y HDR10; los hosts Sunshine sin agente conectan sin clave maestra.",
+							UK: "Нативне декодування на Metal з 4:4:4 і HDR10, а звичайні хости Sunshine підключаються без майстер-ключа.",
+						},
+					}},
+				},
+				{
+					Kind: whatsNewKindOther,
+					Points: []whatsNewPoint{
+						{
+							Glyph: whatsNewGlyphMetrics,
+							Title: whatsNewCopy{
+								EN: "Android: from ~140 ms to ~20 ms",
+								ES: "Android: de ~140 ms a ~20 ms",
+								UK: "Android: з ~140 мс до ~20 мс",
+							},
+							Body: whatsNewCopy{
+								EN: "Low-latency decoding straight into Vulkan, and Wi-Fi tips with shortcuts to the right settings.",
+								ES: "Decodificacion de baja latencia directa a Vulkan y consejos de Wi-Fi con accesos a los ajustes.",
+								UK: "Декодування з низькою затримкою прямо у Vulkan і поради щодо Wi-Fi з переходом у потрібні налаштування.",
+							},
+						},
+						{
+							Glyph: whatsNewGlyphCloud,
+							Title: whatsNewCopy{
+								EN: "Steadier picture and pointer",
+								ES: "Imagen y puntero mas estables",
+								UK: "Стабільніші картинка й курсор",
+							},
+							Body: whatsNewCopy{
+								EN: "Video keeps playing under menus, and the mouse stays on target at any stream resolution.",
+								ES: "El video sigue bajo los menus y el raton acierta con cualquier resolucion del stream.",
+								UK: "Відео не зупиняється під меню, а миша влучає за будь-якої роздільності стріму.",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			Version: "3.0.111",
 			Date:    "October 2026",
 			Items: []whatsNewItem{

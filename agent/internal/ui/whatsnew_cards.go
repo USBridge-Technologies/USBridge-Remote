@@ -99,6 +99,75 @@ func sortWhatsNewItems(items []whatsNewItem) []whatsNewItem {
 func whatsNewCatalog() []whatsNewCard {
 	return []whatsNewCard{
 		{
+			Version: "3.1.8",
+			Date:    "October 2026",
+			Items: []whatsNewItem{
+				{
+					Kind: whatsNewKindFree,
+					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphUSB,
+						Title: whatsNewCopy{
+							EN: "The client's microphone and MIDI",
+							ES: "Microfono y MIDI del cliente",
+							UK: "Мікрофон і MIDI клієнта",
+						},
+						Body: whatsNewCopy{
+							EN: "This PC gets the client's microphone and MIDI keyboard as its own USB devices.",
+							ES: "Este PC recibe el microfono y el teclado MIDI del cliente como dispositivos USB propios.",
+							UK: "Цей ПК отримує мікрофон і MIDI-клавіатуру клієнта як власні USB-пристрої.",
+						},
+					}},
+				},
+				{
+					Kind: whatsNewKindOpensource,
+					Points: []whatsNewPoint{{
+						Glyph: whatsNewGlyphProtocol,
+						Title: whatsNewCopy{
+							EN: "Vibepollo",
+							ES: "Vibepollo",
+							UK: "Vibepollo",
+						},
+						Body: whatsNewCopy{
+							EN: "A new streamer to pick, installed and updated from here, with one shared virtual monitor on Windows.",
+							ES: "Un streamer nuevo, instalado y actualizado desde aqui, con un monitor virtual compartido en Windows.",
+							UK: "Новий стрімер на вибір, встановлюється й оновлюється звідси, зі спільним віртуальним монітором на Windows.",
+						},
+					}},
+				},
+				{
+					Kind: whatsNewKindOther,
+					Points: []whatsNewPoint{
+						{
+							Glyph: whatsNewGlyphCloud,
+							Title: whatsNewCopy{
+								EN: "Easier install",
+								ES: "Instalacion mas facil",
+								UK: "Простіше встановлення",
+							},
+							Body: whatsNewCopy{
+								EN: "One-click Windows setup with drivers and the service; on Linux, a .deb updated through APT.",
+								ES: "Instalador de Windows en un clic con drivers y servicio; en Linux, un .deb actualizado por APT.",
+								UK: "Встановлення на Windows в один клік з драйверами й службою; на Linux — .deb з оновленнями через APT.",
+							},
+						},
+						{
+							Glyph: whatsNewGlyphMetrics,
+							Title: whatsNewCopy{
+								EN: "Wi-Fi tuned for streaming",
+								ES: "Wi-Fi ajustado para streaming",
+								UK: "Wi-Fi, налаштований для стріму",
+							},
+							Body: whatsNewCopy{
+								EN: "A one-time tune in Permissions, and no background scans while a session runs.",
+								ES: "Un ajuste unico en Permisos y sin escaneos en segundo plano durante la sesion.",
+								UK: "Одноразове налаштування в Дозволах і жодних фонових сканувань під час сесії.",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			Version: "3.0.111",
 			Date:    "October 2026",
 			Items: []whatsNewItem{

@@ -95,14 +95,17 @@ func TestWhatsNewKindHardwareAgent(t *testing.T) {
 
 func TestWhatsNewCatalogHasCards(t *testing.T) {
 	cards := whatsNewCatalog()
-	if len(cards) != 2 {
-		t.Fatalf("shipping the current appeal plus the previous one, got %d", len(cards))
+	if len(cards) != 3 {
+		t.Fatalf("shipping the current appeal plus the previous two, got %d", len(cards))
 	}
-	if cards[0].Version != "3.0.111" || cards[0].Date != "October 2026" {
+	if cards[0].Version != "3.1.8" || cards[0].Date != "October 2026" {
 		t.Fatalf("newest card: %s %q", cards[0].Version, cards[0].Date)
 	}
-	if cards[1].Version != "3.0.45" || cards[1].Date != "September 2026" {
+	if cards[1].Version != "3.0.111" || cards[1].Date != "October 2026" {
 		t.Fatalf("previous card: %s %q", cards[1].Version, cards[1].Date)
+	}
+	if cards[2].Version != "3.0.45" || cards[2].Date != "September 2026" {
+		t.Fatalf("oldest card: %s %q", cards[2].Version, cards[2].Date)
 	}
 	if whatsNewKindRank(whatsNewKindBeta) >= whatsNewKindRank(whatsNewKindPro) {
 		t.Fatal("beta should be first")
@@ -150,7 +153,7 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 	if !sawBeta || !sawPro || !sawFree || !sawHardware || !sawOther {
 		t.Fatalf("missing plaques: beta=%v pro=%v free=%v hardware=%v other=%v", sawBeta, sawPro, sawFree, sawHardware, sawOther)
 	}
-	newest := sortWhatsNewItems(cards[0].Items)
+	newest := sortWhatsNewItems(cards[1].Items)
 	if newest[0].Kind != whatsNewKindFree || newest[0].Points[0].Glyph != whatsNewGlyphUSB {
 		t.Fatal("first row of 3.0.111 should be free USB passthrough")
 	}
@@ -175,7 +178,7 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 
 func TestWhatsNewCatalogFingerprintJoinsVersions(t *testing.T) {
 	fp := whatsNewCatalogFingerprint()
-	if fp != "3.0.111\n3.0.45" {
+	if fp != "3.1.8\n3.0.111\n3.0.45" {
 		t.Fatalf("got %q", fp)
 	}
 }
