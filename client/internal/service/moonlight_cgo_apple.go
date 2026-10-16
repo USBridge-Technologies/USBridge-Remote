@@ -406,6 +406,73 @@ static void vt_invalidate(void) {
     free(g_vt_rgba_buf); g_vt_rgba_buf = NULL; g_vt_rgba_buf_size = 0;
 }
 
+// vt_copy_rgba converts img into g_vt_rgba_buf as tightly packed RGBA
+// (stride w*4). Handles the two 8-bit formats vt_create_session asks for:
+// 32BGRA (macOS SDR) and 4:2:0 biplanar YCbCr (iOS SDR, BT.709 video or
+// full range). Returns 0 for anything else (10-bit HDR) or on OOM.
+// Only runs for the occasional AI Vision / live-frame sample and the
+// barely-reachable CPU fallback -- never per displayed frame.
+static int vt_copy_rgba(CVImageBufferRef img, int w, int h) {
+    OSType pf = CVPixelBufferGetPixelFormatType(img);
+    int nv12 = pf == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
+               pf == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+    if (!nv12 && pf != kCVPixelFormatType_32BGRA) return 0;
+
+    size_t needed = (size_t)w * (size_t)h * 4;
+    if (needed > g_vt_rgba_buf_size) {
+        free(g_vt_rgba_buf);
+        g_vt_rgba_buf = (uint8_t *)malloc(needed);
+        g_vt_rgba_buf_size = g_vt_rgba_buf ? needed : 0;
+    }
+    if (!g_vt_rgba_buf) return 0;
+
+    CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
+    if (!nv12) {
+        size_t bpr = CVPixelBufferGetBytesPerRow(img);
+        const uint8_t *src = (const uint8_t *)CVPixelBufferGetBaseAddress(img);
+        for (int y = 0; y < h; y++) {
+            const uint8_t *row = src + (size_t)y * bpr;
+            uint8_t *dst = g_vt_rgba_buf + (size_t)y * (size_t)w * 4;
+            for (int x = 0; x < w; x++, row += 4, dst += 4) {
+                dst[0] = row[2]; dst[1] = row[1]; dst[2] = row[0]; dst[3] = row[3];
+            }
+        }
+    } else {
+        const uint8_t *yp  = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(img, 0);
+        const uint8_t *uvp = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(img, 1);
+        size_t ybpr  = CVPixelBufferGetBytesPerRowOfPlane(img, 0);
+        size_t uvbpr = CVPixelBufferGetBytesPerRowOfPlane(img, 1);
+        int full = pf == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+        // BT.709 in 16.16 fixed point; video range expands Y by 255/219
+        // and chroma by 255/224.
+        int ys  = full ? 65536 : 76309;
+        int yo  = full ? 0 : 16;
+        int crv = full ? 103206 : 117489; // 1.5748
+        int cgu = full ? 12276  : 13975;  // 0.1873
+        int cgv = full ? 30679  : 34925;  // 0.4681
+        int cbu = full ? 121609 : 138438; // 1.8556
+        for (int y = 0; y < h; y++) {
+            const uint8_t *yr  = yp + (size_t)y * ybpr;
+            const uint8_t *uvr = uvp + (size_t)(y >> 1) * uvbpr;
+            uint8_t *dst = g_vt_rgba_buf + (size_t)y * (size_t)w * 4;
+            for (int x = 0; x < w; x++, dst += 4) {
+                int c = (yr[x] - yo) * ys;
+                int u = uvr[x & ~1] - 128;
+                int v = uvr[(x & ~1) + 1] - 128;
+                int r = (c + crv * v) >> 16;
+                int g = (c - cgu * u - cgv * v) >> 16;
+                int b = (c + cbu * u) >> 16;
+                dst[0] = (uint8_t)(r < 0 ? 0 : r > 255 ? 255 : r);
+                dst[1] = (uint8_t)(g < 0 ? 0 : g > 255 ? 255 : g);
+                dst[2] = (uint8_t)(b < 0 ? 0 : b > 255 ? 255 : b);
+                dst[3] = 255;
+            }
+        }
+    }
+    CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
+    return 1;
+}
+
 static void vt_callback(
     void *ctx, void *frameRefCon,
     OSStatus status, VTDecodeInfoFlags flags,
@@ -474,27 +541,8 @@ static void vt_callback(
         // detection reaches the screen via a separate compositor overlay
         // layer (see metal_video_impl_darwin.m's g_overlay_layer), not by
         // drawing into this buffer -- it's discarded right after.
-        if (goAIVisionShouldSample()) {
-            CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
-            size_t bpr = CVPixelBufferGetBytesPerRow(img);
-            const uint8_t *src = (const uint8_t *)CVPixelBufferGetBaseAddress(img);
-            size_t needed = (size_t)w * (size_t)h * 4;
-            if (needed > g_vt_rgba_buf_size) {
-                free(g_vt_rgba_buf);
-                g_vt_rgba_buf = (uint8_t *)malloc(needed);
-                g_vt_rgba_buf_size = g_vt_rgba_buf ? needed : 0;
-            }
-            if (g_vt_rgba_buf) {
-                for (int y = 0; y < h; y++) {
-                    const uint8_t *row = src + (size_t)y * bpr;
-                    uint8_t *dst = g_vt_rgba_buf + (size_t)y * (size_t)w * 4;
-                    for (int x = 0; x < w; x++, row += 4, dst += 4) {
-                        dst[0] = row[2]; dst[1] = row[1]; dst[2] = row[0]; dst[3] = row[3];
-                    }
-                }
-                goAIVisionSample(g_vt_rgba_buf, w, h, w * 4);
-            }
-            CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
+        if (goAIVisionShouldSample() && vt_copy_rgba(img, w, h)) {
+            goAIVisionSample(g_vt_rgba_buf, w, h, w * 4);
         }
 
         goVTFrame(NULL, w, h, 0);
@@ -519,30 +567,11 @@ static void vt_callback(
         return;
     }
 
-    // ── CPU fallback: BGRA→RGBA conversion into pre-allocated buffer ──────────
-    CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
-    int w   = (int)CVPixelBufferGetWidth(img);
-    int h   = (int)CVPixelBufferGetHeight(img);
-    size_t bpr = CVPixelBufferGetBytesPerRow(img);
-    const uint8_t *src = (const uint8_t *)CVPixelBufferGetBaseAddress(img);
-
-    // VT outputs kCVPixelFormatType_32BGRA for SDR sessions (native HW format, always supported).
-    // Convert BGRA→RGBA into a pre-allocated buffer to avoid per-frame malloc.
+    // ── CPU fallback: convert into the pre-allocated RGBA buffer ──────────────
     // VT callbacks are serialised by VT's dispatch queue so no mutex is needed.
-    size_t needed = (size_t)w * (size_t)h * 4;
-    if (needed > g_vt_rgba_buf_size) {
-        free(g_vt_rgba_buf);
-        g_vt_rgba_buf = (uint8_t *)malloc(needed);
-        g_vt_rgba_buf_size = g_vt_rgba_buf ? needed : 0;
-    }
-    if (g_vt_rgba_buf) {
-        for (int y = 0; y < h; y++) {
-            const uint8_t *row = src + (size_t)y * bpr;
-            uint8_t *dst = g_vt_rgba_buf + (size_t)y * (size_t)w * 4;
-            for (int x = 0; x < w; x++, row += 4, dst += 4) {
-                dst[0] = row[2]; dst[1] = row[1]; dst[2] = row[0]; dst[3] = row[3];
-            }
-        }
+    int w = (int)CVPixelBufferGetWidth(img);
+    int h = (int)CVPixelBufferGetHeight(img);
+    if (vt_copy_rgba(img, w, h)) {
         // AI Vision overlay: no-op unless enabled (single atomic load in the
         // common case) -- burns detection boxes+ids into the buffer in
         // place before it's handed off. Only reachable on this CPU
@@ -551,7 +580,6 @@ static void vt_callback(
         goAIVisionOverlay(g_vt_rgba_buf, w, h, w * 4);
         goVTFrame(g_vt_rgba_buf, w, h, w * 4);
     }
-    CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
 }
 
 static int vt_create_session(void) {
@@ -634,9 +662,24 @@ static int vt_create_session(void) {
     // VideoToolbox attaches from this session's format description (which
     // carries the stream's own signaled colorimetry) -- see
     // metal_video_set_hdr's doc comment for the full reasoning.
+    //
+    // iOS SDR decodes to the decoder's native 8-bit 4:2:0 too, not BGRA:
+    // asking for BGRA makes VT run a full-frame YCbCr->BGRA pass after
+    // every hardware decode (4 bytes/px out vs 1.5), which at 3840x2160 on
+    // an iPhone 8 is ~33 MB written per frame -- enough GPU/memory work
+    // that the stream sat at ~9 fps and only reached ~30 while a finger on
+    // the screen kept iOS's touch performance boost raised. The compositor
+    // takes the biplanar IOSurface as layer contents directly, the same
+    // way the 10-bit HDR format already does.
+#if TARGET_OS_IPHONE
+    int32_t fmt = ((g_video_format & VT_FORMAT_MASK_10BIT) != 0)
+        ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+        : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+#else
     int32_t fmt = ((g_video_format & VT_FORMAT_MASK_10BIT) != 0)
         ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
         : kCVPixelFormatType_32BGRA;
+#endif
     CFNumberRef cfFmt = CFNumberCreate(NULL, kCFNumberSInt32Type, &fmt);
     
     int32_t min_buf_cnt = 24;

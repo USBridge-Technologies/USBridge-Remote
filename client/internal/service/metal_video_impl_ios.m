@@ -21,7 +21,8 @@ extern void goMetalLog(char *msg, int level);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Global singleton state (one Metal overlay at a time).
-// All UIView/CALayer access happens exclusively on the main thread.
+// All UIView/CALayer access happens on the main thread, except the video
+// layer's contents, which the present thread sets (see g_present_layer).
 // CVPixelBufferRef pending frame is protected by g_mu.
 // ─────────────────────────────────────────────────────────────────────────────
 static UIView    *g_view      = nil;
@@ -62,7 +63,22 @@ static float metal_hud_scale(void) {
 #define HUD_MARGIN 12.0
 
 static volatile atomic_int g_active = 0;
+// Main-thread display link: Net Graph HUD only.
 static CADisplayLink *g_display_link = nil;
+
+// Video frames are presented from a display link on a thread of its own,
+// not the main one. Fyne's iOS driver runs its draw loop inside
+// GLKView's drawInRect on the main thread and, when the canvas has
+// nothing new to paint, blocks there for up to 100 ms waiting for a
+// publish (fyne internal/driver/mobile/app/darwin_ios.go drawloop).
+// A main-thread display link therefore fired at ~10 Hz while the UI sat
+// still -- the stream showed ~9 fps -- and only ran faster while a finger
+// on the screen kept Fyne repainting.
+static NSThread      *g_present_thread = nil; // started once, lives forever
+static CADisplayLink *g_present_link   = nil; // g_present_thread only
+// Layer the present thread puts frames on; set/cleared on the main thread
+// in create/destroy. Guarded by g_mu.
+static CALayer       *g_present_layer  = nil;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static CVPixelBufferRef g_pendingBuf = NULL;
@@ -95,10 +111,10 @@ static double mono_sec(void) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Render — called on main thread; OWNS buf and always releases it.
+// Render — called on the present thread; OWNS buf and always releases it.
 // ─────────────────────────────────────────────────────────────────────────────
-static void metal_render_main_with_buf(CVPixelBufferRef buf, double latencyMs) {
-    if (!atomic_load(&g_active) || !g_layer) {
+static void metal_present_buf(CALayer *layer, CVPixelBufferRef buf, double latencyMs) {
+    if (!atomic_load(&g_active) || !layer) {
         CVPixelBufferRelease(buf);
         return;
     }
@@ -109,9 +125,12 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf, double latencyMs) {
     // IOSurface path: CALayer compositor reads GPU memory directly — zero CPU copy.
     IOSurfaceRef surf = CVPixelBufferGetIOSurface(buf);
     if (surf) {
+        // Explicit transaction: off the main thread there is no run-loop
+        // implicit one to rely on, and disabled actions keep Core
+        // Animation from asking the (main-thread) UIView for an action.
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
-        g_layer.contents = (__bridge id)surf;
+        layer.contents = (__bridge id)surf;
         [CATransaction commit];
     }
 
@@ -173,6 +192,8 @@ static UIWindow *_find_key_window(void);
 
 @interface IOSMetalDisplayLinkTarget : NSObject
 - (void)displayLinkFired:(CADisplayLink *)link;
+- (void)presentLinkFired:(CADisplayLink *)link;
+- (void)setPresentPaused:(NSNumber *)paused;
 - (void)keyboardWillChangeFrame:(NSNotification *)notification;
 @end
 @implementation IOSMetalDisplayLinkTarget
@@ -185,15 +206,23 @@ static UIWindow *_find_key_window(void);
     if (atomic_exchange(&g_hud_dirty, 0)) {
         metal_video_apply_pending_hud_overlay();
     }
-
+}
+// Present thread: puts the newest decoded frame on the video layer.
+- (void)presentLinkFired:(CADisplayLink __unused *)link {
+    if (!atomic_load(&g_active)) return;
     pthread_mutex_lock(&g_mu);
     CVPixelBufferRef buf = g_pendingBuf;
     double submitTime = g_pendingBufSubmitTime;
+    CALayer *layer = g_present_layer;
     g_pendingBuf = NULL;
     pthread_mutex_unlock(&g_mu);
     if (!buf) return;
     double latencyMs = submitTime > 0.0 ? (mono_sec() - submitTime) * 1000.0 : -1.0;
-    metal_render_main_with_buf(buf, latencyMs);
+    metal_present_buf(layer, buf, latencyMs);
+}
+// Present thread: paused between streams so it doesn't wake the CPU.
+- (void)setPresentPaused:(NSNumber *)paused {
+    g_present_link.paused = paused.boolValue;
 }
 // Track keyboard frame so Go can query height each render frame.
 - (void)keyboardWillChangeFrame:(NSNotification *)notification {
@@ -298,6 +327,39 @@ static UIWindow *_find_key_window(void) {
 #pragma clang diagnostic pop
 }
 
+static void present_link_set_paused(BOOL paused) {
+    [g_dl_target performSelector:@selector(setPresentPaused:)
+                        onThread:g_present_thread
+                      withObject:@(paused)
+                   waitUntilDone:NO];
+}
+
+// Main thread only (g_dl_target must exist).
+static void present_thread_start(void) {
+    if (g_present_thread) return;
+    g_present_thread = [[NSThread alloc] initWithBlock:^{
+        CADisplayLink *link = [CADisplayLink displayLinkWithTarget:g_dl_target
+                                                          selector:@selector(presentLinkFired:)];
+        // See metal_video_create's display link for the 60 Hz floor.
+        if (@available(iOS 15.0, *)) {
+            link.preferredFrameRateRange = CAFrameRateRangeMake(60, 120, 60);
+        } else {
+            link.preferredFramesPerSecond = 60;
+        }
+        [link addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+        g_present_link = link;
+        for (;;) {
+            @autoreleasepool {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate distantFuture]];
+            }
+        }
+    }];
+    g_present_thread.name = @"usbridge.video.present";
+    g_present_thread.qualityOfService = NSQualityOfServiceUserInteractive;
+    [g_present_thread start];
+}
+
 // metal_video_create — creates the CALayer overlay on the key UIWindow.
 // Pass w=0, h=0 to cover the entire window (fullscreen mode).
 // The first argument (nsWinPtr) is unused on iOS; the window is found internally.
@@ -380,12 +442,15 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;
         g_pendingBufSubmitTime = 0.0;
+        g_present_layer = ov.layer;
         pthread_mutex_unlock(&g_mu);
         if (old) CVPixelBufferRelease(old);
 
         atomic_store(&g_active, 1);
 
         if (!g_dl_target) g_dl_target = [IOSMetalDisplayLinkTarget new];
+        present_thread_start();
+        present_link_set_paused(NO);
         g_display_link = [CADisplayLink displayLinkWithTarget:g_dl_target
                                                      selector:@selector(displayLinkFired:)];
         // Lock minimum rate to 60fps so iOS adaptive-refresh (ProMotion) doesn't
@@ -775,6 +840,7 @@ void metal_video_destroy(void) {
         [g_display_link invalidate];
         g_display_link = nil;
     }
+    if (g_present_thread) present_link_set_paused(YES);
 
     dispatch_block_t blk = ^{
         if (g_cursor_layer) {
@@ -801,6 +867,7 @@ void metal_video_destroy(void) {
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;
         g_pendingBufSubmitTime = 0.0;
+        g_present_layer = nil;
         pthread_mutex_unlock(&g_mu);
         if (old) CVPixelBufferRelease(old);
 
