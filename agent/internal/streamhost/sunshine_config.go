@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"usbridge_agent/internal/displaypower"
+	"usbridge_agent/internal/monitors"
 )
 
 // sunshineDataDir is where this agent keeps EVERY file its managed Sunshine
@@ -348,7 +350,7 @@ func (b *sunshineBackend) SetOutputName(name string) error {
 			return err
 		}
 	}
-	return b.setConfigKey("output_name", name)
+	return b.setConfigKey("output_name", macDisplayIDForIndex(name))
 }
 
 // OutputName reads the current "output_name" value from sunshine.conf, or
@@ -358,5 +360,42 @@ func (b *sunshineBackend) OutputName() string {
 	if v := b.loadVirtualDisplay(); v.Spec != "" {
 		return "virtual:" + v.Spec
 	}
-	return b.ConfigKey("output_name")
+	return macIndexForDisplayID(b.ConfigKey("output_name"))
+}
+
+// macDisplayIDForIndex maps the monitor index the agent hands out
+// ("display:N") to the CGDirectDisplayID Sunshine's macOS output_name
+// selects by. Writing the bare index made every pick capture the built-in
+// display: "0" matches no display (Sunshine falls back to the main one) and
+// "1" is the built-in display's own ID. Anything that isn't an index of an
+// active display, and every other OS, passes through unchanged.
+func macDisplayIDForIndex(name string) string {
+	if runtime.GOOS != "darwin" {
+		return name
+	}
+	idx, err := strconv.Atoi(name)
+	ids := monitors.ActiveDisplayIDs()
+	if err != nil || idx < 0 || idx >= len(ids) {
+		return name
+	}
+	return strconv.FormatUint(uint64(ids[idx]), 10)
+}
+
+// macIndexForDisplayID is the reverse of macDisplayIDForIndex, so callers
+// keep seeing the same index they set. An ID that isn't active right now
+// (monitor unplugged) is returned as-is.
+func macIndexForDisplayID(name string) string {
+	if runtime.GOOS != "darwin" {
+		return name
+	}
+	id, err := strconv.ParseUint(name, 10, 32)
+	if err != nil {
+		return name
+	}
+	for i, active := range monitors.ActiveDisplayIDs() {
+		if uint64(active) == id {
+			return strconv.Itoa(i)
+		}
+	}
+	return name
 }
