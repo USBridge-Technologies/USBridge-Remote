@@ -1347,6 +1347,15 @@ func (s *Server) videoSetDevice(w http.ResponseWriter, r *http.Request) {
 	// output_name verbatim, which Sunshine can't parse and silently falls
 	// back to auto-pick — monitor switching had no effect.
 	outputName := stripDevicePrefix(req.Device)
+	if id, ok := strings.CutPrefix(req.Device, "monitor:"); ok {
+		// A monitor listed switched off (screen_windows.go) -- e.g. one a session on
+		// the virtual monitor switched off. Its path is the monitor's device path,
+		// which no stream host takes (and whose '#' starts a comment in
+		// sunshine.conf: Vibepollo got "monitor:\\?\DISPLAY", found nothing and
+		// streamed nothing). Switch it on and stream it under the name the stream
+		// host lists it by.
+		outputName = s.outputNameForMonitor(id)
+	}
 	// A vkms connector forced off by an earlier delete must be brought back
 	// before the stream host looks for it.
 	if strings.HasPrefix(outputName, "virtual:") || strings.Contains(outputName, "Virtual-") {
@@ -1361,4 +1370,37 @@ func (s *Server) videoSetDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ok(w, "video_device_set", nil)
+}
+
+// outputNameForMonitor switches the monitor with this device path on and returns what
+// the stream host selects it by: the path its own device list gives it once it shows
+// up there, else (a list the stream host only refreshes on restart, Sunshine's) the
+// monitor's name, which Sunshine and Vibepollo map to the display too.
+func (s *Server) outputNameForMonitor(id string) string {
+	if err := displaypower.SetEnabledInSession(id, true); err != nil {
+		log.Printf("[api] video_set_device: switching monitor %s on: %v", id, err)
+	}
+	name := ""
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(300 * time.Millisecond) {
+		for _, d := range s.app.VideoDevices() {
+			if d.MonitorID != id {
+				continue
+			}
+			if !strings.HasPrefix(d.Path, "monitor:") {
+				return stripDevicePrefix(d.Path)
+			}
+			name = strings.TrimSuffix(d.Name, " (off)")
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+	if monitors, err := displaypower.ListInSession(); err == nil {
+		for _, m := range monitors {
+			if m.ID == id && m.Name != "" {
+				name = m.Name
+			}
+		}
+	}
+	return name
 }

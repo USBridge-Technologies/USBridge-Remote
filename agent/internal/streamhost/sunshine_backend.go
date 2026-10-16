@@ -732,6 +732,15 @@ func (b *sunshineBackend) Start(adminPort int) error {
 		if err := b.setConfigKey("dd_configuration_option", "disabled"); err != nil {
 			log.Printf("[vibepollo] warning: could not set dd_configuration_option: %v", err)
 		}
+		// Desktop Duplication, unless a capture was picked: Vibepollo's default is
+		// Windows.Graphics.Capture through its tools\sunshine_wgc_capture.exe helper,
+		// which the Streamers-Forks build doesn't ship -- every session failed to
+		// launch it (error 2) and streamed nothing, physical monitor or virtual.
+		if runtime.GOOS == "windows" && strings.TrimSpace(b.ConfigKey("capture")) == "" {
+			if err := b.setConfigKey("capture", "ddx"); err != nil {
+				log.Printf("[vibepollo] warning: could not set capture: %v", err)
+			}
+		}
 	}
 	// The agent's own virtual monitor, when it is the selected output (Windows).
 	b.applyVirtualDisplayLocked()
