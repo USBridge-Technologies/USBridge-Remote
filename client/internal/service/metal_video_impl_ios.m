@@ -145,6 +145,17 @@ static double g_maxGapMs      = 0.0;
 static double g_maxCommitMs   = 0.0;
 static int64_t g_lastDropCount = 0;
 
+// Wi-Fi interference detector. AWDL (the peer-to-peer Wi-Fi behind AirDrop,
+// Handoff and Continuity) takes the radio off the access point's channel
+// on a ~100 ms cycle; confirmed live on an iPhone 8 against rapportd's
+// "Bonjour AWDL advertiser start/stop": while it was active every 2 s
+// stats window showed ~20 dropped frames and 100-117 ms present gaps with
+// sub-2 ms commits (frames arriving in bursts, nothing slow on our side),
+// and clean 60 fps the moment it stopped. Apps can't query or turn AWDL
+// off on iOS, so this flags the symptom and Go suggests the settings.
+static int        g_wifiBadStreak = 0;      // present thread only
+static atomic_int g_wifiInterference = 0;   // latched for the session
+
 static int64_t g_submitCount   = 0;
 static int64_t g_renderCount   = 0;
 static int64_t g_fpsFrames     = 0;
@@ -250,6 +261,14 @@ static void metal_present_buf(CALayer *layer, CVPixelBufferRef buf, double laten
         NSLog(@"[USBridge] present: fps=%.1f dropped=%lld maxGapMs=%.1f maxCommitMs=%.1f latencyMs=%.1f",
               g_lastKnownFps, (long long)(drops - g_lastDropCount),
               g_maxGapMs, g_maxCommitMs, g_lastKnownDecodeMs);
+        int64_t windowDrops = drops - g_lastDropCount;
+        if (windowDrops >= 8 && g_maxGapMs >= 60.0 && g_maxCommitMs < 10.0) {
+            if (++g_wifiBadStreak >= 2 && !atomic_exchange(&g_wifiInterference, 1)) {
+                NSLog(@"[USBridge] present: Wi-Fi interference detected (bursty arrival, likely AWDL)");
+            }
+        } else {
+            g_wifiBadStreak = 0;
+        }
         g_lastDropCount = drops;
         g_maxGapMs      = 0.0;
         g_maxCommitMs   = 0.0;
@@ -319,6 +338,10 @@ static BOOL g_keyboard_observed = NO;
 // ─────────────────────────────────────────────────────────────────────────────
 // Public C API
 // ─────────────────────────────────────────────────────────────────────────────
+
+int metal_video_wifi_interference(void) {
+    return atomic_load(&g_wifiInterference);
+}
 
 int metal_video_is_active(void) {
     return atomic_load(&g_active);
@@ -515,6 +538,8 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
         g_present_layer = ov.layer;
         pthread_mutex_unlock(&g_mu);
         g_lastPresentAt = 0.0; g_maxGapMs = 0.0; g_maxCommitMs = 0.0;
+        g_wifiBadStreak = 0;
+        atomic_store(&g_wifiInterference, 0);
 
         atomic_store(&g_active, 1);
 

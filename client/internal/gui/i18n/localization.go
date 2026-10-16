@@ -458,6 +458,8 @@ type LocalizedStrings struct {
 	Yes                          string
 	No                           string
 	Error                        string
+	WiFiInterferenceTitle        string // iOS stream: AWDL burst-arrival hint title
+	WiFiInterferenceHint         string // iOS stream: AWDL burst-arrival hint body
 	Information                  string
 	Confirmation                 string
 	TailscaleLogoutConfirm       string
@@ -1190,6 +1192,8 @@ func EN() *LocalizedStrings {
 		Yes:                          "Yes",
 		No:                           "No",
 		Error:                        "Error",
+		WiFiInterferenceTitle:        "Wi-Fi interference",
+		WiFiInterferenceHint:         "Video stutters because Wi-Fi keeps switching to AirDrop/Continuity for nearby Apple devices. Turn off Bluetooth on this iPhone (Settings → Bluetooth), or Handoff and AirDrop on nearby Macs and Apple TVs.",
 		Information:                  "Information",
 		Confirmation:                 "Confirmation",
 		TailscaleLogoutConfirm:       "Do you want to sign out of Tailscale?",
@@ -1474,6 +1478,8 @@ func EN() *LocalizedStrings {
 func ES() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Cliente USBridge"
+	locale.WiFiInterferenceTitle = "Interferencia Wi-Fi"
+	locale.WiFiInterferenceHint = "El video se entrecorta porque el Wi-Fi cambia continuamente a AirDrop/Continuidad para dispositivos Apple cercanos. Desactiva el Bluetooth de este iPhone (Ajustes → Bluetooth), o Handoff y AirDrop en los Mac y Apple TV cercanos."
 	locale.ServerAddress = "Direccion del servidor"
 	locale.Token = "Master Key"
 	locale.ConnectButton = "Conectar"
@@ -1938,6 +1944,8 @@ func UK() *LocalizedStrings {
 func UKProper() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Клієнт USBridge"
+	locale.WiFiInterferenceTitle = "Перешкоди Wi-Fi"
+	locale.WiFiInterferenceHint = "Відео смикається, бо Wi-Fi постійно перемикається на AirDrop/Continuity для пристроїв Apple поруч. Вимкніть Bluetooth на цьому iPhone (Параметри → Bluetooth) або Handoff і AirDrop на Mac і Apple TV поруч."
 	locale.ServerAddress = "Адреса сервера"
 	locale.Token = "Master Key"
 	locale.ConnectButton = "Підключити"

@@ -1045,6 +1045,81 @@ func ShowConnectingToast(message string, maxDuration time.Duration, parent fyne.
 	return handle
 }
 
+// ShowHintToast shows ConnectingToastHandle.ShowError's card (title row with
+// a close X, word-wrapped message) in the alert color as a passing advisory
+// rather than an error: non-dimming, bottom-center, and gone on its own
+// after duration, an outside tap, or the X. Fyne goroutine only.
+func ShowHintToast(title, message string, duration time.Duration, parent fyne.Window) {
+	if parent == nil {
+		return
+	}
+
+	var popup *widget.PopUp
+	var once sync.Once
+	closeHint := func() {
+		once.Do(func() {
+			if popup != nil {
+				popup.Hide()
+			}
+		})
+	}
+
+	msg := widget.NewRichText(&widget.TextSegment{
+		Text: message,
+		Style: widget.RichTextStyle{
+			ColorName: theme.ColorNameForeground,
+			SizeName:  design.SizeNameToastText,
+		},
+	})
+	msg.Wrapping = fyne.TextWrapWord
+
+	titleText := NewBrandText(title, 10, design.ColorAlert, true)
+	headerRow := container.NewBorder(nil, nil, titleText, newToastCloseButton(closeHint))
+	body := container.NewVBox(
+		headerRow,
+		container.NewThemeOverride(msg, toastTextPaddingTheme{Theme: design.NewBrandTheme()}),
+	)
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = confirmToastRadius
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = confirmToastRadius
+	border.StrokeColor = design.ColorAlert
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(
+		bg,
+		NewInset(body, 9, 9, 4, 4),
+		border,
+	)
+
+	popup = ShowOverlayPopup(parent, OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.Transparent,
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			width := minFloat32(canvasSize.Width-margin*2, 360)
+			if width <= 0 {
+				width = canvasSize.Width
+			}
+			// Height for the wrapped text at this width, not the unwrapped
+			// single-line MinSize.
+			panel.Resize(fyne.NewSize(width, panel.MinSize().Height))
+			return fyne.NewSize(width, panel.MinSize().Height)
+		},
+		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
+			bottomMargin := clampFloat32(canvasSize.Height*0.05, 24, 40)
+			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, canvasSize.Height-panelSize.Height-bottomMargin)
+		},
+		OnOutsideTap: closeHint,
+	})
+
+	if duration > 0 {
+		time.AfterFunc(duration, func() { fyne.Do(closeHint) })
+	}
+}
+
 // ShowConnectionErrorDialog is the connection-flow entry point for the
 // same styled error panel ShowErrorDialog now draws -- kept as a named
 // alias so call sites that failed to even start a connecting toast (a

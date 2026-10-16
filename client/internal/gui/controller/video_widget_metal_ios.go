@@ -7,6 +7,7 @@ import (
 	"image"
 	"time"
 
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
@@ -134,6 +135,7 @@ func (vw *VideoWidget) stopMetalVideo() {
 	service.MetalVideoDestroy()
 	service.SetStreamingActive(false) // restore idle timer
 	vw.metalFPSWarned.Store(false)
+	vw.wifiHintShown.Store(false)
 }
 
 var (
@@ -203,6 +205,7 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		return
 	}
 	vw.syncMetalOcclusion()
+	vw.maybeShowWiFiInterferenceHint()
 
 	var clipX, clipY, clipW, clipH float32
 	var contentX, contentY, contentW, contentH float32
@@ -286,6 +289,19 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	service.MetalVideoUpdateLayout(clipX, clipY, clipW, clipH, contentX, contentY, contentW, contentH)
 	// Cursor is on win.layer (window-absolute coords): content origin + UV offset.
 	service.MetalVideoUpdateCursor(contentX+uc, contentY+vc, cursorVisible)
+}
+
+// maybeShowWiFiInterferenceHint tells the user, once per stream, how to stop
+// the AWDL-driven stutter the present thread detected -- iOS gives apps no
+// way to read or change AirDrop/Handoff, so the hint fires on the symptom
+// (see MetalVideoWiFiInterference). Fyne main goroutine only.
+func (vw *VideoWidget) maybeShowWiFiInterferenceHint() {
+	if vw.wifiHintShown.Load() || !service.MetalVideoWiFiInterference() {
+		return
+	}
+	vw.wifiHintShown.Store(true)
+	logrus.Warn("📶 [Metal/iOS] bursty frame arrival (AWDL) -- showing Wi-Fi interference hint")
+	view.ShowHintToast(i18n.Current.WiFiInterferenceTitle, i18n.Current.WiFiInterferenceHint, 12*time.Second, vw.parentWindow)
 }
 
 // metalOcclusion holds the holes pushed to the Metal overlay's mask.

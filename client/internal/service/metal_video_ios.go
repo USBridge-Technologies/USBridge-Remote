@@ -12,6 +12,7 @@ package service
 
 // Implemented in metal_video_impl_ios.m (compiled as a separate translation unit).
 extern int    metal_video_is_active(void);
+extern int    metal_video_wifi_interference(void);
 extern int    metal_video_try_submit(CVImageBufferRef img);
 extern int    metal_video_create(uintptr_t unused, float x, float y, float w, float h);
 extern void   metal_video_update_frame(float x, float y, float w, float h);
@@ -187,6 +188,14 @@ func MetalVideoDestroy() {
 // MetalVideoIsActive reports whether the Metal overlay is live.
 func MetalVideoIsActive() bool {
 	return C.metal_video_is_active() != 0
+}
+
+// MetalVideoWiFiInterference reports whether this stream's frames have been
+// arriving in ~100 ms bursts for several seconds -- the AWDL (AirDrop /
+// Handoff / Continuity) signature; see g_wifiInterference in
+// metal_video_impl_ios.m. Latched until the overlay is recreated.
+func MetalVideoWiFiInterference() bool {
+	return C.metal_video_wifi_interference() != 0
 }
 
 // MetalVideoLastFPS returns the current Metal render FPS from the last ~2s window.
