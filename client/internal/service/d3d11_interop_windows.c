@@ -330,6 +330,16 @@ static DxRing *dx_ring_create(int w, int h, DXGI_FORMAT src_fmt, int hdr_display
         }
         ID3D11VideoContext_VideoProcessorSetStreamAutoProcessingMode(g_dx_vctx, r->vproc, 0, FALSE);
         ID3D11VideoContext_VideoProcessorSetStreamFrameFormat(g_dx_vctx, r->vproc, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+        // Only the frame's w x h: the decoder's surfaces are sized for the
+        // mode the stream asked for (800x600, 1920x1088), and without a
+        // source rect the Blt scales the whole surface into the output. A
+        // host that keeps its desktop's aspect (800x450 for 800x600) then
+        // shows squeezed into the top (or left) with the unused part of the
+        // surface as a black bar, and the mouse maps onto the whole rect.
+        RECT rc = { 0, 0, w, h };
+        ID3D11VideoContext_VideoProcessorSetStreamSourceRect(g_dx_vctx, r->vproc, 0, TRUE, &rc);
+        ID3D11VideoContext_VideoProcessorSetStreamDestRect(g_dx_vctx, r->vproc, 0, TRUE, &rc);
+        ID3D11VideoContext_VideoProcessorSetOutputTargetRect(g_dx_vctx, r->vproc, TRUE, &rc);
     }
     {
         char msg[200];
