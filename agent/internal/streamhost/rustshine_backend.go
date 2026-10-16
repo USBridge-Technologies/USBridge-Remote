@@ -307,8 +307,9 @@ func legacyBinaryName() string {
 
 // BinaryPath resolves the staged usbridge-streamer binary: stateDir/usbridge-streamer/
 // (see entitlement.StagePath's doc comment for why stateDir and not exeDir),
-// falling back to legacy paths and PATH for local dev where it's
-// just been cargo-built and symlinked.
+// falling back to legacy staged paths. Never PATH: on Windows the agent launches
+// this as SYSTEM, and a usbridge-streamer.exe anybody put on PATH would have run
+// as SYSTEM; a local cargo build goes through `-tags devstreamer` instead.
 func (b *rustshineBackend) BinaryPath() string {
 	// `-tags devstreamer` builds only; always "" in release builds.
 	if p := devStreamerOverride(); p != "" {
@@ -338,13 +339,6 @@ func (b *rustshineBackend) BinaryPath() string {
 	}
 	if p := filepath.Join(b.exeDir, "rustshine", legacyBinaryName()); fileExists(p) {
 		return p
-	}
-	// LookPath on PATH
-	if path, err := exec.LookPath(binaryName()); err == nil {
-		return path
-	}
-	if path, err := exec.LookPath(legacyBinaryName()); err == nil {
-		return path
 	}
 	return ""
 }

@@ -34,11 +34,13 @@ func (s sessionProcess) Wait() error {
 
 // launch puts the player on the interactive desktop. The agent normally
 // runs as a Session 0 service, where a window is invisible to both DXGI
-// capture paths, so it goes through sessionlaunch first; an agent started
-// by hand in the user's session lacks SeTcbPrivilege for that and just
-// starts the player directly.
+// capture paths, so it goes through sessionlaunch first -- under the logged-in
+// user's own token: the player is found in places users write to (winget's
+// per-user packages, C:fmpeg), and a SYSTEM launch would have run whatever
+// was put there as SYSTEM. An agent started by hand in the user's session
+// lacks SeTcbPrivilege for that and just starts the player directly.
 func launch(path string, args []string) (process, error) {
-	h, err := sessionlaunch.LaunchInActiveSession(path, args, "", nil, nil, nil)
+	h, err := sessionlaunch.LaunchAsActiveSessionUser(path, args)
 	if err == nil {
 		return sessionProcess{h}, nil
 	}

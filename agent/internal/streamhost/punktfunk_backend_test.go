@@ -301,8 +301,14 @@ func TestPunktfunkBinaryLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(punktfunkBinEnv, external)
-	if got := punktfunkBinaryPath(exeDir); got != external {
-		t.Fatalf("with %s set: %q, want %q", punktfunkBinEnv, got, external)
+	want := external
+	if runtime.GOOS == "windows" {
+		// Launched as SYSTEM there: never a binary from outside the agent's
+		// own install or its signature-checked download.
+		want = ""
+	}
+	if got := punktfunkBinaryPath(exeDir); got != want {
+		t.Fatalf("with %s set: %q, want %q", punktfunkBinEnv, got, want)
 	}
 
 	bundled := filepath.Join(exeDir, "punktfunk", name)

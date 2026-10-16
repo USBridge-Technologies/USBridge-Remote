@@ -201,6 +201,15 @@ func punktfunkBinaryPath(exeDir string) string {
 			return p
 		}
 	}
+	if runtime.GOOS == "windows" {
+		// The agent runs as a LocalSystem service there and launches this as
+		// SYSTEM: only the copy its installer put next to it (Program Files,
+		// admin-only) or the one it downloaded and checked against the
+		// release signature. A punktfunk-host on PATH or named by
+		// punktfunkBinEnv is anybody's -- one dropped into a user-writable PATH
+		// directory would have run as SYSTEM.
+		return ""
+	}
 	if p := os.Getenv(punktfunkBinEnv); p != "" {
 		if _, err := os.Stat(p); err == nil {
 			return p
