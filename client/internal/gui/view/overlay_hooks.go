@@ -151,6 +151,32 @@ func SetNavVideoHidden(hidden bool) {
 	navVideoHidden.Store(hidden)
 }
 
+// modalVideoHidden: a decision dialog that must stay readable is open (the
+// virtual display offer). Unlike a menu it doesn't get a hole: the native
+// video layer can be created -- and start without holes -- while it is open
+// (a stream still connecting), and covered it. See SetModalVideoHidden.
+var modalVideoHidden atomic.Bool
+
+// SetModalVideoHidden hides the native video layer outright while a decision
+// dialog is open (true) and lets it show again (false), then re-syncs it.
+func SetModalVideoHidden(hidden bool) {
+	modalVideoHidden.Store(hidden)
+	if hidden {
+		if OnOverlayShow != nil {
+			OnOverlayShow()
+		}
+		return
+	}
+	if OnOverlayHide != nil && !navVideoHidden.Load() {
+		OnOverlayHide()
+	}
+}
+
+// ModalVideoHidden reports whether a decision dialog hides the native video.
+func ModalVideoHidden() bool {
+	return modalVideoHidden.Load()
+}
+
 // NavVideoHidden reports the current value set by SetNavVideoHidden. Poll
 // this directly on every check rather than caching the result across ticks.
 func NavVideoHidden() bool {

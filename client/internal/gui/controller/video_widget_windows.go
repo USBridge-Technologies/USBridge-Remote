@@ -582,7 +582,7 @@ func (vw *VideoWidget) revealNativeVideoOverlay() {
 		vw.RefreshViewportGeometry()
 		return
 	}
-	if view.NavVideoHidden() {
+	if view.NavVideoHidden() || view.ModalVideoHidden() {
 		service.VKVideoSetHidden(true)
 		return
 	}

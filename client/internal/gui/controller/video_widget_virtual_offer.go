@@ -252,6 +252,12 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 	exclusiveRow, exclusiveChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayExclusive, "", i18n.Current.VirtualDisplayExclusiveHint, 340, true, nil)
 	body := container.NewVBox(modeRow, primaryRow, exclusiveRow)
 
+	// The native video stays hidden while this is open: a stream still
+	// connecting creates its layer, holes reset, over this dialog.
+	view.SetModalVideoHidden(true)
+	var releaseOnce sync.Once
+	releaseVideo := func() { releaseOnce.Do(func() { view.SetModalVideoHidden(false) }) }
+
 	var closePopup func()
 	answered := false
 	answer := func() {
@@ -259,6 +265,7 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 		if closePopup != nil {
 			closePopup()
 		}
+		releaseVideo()
 	}
 	skipBtn := &connectionDialogSecondaryButton{
 		labelText:      i18n.Current.VirtualDisplayOfferSkip,
@@ -336,6 +343,7 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 		footerPadBottom: 8,
 		panelSize:       virtualDisplayOfferPanelSize,
 		onClose: func() {
+			releaseVideo()
 			if !answered && dismissed != nil {
 				answered = true
 				dismissed()

@@ -36,7 +36,7 @@ func (o *overlayOcclusion[H]) reset() { o.applied = nil }
 // Reports whether the video shows and whether the hole list changed (the
 // Fyne pixels under a fresh hole are only as fresh as its last paint).
 func (o *overlayOcclusion[H]) sync(c fyne.Canvas, toHoles func([]view.OverlayRect) []H) (shown, changed bool) {
-	if c == nil || view.NavVideoHidden() {
+	if c == nil || view.NavVideoHidden() || view.ModalVideoHidden() {
 		o.setHidden(true)
 		return false, false
 	}
