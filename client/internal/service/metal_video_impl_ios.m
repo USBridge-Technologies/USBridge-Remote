@@ -81,12 +81,69 @@ static CADisplayLink *g_present_link   = nil; // g_present_thread only
 static CALayer       *g_present_layer  = nil;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
-static CVPixelBufferRef g_pendingBuf = NULL;
-// Timestamp (mono_sec) of the metal_video_try_submit call that produced
-// g_pendingBuf -- see metal_video_impl_darwin.m's identical field for why:
+// Decoded frames waiting for the present display link, oldest first.
+// A single overwrite-in-place slot dropped a frame every time network
+// jitter landed two of them inside one vsync and then had nothing to
+// show on the next one -- ~50 of 60 fps shown, as visible micro-stutter.
+// The queue lets such a pair go out on consecutive vsyncs instead;
+// metal_queue_pop keeps at most one frame of cushion, so a steady
+// backlog never builds into latency. Guarded by g_mu.
+#define METAL_QUEUE_MAX 3
+static CVPixelBufferRef g_queue[METAL_QUEUE_MAX];
+// mono_sec of the metal_video_try_submit call that queued each frame --
+// see metal_video_impl_darwin.m's g_pendingBufSubmitTime for why:
 // diffed against display time to approximate per-frame decode/submit
 // latency without extra plumbing through the VT decode callback.
-static double g_pendingBufSubmitTime = 0.0;
+static double g_queueTime[METAL_QUEUE_MAX];
+static int    g_queueHead = 0, g_queueLen = 0;
+static int64_t g_dropCount = 0;
+
+// g_mu held. Returns the oldest frame (caller owns it), or NULL.
+static CVPixelBufferRef metal_queue_take_oldest(double *submitTime) {
+    if (g_queueLen == 0) return NULL;
+    CVPixelBufferRef buf = g_queue[g_queueHead];
+    if (submitTime) *submitTime = g_queueTime[g_queueHead];
+    g_queue[g_queueHead] = NULL;
+    g_queueHead = (g_queueHead + 1) % METAL_QUEUE_MAX;
+    g_queueLen--;
+    return buf;
+}
+
+// g_mu held. Takes ownership of buf.
+static void metal_queue_push(CVPixelBufferRef buf, double submitTime) {
+    if (g_queueLen == METAL_QUEUE_MAX) {
+        CVPixelBufferRelease(metal_queue_take_oldest(NULL));
+        g_dropCount++;
+    }
+    int i = (g_queueHead + g_queueLen) % METAL_QUEUE_MAX;
+    g_queue[i] = buf;
+    g_queueTime[i] = submitTime;
+    g_queueLen++;
+}
+
+// g_mu held. Next frame to show this vsync; frames beyond one of cushion
+// are dropped so the queue only absorbs jitter, never adds steady delay.
+static CVPixelBufferRef metal_queue_pop(double *submitTime) {
+    while (g_queueLen > 2) {
+        CVPixelBufferRelease(metal_queue_take_oldest(NULL));
+        g_dropCount++;
+    }
+    return metal_queue_take_oldest(submitTime);
+}
+
+// g_mu held. Releases every queued frame.
+static void metal_queue_clear(void) {
+    CVPixelBufferRef b;
+    while ((b = metal_queue_take_oldest(NULL)) != NULL) CVPixelBufferRelease(b);
+    g_queueHead = 0;
+}
+
+// Present-thread pacing stats for the 2 s syslog line: longest gap
+// between two presented frames and slowest CATransaction commit.
+static double g_lastPresentAt = 0.0;
+static double g_maxGapMs      = 0.0;
+static double g_maxCommitMs   = 0.0;
+static int64_t g_lastDropCount = 0;
 
 static int64_t g_submitCount   = 0;
 static int64_t g_renderCount   = 0;
@@ -128,10 +185,19 @@ static void metal_present_buf(CALayer *layer, CVPixelBufferRef buf, double laten
         // Explicit transaction: off the main thread there is no run-loop
         // implicit one to rely on, and disabled actions keep Core
         // Animation from asking the (main-thread) UIView for an action.
+        double t0 = mono_sec();
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
         layer.contents = (__bridge id)surf;
         [CATransaction commit];
+        double t1 = mono_sec();
+        double commitMs = (t1 - t0) * 1000.0;
+        if (commitMs > g_maxCommitMs) g_maxCommitMs = commitMs;
+        if (g_lastPresentAt > 0.0) {
+            double gapMs = (t1 - g_lastPresentAt) * 1000.0;
+            if (gapMs > g_maxGapMs) g_maxGapMs = gapMs;
+        }
+        g_lastPresentAt = t1;
     }
 
     CVPixelBufferRelease(buf);
@@ -177,6 +243,16 @@ static void metal_present_buf(CALayer *layer, CVPixelBufferRef buf, double laten
                  (long long)g_renderCount, (long long)g_submitCount,
                  g_lastW, g_lastH, g_lastKnownDecodeMs);
         goMetalLog(msg, 0);
+        pthread_mutex_lock(&g_mu);
+        int64_t drops = g_dropCount;
+        pthread_mutex_unlock(&g_mu);
+        // logrus never reaches the iOS syslog; this line does.
+        NSLog(@"[USBridge] present: fps=%.1f dropped=%lld maxGapMs=%.1f maxCommitMs=%.1f latencyMs=%.1f",
+              g_lastKnownFps, (long long)(drops - g_lastDropCount),
+              g_maxGapMs, g_maxCommitMs, g_lastKnownDecodeMs);
+        g_lastDropCount = drops;
+        g_maxGapMs      = 0.0;
+        g_maxCommitMs   = 0.0;
         g_fpsStart      = now;
         g_fpsFrames     = 0;
         g_decodeMsSum   = 0.0;
@@ -211,10 +287,9 @@ static UIWindow *_find_key_window(void);
 - (void)presentLinkFired:(CADisplayLink __unused *)link {
     if (!atomic_load(&g_active)) return;
     pthread_mutex_lock(&g_mu);
-    CVPixelBufferRef buf = g_pendingBuf;
-    double submitTime = g_pendingBufSubmitTime;
+    double submitTime = 0.0;
+    CVPixelBufferRef buf = metal_queue_pop(&submitTime);
     CALayer *layer = g_present_layer;
-    g_pendingBuf = NULL;
     pthread_mutex_unlock(&g_mu);
     if (!buf) return;
     double latencyMs = submitTime > 0.0 ? (mono_sec() - submitTime) * 1000.0 : -1.0;
@@ -299,13 +374,9 @@ int metal_video_try_submit(CVImageBufferRef img) {
     CVPixelBufferRetain(img);
 
     pthread_mutex_lock(&g_mu);
-    CVPixelBufferRef old = g_pendingBuf;
-    g_pendingBuf = (CVPixelBufferRef)img;
-    g_pendingBufSubmitTime = mono_sec();
+    metal_queue_push((CVPixelBufferRef)img, mono_sec());
     g_submitCount++;
     pthread_mutex_unlock(&g_mu);
-
-    if (old) CVPixelBufferRelease(old);
     return 1;
 }
 
@@ -439,12 +510,11 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
         pthread_mutex_unlock(&g_hud_pending_mu);
 
         pthread_mutex_lock(&g_mu);
-        CVPixelBufferRef old = g_pendingBuf;
-        g_pendingBuf = NULL;
-        g_pendingBufSubmitTime = 0.0;
+        metal_queue_clear();
+        g_dropCount = 0; g_lastDropCount = 0;
         g_present_layer = ov.layer;
         pthread_mutex_unlock(&g_mu);
-        if (old) CVPixelBufferRelease(old);
+        g_lastPresentAt = 0.0; g_maxGapMs = 0.0; g_maxCommitMs = 0.0;
 
         atomic_store(&g_active, 1);
 
@@ -864,12 +934,9 @@ void metal_video_destroy(void) {
         g_hud_pending_data = nil;
         pthread_mutex_unlock(&g_hud_pending_mu);
         pthread_mutex_lock(&g_mu);
-        CVPixelBufferRef old = g_pendingBuf;
-        g_pendingBuf = NULL;
-        g_pendingBufSubmitTime = 0.0;
+        metal_queue_clear();
         g_present_layer = nil;
         pthread_mutex_unlock(&g_mu);
-        if (old) CVPixelBufferRelease(old);
 
         char msg[128];
         snprintf(msg, sizeof(msg),

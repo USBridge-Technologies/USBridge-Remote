@@ -665,12 +665,10 @@ static int vt_create_session(void) {
     //
     // iOS SDR decodes to the decoder's native 8-bit 4:2:0 too, not BGRA:
     // asking for BGRA makes VT run a full-frame YCbCr->BGRA pass after
-    // every hardware decode (4 bytes/px out vs 1.5), which at 3840x2160 on
-    // an iPhone 8 is ~33 MB written per frame -- enough GPU/memory work
-    // that the stream sat at ~9 fps and only reached ~30 while a finger on
-    // the screen kept iOS's touch performance boost raised. The compositor
-    // takes the biplanar IOSurface as layer contents directly, the same
-    // way the 10-bit HDR format already does.
+    // every hardware decode (4 bytes/px out vs 1.5) -- ~33 MB written per
+    // frame at 3840x2160. The compositor takes the biplanar IOSurface as
+    // layer contents directly, the same way the 10-bit HDR format already
+    // does.
 #if TARGET_OS_IPHONE
     int32_t fmt = ((g_video_format & VT_FORMAT_MASK_10BIT) != 0)
         ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
