@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "869902194056",
-    "project_id": "usbridge-remote-desktop",
-    "storage_bucket": "usbridge-remote-desktop.firebasestorage.app"
+    "project_number": "885670434429",
+    "project_id": "usbridge---android",
+    "storage_bucket": "usbridge---android.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:869902194056:android:031ac3b292b0810343563d",
+        "mobilesdk_app_id": "1:885670434429:android:57c95d139bbd7fc6ea0314",
         "android_client_info": {
           "package_name": "io.usbridge.client"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAvj7uxr72JdPvd2NKr9q-AK5aJkHKHpR8"
+          "current_key": "AIzaSyCKebhqmgU9FJfuRblVvkr2mawQ6krk40g"
         }
       ],
       "services": {

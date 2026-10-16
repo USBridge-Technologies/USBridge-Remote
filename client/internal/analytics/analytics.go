@@ -1,7 +1,8 @@
-// Package analytics records product events. The call sites are shared
-// across platforms; only Android sends them to Firebase. Every other
-// platform compiles an empty implementation, so a call cannot fail a
-// save or a connection and does not wait on the network.
+// Package analytics records product events. The call sites are shared.
+// Android sends them through Firebase. Windows, Linux and macOS send the
+// same event names to the desktop Analytics stream. Every other platform
+// drops them. A call cannot fail a save or a connection and does not wait
+// on the network.
 package analytics
 
 const (

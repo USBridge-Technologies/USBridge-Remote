@@ -125,6 +125,7 @@ func TestContainFitNorm(t *testing.T) {
 func TestPositionToAbsolute_InStreamPillarbox(t *testing.T) {
 	// 16:9 stream of a 16:10 monitor: bars are pixels in the frame, not client chrome.
 	vw := &VideoWidget{}
+	vw.agentProtocol = "pro"
 	vw.lastVideoImgW = 1920
 	vw.lastVideoImgH = 1080
 	vw.setHostDesktopSize(1920, 1200)
@@ -160,6 +161,7 @@ func TestPositionToAbsolute_InStreamPillarbox(t *testing.T) {
 func TestPositionToAbsolute_InStreamLetterbox(t *testing.T) {
 	// 16:10 stream of a 16:9 monitor: bars are top/bottom inside the frame.
 	vw := &VideoWidget{}
+	vw.agentProtocol = "pro"
 	vw.lastVideoImgW = 1920
 	vw.lastVideoImgH = 1200
 	vw.setHostDesktopSize(1920, 1080)
@@ -220,6 +222,7 @@ func TestPositionToAbsolute_SunshineLeavesInStreamBars(t *testing.T) {
 
 func TestSetAgentProtocolSwitchesInStreamCrop(t *testing.T) {
 	vw := &VideoWidget{}
+	vw.agentProtocol = "pro"
 	vw.lastVideoImgW = 1920
 	vw.lastVideoImgH = 1080
 	vw.setHostDesktopSize(1920, 1200)
@@ -227,7 +230,7 @@ func TestSetAgentProtocolSwitchesInStreamCrop(t *testing.T) {
 
 	_, _, fw, _ := vw.getFrameContentRect()
 	if fw >= 0.999 {
-		t.Fatalf("RustShine (default) should crop 16:10-in-16:9, fw=%v", fw)
+		t.Fatalf("RustShine Pro should crop 16:10-in-16:9, fw=%v", fw)
 	}
 
 	vw.SetAgentProtocol("opensource")
@@ -259,8 +262,43 @@ func TestUnknownProtocolUsesSoftwareStreamSpace(t *testing.T) {
 	vw.agentOS = ""
 	vw.updateInStreamContentRect()
 	_, _, fw, _ = vw.getFrameContentRect()
-	if fw >= 0.999 {
-		t.Fatalf("unknown tariff with unknown OS still defaults to KVM crop, fw=%v", fw)
+	if fw != 1 {
+		t.Fatalf("hardware KVM must map the whole capture frame, fw=%v", fw)
+	}
+}
+
+func TestKVM640x480DoesNotCropToLargestMode(t *testing.T) {
+	// Phone-shaped view, VGA capture, 1080p also in the mode list. The
+	// pointer used to be inset to a 16:9 slice of the 4:3 picture.
+	vw := &VideoWidget{}
+	vw.agentOS = "USBridge KVM"
+	vw.lastVideoImgW = 640
+	vw.lastVideoImgH = 480
+	vw.setHostDesktopSize(1920, 1080)
+	vw.UpdateTouchpadAndContentRect(1080, 2400, nil)
+
+	fx, fy, fw, fh := vw.getFrameContentRect()
+	if fx != 0 || fy != 0 || fw != 1 || fh != 1 {
+		t.Fatalf("640x480 KVM frameRect=(%.3f,%.3f,%.3f,%.3f), want full frame", fx, fy, fw, fh)
+	}
+
+	left := vw.contentRectX
+	right := vw.contentRectX + vw.contentRectW
+	top := vw.contentRectY
+	bottom := vw.contentRectY + vw.contentRectH
+	// Portrait phone, 4:3 frame: the picture spans the width and is letterboxed
+	// top and bottom. Those client bars must not be part of the pointer field.
+	if top <= 1 || bottom >= 2399 || right-left < 1000 {
+		t.Fatalf("expected vertical client letterbox, contentRect=(%.1f,%.1f,%.1f,%.1f)", left, top, vw.contentRectW, vw.contentRectH)
+	}
+
+	x, y := vw.PositionToAbsolute(left, top)
+	if x != 0 || y != 0 {
+		t.Errorf("picture top-left = (%d,%d), want (0,0)", x, y)
+	}
+	x, y = vw.PositionToAbsolute(right, bottom)
+	if x != 32767 || y != 32767 {
+		t.Errorf("picture bottom-right = (%d,%d), want (32767,32767)", x, y)
 	}
 }
 
