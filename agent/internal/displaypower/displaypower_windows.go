@@ -4,6 +4,7 @@ package displaypower
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"unsafe"
 
@@ -369,4 +370,26 @@ func detach(id string) error {
 		}
 	}
 	return set("detach", keep, modes, sdcApply|sdcUseSuppliedDisplayConfig|sdcAllowChanges|sdcSaveToDatabase)
+}
+
+var (
+	procOpenInputDesktop = user32.NewProc("OpenInputDesktop")
+	procSetThreadDesktop = user32.NewProc("SetThreadDesktop")
+)
+
+// prepareHelperThread puts the helper's thread on the desktop that receives input.
+// The service starts the helper as LocalSystem in the user's session, where its
+// thread starts on a desktop SetDisplayConfig refuses (ERROR_ACCESS_DENIED, 5) --
+// seen live switching the other monitors off. The streamer does the same before its
+// own display calls (capture-dxgi attach_input_desktop). Best-effort: a plain user
+// process already is on that desktop.
+func prepareHelperThread() {
+	runtime.LockOSThread()
+	const genericAll = 0x10000000
+	h, _, _ := procOpenInputDesktop.Call(0, 0, genericAll)
+	if h == 0 {
+		return
+	}
+	// Not closed: the thread stays on it until the helper exits.
+	procSetThreadDesktop.Call(h)
 }

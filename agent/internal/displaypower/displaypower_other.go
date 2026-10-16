@@ -22,3 +22,5 @@ func OthersOff(st *VirtualState) (*VirtualState, error) { return st, ErrUnsuppor
 
 // OthersOn reports ErrUnsupported off Windows.
 func OthersOn(*VirtualState) error { return ErrUnsupported }
+
+func prepareHelperThread() {}

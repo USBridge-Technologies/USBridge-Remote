@@ -125,6 +125,7 @@ func saveState(path string, st *VirtualState) error {
 // The state file is rewritten after every change, so a crash in between never loses
 // what there is to undo. Returns the process exit code.
 func RunHelper(args []string) int {
+	prepareHelperThread()
 	res := runHelper(args)
 	data, _ := json.Marshal(res)
 	fmt.Println(HelperResultPrefix + string(data))
