@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -106,6 +107,9 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		log.Printf("[app] only the virtual monitor: moved from the stream host's settings to the agent's")
 	}
 
+	// The other-monitors state of the agent before session-long virtual monitors;
+	// the virtual monitor's own (taken off by the stream host backend) restores the desktop.
+	_ = os.Remove(filepath.Join(a.cfg.StateDir, "virtual_others_state.json"))
 	state := a.virtualSessionStatePath()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
