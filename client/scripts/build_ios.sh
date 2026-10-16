@@ -101,6 +101,12 @@ if [ -f "$INFO_PLIST" ]; then
     # it up to match the 16.0 baseline already used for actool below.
     /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string 16.0" "$INFO_PLIST" 2>/dev/null || \
     /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 16.0" "$INFO_PLIST"
+
+    # Export compliance answered in the bundle, so App Store Connect stops
+    # holding every upload for the manual encryption question: the app only
+    # uses exempt encryption.
+    /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$INFO_PLIST"
 fi
 
 # 4b. Rebuild Assets.car via actool with all required icon sizes including 167x167 (iPad Pro)
