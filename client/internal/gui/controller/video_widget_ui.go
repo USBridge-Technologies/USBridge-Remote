@@ -838,6 +838,10 @@ func (vw *VideoWidget) BootstrapControlSessionAsync() {
 		logrus.Info("🎬 control-bootstrap skipped — user explicitly stopped video")
 		return
 	}
+	if vw.holdForConnectVirtualOffer() {
+		// Windows host: the virtual display question starts the stream.
+		return
+	}
 	vw.setDesiredStreaming(true)
 	vw.scheduleVideoReconcile("control-bootstrap")
 }
@@ -1359,6 +1363,7 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	if usbClient != nil {
 		vw.isClosing.Store(false)
 		vw.userStoppedVideo.Store(false)
+		vw.resetConnectVirtualOffer()
 		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
 		vw.PrefetchCaptureModesAsync()
 		go vw.refreshAgentProtocol()

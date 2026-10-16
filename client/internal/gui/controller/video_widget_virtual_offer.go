@@ -16,36 +16,123 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// virtualOfferMinFPS: above this a Windows host's physical monitor is the
-// bottleneck -- Desktop Duplication only gets a new frame per refresh of the
-// captured monitor (60 Hz on most), and DWM composes every attached screen.
-const virtualOfferMinFPS = 60
+// virtualOfferDefaultFPS is what the offer asks for when the saved config is
+// at 60 fps or less: on a Windows host a physical monitor holds capture (and,
+// while it stays on, the whole desktop) to its own refresh, so the virtual
+// display is the way to the higher rate.
+const virtualOfferDefaultFPS = 120
 
 // virtualOfferDeclined holds the device paths the user chose to keep
-// streaming as they are this run, so the offer doesn't come back on every
-// apply.
+// streaming as they are on this connection, so the offer doesn't come back
+// on every apply. Cleared on each new host connection (UpdateClient).
 var virtualOfferDeclined sync.Map
 
-// applyOfferingVirtualDisplay hands cfg to apply, unless the host is Windows,
-// more than 60 fps is asked for and a physical monitor is selected: then it
-// first offers to stream a virtual display at the asked resolution and rate
-// instead, by default the main and the only display (while a 60 Hz monitor
-// stays on, Windows holds the whole desktop at 60 Hz). apply runs off the UI
-// goroutine, with cfg as is or pointed at the virtual display; closing the
-// offer applies nothing.
+// connectVirtualOffer states: the offer shown once per host connection
+// before the first stream start (holdForConnectVirtualOffer).
+const (
+	connectOfferUnchecked int32 = iota
+	connectOfferPending
+	connectOfferDone
+)
+
+// resetConnectVirtualOffer arms the on-connect offer again for a new host
+// connection.
+func (vw *VideoWidget) resetConnectVirtualOffer() {
+	vw.connectVirtualOffer.Store(connectOfferUnchecked)
+	virtualOfferDeclined.Clear()
+}
+
+// holdForConnectVirtualOffer runs on the first control bootstrap after a
+// connect: when the host is Windows and a physical monitor is selected, it
+// asks to stream a virtual display instead (by default the main and the only
+// display -- the only way Windows gives a steady 120 fps at low GPU/CPU
+// load) before anything starts. It returns true while that check or question
+// is open; the answer starts the stream itself.
+func (vw *VideoWidget) holdForConnectVirtualOffer() bool {
+	switch vw.connectVirtualOffer.Load() {
+	case connectOfferDone:
+		return false
+	case connectOfferPending:
+		return true
+	}
+	if !vw.connectVirtualOffer.CompareAndSwap(connectOfferUnchecked, connectOfferPending) {
+		return vw.connectVirtualOffer.Load() == connectOfferPending
+	}
+	go func() {
+		startAsIs := func() {
+			vw.connectVirtualOffer.Store(connectOfferDone)
+			if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
+				return
+			}
+			vw.setDesiredStreaming(true)
+			vw.scheduleVideoReconcile("control-bootstrap")
+		}
+		cfg, ok := vw.connectVirtualOfferConfig()
+		if !ok {
+			startAsIs()
+			return
+		}
+		logrus.Infof("🖥️ Windows host streaming %s: offering a virtual display before the first start", cfg.DevicePath)
+		fyne.Do(func() {
+			vw.showVirtualDisplayOffer(cfg, func(next models.VideoDeviceConfig) {
+				vw.connectVirtualOffer.Store(connectOfferDone)
+				if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
+					return
+				}
+				if err := vw.applyVideoDeviceConfig(next, true); err != nil {
+					logrus.Warnf("⚠️ cannot start video on %s: %v", next.DevicePath, err)
+				}
+			}, func() { go startAsIs() })
+		})
+	}()
+	return true
+}
+
+// connectVirtualOfferConfig resolves the config the stream would start with
+// and whether to offer the virtual display for it; never on the UI goroutine.
+func (vw *VideoWidget) connectVirtualOfferConfig() (models.VideoDeviceConfig, bool) {
+	client := vw.usbClient
+	if client == nil || vw.parentWindow == nil {
+		return models.VideoDeviceConfig{}, false
+	}
+	if strings.TrimSpace(vw.agentOS) == "" {
+		// The OS arrives with the first HID check, which may not have run
+		// yet this early after a connect.
+		if info, err := client.GetDeviceInfo(); err == nil && info != nil {
+			vw.SetAgentEnvironment(info.AgentOS, info.AgentDisplay)
+		}
+	}
+	if !vw.isWindowsAgent() {
+		return models.VideoDeviceConfig{}, false
+	}
+	cfg, err := localPreferredVideoConfig()
+	if err != nil {
+		if cfg, err = vw.resolvePreferredVideoConfig(); err != nil {
+			return models.VideoDeviceConfig{}, false
+		}
+	}
+	return cfg, vw.shouldOfferVirtualDisplay(cfg)
+}
+
+// applyOfferingVirtualDisplay hands cfg to apply, unless the host is Windows
+// and a physical monitor is selected: then it first offers to stream a
+// virtual display at the asked resolution instead, by default the main and
+// the only display (while a 60 Hz monitor stays on, Windows holds the whole
+// desktop at 60 Hz). apply runs off the UI goroutine, with cfg as is or
+// pointed at the virtual display; closing the offer applies nothing.
 func (vw *VideoWidget) applyOfferingVirtualDisplay(cfg models.VideoDeviceConfig, apply func(models.VideoDeviceConfig)) {
 	go func() {
 		if !vw.shouldOfferVirtualDisplay(cfg) {
 			apply(cfg)
 			return
 		}
-		fyne.Do(func() { vw.showVirtualDisplayOffer(cfg, apply) })
+		fyne.Do(func() { vw.showVirtualDisplayOffer(cfg, apply, nil) })
 	}()
 }
 
 // shouldOfferVirtualDisplay asks the agent; never on the UI goroutine.
 func (vw *VideoWidget) shouldOfferVirtualDisplay(cfg models.VideoDeviceConfig) bool {
-	if vw.usbClient == nil || vw.parentWindow == nil || !vw.isWindowsAgent() || cfg.VideoFPS <= virtualOfferMinFPS {
+	if vw.usbClient == nil || vw.parentWindow == nil || !vw.isWindowsAgent() {
 		return false
 	}
 	if cfg.DevicePath == "" || strings.HasPrefix(cfg.DevicePath, "virtual:") {
@@ -72,18 +159,31 @@ func (vw *VideoWidget) shouldOfferVirtualDisplay(cfg models.VideoDeviceConfig) b
 	return true
 }
 
-func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, apply func(models.VideoDeviceConfig)) {
+// showVirtualDisplayOffer asks; apply gets the chosen config off the UI
+// goroutine. dismissed, when set, runs when the offer is closed with X;
+// otherwise closing applies nothing.
+func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, apply func(models.VideoDeviceConfig), dismissed func()) {
 	width, height := cfg.VideoWidth, cfg.VideoHeight
 	if width <= 0 || height <= 0 {
 		width, height = 1920, 1080
 	}
 	fps := cfg.VideoFPS
+	if fps <= 60 {
+		fps = virtualOfferDefaultFPS
+	}
 
 	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 340, true, nil)
 	exclusiveRow, exclusiveChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayExclusive, "", i18n.Current.VirtualDisplayExclusiveHint, 340, true, nil)
 	body := container.NewVBox(primaryRow, exclusiveRow)
 
 	var closePopup func()
+	answered := false
+	answer := func() {
+		answered = true
+		if closePopup != nil {
+			closePopup()
+		}
+	}
 	skipBtn := &connectionDialogSecondaryButton{
 		labelText:      i18n.Current.VirtualDisplayOfferSkip,
 		compact:        true,
@@ -94,19 +194,19 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 		hoverFillColor: color.Transparent,
 		hoverTextColor: design.ColorTextLight,
 		onTapped: func() {
-			if closePopup != nil {
-				closePopup()
-			}
+			answer()
 			virtualOfferDeclined.Store(cfg.DevicePath, true)
+			if dismissed != nil {
+				dismissed()
+				return
+			}
 			go apply(cfg)
 		},
 	}
 	skipBtn.ExtendBaseWidget(skipBtn)
 
 	createBtn := newVirtualDisplayAddButton(func() {
-		if closePopup != nil {
-			closePopup()
-		}
+		answer()
 		primary, exclusive := primaryChecked(), exclusiveChecked()
 		go func() {
 			if _, err := vw.usbClient.AddVirtualDisplay(width, height, fps, primary, exclusive); err != nil {
@@ -114,12 +214,16 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 				fyne.Do(func() {
 					view.ShowErrorDialog(fmt.Errorf("Failed to add virtual display: %v", err), vw.parentWindow)
 				})
+				if dismissed != nil {
+					dismissed()
+				}
 				return
 			}
 			spec := fmt.Sprintf("%dx%d@%d", width, height, fps)
 			next := cfg
 			next.DevicePath = "virtual:" + spec
 			next.DeviceName = "Virtual Display (" + spec + ")"
+			next.VideoWidth, next.VideoHeight, next.VideoFPS = width, height, fps
 			logrus.Infof("🖥️ streaming a virtual display %s instead of %s (primary=%v exclusive=%v)", spec, cfg.DevicePath, primary, exclusive)
 			apply(next)
 		}()
@@ -138,6 +242,12 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 		footerPadTop:    6,
 		footerPadBottom: 8,
 		panelSize:       virtualDisplayOfferPanelSize,
+		onClose: func() {
+			if !answered && dismissed != nil {
+				answered = true
+				dismissed()
+			}
+		},
 	})
 }
 

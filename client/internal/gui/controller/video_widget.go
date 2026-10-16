@@ -337,6 +337,10 @@ type VideoWidget struct {
 	// reconnecting video/audio moments after the user asked to stop, since one
 	// of those timers could still be pending when the stop happened.
 	userStoppedVideo atomic.Bool
+
+	// connectVirtualOffer gates the first stream start after a connect to a
+	// Windows host on the virtual display offer (video_widget_virtual_offer.go).
+	connectVirtualOffer atomic.Int32
 }
 
 func (vw *VideoWidget) Close() {

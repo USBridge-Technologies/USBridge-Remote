@@ -898,7 +898,7 @@ func (vw *VideoWidget) ApplyVideoFPS(fps int) error {
 				if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
 					logrus.Warnf("⚠️ failed to apply fps %d: %v", fps, err)
 				}
-			})
+			}, nil)
 		})
 		return nil
 	}
