@@ -2200,6 +2200,38 @@ static VkDescriptorSet vk_imgview_cache_get(VkImage img, VkFormat fmt, VkYcbcrPi
     return dset;
 }
 
+// Per-stage CPU time of vk_render_frame_vkimage, summed over 5s and logged as
+// one line, so a render rate below the stream rate shows which wait eats the
+// frame budget (copy/decode wait, acquire, previous-frame fence, present).
+enum { VKST_DECODE, VKST_ACQUIRE, VKST_FENCE, VKST_RECORD, VKST_PRESENT, VKST_TOTAL, VKST_N };
+static double g_vkst_sum[VKST_N], g_vkst_max[VKST_N];
+static long   g_vkst_n = 0;
+static double g_vkst_t0 = 0.0;
+
+static void vkst_add(int stage, double sec) {
+    g_vkst_sum[stage] += sec;
+    if (sec > g_vkst_max[stage]) g_vkst_max[stage] = sec;
+}
+
+static void vkst_frame_done(void) {
+    g_vkst_n++;
+    double now = mono_sec();
+    if (g_vkst_t0 == 0.0) { g_vkst_t0 = now; return; }
+    if (now - g_vkst_t0 < 5.0) return;
+    static const char *names[VKST_N] = { "decodeWait", "acquire", "fence", "record", "present", "total" };
+    char msg[512];
+    int o = snprintf(msg, sizeof(msg), "render stages (%.0fs, %ld frames, avg/max ms):",
+                     now - g_vkst_t0, g_vkst_n);
+    for (int i = 0; i < VKST_N && o < (int)sizeof(msg); i++) {
+        o += snprintf(msg + o, sizeof(msg) - o, " %s=%.2f/%.1f", names[i],
+                      g_vkst_sum[i] * 1000.0 / (double)g_vkst_n, g_vkst_max[i] * 1000.0);
+    }
+    goVKLog(msg, 0);
+    memset(g_vkst_sum, 0, sizeof(g_vkst_sum));
+    memset(g_vkst_max, 0, sizeof(g_vkst_max));
+    g_vkst_n = 0; g_vkst_t0 = now;
+}
+
 // vk_render_frame_vkimage — zero-copy counterpart to vk_render_frame: samples
 // a decoded VkImage directly into the swapchain instead of blitting an
 // uploaded RGBA staging texture. Same acquire/fence/present machinery.
@@ -2213,25 +2245,25 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     VkDescriptorSet dset = vk_imgview_cache_get(img, fmt, pl);
     if (!dset) return 0;
 
-    // Host-side wait for this frame's decode: our graphics-queue command
-    // buffer is recorded/submitted strictly after it, so the decode write has
-    // completed before we sample. Waiting on the AVVkFrame's own timeline
-    // semaphore value (read-only -- ffmpeg's frame state is untouched) rather
-    // than vkQueueWaitIdle(decode queue): that also waited for every *newer*
-    // frame ffmpeg had queued since, and touched a VkQueue ffmpeg submits to
-    // from the decode thread without its queue lock.
+    double t_start = mono_sec(), t_stage = t_start;
+    // This frame's decode (AVVkFrame timeline semaphore, or the shared
+    // D3D11 fence after the D3D11VA copy) is waited for on the GPU, by the
+    // queue submit below -- not here on the CPU. A host wait serialised
+    // decode and render: on a Radeon 780M a 4K HEVC frame is ~8.5ms from
+    // hand-off to fence signal, longer than the 8.3ms frame interval at
+    // 120fps, so the render thread rendered only ~90-105 of 120 frames
+    // (2026-10-16). The GPU wait lets the next frame decode while this one
+    // is waited for and presented. Read-only either way: ffmpeg's frame
+    // state is untouched. Not vkQueueWaitIdle(decode queue): that also
+    // waited for every *newer* frame ffmpeg had queued since, and touched a
+    // VkQueue ffmpeg submits to from the decode thread without its queue lock.
     if (wait_sem != VK_NULL_HANDLE) {
-        VkSemaphoreWaitInfo wi = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-        wi.semaphoreCount = 1; wi.pSemaphores = &wait_sem; wi.pValues = &wait_value;
-        VkResult wr = vkWaitSemaphores(g_dev, &wi, 1000000000ULL);
-        if (wr != VK_SUCCESS) {
-            vk_check_device_lost(wr);
-            goVKLog("vkWaitSemaphores(decode) failed/timed out -- skipping frame", 2);
-            return 0;
-        }
+        // waited for in the submit below
     } else if (g_decode_queue) {
         vkQueueWaitIdle(g_decode_queue);
     }
+    double t0 = mono_sec();
+    vkst_add(VKST_DECODE, t0 - t_stage);
 
     uint32_t img_idx = 0;
     // See g_img_sems's doc comment: rotate through the pool since the
@@ -2240,9 +2272,9 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     VkSemaphore this_img_sem = g_img_sems[g_img_sem_next];
     g_img_sem_next = (g_img_sem_next + 1) % g_swap_count;
     g_render_stage = 3; // acquire
-    double t0 = mono_sec();
     VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 3000000000ULL, this_img_sem, VK_NULL_HANDLE, &img_idx);
     double dt = mono_sec() - t0;
+    vkst_add(VKST_ACQUIRE, dt);
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW AcquireNextImage %.0f ms res=%d", dt * 1000.0, (int)res);
         goVKLog(_dbg, 1);
@@ -2265,6 +2297,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     t0 = mono_sec();
     VkResult fence_res = vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
     dt = mono_sec() - t0;
+    vkst_add(VKST_FENCE, dt);
     vk_check_device_lost(fence_res);
     if (fence_res == VK_TIMEOUT) {
         goVKLog("WaitForFences TIMEOUT 2s — GPU hang?", 2);
@@ -2279,6 +2312,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     vk_conceal_debug_log_flow_stats(); // DEBUG: drain any pending flow readback from the stall that just ended
     vk_conceal_maybe_log_summary();
     vk_conceal_consume_prior();
+    t_stage = mono_sec();
 
     // Our own render work reading the previous frame's VkImage is now known
     // to have retired (the fence we just waited on guards exactly that) —
@@ -2456,9 +2490,20 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
 
     vkEndCommandBuffer(g_cmdbuf);
 
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    // Waits: the swapchain image (binary) and, if any, this frame's decode
+    // (timeline, see the comment at the top). ALL_COMMANDS for the decode
+    // wait: the source image's layout barrier is the command buffer's first
+    // use of it.
+    VkSemaphore wait_sems[2] = { this_img_sem, wait_sem };
+    VkPipelineStageFlags wait_stages[2] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+    uint64_t wait_values[2] = { 0, wait_value };
+    VkTimelineSemaphoreSubmitInfo tsi = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+    tsi.waitSemaphoreValueCount = 2; tsi.pWaitSemaphoreValues = wait_values;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &this_img_sem; si.pWaitDstStageMask = &wait_stage;
+    si.waitSemaphoreCount = wait_sem != VK_NULL_HANDLE ? 2 : 1;
+    si.pWaitSemaphores = wait_sems; si.pWaitDstStageMask = wait_stages;
+    if (wait_sem != VK_NULL_HANDLE) si.pNext = &tsi;
     si.commandBufferCount = 1; si.pCommandBuffers = &g_cmdbuf;
     si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sems[img_idx];
     vk_conceal_note_real_frame(conceal_slot);
@@ -2470,8 +2515,13 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
     g_render_stage = 6; // present
     t0 = mono_sec();
+    vkst_add(VKST_RECORD, t0 - t_stage);
     res = vkQueuePresentKHR(g_queue, &pi);
-    dt = mono_sec() - t0;
+    double t_end = mono_sec();
+    dt = t_end - t0;
+    vkst_add(VKST_PRESENT, dt);
+    vkst_add(VKST_TOTAL, t_end - t_start);
+    vkst_frame_done();
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW QueuePresent %.0f ms res=%d", dt * 1000.0, (int)res);
         goVKLog(_dbg, 1);
