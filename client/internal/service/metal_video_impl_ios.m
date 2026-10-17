@@ -585,6 +585,43 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
 // what actually gets uploaded here.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// metal_hud_place positions g_hud_layer in the bottom-right corner of the
+// visible part of the picture (aspect-fit inside g_view, so letterbox bars and
+// the zoomed-off part are excluded) and sizes it with the picture: the canvas
+// is drawn in video-frame pixels, so it shrinks/grows with the zoom like the
+// Android overlay does. Main thread only; the caller owns the CATransaction.
+static void metal_hud_place(int w, int h) {
+    if (!g_hud_layer || !g_clip_view || !g_view || w <= 0 || h <= 0) return;
+    CGRect clip = g_clip_view.bounds;
+    CGRect box = g_view.frame;
+    CGRect pic = box;
+    int fw = g_lastW, fh = g_lastH;
+    CGFloat k = 1.0;
+    if (fw > 0 && fh > 0 && box.size.width > 0 && box.size.height > 0) {
+        CGFloat s = box.size.width / fw;
+        if (box.size.height / fh < s) s = box.size.height / fh;
+        CGFloat pw = fw * s, ph = fh * s;
+        pic = CGRectMake(box.origin.x + (box.size.width - pw) / 2,
+                         box.origin.y + (box.size.height - ph) / 2, pw, ph);
+        k = s;
+    }
+    CGRect vis = CGRectIntersection(pic, clip);
+    if (CGRectIsNull(vis) || vis.size.width <= 0 || vis.size.height <= 0) {
+        g_hud_layer.hidden = YES;
+        return;
+    }
+    g_hud_layer.hidden = NO;
+    k *= metal_hud_scale();
+    CGFloat dw = (CGFloat)w * k, dh = (CGFloat)h * k;
+    CGFloat m = HUD_MARGIN * (fw > 0 ? pic.size.width / fw : 1.0);
+    if (m < 4.0) m = 4.0;
+    CGFloat x = CGRectGetMaxX(vis) - m - dw;
+    if (x < vis.origin.x + m) x = vis.origin.x + m;
+    CGFloat y = CGRectGetMaxY(vis) - m - dh;
+    if (y < vis.origin.y + m) y = vis.origin.y + m;
+    g_hud_layer.frame = CGRectMake(x, y, dw, dh);
+}
+
 static void metal_video_apply_pending_hud_overlay(void) {
     pthread_mutex_lock(&g_hud_pending_mu);
     NSData *data = g_hud_pending_data;
@@ -602,21 +639,9 @@ static void metal_video_apply_pending_hud_overlay(void) {
     CGColorSpaceRelease(cs);
     if (!img) return;
 
-    // Bottom-right anchor: UIKit's origin is top-left (unlike AppKit's
-    // bottom-left, see metal_video_impl_darwin.m's HUD_MARGIN comment), so
-    // BOTH axes need the "push in from the far edge" treatment here.
-    CGRect containerBounds = g_hud_layer.superlayer ? g_hud_layer.superlayer.bounds : CGRectMake(0, 0, (CGFloat)w, (CGFloat)h);
-    float scale = metal_hud_scale();
-    CGFloat dw = (CGFloat)w * scale;
-    CGFloat dh = (CGFloat)h * scale;
-    CGFloat x = containerBounds.size.width - HUD_MARGIN - dw;
-    if (x < HUD_MARGIN) x = HUD_MARGIN;
-    CGFloat y = containerBounds.size.height - HUD_MARGIN - dh;
-    if (y < HUD_MARGIN) y = HUD_MARGIN;
-
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    g_hud_layer.frame = CGRectMake(x, y, dw, dh);
+    metal_hud_place(w, h);
     g_hud_layer.contents = (__bridge id)img;
     [CATransaction commit];
     CGImageRelease(img);
@@ -661,17 +686,9 @@ void metal_video_set_hud_scale(float s) {
         int w = g_hud_pending_w, h = g_hud_pending_h;
         pthread_mutex_unlock(&g_hud_pending_mu);
         if (w <= 0 || h <= 0) return;
-        float scale = metal_hud_scale();
-        CGFloat dw = (CGFloat)w * scale;
-        CGFloat dh = (CGFloat)h * scale;
-        CGRect containerBounds = g_hud_layer.superlayer ? g_hud_layer.superlayer.bounds : CGRectMake(0, 0, dw, dh);
-        CGFloat x = containerBounds.size.width - HUD_MARGIN - dw;
-        if (x < HUD_MARGIN) x = HUD_MARGIN;
-        CGFloat y = containerBounds.size.height - HUD_MARGIN - dh;
-        if (y < HUD_MARGIN) y = HUD_MARGIN;
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
-        g_hud_layer.frame = CGRectMake(x, y, dw, dh);
+        metal_hud_place(w, h);
         [CATransaction commit];
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
@@ -903,6 +920,10 @@ void metal_video_update_layout(float clip_x, float clip_y, float clip_w, float c
         g_view.frame = CGRectMake(vx - fcx, vy - fcy, vw, vh);
         // The mask is cut in clip coordinates; re-cut it when the clip moves.
         if (clipMoved && g_hole_count > 0) metal_apply_holes();
+        pthread_mutex_lock(&g_hud_pending_mu);
+        int hw = g_hud_pending_w, hh = g_hud_pending_h;
+        pthread_mutex_unlock(&g_hud_pending_mu);
+        metal_hud_place(hw, hh);
         [CATransaction commit];
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
