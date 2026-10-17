@@ -171,6 +171,46 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 			log.Printf("[app] session on the virtual monitor: %s %s up (primary=%v, others off=%v, ok=%v)", st.GDIName, spec, primary, exclusive, ok)
 		}
 	}
+	// The other monitors around a stream host's own virtual monitor (Punktfunk).
+	othersState := filepath.Join(a.cfg.StateDir, "virtual_owner_others_state.json")
+	var ownerOffSince, ownerIdleSince time.Time
+	ownerOthers := func(spec string, clientLeft bool) {
+		a.streamMu.Lock()
+		stream := a.stream
+		a.streamMu.Unlock()
+		active := stream != nil && stream.SessionActive()
+		off := displaypower.LoadState(othersState) != nil
+		if spec != "" && a.cfg.VirtualDisplayExclusive && active && !clientLeft {
+			ownerIdleSince = time.Time{}
+			// Again every virtualOthersRecheck; a no-op while the virtual monitor is
+			// the only one, or before the stream host has attached it.
+			if time.Since(ownerOffSince) >= virtualOthersRecheck {
+				run("others off", "others", othersState, "0")
+				if displaypower.LoadState(othersState) != nil {
+					if !off {
+						log.Printf("[app] session on the stream host's virtual monitor -- the other monitors are off")
+					}
+					ownerOffSince = time.Now()
+				}
+			}
+			return
+		}
+		ownerOffSince = time.Time{}
+		if !off {
+			return
+		}
+		if !clientLeft && spec != "" && a.cfg.VirtualDisplayExclusive {
+			if ownerIdleSince.IsZero() {
+				ownerIdleSince = time.Now()
+			}
+			if time.Since(ownerIdleSince) < virtualSessionGrace {
+				return
+			}
+		}
+		ownerIdleSince = time.Time{}
+		run("others back on", "others", othersState, "1")
+		log.Printf("[app] the other monitors are back on")
+	}
 	takeDown := func(why string) {
 		if up == "" && displaypower.LoadState(state) == nil {
 			return
@@ -184,11 +224,15 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			takeDown("agent stopping")
+			ownerOthers("", true)
 			return
 		case <-a.clientLeft:
 			left = true
 			idleSince = time.Time{}
 			takeDown("the client left")
+			if a.streamOwnsVirtualMonitor() {
+				ownerOthers(a.virtualSpec(), true)
+			}
 			continue
 		case starting = <-a.clientStarting:
 			left = false
@@ -196,12 +240,23 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		}
 		spec := a.virtualSpec()
 		if a.streamOwnsVirtualMonitor() {
-			// The stream host attaches its own virtual monitor: hands off.
-			idleSince = time.Time{}
+			// The stream host attaches its own virtual monitor (Punktfunk): the agent
+			// doesn't attach or detach it, but switches the other monitors off around
+			// it -- Punktfunk's MttVDD path only makes it primary, its "exclusive"
+			// topology is for its own driver.
 			if starting != nil {
 				close(starting)
 			}
 			takeDown("the stream host brings up its own virtual monitor")
+			if left {
+				a.streamMu.Lock()
+				stream := a.stream
+				a.streamMu.Unlock()
+				if stream == nil || !stream.SessionActive() {
+					left = false // the session the client left is gone
+				}
+			}
+			ownerOthers(spec, left)
 			continue
 		}
 		if starting != nil {
