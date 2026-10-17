@@ -161,7 +161,11 @@ object VideoSurfaceBridge {
                 if (cw <= 0 || ch <= 0 || !vc.isSizeSupported(cw, ch)) continue
                 val maxFps = vc.getSupportedFrameRatesFor(cw, ch).upper.toInt()
                 if (largest == null) largest = intArrayOf(cw, ch, maxFps)
-                if (maxFps + 1 >= fps) {
+                // Resolution goes down for the rate only above 1080p (4K at 30
+                // on a phone is worse than 1440p at 60); from 1080p down the
+                // picture stays and the rate is capped instead -- a decoder
+                // rated 1080p60 dropped a 1080p120 request to a blurry 720p.
+                if (maxFps + 1 >= fps || ch <= minOf(h, 1080)) {
                     Log.i(TAG, "bestDecoderSize($mime ${w}x$h@$fps): $name -> ${cw}x$ch (max ${maxFps} fps)")
                     return intArrayOf(cw, ch, maxFps)
                 }
