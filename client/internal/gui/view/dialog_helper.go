@@ -766,7 +766,7 @@ func (h *ConnectingToastHandle) Close() {
 			close(h.stopTicker)
 		}
 		fyne.Do(func() {
-			h.popup.Hide()
+			HideOverlayPopup(h.popup)
 		})
 	})
 }
@@ -1059,7 +1059,7 @@ func ShowHintToast(title, message string, duration time.Duration, parent fyne.Wi
 	closeHint := func() {
 		once.Do(func() {
 			if popup != nil {
-				popup.Hide()
+				HideOverlayPopup(popup)
 			}
 		})
 	}

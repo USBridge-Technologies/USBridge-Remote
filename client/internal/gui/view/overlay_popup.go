@@ -387,3 +387,31 @@ func (c *overlayTapCatcher) Tapped(*fyne.PointEvent) {
 func (c *overlayTapCatcher) TappedSecondary(*fyne.PointEvent) {}
 
 var _ fyne.Tappable = (*overlayTapCatcher)(nil)
+
+// HideOverlayPopup hides popup without taking the overlays above it down with
+// it: Fyne's OverlayStack.Remove drops every overlay above the removed one, so
+// a toast closing under a dialog opened after it (the virtual display offer
+// over "Connecting to…") silently took the dialog away too. Fyne goroutine only.
+func HideOverlayPopup(popup *widget.PopUp) {
+	if popup == nil {
+		return
+	}
+	if popup.Canvas == nil {
+		popup.Hide()
+		return
+	}
+	overlays := popup.Canvas.Overlays()
+	var above []fyne.CanvasObject
+	list := overlays.List()
+	for i, o := range list {
+		if o == popup {
+			// Copied: Remove clears the stack's backing array.
+			above = append(above, list[i+1:]...)
+			break
+		}
+	}
+	popup.Hide()
+	for _, o := range above {
+		overlays.Add(o)
+	}
+}

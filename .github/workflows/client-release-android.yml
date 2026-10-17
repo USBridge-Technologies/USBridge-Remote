@@ -28,7 +28,12 @@ name: client-release-android
 #                                provider is allowed to impersonate
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Submit the .aab to Google Play (production); off = build the .apk/.aab artifact only
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -139,12 +144,14 @@ jobs:
         # PLAY_WIF_SERVICE_ACCOUNT via the workload identity pool/provider
         # set up for this exact repo.
         id: gcp-auth
+        if: inputs.publish
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.PLAY_WIF_PROVIDER }}
           service_account: ${{ secrets.PLAY_WIF_SERVICE_ACCOUNT }}
 
       - name: Publish to Google Play (production track)
+        if: inputs.publish
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJson: ${{ steps.gcp-auth.outputs.credentials_file_path }}
