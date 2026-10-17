@@ -354,15 +354,6 @@ func (b *punktfunkBackend) Start(adminPort int) error {
 	}
 	if monitor := b.OutputName(); monitor != "" && !strings.HasPrefix(monitor, punktfunkVirtualPrefix) {
 		extra[punktfunkCaptureMonitorEnv] = monitor
-	} else if strings.HasPrefix(monitor, punktfunkVirtualPrefix) && runtime.GOOS == "windows" {
-		// The virtual monitor is the agent's on Windows, up for a session
-		// (app.virtualOthersWatchdog): Punktfunk captures it by name ("mirror",
-		// creating nothing) instead of attaching the same MttVDD monitor itself
-		// -- both rearranging the displays left its capture reopening twice a
-		// second at 2 fps with no new frame.
-		if gdi := b.agentVirtualMonitorName(); gdi != "" {
-			extra[punktfunkCaptureMonitorEnv] = gdi
-		}
 	}
 	// One line a second while a client streams: frames sent, how many were
 	// new ones (uniq) rather than repeats, and the slowest capture/encode/
@@ -521,18 +512,4 @@ func (b *punktfunkBackend) Ports(basePort int) (tcp []int, udp []int) {
 	udp = []int{basePort + 9, basePort + 10, basePort + 11, basePort + 13}
 	return tcp, udp
 }
-
-// agentVirtualMonitorName is the GDI name the agent's virtual monitor has once up
-// (displaypower.PlannedVirtual), or "" without the MttVDD driver.
-func (b *punktfunkBackend) agentVirtualMonitorName() string {
-	if !virtualDriverInstalled() {
-		return ""
-	}
-	res, err := runDisplayHelper("vname", "-")
-	if err != nil || res.State == nil {
-		log.Printf("[punktfunk] no name for the virtual monitor (%v %s) -- Punktfunk makes its own", err, res.Error)
-		return ""
-	}
-	log.Printf("[punktfunk] streaming the agent's virtual monitor %s (up for sessions only)", res.State.GDIName)
-	return res.State.GDIName
-}
+

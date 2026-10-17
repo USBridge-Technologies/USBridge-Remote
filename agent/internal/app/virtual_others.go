@@ -34,9 +34,32 @@ import (
 // host restart (codec or audio device switch) has the client back within 1-3s.
 const virtualSessionGrace = 3 * time.Second
 
+// virtualSessionStartup is how long after the monitor came up the stream host may
+// still report no session without that ending it: the client announces the session
+// before it starts its stream, and a stream host takes seconds to report one
+// (Punktfunk: ~6s -- the monitor went down under the starting stream).
+const virtualSessionStartup = 30 * time.Second
+
 // virtualOthersRecheck is how often a session checks the other monitors are still
 // off (each check is a helper process in the user's session).
 const virtualOthersRecheck = 10 * time.Second
+
+// virtualMonitorOwner is a stream host that brings up its own virtual monitor
+// (Punktfunk on Windows): the agent then leaves the displays alone and only hands it
+// the "only the virtual monitor" choice (SetVirtualDisplayExclusive).
+type virtualMonitorOwner interface {
+	OwnsVirtualMonitor() bool
+}
+
+// streamOwnsVirtualMonitor reports whether the active stream host attaches its own
+// virtual monitor.
+func (a *App) streamOwnsVirtualMonitor() bool {
+	a.streamMu.Lock()
+	stream := a.stream
+	a.streamMu.Unlock()
+	o, ok := stream.(virtualMonitorOwner)
+	return ok && o.OwnsVirtualMonitor()
+}
 
 // legacyVirtualExclusive is a stream host that kept "only the virtual monitor" itself
 // before.
@@ -114,7 +137,7 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	var idleSince, lastOff time.Time
+	var idleSince, lastOff, upAt time.Time
 	// up: the spec the virtual monitor was brought up in, "" while it is down.
 	up := ""
 	if displaypower.LoadState(state) != nil {
@@ -144,7 +167,7 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		ok := run("up", "apply", state, spec, boolArg(primary), boolArg(exclusive))
 		if st := displaypower.LoadState(state); st != nil {
 			up = spec
-			lastOff = time.Now()
+			lastOff, upAt = time.Now(), time.Now()
 			log.Printf("[app] session on the virtual monitor: %s %s up (primary=%v, others off=%v, ok=%v)", st.GDIName, spec, primary, exclusive, ok)
 		}
 	}
@@ -172,6 +195,15 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		case <-ticker.C:
 		}
 		spec := a.virtualSpec()
+		if a.streamOwnsVirtualMonitor() {
+			// The stream host attaches its own virtual monitor: hands off.
+			idleSince = time.Time{}
+			if starting != nil {
+				close(starting)
+			}
+			takeDown("the stream host brings up its own virtual monitor")
+			continue
+		}
 		if starting != nil {
 			if spec != "" {
 				idleSince = time.Time{}
@@ -212,6 +244,11 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 			continue
 		}
 		if up == "" {
+			continue
+		}
+		if time.Since(upAt) < virtualSessionStartup {
+			// The stream is still starting; only the client saying it left ends it.
+			idleSince = time.Time{}
 			continue
 		}
 		if idleSince.IsZero() {

@@ -1078,6 +1078,13 @@ func (a *App) startSunshineNow() {
 	// fixes a stale output_name for an already-"running" process.
 	a.reconcileOutputName()
 	a.reconcileAudioSink()
+	// A stream host with its own virtual monitor reads "only the virtual monitor"
+	// from its own settings when it starts (Punktfunk's display policy).
+	if o, ok := a.stream.(virtualMonitorOwner); ok && o.OwnsVirtualMonitor() {
+		if err := a.stream.SetVirtualDisplayExclusive(a.cfg.VirtualDisplayExclusive); err != nil {
+			log.Printf("[app] only the virtual monitor -> stream host: %v", err)
+		}
+	}
 	a.applyNvencPrefs(a.stream, a.streamKind)
 	// A Sunshine that failed every encoder with the old value keeps running
 	// without ever re-reading its config, so restart it on a change.
@@ -4634,6 +4641,12 @@ func (a *App) SetVirtualDisplayExclusive(exclusive bool) error {
 		return err
 	}
 	if a.stream != nil {
+		// A stream host that attaches its own virtual monitor (Punktfunk on
+		// Windows) applies the choice itself; every other one keeps its own
+		// switch off.
+		if o, ok := a.stream.(virtualMonitorOwner); ok && o.OwnsVirtualMonitor() {
+			return a.stream.SetVirtualDisplayExclusive(exclusive)
+		}
 		return a.stream.SetVirtualDisplayExclusive(false)
 	}
 	return nil

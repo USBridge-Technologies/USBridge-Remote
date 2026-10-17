@@ -3,6 +3,8 @@ package streamhost
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
 )
 
@@ -91,13 +93,62 @@ func (b *punktfunkBackend) RawHIDSupported() bool {
 	return streamerHasUSBBridge(b.binaryPath(), "usbridge-bridge", nil)
 }
 
-// VirtualDisplayPrimary: on Windows the agent brings its virtual monitor up for a
-// Punktfunk session too, and makes it the primary display as Punktfunk itself
-// did (pf-vdisplay: primary=true). The choice isn't kept per backend here.
+// VirtualDisplayPrimary: Punktfunk makes its virtual display the primary one
+// (display-settings.json topology "primary" or "exclusive", see
+// SetVirtualDisplayExclusive).
 func (b *punktfunkBackend) VirtualDisplayPrimary() bool { return runtime.GOOS == "windows" }
+
+// OwnsVirtualMonitor: on Windows Punktfunk attaches the MttVDD monitor for its
+// sessions itself (pf-vdisplay's mttvdd backend) and captures it in-process with
+// DXGI duplication; streaming a monitor someone else attached would take its
+// Windows.Graphics.Capture worker (slower, and a separate process). So the agent
+// leaves the displays to it during Punktfunk sessions (app.virtualOthersWatchdog)
+// -- both rearranging them left its capture reopening twice a second at 2 fps.
+func (b *punktfunkBackend) OwnsVirtualMonitor() bool { return runtime.GOOS == "windows" }
 
 // SetVirtualDisplayPrimary: see VirtualDisplayPrimary.
 func (b *punktfunkBackend) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
 
-// SetVirtualDisplayExclusive: see VirtualDisplayPrimary.
-func (b *punktfunkBackend) SetVirtualDisplayExclusive(bool) error { return nil }
+// SetVirtualDisplayExclusive carries the agent's "only the virtual monitor" to
+// Punktfunk's display policy (display-settings.json in its config dir): topology
+// "exclusive" switches the physical monitors off for a session, "primary" leaves
+// them on with the virtual one primary. Punktfunk's own default ("auto") is
+// exclusive on Windows. Read when Punktfunk starts; the other policy fields are
+// kept as they are.
+func (b *punktfunkBackend) SetVirtualDisplayExclusive(exclusive bool) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	dir := b.punktfunkConfigDir()
+	if dir == "" {
+		return nil
+	}
+	path := filepath.Join(dir, "display-settings.json")
+	policy := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &policy)
+	}
+	topology := "primary"
+	if exclusive {
+		topology = "exclusive"
+	}
+	if policy["topology"] == topology {
+		return nil
+	}
+	policy["topology"] = topology
+	if _, ok := policy["version"]; !ok {
+		policy["version"] = 1
+	}
+	data, err := json.MarshalIndent(policy, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
