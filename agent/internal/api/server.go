@@ -838,6 +838,14 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	if selected == nil && strings.HasPrefix(requested, "virtual:") {
+		// The virtual display isn't among the captured monitors (it is up
+		// only for a session); answering with the first physical monitor's
+		// modes offered a 4K virtual display 1024x768 and below.
+		if vd, ok := virtualDeviceInfo(requested); ok {
+			selected = &vd
+		}
+	}
 	if selected == nil && len(devices) > 0 {
 		selected = &devices[0]
 	}
@@ -1289,14 +1297,57 @@ func (s *Server) addVirtualEntryLocked(path string) VideoDeviceInfo {
 			return existing
 		}
 	}
-	vd := VideoDeviceInfo{
-		Name:      "Virtual Display (" + strings.TrimPrefix(path, "virtual:") + ")",
-		Path:      path,
-		Bus:       "virtual",
-		Connected: true,
+	vd, ok := virtualDeviceInfo(path)
+	if !ok {
+		vd = VideoDeviceInfo{
+			Name:      "Virtual Display (" + strings.TrimPrefix(path, "virtual:") + ")",
+			Path:      path,
+			Bus:       "virtual",
+			Connected: true,
+		}
 	}
 	s.virtualDisplays = append(s.virtualDisplays, vd)
 	return vd
+}
+
+// virtualStreamResolutions are the stream sizes offered below a virtual
+// display's own (the client downscales to them), highest first.
+var virtualStreamResolutions = []struct{ w, h int }{
+	{3840, 2160}, {3440, 1440}, {2560, 1600}, {2560, 1440}, {1920, 1200}, {1920, 1080}, {1600, 900}, {1280, 800}, {1280, 720},
+}
+
+var virtualStreamFPS = []int{30, 60, 90, 120, 144, 165, 240}
+
+// virtualDeviceInfo is the device entry of a "virtual:WxH@HZ" path, with its
+// own mode first and the standard sizes that fit in it after, each at the
+// usual rates up to its own.
+func virtualDeviceInfo(path string) (VideoDeviceInfo, bool) {
+	m, err := displaypower.ParseMode(strings.TrimPrefix(path, "virtual:"))
+	if err != nil {
+		return VideoDeviceInfo{}, false
+	}
+	// The display refreshes at its own rate: nothing above it, that one last
+	// (video/info's default).
+	var fps []int
+	for _, f := range virtualStreamFPS {
+		if f < m.Hz {
+			fps = append(fps, f)
+		}
+	}
+	fps = append(fps, m.Hz)
+	modes := []VideoCaptureMode{{Width: m.Width, Height: m.Height, FPS: fps, PixelFormat: "BGRA"}}
+	for _, r := range virtualStreamResolutions {
+		if r.w <= m.Width && r.h <= m.Height && (r.w != m.Width || r.h != m.Height) {
+			modes = append(modes, VideoCaptureMode{Width: r.w, Height: r.h, FPS: fps, PixelFormat: "BGRA"})
+		}
+	}
+	return VideoDeviceInfo{
+		Name:           "Virtual Display (" + m.String() + ")",
+		Path:           path,
+		Bus:            "virtual",
+		Connected:      true,
+		SupportedModes: modes,
+	}, true
 }
 
 func isVkmsConnector(d VideoDeviceInfo) bool {
@@ -1382,6 +1433,7 @@ func (s *Server) outputNameForMonitor(id string) string {
 	}
 	name := ""
 	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(300 * time.Millisecond) {
+		on := false
 		for _, d := range s.app.VideoDevices() {
 			if d.MonitorID != id {
 				continue
@@ -1390,8 +1442,11 @@ func (s *Server) outputNameForMonitor(id string) string {
 				return stripDevicePrefix(d.Path)
 			}
 			name = strings.TrimSuffix(d.Name, " (off)")
+			// Listed by its device path while on: the stream host has no
+			// list of its own, nothing more will show up.
+			on = d.Enabled != nil && *d.Enabled
 		}
-		if time.Now().After(deadline) {
+		if on || time.Now().After(deadline) {
 			break
 		}
 	}

@@ -21,6 +21,9 @@ type Monitor struct {
 	Primary bool `json:"primary,omitempty"`
 	// Virtual: the MttVDD virtual monitor.
 	Virtual bool `json:"virtual,omitempty"`
+	// Width, Height: the desktop size of an active monitor.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 }
 
 var (

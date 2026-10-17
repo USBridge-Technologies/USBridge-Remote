@@ -150,6 +150,14 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 		return withMonitorPower(out, gdi)
 	}
 
+	// No device list from the stream host (Vibepollo/Sunshine before their
+	// first start): the monitors as the user's desktop has them. The agent
+	// is a service, and enumerating from session 0 sees one fake 1024x768
+	// display instead of them.
+	if listed := sessionMonitorDevices(); len(listed) > 0 {
+		return listed
+	}
+
 	out := make([]api.VideoDeviceInfo, 0, screenshot.NumActiveDisplays())
 	for i := 0; i < screenshot.NumActiveDisplays(); i++ {
 		bounds := screenshot.GetDisplayBounds(i)
@@ -164,6 +172,54 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 	}
 	// kbinani/screenshot indexes displays in EnumDisplayMonitors order.
 	return withMonitorPower(out, monitors.GDINames())
+}
+
+// sessionMonitorDevices lists the physical monitors of the user's desktop by
+// their device path ("monitor:<id>", which video_set_device resolves to the
+// stream host's name for it), the active ones with their modes, the
+// switched-off ones after them; nil when that list can't be had. The
+// virtual monitor is listed by the API as its "virtual:" entry instead.
+func sessionMonitorDevices() []api.VideoDeviceInfo {
+	all, err := displaypower.ListInSession()
+	if err != nil {
+		return nil
+	}
+	var out []api.VideoDeviceInfo
+	for _, m := range all {
+		if m.Virtual || !m.Active || m.Width <= 0 || m.Height <= 0 {
+			continue
+		}
+		on := true
+		out = append(out, api.VideoDeviceInfo{
+			Path:           "monitor:" + m.ID,
+			Name:           fmt.Sprintf("%s (%dx%d)", m.Name, m.Width, m.Height),
+			Bus:            "dxgi",
+			Index:          len(out),
+			Connected:      true,
+			SupportedModes: ModesForResolution(m.Width, m.Height),
+			MonitorID:      m.ID,
+			Enabled:        &on,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	for _, m := range all {
+		if m.Virtual || m.Active {
+			continue
+		}
+		off := false
+		out = append(out, api.VideoDeviceInfo{
+			Path:      "monitor:" + m.ID,
+			Name:      m.Name + " (off)",
+			Bus:       "dxgi",
+			Index:     len(out),
+			Connected: false,
+			MonitorID: m.ID,
+			Enabled:   &off,
+		})
+	}
+	return out
 }
 
 // withMonitorPower adds the on/off switch (displaypower) to the listed monitors -- gdi[i]

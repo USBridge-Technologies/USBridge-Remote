@@ -91,6 +91,11 @@ func (m *modeInfo) position() (int32, int32) {
 	return *(*int32)(unsafe.Pointer(&m.Union[12])), *(*int32)(unsafe.Pointer(&m.Union[16]))
 }
 
+// size is a source mode's width and height (DISPLAYCONFIG_SOURCE_MODE).
+func (m *modeInfo) size() (int, int) {
+	return int(*(*uint32)(unsafe.Pointer(&m.Union[0]))), int(*(*uint32)(unsafe.Pointer(&m.Union[4])))
+}
+
 func (m *modeInfo) setPosition(x, y int32) {
 	*(*int32)(unsafe.Pointer(&m.Union[12])) = x
 	*(*int32)(unsafe.Pointer(&m.Union[16])) = y
@@ -219,6 +224,7 @@ func List() ([]Monitor, error) {
 			if idx := a.Source.ModeInfoIdx; int(idx) < len(modes) && modes[idx].InfoType == modeTypeSource {
 				x, y := modes[idx].position()
 				m.Primary = x == 0 && y == 0
+				m.Width, m.Height = modes[idx].size()
 			}
 			break
 		}
