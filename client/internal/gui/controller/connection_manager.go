@@ -169,6 +169,13 @@ type ConnectionManager struct {
 	syncPushTimer *time.Timer
 	syncLastError string
 	syncPollStop  chan struct{}
+	// syncEditGen counts local edits that need pushing; a push that
+	// started at an older generation leaves the state dirty.
+	syncEditGen uint64
+
+	// syncOpMu serializes whole pull/push round trips so a poll pull and
+	// a debounced push can't interleave and clobber each other's version.
+	syncOpMu sync.Mutex
 }
 
 func (cm *ConnectionManager) ResolveMasterKey(host, currentMasterKey string) string {
@@ -311,7 +318,12 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 		cm.notifyAccountState()
 	})
 	cm.Account.SetBeforeLogout(cm.flushSyncPush)
-	go cm.trySyncPullAndMerge()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		cm.Account.RefreshTokenIfStale(ctx)
+		cancel()
+		cm.trySyncPullAndMerge()
+	}()
 	cm.startConnectionsSyncPolling()
 	return cm
 }

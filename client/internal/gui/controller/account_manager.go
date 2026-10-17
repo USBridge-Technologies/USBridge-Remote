@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,12 @@ import (
 // trip is seconds, not minutes; this just stops an abandoned attempt (tab
 // closed, never finished) from polling forever.
 const accountLoginPollTimeout = 5 * time.Minute
+
+// accountTokenRefreshAhead is how long before the account token's exp the
+// client trades it for a fresh one. The token lives 30 days (backend
+// deviceAuth.ts); without renewal the app kept showing "logged in" while
+// every sync call quietly got 401 and connections stopped syncing.
+const accountTokenRefreshAhead = 10 * 24 * time.Hour
 
 // AccountManager owns the USBridge account login (see internal/account --
 // Google login, same identity as billing.usbridge.io/manage) for the
@@ -51,6 +59,14 @@ type AccountManager struct {
 	loginInProgress bool
 	pollCancel      context.CancelFunc
 	lastError       string
+	// sessionExpired: the backend rejected the token and refresh failed too
+	// -- the UI says so instead of showing a healthy login. Cleared by a
+	// successful refresh or a new login.
+	sessionExpired bool
+
+	// refreshMu serializes RefreshToken so a burst of 401s (poll + push)
+	// does a single network round trip.
+	refreshMu sync.Mutex
 
 	// licensesCache/licensesCached/licensesErr: the last successful (or
 	// failed) Licenses() fetch for the CURRENT login, kept here rather than
@@ -220,6 +236,103 @@ func (am *AccountManager) AccountToken() (token string, ok bool) {
 	return am.accountToken, true
 }
 
+// SessionExpired reports that the backend rejected this login and it could
+// not be renewed -- sync is stopped until the user logs in again.
+func (am *AccountManager) SessionExpired() bool {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	return am.sessionExpired
+}
+
+// RefreshToken renews the account token (see account.RefreshToken) and
+// returns the new one. `rejected` is the token the caller just saw a 401
+// for: if another goroutine already replaced it, that newer token is
+// returned without another round trip. Pass "" to force a refresh of the
+// current token. On a definitive 401 the session is marked expired; a
+// network error leaves state alone so the next tick retries.
+func (am *AccountManager) RefreshToken(ctx context.Context, rejected string) (string, error) {
+	am.refreshMu.Lock()
+	defer am.refreshMu.Unlock()
+
+	am.mu.Lock()
+	token := am.accountToken
+	am.mu.Unlock()
+	if token == "" {
+		return "", fmt.Errorf("not logged in")
+	}
+	if rejected != "" && rejected != token {
+		return token, nil
+	}
+
+	result, err := account.RefreshToken(ctx, token)
+	if err != nil {
+		if errors.Is(err, account.ErrUnauthorized) {
+			msg := "Session expired — connections are not syncing. Log out and log in again."
+			if i18n.Current != nil && i18n.Current.AccountSessionExpired != "" {
+				msg = i18n.Current.AccountSessionExpired
+			}
+			am.mu.Lock()
+			changed := !am.sessionExpired
+			am.sessionExpired = true
+			am.lastError = msg
+			am.mu.Unlock()
+			if changed {
+				logrus.Warnf("account: token rejected and refresh refused -- session expired, re-login needed")
+				am.notify()
+			}
+		}
+		return "", err
+	}
+
+	am.mu.Lock()
+	if am.accountToken != token {
+		// Logged out or re-logged in while the request was in flight.
+		current := am.accountToken
+		am.mu.Unlock()
+		return current, nil
+	}
+	if result.Email != "" && !stringsEqualFoldTrim(result.Email, am.email) {
+		am.mu.Unlock()
+		return "", fmt.Errorf("account: refresh returned a different account")
+	}
+	am.accountToken = result.AccountToken
+	wasExpired := am.sessionExpired
+	am.sessionExpired = false
+	if wasExpired {
+		am.lastError = ""
+	}
+	am.save()
+	am.mu.Unlock()
+	logrus.Infof("account: token refreshed (valid %s)", time.Duration(result.ExpiresIn)*time.Second)
+	if wasExpired {
+		am.notify()
+	}
+	return result.AccountToken, nil
+}
+
+// RefreshTokenIfStale renews the token when it is within
+// accountTokenRefreshAhead of exp (or already past it). Cheap when nothing
+// needs doing: only parses the local token.
+func (am *AccountManager) RefreshTokenIfStale(ctx context.Context) {
+	am.mu.Lock()
+	token := am.accountToken
+	am.mu.Unlock()
+	if token == "" {
+		return
+	}
+	exp, ok := account.TokenExpiry(token)
+	if !ok || time.Until(exp) > accountTokenRefreshAhead {
+		return
+	}
+	if _, err := am.RefreshToken(ctx, ""); err != nil {
+		logrus.Warnf("account: token refresh failed: %v", err)
+	}
+}
+
+func stringsEqualFoldTrim(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
 func (am *AccountManager) setError(msg string) {
 	am.mu.Lock()
 	am.loginInProgress = false
@@ -315,6 +428,7 @@ func (am *AccountManager) pollLogin(ctx context.Context, code string) {
 		am.accountToken = result.AccountToken
 		am.loginInProgress = false
 		am.lastError = ""
+		am.sessionExpired = false
 		am.save()
 		am.mu.Unlock()
 		am.notify()
@@ -396,6 +510,7 @@ func (am *AccountManager) Logout() {
 	am.accountToken = ""
 	am.syncKey = nil
 	am.lastError = ""
+	am.sessionExpired = false
 	am.licensesCached = false
 	am.licensesCache = nil
 	am.licensesErr = nil

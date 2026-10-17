@@ -282,6 +282,11 @@ func (cm *ConnectionManager) loadConnections() {
 		cm.connections = filtered
 		needsSave = true
 	}
+	if deduped := dedupeSavedConnections(cm.connections); len(deduped) != len(cm.connections) {
+		logrus.Infof("connections: dropped %d duplicate row(s)", len(cm.connections)-len(deduped))
+		cm.connections = deduped
+		needsSave = true
+	}
 
 	for i := range cm.connections {
 		internalHost, tailscaleHost := classifyConnectionHosts(cm.connections[i])
@@ -314,4 +319,27 @@ func (cm *ConnectionManager) loadConnections() {
 	if needsSave {
 		cm.saveConnections()
 	}
+}
+
+// dedupeSavedConnections drops exact repeats (same master key, same
+// addresses) -- older builds paired every remote row sharing a master key
+// with one local row and wrote the copies back to connections.json.
+func dedupeSavedConnections(conns []SavedConnection) []SavedConnection {
+	out := make([]SavedConnection, 0, len(conns))
+	for _, c := range conns {
+		dup := false
+		for _, o := range out {
+			if connectionSyncKey(o) == connectionSyncKey(c) &&
+				strings.EqualFold(strings.TrimSpace(o.InternalHost), strings.TrimSpace(c.InternalHost)) &&
+				strings.EqualFold(strings.TrimSpace(o.TailscaleHost), strings.TrimSpace(c.TailscaleHost)) &&
+				strings.EqualFold(strings.TrimSpace(o.Host), strings.TrimSpace(c.Host)) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, c)
+		}
+	}
+	return out
 }

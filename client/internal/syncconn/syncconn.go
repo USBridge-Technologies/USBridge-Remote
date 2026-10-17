@@ -237,10 +237,18 @@ func Push(ctx context.Context, accountToken, kind string, key, plaintext []byte,
 	return out.Version, nil
 }
 
+// ErrUnauthorized matches (errors.Is) any 401 from the sync endpoints --
+// the account token expired or is invalid. Callers refresh it and retry.
+var ErrUnauthorized = errors.New("syncconn: account token rejected (401)")
+
 type httpStatusError struct {
 	status int
 	body   []byte
 	path   string
+}
+
+func (e *httpStatusError) Is(target error) bool {
+	return target == ErrUnauthorized && e.status == http.StatusUnauthorized
 }
 
 func (e *httpStatusError) Error() string {

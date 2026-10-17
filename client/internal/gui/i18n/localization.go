@@ -216,6 +216,8 @@ type LocalizedStrings struct {
 	AccountPassphrasePlaceholder      string
 	AccountSetPassphrase              string
 	AccountLoginTimeout               string
+	AccountSessionExpired             string
+	AccountSyncFailed                 string
 	AccountLoginExpired               string
 	TailscaleSignInGoogle             string
 	TailscaleSignOut                  string
@@ -984,6 +986,8 @@ func EN() *LocalizedStrings {
 		AccountPassphrasePlaceholder:      "Sync passphrase",
 		AccountSetPassphrase:              "Set passphrase",
 		AccountLoginTimeout:               "Didn't detect a completed login yet — try \"Log in\" again.",
+		AccountSessionExpired:             "Session expired — connections are not syncing. Log out and log in again.",
+		AccountSyncFailed:                 "Connections sync failed, will retry: %s",
 		AccountLoginExpired:               "Login link expired — click \"Log in\" again.",
 		TailscaleSignInGoogle:             "Sign In With Google",
 		TailscaleSignOut:                  "Sign Out",
@@ -1789,6 +1793,8 @@ func ES() *LocalizedStrings {
 	locale.AccountPassphrasePlaceholder = "Sync passphrase"
 	locale.AccountSetPassphrase = "Poner passphrase"
 	locale.AccountLoginTimeout = "No se completo el login — prueba \"Entrar\" otra vez."
+	locale.AccountSessionExpired = "La sesion expiro — las conexiones no se sincronizan. Sal y vuelve a entrar."
+	locale.AccountSyncFailed = "Fallo la sincronizacion de conexiones, se reintentara: %s"
 	locale.AccountLoginExpired = "El enlace de login expiro — pulsa \"Entrar\" otra vez."
 	locale.TailscaleSignInGoogle = "Entrar con Google"
 	locale.TailscaleSignOut = "Salir"
@@ -2285,6 +2291,8 @@ func UKProper() *LocalizedStrings {
 	locale.AccountPassphrasePlaceholder = "Sync passphrase"
 	locale.AccountSetPassphrase = "Задати passphrase"
 	locale.AccountLoginTimeout = "Логін не завершено — спробуйте «Увійти» ще раз."
+	locale.AccountSessionExpired = "Сесія завершилась — підключення не синхронізуються. Вийдіть і увійдіть знову."
+	locale.AccountSyncFailed = "Помилка синхронізації підключень, буде повтор: %s"
 	locale.AccountLoginExpired = "Посилання логіну прострочене — натисніть «Увійти» знову."
 	locale.TailscaleSignInGoogle = "Увійти з Google"
 	locale.TailscaleSignOut = "Вийти"

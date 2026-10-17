@@ -251,6 +251,10 @@ func (mw *MainWindow) showAccountDialog() {
 				errText := canvas.NewText(errMsg, design.ColorAlert)
 				errText.TextSize = 11
 				identityBody.Add(errText)
+			} else if syncErr := cm.SyncLastError(); syncErr != "" && am.HasSyncKey() {
+				errLabel := widget.NewLabel(fmt.Sprintf(i18n.Current.AccountSyncFailed, syncErr))
+				errLabel.Wrapping = fyne.TextWrapWord
+				identityBody.Add(wrapAccountField(errLabel, 11, design.ColorAlert))
 			}
 
 			identityBody.Add(newAccountDivider())

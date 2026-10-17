@@ -2369,7 +2369,9 @@ func (cm *ConnectionManager) handleDeleteConnection(idx int, afterDelete func())
 			fyne.Do(func() {
 				cm.window.Canvas().Focus(nil)
 			})
+			deleted := cm.connections[idx]
 			cm.connections = append(cm.connections[:idx], cm.connections[idx+1:]...)
+			cm.noteConnectionDeleted(deleted)
 			cm.selectedIndex = -1
 			cm.editingGridIndex = -1
 			cm.editingListIndex = -1

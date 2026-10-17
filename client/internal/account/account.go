@@ -24,9 +24,11 @@ package account
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -161,6 +163,52 @@ func DeleteAccount(ctx context.Context, accountToken string) error {
 	return nil
 }
 
+// ErrUnauthorized is what a 401 from the backend unwraps to: the account
+// token is expired, forged, or past the refresh grace window.
+var ErrUnauthorized = errors.New("account: not authenticated")
+
+// TokenExpiry reads the exp field of a "<b64url(email)>.<exp>.<hmac>"
+// account token (see the backend's googleOAuth.ts signSessionValue). It is
+// only a hint for when to refresh -- the server still checks the signature.
+// ok is false for anything that does not look like such a token.
+func TokenExpiry(token string) (exp time.Time, ok bool) {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return time.Time{}, false
+	}
+	sec, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || sec <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(sec, 0), true
+}
+
+// RefreshResult is RefreshToken's answer: a new token with a full TTL.
+type RefreshResult struct {
+	Email        string
+	AccountToken string
+	ExpiresIn    int
+}
+
+// RefreshToken trades accountToken for a fresh one (POST
+// /v1/account/token/refresh). The backend also accepts a token that expired
+// recently, so a client that sat closed for a while recovers without a new
+// Google login. Returns an error wrapping ErrUnauthorized when it cannot.
+func RefreshToken(ctx context.Context, accountToken string) (*RefreshResult, error) {
+	var out struct {
+		Email        string `json:"email"`
+		AccountToken string `json:"account_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := doJSON(ctx, http.MethodPost, "/v1/account/token/refresh", nil, accountToken, &out); err != nil {
+		return nil, err
+	}
+	if out.AccountToken == "" {
+		return nil, fmt.Errorf("account: refresh returned no token")
+	}
+	return &RefreshResult{Email: out.Email, AccountToken: out.AccountToken, ExpiresIn: out.ExpiresIn}, nil
+}
+
 func doJSON(ctx context.Context, method, path string, body []byte, bearer string, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -186,6 +234,9 @@ func doJSON(ctx context.Context, method, path string, body []byte, bearer string
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("%w (%s)", ErrUnauthorized, path)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("account: %s: HTTP %d: %s", path, resp.StatusCode, truncate(respBody))
