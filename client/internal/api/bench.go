@@ -13,6 +13,9 @@ import (
 type BenchStatus struct {
 	ActiveBackend     string   `json:"active_backend"`
 	AvailableBackends []string `json:"available_backends"`
+	// ListedBackends: every streamer the host's OS has (empty on agents from
+	// before this existed).
+	ListedBackends []string `json:"listed_backends"`
 	Video             struct {
 		Player      string `json:"player"`
 		Content     string `json:"content"`

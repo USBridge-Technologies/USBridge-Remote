@@ -125,10 +125,11 @@ func openBenchmarkSetup(t *testing.T, mw *MainWindow, w fyne.Window) {
 }
 
 func tap(o fyne.CanvasObject) {
-	if o == nil {
+	t, ok := o.(fyne.Tappable)
+	if !ok {
 		return
 	}
-	fyne.DoAndWait(func() { test.Tap(o) })
+	fyne.DoAndWait(func() { test.Tap(t) })
 }
 
 func sampleBenchResult() *benchmarkResult {

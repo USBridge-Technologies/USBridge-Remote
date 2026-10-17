@@ -30,6 +30,11 @@ func (m *mockConn) Close() error {
 }
 
 func TestWebRTCAPITransport(t *testing.T) {
+	// Another test's failed channel open leaves the tunnel marked down, which
+	// would send this request to the real network.
+	apiTunnelDownUntil.Store(0)
+	t.Cleanup(func() { apiTunnelDownUntil.Store(0) })
+
 	// Create a mock agent API response
 	respStr := "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 13\r\n\r\n{\"ok\": true}\n"
 	

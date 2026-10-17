@@ -43,8 +43,10 @@ func BenchBackendColor(backend string) color.RGBA {
 		return color.RGBA{0x3d, 0xd6, 0xc6, 0xff}
 	case "punktfunk":
 		return color.RGBA{0xc8, 0x5a, 0xff, 0xff}
+	case "vibepollo":
+		return color.RGBA{0x5a, 0x8c, 0xff, 0xff}
 	}
-	return color.RGBA{0xc8, 0x5a, 0xff, 0xff}
+	return color.RGBA{0xa0, 0xa0, 0xa0, 0xff}
 }
 
 // BenchBackendLabel is the display name of a backend kind.
@@ -56,6 +58,8 @@ func BenchBackendLabel(backend string) string {
 		return "USBridge Streamer"
 	case "punktfunk":
 		return "Punktfunk"
+	case "vibepollo":
+		return "Vibepollo"
 	}
 	return backend
 }

@@ -66,7 +66,7 @@ func (mw *MainWindow) showBenchmarkDialog() {
 				view.ShowErrorDialog(fmt.Errorf("%s: %v", i18n.Current.BenchFailed, err), mw.window)
 				return
 			}
-			mw.showBenchmarkSetup(status.AvailableBackends, status.Monitors)
+			mw.showBenchmarkSetup(status.ListedBackends, status.AvailableBackends, status.Monitors)
 		})
 	}()
 }
@@ -98,17 +98,21 @@ func benchMonitorChoices(mons []api.BenchMonitor) (choices []benchMonitorChoice,
 	return choices, def
 }
 
-func (mw *MainWindow) showBenchmarkSetup(available []string, mons []api.BenchMonitor) {
+func (mw *MainWindow) showBenchmarkSetup(listed, available []string, mons []api.BenchMonitor) {
 	has := map[string]bool{}
 	for _, b := range available {
 		has[b] = true
 	}
-	// Sunshine and USBridge Streamer are always listed (greyed out when the
-	// host lacks one); Punktfunk only where the host has it, since no agent
-	// ships it and a permanent "not installed" row would be noise.
-	kinds := []string{"sunshine", "rustshine"}
-	if has["punktfunk"] {
-		kinds = append(kinds, "punktfunk")
+	// Every streamer is listed (greyed out when the host lacks one), so it is
+	// clear which ones a benchmark could compare after installing them.
+	// Only those the host's OS has; an older agent doesn't say, so it gets
+	// the old list (Punktfunk only where installed).
+	kinds := listed
+	if len(kinds) == 0 {
+		kinds = []string{"sunshine", "rustshine"}
+		if has["punktfunk"] {
+			kinds = append(kinds, "punktfunk")
+		}
 	}
 	checks := map[string]view.DialogToggle{}
 	var rows []fyne.CanvasObject

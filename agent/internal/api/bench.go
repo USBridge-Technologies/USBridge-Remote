@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime"
 	"time"
 
 	"usbridge_agent/internal/benchvideo"
@@ -47,9 +48,12 @@ type BackendSwitchTiming struct {
 
 // BenchStatus is GET /api/bench/status.
 type BenchStatus struct {
-	ActiveBackend     string          `json:"active_backend"`
-	AvailableBackends []string        `json:"available_backends"`
-	Video             benchvideo.Info `json:"video"`
+	ActiveBackend     string   `json:"active_backend"`
+	AvailableBackends []string `json:"available_backends"`
+	// ListedBackends: the streamers this host's OS can run at all, installed
+	// or not -- what the client's benchmark dialog lists.
+	ListedBackends []string        `json:"listed_backends,omitempty"`
+	Video          benchvideo.Info `json:"video"`
 	// Monitors the benchmark can be pinned to (empty where the host can't
 	// enumerate them), and the one it's pinned to now ("" for none).
 	Monitors []monitors.Monitor `json:"monitors,omitempty"`
@@ -80,6 +84,7 @@ func (s *Server) benchStatus(w http.ResponseWriter, r *http.Request) {
 	s.ok(w, "bench_status", BenchStatus{
 		ActiveBackend:     active,
 		AvailableBackends: available,
+		ListedBackends:    listedBenchBackends(),
 		Video:             b.BenchPlayer().Status(),
 		Monitors:          mons,
 		Monitor:           b.BenchMonitor(),
@@ -232,4 +237,17 @@ func (s *Server) benchLoadStop(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.ok(w, "bench_load", resp)
+}
+
+// listedBenchBackends is every streamer that exists for this OS: Punktfunk
+// on Linux and Windows, Vibepollo on Windows only.
+func listedBenchBackends() []string {
+	l := []string{"sunshine", "rustshine"}
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		l = append(l, "punktfunk")
+	}
+	if runtime.GOOS == "windows" {
+		l = append(l, "vibepollo")
+	}
+	return l
 }

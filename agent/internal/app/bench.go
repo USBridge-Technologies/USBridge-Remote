@@ -6,6 +6,7 @@ import (
 
 	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/benchvideo"
+	"usbridge_agent/internal/forkrelease"
 	"usbridge_agent/internal/monitors"
 	"usbridge_agent/internal/streamhost"
 )
@@ -28,6 +29,9 @@ func (a *App) BenchStreamBackends() (active string, available []string) {
 	}
 	if streamhost.PunktfunkAvailable(a.exeDir) {
 		available = append(available, "punktfunk")
+	}
+	if forkrelease.VibepolloStaged(a.cfg.StateDir) {
+		available = append(available, "vibepollo")
 	}
 	return a.currentStreamKind(), available
 }
