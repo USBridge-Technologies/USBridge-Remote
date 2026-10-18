@@ -4563,18 +4563,13 @@ func (a *App) Color444Status() (active bool, available bool) {
 		return false, false
 	}
 	active, available = a.stream.Color444Status()
-	// Sunshine has no license gate of its own: a Pro/Enterprise entitlement
-	// unlocks the 4:4:4 option there too, offered whenever the host's encoder
-	// can actually produce a 4:4:4 format (the client negotiates it via the
-	// codec-support flags, see client moonlightVideoFormat).
+	// Sunshine has no license gate of its own: 4:4:4 is free, offered
+	// whenever the host's encoder can actually produce a 4:4:4 format (the
+	// client negotiates it via the codec-support flags, see client
+	// moonlightVideoFormat).
 	if !available {
-		if sb, ok := a.stream.(interface{ Color444Supported(int) bool }); ok {
-			a.entMu.Lock()
-			tier := a.entStatus.Tier
-			a.entMu.Unlock()
-			if (tier == "pro" || tier == "enterprise") && sb.Color444Supported(a.SunshineAdminPort()) {
-				available = true
-			}
+		if sb, ok := a.stream.(interface{ Color444Supported(int) bool }); ok && sb.Color444Supported(a.SunshineAdminPort()) {
+			available = true
 		}
 	}
 	return active, available

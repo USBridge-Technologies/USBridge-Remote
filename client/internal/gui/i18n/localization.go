@@ -1453,8 +1453,8 @@ func EN() *LocalizedStrings {
 		AIVisionBadge:                        "Experimental",
 		Color444:                             "4:4:4 Color (USBridge)",
 		Color444Hint:                         "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
-		Color444UnavailableHint:              "The remote GPU cannot encode HEVC 4:4:4. Pro is unlocked — this hardware does not support the mode.",
-		Color444UnavailableMessage:           "4:4:4 Color is included with USBridge Pro, but this remote GPU cannot encode HEVC 4:4:4. That is a hardware limit, not a license issue.",
+		Color444UnavailableHint:              "The remote GPU cannot encode HEVC 4:4:4 — this hardware does not support the mode.",
+		Color444UnavailableMessage:           "This remote GPU cannot encode HEVC 4:4:4. That is a hardware limit.",
 		Color444RequiresH265Hint:             "Only available with the H.265 codec -- select it above to use 4:4:4 color.",
 		Color444Badge:                        "Pro",
 		Hdr:                                  "HDR Color (USBridge)",
@@ -1834,8 +1834,8 @@ func ES() *LocalizedStrings {
 	locale.AIVisionHint = "Deteccion en vivo (cajas + IDs hex) sobre el video, como ui.parse() del agent."
 	locale.AIVisionBadge = "Prueba"
 	locale.Color444Hint = "Croma 4:4:4 completa en vez de 4:2:0: texto mas nitido, mas bitrate."
-	locale.Color444UnavailableHint = "La GPU remota no puede codificar HEVC 4:4:4. Pro esta desbloqueado — el hardware no soporta este modo."
-	locale.Color444UnavailableMessage = "4:4:4 Color viene con USBridge Pro, pero esta GPU remota no puede codificar HEVC 4:4:4. Es un limite de hardware, no de licencia."
+	locale.Color444UnavailableHint = "La GPU remota no puede codificar HEVC 4:4:4 — el hardware no soporta este modo."
+	locale.Color444UnavailableMessage = "Esta GPU remota no puede codificar HEVC 4:4:4. Es un limite de hardware."
 	locale.Color444RequiresH265Hint = "Solo con codec H.265 -- seleccionalo arriba."
 	locale.HdrHint = "Flujo HDR (BT.2020, PQ) en vez de SDR: luces mas brillantes en pantalla HDR."
 	locale.HdrUnavailableHint = "Este host remoto no ofrece encode HDR. Requiere un host con HEVC Main10: Mac Apple Silicon o PC Windows/Linux con GPU NVIDIA."
@@ -2332,8 +2332,8 @@ func UKProper() *LocalizedStrings {
 	locale.AIVisionHint = "Живе розпізнавання (рамки + hex ID) поверх відео, як ui.parse() агента."
 	locale.AIVisionBadge = "Тест"
 	locale.Color444Hint = "Повна хрома 4:4:4 замість 4:2:0 — чіткіший текст, вищий бітрейт."
-	locale.Color444UnavailableHint = "Віддалений GPU не вміє HEVC 4:4:4. Pro розблоковано — це обмеження заліза, не ліцензії."
-	locale.Color444UnavailableMessage = "4:4:4 Color входить у USBridge Pro, але цей віддалений GPU не кодує HEVC 4:4:4. Це обмеження обладнання, не підписки."
+	locale.Color444UnavailableHint = "Віддалений GPU не вміє HEVC 4:4:4 — це обмеження заліза."
+	locale.Color444UnavailableMessage = "Цей віддалений GPU не кодує HEVC 4:4:4. Це обмеження обладнання."
 	locale.Color444RequiresH265Hint = "Лише з кодеком H.265 — оберіть його вище."
 	locale.HdrHint = "HDR-потік (BT.2020, PQ) замість SDR — яскравіші світла на HDR-екрані."
 	locale.HdrUnavailableHint = "Цей віддалений хост не пропонує HDR encode. Потрібен хост з HEVC Main10: Mac на Apple Silicon або ПК Windows/Linux з GPU NVIDIA."

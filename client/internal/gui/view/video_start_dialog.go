@@ -1738,7 +1738,8 @@ func (vsd *VideoStartDialog) createInterface() {
 	color444Row := newVideoDialogToggleRow(
 		vsd.color444Check,
 		newVideoDialogIconTitleText(videoDialogStarSVG, vsd.color444TitleText),
-		newVideoDialogBadge(i18n.Current.Color444Badge, videoDialogProColor),
+		// Free-tier now, like HDR -- empty badge in the neutral color.
+		newVideoDialogBadge(i18n.Current.HdrBadge, design.ColorConnectionBadgeText),
 		vsd.color444Hint,
 	)
 
