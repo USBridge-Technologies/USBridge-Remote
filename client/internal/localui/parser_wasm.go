@@ -274,6 +274,30 @@ func (p *Parser) ParseIconsOnlyMarked(imgBytes []byte) (markedPNG []byte, result
 	return markedPNG, result, nil
 }
 
+// ParseRGBA mirrors the native build's ParseRGBA (see parser.go): Parse for a
+// frame that is already decoded pixels.
+func (p *Parser) ParseRGBA(img *image.RGBA) (markedPNG []byte, result *Result, err error) {
+	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		return nil, nil, fmt.Errorf("empty image")
+	}
+	return p.parseRGB(rgbFromRGBA(img), true, nil, nil, nil)
+}
+
+// ParseIconsOnlyMarkedRGBA mirrors the native build's ParseIconsOnlyMarkedRGBA
+// (see parser.go): ParseIconsOnlyMarked for already-decoded pixels.
+func (p *Parser) ParseIconsOnlyMarkedRGBA(img *image.RGBA) (markedPNG []byte, result *Result, err error) {
+	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
+		return nil, nil, fmt.Errorf("empty image")
+	}
+	original := rgbFromRGBA(img)
+	icons, err := p.parseIconsOnlyRGB(original)
+	if err != nil {
+		return nil, nil, err
+	}
+	result = &Result{Icons: icons, ImageWidth: original.W, ImageHeight: original.H, Backend: "local-onnx-web"}
+	return drawResultWasm(original, result), result, nil
+}
+
 func (p *Parser) ParseIconsOnlyRGBA(img *image.RGBA) (icons []Icon, err error) {
 	if img == nil || img.Bounds().Dx() == 0 || img.Bounds().Dy() == 0 {
 		return nil, fmt.Errorf("empty image")
