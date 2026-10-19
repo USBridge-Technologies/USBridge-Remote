@@ -1320,6 +1320,16 @@ uint64_t do_get_total_video_bytes(void);
 
 // ── LiStartConnection entrypoint ─────────────────────────────────────────────
 
+#include <stdio.h>
+static int tailnet_packet_size(const char *address) {
+    // Tailnet (100.64/10, or the 127.0.0.1 proxy the client reaches it by): the
+    // tunnel MTU is raised to 1440 (TS_DEBUG_MTU, on both ends), so 1392 + RTP
+    // header + IP/UDP fits; 1200 elsewhere.
+    unsigned a = 0, b = 0;
+    if (address && sscanf(address, "%u.%u.", &a, &b) == 2 && (a == 127 || (a == 100 && b >= 64 && b < 128))) return 1392;
+    return 1200;
+}
+
 static int do_li_start(
     const char *address, const char *appVersion, const char *gfeVersion,
     const char *rtspSessionUrl, int serverCodecModeSupport,
@@ -1345,7 +1355,7 @@ static int do_li_start(
 
     STREAM_CONFIGURATION cfg; LiInitializeStreamConfiguration(&cfg);
     cfg.width = width; cfg.height = height; cfg.fps = fps; cfg.bitrate = bitrate;
-    cfg.packetSize = 1200; cfg.streamingRemotely = STREAM_CFG_AUTO;
+    cfg.packetSize = tailnet_packet_size(address); cfg.streamingRemotely = STREAM_CFG_AUTO;
     cfg.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
     cfg.supportedVideoFormats = videoFormat ? videoFormat : VIDEO_FORMAT_H264;
     // ENCFLG_AUDIO matches the official Moonlight clients' default.

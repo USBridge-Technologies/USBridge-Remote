@@ -464,6 +464,13 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 
 	initAndroidTailscaleUserspace()
 
+	// The NanoKVM streams 1392-byte video packets over the tailnet: raise the
+	// userspace tunnel's MTU from 1280 to fit them (1500 minus WireGuard and
+	// the outer UDP/IPv4 headers); the host's tailscaled does the same.
+	if os.Getenv("TS_DEBUG_MTU") == "" {
+		os.Setenv("TS_DEBUG_MTU", "1440")
+	}
+
 	stateDir := tailscaleStateDir("usbridge-client")
 	logrus.Infof("🛰️ [Tailscale] State directory: %s", stateDir)
 	if err := os.MkdirAll(stateDir, 0755); err != nil {

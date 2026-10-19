@@ -861,6 +861,15 @@ static void cl_log(const char *fmt, ...) {
     if (buf[0]) ALOGI("[Moonlight] %s", buf);
 }
 
+static int tailnet_packet_size(const char *address) {
+    // Tailnet (100.64/10, or the 127.0.0.1 proxy the client reaches it by): the
+    // tunnel MTU is raised to 1440 (TS_DEBUG_MTU, on both ends), so 1392 + RTP
+    // header + IP/UDP fits; 1200 elsewhere.
+    unsigned a = 0, b = 0;
+    if (address && sscanf(address, "%u.%u.", &a, &b) == 2 && (a == 127 || (a == 100 && b >= 64 && b < 128))) return 1392;
+    return 1200;
+}
+
 int do_li_start(const char *address, const char *appV, const char *gfeV, const char *rtsp,
                 int codec, int videoFmt, int w, int h, int fps, int bit,
                 const unsigned char *key, int kid, int pipeFd) {
@@ -890,7 +899,7 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     cfg.height                 = h;
     cfg.fps                    = fps;
     cfg.bitrate                = bit;
-    cfg.packetSize             = 1200;
+    cfg.packetSize             = tailnet_packet_size(address);
     cfg.streamingRemotely      = STREAM_CFG_AUTO;
     cfg.audioConfiguration     = AUDIO_CONFIGURATION_STEREO;
     cfg.supportedVideoFormats  = videoFmt;
