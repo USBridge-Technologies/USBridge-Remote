@@ -116,6 +116,12 @@ static int                 g_wa_cs_init    = 0;
 static int                 g_wa_rate       = 48000;
 static int                 g_wa_fail_count = 0;
 static ULONGLONG           g_wa_last_write_ms = 0;
+// Playback starts once WASAPI_PREBUFFER_MS of audio is queued and restarts the
+// same way after an underrun: packets reach us in bursts (Wi-Fi/tailnet jitter,
+// GC pauses), and a 10 ms-at-a-time feed straight into a 40 ms buffer crackled.
+static int                 g_wa_started = 0;
+#define WASAPI_BUFFER_MS    120
+#define WASAPI_PREBUFFER_MS 40
 
 static void wasapi_init(int channels, int sample_rate) {
     g_wa_rate = sample_rate;
@@ -157,11 +163,11 @@ static void wasapi_init(int channels, int sample_rate) {
         .nAvgBytesPerSec = (DWORD)(sample_rate * channels * 2),
         .cbSize          = 0,
     };
-    // Shared mode, event-driven — 40 ms buffer.
+    // Shared mode: a 120 ms ring that wasapi_write keeps ~40 ms full.
     HRESULT hr = IAudioClient_Initialize(pClient,
         AUDCLNT_SHAREMODE_SHARED,
         0,
-        400000, // 40 ms in 100-ns units
+        (REFERENCE_TIME)WASAPI_BUFFER_MS * 10000, // 100-ns units
         0, &wfx, NULL);
     if (FAILED(hr)) {
         IAudioClient_Release(pClient);
@@ -176,7 +182,6 @@ static void wasapi_init(int channels, int sample_rate) {
         return;
     }
     IAudioClient_GetBufferSize(pClient, &g_wa_frames);
-    IAudioClient_Start(pClient);
 
     EnterCriticalSection(&g_wa_cs);
     g_wa_client = pClient;
@@ -184,7 +189,8 @@ static void wasapi_init(int channels, int sample_rate) {
     LeaveCriticalSection(&g_wa_cs);
     g_wa_fail_count    = 0;
     g_wa_last_write_ms = 0;
-    goVTLog((char*)"WASAPI: audio client started (S16LE native output)");
+    g_wa_started       = 0;
+    goVTLog((char*)"WASAPI: audio client ready (S16LE native output, prebuffering)");
 }
 
 static void wasapi_teardown(void) {
@@ -219,19 +225,18 @@ static void wasapi_write(const opus_int16 *pcm, int samples) {
     if (!c || !r) return;
 
     ULONGLONG now = GetTickCount64();
-    // A long gap since the last successful write (network stall drained the
-    // buffer) can leave the shared-mode client stuck rendering silence even
-    // after new frames arrive; force a fresh clock so playback actually resumes.
-    if (g_wa_last_write_ms != 0 && (now - g_wa_last_write_ms) > 250) {
-        goVTLog((char*)"WASAPI: resuming after stall, restarting audio client");
-        IAudioClient_Stop(c);
-        IAudioClient_Reset(c);
-        IAudioClient_Start(c);
-    }
-
     UINT32 padding = 0;
     HRESULT hr = IAudioClient_GetCurrentPadding(c, &padding);
     if (FAILED(hr)) { wasapi_handle_failure("GetCurrentPadding"); return; }
+    // Underrun (the buffer ran dry, or a long gap: a drained shared-mode client
+    // can keep rendering silence even after new frames arrive): reset the clock
+    // and prebuffer again instead of playing the next frames into a dry buffer.
+    if (g_wa_started && (padding == 0 || (g_wa_last_write_ms != 0 && (now - g_wa_last_write_ms) > 250))) {
+        IAudioClient_Stop(c);
+        IAudioClient_Reset(c);
+        g_wa_started = 0;
+        padding = 0;
+    }
     UINT32 avail = g_wa_frames - padding;
     if ((UINT32)samples > avail) return; // buffer full — drop frame, not an error
 
@@ -244,6 +249,10 @@ static void wasapi_write(const opus_int16 *pcm, int samples) {
 
     g_wa_fail_count    = 0;
     g_wa_last_write_ms = now;
+    if (!g_wa_started && padding + (UINT32)samples >= (UINT32)g_wa_rate * WASAPI_PREBUFFER_MS / 1000) {
+        IAudioClient_Start(c);
+        g_wa_started = 1;
+    }
 }
 
 // ── Audio callbacks ───────────────────────────────────────────────────────────
