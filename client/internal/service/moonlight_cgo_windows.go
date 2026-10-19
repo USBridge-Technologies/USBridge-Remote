@@ -237,6 +237,9 @@ static void wasapi_write(const opus_int16 *pcm, int samples) {
         g_wa_started = 0;
         padding = 0;
     }
+    // A burst leaves the queue long until the next underrun; shed a frame while
+    // it holds more than twice the prebuffer so the lag settles back to ~40 ms.
+    if (g_wa_started && padding > (UINT32)g_wa_rate * (2 * WASAPI_PREBUFFER_MS) / 1000) return;
     UINT32 avail = g_wa_frames - padding;
     if ((UINT32)samples > avail) return; // buffer full — drop frame, not an error
 
