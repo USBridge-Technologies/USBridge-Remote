@@ -23,6 +23,7 @@
 #include <Limelight.h>
 #include <opus_multistream.h>
 #include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -173,6 +174,15 @@ static void dr_start(void)   {}
 static void dr_stop(void)    {}
 static void dr_cleanup(void) {}
 
+// Tailnet (100.64/10, or the 127.0.0.1 proxy the client reaches it by): the
+// tunnel MTU is raised to 1440 (TS_DEBUG_MTU, on both ends), so 1392 + RTP
+// header + IP/UDP fits; 1200 elsewhere.
+static int tailnet_packet_size(const char *address) {
+    unsigned a = 0, b = 0;
+    if (address && sscanf(address, "%u.%u.", &a, &b) == 2 && (a == 127 || (a == 100 && b >= 64 && b < 128))) return 1392;
+    return 1200;
+}
+
 static int dr_submit(PDECODE_UNIT du) {
     g_last_host_latency_tenths_ms = du->frameHostProcessingLatency;
     g_total_video_bytes += (uint64_t)du->fullLength;
@@ -215,7 +225,7 @@ int do_li_start(
     cfg.height                = height;
     cfg.fps                   = fps;
     cfg.bitrate               = bitrate;
-    cfg.packetSize            = 1200;
+    cfg.packetSize            = tailnet_packet_size(address);
     cfg.streamingRemotely     = STREAM_CFG_AUTO;
     cfg.audioConfiguration    = AUDIO_CONFIGURATION_STEREO;
     cfg.supportedVideoFormats = videoFormat;
