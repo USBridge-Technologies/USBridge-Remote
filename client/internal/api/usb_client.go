@@ -1363,14 +1363,17 @@ func (c *USBClient) GetPCPanelLedsWithContext(ctx context.Context) (*models.PCPa
 }
 
 // PressPCPanelButton simulates pressing Power or Reset button on target PC
-// durationSec — press duration in seconds (0 = short press).
-// TODO: when API supports long press, pass durationSec in request
+// durationSec — press duration in seconds (0 = short press, server default).
+// Servers that predate duration_ms ignore it and do a short press.
 func (c *USBClient) PressPCPanelButton(button string, durationSec int) error {
 	if button != "power" && button != "reset" {
 		return fmt.Errorf("invalid button: use power or reset")
 	}
 
-	req := models.PCPanelButtonRequest{Button: button}
+	if durationSec < 0 {
+		durationSec = 0
+	}
+	req := models.PCPanelButtonRequest{Button: button, DurationMs: durationSec * 1000}
 	requestJSON, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to serialize request: %v", err)
@@ -1390,8 +1393,7 @@ func (c *USBClient) PressPCPanelButton(button string, durationSec int) error {
 		return fmt.Errorf("failed to press button: %s", apiResp.Message)
 	}
 
-	_ = durationSec // Placeholder for future long press support
-	logrus.Infof("✅ PC Panel: button %s pressed", button)
+	logrus.Infof("✅ PC Panel: button %s pressed (%ds)", button, durationSec)
 	return nil
 }
 

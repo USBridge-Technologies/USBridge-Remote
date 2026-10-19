@@ -351,7 +351,13 @@ func (cs *ClipboardSync) dial(ctx context.Context, header http.Header) (clipboar
 		}
 		logrus.Warnf("[clipboard-sync] DataChannel unavailable (%v), falling back to direct dial", err)
 	}
-	return cs.dialer().DialContext(ctx, cs.wsURL(), header)
+	conn, resp, err := cs.dialer().DialContext(ctx, cs.wsURL(), header)
+	if err != nil && resp != nil && resp.StatusCode == http.StatusNotFound {
+		// A NanoKVM board's web service has no /api/clipboard/ws: the
+		// clipboard lives in the agent on the target PC. Retry slowly.
+		return nil, nil, fmt.Errorf("%w: host has no clipboard endpoint", errNoClipboardChannel)
+	}
+	return conn, resp, err
 }
 
 // dcJSONConn adapts a message-oriented net.Conn (webrtcweb.WebRTCClient.

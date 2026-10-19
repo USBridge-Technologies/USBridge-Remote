@@ -235,7 +235,8 @@ type PCPanelLedsResponse struct {
 
 // PCPanelButtonRequest power/reset button press request
 type PCPanelButtonRequest struct {
-	Button string `json:"button"` // "power" or "reset"
+	Button     string `json:"button"`                // "power" or "reset"
+	DurationMs int    `json:"duration_ms,omitempty"` // hold time in ms; 0 = server default (short press)
 }
 
 // APIResponse standard API response
