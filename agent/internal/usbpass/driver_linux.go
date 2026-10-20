@@ -41,9 +41,9 @@ func vhciHcdLoaded() bool {
 // convention, as internal/permissions' uinputModulesLoadPath.
 const vhciModulesLoadPath = "/etc/modules-load.d/usbridge-vhci-hcd.conf"
 
-// InstallDrivers installs the "usbip" package (which also pulls in the
-// vhci-hcd kernel module on Debian/Ubuntu kernels that ship it as a
-// loadable module rather than built-in), loads vhci-hcd immediately so
+// InstallDrivers installs the "usbip" package with whichever package
+// manager this distro uses (see usbipPkgManagers; the vhci-hcd kernel
+// module itself ships with the stock kernel on all of them), loads vhci-hcd immediately so
 // Status() can reflect success without waiting for a reboot, and pins it
 // to load on every future boot via vhciModulesLoadPath.
 //
@@ -62,13 +62,52 @@ const vhciModulesLoadPath = "/etc/modules-load.d/usbridge-vhci-hcd.conf"
 // and pkexec is what actually pops a graphical prompt on a Linux desktop
 // session (unlike bare sudo, which needs a terminal).
 func (s *Service) InstallDrivers() error {
+	install := usbipInstallCommand(exec.LookPath)
+	if install == "" {
+		return fmt.Errorf("usbip install: no supported package manager found (apt-get, dnf, yum, pacman, zypper, apk) -- install usbip manually")
+	}
 	script := fmt.Sprintf(
-		"apt-get install -y usbip && modprobe vhci-hcd && echo vhci-hcd > %s",
-		vhciModulesLoadPath,
+		"(%s) && modprobe vhci-hcd && echo vhci-hcd > %s",
+		install, vhciModulesLoadPath,
 	)
 	cmd := exec.Command("pkexec", "sh", "-c", script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("usbip install: %v (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// usbipPkgManagers maps each supported package manager (by the binary that
+// identifies it on PATH) to the root command that installs the usbip
+// userspace tools. Hardcoding apt-get here used to break the "Install USB
+// Driver" button on every non-Debian distro with "apt-get: not found".
+// Ordered like internal/permissions' pkgManagers so a machine with leftover
+// binaries from another distro still picks its real manager first. The
+// package is "usbip" everywhere except Alpine ("usbip-utils"); the kernel
+// side (vhci-hcd) ships with the stock kernel on all of them.
+var usbipPkgManagers = []struct {
+	probe   string
+	install string
+}{
+	{"apt-get", "DEBIAN_FRONTEND=noninteractive apt-get install -y usbip || " +
+		"(DEBIAN_FRONTEND=noninteractive apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y usbip)"},
+	{"dnf", "dnf install -y usbip"},
+	{"yum", "yum install -y usbip"},
+	// Plain -S first so an up-to-date sync db doesn't get a partial
+	// -Sy refresh; fall back to -Sy only if the package isn't found.
+	{"pacman", "pacman -S --needed --noconfirm usbip || pacman -Sy --needed --noconfirm usbip"},
+	{"zypper", "zypper --non-interactive install usbip"},
+	{"apk", "apk add --no-cache usbip-utils"},
+}
+
+// usbipInstallCommand returns the install command for the first package
+// manager found via lookPath, or "" if none is present. lookPath is
+// injected so the selection is testable regardless of the host distro.
+func usbipInstallCommand(lookPath func(string) (string, error)) string {
+	for _, pm := range usbipPkgManagers {
+		if _, err := lookPath(pm.probe); err == nil {
+			return pm.install
+		}
+	}
+	return ""
 }
