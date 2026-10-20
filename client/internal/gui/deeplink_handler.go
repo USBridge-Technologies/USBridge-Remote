@@ -34,6 +34,23 @@ func NewDeepLinkHandler(onConnect func(host, masterKey, protocol string, tailsca
 	}
 }
 
+// redactDeepLink masks the master_key/token query values (see
+// maskSensitiveToken) so a deep link can be logged without its secret.
+func redactDeepLink(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return "<unparseable deep link>"
+	}
+	q := u.Query()
+	for _, k := range []string{"master_key", "token"} {
+		if v := q.Get(k); v != "" {
+			q.Set(k, maskSensitiveToken(v))
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 // CheckAndHandleDeepLink checks for a deep link and handles it
 func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	// Get the URI from the Intent
@@ -54,7 +71,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 		return
 	}
 
-	logrus.Infof("🔗 New deep link detected: %s", uri)
+	logrus.Infof("🔗 New deep link detected: %s", redactDeepLink(uri))
 
 	// Remember the current URI
 	h.lastURI = uri
@@ -90,6 +107,11 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost
 	// Parse the URL
 	u, err := url.Parse(uri)
 	if err != nil {
+		// *url.Error embeds the whole URI -- master_key included -- and
+		// this error is both logged and shown in a dialog; keep only why.
+		if ue, ok := err.(*url.Error); ok {
+			err = ue.Err
+		}
 		return "", "", "", "", "", "", false, fmt.Errorf("invalid link format: %v", err)
 	}
 

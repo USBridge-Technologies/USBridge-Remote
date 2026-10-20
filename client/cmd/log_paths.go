@@ -6,15 +6,40 @@ import (
 	"runtime"
 )
 
+// ensureLogDir falls back to the user cache dir before os.TempDir: when the
+// binary's own dir isn't writable (an AppImage's read-only squashfs mount,
+// a root-owned install) the old straight-to-TempDir fallback put app.log on
+// /tmp -- tmpfs, i.e. RAM, on Arch/Fedora -- and lost it on every reboot.
 func ensureLogDir() string {
 	logDir := resolveLogDir()
-	if err := os.MkdirAll(logDir, 0755); err == nil {
+	if dirWritable(logDir) {
 		return logDir
+	}
+	if cache, err := os.UserCacheDir(); err == nil {
+		if dir := filepath.Join(cache, "usbridge-client", "logs"); dirWritable(dir) {
+			return dir
+		}
 	}
 
 	fallbackDir := filepath.Join(os.TempDir(), "usbridge-client-logs")
 	_ = os.MkdirAll(fallbackDir, 0755)
 	return fallbackDir
+}
+
+// dirWritable creates dir and proves a file can be created in it --
+// MkdirAll alone succeeds on an existing read-only dir.
+func dirWritable(dir string) bool {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return false
+	}
+	f, err := os.CreateTemp(dir, ".write-test-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	f.Close()
+	_ = os.Remove(name)
+	return true
 }
 
 func getAppRootDir(exePath string) string {
