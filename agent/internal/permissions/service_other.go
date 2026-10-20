@@ -25,6 +25,12 @@ func (s *Service) ClipboardToolAvailable() bool    { return true }
 func (s *Service) RequestClipboardTool() bool      { return true }
 func (s *Service) ClipboardInstallPreview() string { return "" }
 
+// FirewallBlocking/RequestFirewall/FirewallPreview are Linux-only (ufw /
+// firewalld) -- see firewall_linux.go.
+func (s *Service) FirewallBlocking(tcp, udp []int) bool  { return false }
+func (s *Service) RequestFirewall(tcp, udp []int) bool   { return true }
+func (s *Service) FirewallPreview(tcp, udp []int) string { return "" }
+
 // GPUClockLockSupported reports whether this platform can even attempt an
 // NVML GPU clock lock at all -- see service_windows.go's own docs; every
 // other platform's gamestream-server build has no --gpu-clock-lock-daemon

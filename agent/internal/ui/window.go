@@ -29,6 +29,7 @@ import (
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/netutil"
+	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/tlshost"
@@ -171,6 +172,15 @@ type PermsProvider interface {
 	// found), in which case the tooltip is skipped and the button's own
 	// click surfaces that reason instead.
 	ClipboardInstallPreview() string
+
+	// FirewallBlocking/RequestFirewall/FirewallPreview: Linux only -- an
+	// enabled ufw/firewalld with no allow rules for the agent's and
+	// streamer's ports (see permissions.FirewallPorts) lets a LAN client
+	// pair but never see a stream. Every other platform returns
+	// false/true/"".
+	FirewallBlocking(tcp, udp []int) bool
+	RequestFirewall(tcp, udp []int) bool
+	FirewallPreview(tcp, udp []int) string
 }
 
 // TailscaleProvider is satisfied by *tailscale.Service (embedded engine) or
@@ -243,6 +253,14 @@ type Window struct {
 	// show once clipboard sync just works.
 	clipboardToolRow *fyne.Container
 	clipboardToolBtn *widget.Button
+
+	// firewallRow: Linux only, shown only while an active ufw/firewalld
+	// doesn't allow the agent's/streamer's inbound ports -- see
+	// permissions.RequestFirewall. Hidden once they're open, same as
+	// clipboardToolRow.
+	firewallRow  *fyne.Container
+	firewallBtn  *widget.Button
+	firewallLang *widget.Label
 
 	// awdlDisableRow: macOS only -- lets the user opt into the agent
 	// bringing awdl0 down for the duration of a streaming session (see
@@ -479,6 +497,9 @@ type uiStatus struct {
 	wifiTune        wifiTuneState
 	streamerRunning bool
 	sessionActive   bool
+	// firewallBlocking is collected off the UI thread: on firewalld it
+	// shells out to firewall-cmd, which takes a few hundred ms.
+	firewallBlocking bool
 }
 
 // accountSnapshot is the comparable (== usable) subset of account.Status --
@@ -582,6 +603,25 @@ func (w *Window) refreshClipboardToolUI() {
 		w.clipboardToolRow.Hide()
 	} else {
 		w.clipboardToolRow.Show()
+	}
+}
+
+// firewallPorts is the inbound port set the Firewall row checks and opens,
+// from this window's config (see permissions.FirewallPorts).
+func (w *Window) firewallPorts() (tcp, udp []int) {
+	return permissions.FirewallPorts(w.cfg.HTTPPort, w.cfg.TLSPort, w.cfg.UsbPassthroughPort, w.cfg.SunshinePort)
+}
+
+// refreshFirewallUI shows the Firewall row only while blocking -- like
+// refreshClipboardToolUI, nothing is left to act on once the ports are open.
+func (w *Window) refreshFirewallUI(blocking bool) {
+	if w.firewallRow == nil {
+		return
+	}
+	if blocking {
+		w.firewallRow.Show()
+	} else {
+		w.firewallRow.Hide()
 	}
 }
 
@@ -1308,6 +1348,49 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.clipboardLang = clipLabel
 	w.clipboardToolRow = container.NewHBox(clipLabel, layout.NewSpacer(), clipboardInfoBtn, w.clipboardToolBtn)
 
+	// Firewall (Linux only): an enabled ufw/firewalld with default-deny
+	// inbound lets a LAN client discover and pair, then silently shows no
+	// stream (confirmed live on an Arch/ufw host: no rules at all, every
+	// GameStream port dropped). Same Install + "?" preview shape as the
+	// clipboard row above.
+	w.firewallBtn = widget.NewButton(loc().OpenPorts, func() {
+		if w.perms == nil {
+			return
+		}
+		w.firewallBtn.Disable()
+		go func() {
+			defer fyne.Do(func() {
+				if w.firewallBtn != nil {
+					w.firewallBtn.Enable()
+				}
+			})
+			tcp, udp := w.firewallPorts()
+			if !w.perms.RequestFirewall(tcp, udp) {
+				if e, ok := w.perms.(interface{ LastAccessibilityError() string }); ok {
+					if msg := e.LastAccessibilityError(); msg != "" {
+						showErrorDialog(fmt.Errorf("%s", msg), win)
+					}
+				}
+			}
+			blocking := w.perms.FirewallBlocking(tcp, udp)
+			fyne.Do(func() { w.refreshFirewallUI(blocking) })
+		}()
+	})
+	w.firewallBtn.Importance = widget.LowImportance
+	firewallInfoBtn := widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
+		preview := ""
+		if w.perms != nil {
+			preview = w.perms.FirewallPreview(w.firewallPorts())
+		}
+		if preview == "" {
+			preview = loc().FirewallNoChange
+		}
+		showInfoDialog(loc().FirewallInfoTitle, preview, win)
+	})
+	w.firewallLang = widget.NewLabel(loc().Firewall)
+	w.firewallRow = container.NewHBox(w.firewallLang, layout.NewSpacer(), firewallInfoBtn, w.firewallBtn)
+	w.firewallRow.Hide()
+
 	// AWDL disable-during-streaming (macOS only): turning it on installs a
 	// sudoers.d NOPASSWD rule (one admin-password prompt, see
 	// app.SetAWDLDisableDuringStreaming) so the agent can toggle awdl0
@@ -1494,6 +1577,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	if runtime.GOOS == "linux" {
 		permTop = append(permTop, w.clipboardToolRow)
 		w.refreshClipboardToolUI()
+		permTop = append(permTop, w.firewallRow)
 	}
 	if w.token != nil && w.token.AWDLDisableDuringStreamingSupported() {
 		permTop = append(permTop, w.awdlDisableRow)
@@ -2128,6 +2212,12 @@ func (w *Window) applyLanguage() {
 	if w.clipboardLang != nil {
 		w.clipboardLang.SetText(c.ClipboardTool)
 	}
+	if w.firewallBtn != nil {
+		w.firewallBtn.SetText(c.OpenPorts)
+	}
+	if w.firewallLang != nil {
+		w.firewallLang.SetText(c.Firewall)
+	}
 	if w.awdlDisableLang != nil {
 		w.awdlDisableLang.SetText(c.AWDLDisable)
 	}
@@ -2758,6 +2848,9 @@ func (w *Window) performRefresh() {
 				}
 			})
 		}
+		if w.perms != nil && runtime.GOOS == "linux" {
+			status.firewallBlocking = w.perms.FirewallBlocking(w.firewallPorts())
+		}
 		var entStatus entitlement.Status
 		var certStatus tlshost.CertStatus
 		var certLoggedIn bool
@@ -2795,6 +2888,7 @@ func (w *Window) performRefresh() {
 			}
 			w.refreshScreenCaptureUI()
 			w.refreshClipboardToolUI()
+			w.refreshFirewallUI(status.firewallBlocking)
 			w.refreshAutostartChrome()
 			w.refreshTailscaleWithStatus(status.tsStatus)
 			w.updateTrayStatus(entStatus, status)

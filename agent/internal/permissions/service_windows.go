@@ -32,6 +32,12 @@ func (s *Service) ClipboardToolAvailable() bool    { return true }
 func (s *Service) RequestClipboardTool() bool      { return true }
 func (s *Service) ClipboardInstallPreview() string { return "" }
 
+// FirewallBlocking/RequestFirewall/FirewallPreview are Linux-only (ufw /
+// firewalld) -- see firewall_linux.go.
+func (s *Service) FirewallBlocking(tcp, udp []int) bool  { return false }
+func (s *Service) RequestFirewall(tcp, udp []int) bool   { return true }
+func (s *Service) FirewallPreview(tcp, udp []int) string { return "" }
+
 // GPUClockLockSupported is always true on Windows -- whether it actually
 // *works* on a given machine depends on having an NVIDIA GPU and a driver
 // new enough for NVML's clock-lock calls, which

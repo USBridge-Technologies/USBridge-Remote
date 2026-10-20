@@ -63,6 +63,10 @@ type LocalizedStrings struct {
 	Install              string
 	ClipboardInstall     string
 	ClipboardNoPkgMgr    string
+	Firewall             string
+	OpenPorts            string
+	FirewallInfoTitle    string
+	FirewallNoChange     string
 	AWDLDisable          string
 	AWDLDisableInfoTitle string
 	USBPassthrough       string
@@ -389,6 +393,10 @@ func EN() *LocalizedStrings {
 		Install:              "Install",
 		ClipboardInstall:     "Clipboard Tool Install",
 		ClipboardNoPkgMgr:    "No supported package manager (or pkexec) was found on this system -- clicking Install will show why, instead of a command preview.",
+		Firewall:             "Firewall",
+		OpenPorts:            "Open Ports",
+		FirewallInfoTitle:    "Open Firewall Ports",
+		FirewallNoChange:     "The firewall already allows the agent's and streamer's ports -- nothing to change.",
 		AWDLDisable:          "Disable AWDL (recommended for Wi-Fi)",
 		AWDLDisableInfoTitle: "AWDL Streaming Optimization",
 		USBPassthrough:       "USB Passthrough Driver",
@@ -653,6 +661,10 @@ func ES() *LocalizedStrings {
 	locale.Install = "Instalar"
 	locale.ClipboardInstall = "Instalar herramienta de portapapeles"
 	locale.ClipboardNoPkgMgr = "No se encontro un gestor de paquetes (o pkexec) en este sistema -- Instalar mostrara el motivo, no una vista previa del comando."
+	locale.Firewall = "Firewall"
+	locale.OpenPorts = "Abrir puertos"
+	locale.FirewallInfoTitle = "Abrir puertos del firewall"
+	locale.FirewallNoChange = "El firewall ya permite los puertos del agente y del streamer -- no hay nada que cambiar."
 	locale.USBPassthrough = "Driver USB Passthrough"
 	locale.USBAccess = "USB Passthrough"
 	locale.VirtualDisplayAccess = "Display virtual"
@@ -900,6 +912,10 @@ func UK() *LocalizedStrings {
 	locale.Install = "Встановити"
 	locale.ClipboardInstall = "Встановлення буфера обміну"
 	locale.ClipboardNoPkgMgr = "Не знайдено менеджер пакетів (або pkexec) — Встановити покаже причину, а не попередній перегляд команди."
+	locale.Firewall = "Фаєрвол"
+	locale.OpenPorts = "Відкрити порти"
+	locale.FirewallInfoTitle = "Відкриття портів фаєрвола"
+	locale.FirewallNoChange = "Фаєрвол уже пропускає порти агента і стрімера — змінювати нічого."
 	locale.USBPassthrough = "USB Passthrough Driver"
 	locale.USBAccess = "USB Passthrough"
 	locale.VirtualDisplayAccess = "Віртуальний дисплей"
