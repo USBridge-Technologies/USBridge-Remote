@@ -113,11 +113,11 @@ func (a *App) saveNvencPrefs(next config.Config) error {
 // GPUs lists the host's GPUs with their monitors, from the streamer's own
 // monitor enumeration (usbridge-streamer --list-capture-devices, the one
 // that reports each monitor's adapter), so the encoder settings can say
-// which card they apply to. Empty when that binary isn't staged or the
-// host OS doesn't report adapters.
+// which card they apply to. When that binary isn't staged or reports no
+// adapters (the Linux streamer), falls back to hostGPUsFallback.
 func (a *App) GPUs() []config.GPUInfo {
 	if !a.rustshineStaged() {
-		return nil
+		return hostGPUsFallback()
 	}
 	devices := streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath).ListCaptureDevices()
 
@@ -152,6 +152,9 @@ func (a *App) GPUs() []config.GPUInfo {
 		if d.GDIName != "" && d.GDIName == streaming {
 			gpus[i].Streaming = true
 		}
+	}
+	if len(gpus) == 0 {
+		return hostGPUsFallback()
 	}
 	return gpus
 }
