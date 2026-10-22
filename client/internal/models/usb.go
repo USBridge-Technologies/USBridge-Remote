@@ -153,6 +153,50 @@ type VideoStatus struct {
 	// Fec is present when the agent takes the client's FEC slider (POST
 	// /api/video/fec, see USBClient.SetVideoFec); nil from older agents.
 	Fec *VideoFecInfo `json:"fec,omitempty"`
+	// Source is present when the agent takes the client's video source
+	// setting (POST /api/video/source, see USBClient.SetVideoSource): which
+	// part of a capture card's frame is the target's screen. nil from older
+	// agents and from software agents (their capture is the screen itself).
+	Source *VideoSourceInfo `json:"source,omitempty"`
+}
+
+// Video source modes (VideoSourceSetting.Mode).
+const (
+	// VideoSourceCapture: the capture card's whole frame.
+	VideoSourceCapture = "capture"
+	// VideoSourceManual: the source's resolution (Width x Height) -- the
+	// agent cuts out where the capture card puts a picture of that shape --
+	// or, with Rect, that part of the frame.
+	VideoSourceManual = "manual"
+	// VideoSourceAuto: found in the picture by the agent (reserved; agents
+	// report AutoSupported once they can).
+	VideoSourceAuto = "auto"
+)
+
+// VideoSourceInfo is the agent's current video source setting.
+type VideoSourceInfo struct {
+	VideoSourceSetting
+	AutoSupported bool `json:"auto_supported"`
+}
+
+// VideoSourceSetting is which part of a capture card's frame is the target's
+// screen; see the VideoSource* modes.
+type VideoSourceSetting struct {
+	Mode   string `json:"mode"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+	// Rect: x, y, w, h in fractions of the frame (manual only, optional).
+	Rect []float64 `json:"rect,omitempty"`
+}
+
+// DisplayAspect is the target screen's width/height when the setting names
+// it (manual), 0 otherwise -- the aspect the client shows the picture in,
+// whatever shape the capture card's frame is.
+func (s VideoSourceSetting) DisplayAspect() float64 {
+	if s.Mode == VideoSourceManual && s.Width > 0 && s.Height > 0 {
+		return float64(s.Width) / float64(s.Height)
+	}
+	return 0
 }
 
 // VideoFecInfo is the agent's streamer FEC: a fixed percentage, or (where
@@ -444,6 +488,9 @@ type VideoStartRequest struct {
 	// Fec: the FEC slider, set on the agent before the stream starts (nil:
 	// the agent doesn't take it, leave its setting alone).
 	Fec *VideoFecSetting `json:"-"`
+	// Source: the video source setting, set on the agent before the stream
+	// starts (nil: the agent doesn't take it, leave its setting alone).
+	Source *VideoSourceSetting `json:"-"`
 	// ClientPort - client port to receive UDP stream (server will take IP from HTTP)
 	ClientHost string `json:"client_host,omitempty"`
 	ClientPort int    `json:"client_port,omitempty"`

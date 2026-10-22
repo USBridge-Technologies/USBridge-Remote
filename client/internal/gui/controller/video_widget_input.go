@@ -1212,6 +1212,13 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 	}
 
 	imgW, imgH := vw.resolveStreamPixelSize(frame)
+	if a := service.NativeDisplayAspect(); a > 0 && imgH > 0 {
+		// The native renderer shows the picture in the target screen's
+		// aspect (setSourceDisplayAspect); zoom/pan limits follow it.
+		if _, _, _, _, ok := vw.nativeDestRectDp(); ok {
+			imgW = imgH * float32(a)
+		}
+	}
 	if imgW > 0 && imgH > 0 {
 		baseW, baseH := aspectFitSize(w, availableH, imgW, imgH)
 		vw.baseContentRectW = baseW
@@ -1429,6 +1436,9 @@ func (vw *VideoWidget) rememberHostDesktopFromInfo(info *models.VideoInfoData) {
 	if info == nil {
 		return
 	}
+	if info.Source != nil {
+		vw.setSourceDisplayAspect(info.Source.DisplayAspect())
+	}
 	w, h := hostDesktopSizeFromModes(info.CaptureModes)
 	if info.Width > 0 && info.Height > 0 {
 		if area := float32(info.Width) * float32(info.Height); area > w*h {
@@ -1460,6 +1470,20 @@ func (vw *VideoWidget) ensureHostDesktopSize() {
 	if cw > 0 && ch > 0 {
 		vw.setHostDesktopSize(cw, ch)
 	}
+}
+
+// setSourceDisplayAspect shows the picture in the target screen's aspect
+// (width/height of the video source setting; 0 = the frame's own) -- a
+// capture card's anamorphic modes stretch the monitor into the frame. Only
+// the native renderers apply it, and the absolute mouse maps through their
+// dest rect, so the pointer stays on the picture either way.
+func (vw *VideoWidget) setSourceDisplayAspect(aspect float64) {
+	if service.VideoDisplayAspect() == aspect {
+		return
+	}
+	service.SetVideoDisplayAspect(aspect)
+	logrus.Infof("[ABS] display aspect %.4f (0 = the frame's own)", aspect)
+	fyne.Do(vw.refreshContentRectFromTouchpad)
 }
 
 func (vw *VideoWidget) applyNativeDestToContentRect() {
@@ -1546,6 +1570,11 @@ func (vw *VideoWidget) SetAgentProtocol(protocol string) {
 func (vw *VideoWidget) kvmCaptureIsTheFrame() bool {
 	if vw == nil || IsSoftwareAgentOS(vw.agentOS) {
 		return false
+	}
+	// USBridge reports its RustShine tariff ("pro") too, but its streamer
+	// already maps the frame onto the target's screen (source setting).
+	if knownUSBridgeHardware(vw.agentOS) {
+		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(vw.agentProtocol)) {
 	case "opensource", "open source", "sunshine", "pro", "free", "enterprise":

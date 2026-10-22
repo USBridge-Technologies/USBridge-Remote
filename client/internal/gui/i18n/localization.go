@@ -716,6 +716,16 @@ type LocalizedStrings struct {
 	PlayoutBufferBadge                   string // small platform badge next to the Jitter Buffer title
 	Fec                                  string // FEC slider caption in the bitrate card (agent POST /api/video/fec)
 	FecAuto                              string // the FEC slider's auto position
+	VideoSource                          string // "Video source" picker caption, video parameters dialog (agent POST /api/video/source)
+	VideoSourceWholeFrame                string // video source: the capture card's whole frame
+	VideoSourceCustom                    string // video source: a resolution typed in
+	VideoSourceAuto                      string // video source: the agent finds the screen in the frame
+	VideoSourceAutoDetail                string // video source picker: what Auto does
+	VideoSourceWholeFrameDetail          string // video source picker: what the whole frame is
+	VideoSourceWidth                     string // custom source resolution: width field placeholder
+	VideoSourceHeight                    string // custom source resolution: height field placeholder
+	VideoSourceRect                      string // custom source: optional exact area field placeholder
+	VideoSourceHint                      string // hint under the video source picker
 	HostVirtualDisplay                   string // "Virtual display" checkbox title, video parameters dialog -- only against a plain Apollo/Vibepollo host
 	HostVirtualDisplayHint               string // hint shown under the host Virtual display checkbox
 	OtherSettings                        string // labeled divider above the video-parameters toggle list, same style as OrEnterManually
@@ -1489,6 +1499,16 @@ func EN() *LocalizedStrings {
 		PlayoutBufferBadge:                   "Beta",
 		Fec:                                  "FEC",
 		FecAuto:                              "Auto",
+		VideoSource:                          "Screen",
+		VideoSourceWholeFrame:                "Whole frame",
+		VideoSourceCustom:                    "Custom…",
+		VideoSourceAuto:                      "Auto",
+		VideoSourceAutoDetail:                "crops the black bars around the screen",
+		VideoSourceWholeFrameDetail:          "no crop",
+		VideoSourceWidth:                     "Width",
+		VideoSourceHeight:                    "Height",
+		VideoSourceRect:                      "Exact area, % of frame: x, y, w, h (optional)",
+		VideoSourceHint:                      "The monitor's own resolution, or the exact area in % of the frame.",
 		HostVirtualDisplay:                   "Virtual display",
 		HostVirtualDisplayHint:               "The host streams its own virtual monitor in this resolution and refresh rate instead of a physical screen. Turn off to stream the host's monitor as it is.",
 		OtherSettings:                        "OTHER SETTINGS",
@@ -2064,6 +2084,16 @@ func UKProper() *LocalizedStrings {
 	locale.PlayoutBufferLowEnd = "Мінімальна затримка"
 	locale.PlayoutBufferSmoothEnd = "Найплавніше"
 	locale.FecAuto = "Авто"
+	locale.VideoSource = "Екран"
+	locale.VideoSourceWholeFrame = "Весь кадр"
+	locale.VideoSourceCustom = "Інший…"
+	locale.VideoSourceAuto = "Авто"
+	locale.VideoSourceAutoDetail = "обрізає чорні смуги навколо екрана"
+	locale.VideoSourceWholeFrameDetail = "без обрізання"
+	locale.VideoSourceWidth = "Ширина"
+	locale.VideoSourceHeight = "Висота"
+	locale.VideoSourceRect = "Точна область, % кадру: x, y, w, h (необов'язково)"
+	locale.VideoSourceHint = "Власна роздільність монітора або точна область у % кадру."
 	locale.WiFiInterferenceTitle = "Перешкоди Wi-Fi"
 	locale.WiFiInterferenceHint = "Відео смикається, бо Wi-Fi постійно перемикається на AirDrop/Continuity для пристроїв Apple поруч. Вимкніть Bluetooth на цьому iPhone (Параметри → Bluetooth) або Handoff і AirDrop на Mac і Apple TV поруч."
 	locale.ServerAddress = "Адреса сервера"

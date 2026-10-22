@@ -271,8 +271,24 @@ func (vw *VideoWidget) applyRequestFec(request *models.VideoStartRequest) {
 	logrus.Infof("📶 [FEC] agent streamer FEC percent=%d auto=%v", request.Fec.Percent, request.Fec.Auto)
 }
 
+// applyRequestSource sets the dialog's video source on the agent before the
+// stream (re)starts (the agent restarts its streamer only when it changed),
+// and shows the picture in the source's aspect from then on.
+func (vw *VideoWidget) applyRequestSource(request *models.VideoStartRequest) {
+	if request == nil || request.Source == nil || vw.usbClient == nil {
+		return
+	}
+	if err := vw.usbClient.SetVideoSource(*request.Source); err != nil {
+		logrus.Warnf("⚠️ [VideoSource] agent did not take %+v: %v", *request.Source, err)
+		return
+	}
+	logrus.Infof("🖼️ [VideoSource] agent video source %+v", *request.Source)
+	vw.setSourceDisplayAspect(request.Source.DisplayAspect())
+}
+
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
 	vw.applyRequestFec(request)
+	vw.applyRequestSource(request)
 	cfg := videoDeviceConfigFromRequest(request.VideoDevice, "", request)
 	vw.applyOfferingVirtualDisplay(cfg, func(cfg models.VideoDeviceConfig) {
 		if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {

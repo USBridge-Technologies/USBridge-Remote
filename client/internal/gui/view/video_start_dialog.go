@@ -18,6 +18,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -130,6 +131,10 @@ type VideoStartDialog struct {
 	fecRow     *fyne.Container
 	fecValue   *canvas.Text
 	fecChoices []models.VideoFecSetting
+	// source: which part of a capture card's frame is the target's screen
+	// (models.VideoSourceInfo), shown only when the agent takes the
+	// setting. Sent with the start request (request.Source).
+	source *videoSourcePicker
 	// hostVirtualDisplayCheck: a plain Apollo/Vibepollo host's own virtual
 	// display (service.SetHostVirtualDisplayEnabled) -- draft until
 	// Apply/Start. The row shows only while SetHostVirtualDisplayOption
@@ -1085,10 +1090,9 @@ const (
 	// Smooth Motion): fixed height + inner scroll so new rows don't grow
 	// the dialog into the footer. Gutter keeps Fyne's overlay scrollbar
 	// off the checkboxes -- same 14px as What's New.
-	videoDialogOtherSettingsPadLR   = float32(8)
-	videoDialogOtherSettingsPadTB   = float32(8)
-	videoDialogOtherSettingsGutter  = float32(14)
-	videoDialogOtherSettingsScrollH = float32(180)
+	videoDialogOtherSettingsPadLR  = float32(8)
+	videoDialogOtherSettingsPadTB  = float32(8)
+	videoDialogOtherSettingsGutter = float32(14)
 )
 
 // videoDialogBodyInsetQuirk is NewInset's own extra theme.Padding() (4px by
@@ -1663,17 +1667,37 @@ func (l *videoDialogLabeledDividerLayout) Layout(objects []fyne.CanvasObject, si
 }
 
 func newVideoDialogOtherSettingsCard(rows ...fyne.CanvasObject) fyne.CanvasObject {
+	// Every row at full height: the dialog body scrolls as a whole, a
+	// fixed-height scroll of its own here left a second, cramped scroller.
 	list := container.New(&tightStatsVBoxLayout{Gap: 10}, rows...)
-	scrolled := container.NewScroll(NewInsetExact(list, 0, videoDialogOtherSettingsGutter, 0, 0))
-	scrolled.Direction = container.ScrollVerticalOnly
 	cardBG := canvas.NewRectangle(design.ColorGray950)
 	cardBG.CornerRadius = design.RadiusMD
 	cardBorder := canvas.NewRectangle(color.Transparent)
 	cardBorder.CornerRadius = design.RadiusMD
 	cardBorder.StrokeColor = videoDialogBorderColor
 	cardBorder.StrokeWidth = 1
-	inner := NewInsetExact(NewFixedHeight(scrolled, videoDialogOtherSettingsScrollH), videoDialogOtherSettingsPadLR, videoDialogOtherSettingsPadLR, videoDialogOtherSettingsPadTB, videoDialogOtherSettingsPadTB)
+	flex := container.New(videoDialogFlexWidthLayout{}, NewInsetExact(list, 0, videoDialogOtherSettingsGutter, 0, 0))
+	inner := NewInsetExact(flex, videoDialogOtherSettingsPadLR, videoDialogOtherSettingsPadLR, videoDialogOtherSettingsPadTB, videoDialogOtherSettingsPadTB)
 	return container.NewStack(cardBG, cardBorder, inner)
+}
+
+// videoDialogFlexWidthLayout gives its one child whatever width it gets and
+// claims none of its own: the rows' wrapped descriptions re-wrap to the
+// panel instead of widening it past the screen.
+type videoDialogFlexWidthLayout struct{}
+
+func (videoDialogFlexWidthLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) == 0 {
+		return fyne.Size{}
+	}
+	return fyne.NewSize(0, objects[0].MinSize().Height)
+}
+
+func (videoDialogFlexWidthLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	for _, o := range objects {
+		o.Move(fyne.NewPos(0, 0))
+		o.Resize(size)
+	}
 }
 
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
@@ -1887,6 +1911,8 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.fecRow = newVideoDialogCompactSliderRow(i18n.Current.Fec, vsd.fecValue, vsd.fecSlider)
 	vsd.fecRow.Hide()
 
+	vsd.source = newVideoSourcePicker(videoDialogToggleDescWidthFor(hintPanelW))
+
 	vsd.hostVirtualDisplayCheck = newVideoDialogCheckbox(service.HostVirtualDisplayEnabled(), nil)
 	vsd.hostVirtualDisplayHint = newVideoDialogDescription(i18n.Current.HostVirtualDisplayHint, videoDialogToggleDescWidthFor(hintPanelW))
 	vsd.hostVirtualDisplayRow = NewInsetExact(newVideoDialogToggleRow(
@@ -1984,7 +2010,10 @@ func (vsd *VideoStartDialog) createInterface() {
 
 	headerBlock := container.NewVBox(newVideoDialogTopAccentBar(), NewInset(title, 21, 44, 9, 4), headerSep)
 
+	// Screen | resolution | frame rate in one row; the screen column only
+	// where the agent takes the setting (a capture card).
 	resolutionFPSRow := container.NewGridWithColumns(2,
+		vsd.source.field,
 		container.NewVBox(
 			newVideoDialogFieldLabel(i18n.Current.Resolution),
 			vsd.resolutionSelect,
@@ -1994,6 +2023,14 @@ func (vsd *VideoStartDialog) createInterface() {
 			vsd.fpsSelect,
 		),
 	)
+	vsd.source.onShown = func(shown bool) {
+		columns := 2
+		if shown {
+			columns = 3
+		}
+		resolutionFPSRow.Layout = layout.NewGridLayoutWithColumns(columns)
+		resolutionFPSRow.Refresh()
+	}
 
 	// Codec buttons sit in one shared track (agent-style segmented
 	// control): outer card border only, no per-button outline.
@@ -2009,7 +2046,10 @@ func (vsd *VideoStartDialog) createInterface() {
 		container.NewBorder(nil, nil, newVideoDialogFieldLabel(i18n.Current.VideoCodec), nil, vsd.modeDescription),
 		codecCard,
 		videoDialogVSpace(8),
-		resolutionFPSRow,
+		// Flexible: the grid's own minimum (three times its widest column)
+		// is wider than a phone held upright.
+		container.New(videoDialogFlexWidthLayout{}, resolutionFPSRow),
+		vsd.source.block,
 		videoDialogVSpace(8),
 		vsd.modeDetailsSlot,
 		videoDialogVSpace(8),
@@ -2047,7 +2087,11 @@ func (vsd *VideoStartDialog) createInterface() {
 	// with the panel's own bottom margin below.
 	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerButtons, 12, 18, 6, 0))
 
-	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInset(bodyContent, videoDialogBodyInsetLR, videoDialogBodyInsetLR, 12, 0))
+	// The body scrolls when it is taller than the screen (a phone in
+	// portrait): left as a plain VBox it spilled over the footer buttons.
+	body := NewInset(bodyContent, videoDialogBodyInsetLR, videoDialogBodyInsetLR, 12, 0)
+	bodyScroll := container.NewVScroll(body)
+	form := container.NewBorder(headerBlock, footerBlock, nil, nil, bodyScroll)
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -2081,7 +2125,10 @@ func (vsd *VideoStartDialog) createInterface() {
 				maxHeight = canvasSize.Height
 			}
 
+			// As tall as the whole body when it fits, not the scroll's own
+			// small minimum.
 			panelMin := panel.MinSize()
+			panelMin.Height += body.MinSize().Height - bodyScroll.MinSize().Height
 			panelWidth := minFloat32(maxFloat32(panelMin.Width, videoDialogCanvasPanelWidth(canvasSize)), maxWidth)
 			panelHeight := minFloat32(maxFloat32(panelMin.Height, 520), maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
@@ -2209,6 +2256,11 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	vsd.resolutionHints = make(map[string]string)
 	vsd.color444Available = info != nil && info.Color444Available
 	vsd.configureFec(info)
+	if info != nil {
+		vsd.source.configure(info.Source)
+	} else {
+		vsd.source.configure(nil)
+	}
 	// Both ends must do HDR: the agent encodes it (hardware + license), and
 	// this client must be able to display it (service.HdrDisplaySupported).
 	vsd.hdrAgentAvailable = info != nil && info.HdrAvailable
@@ -2860,6 +2912,11 @@ func (vsd *VideoStartDialog) handleStart() {
 	if vsd.fecRow.Visible() && len(vsd.fecChoices) > 0 {
 		choice := vsd.fecChoices[vsd.fecChoiceIndex()]
 		request.Fec = &choice
+	}
+	if source, err := vsd.source.setting(); err != nil {
+		logrus.Warnf("⚠️ [VideoSource] %v -- leaving the agent's setting as it is", err)
+	} else {
+		request.Source = source
 	}
 
 	logrus.Infof("🎥 Starting video: mode=%s %dx%d @ %d fps, bitrate %s",

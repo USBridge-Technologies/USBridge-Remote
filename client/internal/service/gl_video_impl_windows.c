@@ -19,6 +19,18 @@
 #include <stdio.h>
 #include <stdatomic.h>
 
+// Shape the picture is shown in: the target screen's width/height when the
+// client's video source setting names it (gl_video_set_display_aspect), so an
+// anamorphic capture mode (the MS2130 stretching a 16:10 monitor into
+// 1024x768) still looks right; otherwise the frame's own. The Go side fits
+// the absolute-mouse rect with the same aspect (service.VideoDisplayAspect).
+static volatile float g_display_aspect = 0.0f;
+void gl_video_set_display_aspect(float a) { g_display_aspect = a > 0.0f ? a : 0.0f; }
+static float display_aspect(int fw, int fh) {
+    float a = g_display_aspect;
+    return a > 0.0f ? a : (float)fw / (float)(fh > 0 ? fh : 1);
+}
+
 // goGLLog — safe only from CGO context (gl_video_create/destroy).
 // Never call from the render thread (native CreateThread).
 extern void goGLLog(char *msg, int level);
@@ -157,7 +169,7 @@ static void gdi_render_frame(void) {
     if (ww <= 0 || wh <= 0) return;
 
     // Letterbox within the video rect: keep frame aspect ratio.
-    float fa = (float)sw / (float)(sh ? sh : 1);
+    float fa = display_aspect(sw, sh);
     float wa = (float)ww / (float)(wh ? wh : 1);
     int dx = 0, dy = 0, dw = ww, dh = wh;
     if (fa > wa) { dh = (int)(ww / fa + 0.5f); dy = (wh - dh) / 2; }

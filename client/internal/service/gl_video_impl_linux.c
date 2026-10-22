@@ -18,6 +18,18 @@
 #include <time.h>
 #include <unistd.h>
 
+// Shape the picture is shown in: the target screen's width/height when the
+// client's video source setting names it (gl_video_set_display_aspect), so an
+// anamorphic capture mode (the MS2130 stretching a 16:10 monitor into
+// 1024x768) still looks right; otherwise the frame's own. The Go side fits
+// the absolute-mouse rect with the same aspect (service.VideoDisplayAspect).
+static volatile float g_display_aspect = 0.0f;
+void gl_video_set_display_aspect(float a) { g_display_aspect = a > 0.0f ? a : 0.0f; }
+static float display_aspect(int fw, int fh) {
+    float a = g_display_aspect;
+    return a > 0.0f ? a : (float)fw / (float)(fh > 0 ? fh : 1);
+}
+
 // GLX vsync extensions (optional, loaded at runtime).
 typedef void (*PFNGLXSWAPINTERVALEXTPROC)(Display*, GLXDrawable, int);
 typedef int  (*PFNGLXSWAPINTERVALMESAPROC)(unsigned);
@@ -83,7 +95,7 @@ static double mono_sec(void) {
 
 static void letterbox(int fw, int fh, int ww, int wh,
                       float *x0, float *y0, float *x1, float *y1) {
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = display_aspect(fw, fh);
     float wa = (float)ww / (float)(wh ? wh : 1);
     if (fa > wa) { float s=wa/fa; *x0=-1;*x1=1;*y0=-s;*y1=s; }
     else         { float s=fa/wa; *x0=-s;*x1=s;*y0=-1;*y1=1; }

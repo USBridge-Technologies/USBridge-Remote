@@ -136,6 +136,26 @@ when the value changed. `GET /api/video/info` reports it as `"fec": {"percent",
 "auto", "auto_supported", "min_percent", "max_percent"}` when the agent takes it;
 the client shows the slider only then.
 
+### Set Video Source
+```http
+POST /api/video/source
+```
+**Description**: Which part of a capture card's frame is the target's screen,
+from the video dialog's "Video source" picker (hardware agent `usbridge`; the
+software agent captures the screen itself and doesn't advertise it).
+**Request Body**: `{"mode": "capture"}` (the whole frame),
+`{"mode": "manual", "width": 1440, "height": 900}` (the monitor's own
+resolution: the streamer cuts out where the MS2130 puts a picture of that shape
+-- it fits every source as if the UVC frame were 16:9, bars at the sides or
+above/below), optionally with `"rect": [x, y, w, h]` (fractions of the frame)
+for a source the rule doesn't fit, or `{"mode": "auto"}` (the default: the
+streamer finds the black bars the source drew and crops them). The absolute mouse maps the picture onto exactly that screen; the
+client shows the picture in the source's aspect where its native renderer can
+(Vulkan/GL). The streamer restarts only when the value changed. `GET
+/api/video/info` reports it as `"source": {"mode", "width", "height", "rect",
+"auto_supported"}` when the agent takes it; the client shows the picker only
+then.
+
 ### Audio Info
 ```http
 GET /api/audio/info

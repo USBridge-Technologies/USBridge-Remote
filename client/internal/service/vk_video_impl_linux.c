@@ -33,6 +33,18 @@
 
 #include "shader_arrays.h" // g_ycbcr_crop_vert_spv / g_ycbcr_frag_spv (zero-copy dma-buf path)
 
+// Shape the picture is shown in: the target screen's width/height when the
+// client's video source setting names it (vk_video_set_display_aspect), so an
+// anamorphic capture mode (the MS2130 stretching a 16:10 monitor into
+// 1024x768) still looks right; otherwise the frame's own. The Go side fits
+// the absolute-mouse rect with the same aspect (service.VideoDisplayAspect).
+static volatile float g_display_aspect = 0.0f;
+void vk_video_set_display_aspect(float a) { g_display_aspect = a > 0.0f ? a : 0.0f; }
+static float display_aspect(int fw, int fh) {
+    float a = g_display_aspect;
+    return a > 0.0f ? a : (float)fw / (float)(fh > 0 ? fh : 1);
+}
+
 extern void goVKLog(char *msg, int level);
 
 // g_pipe_{r,w} is a self-pipe used purely to wake select() (or break the
@@ -1184,7 +1196,7 @@ static int vk_render_frame_dmabuf(DmabufFrame *f) {
 
     int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
     int fw = f->vis_w, fh = f->vis_h;
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = display_aspect(fw, fh);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
@@ -1504,7 +1516,7 @@ static int vk_render_frame_nv12(const Nv12Buf *fb) {
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
     int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = display_aspect(fw, fh);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
@@ -1832,7 +1844,7 @@ static int vk_render_frame_pyrowave(const uint8_t *au, size_t aulen) {
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
     int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = display_aspect(fw, fh);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
@@ -2105,7 +2117,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = display_aspect(fw, fh);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }

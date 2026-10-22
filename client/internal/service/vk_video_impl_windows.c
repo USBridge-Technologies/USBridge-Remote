@@ -33,6 +33,18 @@
 #include <stdatomic.h>
 #include <math.h>
 
+// Shape the picture is shown in: the target screen's width/height when the
+// client's video source setting names it (vk_video_set_display_aspect), so an
+// anamorphic capture mode (the MS2130 stretching a 16:10 monitor into
+// 1024x768) still looks right; otherwise the frame's own. The Go side fits
+// the absolute-mouse rect with the same aspect (service.VideoDisplayAspect).
+static volatile float g_display_aspect = 0.0f;
+void vk_video_set_display_aspect(float a) { g_display_aspect = a > 0.0f ? a : 0.0f; }
+static float display_aspect(int fw, int fh) {
+    float a = g_display_aspect;
+    return a > 0.0f ? a : (float)fw / (float)(fh > 0 ? fh : 1);
+}
+
 extern void goVKLog(char *msg, int level);
 
 // win_vk_hwdev_get (moonlight_cgo_windows.go) — lazily creates (or returns
@@ -2379,7 +2391,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
 
     // Aspect-ratio letterboxing, same math as the RGBA blit path.
     int sw = g_swap_ext.width, sh = g_swap_ext.height;
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = display_aspect(fw, fh);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
@@ -2727,7 +2739,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
 
     // Blit with aspect-ratio letterboxing.
     int sw = g_swap_ext.width, sh = g_swap_ext.height;
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = display_aspect(fw, fh);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
@@ -3592,7 +3604,7 @@ static int vk_render_frame_conceal(void) {
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     int sw = g_swap_ext.width, sh = g_swap_ext.height;
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = display_aspect(fw, fh);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }

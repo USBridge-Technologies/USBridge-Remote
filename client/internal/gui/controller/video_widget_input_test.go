@@ -308,3 +308,21 @@ func mathAbs32(v float32) float32 {
 	}
 	return v
 }
+
+func TestUSBridgeProMapsWholeFrame(t *testing.T) {
+	// usbridge reports the RustShine "pro" tariff; its streamer has already
+	// cut the target's screen out of the capture, so the client must not
+	// fit the picture into the largest capture mode again.
+	vw := &VideoWidget{}
+	vw.agentOS = "USBridge OS"
+	vw.agentProtocol = "pro"
+	vw.lastVideoImgW = 1728
+	vw.lastVideoImgH = 1072
+	vw.setHostDesktopSize(1920, 1080)
+	vw.UpdateTouchpadAndContentRect(1080, 2400, nil)
+
+	fx, fy, fw, fh := vw.getFrameContentRect()
+	if fx != 0 || fy != 0 || fw != 1 || fh != 1 {
+		t.Fatalf("usbridge pro frameRect=(%.3f,%.3f,%.3f,%.3f), want full frame", fx, fy, fw, fh)
+	}
+}
