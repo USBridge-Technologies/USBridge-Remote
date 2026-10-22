@@ -116,13 +116,38 @@ begin
   WizardForm.FilenameLabel.Caption := '';
 end;
 
-// Stops the running service and every process it owns, so the files can be
-// replaced on an upgrade.
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+function ServiceStopped(): Boolean;
 begin
+  // 0 when the service is stopped or not installed at all.
+  Result := Exec0(ExpandConstant('{cmd}'), '/C ""' + ExpandConstant('{sys}\sc.exe') + '" query {#ServiceName} | "' +
+    ExpandConstant('{sys}\findstr.exe') + '" "RUNNING STOP_PENDING START_PENDING" >nul"') <> 0;
+end;
+
+// Stops the running service and every process it owns, so the files can be
+// replaced on an upgrade. "sc stop" only asks; and a service killed while it
+// still runs counts as a crash, which its recovery actions (StartService)
+// answer by starting the old exe again within 5 s -- mid-copy, keeping the
+// old agent in place. So recovery goes off first, the stop is waited for,
+// and the processes are killed only then (StartService turns recovery back
+// on for the new exe).
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  I: Integer;
+begin
+  Exec0(ExpandConstant('{sys}\sc.exe'), 'failure {#ServiceName} reset= 0 actions= ""');
   Exec0(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceName}');
-  Exec0(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM usbridge-streamer.exe /IM usbridge-usb-broker.exe /IM sunshine.exe /IM punktfunk-host.exe /IM {#AppExeName}');
+  for I := 1 to 30 do begin
+    if ServiceStopped() then
+      break;
+    Sleep(500);
+  end;
+  for I := 1 to 3 do begin
+    Exec0(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM usbridge-streamer.exe /IM usbridge-usb-broker.exe /IM sunshine.exe /IM punktfunk-host.exe /IM {#AppExeName}');
+    Sleep(500);
+  end;
   Result := '';
+  if not ServiceStopped() then
+    Result := 'The USBridge Agent service did not stop. Stop it in Services (services.msc) and run setup again.';
 end;
 
 function UsbipInstalled(): Boolean;
