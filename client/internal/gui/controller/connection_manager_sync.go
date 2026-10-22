@@ -1030,6 +1030,34 @@ func (cm *ConnectionManager) applyConflictLocked(conflict *syncconn.ErrConflict)
 	return true
 }
 
+// ApplySyncPassphrase is the account dialog's "Set passphrase" button: it
+// checks the passphrase against the account's synced blob before storing
+// it, so a wrong one is reported (syncconn.ErrWrongPassphrase) and never
+// saved. Any other pull failure (offline, 5xx) still stores the key -- the
+// normal pull/poll path retries -- and is returned so the caller can show it.
+func (cm *ConnectionManager) ApplySyncPassphrase(ctx context.Context, passphrase string) error {
+	if cm.Account == nil {
+		return fmt.Errorf("no account configured")
+	}
+	token, ok := cm.Account.AccountToken()
+	if !ok {
+		return fmt.Errorf("not logged in")
+	}
+	key := syncconn.DeriveKey(cm.Account.Email(), passphrase)
+	err := cm.withAuthRetry(ctx, token, func(tok string) error {
+		_, _, perr := syncconn.Pull(ctx, tok, connectionsSyncKind, key)
+		return perr
+	})
+	if errors.Is(err, syncconn.ErrWrongPassphrase) {
+		return err
+	}
+	cm.Account.SetSyncPassphrase(passphrase)
+	if err != nil && !errors.Is(err, syncconn.ErrNoData) {
+		return err
+	}
+	return nil
+}
+
 // ResetSyncPassphrase is the "I forgot my sync passphrase" recovery path
 // (see the account dialog's "Forgot passphrase? Reset it" button,
 // main_window_account.go). Unlike the normal AccountManager.SetSyncPassphrase

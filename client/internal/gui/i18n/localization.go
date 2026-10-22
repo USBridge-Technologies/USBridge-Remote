@@ -212,6 +212,8 @@ type LocalizedStrings struct {
 	AccountResetOverwrite             string
 	AccountResetting                  string
 	AccountResetFailed                string
+	AccountCheckingPassphrase         string
+	AccountWrongPassphrase            string
 	AccountSetPassphraseHint          string
 	AccountPassphrasePlaceholder      string
 	AccountSetPassphrase              string
@@ -987,6 +989,8 @@ func EN() *LocalizedStrings {
 		AccountResetOverwrite:             "Reset & overwrite",
 		AccountResetting:                  "Resetting...",
 		AccountResetFailed:                "Reset failed: %v",
+		AccountCheckingPassphrase:         "Checking passphrase...",
+		AccountWrongPassphrase:            "Wrong passphrase: it does not decrypt this account's synced connections.",
 		AccountSetPassphraseHint:          "Set a sync passphrase to sync your saved connections across devices (never sent to our servers):",
 		AccountPassphrasePlaceholder:      "Sync passphrase",
 		AccountSetPassphrase:              "Set passphrase",
@@ -1799,6 +1803,8 @@ func ES() *LocalizedStrings {
 	locale.AccountResetOverwrite = "Reset y reemplazar"
 	locale.AccountResetting = "Reseteando..."
 	locale.AccountResetFailed = "Reset fallido: %v"
+	locale.AccountCheckingPassphrase = "Comprobando passphrase..."
+	locale.AccountWrongPassphrase = "Passphrase incorrecta: no descifra las conexiones sincronizadas de esta cuenta."
 	locale.AccountSetPassphraseHint = "Pon un sync passphrase para sincronizar conexiones entre devices (no se envia a servidores):"
 	locale.AccountPassphrasePlaceholder = "Sync passphrase"
 	locale.AccountSetPassphrase = "Poner passphrase"
@@ -2302,6 +2308,8 @@ func UKProper() *LocalizedStrings {
 	locale.AccountResetOverwrite = "Скинути й замінити"
 	locale.AccountResetting = "Скидання..."
 	locale.AccountResetFailed = "Скидання не вдалось: %v"
+	locale.AccountCheckingPassphrase = "Перевірка passphrase..."
+	locale.AccountWrongPassphrase = "Невірна passphrase: вона не розшифровує синхронізовані з'єднання цього акаунта."
 	locale.AccountSetPassphraseHint = "Задайте sync passphrase, щоб синкати з'єднання між девайсами (на сервер не йде):"
 	locale.AccountPassphrasePlaceholder = "Sync passphrase"
 	locale.AccountSetPassphrase = "Задати passphrase"

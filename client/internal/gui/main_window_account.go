@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/syncconn"
 
 	_ "embed"
 	_ "golang.org/x/image/webp"
@@ -266,7 +268,7 @@ func (mw *MainWindow) showAccountDialog() {
 				identityBody.Add(view.NewInset(newAccountLicenseManagerStrip(), 0, 0, licPad, licPad))
 				identityBody.Add(newAccountDivider())
 			}
-			syncContent, syncFooter := accountSyncPassphraseSection(cm, am, &resettingSyncPassphrase, render)
+			syncContent, syncFooter := accountSyncPassphraseSection(cm, am, &resettingSyncPassphrase, render, func() { closeAccount() })
 			identityBody.Add(syncContent)
 
 			body.Add(newAccountCard(identityBody))
@@ -774,7 +776,7 @@ func (t *tightVBoxLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	}
 }
 
-func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controller.AccountManager, resetting *bool, render func()) (fyne.CanvasObject, fyne.CanvasObject) {
+func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controller.AccountManager, resetting *bool, render, closeDialog func()) (fyne.CanvasObject, fyne.CanvasObject) {
 	titleText := canvas.NewText(i18n.Current.AccountConnectionsSync, design.ColorTextLight)
 	titleText.TextSize = 12
 	titleText.TextStyle = fyne.TextStyle{Bold: true}
@@ -854,12 +856,42 @@ func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controll
 	entry.TextStyle.Monospace = true
 	styledEntry := wrapAccountField(entry, 10, color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff})
 
-	saveBtn := newAccountDialogDarkButton(i18n.Current.AccountSetPassphrase, nil, nil, func() {
-		if entry.Text == "" {
+	statusLabel := widget.NewLabel("")
+	statusLabel.Wrapping = fyne.TextWrapWord
+	styledStatus := wrapAccountField(statusLabel, 11, design.ColorAlert)
+	styledStatus.Hide()
+
+	// Like an OK button: a passphrase that decrypts the synced connections
+	// closes the dialog; a wrong one keeps it open with the entry intact.
+	var saveBtn fyne.CanvasObject
+	submit := func() {
+		passphrase := entry.Text
+		if passphrase == "" || !saveBtn.Visible() {
 			return
 		}
-		am.SetSyncPassphrase(entry.Text)
-		render()
-	})
-	return container.New(&tightVBoxLayout{}, titleRow, styledLabel, styledEntry), container.NewHBox(saveBtn)
+		statusLabel.SetText(i18n.Current.AccountCheckingPassphrase)
+		styledStatus.Show()
+		saveBtn.Hide()
+
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			err := cm.ApplySyncPassphrase(ctx, passphrase)
+			cancel()
+			fyne.Do(func() {
+				switch {
+				case errors.Is(err, syncconn.ErrWrongPassphrase):
+					statusLabel.SetText(i18n.Current.AccountWrongPassphrase)
+					saveBtn.Show()
+				case err != nil:
+					// Key is stored and sync retries; render shows the error.
+					render()
+				default:
+					closeDialog()
+				}
+			})
+		}()
+	}
+	saveBtn = newAccountDialogDarkButton(i18n.Current.AccountSetPassphrase, nil, nil, submit)
+	entry.OnSubmitted = func(string) { submit() }
+	return container.New(&tightVBoxLayout{}, titleRow, styledLabel, styledEntry, styledStatus), container.NewHBox(saveBtn)
 }

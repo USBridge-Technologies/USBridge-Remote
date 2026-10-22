@@ -117,10 +117,13 @@ func Decrypt(key []byte, ciphertextB64, nonceB64 string) ([]byte, error) {
 	}
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("syncconn: decrypt failed (wrong passphrase, or data was tampered with): %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrWrongPassphrase, err)
 	}
 	return plaintext, nil
 }
+
+// ErrWrongPassphrase matches (errors.Is) Decrypt's authentication failure.
+var ErrWrongPassphrase = errors.New("syncconn: decrypt failed (wrong passphrase, or data was tampered with)")
 
 // ErrNoData means the account has never pushed anything for this kind yet
 // -- not an error condition for the caller, just "nothing to merge".
