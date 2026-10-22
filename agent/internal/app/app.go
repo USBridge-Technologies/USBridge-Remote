@@ -4705,6 +4705,65 @@ func (a *App) SetVideoFec(percent int, auto bool) (changed bool, err error) {
 	return true, a.RestartSunshine()
 }
 
+// VideoSource reports the stream's shape for the client's "Screen" picker:
+// rust-shine's source_mode / source_width / source_height (see its
+// sunshine_conf.rs; unset is auto). ok is false for another backend.
+func (a *App) VideoSource() (source api.VideoSourceInfo, ok bool) {
+	if a.stream == nil || streamhost.BackendKind(a.stream) != "rustshine" {
+		return source, false
+	}
+	source = api.VideoSourceInfo{Mode: strings.ToLower(strings.TrimSpace(a.stream.ConfigKey("source_mode"))), AutoSupported: true}
+	switch source.Mode {
+	case "capture":
+	case "manual":
+		source.Width, _ = strconv.Atoi(strings.TrimSpace(a.stream.ConfigKey("source_width")))
+		source.Height, _ = strconv.Atoi(strings.TrimSpace(a.stream.ConfigKey("source_height")))
+		if source.Width <= 0 || source.Height <= 0 {
+			source = api.VideoSourceInfo{Mode: "auto", AutoSupported: true}
+		}
+	default:
+		source.Mode = "auto"
+	}
+	return source, true
+}
+
+// SetVideoSource stores the client's "Screen" choice in rust-shine's
+// config and restarts the streamer when it changed (read at startup).
+func (a *App) SetVideoSource(source api.VideoSourceInfo) (changed bool, err error) {
+	cur, ok := a.VideoSource()
+	if !ok {
+		return false, fmt.Errorf("this stream backend has no video source setting")
+	}
+	mode := strings.ToLower(strings.TrimSpace(source.Mode))
+	switch mode {
+	case "", "auto":
+		source = api.VideoSourceInfo{Mode: "auto"}
+	case "capture":
+		source = api.VideoSourceInfo{Mode: "capture"}
+	case "manual":
+		if source.Width < 1 || source.Height < 1 || source.Width > 16384 || source.Height > 16384 {
+			return false, fmt.Errorf("manual source needs a width and height (1..16384), got %dx%d", source.Width, source.Height)
+		}
+		source = api.VideoSourceInfo{Mode: "manual", Width: source.Width, Height: source.Height}
+	default:
+		return false, fmt.Errorf("unknown source mode %q (auto, capture or manual)", source.Mode)
+	}
+	if cur.Mode == source.Mode && cur.Width == source.Width && cur.Height == source.Height && a.stream.ConfigKey("source_mode") != "" {
+		return false, nil
+	}
+	width, height := "", ""
+	if source.Mode == "manual" {
+		width, height = strconv.Itoa(source.Width), strconv.Itoa(source.Height)
+	}
+	for _, kv := range [][2]string{{"source_mode", source.Mode}, {"source_width", width}, {"source_height", height}} {
+		if err := a.stream.SetConfigKey(kv[0], kv[1]); err != nil {
+			return false, err
+		}
+	}
+	log.Printf("[app] streamer video source %+v -- restarting the streamer", source)
+	return true, a.RestartSunshine()
+}
+
 // UnpairSunshineClient removes the Moonlight client identified by uniqueID
 // (meaning depends on the active backend -- see streamhost's UnpairClient
 // doc comments) from every stream-host backend's trust list, not just the

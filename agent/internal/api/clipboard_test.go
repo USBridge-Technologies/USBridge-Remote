@@ -115,25 +115,27 @@ func (s *stubApp) Screen() interface {
 } {
 	return stubScreen{}
 }
-func (s *stubApp) VideoDevices() []VideoDeviceInfo       { return nil }
-func (s *stubApp) VirtualDisplaySupported() bool         { return false }
-func (s *stubApp) VideoFec() (int, bool, bool, bool)     { return 0, false, false, false }
-func (s *stubApp) SetVideoFec(int, bool) (bool, error)   { return false, nil }
-func (s *stubApp) RawHIDSupported() bool                 { return false }
-func (s *stubApp) SunshineOutputName() string            { return "" }
-func (s *stubApp) SetSunshineOutputName(string) error    { return nil }
-func (s *stubApp) SunshineStreamHost() string            { return "" }
-func (s *stubApp) SunshineAdminPort() int                { return 0 }
-func (s *stubApp) SubmitMoonlightPIN(string) error       { return nil }
-func (s *stubApp) CurrentVideoCodec() string             { return "" }
-func (s *stubApp) SupportedVideoCodecs() []string        { return []string{"h264"} }
-func (s *stubApp) Color444Status() (bool, bool)          { return false, false }
-func (s *stubApp) HdrStatus() (bool, bool)               { return false, false }
-func (s *stubApp) PyroWaveColorStatus() (bool, bool)     { return false, false }
-func (s *stubApp) AudioSinks() ([]AudioSink, error)      { return nil, nil }
-func (s *stubApp) CurrentAudioSink() (string, error)     { return "", nil }
-func (s *stubApp) SetAudioSink(string) error             { return nil }
-func (s *stubApp) TailscaleStatus() *TailscaleStatusInfo { return nil }
+func (s *stubApp) VideoDevices() []VideoDeviceInfo              { return nil }
+func (s *stubApp) VirtualDisplaySupported() bool                { return false }
+func (s *stubApp) VideoFec() (int, bool, bool, bool)            { return 0, false, false, false }
+func (s *stubApp) SetVideoFec(int, bool) (bool, error)          { return false, nil }
+func (s *stubApp) VideoSource() (VideoSourceInfo, bool)         { return VideoSourceInfo{}, false }
+func (s *stubApp) SetVideoSource(VideoSourceInfo) (bool, error) { return false, nil }
+func (s *stubApp) RawHIDSupported() bool                        { return false }
+func (s *stubApp) SunshineOutputName() string                   { return "" }
+func (s *stubApp) SetSunshineOutputName(string) error           { return nil }
+func (s *stubApp) SunshineStreamHost() string                   { return "" }
+func (s *stubApp) SunshineAdminPort() int                       { return 0 }
+func (s *stubApp) SubmitMoonlightPIN(string) error              { return nil }
+func (s *stubApp) CurrentVideoCodec() string                    { return "" }
+func (s *stubApp) SupportedVideoCodecs() []string               { return []string{"h264"} }
+func (s *stubApp) Color444Status() (bool, bool)                 { return false, false }
+func (s *stubApp) HdrStatus() (bool, bool)                      { return false, false }
+func (s *stubApp) PyroWaveColorStatus() (bool, bool)            { return false, false }
+func (s *stubApp) AudioSinks() ([]AudioSink, error)             { return nil, nil }
+func (s *stubApp) CurrentAudioSink() (string, error)            { return "", nil }
+func (s *stubApp) SetAudioSink(string) error                    { return nil }
+func (s *stubApp) TailscaleStatus() *TailscaleStatusInfo        { return nil }
 func (s *stubApp) RegisterTailscale(context.Context, string, string) (*TailscaleStatusInfo, error) {
 	return nil, nil
 }

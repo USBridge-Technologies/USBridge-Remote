@@ -141,8 +141,12 @@ the client shows the slider only then.
 POST /api/video/source
 ```
 **Description**: Which part of a capture card's frame is the target's screen,
-from the video dialog's "Video source" picker (hardware agent `usbridge`; the
-software agent captures the screen itself and doesn't advertise it).
+from the video dialog's "Screen" picker (hardware agent `usbridge`). The
+software agent with the rust-shine backend takes it as the stream's shape:
+`auto` (default) streams the desktop's own shape fitted into the requested
+size, no bars; `capture` the requested size exactly, the desktop
+letterboxed into it; `manual` the `width` x `height` shape (`rect` is not
+taken there).
 **Request Body**: `{"mode": "capture"}` (the whole frame),
 `{"mode": "manual", "width": 1440, "height": 900}` (the monitor's own
 resolution: the streamer cuts out where the MS2130 puts a picture of that shape

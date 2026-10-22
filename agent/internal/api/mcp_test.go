@@ -161,25 +161,27 @@ func (a *mcpTestApp) Screen() interface {
 	}
 	return mcpTestScreen{}
 }
-func (a *mcpTestApp) VideoDevices() []VideoDeviceInfo       { return nil }
-func (a *mcpTestApp) VirtualDisplaySupported() bool         { return false }
-func (a *mcpTestApp) VideoFec() (int, bool, bool, bool)     { return 0, false, false, false }
-func (a *mcpTestApp) SetVideoFec(int, bool) (bool, error)   { return false, nil }
-func (a *mcpTestApp) RawHIDSupported() bool                 { return false }
-func (a *mcpTestApp) SunshineOutputName() string            { return "" }
-func (a *mcpTestApp) SetSunshineOutputName(string) error    { return nil }
-func (a *mcpTestApp) SunshineStreamHost() string            { return "" }
-func (a *mcpTestApp) SunshineAdminPort() int                { return 0 }
-func (a *mcpTestApp) SubmitMoonlightPIN(string) error       { return nil }
-func (a *mcpTestApp) CurrentVideoCodec() string             { return "" }
-func (a *mcpTestApp) SupportedVideoCodecs() []string        { return []string{"h264"} }
-func (a *mcpTestApp) Color444Status() (bool, bool)          { return false, false }
-func (a *mcpTestApp) HdrStatus() (bool, bool)               { return false, false }
-func (a *mcpTestApp) PyroWaveColorStatus() (bool, bool)     { return false, false }
-func (a *mcpTestApp) AudioSinks() ([]AudioSink, error)      { return nil, nil }
-func (a *mcpTestApp) CurrentAudioSink() (string, error)     { return "", nil }
-func (a *mcpTestApp) SetAudioSink(string) error             { return nil }
-func (a *mcpTestApp) TailscaleStatus() *TailscaleStatusInfo { return nil }
+func (a *mcpTestApp) VideoDevices() []VideoDeviceInfo              { return nil }
+func (a *mcpTestApp) VirtualDisplaySupported() bool                { return false }
+func (a *mcpTestApp) VideoFec() (int, bool, bool, bool)            { return 0, false, false, false }
+func (a *mcpTestApp) SetVideoFec(int, bool) (bool, error)          { return false, nil }
+func (a *mcpTestApp) VideoSource() (VideoSourceInfo, bool)         { return VideoSourceInfo{}, false }
+func (a *mcpTestApp) SetVideoSource(VideoSourceInfo) (bool, error) { return false, nil }
+func (a *mcpTestApp) RawHIDSupported() bool                        { return false }
+func (a *mcpTestApp) SunshineOutputName() string                   { return "" }
+func (a *mcpTestApp) SetSunshineOutputName(string) error           { return nil }
+func (a *mcpTestApp) SunshineStreamHost() string                   { return "" }
+func (a *mcpTestApp) SunshineAdminPort() int                       { return 0 }
+func (a *mcpTestApp) SubmitMoonlightPIN(string) error              { return nil }
+func (a *mcpTestApp) CurrentVideoCodec() string                    { return "" }
+func (a *mcpTestApp) SupportedVideoCodecs() []string               { return []string{"h264"} }
+func (a *mcpTestApp) Color444Status() (bool, bool)                 { return false, false }
+func (a *mcpTestApp) HdrStatus() (bool, bool)                      { return false, false }
+func (a *mcpTestApp) PyroWaveColorStatus() (bool, bool)            { return false, false }
+func (a *mcpTestApp) AudioSinks() ([]AudioSink, error)             { return nil, nil }
+func (a *mcpTestApp) CurrentAudioSink() (string, error)            { return "", nil }
+func (a *mcpTestApp) SetAudioSink(string) error                    { return nil }
+func (a *mcpTestApp) TailscaleStatus() *TailscaleStatusInfo        { return nil }
 func (a *mcpTestApp) RegisterTailscale(context.Context, string, string) (*TailscaleStatusInfo, error) {
 	return nil, nil
 }

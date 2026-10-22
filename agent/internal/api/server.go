@@ -99,6 +99,11 @@ type Application interface {
 	// see app.App.VideoFec. ok is false where the backend has no FEC setting.
 	VideoFec() (percent int, auto, autoSupported, ok bool)
 	SetVideoFec(percent int, auto bool) (changed bool, err error)
+	// VideoSource/SetVideoSource: the stream's shape, the client's "Screen"
+	// picker -- see app.App.VideoSource. ok is false where the backend
+	// has no such setting.
+	VideoSource() (source VideoSourceInfo, ok bool)
+	SetVideoSource(source VideoSourceInfo) (changed bool, err error)
 	// RawHIDSupported reports whether the active stream backend understands
 	// LiSendRawHidEvent -- see app.App.RawHIDSupported's doc comment.
 	RawHIDSupported() bool
@@ -243,6 +248,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/video/set_device", sec.LimitPolling(s.videoSetDevice))
 	mux.HandleFunc("/api/video/fec", sec.LimitPolling(s.videoFec))
+	mux.HandleFunc("/api/video/source", sec.LimitPolling(s.videoSource))
 	mux.HandleFunc("/api/video/session_end", sec.LimitPolling(s.videoSessionEnd))
 	mux.HandleFunc("/api/video/session_start", sec.LimitPolling(s.videoSessionStart))
 	mux.HandleFunc("POST /api/video/virtual_displays", sec.LimitPolling(s.virtualDisplayCreate))
@@ -923,6 +929,11 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 	if percent, auto, autoSupported, ok := s.app.VideoFec(); ok {
 		info["fec"] = VideoFecInfo{Percent: percent, Auto: auto, AutoSupported: autoSupported, MinPercent: MinFecPercent, MaxPercent: MaxFecPercent}
 	}
+	// The client's "Screen" picker (POST /api/video/source): present when
+	// this backend takes it.
+	if source, ok := s.app.VideoSource(); ok {
+		info["source"] = source
+	}
 	s.ok(w, "video_info", info)
 }
 
@@ -943,6 +954,38 @@ type VideoFecInfo struct {
 	AutoSupported bool `json:"auto_supported"`
 	MinPercent    int  `json:"min_percent"`
 	MaxPercent    int  `json:"max_percent"`
+}
+
+// VideoSourceInfo is /api/video/info's "source" and POST /api/video/source's
+// body: the stream's shape. Mode "auto" (the default) streams the desktop's
+// own shape, no bars; "capture" the client's requested size exactly, the
+// desktop letterboxed into it; "manual" the Width x Height shape.
+type VideoSourceInfo struct {
+	Mode          string `json:"mode"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
+	AutoSupported bool   `json:"auto_supported"`
+}
+
+// videoSource sets the stream's shape from the client's "Screen" picker:
+// {"mode": "auto" | "capture" | "manual", "width", "height"}. The streamer
+// restarts only on a change.
+func (s *Server) videoSource(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.fail(w, http.StatusMethodNotAllowed, "method_not_allowed", nil)
+		return
+	}
+	var req VideoSourceInfo
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	changed, err := s.app.SetVideoSource(req)
+	if err != nil {
+		s.fail(w, http.StatusBadRequest, "video_source_failed", err)
+		return
+	}
+	s.ok(w, "video_source_set", map[string]bool{"changed": changed})
 }
 
 // videoFec sets the streamer's FEC from the client's slider:

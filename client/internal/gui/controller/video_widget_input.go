@@ -861,7 +861,19 @@ func (vw *VideoWidget) SetShowMouseCursor(show bool) {
 }
 
 func (vw *VideoWidget) SetAgentEnvironment(agentOS, agentDisplay string) {
+	if os := strings.TrimSpace(agentOS); os != vw.agentOS {
+		// Another agent: the last one's desktop size would map this one's
+		// pointer (a capture card's 1920x1080 kept for a 2560x1600 Windows
+		// desktop pillarboxed into the stream put the cursor off).
+		vw.frameMutex.Lock()
+		vw.hostDesktopW, vw.hostDesktopH = 0, 0
+		vw.frameMutex.Unlock()
+	}
 	vw.agentOS = strings.TrimSpace(agentOS)
+	if IsSoftwareAgentOS(vw.agentOS) {
+		// Its desktop is the frame; see rememberHostDesktopFromInfo.
+		vw.setSourceDisplayAspect(0)
+	}
 	vw.agentDisplay = strings.TrimSpace(agentDisplay)
 	fyne.Do(func() {
 		vw.refreshCursorOverlay()
@@ -1436,9 +1448,14 @@ func (vw *VideoWidget) rememberHostDesktopFromInfo(info *models.VideoInfoData) {
 	if info == nil {
 		return
 	}
+	// An agent without the source setting (a software agent) shows the
+	// frame's own aspect: the aspect is process-wide, and one left over
+	// from a capture-card session squeezed its picture.
+	aspect := 0.0
 	if info.Source != nil {
-		vw.setSourceDisplayAspect(info.Source.DisplayAspect())
+		aspect = info.Source.DisplayAspect()
 	}
+	vw.setSourceDisplayAspect(aspect)
 	w, h := hostDesktopSizeFromModes(info.CaptureModes)
 	if info.Width > 0 && info.Height > 0 {
 		if area := float32(info.Width) * float32(info.Height); area > w*h {
