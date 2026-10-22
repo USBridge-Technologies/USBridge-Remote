@@ -100,11 +100,13 @@ void platform_ar_init(int channels, int sample_rate) {
         .rate     = (uint32_t)sample_rate,
         .channels = (uint8_t)channels,
     };
-    // 50 ms target latency: low enough for real-time feel, large enough to
-    // absorb per-frame jitter without underruns.
+    // Target latency: the slider's prebuffer (audio_shed.h), at least 50 ms --
+    // low enough for real-time feel, large enough to absorb per-frame jitter
+    // without underruns.
+    int target_ms = audio_prebuffer_ms() > 50 ? audio_prebuffer_ms() : 50;
     pa_buffer_attr attr = {
         .maxlength = (uint32_t)-1,
-        .tlength   = (uint32_t)(sample_rate * channels * 2 / 20), // 50 ms
+        .tlength   = (uint32_t)(sample_rate * channels * 2 * target_ms / 1000),
         .prebuf    = (uint32_t)-1,
         .minreq    = (uint32_t)-1,
         .fragsize  = (uint32_t)-1,

@@ -114,13 +114,14 @@ type VideoStartDialog struct {
 	// service.FrameSmoothingSupported() is true (Windows today).
 	frameSmoothingCheck *videoDialogCheckbox
 	frameSmoothingHint  *videoDialogWrapText
-	// playoutBufferCheck/playoutBufferHint: the moonlight-common-c fork's
-	// jitter buffer (service.SetPlayoutBufferEnabled) -- draft until
+	// playoutBufferSlider/playoutBufferHint: the moonlight-common-c fork's
+	// jitter buffer, a latency/smoothness slider (service.SetPlayoutBufferLevel,
+	// persisted by SavePlayoutBufferPreference) -- draft until
 	// Apply/Start. Only built/shown when service.PlayoutBufferSupported()
 	// is true (Windows/macOS/Linux/iOS/Android today); defaults off
 	// everywhere -- see playout_buffer.go.
-	playoutBufferCheck *videoDialogCheckbox
-	playoutBufferHint  *videoDialogWrapText
+	playoutBufferSlider *videoDialogBitrateSlider
+	playoutBufferHint   *videoDialogWrapText
 	// hostVirtualDisplayCheck: a plain Apollo/Vibepollo host's own virtual
 	// display (service.SetHostVirtualDisplayEnabled) -- draft until
 	// Apply/Start. The row shows only while SetHostVirtualDisplayOption
@@ -1816,12 +1817,38 @@ func (vsd *VideoStartDialog) createInterface() {
 	// Jitter buffer: draft until Apply/Start, same as the toggles above.
 	var playoutBufferRow fyne.CanvasObject
 	if service.PlayoutBufferSupported() {
-		vsd.playoutBufferCheck = newVideoDialogCheckbox(service.PlayoutBufferEnabled(), nil)
-		vsd.playoutBufferHint = newVideoDialogDescription(i18n.Current.PlayoutBufferHint, videoDialogToggleDescWidthFor(hintPanelW))
-		playoutBufferRow = newVideoDialogToggleRow(
-			vsd.playoutBufferCheck,
+		// A latency/smoothness slider (service.PlayoutBufferLevel), drawn
+		// like the bitrate one: title + level pill, slider, end hints.
+		vsd.playoutBufferSlider = newVideoDialogBitrateSlider(0, service.PlayoutBufferMaxLevel, 1)
+		vsd.playoutBufferSlider.Value = float64(service.PlayoutBufferLevel())
+		levelText := canvas.NewText("", color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
+		levelText.TextSize = 10
+		levelText.TextStyle = fyne.TextStyle{Bold: true}
+		vsd.playoutBufferSlider.OnChanged = func(value float64) {
+			levelText.Text = i18n.Current.PlayoutBufferLevelNames[service.ClampPlayoutBufferLevel(int(value+0.5))]
+			levelText.Refresh()
+		}
+		vsd.playoutBufferSlider.OnChanged(vsd.playoutBufferSlider.Value)
+		levelPillBG := canvas.NewRectangle(design.ColorGray950)
+		levelPillBG.CornerRadius = 6
+		levelPillBorder := canvas.NewRectangle(color.Transparent)
+		levelPillBorder.CornerRadius = 6
+		levelPillBorder.StrokeColor = videoDialogBorderColor
+		levelPillBorder.StrokeWidth = 1
+		levelPill := container.NewStack(levelPillBG, levelPillBorder, NewInset(levelText, 10, 10, 2, 2))
+		title := container.NewHBox(
 			newVideoDialogRowTitle(i18n.Current.PlayoutBuffer),
 			newVideoDialogBadge(i18n.Current.PlayoutBufferBadge, design.ColorConnectionBadgeText),
+		)
+		lowEnd := canvas.NewText(i18n.Current.PlayoutBufferLowEnd, videoDialogHintColor)
+		lowEnd.TextSize = videoDialogHintTextSize
+		smoothEnd := canvas.NewText(i18n.Current.PlayoutBufferSmoothEnd, videoDialogHintColor)
+		smoothEnd.TextSize = videoDialogHintTextSize
+		vsd.playoutBufferHint = newVideoDialogDescription(i18n.Current.PlayoutBufferHint, videoDialogToggleDescWidthFor(hintPanelW))
+		playoutBufferRow = container.NewVBox(
+			container.NewBorder(nil, nil, title, levelPill, nil),
+			vsd.playoutBufferSlider,
+			container.NewBorder(nil, nil, lowEnd, smoothEnd, nil),
 			vsd.playoutBufferHint,
 		)
 	}
@@ -2304,8 +2331,8 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	if vsd.frameSmoothingCheck != nil {
 		vsd.frameSmoothingCheck.SetChecked(service.FrameSmoothingEnabled())
 	}
-	if vsd.playoutBufferCheck != nil {
-		vsd.playoutBufferCheck.SetChecked(service.PlayoutBufferEnabled())
+	if vsd.playoutBufferSlider != nil {
+		vsd.playoutBufferSlider.SetValue(float64(service.PlayoutBufferLevel()))
 	}
 	vsd.syncHintWrapWidths()
 	if vsd.dialog != nil && vsd.parent != nil {
@@ -2769,8 +2796,10 @@ func (vsd *VideoStartDialog) applyLocalOverlaySettings() {
 	if vsd.frameSmoothingCheck != nil {
 		service.SetFrameSmoothingEnabled(vsd.frameSmoothingCheck.Checked)
 	}
-	if vsd.playoutBufferCheck != nil {
-		service.SetPlayoutBufferEnabled(vsd.playoutBufferCheck.Checked)
+	if vsd.playoutBufferSlider != nil {
+		level := service.ClampPlayoutBufferLevel(int(vsd.playoutBufferSlider.Value + 0.5))
+		service.SetPlayoutBufferLevel(level)
+		SavePlayoutBufferPreference(level)
 	}
 	if vsd.hostVirtualDisplayRow != nil && vsd.hostVirtualDisplayRow.Visible() {
 		service.SetHostVirtualDisplayEnabled(vsd.hostVirtualDisplayCheck.Checked)
@@ -2788,8 +2817,8 @@ func (vsd *VideoStartDialog) revertLocalOverlayDrafts() {
 	if vsd.frameSmoothingCheck != nil {
 		vsd.frameSmoothingCheck.SetChecked(service.FrameSmoothingEnabled())
 	}
-	if vsd.playoutBufferCheck != nil {
-		vsd.playoutBufferCheck.SetChecked(service.PlayoutBufferEnabled())
+	if vsd.playoutBufferSlider != nil {
+		vsd.playoutBufferSlider.SetValue(float64(service.PlayoutBufferLevel()))
 	}
 	if vsd.hostVirtualDisplayCheck != nil {
 		vsd.hostVirtualDisplayCheck.SetChecked(service.HostVirtualDisplayEnabled())

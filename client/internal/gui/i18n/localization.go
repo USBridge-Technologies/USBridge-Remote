@@ -706,8 +706,11 @@ type LocalizedStrings struct {
 	FrameSmoothing                       string // "Smooth Motion" checkbox title, video parameters dialog -- motion-extrapolated stall concealment, pure local rendering fallback like AI Vision
 	FrameSmoothingHint                   string // hint shown under the Smooth Motion checkbox
 	FrameSmoothingBadge                  string // small badge next to the Smooth Motion title, e.g. "BETA"
-	PlayoutBuffer                        string // "Jitter Buffer" checkbox title, video parameters dialog -- moonlight-common-c fork's playout delay; off by default
-	PlayoutBufferHint                    string // hint shown under the Jitter Buffer checkbox
+	PlayoutBuffer                        string    // "Jitter Buffer" slider title, video parameters dialog -- moonlight-common-c fork's FramePacer.h; off by default
+	PlayoutBufferHint                    string    // hint shown under the Jitter Buffer slider
+	PlayoutBufferLevelNames              [5]string // the slider's levels, 0 = off .. 4 = smoothest (service.PlayoutBufferLevel)
+	PlayoutBufferLowEnd                  string    // hint under the slider's left end
+	PlayoutBufferSmoothEnd               string    // hint under the slider's right end
 	PlayoutBufferBadge                   string // small platform badge next to the Jitter Buffer title
 	HostVirtualDisplay                   string // "Virtual display" checkbox title, video parameters dialog -- only against a plain Apollo/Vibepollo host
 	HostVirtualDisplayHint               string // hint shown under the host Virtual display checkbox
@@ -1473,7 +1476,10 @@ func EN() *LocalizedStrings {
 		FrameSmoothingHint:                   "When the network stalls, fills the gap with a motion-extrapolated frame instead of freezing -- never delays real frames, only bridges a late/lost one.",
 		FrameSmoothingBadge:                  "Beta",
 		PlayoutBuffer:                        "Jitter Buffer",
-		PlayoutBufferHint:                    "Holds each frame back by a few milliseconds to even out a jittery network. Smoother cadence on bad Wi-Fi or cellular, but adds latency -- off by default.",
+		PlayoutBufferHint:                    "Holds each frame just long enough that frames reach the screen as evenly as the host captured them. Adapts to the network; further right keeps more frames on time on bad Wi-Fi or cellular, at more latency.",
+		PlayoutBufferLevelNames:              [5]string{"Off", "Low", "Balanced", "Smooth", "Smoothest"},
+		PlayoutBufferLowEnd:                  "Lowest latency",
+		PlayoutBufferSmoothEnd:               "Smoothest",
 		PlayoutBufferBadge:                   "Beta",
 		HostVirtualDisplay:                   "Virtual display",
 		HostVirtualDisplayHint:               "The host streams its own virtual monitor in this resolution and refresh rate instead of a physical screen. Turn off to stream the host's monitor as it is.",
@@ -2043,6 +2049,10 @@ func UK() *LocalizedStrings {
 func UKProper() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Клієнт USBridge"
+	locale.PlayoutBufferHint = "Притримує кожен кадр рівно настільки, щоб кадри доходили на екран так само рівно, як хост їх захопив. Підлаштовується під мережу; правіше -- більше кадрів вчасно на поганому Wi-Fi чи мобільному, ціною затримки."
+	locale.PlayoutBufferLevelNames = [5]string{"Вимк.", "Низька", "Баланс", "Плавно", "Найплавніше"}
+	locale.PlayoutBufferLowEnd = "Мінімальна затримка"
+	locale.PlayoutBufferSmoothEnd = "Найплавніше"
 	locale.WiFiInterferenceTitle = "Перешкоди Wi-Fi"
 	locale.WiFiInterferenceHint = "Відео смикається, бо Wi-Fi постійно перемикається на AirDrop/Continuity для пристроїв Apple поруч. Вимкніть Bluetooth на цьому iPhone (Параметри → Bluetooth) або Handoff і AirDrop на Mac і Apple TV поруч."
 	locale.ServerAddress = "Адреса сервера"

@@ -64,11 +64,13 @@ android_moonlight_dir() {
 }
 
 # ensure_moonlight_libs builds moonlight-common-c/OpenSSL/Opus for an ABI
-# the first time it's needed.
+# the first time it's needed, and again whenever a moonlight-common-c source
+# is newer than the library (a cached .a silently shipped stale fork fixes).
 ensure_moonlight_libs() {
     local abi="$1" dir
     dir="$(android_moonlight_dir "$abi")"
-    if [ -f "$dir/libmoonlight-common-c.a" ] && [ -f "$dir/opus/lib/libopus.a" ]; then
+    if [ -f "$dir/libmoonlight-common-c.a" ] && [ -f "$dir/opus/lib/libopus.a" ] &&
+        [ -z "$(find "$REPO_ROOT/moonlight-common-c/src" -newer "$dir/libmoonlight-common-c.a" -print -quit)" ]; then
         return 0
     fi
     echo "📦 Building moonlight-common-c + OpenSSL + Opus for $abi..."

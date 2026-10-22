@@ -41,19 +41,18 @@ uint16_t do_get_last_host_latency_tenths_ms(void) {
     return g_last_host_latency_tenths_ms;
 }
 
-// LiGetPlayoutJitterUs / LiGetPlayoutAppliedDelayUs exist in
-// VideoDepacketizer.c and Limelight.h, but the cached Android
-// libmoonlight-common-c.a (build_moonlight.sh skips rebuild if the .a
-// already exists) predates those exports. A strong reference here
-// survives into libUSBridge_Client.so and Android's loader aborts on
-// dlopen with UnsatisfiedLinkError -- the app never even reaches main.
-// Return 0 until that .a is rebuilt; RTP/RTT/FPS still populate the HUD.
+// Android paces at the display (vk_video_impl_android.c), not in
+// moonlight-common-c, so BUF is the renderer's hold; the jitter estimate is
+// still the depacketizer's. (These used to return 0: the Android .a was never
+// rebuilt and lacked the exports -- build_moonlight.sh now rebuilds it.)
+extern uint64_t android_vk_pace_hold_us(void);
+
 uint64_t do_get_playout_jitter_us(void) {
-    return 0;
+    return LiGetPlayoutJitterUs();
 }
 
 uint64_t do_get_playout_applied_delay_us(void) {
-    return 0;
+    return android_vk_pace_hold_us();
 }
 
 #endif // __ANDROID__

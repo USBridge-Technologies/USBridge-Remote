@@ -52,6 +52,7 @@ import (
 
 	"image"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -349,11 +350,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 		// os.Setenv reaches the C runtime's getenv() here because this is a
 		// cgo build (runtime/cgo/setenv.go).
 		if PlayoutBufferSupported() {
-			if PlayoutBufferEnabled() {
-				os.Setenv("USBRIDGE_PLAYOUT_BUFFER", "1")
-			} else {
-				os.Setenv("USBRIDGE_PLAYOUT_BUFFER", "0")
-			}
+			os.Setenv("USBRIDGE_PLAYOUT_BUFFER", strconv.Itoa(PlayoutBufferLevel()))
 		}
 
 		ret := C.do_li_start(

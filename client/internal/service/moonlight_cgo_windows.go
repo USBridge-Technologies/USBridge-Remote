@@ -117,12 +117,11 @@ static int                 g_wa_cs_init    = 0;
 static int                 g_wa_rate       = 48000;
 static int                 g_wa_fail_count = 0;
 static ULONGLONG           g_wa_last_write_ms = 0;
-// Playback starts once WASAPI_PREBUFFER_MS of audio is queued and restarts the
+// Playback starts once audio_prebuffer_ms() of audio is queued and restarts the
 // same way after an underrun: packets reach us in bursts (Wi-Fi/tailnet jitter,
 // GC pauses), and a 10 ms-at-a-time feed straight into a 40 ms buffer crackled.
 static int                 g_wa_started = 0;
-#define WASAPI_BUFFER_MS    120
-#define WASAPI_PREBUFFER_MS 40
+#define WASAPI_BUFFER_MS    (AUDIO_QUEUE_MAX_MS + 40) // the shed bound plus a burst
 
 static void wasapi_init(int channels, int sample_rate) {
     g_wa_rate = sample_rate;
@@ -253,7 +252,7 @@ static void wasapi_write(const opus_int16 *pcm, int samples) {
 
     g_wa_fail_count    = 0;
     g_wa_last_write_ms = now;
-    if (!g_wa_started && padding + (UINT32)samples >= (UINT32)g_wa_rate * WASAPI_PREBUFFER_MS / 1000) {
+    if (!g_wa_started && padding + (UINT32)samples >= (UINT32)g_wa_rate * audio_prebuffer_ms() / 1000) {
         IAudioClient_Start(c);
         g_wa_started = 1;
     }
@@ -973,8 +972,9 @@ static int  dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
 //             own thread pulls from that same bounded queue and keeps the
 //             decoder fed while it waits for output (win_pull_decode_thread).
 enum { WIN_DECODE_DIRECT = 0, WIN_DECODE_THREAD = 1, WIN_DECODE_PULL = 2 };
+// The latency/smoothness slider level, 0 = off (service.PlayoutBufferLevel).
 static int g_playout_buffer_on = 0;
-static void set_playout_buffer_on(int on) { g_playout_buffer_on = on; }
+static void set_playout_buffer_on(int level) { g_playout_buffer_on = level; }
 static int g_decode_mode = WIN_DECODE_PULL;
 static HANDLE g_pull_thread = NULL;
 static volatile LONG g_pull_quit = 0;
@@ -1406,10 +1406,14 @@ static int do_li_start(
     }
     // moonlight-common-c's playout buffer (our fork's VideoDepacketizer.c)
     // sleeps before handing each frame to the decoder -- delay the official
-    // clients never add. Driven by the video settings checkbox (off by
-    // default, see service.SetPlayoutBufferEnabled); the fork re-reads the
-    // variable at the start of every stream.
-    _putenv(g_playout_buffer_on ? "USBRIDGE_PLAYOUT_BUFFER=1" : "USBRIDGE_PLAYOUT_BUFFER=0");
+    // clients never add. Driven by the video settings latency/smoothness
+    // slider (off by default, see service.SetPlayoutBufferLevel); the fork
+    // re-reads the variable at the start of every stream.
+    {
+        char env[48];
+        snprintf(env, sizeof env, "USBRIDGE_PLAYOUT_BUFFER=%d", g_playout_buffer_on);
+        _putenv(env);
+    }
     {
         static const char *mode_names[] = { "direct (RTP receive thread)", "thread (moonlight-common-c VideoDec)", "pull (own decode thread, moonlight-qt style)" };
         char msg[160];
@@ -1655,11 +1659,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 		logrus.Infof("🌕 [Moonlight/CGO/Win] LiStartConnection: host=%s %dx%d@%d bitrate=%d",
 			w.host, width, height, fps, bitrate)
 
-		playoutOn := 0
-		if PlayoutBufferEnabled() {
-			playoutOn = 1
-		}
-		C.set_playout_buffer_on(C.int(playoutOn))
+		C.set_playout_buffer_on(C.int(PlayoutBufferLevel()))
 		ret := C.do_li_start(
 			host, appVer, gfeVer, rtsp,
 			C.int(serverCodecModeSupport), C.int(videoFormat),

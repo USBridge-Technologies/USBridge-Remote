@@ -109,6 +109,15 @@ static double   g_ca_last_decode_ts   = 0.0; // wall-clock time of the previous 
 
 // Log the macOS default audio output device name (macOS HAL APIs, not available on iOS).
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
+// ca_prebuffer_frames: CA_PREBUFFER_FRAMES at the low-latency end of the
+// slider, more toward the smooth end -- the slider's prebuffer
+// (audio_shed.h) less the frame that starts playing.
+static int ca_prebuffer_frames(void) {
+    int spf = g_audio_samples_per_frame > 0 ? g_audio_samples_per_frame : 480;
+    int n = audio_prebuffer_ms() * g_ca_sample_rate / (1000 * spf) - 1;
+    return n > CA_PREBUFFER_FRAMES ? n : CA_PREBUFFER_FRAMES;
+}
+
 static void ca_log_device(void) {
     AudioObjectPropertyAddress addr = {
         kAudioHardwarePropertyDefaultOutputDevice,
@@ -252,7 +261,7 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
         memcpy(buf->mAudioData, pcm, byte_count);
         buf->mAudioDataByteSize = (UInt32)byte_count;
         g_ca_frame_count++;
-        // Buffer CA_PREBUFFER_FRAMES frames before actually starting
+        // Buffer ca_prebuffer_frames() frames before actually starting
         // playback -- both the very first start and every restart below
         // route through this same "not started yet" branch (a restart
         // sets g_ca_started back to 0 instead of calling AudioQueueStart
@@ -260,7 +269,7 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
         if (!g_ca_started) {
             AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
             g_ca_prebuffer_cnt++;
-            if (g_ca_prebuffer_cnt < CA_PREBUFFER_FRAMES) {
+            if (g_ca_prebuffer_cnt < ca_prebuffer_frames()) {
                 return; // still filling the cushion, not started yet
             }
             g_ca_started = 1;

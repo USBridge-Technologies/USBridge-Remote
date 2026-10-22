@@ -361,6 +361,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	view.ForceMobileScale = view.ClampPhonePreviewScale(float32(a.Preferences().FloatWithFallback(view.ForceMobileScalePrefKey, float64(view.DefaultPhonePreviewScale))))
 	view.ApplyPreviewUserScale()
 	view.RestoreNetGraphPreferences()
+	view.RestorePlayoutBufferPreference()
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService()

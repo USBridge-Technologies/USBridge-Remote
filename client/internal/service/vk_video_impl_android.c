@@ -36,6 +36,7 @@
 
 #include "shader_arrays.h" // g_ycbcr_rect_vert_spv / g_ycbcr_frag_spv
 #include "gles_overlay_android.h"
+#include "FramePacer.h"
 
 #define VTAG "USBridge/VulkanVideo"
 #define VLOGI(...) __android_log_print(ANDROID_LOG_INFO,  VTAG, __VA_ARGS__)
@@ -219,6 +220,27 @@ static atomic_int       g_drop_last_aimg;
 // android_vk_release_aimages asks the render thread to give back every
 // AImage before the decoder's AImageReader goes away; it acks by clearing it.
 static atomic_int       g_aimg_release_req;
+
+// Jitter buffer at the display (android_vk_set_pacing): a decoder image waits
+// in g_pace_img until FramePacer.h's release time for its host capture time
+// (the AImage timestamp, see dr_submit) before becoming g_pend_aimg. Pacing
+// here rather than before decode also evens out the decoder's own spread.
+// All under g_mu.
+#define PACE_QUEUE_MAX 3
+#define PACE_RENDER_LEAD_US 1000 // released this early: the render itself takes ~1 ms
+static int              g_pace_on = 0;
+static FRAME_PACER      g_pacer;
+static AImage          *g_pace_img[PACE_QUEUE_MAX];
+static int64_t          g_pace_at[PACE_QUEUE_MAX];
+static int              g_pace_n = 0;
+// Average hold the jitter buffer adds (planned wait, 1/32 EMA), for the Net
+// Graph's BUF (android_vk_pace_hold_us).
+static atomic_llong     g_pace_hold_us;
+// Video frames whose interval to the previous one was not ~2 refreshes of a
+// 120 Hz panel (under 12.5 ms or over 20.8 ms) -- logged with the render
+// stats so pacing on/off can be compared by number, not by eye.
+static int              g_cad_uneven = 0, g_cad_n = 0;
+static double           g_cad_last = 0;
 
 // No Vulkan device on this phone (e.g. PowerVR GE8320): the overlay draws
 // through OpenGL ES instead (gles_overlay_android.c), on the same
@@ -2295,6 +2317,12 @@ static void vk_note_video_frame_rendered(void) {
     vlat_note_present();
     g_fps_n++;
     double now = mono_sec_vk();
+    if (g_cad_last > 0) {
+        double d = now - g_cad_last;
+        if (d < 0.0125 || d > 0.0208) g_cad_uneven++;
+        g_cad_n++;
+    }
+    g_cad_last = now;
     if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }
     if (now - g_fps_t0 >= 2.0 && g_fps_n > 0) {
         g_stat_fps   = (float)((double)g_fps_n / (now - g_fps_t0));
@@ -2302,9 +2330,43 @@ static void vk_note_video_frame_rendered(void) {
         g_fps_t0 = now; g_fps_n = 0;
     }
     if (g_rendered % 300 == 0) {
-        VLOGI("rendered %lld frames, submitted %lld, fps=%.1f",
-              (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps);
+        VLOGI("rendered %lld frames, submitted %lld, fps=%.1f uneven=%d/%d%s pace_margin=%.1fms hold=%.1fms",
+              (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps, g_cad_uneven, g_cad_n,
+              g_pace_on ? "" : " (pacing off)", g_pace_on ? FramePacerMarginUs(&g_pacer) / 1000.0 : 0.0,
+              (double)atomic_load(&g_pace_hold_us) / 1000.0);
+        g_cad_uneven = 0;
+        g_cad_n = 0;
     }
+}
+
+static int64_t pace_now_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+
+// Caller holds g_mu.
+static void pace_drop_queued(void) {
+    for (int i = 0; i < g_pace_n; i++) AImage_delete(g_pace_img[i]);
+    g_pace_n = 0;
+}
+
+// pace_take_due moves queued images whose time has come to g_pend_aimg (the
+// newest due one wins) and returns how long until the next one is due, or -1
+// with none queued. Caller holds g_mu.
+static int64_t pace_take_due(void) {
+    int64_t now = pace_now_us();
+    while (g_pace_n > 0 && g_pace_at[0] - PACE_RENDER_LEAD_US <= now) {
+        if (g_pend_aimg) {
+            AImage_delete(g_pend_aimg);
+            vlat_note_dropped();
+        }
+        g_pend_aimg = g_pace_img[0];
+        g_pace_n--;
+        memmove(g_pace_img, g_pace_img + 1, (size_t)g_pace_n * sizeof(g_pace_img[0]));
+        memmove(g_pace_at, g_pace_at + 1, (size_t)g_pace_n * sizeof(g_pace_at[0]));
+    }
+    return g_pace_n > 0 ? g_pace_at[0] - PACE_RENDER_LEAD_US - now : -1;
 }
 
 // vk_aimg_set_current puts img on screen and deletes the previous one once
@@ -2325,6 +2387,7 @@ static void vk_aimg_drop_all(void) {
     pthread_mutex_lock(&g_mu);
     AImage *pend = g_pend_aimg;
     g_pend_aimg = NULL;
+    pace_drop_queued();
     pthread_mutex_unlock(&g_mu);
     if (pend) AImage_delete(pend);
     if (g_use_gles) {
@@ -2440,6 +2503,12 @@ static void *vk_render_thread(void *unused) {
 
     while (atomic_load(&g_active)) {
         struct timeval tv = {0, 8000};
+        pthread_mutex_lock(&g_mu);
+        int64_t pace_wait = pace_take_due();
+        int pace_due = g_pend_aimg != NULL;
+        pthread_mutex_unlock(&g_mu);
+        if (pace_due) tv.tv_usec = 0;
+        else if (pace_wait >= 0 && pace_wait < tv.tv_usec) tv.tv_usec = (suseconds_t)pace_wait;
         fd_set fds; FD_ZERO(&fds); FD_SET(g_pipe_r, &fds);
         select(g_pipe_r + 1, &fds, NULL, NULL, &tv);
         if (FD_ISSET(g_pipe_r, &fds)) {
@@ -2468,6 +2537,7 @@ static void *vk_render_thread(void *unused) {
         AImage *aimg = NULL;
 
         pthread_mutex_lock(&g_mu);
+        pace_take_due();
         if (g_pend_aimg) {
             aimg = g_pend_aimg;
             g_pend_aimg = NULL;
@@ -2594,6 +2664,7 @@ static void vk_full_cleanup(void) {
         pthread_mutex_lock(&g_mu);
         AImage *pend = g_pend_aimg;
         g_pend_aimg = NULL;
+        pace_drop_queued();
         free(g_gles_cpu); g_gles_cpu = NULL; g_gles_cpu_sz = 0;
         free(g_gles_cursor); g_gles_cursor = NULL;
         pthread_mutex_unlock(&g_mu);
@@ -2909,6 +2980,35 @@ int android_vk_try_submit_aimage(void *img) {
         pthread_mutex_unlock(&g_mu);
         return 0;
     }
+    if (g_pace_on) {
+        int64_t ts_ns = 0, now = pace_now_us();
+        AImage_getTimestamp((AImage *)img, &ts_ns);
+        int64_t at = FramePacerTarget(&g_pacer, ts_ns / 1000, now);
+        int64_t hold = at - PACE_RENDER_LEAD_US - now, avg = atomic_load(&g_pace_hold_us);
+        atomic_store(&g_pace_hold_us, avg + ((hold > 0 ? hold : 0) - avg) / 32);
+        if (hold > 0) {
+            AImage *dropped = NULL;
+            if (g_pace_n == PACE_QUEUE_MAX) { // a burst outran the schedule: lose the oldest
+                dropped = g_pace_img[0];
+                g_pace_n--;
+                memmove(g_pace_img, g_pace_img + 1, (size_t)g_pace_n * sizeof(g_pace_img[0]));
+                memmove(g_pace_at, g_pace_at + 1, (size_t)g_pace_n * sizeof(g_pace_at[0]));
+            }
+            g_pace_img[g_pace_n] = (AImage *)img;
+            g_pace_at[g_pace_n] = at;
+            g_pace_n++;
+            g_submitted++;
+            pthread_mutex_unlock(&g_mu);
+            if (dropped) {
+                AImage_delete(dropped);
+                vlat_note_dropped();
+            }
+            if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+            return 1;
+        }
+        // Late already: it goes now, and anything still queued is older.
+        pace_drop_queued();
+    }
     AImage *old = g_pend_aimg;
     g_pend_aimg = (AImage *)img;
     g_submitted++;
@@ -2924,6 +3024,23 @@ int android_vk_try_submit_aimage(void *img) {
     }
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
     return 1;
+}
+
+// android_vk_pace_hold_us: the average hold the jitter buffer adds, 0 when off.
+uint64_t android_vk_pace_hold_us(void) {
+    return g_pace_on ? (uint64_t)atomic_load(&g_pace_hold_us) : 0;
+}
+
+// android_vk_set_pacing sets the display-side jitter buffer for the next
+// stream (see g_pace_img): 0 off, else the latency/smoothness slider level
+// (FramePacer.h's FRAME_PACER_LEVEL).
+void android_vk_set_pacing(int level) {
+    pthread_mutex_lock(&g_mu);
+    g_pace_on = level > 0;
+    atomic_store(&g_pace_hold_us, 0);
+    FramePacerConfigure(&g_pacer, level);
+    pace_drop_queued();
+    pthread_mutex_unlock(&g_mu);
 }
 
 // android_vk_release_aimages returns every decoder image the renderer holds

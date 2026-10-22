@@ -22,15 +22,28 @@ func TestAudioShedRule(t *testing.T) {
 	abs, _ := filepath.Abs("audio_shed.h")
 	prog := `#include "` + abs + `"
 #include <stdio.h>
+int g_audio_smooth_level = 0;
 int main(void) {
     int fails = 0;
 #define EXPECT(c) do { if (!(c)) { printf("FAIL: %s\n", #c); fails++; } } while (0)
+    /* low-latency end (levels 0 and 1): 40 ms prebuffer, shed past 80 ms */
+    EXPECT(audio_prebuffer_ms() == 40);
     EXPECT(!audio_should_shed(3840, 48000, 0));   /* exactly 80 ms: keep */
     EXPECT( audio_should_shed(3841, 48000, 0));   /* past 80 ms: shed */
     EXPECT(!audio_should_shed(0, 48000, 0));
     EXPECT(!audio_should_shed(5000, 48000, 5760)); /* device floor wins */
     EXPECT( audio_should_shed(5761, 48000, 5760));
     EXPECT(!audio_should_shed(3840, 48000, 960));  /* smaller floor ignored */
+    /* smoothest end: rides out a 120 ms Wi-Fi stall, sheds past 160 ms */
+    g_audio_smooth_level = 4;
+    EXPECT(audio_prebuffer_ms() == 120);
+    EXPECT(!audio_should_shed(7680, 48000, 0));
+    EXPECT( audio_should_shed(7681, 48000, 0));
+    EXPECT(120 + AUDIO_SHED_HEADROOM_MS <= AUDIO_QUEUE_MAX_MS);
+    /* every level queues at least as much as the one before */
+    for (int l = 1; l <= 4; l++) EXPECT(AUDIO_PREBUFFER_MS[l] >= AUDIO_PREBUFFER_MS[l - 1]);
+    g_audio_smooth_level = 99; /* out of range clamps */
+    EXPECT(audio_prebuffer_ms() == 120);
     return fails;
 }
 `

@@ -73,6 +73,7 @@ extern int  android_vk_hwbuffer_supported(void);
 extern int  android_vk_aimage_supported(void);
 extern int  android_vk_try_submit_aimage(void *img);
 extern void android_vk_release_aimages(void);
+extern void android_vk_set_pacing(int level);
 
 // Bodies in net_graph_stats_android.c (not inline here: this file has
 // //export, so a non-static function body in this preamble would be
@@ -111,7 +112,12 @@ static OpusMSDecoder *g_opus_decoder   = NULL;
 static AMediaCodec   *g_amc            = NULL;
 static int            g_amc_w          = 0;
 static int            g_amc_h          = 0;
+// Decoder input timestamps: the host's capture time (the RTP timestamp,
+// unwrapped), so the output AImage carries it to the display-side jitter
+// buffer. Strictly increasing; reset per decoder.
 static uint64_t       g_amc_pts        = 0;
+static uint32_t       g_amc_last_rtp   = 0;
+static uint64_t       g_amc_rtp_ticks  = 0;
 static int            g_amc_hevc       = 0; // stream is HEVC (for SPS parsing)
 static int            g_sps_w = 0, g_sps_h = 0; // last coded size seen in an SPS
 
@@ -163,9 +169,10 @@ static void aaudio_open(int channels, int sample_rate) {
         // Set a larger initial buffer (e.g. 4x burst size) to prevent crackling
         // (XRuns) during the first few seconds of connection before Android's
         // internal adaptive buffer algorithm kicks in.
-        // At least 40 ms though: a mixer-mode burst is ~20 ms, and 4 of them
-        // is lag nobody asked for -- ar_decode grows it on actual XRuns.
-        int32_t initial = sample_rate * 40 / 1000;
+        // At least the slider's prebuffer though (audio_shed.h, 40 ms at the
+        // low-latency end): a mixer-mode burst is ~20 ms, and 4 of them is
+        // lag nobody asked for -- ar_decode grows it on actual XRuns.
+        int32_t initial = sample_rate * audio_prebuffer_ms() / 1000;
         if (initial < burst * 2) initial = burst * 2;
         AAudioStream_setBufferSizeInFrames(g_aa_stream, initial);
 
@@ -409,9 +416,10 @@ static void air_on_image(void *ctx, AImageReader *r) {
 }
 
 // Images the reader can hand out at once: the one on screen and the one
-// waiting in Vulkan, the one being acquired, and slack for
+// waiting in Vulkan, up to 3 held by the display-side jitter buffer
+// (android_vk_set_pacing), the one being acquired, and slack for
 // acquireLatestImage.
-#define AIR_MAX_IMAGES 6
+#define AIR_MAX_IMAGES 8
 
 static ANativeWindow *air_create(int width, int height) {
     media_status_t st = AImageReader_newWithUsage(width, height, AIMAGE_FORMAT_PRIVATE,
@@ -549,6 +557,7 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
         amc_teardown();
     }
     g_amc_w = width; g_amc_h = height;
+    g_amc_pts = 0;
     g_amc_lowlat = amc_read_prop_flag("debug.usbridge.lowlat");
     g_amc_spsfix = amc_read_prop_flag("debug.usbridge.spsfix");
     g_amc_spsfix_logged = 0;
@@ -756,7 +765,11 @@ static int dr_submit(PDECODE_UNIT du) {
         memcpy(buf + written, e->data, n);
         written += n;
     }
-    g_amc_pts += 33333;
+    if (g_amc_pts == 0) g_amc_rtp_ticks = du->rtpTimestamp;
+    else g_amc_rtp_ticks += (uint64_t)(int64_t)(int32_t)(du->rtpTimestamp - g_amc_last_rtp);
+    g_amc_last_rtp = du->rtpTimestamp;
+    uint64_t pts = g_amc_rtp_ticks * 100 / 9 + 1000000; // 90 kHz -> us, never 0
+    g_amc_pts = (pts > g_amc_pts) ? pts : g_amc_pts + 1;
     vlat_note_submit(g_amc_pts, du->receiveTimeUs, LiGetMicroseconds());
     AMediaCodec_queueInputBuffer(g_amc, idx, 0, written, g_amc_pts, 0);
 
@@ -1306,16 +1319,12 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 		if waited := time.Since(lockWaitStart); waited > 5*time.Millisecond {
 			logrus.Infof("🌕 [Moonlight/CGO/Android] do_li_start waited %v for previous call to release liStartCallMu", waited)
 		}
-		// moonlight-common-c's playout (jitter) buffer -- see
-		// playout_buffer.go -- is
-		// driven by this env var on every platform (VideoDepacketizer.c
-		// re-reads it once per stream start). Same mechanism as
-		// moonlight_cgo_wrapper.go's macOS/Linux/iOS wiring.
-		if PlayoutBufferEnabled() {
-			os.Setenv("USBRIDGE_PLAYOUT_BUFFER", "1")
-		} else {
-			os.Setenv("USBRIDGE_PLAYOUT_BUFFER", "0")
-		}
+		// The jitter buffer (playout_buffer.go): Android paces at the
+		// display instead of before decode (android_vk_set_pacing), so the
+		// decoder's own spread is evened out too; moonlight-common-c's
+		// pre-decode copy stays off rather than adding a second margin.
+		os.Setenv("USBRIDGE_PLAYOUT_BUFFER", "0")
+		C.android_vk_set_pacing(C.int(PlayoutBufferLevel()))
 
 		callStart := time.Now()
 		ret := C.do_li_start(cHost, cAppV, cGfeV, cRtsp,

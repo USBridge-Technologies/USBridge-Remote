@@ -189,7 +189,11 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
     fi
 
     # ── moonlight-common-c ────────────────────────────────────────────────────
-    if [ ! -f "${ANDROID_OUT}/libmoonlight-common-c.a" ]; then
+    # Also rebuilt when any fork source is newer than the library -- the
+    # cmake build below is incremental, and a cached .a used to keep shipping
+    # stale fork fixes to the phone.
+    if [ ! -f "${ANDROID_OUT}/libmoonlight-common-c.a" ] ||
+        [ -n "$(find "${BUILD_DIR}/src" -newer "${ANDROID_OUT}/libmoonlight-common-c.a" -print -quit)" ]; then
         echo "⚙️ Cross-compiling moonlight-common-c for Android ${ANDROID_ABI}..."
         ANDROID_CMAKE_BUILD="${ANDROID_OUT}/cmake-build"
         mkdir -p "${ANDROID_CMAKE_BUILD}"
