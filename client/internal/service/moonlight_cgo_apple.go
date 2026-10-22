@@ -104,6 +104,7 @@ static uint64_t g_ca_frame_count   = 0; // frames decoded successfully
 static double   g_ca_stats_start   = 0.0;
 static int      g_ca_was_dropping     = 0; // set while free pool is empty (drop burst)
 static volatile int g_ca_force_restart = 0; // suppress listener during forced stop/start
+static int      g_ca_sample_rate      = 48000;
 static double   g_ca_last_decode_ts   = 0.0; // wall-clock time of the previous decode call
 
 // Log the macOS default audio output device name (macOS HAL APIs, not available on iOS).
@@ -150,6 +151,7 @@ static void ca_running_listener(void *userData, AudioQueueRef aq, AudioQueueProp
 }
 
 void platform_ar_init(int channels, int sample_rate) {
+    g_ca_sample_rate = sample_rate;
     pthread_mutex_lock(&g_ca_mu);
     int already = (g_ca_queue != NULL);
     pthread_mutex_unlock(&g_ca_mu);
@@ -232,10 +234,18 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
     int was_empty = (g_ca_free_cnt == CA_NUM_BUFFERS);
     AudioQueueRef aq = g_ca_queue;
     AudioQueueBufferRef buf = (g_ca_free_cnt > 0) ? g_ca_free[--g_ca_free_cnt] : NULL;
+    int queued_bufs = CA_NUM_BUFFERS - g_ca_free_cnt - (buf ? 1 : 0);
     pthread_mutex_unlock(&g_ca_mu);
     if (!buf) {
         g_ca_drop_count++;
         g_ca_was_dropping = 1;
+        return;
+    }
+    // See audio_shed.h: every enqueued buffer holds one decoded frame.
+    if (g_ca_started && audio_should_shed((int64_t)queued_bufs * g_audio_samples_per_frame, g_ca_sample_rate, 0)) {
+        pthread_mutex_lock(&g_ca_mu);
+        g_ca_free[g_ca_free_cnt++] = buf;
+        pthread_mutex_unlock(&g_ca_mu);
         return;
     }
     if (byte_count <= (int)buf->mAudioDataBytesCapacity) {

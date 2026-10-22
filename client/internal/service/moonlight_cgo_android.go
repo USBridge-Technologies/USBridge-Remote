@@ -22,6 +22,7 @@ package service
 #include <jni.h>
 #include <Limelight.h>
 #include "bench_frames.h"
+#include "audio_shed.h"
 #include <opus_multistream.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -99,7 +100,11 @@ static AAudioStream  *g_aa_stream      = NULL;
 // errors/stuck-stream recovery elsewhere in this file -- keeps using the
 // mode that's actually sustainable on this device instead of reverting
 // back to the one that was causing continuous underruns.
-static aaudio_performance_mode_t g_aa_perf_mode = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+// Starts at NONE: over Wi-Fi, LOW_LATENCY's ~32 ms capacity underran 5-15
+// times a second (387 XRuns in the first 35 s of a session, audible as
+// crackle) until the escalation finally fired; the latency bound comes from
+// audio_should_shed() instead.
+static aaudio_performance_mode_t g_aa_perf_mode = AAUDIO_PERFORMANCE_MODE_NONE;
 static int            g_audio_channels = 2;
 static int            g_samples_per_frame = 240; // 5ms @ 48kHz default, overwritten by ar_init
 static OpusMSDecoder *g_opus_decoder   = NULL;
@@ -158,7 +163,11 @@ static void aaudio_open(int channels, int sample_rate) {
         // Set a larger initial buffer (e.g. 4x burst size) to prevent crackling
         // (XRuns) during the first few seconds of connection before Android's
         // internal adaptive buffer algorithm kicks in.
-        AAudioStream_setBufferSizeInFrames(g_aa_stream, burst * 4);
+        // At least 40 ms though: a mixer-mode burst is ~20 ms, and 4 of them
+        // is lag nobody asked for -- ar_decode grows it on actual XRuns.
+        int32_t initial = sample_rate * 40 / 1000;
+        if (initial < burst * 2) initial = burst * 2;
+        AAudioStream_setBufferSizeInFrames(g_aa_stream, initial);
 
         AAudioStream_requestStart(g_aa_stream);
         ALOGI("AAudio stream started: ch=%d rate=%d burst=%d perf_mode=%d",
@@ -289,6 +298,17 @@ static void ar_decode(char *data, int len) {
     if (s_decode_calls - s_window_start_call >= AUDIO_XRUN_WINDOW_CALLS) {
         s_window_start_call = s_decode_calls;
         s_window_xruns = 0;
+    }
+
+    // See audio_shed.h. Floor: the stream's buffer size -- a shared-mode
+    // stream only starts playing once that much is queued, so shedding below
+    // it kept playback from ever starting (silence a moment after connecting).
+    {
+        int64_t read = AAudioStream_getFramesRead(g_aa_stream);
+        if (read > 0 && audio_should_shed(AAudioStream_getFramesWritten(g_aa_stream) - read,
+                                          AAudioStream_getSampleRate(g_aa_stream), AAudioStream_getBufferSizeInFrames(g_aa_stream))) {
+            return;
+        }
     }
 
     // A single AAudioStream_write() call can return fewer frames than requested

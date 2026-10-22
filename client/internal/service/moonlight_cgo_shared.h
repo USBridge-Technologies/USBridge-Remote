@@ -28,6 +28,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "audio_shed.h"
+
 // ── Shared state ──────────────────────────────────────────────────────────────
 
 static volatile int g_li_active          = 0;

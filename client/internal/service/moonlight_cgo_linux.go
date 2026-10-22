@@ -141,6 +141,9 @@ void platform_ar_decode(const opus_int16 *pcm_data, int byte_count, int samples)
     pthread_mutex_unlock(&g_pa_mu);
     if (!s) return;
     int err = 0;
+    // See audio_shed.h; pa_simple_get_latency is what's still to be played.
+    pa_usec_t latency = pa_simple_get_latency(s, &err);
+    if (latency != (pa_usec_t)-1 && audio_should_shed((int64_t)(latency * (pa_usec_t)g_pa_rate / 1000000), g_pa_rate, 0)) return;
     if (pa_simple_write(s, pcm_data, (size_t)byte_count, &err) < 0) {
         // The PulseAudio stream can end up in a broken/corked state after a
         // prolonged network stall drains it; pa_simple never recovers on its
