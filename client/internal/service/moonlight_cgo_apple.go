@@ -107,8 +107,6 @@ static volatile int g_ca_force_restart = 0; // suppress listener during forced s
 static int      g_ca_sample_rate      = 48000;
 static double   g_ca_last_decode_ts   = 0.0; // wall-clock time of the previous decode call
 
-// Log the macOS default audio output device name (macOS HAL APIs, not available on iOS).
-#if TARGET_OS_MAC && !TARGET_OS_IPHONE
 // ca_prebuffer_frames: CA_PREBUFFER_FRAMES at the low-latency end of the
 // slider, more toward the smooth end -- the slider's prebuffer
 // (audio_shed.h) less the frame that starts playing.
@@ -118,6 +116,8 @@ static int ca_prebuffer_frames(void) {
     return n > CA_PREBUFFER_FRAMES ? n : CA_PREBUFFER_FRAMES;
 }
 
+// Log the macOS default audio output device name (macOS HAL APIs, not available on iOS).
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
 static void ca_log_device(void) {
     AudioObjectPropertyAddress addr = {
         kAudioHardwarePropertyDefaultOutputDevice,
