@@ -1,11 +1,13 @@
 package controller
 
 import (
+	"image/color"
 	"math"
 	"slices"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 
 	"usbridge-client/internal/gui/view"
 )
@@ -56,6 +58,18 @@ func (o *overlayOcclusion[H]) sync(c fyne.Canvas, toHoles func([]view.OverlayRec
 	}
 	o.setHidden(false)
 	return true, changed
+}
+
+// repaintNudge is never part of a tree: refreshing it only marks the canvas
+// dirty, so the next frame repaints the Fyne pixels under a fresh hole from
+// cached textures. c.Refresh(c.Content()) did that too, but it also freed
+// every texture in the window, so all text and icons were re-rasterized on
+// the UI goroutine at each hole change -- every frame while a just-opened
+// settings dialog settled, which swallowed the first taps on its pickers.
+var repaintNudge = canvas.NewRectangle(color.Transparent)
+
+func repaintUnderHoles(c fyne.Canvas) {
+	c.Refresh(repaintNudge)
 }
 
 // scheduleOcclusionSync runs sync on the Fyne main goroutine now and again

@@ -359,7 +359,7 @@ func (vw *VideoWidget) syncMetalOcclusion() {
 		return holes
 	})
 	if changed {
-		c.Refresh(c.Content())
+		repaintUnderHoles(c)
 	}
 }
 

@@ -190,7 +190,15 @@ func (d *HeaderDropdown) Tapped(*fyne.PointEvent) {
 	d.openPopup()
 }
 
-func (d *HeaderDropdown) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: Fyne's mobile driver turns any touch held past 300ms
+// into a secondary tap, timed by when the UI goroutine gets to the up event.
+// A busy frame right after a dialog opens pushed plain taps over that line,
+// so the picker ignored the first few. On a phone it is just a tap.
+func (d *HeaderDropdown) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		d.Tapped(ev)
+	}
+}
 
 func (d *HeaderDropdown) MouseIn(*desktop.MouseEvent) {
 	d.hovered = true
@@ -790,7 +798,12 @@ func (i *dropdownItem) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (i *dropdownItem) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary picks the row on a phone -- see HeaderDropdown.TappedSecondary.
+func (i *dropdownItem) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		i.Tapped(ev)
+	}
+}
 
 func (i *dropdownItem) MouseIn(*desktop.MouseEvent) {
 	i.hovered = true

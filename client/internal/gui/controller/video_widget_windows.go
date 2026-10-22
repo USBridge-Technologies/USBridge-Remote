@@ -569,7 +569,7 @@ func (vw *VideoWidget) syncVKOcclusion() {
 		return holes
 	})
 	if changed {
-		c.Refresh(c.Content())
+		repaintUnderHoles(c)
 	}
 }
 
