@@ -18,6 +18,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -47,7 +48,7 @@ var (
 	scriptsStopHoverIconSVG = fyne.NewStaticResource("scripts-stop-hover.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#fda4af"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`))
 	scriptsLogIconSVG       = fyne.NewStaticResource("scripts-log.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#F5F5F5"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z"/></svg>`))
 	scriptsEditIconSVG      = fyne.NewStaticResource("scripts-edit.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm2.92 2.33H5v-.92l9.06-9.06.92.92L5.92 19.58zM20.71 7.04a1.003 1.003 0 0 0 0-1.42L18.37 3.29a1.003 1.003 0 0 0-1.42 0l-1.13 1.13 3.75 3.75 1.14-1.13z"/></svg>`))
-	scriptsDeleteIconSVG    = fyne.NewStaticResource("scripts-delete.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`))
+	scriptsDeleteIconSVG    = fyne.NewStaticResource("scripts-delete.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#cf6f7a"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`))
 	scriptsCopyIconSVG      = fyne.NewStaticResource("scripts-copy.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`))
 )
 
@@ -67,6 +68,11 @@ type ScriptsMCPData struct {
 	OnToggle  func()
 	OnCopy    func()
 	OnLocalUI func(bool)
+
+	// AIVision/OnAIVision: the ui.parse detections drawn over the video --
+	// a debugging view, scripts and AI agents work without it.
+	AIVision   bool
+	OnAIVision func(bool)
 
 	// ModelsPresent/ModelsDownloading/ModelsDownloadProgress/
 	// OnDownloadModels replace the plain LocalUI toggle with a "Download
@@ -363,12 +369,15 @@ func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
 	startBtn := newScriptsMCPStartButton(data)
 	bottom := container.NewBorder(nil, nil, container.NewCenter(localRow), startBtn)
 
+	aiVisionRow, aiVisionToggle := newScriptsAIVisionRow(data)
+
 	inner := container.New(&tightStatsVBoxLayout{Gap: 0},
 		topRow,
 		chips,
 		statsBox,
 		divider,
 		bottom,
+		NewInset(aiVisionRow, 0, 0, 8, 0),
 	)
 	content := NewInset(inner, 14, 14, 12, 12)
 
@@ -399,6 +408,7 @@ func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
 	if localToggle != nil {
 		localToggle.OnHover = setCardHovered
 	}
+	aiVisionToggle.OnHover = setCardHovered
 	startBtn.spec.OnHover = setCardHovered
 	overlay := newConnectionCardOverlay(nil, setCardHovered)
 
@@ -614,6 +624,27 @@ func newScriptsLocalUIRow(data ScriptsMCPData) (fyne.CanvasObject, *DeviceToggle
 	})
 	localToggle.ActiveFill = design.ColorConnectionBadgeText
 	return container.New(&DeviceRowControlsLayout{Gap: 8}, localToggle, container.NewCenter(localLabel)), localToggle
+}
+
+// newScriptsAIVisionRow is the AI Vision overlay switch: what ui.parse
+// detects, drawn over the video, marked as the debugging aid it is.
+func newScriptsAIVisionRow(data ScriptsMCPData) (fyne.CanvasObject, *DeviceToggle) {
+	toggle := NewDeviceToggle(data.AIVision, func(on bool) {
+		if data.OnAIVision != nil {
+			data.OnAIVision(on)
+		}
+	})
+	toggle.ActiveFill = design.ColorConnectionBadgeText
+	title := canvas.NewText(i18n.Current.AIVision, design.ColorTextLight)
+	title.TextSize = 10
+	title.TextStyle.Bold = true
+	heading := container.NewHBox(newVideoDialogInlineIcon(videoDialogRobotSVG), title, newVideoDialogBadge(i18n.Current.AIVisionBadge, design.ColorConnectionAddFill))
+	hint := widget.NewLabel(i18n.Current.AIVisionHint)
+	hint.Wrapping = fyne.TextWrapWord
+	hint.SizeName = theme.SizeNameCaptionText
+	hint.Importance = widget.LowImportance
+	text := container.New(&tightStatsVBoxLayout{Gap: 0}, heading, hint)
+	return container.NewBorder(nil, nil, container.NewVBox(toggle), nil, text), toggle
 }
 
 func newScriptsMCPStartButton(data ScriptsMCPData) *iconChromeButton {

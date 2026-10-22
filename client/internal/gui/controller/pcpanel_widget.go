@@ -1659,7 +1659,7 @@ func (p *PCPanelWidget) showProtectedActionDialog(title, hint, expectedWord stri
 	buttons := container.NewGridWithColumns(2, yesBtn, noBtn)
 	inner.Objects = append(inner.Objects, buttons)
 
-	d = dialog.NewCustomWithoutButtons(title, content, p.window)
+	d = view.NewPanelDialog(title, "", content, p.window)
 	d.Show()
 }
 

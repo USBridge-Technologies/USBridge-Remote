@@ -771,8 +771,8 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	deleteBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   design.ColorSurfaceLight,
 		HoverFill:    color.NRGBA{R: 0x3e, G: 0x1f, B: 0x1f, A: 0xff},
-		NormalIcon:   theme.NewThemedResource(theme.DeleteIcon()),
-		HoverIcon:    theme.NewErrorThemedResource(theme.DeleteIcon()),
+		NormalIcon:   deviceDashboardDeleteIconSVG,
+		HoverIcon:    deviceDashboardDeleteIconSVG,
 		DisabledIcon: theme.NewDisabledResource(theme.DeleteIcon()),
 		IconSize:     fyne.NewSize(18, 18),
 		ButtonSize:   fyne.NewSize(deviceControlUnitWidth, deviceControlHeight),

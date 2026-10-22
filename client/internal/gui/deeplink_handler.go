@@ -239,7 +239,7 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, deviceH
 	)
 
 	// Create a custom dialog with the full content
-	d = dialog.NewCustomWithoutButtons(i18n.Current.ConnectionTitle, fullContent, parent)
+	d = view.NewPanelDialog(i18n.Current.ConnectionTitle, "", fullContent, parent)
 	d.Resize(fyne.NewSize(500, 380))
 	d.Show()
 }

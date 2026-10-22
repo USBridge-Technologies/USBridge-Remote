@@ -14,7 +14,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -320,7 +319,7 @@ func (dw *DiskWidget) showNbdDialog() {
 	)
 
 	// Create dialog
-	d := dialog.NewCustom(i18n.Current.NBDServerForAndroid, i18n.Current.Close, content, dw.window)
+	d := view.NewPanelDialog(i18n.Current.NBDServerForAndroid, i18n.Current.Close, content, dw.window)
 	d.Resize(fyne.NewSize(500, 700))
 	d.Show()
 }

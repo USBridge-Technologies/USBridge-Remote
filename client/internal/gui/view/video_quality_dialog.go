@@ -8,7 +8,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -90,7 +89,7 @@ func (vqd *VideoQualityDialog) Show(currentWidth, currentHeight, currentFPS, cur
 		),
 	)
 
-	dialog.ShowCustom(i18n.Current.VideoQualitySettings, i18n.Current.Close, settingsContainer, vqd.parent)
+	ShowPanelDialog(i18n.Current.VideoQualitySettings, i18n.Current.Close, settingsContainer, vqd.parent)
 }
 
 // handleApply handles applying the settings

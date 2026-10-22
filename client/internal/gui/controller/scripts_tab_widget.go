@@ -22,6 +22,7 @@ import (
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/localui"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -556,6 +557,12 @@ func (w *ScriptsTabWidget) sectionData() view.ScriptsSectionData {
 				w.rebuildSoon()
 			},
 			OnDownloadModels: w.startModelsDownload,
+
+			AIVision: service.AIVisionEnabled(),
+			OnAIVision: func(on bool) {
+				service.SetAIVisionEnabled(on)
+				w.rebuildSoon()
+			},
 
 			WebBridge:        isWebBuild,
 			BridgeConnected:  w.mcpBridge.Running(),

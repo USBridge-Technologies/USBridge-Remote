@@ -224,7 +224,14 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 		// pointless: the window behind a dialog read as flat black instead
 		// of dimmed-but-visible. Transparent here hands full control of the
 		// backdrop to each dialog's own dim rectangle, which is the point.
-		return color.Transparent
+		// Transparent with ColorGray900's RGB, not color.Transparent: fyne's
+		// stock dialogs (dialog.NewCustom/ShowConfirm/ShowError/...) paint
+		// their panel in this color's RGB at alpha 230, and
+		// color.Transparent's RGB came out white -- every such dialog was
+		// a white sheet over the dark app.
+		c := ColorGray900
+		c.A = 0
+		return c
 	case fynetheme.ColorNamePlaceHolder:
 		return ColorTextMuted
 	case fynetheme.ColorNamePressed:

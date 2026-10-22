@@ -195,7 +195,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 		// Cancel (X) and Confirm take their place as a small right-aligned
 		// icon row (in that order) instead of full-width buttons, since
 		// that's all this action needs.
-		deleteIcon := fyne.NewStaticResource("connection-delete.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`))
+		deleteIcon := fyne.NewStaticResource("connection-delete.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#cf6f7a"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`))
 		deleteBtn = newIconChromeButton(iconChromeButtonSpec{
 			NormalFill:   color.Transparent,
 			HoverFill:    design.ColorSurfaceLight,

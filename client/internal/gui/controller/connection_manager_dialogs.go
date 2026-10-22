@@ -272,17 +272,22 @@ func newConnectionDialogSecondaryButton(label string, onTapped func()) *connecti
 	return btn
 }
 
+// connectionDialogDangerText is the trash icons' muted red (#cf6f7a).
+var connectionDialogDangerText = color.NRGBA{R: 0xcf, G: 0x6f, B: 0x7a, A: 0xff}
+
 func newConnectionDialogDangerSecondaryButton(label string, icon fyne.Resource, onTapped func()) *connectionDialogSecondaryButton {
 	btn := &connectionDialogSecondaryButton{
-		labelText:      label,
-		onTapped:       onTapped,
+		labelText: label,
+		onTapped:  onTapped,
+		// Muted red, so a destructive action catches the eye without
+		// shouting.
 		fillColor:      design.ColorSurfaceLight,
 		borderColor:    color.Transparent,
-		textColor:      design.ColorTextLight,
-		hoverFillColor: design.ColorBorder,
-		hoverTextColor: design.ColorTextLight,
-		iconRes:        theme.NewThemedResource(icon),
-		hoverIconRes:   theme.NewThemedResource(icon),
+		textColor:      connectionDialogDangerText,
+		hoverFillColor: color.NRGBA{R: 0x3e, G: 0x1f, B: 0x22, A: 0xff},
+		hoverTextColor: connectionDialogDangerText,
+		iconRes:        icon,
+		hoverIconRes:   icon,
 	}
 	btn.ExtendBaseWidget(btn)
 	return btn
@@ -1720,7 +1725,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	if spec.onDelete != nil {
-		btn := newConnectionDialogDangerSecondaryButton(deleteLabel, theme.DeleteIcon(), func() {
+		btn := newConnectionDialogDangerSecondaryButton(deleteLabel, view.DeleteIcon, func() {
 			spec.onDelete(func() {
 				if d != nil {
 					d.Hide()

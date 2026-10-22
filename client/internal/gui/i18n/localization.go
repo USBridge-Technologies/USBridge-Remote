@@ -684,9 +684,9 @@ type LocalizedStrings struct {
 	UpscaleBicubic                       string // upscale quality picker option: smoother than bilinear
 	UpscaleLanczos                       string // upscale quality picker option: sharper than bicubic
 	UpscaleFSR1                          string // upscale quality picker option: AMD FSR 1.0 (EASU+RCAS), sharpest, macOS only for now
-	AIVision                             string // "AI Vision Detection Overlay" checkbox title, video parameters dialog
-	AIVisionHint                         string // hint shown under the AI Vision checkbox
-	AIVisionBadge                        string // small badge next to the AI Vision title, e.g. "EXPERIMENTAL"
+	AIVision                             string // "AI Vision overlay" switch title, AI & Scripts tab (debugging view)
+	AIVisionHint                         string // hint under the AI Vision switch
+	AIVisionBadge                        string // small badge next to the AI Vision title ("Debug")
 	Color444                             string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
 	Color444Hint                         string // hint under the checkbox when 4:4:4 is available (checked or not)
 	Color444UnavailableHint              string // hint when agent reports color_444_available=false (GPU/encoder cannot do HEVC 4:4:4)
@@ -1467,9 +1467,9 @@ func EN() *LocalizedStrings {
 		UpscaleBicubic:                       "Bicubic",
 		UpscaleLanczos:                       "Lanczos",
 		UpscaleFSR1:                          "AMD FSR 1.0",
-		AIVision:                             "AI Vision Detection Overlay",
-		AIVisionHint:                         "Overlays live object detection (Set-of-Mark bounding boxes + hex IDs) on the video feed, mirroring an agent's ui.parse() telemetry call.",
-		AIVisionBadge:                        "Experimental",
+		AIVision:                             "AI Vision overlay",
+		AIVisionHint:                         "Draws what ui.parse() detects (boxes + hex IDs) over the video. A debugging view: scripts and AI agents work without it.",
+		AIVisionBadge:                        "Debug",
 		Color444:                             "4:4:4 Color (USBridge)",
 		Color444Hint:                         "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
 		Color444UnavailableHint:              "The remote GPU cannot encode HEVC 4:4:4 — this hardware does not support the mode.",
@@ -1867,8 +1867,8 @@ func ES() *LocalizedStrings {
 	locale.AMDFSRHint = "Mejora la nitidez de la imagen cuando la transmision va a baja resolucion."
 	locale.AMDFSRBadge = "Nuevo"
 	locale.AIVision = "Overlay AI Vision"
-	locale.AIVisionHint = "Deteccion en vivo (cajas + IDs hex) sobre el video, como ui.parse() del agent."
-	locale.AIVisionBadge = "Prueba"
+	locale.AIVisionHint = "Muestra sobre el video lo que detecta ui.parse() (cajas + IDs hex). Es para depurar: scripts y agentes de IA funcionan sin el."
+	locale.AIVisionBadge = "Debug"
 	locale.Color444Hint = "Croma 4:4:4 completa en vez de 4:2:0: texto mas nitido, mas bitrate."
 	locale.Color444UnavailableHint = "La GPU remota no puede codificar HEVC 4:4:4 — el hardware no soporta este modo."
 	locale.Color444UnavailableMessage = "Esta GPU remota no puede codificar HEVC 4:4:4. Es un limite de hardware."
@@ -2382,8 +2382,8 @@ func UKProper() *LocalizedStrings {
 	locale.AMDFSRHint = "Підвищує чіткість картинки при низькій роздільній здатності трансляції."
 	locale.AMDFSRBadge = "Нове"
 	locale.AIVision = "Накладка AI Vision"
-	locale.AIVisionHint = "Живе розпізнавання (рамки + hex ID) поверх відео, як ui.parse() агента."
-	locale.AIVisionBadge = "Тест"
+	locale.AIVisionHint = "Показує поверх відео те, що бачить ui.parse() (рамки + hex ID). Це налагодження: скрипти й AI-агенти працюють і без неї."
+	locale.AIVisionBadge = "Debug"
 	locale.Color444Hint = "Повна хрома 4:4:4 замість 4:2:0 — чіткіший текст, вищий бітрейт."
 	locale.Color444UnavailableHint = "Віддалений GPU не вміє HEVC 4:4:4 — це обмеження заліза."
 	locale.Color444UnavailableMessage = "Цей віддалений GPU не кодує HEVC 4:4:4. Це обмеження обладнання."

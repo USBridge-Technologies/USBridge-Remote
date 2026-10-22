@@ -237,7 +237,7 @@ func (qs *QRScanner) showPreview(internalHost, tailscaleHost, masterKey, protoco
 		nil, nil, nil,
 	)
 
-	d = dialog.NewCustomWithoutButtons(i18n.Current.QRCodeScanned, content, parent)
+	d = view.NewPanelDialog(i18n.Current.QRCodeScanned, "", content, parent)
 	d.Resize(fyne.NewSize(450, 320))
 	d.Show()
 }
@@ -278,7 +278,7 @@ func ShowTestQRCode(parent fyne.Window) {
 	})
 
 	content := container.NewVBox(info, copyBtn)
-	dialog.NewCustom(i18n.Current.TestQRCode, i18n.Current.Close, content, parent).Show()
+	view.ShowPanelDialog(i18n.Current.TestQRCode, i18n.Current.Close, content, parent)
 }
 
 func CreateQRPreview(qrText string) fyne.CanvasObject {

@@ -351,7 +351,7 @@ func (dw *DiskWidget) handleMount() {
 				widget.NewLabel(""), pb, widget.NewLabel(""),
 				widget.NewLabel(i18n.Current.PleaseWait),
 			)
-			progressDialog = dialog.NewCustomWithoutButtons(i18n.Current.PreparingToMount, content, dw.window)
+			progressDialog = view.NewPanelDialog(i18n.Current.PreparingToMount, "", content, dw.window)
 			progressDialog.Show()
 			break
 		}
