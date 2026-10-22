@@ -258,7 +258,21 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialogAttempts(devicePath string, m
 }
 
 // handleVideoStartWithParams handles video start with parameters from the dialog.
+// applyRequestFec sets the dialog's FEC on the agent before the stream
+// (re)starts; the agent restarts its streamer only when the value changed.
+func (vw *VideoWidget) applyRequestFec(request *models.VideoStartRequest) {
+	if request == nil || request.Fec == nil || vw.usbClient == nil {
+		return
+	}
+	if err := vw.usbClient.SetVideoFec(request.Fec.Percent, request.Fec.Auto); err != nil {
+		logrus.Warnf("⚠️ [FEC] agent did not take percent=%d auto=%v: %v", request.Fec.Percent, request.Fec.Auto, err)
+		return
+	}
+	logrus.Infof("📶 [FEC] agent streamer FEC percent=%d auto=%v", request.Fec.Percent, request.Fec.Auto)
+}
+
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
+	vw.applyRequestFec(request)
 	cfg := videoDeviceConfigFromRequest(request.VideoDevice, "", request)
 	vw.applyOfferingVirtualDisplay(cfg, func(cfg models.VideoDeviceConfig) {
 		if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {

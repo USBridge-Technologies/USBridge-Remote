@@ -95,6 +95,10 @@ type Application interface {
 	// VirtualDisplaySupported reports whether the current stream backend
 	// supports native virtual displays.
 	VirtualDisplaySupported() bool
+	// VideoFec/SetVideoFec: the streamer's FEC, the client's FEC slider --
+	// see app.App.VideoFec. ok is false where the backend has no FEC setting.
+	VideoFec() (percent int, auto, autoSupported, ok bool)
+	SetVideoFec(percent int, auto bool) (changed bool, err error)
 	// RawHIDSupported reports whether the active stream backend understands
 	// LiSendRawHidEvent -- see app.App.RawHIDSupported's doc comment.
 	RawHIDSupported() bool
@@ -238,6 +242,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
 	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/video/set_device", sec.LimitPolling(s.videoSetDevice))
+	mux.HandleFunc("/api/video/fec", sec.LimitPolling(s.videoFec))
 	mux.HandleFunc("/api/video/session_end", sec.LimitPolling(s.videoSessionEnd))
 	mux.HandleFunc("/api/video/session_start", sec.LimitPolling(s.videoSessionStart))
 	mux.HandleFunc("POST /api/video/virtual_displays", sec.LimitPolling(s.virtualDisplayCreate))
@@ -879,7 +884,7 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 	currentCodec := s.app.CurrentVideoCodec()
 	supportedCodecs := s.app.SupportedVideoCodecs()
 	log.Printf("🎯 [CODEC-TRACE] GET /api/video/info device=%q -> encoding=%q supported=%v", devicePath, currentCodec, supportedCodecs)
-	s.ok(w, "video_info", map[string]any{
+	info := map[string]any{
 		"device":            devicePath,
 		"width":             width,
 		"height":            height,
@@ -912,7 +917,55 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		"pyrowave_color_444_available": pyroWave444Available,
 		"pyrowave_hdr_available":       pyroWaveHdrAvailable,
 		"virtual_display_supported":    s.app.VirtualDisplaySupported(),
-	})
+	}
+	// The client's FEC slider (POST /api/video/fec): present when this
+	// backend takes it.
+	if percent, auto, autoSupported, ok := s.app.VideoFec(); ok {
+		info["fec"] = VideoFecInfo{Percent: percent, Auto: auto, AutoSupported: autoSupported, MinPercent: MinFecPercent, MaxPercent: MaxFecPercent}
+	}
+	s.ok(w, "video_info", info)
+}
+
+// FEC a client may pick (POST /api/video/fec). 20 is Sunshine's default;
+// past 50 parity costs more bitrate than it saves on bursty Wi-Fi loss.
+const (
+	DefaultFecPercent = 20
+	MinFecPercent     = 5
+	MaxFecPercent     = 50
+)
+
+// VideoFecInfo is /api/video/info's "fec": the streamer's FEC, a fixed
+// percentage or (AutoSupported: rust-shine) auto -- FEC follows measured
+// loss, the encoder bitrate budgeted for its maximum.
+type VideoFecInfo struct {
+	Percent       int  `json:"percent"`
+	Auto          bool `json:"auto"`
+	AutoSupported bool `json:"auto_supported"`
+	MinPercent    int  `json:"min_percent"`
+	MaxPercent    int  `json:"max_percent"`
+}
+
+// videoFec sets the streamer's FEC from the client's slider:
+// {"percent": n, "auto": bool}. The streamer restarts only on a change.
+func (s *Server) videoFec(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.fail(w, http.StatusMethodNotAllowed, "method_not_allowed", nil)
+		return
+	}
+	var req struct {
+		Percent int  `json:"percent"`
+		Auto    bool `json:"auto"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	changed, err := s.app.SetVideoFec(req.Percent, req.Auto)
+	if err != nil {
+		s.fail(w, http.StatusBadRequest, "video_fec_failed", err)
+		return
+	}
+	s.ok(w, "video_fec_set", map[string]bool{"changed": changed})
 }
 
 // videoCodecModeInfo holds the display metadata for each Moonlight-supported

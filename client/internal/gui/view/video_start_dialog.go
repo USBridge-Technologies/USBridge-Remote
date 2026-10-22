@@ -122,6 +122,14 @@ type VideoStartDialog struct {
 	// everywhere -- see playout_buffer.go.
 	playoutBufferSlider *videoDialogBitrateSlider
 	playoutBufferHint   *videoDialogWrapText
+	// fecSlider/fecRow: the agent's streamer FEC (models.VideoFecInfo),
+	// shown in the bitrate card only when the agent reports it takes the
+	// setting; fecChoices are the slider's positions (auto first where the
+	// agent supports it). Sent with the start request (request.Fec).
+	fecSlider  *videoDialogBitrateSlider
+	fecRow     *fyne.Container
+	fecValue   *canvas.Text
+	fecChoices []models.VideoFecSetting
 	// hostVirtualDisplayCheck: a plain Apollo/Vibepollo host's own virtual
 	// display (service.SetHostVirtualDisplayEnabled) -- draft until
 	// Apply/Start. The row shows only while SetHostVirtualDisplayOption
@@ -608,6 +616,44 @@ func videoDialogVSpace(height float32) fyne.CanvasObject {
 	spacer := canvas.NewRectangle(color.Transparent)
 	spacer.SetMinSize(fyne.NewSize(0, height))
 	return spacer
+}
+
+// newVideoDialogCardCaption is the bitrate card's small upper-case caption.
+func newVideoDialogCardCaption(text string) *canvas.Text {
+	t := canvas.NewText(strings.ToUpper(text), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
+	t.TextSize = 9
+	t.TextStyle.Bold = true
+	return t
+}
+
+// newVideoDialogPillText is the text inside a value pill.
+func newVideoDialogPillText() *canvas.Text {
+	t := canvas.NewText("", color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
+	t.TextSize = 10
+	t.TextStyle = fyne.TextStyle{Bold: true}
+	return t
+}
+
+// newVideoDialogValuePill frames a slider's live value (bg #0b0f12, the
+// dialog's border).
+func newVideoDialogValuePill(content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bg.CornerRadius = 6
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = 6
+	border.StrokeColor = videoDialogBorderColor
+	border.StrokeWidth = 1
+	return container.NewStack(bg, border, NewInset(content, 10, 10, 2, 2))
+}
+
+// newVideoDialogCompactSliderRow: caption + value pill over a slider, for
+// the settings sharing the bitrate card.
+func newVideoDialogCompactSliderRow(caption string, value *canvas.Text, slider *videoDialogBitrateSlider) *fyne.Container {
+	return container.NewVBox(
+		videoDialogVSpace(4),
+		container.NewBorder(nil, nil, newVideoDialogCardCaption(caption), newVideoDialogValuePill(value), nil),
+		slider,
+	)
 }
 
 // videoDialogBitrateSlider is a small custom slider matching this dialog's
@@ -1814,44 +1860,32 @@ func (vsd *VideoStartDialog) createInterface() {
 		)
 	}
 
-	// Jitter buffer: draft until Apply/Start, same as the toggles above.
+	// Jitter buffer: draft until Apply/Start, same as the toggles above. A
+	// compact latency/smoothness slider (service.PlayoutBufferLevel) in the
+	// bitrate card, under the bitrate.
 	var playoutBufferRow fyne.CanvasObject
 	if service.PlayoutBufferSupported() {
-		// A latency/smoothness slider (service.PlayoutBufferLevel), drawn
-		// like the bitrate one: title + level pill, slider, end hints.
 		vsd.playoutBufferSlider = newVideoDialogBitrateSlider(0, service.PlayoutBufferMaxLevel, 1)
 		vsd.playoutBufferSlider.Value = float64(service.PlayoutBufferLevel())
-		levelText := canvas.NewText("", color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
-		levelText.TextSize = 10
-		levelText.TextStyle = fyne.TextStyle{Bold: true}
+		levelText := newVideoDialogPillText()
 		vsd.playoutBufferSlider.OnChanged = func(value float64) {
 			levelText.Text = i18n.Current.PlayoutBufferLevelNames[service.ClampPlayoutBufferLevel(int(value+0.5))]
 			levelText.Refresh()
 		}
 		vsd.playoutBufferSlider.OnChanged(vsd.playoutBufferSlider.Value)
-		levelPillBG := canvas.NewRectangle(design.ColorGray950)
-		levelPillBG.CornerRadius = 6
-		levelPillBorder := canvas.NewRectangle(color.Transparent)
-		levelPillBorder.CornerRadius = 6
-		levelPillBorder.StrokeColor = videoDialogBorderColor
-		levelPillBorder.StrokeWidth = 1
-		levelPill := container.NewStack(levelPillBG, levelPillBorder, NewInset(levelText, 10, 10, 2, 2))
-		title := container.NewHBox(
-			newVideoDialogRowTitle(i18n.Current.PlayoutBuffer),
-			newVideoDialogBadge(i18n.Current.PlayoutBufferBadge, design.ColorConnectionBadgeText),
-		)
-		lowEnd := canvas.NewText(i18n.Current.PlayoutBufferLowEnd, videoDialogHintColor)
-		lowEnd.TextSize = videoDialogHintTextSize
-		smoothEnd := canvas.NewText(i18n.Current.PlayoutBufferSmoothEnd, videoDialogHintColor)
-		smoothEnd.TextSize = videoDialogHintTextSize
-		vsd.playoutBufferHint = newVideoDialogDescription(i18n.Current.PlayoutBufferHint, videoDialogToggleDescWidthFor(hintPanelW))
-		playoutBufferRow = container.NewVBox(
-			container.NewBorder(nil, nil, title, levelPill, nil),
-			vsd.playoutBufferSlider,
-			container.NewBorder(nil, nil, lowEnd, smoothEnd, nil),
-			vsd.playoutBufferHint,
-		)
+		playoutBufferRow = newVideoDialogCompactSliderRow(i18n.Current.PlayoutBuffer, levelText, vsd.playoutBufferSlider)
 	}
+
+	// FEC: the agent's streamer FEC, shown once Configure learns the agent
+	// takes it.
+	vsd.fecValue = newVideoDialogPillText()
+	vsd.fecSlider = newVideoDialogBitrateSlider(0, 1, 1)
+	vsd.fecSlider.OnChanged = func(value float64) {
+		vsd.fecValue.Text = vsd.fecChoiceLabel(int(value + 0.5))
+		vsd.fecValue.Refresh()
+	}
+	vsd.fecRow = newVideoDialogCompactSliderRow(i18n.Current.Fec, vsd.fecValue, vsd.fecSlider)
+	vsd.fecRow.Hide()
 
 	vsd.hostVirtualDisplayCheck = newVideoDialogCheckbox(service.HostVirtualDisplayEnabled(), nil)
 	vsd.hostVirtualDisplayHint = newVideoDialogDescription(i18n.Current.HostVirtualDisplayHint, videoDialogToggleDescWidthFor(hintPanelW))
@@ -1874,9 +1908,6 @@ func (vsd *VideoStartDialog) createInterface() {
 	if frameSmoothingRow != nil {
 		frameSmoothingRow = NewInsetExact(frameSmoothingRow, videoDialogToggleAlignLeft, 0, 0, 0)
 	}
-	if playoutBufferRow != nil {
-		playoutBufferRow = NewInsetExact(playoutBufferRow, videoDialogToggleAlignLeft, 0, 0, 0)
-	}
 
 	vsd.startBtn = newVideoDialogApplyButton(i18n.Current.StartVideo, vsd.handleStart)
 	vsd.cancelBtn = newVideoDialogCancelButton(i18n.Current.Cancel, vsd.handleCancel)
@@ -1898,20 +1929,8 @@ func (vsd *VideoStartDialog) createInterface() {
 		bitrateValueNumber.Refresh()
 	}
 
-	valuePillBG := canvas.NewRectangle(design.ColorGray950)
-	valuePillBG.CornerRadius = 6
-	valuePillBorder := canvas.NewRectangle(color.Transparent)
-	valuePillBorder.CornerRadius = 6
-	valuePillBorder.StrokeColor = videoDialogBorderColor
-	valuePillBorder.StrokeWidth = 1
-	valuePill := container.NewStack(valuePillBG, valuePillBorder,
-		NewInset(container.NewHBox(bitrateValueNumber, bitrateValueUnit), 10, 10, 2, 2),
-	)
-
-	bitrateLabel := canvas.NewText(strings.ToUpper(i18n.Current.Bitrate), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
-	bitrateLabel.TextSize = 9
-	bitrateLabel.TextStyle.Bold = true
-	bitrateHeaderRow := container.NewBorder(nil, nil, bitrateLabel, valuePill, nil)
+	valuePill := newVideoDialogValuePill(container.NewHBox(bitrateValueNumber, bitrateValueUnit))
+	bitrateHeaderRow := container.NewBorder(nil, nil, newVideoDialogCardCaption(i18n.Current.Bitrate), valuePill, nil)
 
 	lowHint := canvas.NewText(fmt.Sprintf(i18n.Current.VideoLowLatencyFmt, vsd.bitrateSlider.Min/1000, i18n.Current.UnitMbps), videoDialogHintColor)
 	lowHint.TextSize = videoDialogHintTextSize
@@ -1926,7 +1945,12 @@ func (vsd *VideoStartDialog) createInterface() {
 	bitrateCardBorder.CornerRadius = design.RadiusMD
 	bitrateCardBorder.StrokeColor = videoDialogBorderColor
 	bitrateCardBorder.StrokeWidth = 1
-	bitrateCardContent := NewInsetExact(container.NewVBox(bitrateHeaderRow, vsd.bitrateSlider, bitrateHintsRow), 10, 10, 6, 4)
+	bitrateCardRows := []fyne.CanvasObject{bitrateHeaderRow, vsd.bitrateSlider, bitrateHintsRow}
+	if playoutBufferRow != nil {
+		bitrateCardRows = append(bitrateCardRows, playoutBufferRow)
+	}
+	bitrateCardRows = append(bitrateCardRows, vsd.fecRow)
+	bitrateCardContent := NewInsetExact(container.NewVBox(bitrateCardRows...), 10, 10, 6, 4)
 	vsd.bitrateBlock = container.NewStack(bitrateCardBG, bitrateCardContent, bitrateCardBorder)
 
 	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
@@ -2008,9 +2032,6 @@ func (vsd *VideoStartDialog) createInterface() {
 	}
 	if frameSmoothingRow != nil {
 		otherRows = append(otherRows, frameSmoothingRow)
-	}
-	if playoutBufferRow != nil {
-		otherRows = append(otherRows, playoutBufferRow)
 	}
 	otherRows = append(otherRows, vsd.hostVirtualDisplayRow)
 	bodyChildren = append(bodyChildren, newVideoDialogOtherSettingsCard(otherRows...), videoDialogVSpace(4))
@@ -2107,6 +2128,70 @@ func (vsd *VideoStartDialog) switchToColorCodec(applies func(string) bool) {
 	}
 }
 
+// configureFec shows the FEC slider when the agent takes it: auto (where
+// supported), then fixed percentages in steps of 10 within the agent's
+// range, starting at the agent's current setting.
+func (vsd *VideoStartDialog) configureFec(info *models.VideoInfoData) {
+	vsd.fecChoices = nil
+	if info == nil || info.Fec == nil {
+		vsd.fecRow.Hide()
+		return
+	}
+	fec := info.Fec
+	lo, hi := fec.MinPercent, fec.MaxPercent
+	if lo <= 0 || hi < lo {
+		lo, hi = 10, 50
+	}
+	if fec.AutoSupported {
+		vsd.fecChoices = append(vsd.fecChoices, models.VideoFecSetting{Percent: fec.Percent, Auto: true})
+	}
+	for p := (lo + 9) / 10 * 10; p <= hi; p += 10 {
+		vsd.fecChoices = append(vsd.fecChoices, models.VideoFecSetting{Percent: p})
+	}
+	current := 0
+	best := -1
+	for i, c := range vsd.fecChoices {
+		if c.Auto != fec.Auto {
+			continue
+		}
+		d := c.Percent - fec.Percent
+		if d < 0 {
+			d = -d
+		}
+		if c.Auto || best < 0 || d < best {
+			current, best = i, d
+		}
+		if c.Auto {
+			break
+		}
+	}
+	vsd.fecSlider.Min, vsd.fecSlider.Max = 0, float64(len(vsd.fecChoices)-1)
+	vsd.fecSlider.SetValue(float64(current))
+	vsd.fecSlider.OnChanged(vsd.fecSlider.Value)
+	vsd.fecRow.Show()
+}
+
+func (vsd *VideoStartDialog) fecChoiceIndex() int {
+	i := int(vsd.fecSlider.Value + 0.5)
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(vsd.fecChoices) {
+		i = len(vsd.fecChoices) - 1
+	}
+	return i
+}
+
+func (vsd *VideoStartDialog) fecChoiceLabel(i int) string {
+	if i < 0 || i >= len(vsd.fecChoices) {
+		return ""
+	}
+	if vsd.fecChoices[i].Auto {
+		return i18n.Current.FecAuto
+	}
+	return fmt.Sprintf("%d%%", vsd.fecChoices[i].Percent)
+}
+
 // modeOffered: codec modeID is one of the agent's stream modes in this dialog.
 func (vsd *VideoStartDialog) modeOffered(modeID string) bool {
 	for _, m := range vsd.streamModes {
@@ -2123,6 +2208,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	vsd.resolutionLabels = make(map[string]models.VideoCaptureMode)
 	vsd.resolutionHints = make(map[string]string)
 	vsd.color444Available = info != nil && info.Color444Available
+	vsd.configureFec(info)
 	// Both ends must do HDR: the agent encodes it (hardware + license), and
 	// this client must be able to display it (service.HdrDisplaySupported).
 	vsd.hdrAgentAvailable = info != nil && info.HdrAvailable
@@ -2770,6 +2856,10 @@ func (vsd *VideoStartDialog) handleStart() {
 		Color444:           vsd.color444AppliesTo(vsd.selectedModeID()) && vsd.color444Check.Checked,
 		Hdr:                vsd.hdrAppliesTo(vsd.selectedModeID()) && vsd.hdrCheck.Checked,
 		UpscaleMode:        vsd.upscaleLabels[vsd.upscaleSelect.Selected], // "" (unknown label) falls back to UpscaleModeBilinear's zero-value behavior
+	}
+	if vsd.fecRow.Visible() && len(vsd.fecChoices) > 0 {
+		choice := vsd.fecChoices[vsd.fecChoiceIndex()]
+		request.Fec = &choice
 	}
 
 	logrus.Infof("🎥 Starting video: mode=%s %dx%d @ %d fps, bitrate %s",

@@ -869,6 +869,24 @@ func (c *USBClient) GetVideoInfoForDevice(devicePath string) (*models.APIRespons
 	return &apiResp, nil
 }
 
+// SetVideoFec sets the streamer's FEC (agents whose /api/video/info has
+// "fec"). The agent restarts its streamer only when the value changed.
+func (c *USBClient) SetVideoFec(percent int, auto bool) error {
+	payloadBytes, _ := json.Marshal(map[string]interface{}{"percent": percent, "auto": auto})
+	resp, err := c.makeRequest("POST", "/api/video/fec", payloadBytes)
+	if err != nil {
+		return err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return fmt.Errorf("%s", apiResp.Message)
+	}
+	return nil
+}
+
 func (c *USBClient) SetVideoDevice(device, pixelFormat string) error {
 	payloadBytes, _ := json.Marshal(map[string]string{"device": device, "pixel_format": pixelFormat})
 	resp, err := c.makeRequest("POST", "/api/video/set_device", payloadBytes)

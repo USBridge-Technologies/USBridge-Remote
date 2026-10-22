@@ -996,6 +996,7 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 			vw.startDialog.SetExtraAction("", nil)
 			logrus.Infof("📦 video start dialog ready in %s", time.Since(started).Round(time.Millisecond))
 			vw.startDialog.Show(func(request *models.VideoStartRequest) {
+				vw.applyRequestFec(request)
 				applied := videoDeviceConfigFromRequest(device.Path, device.Name, request)
 				logrus.Infof("💾 applying video settings for %s: %dx%d @ %d fps", device.Path, applied.VideoWidth, applied.VideoHeight, applied.VideoFPS)
 				logrus.Infof("🎯 [CODEC-TRACE] ShowVideoDeviceSettings onApply: VideoMode=%q restartOnApply=%v -- if false, the stream is NOT restarted and the old codec keeps running on the server regardless of what was just saved", applied.VideoMode, restartOnApply)

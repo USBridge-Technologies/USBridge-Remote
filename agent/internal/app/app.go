@@ -4656,6 +4656,55 @@ func (a *App) VirtualDisplaySupported() bool {
 	return a.stream.VirtualDisplaySupported()
 }
 
+// VideoFec reports the streamer's FEC for the client's FEC slider: Sunshine
+// and rust-shine read fec_percentage from their config; rust-shine also
+// fec_auto (FEC follows measured loss, see rust-shine's
+// pipeline::FEC_AUTO_*). ok is false for a backend with no such setting.
+func (a *App) VideoFec() (percent int, auto, autoSupported, ok bool) {
+	if a.stream == nil {
+		return 0, false, false, false
+	}
+	kind := streamhost.BackendKind(a.stream)
+	if kind != "sunshine" && kind != "rustshine" {
+		return 0, false, false, false
+	}
+	percent = api.DefaultFecPercent
+	if v, err := strconv.Atoi(strings.TrimSpace(a.stream.ConfigKey("fec_percentage"))); err == nil && v > 0 {
+		percent = v
+	}
+	autoSupported = kind == "rustshine"
+	auto = autoSupported && strings.EqualFold(strings.TrimSpace(a.stream.ConfigKey("fec_auto")), "true")
+	return percent, auto, autoSupported, true
+}
+
+// SetVideoFec stores the client's FEC choice in the streamer's config and
+// restarts the streamer when it changed (both read it only at startup).
+func (a *App) SetVideoFec(percent int, auto bool) (changed bool, err error) {
+	cur, curAuto, autoSupported, ok := a.VideoFec()
+	if !ok {
+		return false, fmt.Errorf("this stream backend has no FEC setting")
+	}
+	if percent < api.MinFecPercent || percent > api.MaxFecPercent {
+		return false, fmt.Errorf("percent %d outside %d..%d", percent, api.MinFecPercent, api.MaxFecPercent)
+	}
+	if auto && !autoSupported {
+		return false, fmt.Errorf("this stream backend has no auto FEC")
+	}
+	if cur == percent && curAuto == auto && a.stream.ConfigKey("fec_percentage") != "" {
+		return false, nil
+	}
+	if err := a.stream.SetConfigKey("fec_percentage", strconv.Itoa(percent)); err != nil {
+		return false, err
+	}
+	if autoSupported {
+		if err := a.stream.SetConfigKey("fec_auto", strconv.FormatBool(auto)); err != nil {
+			return false, err
+		}
+	}
+	log.Printf("[app] streamer FEC percent=%d auto=%v -- restarting the streamer", percent, auto)
+	return true, a.RestartSunshine()
+}
+
 // UnpairSunshineClient removes the Moonlight client identified by uniqueID
 // (meaning depends on the active backend -- see streamhost's UnpairClient
 // doc comments) from every stream-host backend's trust list, not just the

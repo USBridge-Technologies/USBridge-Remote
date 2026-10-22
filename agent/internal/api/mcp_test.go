@@ -163,6 +163,8 @@ func (a *mcpTestApp) Screen() interface {
 }
 func (a *mcpTestApp) VideoDevices() []VideoDeviceInfo       { return nil }
 func (a *mcpTestApp) VirtualDisplaySupported() bool         { return false }
+func (a *mcpTestApp) VideoFec() (int, bool, bool, bool)     { return 0, false, false, false }
+func (a *mcpTestApp) SetVideoFec(int, bool) (bool, error)   { return false, nil }
 func (a *mcpTestApp) RawHIDSupported() bool                 { return false }
 func (a *mcpTestApp) SunshineOutputName() string            { return "" }
 func (a *mcpTestApp) SetSunshineOutputName(string) error    { return nil }

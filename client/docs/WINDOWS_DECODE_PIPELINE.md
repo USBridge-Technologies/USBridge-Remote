@@ -150,10 +150,13 @@ At 4K @ 60 fps, 2 threads cost exactly one frame of latency:
   - The 4K@60 cutoff was measured on the 780M. A faster GPU would manage with
     1 thread and save a frame of latency, so this heuristic may need a
     per-GPU check later.
-- **Jitter buffer** is a "Jitter Buffer" checkbox in the video settings
-  dialog. It is Windows only and off by default
-  (`service.SetPlayoutBufferEnabled`).
-  - The fork now re-reads `USBRIDGE_PLAYOUT_BUFFER` at every stream start.
+- **Jitter buffer** is a latency/smoothness slider in the video settings
+  dialog's bitrate card (off, low, balanced, smooth, smoothest), on every
+  platform, off by default (`service.SetPlayoutBufferLevel`; the fork's
+  `FramePacer.h`). The FEC slider next to it sets the agent's streamer FEC
+  (`POST /api/video/fec`, shown only when `/api/video/info` has `fec`).
+  - The fork now re-reads `USBRIDGE_PLAYOUT_BUFFER` (the level) at every
+    stream start.
   - The fork now honors the flag on the queued and pull path too. Before, the
     off switch worked only on the direct-submit path.
 - **Renderer** (`vk_video_impl_windows.c`):

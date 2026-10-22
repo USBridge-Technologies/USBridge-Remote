@@ -122,6 +122,20 @@ is a `path` value from `/api/video/devices`; empty string clears the pin
 (Sunshine auto-picks). Persists into `sunshine.conf`'s `output_name` and
 restarts Sunshine.
 
+### Video FEC
+```http
+POST /api/video/fec
+```
+**Description**: Sets the streamer's FEC from the video dialog's FEC slider
+(hardware agent `usbridge` and this software agent alike).
+**Request Body**: `{"percent": 5..50, "auto": false}` -- `auto` (rust-shine
+only) lets FEC follow measured loss from 20% to 40%, with the encoder bitrate
+budgeted for 40% so it never adds traffic past the session bitrate. Written to
+the streamer's config (`fec_percentage`, `fec_auto`); the streamer restarts only
+when the value changed. `GET /api/video/info` reports it as `"fec": {"percent",
+"auto", "auto_supported", "min_percent", "max_percent"}` when the agent takes it;
+the client shows the slider only then.
+
 ### Audio Info
 ```http
 GET /api/audio/info

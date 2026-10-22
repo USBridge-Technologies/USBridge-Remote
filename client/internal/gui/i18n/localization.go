@@ -712,6 +712,8 @@ type LocalizedStrings struct {
 	PlayoutBufferLowEnd                  string    // hint under the slider's left end
 	PlayoutBufferSmoothEnd               string    // hint under the slider's right end
 	PlayoutBufferBadge                   string // small platform badge next to the Jitter Buffer title
+	Fec                                  string // FEC slider caption in the bitrate card (agent POST /api/video/fec)
+	FecAuto                              string // the FEC slider's auto position
 	HostVirtualDisplay                   string // "Virtual display" checkbox title, video parameters dialog -- only against a plain Apollo/Vibepollo host
 	HostVirtualDisplayHint               string // hint shown under the host Virtual display checkbox
 	OtherSettings                        string // labeled divider above the video-parameters toggle list, same style as OrEnterManually
@@ -1481,6 +1483,8 @@ func EN() *LocalizedStrings {
 		PlayoutBufferLowEnd:                  "Lowest latency",
 		PlayoutBufferSmoothEnd:               "Smoothest",
 		PlayoutBufferBadge:                   "Beta",
+		Fec:                                  "FEC",
+		FecAuto:                              "Auto",
 		HostVirtualDisplay:                   "Virtual display",
 		HostVirtualDisplayHint:               "The host streams its own virtual monitor in this resolution and refresh rate instead of a physical screen. Turn off to stream the host's monitor as it is.",
 		OtherSettings:                        "OTHER SETTINGS",
@@ -2053,6 +2057,7 @@ func UKProper() *LocalizedStrings {
 	locale.PlayoutBufferLevelNames = [5]string{"Вимк.", "Низька", "Баланс", "Плавно", "Найплавніше"}
 	locale.PlayoutBufferLowEnd = "Мінімальна затримка"
 	locale.PlayoutBufferSmoothEnd = "Найплавніше"
+	locale.FecAuto = "Авто"
 	locale.WiFiInterferenceTitle = "Перешкоди Wi-Fi"
 	locale.WiFiInterferenceHint = "Відео смикається, бо Wi-Fi постійно перемикається на AirDrop/Continuity для пристроїв Apple поруч. Вимкніть Bluetooth на цьому iPhone (Параметри → Bluetooth) або Handoff і AirDrop на Mac і Apple TV поруч."
 	locale.ServerAddress = "Адреса сервера"

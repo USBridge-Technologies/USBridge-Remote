@@ -150,6 +150,27 @@ type VideoStatus struct {
 	PyroWaveColor444Available bool `json:"pyrowave_color_444_available"`
 	PyroWaveHdrAvailable      bool `json:"pyrowave_hdr_available"`
 	VirtualDisplaySupported   bool `json:"virtual_display_supported"`
+	// Fec is present when the agent takes the client's FEC slider (POST
+	// /api/video/fec, see USBClient.SetVideoFec); nil from older agents.
+	Fec *VideoFecInfo `json:"fec,omitempty"`
+}
+
+// VideoFecInfo is the agent's streamer FEC: a fixed percentage, or (where
+// AutoSupported) auto -- FEC follows measured loss, with the encoder
+// bitrate budgeted for its maximum so it never adds traffic past the
+// session bitrate.
+type VideoFecInfo struct {
+	Percent       int  `json:"percent"`
+	Auto          bool `json:"auto"`
+	AutoSupported bool `json:"auto_supported"`
+	MinPercent    int  `json:"min_percent"`
+	MaxPercent    int  `json:"max_percent"`
+}
+
+// VideoFecSetting is the FEC slider's choice for the agent.
+type VideoFecSetting struct {
+	Percent int
+	Auto    bool
 }
 
 const (
@@ -420,6 +441,9 @@ type VideoStartRequest struct {
 	// service.MetalVideoSetUpscaleMode as soon as it's known/changed (no
 	// codec-negotiation dependency, unlike Color444/Hdr).
 	UpscaleMode string `json:"-"`
+	// Fec: the FEC slider, set on the agent before the stream starts (nil:
+	// the agent doesn't take it, leave its setting alone).
+	Fec *VideoFecSetting `json:"-"`
 	// ClientPort - client port to receive UDP stream (server will take IP from HTTP)
 	ClientHost string `json:"client_host,omitempty"`
 	ClientPort int    `json:"client_port,omitempty"`
