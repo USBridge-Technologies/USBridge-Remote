@@ -163,6 +163,9 @@ type DiskWidget struct {
 	// padHIDs are the HID report readers (*padHID) of the captured pads that
 	// have one (DualShock 4-layout pads); read from their goroutines too.
 	padHIDs sync.Map
+	// padModes is each captured pad's effective mode (gamepadMode*), for
+	// announcing it again on a new stream connection.
+	padModes sync.Map
 	// padSlots gives every captured pad its Moonlight controller number; it is
 	// safe from the Moonlight rumble callback thread, which must not touch
 	// activeCaptures (UI-goroutine only).

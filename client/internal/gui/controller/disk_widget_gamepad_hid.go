@@ -236,7 +236,7 @@ func (dw *DiskWidget) onHostPadLight(controller uint16, r, g, b uint8) {
 	if !ok {
 		return
 	}
-	logrus.Debugf("🎮 [GAMEPAD] host light controller=%d rgb=%02x%02x%02x -> %s", controller, r, g, b, id)
+	logrus.Infof("🎮 [GAMEPAD] host light controller=%d rgb=%02x%02x%02x -> %s", controller, r, g, b, id)
 	platform.SetGamepadLight(id, r, g, b)
 }
 

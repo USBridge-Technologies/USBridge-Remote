@@ -98,6 +98,8 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 		}
 		dw.activeCaptures[id] = cap
 		mode := dw.effectiveGamepadMode(wantedMode[id])
+		dw.padModes.Store(id, mode)
+		padArrivalEpoch[slot].Store(0)
 		dw.startPadHID(id, mode == gamepadModeDualShock4)
 		dw.announceGamepadArrival(id, slot, mode)
 	}
@@ -126,6 +128,8 @@ func (dw *DiskWidget) releasePadSlot(id string) {
 		return
 	}
 	padMotionWanted[slot].Store(0)
+	padArrivalEpoch[slot].Store(0)
+	dw.padModes.Delete(id)
 	if dw.moonlightProvider == nil {
 		return
 	}
@@ -142,6 +146,11 @@ func (dw *DiskWidget) releasePadSlot(id string) {
 // arrival event is a Sunshine protocol extension the client always also
 // backs with an ordinary (zero) multi-controller event, and this method
 // itself no-ops before a Moonlight session exists.
+//
+// The host forgets it when the stream connection ends, and a pad captured
+// before the stream was up could not announce itself at all, so
+// ensureGamepadArrival repeats it once per connection before the pad's first
+// state.
 func (dw *DiskWidget) announceGamepadArrival(id string, slot int, mode string) {
 	if dw.moonlightProvider == nil {
 		return
@@ -150,11 +159,30 @@ func (dw *DiskWidget) announceGamepadArrival(id string, slot int, mode string) {
 	if sender == nil || !sender.IsInputActive() {
 		return
 	}
+	padArrivalEpoch[slot].Store(service.MoonlightStreamEpoch())
 	ctype, caps := platform.MoonlightCtypeXbox, uint16(0)
 	if mode == gamepadModeDualShock4 {
 		ctype, caps = platform.MoonlightCtypePS, dw.padArrivalCapabilities(id)
 	}
 	sender.SendMoonlightControllerArrival(uint16(slot), dw.padSlots.mask(), ctype, 0xFFFF|uint32(service.LiButtonTouchpad), caps)
+}
+
+// padArrivalEpoch is, per controller number, the stream connection its pad
+// was last announced on (MoonlightStreamEpoch).
+var padArrivalEpoch [maxGamepadSlots]atomic.Uint64
+
+// ensureGamepadArrival announces a pad on a stream connection that has not
+// heard of it yet. Called from the capture goroutine before each state.
+func (dw *DiskWidget) ensureGamepadArrival(id string, slot int) {
+	if padArrivalEpoch[slot].Load() == service.MoonlightStreamEpoch() {
+		return
+	}
+	mode, ok := dw.padModes.Load(id)
+	if !ok {
+		return
+	}
+	logrus.Infof("🎮 [GAMEPAD] announcing %s as %s on the new stream connection", id, mode)
+	dw.announceGamepadArrival(id, slot, mode.(string))
 }
 
 // onHostRumble applies the host's rumble request to the pad that holds that
@@ -164,9 +192,19 @@ func (dw *DiskWidget) onHostRumble(controller, lowFreq, highFreq uint16) {
 	if !ok {
 		return
 	}
-	logrus.Debugf("🎮 [GAMEPAD] host rumble controller=%d low=%d high=%d -> %s", controller, lowFreq, highFreq, id)
+	// Start and stop at info level, every level change at debug.
+	on := lowFreq != 0 || highFreq != 0
+	if int(controller) < maxGamepadSlots && padRumbling[controller].Swap(on) != on {
+		logrus.Infof("🎮 [GAMEPAD] host rumble %s on controller %d (low=%d high=%d) -> %s",
+			map[bool]string{true: "starts", false: "stops"}[on], controller, lowFreq, highFreq, id)
+	} else {
+		logrus.Debugf("🎮 [GAMEPAD] host rumble controller=%d low=%d high=%d -> %s", controller, lowFreq, highFreq, id)
+	}
 	platform.SetGamepadRumble(id, lowFreq, highFreq)
 }
+
+// padRumbling is whether each controller's motors run, for onHostRumble's log.
+var padRumbling [maxGamepadSlots]atomic.Bool
 
 // gamepadLogSeq is used to rate-limit per-frame gamepad debug logs.
 var gamepadLogSeq atomic.Uint64
@@ -194,6 +232,7 @@ func (dw *DiskWidget) forwardGamepadState(id string, state platform.GamepadCaptu
 			if !ok {
 				return // stopped while this sample was in flight
 			}
+			dw.ensureGamepadArrival(id, slot)
 			dw.sendPadState(id, slot, state, dw.padTouchpadClick(id, state))
 			return
 		}

@@ -34,3 +34,10 @@ func (m *MoonlightService) SendMoonlightRawHID(kind, slot, endpoint uint8, total
 	}
 	return false
 }
+
+// MoonlightStreamEpoch changes with every new stream connection (0 before
+// the first): a host forgets what a client announced when a connection
+// ends, so a new value means "announce it again".
+func MoonlightStreamEpoch() uint64 {
+	return liRawHIDEpoch.Load()
+}
