@@ -67,7 +67,13 @@ func (s *MobileSnapshotStorage) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (s *MobileSnapshotStorage) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (s *MobileSnapshotStorage) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		s.Tapped(ev)
+	}
+}
 
 func (s *MobileSnapshotStorage) MouseIn(*desktop.MouseEvent) {
 	s.hovered = true

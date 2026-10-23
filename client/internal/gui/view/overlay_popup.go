@@ -384,7 +384,13 @@ func (c *overlayTapCatcher) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (c *overlayTapCatcher) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (c *overlayTapCatcher) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		c.Tapped(ev)
+	}
+}
 
 var _ fyne.Tappable = (*overlayTapCatcher)(nil)
 

@@ -98,7 +98,13 @@ func (s *ScriptFooterStatus) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (s *ScriptFooterStatus) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (s *ScriptFooterStatus) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		s.Tapped(ev)
+	}
+}
 
 func (s *ScriptFooterStatus) Cursor() desktop.Cursor {
 	if s.dismissable() {

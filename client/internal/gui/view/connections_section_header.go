@@ -351,7 +351,13 @@ func (b *connectionSortBadge) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *connectionSortBadge) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *connectionSortBadge) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *connectionSortBadge) Cursor() desktop.Cursor {
 	if b.onTapped == nil {

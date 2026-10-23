@@ -159,7 +159,13 @@ func (b *statusBarTextButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *statusBarTextButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *statusBarTextButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *statusBarTextButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true

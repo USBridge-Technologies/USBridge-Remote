@@ -243,7 +243,13 @@ func (b *accountDialogLinkButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *accountDialogLinkButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *accountDialogLinkButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *accountDialogLinkButton) Cursor() desktop.Cursor {
 	return desktop.PointerCursor
@@ -367,7 +373,13 @@ func (b *accountDialogDarkButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *accountDialogDarkButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *accountDialogDarkButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *accountDialogDarkButton) Cursor() desktop.Cursor {
 	return desktop.PointerCursor
@@ -475,7 +487,13 @@ func (b *accountDialogTextButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *accountDialogTextButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *accountDialogTextButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *accountDialogTextButton) Cursor() desktop.Cursor {
 	return desktop.PointerCursor
@@ -603,7 +621,13 @@ func (r *accountCheckRow) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (r *accountCheckRow) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (r *accountCheckRow) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		r.Tapped(ev)
+	}
+}
 
 func (r *accountCheckRow) Cursor() desktop.Cursor {
 	return desktop.PointerCursor

@@ -228,6 +228,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		padded = view.NewMobileFillWidth(padded)
 	}
 	scroll := container.NewVScroll(padded)
+	dw.dashboardScroll = scroll
 	var tabBody fyne.CanvasObject = scroll
 	if !view.IsMobile() {
 		tabBody = view.NewInsetExact(scroll, 0, 10, 0, 0)
@@ -997,8 +998,18 @@ func (dw *DiskWidget) newDriveToggle(idx int, drive DriveItem, cardHover func(bo
 	if drive.IsRNDIS {
 		t.ActiveFill = view.DeviceDashboardAccentLime
 	}
+	dw.scrollWithPage(t)
 	t.SetEnabled(!dw.controlsLocked())
 	return t
+}
+
+// scrollWithPage lets a phone touch that starts on t and moves on scroll
+// the Devices page (see view.DeviceToggle.SetScroll).
+func (dw *DiskWidget) scrollWithPage(t *view.DeviceToggle) {
+	// Scroll is Draggable only in Fyne's mobile build (scroller_mobile.go).
+	if d, ok := any(dw.dashboardScroll).(fyne.Draggable); ok && dw.dashboardScroll != nil {
+		t.SetScroll(d)
+	}
 }
 
 // newDashboardGamepadModePicker is a gamepad row's DirectInput/XInput

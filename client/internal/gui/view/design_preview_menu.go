@@ -103,9 +103,16 @@ func (s *sizeMenuSlider) setFromX(x float32) {
 	s.SetValue(s.Min + float64(rel)*(s.Max-s.Min))
 }
 
-func (s *sizeMenuSlider) Tapped(e *fyne.PointEvent)        { s.setFromX(e.Position.X) }
-func (s *sizeMenuSlider) TappedSecondary(*fyne.PointEvent) {}
-func (s *sizeMenuSlider) Dragged(e *fyne.DragEvent)        { s.setFromX(e.Position.X) }
+func (s *sizeMenuSlider) Tapped(e *fyne.PointEvent) { s.setFromX(e.Position.X) }
+
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (s *sizeMenuSlider) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		s.Tapped(ev)
+	}
+}
+func (s *sizeMenuSlider) Dragged(e *fyne.DragEvent) { s.setFromX(e.Position.X) }
 func (s *sizeMenuSlider) DragEnd() {
 	if s.enabled && s.OnChangeEnded != nil {
 		s.OnChangeEnded(s.Value)

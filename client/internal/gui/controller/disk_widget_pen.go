@@ -154,6 +154,7 @@ func (dw *DiskWidget) newPenTabletToggle(drive DriveItem, cardHover func(bool)) 
 		dw.syncPenCaptures()
 	})
 	t.OnHover = cardHover
+	dw.scrollWithPage(t)
 	t.SetEnabled(!dw.controlsLocked())
 	return t
 }

@@ -193,7 +193,13 @@ func (c *netGraphFooterIcon) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (c *netGraphFooterIcon) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (c *netGraphFooterIcon) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		c.Tapped(ev)
+	}
+}
 
 func (c *netGraphFooterIcon) Cursor() desktop.Cursor {
 	return desktop.PointerCursor

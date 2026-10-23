@@ -4,6 +4,7 @@ import (
 	"image/color"
 
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -146,7 +147,13 @@ func (b *headerStatusBadgeButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *headerStatusBadgeButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *headerStatusBadgeButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *headerStatusBadgeButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true

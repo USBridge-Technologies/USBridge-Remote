@@ -20,6 +20,7 @@ import (
 	"usbridge-client/internal/usbpass"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -141,6 +142,9 @@ type DiskWidget struct {
 	// dashboardStorageScroll wraps dashboardStorage (the Storage card's own
 	// row list) so it can become internally scrollable once there are more
 	// rows than fit comfortably -- see refreshDashboard's own height cap.
+	// dashboardScroll is the Devices tab's page scroll; its toggles hand
+	// it a phone touch that moves past their slop (view.DeviceToggle.SetScroll).
+	dashboardScroll          *container.Scroll
 	dashboardStorageScroll   fyne.CanvasObject
 	dashboardEmulationScroll fyne.CanvasObject
 

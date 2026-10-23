@@ -239,7 +239,13 @@ func (b *videoCodecButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *videoCodecButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *videoCodecButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *videoCodecButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -466,7 +472,13 @@ func (b *videoDialogPillButton) Tapped(*fyne.PointEvent) {
 	b.OnTapped()
 }
 
-func (b *videoDialogPillButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *videoDialogPillButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *videoDialogPillButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -746,7 +758,13 @@ func (s *videoDialogBitrateSlider) Tapped(e *fyne.PointEvent) {
 	s.setValueFromX(e.Position.X)
 }
 
-func (s *videoDialogBitrateSlider) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (s *videoDialogBitrateSlider) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		s.Tapped(ev)
+	}
+}
 
 func (s *videoDialogBitrateSlider) Dragged(e *fyne.DragEvent) {
 	s.setValueFromX(e.Position.X)
@@ -940,7 +958,13 @@ func (c *videoDialogCheckbox) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (c *videoDialogCheckbox) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (c *videoDialogCheckbox) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		c.Tapped(ev)
+	}
+}
 
 func (c *videoDialogCheckbox) MouseIn(*desktop.MouseEvent) {
 	c.hovered = true
@@ -1554,7 +1578,13 @@ func (t *videoDialogToggleTap) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (t *videoDialogToggleTap) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (t *videoDialogToggleTap) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		t.Tapped(ev)
+	}
+}
 
 func (t *videoDialogToggleTap) MouseIn(*desktop.MouseEvent) {
 	if t.check != nil {

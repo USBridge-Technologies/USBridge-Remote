@@ -424,7 +424,13 @@ func (b *connectionDialogSecondaryButton) SetDisabled(v bool) {
 	b.refreshVisuals()
 }
 
-func (b *connectionDialogSecondaryButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *connectionDialogSecondaryButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *connectionDialogSecondaryButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -622,8 +628,14 @@ func (r *connectionDialogRegisterRow) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (r *connectionDialogRegisterRow) TappedSecondary(*fyne.PointEvent) {}
-func (r *connectionDialogRegisterRow) Cursor() desktop.Cursor           { return desktop.PointerCursor }
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (r *connectionDialogRegisterRow) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		r.Tapped(ev)
+	}
+}
+func (r *connectionDialogRegisterRow) Cursor() desktop.Cursor { return desktop.PointerCursor }
 
 func (r *connectionDialogRegisterRow) MinSize() fyne.Size {
 	return fyne.NewSize(0, registerRowHeight)
@@ -863,7 +875,14 @@ func (b *connectionDialogIconBlock) Tapped(*fyne.PointEvent) {
 		b.onTap()
 	}
 }
-func (b *connectionDialogIconBlock) TappedSecondary(*fyne.PointEvent) {}
+
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *connectionDialogIconBlock) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *connectionDialogIconBlock) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -2135,7 +2154,13 @@ func (b *connectionDialogIconButton) SetDisabled(v bool) {
 	b.refreshVisuals()
 }
 
-func (b *connectionDialogIconButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *connectionDialogIconButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *connectionDialogIconButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true

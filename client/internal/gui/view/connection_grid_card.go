@@ -388,7 +388,13 @@ func (o *connectionCardOverlay) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (o *connectionCardOverlay) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (o *connectionCardOverlay) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		o.Tapped(ev)
+	}
+}
 
 func (o *connectionCardOverlay) MouseIn(*desktop.MouseEvent) {
 	if o.onHover != nil {

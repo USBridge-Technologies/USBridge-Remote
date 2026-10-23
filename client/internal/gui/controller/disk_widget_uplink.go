@@ -306,6 +306,7 @@ func (dw *DiskWidget) newUplinkToggle(drive DriveItem) *view.DeviceToggle {
 		dw.syncUplinkCaptures()
 		dw.requestDevicesRefresh()
 	})
+	dw.scrollWithPage(t)
 	t.SetEnabled(!dw.controlsLocked())
 	return t
 }

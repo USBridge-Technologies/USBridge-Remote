@@ -264,7 +264,13 @@ func (b *pcpanelIconButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *pcpanelIconButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *pcpanelIconButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *pcpanelIconButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -302,7 +308,13 @@ func (b *pcpanelActionButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *pcpanelActionButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *pcpanelActionButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *pcpanelActionButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -488,7 +500,13 @@ func (b *pcpanelHoldButton) MinSize() fyne.Size {
 
 func (b *pcpanelHoldButton) Tapped(*fyne.PointEvent) {}
 
-func (b *pcpanelHoldButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *pcpanelHoldButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *pcpanelHoldButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -743,7 +761,13 @@ func (b *pcpanelModeButton) Tapped(*fyne.PointEvent) {
 	b.onTap()
 }
 
-func (b *pcpanelModeButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *pcpanelModeButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *pcpanelModeButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -979,7 +1003,13 @@ func (b *pcpanelCancelButton) Tapped(*fyne.PointEvent) {
 	b.onTap()
 }
 
-func (b *pcpanelCancelButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *pcpanelCancelButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *pcpanelCancelButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -1092,7 +1122,13 @@ func (s *pcpanelDurationSlider) Tapped(e *fyne.PointEvent) {
 	s.setValueFromX(e.Position.X)
 }
 
-func (s *pcpanelDurationSlider) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (s *pcpanelDurationSlider) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		s.Tapped(ev)
+	}
+}
 
 func (s *pcpanelDurationSlider) Dragged(e *fyne.DragEvent) {
 	s.setValueFromX(e.Position.X)

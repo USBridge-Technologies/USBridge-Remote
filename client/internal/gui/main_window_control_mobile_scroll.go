@@ -4,6 +4,7 @@ import (
 	"image/color"
 
 	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -229,7 +230,13 @@ func (a *mobileFooterScrollArrow) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (a *mobileFooterScrollArrow) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (a *mobileFooterScrollArrow) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		a.Tapped(ev)
+	}
+}
 
 func (a *mobileFooterScrollArrow) Cursor() desktop.Cursor {
 	return desktop.PointerCursor

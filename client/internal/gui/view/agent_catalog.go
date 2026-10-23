@@ -304,7 +304,13 @@ func (r *agentEditionRow) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (r *agentEditionRow) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (r *agentEditionRow) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		r.Tapped(ev)
+	}
+}
 
 func (r *agentEditionRow) Cursor() desktop.Cursor { return desktop.PointerCursor }
 

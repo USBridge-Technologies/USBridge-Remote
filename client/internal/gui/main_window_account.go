@@ -64,8 +64,15 @@ func (b *accountGoogleLoginButton) Tapped(*fyne.PointEvent) {
 		b.onTapped()
 	}
 }
-func (b *accountGoogleLoginButton) TappedSecondary(*fyne.PointEvent) {}
-func (b *accountGoogleLoginButton) Cursor() desktop.Cursor           { return desktop.PointerCursor }
+
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *accountGoogleLoginButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
+func (b *accountGoogleLoginButton) Cursor() desktop.Cursor { return desktop.PointerCursor }
 func (b *accountGoogleLoginButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
 	b.Refresh()
@@ -594,7 +601,13 @@ func (b *accountDialogIconButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *accountDialogIconButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *accountDialogIconButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *accountDialogIconButton) Cursor() desktop.Cursor {
 	return desktop.PointerCursor

@@ -428,7 +428,13 @@ func (t *tailscaleHeaderToggle) Tapped(e *fyne.PointEvent) {
 	t.onTapped()
 }
 
-func (t *tailscaleHeaderToggle) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (t *tailscaleHeaderToggle) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		t.Tapped(ev)
+	}
+}
 
 func (t *tailscaleHeaderToggle) MouseIn(e *desktop.MouseEvent) {
 	if t.disabled || t.loading {
@@ -674,7 +680,13 @@ func (b *loginAvatarButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *loginAvatarButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *loginAvatarButton) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *loginAvatarButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true

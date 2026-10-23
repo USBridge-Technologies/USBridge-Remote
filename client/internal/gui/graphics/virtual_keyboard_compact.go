@@ -99,7 +99,13 @@ func (k *compactKey) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (k *compactKey) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (k *compactKey) TappedSecondary(ev *fyne.PointEvent) {
+	if view.IsMobile() {
+		k.Tapped(ev)
+	}
+}
 
 func (k *compactKey) MouseIn(*desktop.MouseEvent) {
 	k.hovered = true

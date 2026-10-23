@@ -1246,6 +1246,7 @@ type DeviceToggle struct {
 
 	disabled bool
 	hovered  bool
+	slop     tapSlop
 
 	track *canvas.Rectangle
 	knob  *canvas.Circle
@@ -1289,7 +1290,30 @@ func (t *DeviceToggle) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (t *DeviceToggle) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (t *DeviceToggle) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		t.Tapped(ev)
+	}
+}
+
+// SetScroll is the list the switch sits in: on a phone a touch that moves
+// past the slop scrolls it (see tapSlop).
+func (t *DeviceToggle) SetScroll(scroll fyne.Draggable) { t.slop.scroll = scroll }
+
+// Dragged: a phone's finger wobble on the switch is still its tap.
+func (t *DeviceToggle) Dragged(e *fyne.DragEvent) {
+	if IsMobile() {
+		t.slop.dragged(e)
+	}
+}
+
+func (t *DeviceToggle) DragEnd() {
+	if IsMobile() && t.slop.dragEnd() {
+		t.Tapped(nil)
+	}
+}
 
 func (t *DeviceToggle) MouseIn(*desktop.MouseEvent) {
 	if !t.disabled {
@@ -1583,7 +1607,13 @@ func (b *DeviceDashboardHeaderButton) SetText(text string) {
 	b.Refresh()
 }
 
-func (b *DeviceDashboardHeaderButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *DeviceDashboardHeaderButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *DeviceDashboardHeaderButton) Cursor() desktop.Cursor {
 	if b.disabled {
@@ -2277,7 +2307,13 @@ func (b *DeviceDashboardFooterTextButton) SetEnabled(enabled bool) {
 	b.refreshVisuals()
 }
 
-func (b *DeviceDashboardFooterTextButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *DeviceDashboardFooterTextButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *DeviceDashboardFooterTextButton) Cursor() desktop.Cursor {
 	if b.disabled {
@@ -2545,7 +2581,13 @@ func (h *DeviceDashboardZadigHint) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (h *DeviceDashboardZadigHint) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (h *DeviceDashboardZadigHint) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		h.Tapped(ev)
+	}
+}
 
 func (h *DeviceDashboardZadigHint) Cursor() desktop.Cursor {
 	return desktop.PointerCursor

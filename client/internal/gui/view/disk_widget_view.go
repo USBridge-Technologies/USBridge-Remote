@@ -275,7 +275,13 @@ func (s *CaptureSelector) Tapped(*fyne.PointEvent) {
 	s.onTapped()
 }
 
-func (s *CaptureSelector) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (s *CaptureSelector) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		s.Tapped(ev)
+	}
+}
 
 func (s *CaptureSelector) MouseIn(*desktop.MouseEvent) {
 	s.hovered = true
@@ -386,7 +392,13 @@ func (b *DeviceActionButton) Tapped(*fyne.PointEvent) {
 	b.onTapped()
 }
 
-func (b *DeviceActionButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *DeviceActionButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *DeviceActionButton) MouseIn(*desktop.MouseEvent) {
 	if b.disabled {

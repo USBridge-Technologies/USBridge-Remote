@@ -630,7 +630,13 @@ func (b *whatsNewLinkPill) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *whatsNewLinkPill) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *whatsNewLinkPill) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *whatsNewLinkPill) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -933,7 +939,13 @@ func (b *whatsNewGitHubLink) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *whatsNewGitHubLink) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *whatsNewGitHubLink) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *whatsNewGitHubLink) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
@@ -1035,7 +1047,13 @@ func (b *whatsNewNav) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *whatsNewNav) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *whatsNewNav) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *whatsNewNav) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true

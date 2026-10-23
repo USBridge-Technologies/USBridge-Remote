@@ -743,7 +743,13 @@ func (b *connectionNameButton) Tapped(*fyne.PointEvent) {
 	b.onTapped()
 }
 
-func (b *connectionNameButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *connectionNameButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *connectionNameButton) MouseIn(*desktop.MouseEvent) {
 	if b.disabled {
@@ -1225,7 +1231,13 @@ func (b *connectionActionIconButton) Tapped(*fyne.PointEvent) {
 	b.onTapped()
 }
 
-func (b *connectionActionIconButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *connectionActionIconButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *connectionActionIconButton) MouseIn(*desktop.MouseEvent) {
 	if b.disabled || b.loading {
@@ -1329,7 +1341,13 @@ func (o *transparentTapOverlay) Tapped(*fyne.PointEvent) {
 	o.onTapped()
 }
 
-func (o *transparentTapOverlay) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (o *transparentTapOverlay) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		o.Tapped(ev)
+	}
+}
 
 func (o *transparentTapOverlay) SetDisabled(disabled bool) {
 	o.disabled = disabled
@@ -1425,7 +1443,13 @@ func (b *ConnectionPrimaryButton) Tapped(*fyne.PointEvent) {
 	b.onTapped()
 }
 
-func (b *ConnectionPrimaryButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *ConnectionPrimaryButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *ConnectionPrimaryButton) MouseIn(*desktop.MouseEvent) {
 	if b.disabled || b.loading {
@@ -1711,7 +1735,13 @@ func (b *iconChromeButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *iconChromeButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *iconChromeButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *iconChromeButton) SetDisabled(disabled bool) {
 	b.spec.Disabled = disabled

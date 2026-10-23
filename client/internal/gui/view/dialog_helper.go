@@ -445,7 +445,13 @@ func (b *confirmToastButton) Tapped(*fyne.PointEvent) {
 	}
 }
 
-func (b *confirmToastButton) TappedSecondary(*fyne.PointEvent) {}
+// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
+// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+func (b *confirmToastButton) TappedSecondary(ev *fyne.PointEvent) {
+	if IsMobile() {
+		b.Tapped(ev)
+	}
+}
 
 func (b *confirmToastButton) Cursor() desktop.Cursor {
 	return desktop.PointerCursor
