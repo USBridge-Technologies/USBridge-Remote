@@ -674,6 +674,8 @@ type LocalizedStrings struct {
 	ClipboardEmpty                       string // clipboard menu error: nothing to transfer
 	KeyboardInputKeys                    string // keyboard input mode: raw keys, host layout decides
 	KeyboardInputText                    string // keyboard input mode: characters typed with the client layout
+	RemoteKeyboardLayout                 string // hardware KVM: the target's keyboard layout, "%s" = its name
+	RemoteKeyboardLayoutAuto             string // hardware KVM: target layout = this computer's
 	EnableVSync                          string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
 	EnableVSyncHint                      string // description shown under the VSync checkbox
 	EnableVSyncBadge                     string // small badge next to the VSync title, e.g. "RECOMMENDED"
@@ -1457,6 +1459,8 @@ func EN() *LocalizedStrings {
 		ClipboardEmpty:                       "Clipboard is empty",
 		KeyboardInputKeys:                    "Keys (Host Layout)",
 		KeyboardInputText:                    "Characters (Local Layout)",
+		RemoteKeyboardLayout:                 "Target layout: %s",
+		RemoteKeyboardLayoutAuto:             "Same as this computer",
 		EnableVSync:                          "VSync (Vertical Sync)",
 		EnableVSyncHint:                      "Synchronizes frame delivery with the host display's refresh rate to eliminate tearing during fast motion.",
 		EnableVSyncBadge:                     "Recommended",
@@ -1770,6 +1774,8 @@ func ES() *LocalizedStrings {
 	locale.ClipboardEmpty = "El portapapeles está vacío"
 	locale.KeyboardInputKeys = "Teclas (distribución del host)"
 	locale.KeyboardInputText = "Caracteres (distribución local)"
+	locale.RemoteKeyboardLayout = "Distribución del equipo: %s"
+	locale.RemoteKeyboardLayoutAuto = "Igual que este equipo"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
 	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Deseas conectarte a este servidor?\n\nElige una accion:"
@@ -2285,6 +2291,8 @@ func UKProper() *LocalizedStrings {
 	locale.ClipboardEmpty = "Буфер обміну порожній"
 	locale.KeyboardInputKeys = "Клавіші (розкладка хоста)"
 	locale.KeyboardInputText = "Символи (локальна розкладка)"
+	locale.RemoteKeyboardLayout = "Розкладка цільового ПК: %s"
+	locale.RemoteKeyboardLayoutAuto = "Як на цьому комп'ютері"
 	locale.DeepLinkServerAddress = "Адреса сервера:"
 	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Хочете підключитися до цього сервера?\n\nВиберіть дію:"

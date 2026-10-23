@@ -181,6 +181,7 @@ type VideoWidget struct {
 	imeShowRetryUsed      atomic.Bool
 	keyboardModifierState atomic.Int32
 	keyboardKeysMode      atomic.Bool // KeyboardInputModeKeys; see SetKeyboardInputMode
+	remoteKeyboardLayout  atomic.Value // string; see SetRemoteKeyboardLayout
 	suppressRuneUntilNS   atomic.Int64
 	softIMEMu             sync.Mutex
 	softIMELastRune       rune

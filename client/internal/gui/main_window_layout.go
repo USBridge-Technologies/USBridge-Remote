@@ -15,6 +15,7 @@ import (
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/input"
 	"usbridge-client/internal/models"
 
 	"github.com/sirupsen/logrus"
@@ -2184,6 +2185,10 @@ const clipboardAutoSyncPref = "clipboard_sync_enabled"
 // keyboardInputModePref stores controller.KeyboardInputModeText/Keys.
 const keyboardInputModePref = "keyboard_input_mode"
 
+// remoteKeyboardLayoutPref stores a hardware KVM target's layout: a KLID
+// from input.RemoteLayouts, or input.RemoteLayoutAuto (the default).
+const remoteKeyboardLayoutPref = "remote_keyboard_layout"
+
 func (mw *MainWindow) clipboardAutoSyncMenuItem(label string) view.StyledMenuItem {
 	return view.StyledMenuItem{
 		Label:    label,
@@ -2322,6 +2327,53 @@ func (mw *MainWindow) showKeyboardInputModeMenu() {
 			Selected: current == controller.KeyboardInputModeText,
 			OnTap:    func() { set(controller.KeyboardInputModeText) },
 		},
+	}
+	if mw.videoWidget.TypesAsUSBKeyboard() {
+		// Characters are typed by pressing keys on the target, so they
+		// depend on its layout (paste uses it in both modes).
+		items = append(items, view.StyledMenuItem{
+			Label: fmt.Sprintf(i18n.Current.RemoteKeyboardLayout, mw.remoteKeyboardLayoutName(mw.videoWidget.RemoteKeyboardLayout())),
+			OnTap: mw.showRemoteKeyboardLayoutMenu,
+		})
+	}
+	view.ShowStyledMenuTealAbove(mw.inputModeIcon, items)
+}
+
+func (mw *MainWindow) remoteKeyboardLayoutName(setting string) string {
+	if name := input.RemoteLayoutName(setting); name != "" {
+		return name
+	}
+	auto := i18n.Current.RemoteKeyboardLayoutAuto
+	if name := input.RemoteLayoutName(input.ResolveRemoteLayout(input.RemoteLayoutAuto)); name != "" {
+		auto += " (" + name + ")"
+	}
+	return auto
+}
+
+// showRemoteKeyboardLayoutMenu picks the hardware KVM target's layout.
+func (mw *MainWindow) showRemoteKeyboardLayoutMenu() {
+	if mw.inputModeIcon == nil || mw.videoWidget == nil {
+		return
+	}
+	current := mw.videoWidget.RemoteKeyboardLayout()
+	set := func(setting string) {
+		mw.app.Preferences().SetString(remoteKeyboardLayoutPref, setting)
+		if mw.videoWidget != nil {
+			mw.videoWidget.SetRemoteKeyboardLayout(setting)
+		}
+	}
+	items := []view.StyledMenuItem{{
+		Label:    mw.remoteKeyboardLayoutName(input.RemoteLayoutAuto),
+		Selected: current == input.RemoteLayoutAuto,
+		OnTap:    func() { set(input.RemoteLayoutAuto) },
+	}}
+	for _, l := range input.RemoteLayouts() {
+		id := l.ID
+		items = append(items, view.StyledMenuItem{
+			Label:    l.Name,
+			Selected: current == id,
+			OnTap:    func() { set(id) },
+		})
 	}
 	view.ShowStyledMenuTealAbove(mw.inputModeIcon, items)
 }

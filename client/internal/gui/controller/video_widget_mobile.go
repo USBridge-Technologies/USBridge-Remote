@@ -104,10 +104,22 @@ func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
 			mi.SendMoonlightKey(0x08, service.LiKeyActionUp, 0)
 		})
 	}
-	if text != "" {
-		t := text
-		vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(t) })
+	if text == "" {
+		return
 	}
+	if vw.TypesAsUSBKeyboard() {
+		// A KVM can't type UTF-8 text: press each character's key on the
+		// target layout (auto: the IME's language), UTF-8 only for the rest.
+		for _, r := range text {
+			if !vw.sendRuneViaRemoteLayout(r) {
+				s := string(r)
+				vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(s) })
+			}
+		}
+		return
+	}
+	t := text
+	vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(t) })
 }
 
 func (vw *VideoWidget) platformHandleVirtualKeyboard() {

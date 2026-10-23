@@ -460,6 +460,18 @@ func (vw *VideoWidget) sendRune(r rune, dedupe bool) {
 	if vw.typesViaHostLayout() && vw.sendRuneViaHostLayout(r) {
 		return
 	}
+	if vw.TypesAsUSBKeyboard() {
+		if dedupe && vw.currentHIDModifiers()&(1|4|8) != 0 {
+			// Ctrl/Alt/Super held (AltGr is Ctrl+Alt on Windows, Alt on
+			// Linux): handlePhysicalKeyDown already sent this keystroke
+			// as raw keys, which type the same character on a target with
+			// this computer's layout.
+			return
+		}
+		if vw.sendRuneViaRemoteLayout(r) {
+			return
+		}
+	}
 	if r > 127 {
 		if dedupe {
 			vw.sendSoftIMERune(r)

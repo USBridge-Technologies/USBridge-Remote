@@ -11,6 +11,9 @@ import (
 var (
 	currentLanguage   = "en-US"
 	currentLanguageMu sync.RWMutex
+	// currentLanguageReported: a soft keyboard set currentLanguage (so it
+	// says something about the layout, unlike the default).
+	currentLanguageReported bool
 )
 
 // SetCurrentLanguage sets the current input language (from the Android IME)
@@ -20,6 +23,7 @@ func SetCurrentLanguage(lang string) {
 	}
 	currentLanguageMu.Lock()
 	defer currentLanguageMu.Unlock()
+	currentLanguageReported = true
 	if currentLanguage != lang {
 		logrus.Infof("⌨️ [KEYMAP] Language changed: %q -> %q", currentLanguage, lang)
 		currentLanguage = lang
@@ -108,6 +112,12 @@ func GetKeyCodeFromPhysical(physical fyne.HardwareKey) int {
 // regardless of the active IME layout.
 func GetVKCodeFromScanCode(scanCode int) int16 {
 	return getVKCodeFromPS2ScanCode(NormalizeScanCode(scanCode))
+}
+
+// VKCodeFromPS2ScanCode is GetVKCodeFromScanCode for a code that already is
+// PS/2 Set-1 (the remote layout tables), skipping the client-OS translation.
+func VKCodeFromPS2ScanCode(scanCode int) int16 {
+	return getVKCodeFromPS2ScanCode(scanCode)
 }
 
 func getVKCodeFromPS2ScanCode(scanCode int) int16 {
@@ -215,6 +225,8 @@ func getVKCodeFromPS2ScanCode(scanCode int) int16 {
 		return 0xBF // / (VK_OEM_2)
 	case 0x56:
 		return 0xE2 // ISO key between left Shift and Z (VK_OEM_102)
+	case 0x39:
+		return 0x20 // Space
 	case 0x1C, 0x11C:
 		return 0x0D // Enter / Return (VK_RETURN)
 	// Extended: navigation cluster (scan + 0x100)
