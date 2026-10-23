@@ -1,9 +1,7 @@
 package controller
 
 import (
-	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -58,7 +56,11 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 	}
 
 	// The host's rumble goes to whichever pads are being captured.
-	dw.rumbleOnce.Do(func() { service.SetRumbleHandler(dw.onHostRumble) })
+	dw.rumbleOnce.Do(func() {
+		service.SetRumbleHandler(dw.onHostRumble)
+		service.SetPadMotionHandler(dw.onHostPadMotion)
+		service.SetPadLightHandler(dw.onHostPadLight)
+	})
 
 	// Stop captures for devices that are no longer mounted.
 	for id, cap := range dw.activeCaptures {
@@ -67,7 +69,7 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 			cap.Stop()
 			platform.StopGamepadRumble(id)
 			delete(dw.activeCaptures, id)
-			dw.stopTouchpad(id)
+			dw.stopPadHID(id)
 			dw.releasePadSlot(id)
 		}
 	}
@@ -95,8 +97,9 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 			continue
 		}
 		dw.activeCaptures[id] = cap
-		dw.startTouchpad(id)
-		dw.announceGamepadArrival(slot, dw.effectiveGamepadMode(wantedMode[id]))
+		mode := dw.effectiveGamepadMode(wantedMode[id])
+		dw.startPadHID(id, mode == gamepadModeDualShock4)
+		dw.announceGamepadArrival(id, slot, mode)
 	}
 }
 
@@ -113,72 +116,17 @@ func (dw *DiskWidget) startPadCaptureRecovered(id string) (cap gamepadCaptureHan
 	return dw.startPadCapture(id)
 }
 
-// startTouchpad turns the pad's touchpad (DualShock 4 layout) into a relative
-// mouse for the host, next to the normal pad capture. A pad without one just
-// does not get a reader.
-func (dw *DiskWidget) startTouchpad(id string) {
-	if dw.activeTouchpads == nil {
-		dw.activeTouchpads = make(map[string]*platform.TouchpadCapture)
-	}
-	tp, err := platform.StartGamepadTouchpad(id, dw.forwardTouchpad)
-	if err != nil {
-		if !errors.Is(err, platform.ErrNoTouchpad) {
-			logrus.Warnf("🎮 [GAMEPAD] touchpad of %s unavailable: %v", id, err)
-		}
-		return
-	}
-	dw.activeTouchpads[id] = tp
-}
-
-// stopTouchpad ends a pad's touchpad reader and releases its click if it was held.
-func (dw *DiskWidget) stopTouchpad(id string) {
-	tp, ok := dw.activeTouchpads[id]
-	if !ok {
-		return
-	}
-	tp.Stop()
-	delete(dw.activeTouchpads, id)
-	dw.forwardTouchpad(platform.TouchpadEvent{ClickChanged: true, ClickDown: false})
-}
-
-// forwardTouchpad sends touchpad motion and clicks to the host as a relative mouse.
-// Called from the touchpad reader goroutine.
-func (dw *DiskWidget) forwardTouchpad(ev platform.TouchpadEvent) {
-	if dw.moonlightProvider == nil {
-		return
-	}
-	sender := dw.moonlightProvider()
-	if sender == nil || !sender.IsInputActive() {
-		return
-	}
-	clamp := func(v int) int16 {
-		if v > math.MaxInt16 {
-			return math.MaxInt16
-		}
-		if v < math.MinInt16 {
-			return math.MinInt16
-		}
-		return int16(v)
-	}
-	if ev.DX != 0 || ev.DY != 0 {
-		sender.SendMoonlightMouseMove(clamp(ev.DX), clamp(ev.DY))
-	}
-	if ev.ClickChanged {
-		action := service.LiMouseButtonRelease
-		if ev.ClickDown {
-			action = service.LiMouseButtonPress
-		}
-		sender.SendMoonlightMouseButton(action, service.LiMouseButtonLeft)
-	}
-}
-
 // releasePadSlot frees a stopped pad's controller number and tells the host
 // the controller is gone: the streamer unplugs its virtual pad when the number
 // leaves the active gamepad mask, so a pad that was switched off does not stay
 // "connected" (and stuck at its last state) in the game.
 func (dw *DiskWidget) releasePadSlot(id string) {
 	slot, ok := dw.padSlots.release(id)
-	if !ok || dw.moonlightProvider == nil {
+	if !ok {
+		return
+	}
+	padMotionWanted[slot].Store(0)
+	if dw.moonlightProvider == nil {
 		return
 	}
 	if sender := dw.moonlightProvider(); sender != nil && sender.IsInputActive() {
@@ -194,7 +142,7 @@ func (dw *DiskWidget) releasePadSlot(id string) {
 // arrival event is a Sunshine protocol extension the client always also
 // backs with an ordinary (zero) multi-controller event, and this method
 // itself no-ops before a Moonlight session exists.
-func (dw *DiskWidget) announceGamepadArrival(slot int, mode string) {
+func (dw *DiskWidget) announceGamepadArrival(id string, slot int, mode string) {
 	if dw.moonlightProvider == nil {
 		return
 	}
@@ -202,11 +150,11 @@ func (dw *DiskWidget) announceGamepadArrival(slot int, mode string) {
 	if sender == nil || !sender.IsInputActive() {
 		return
 	}
-	ctype := platform.MoonlightCtypeXbox
+	ctype, caps := platform.MoonlightCtypeXbox, uint16(0)
 	if mode == gamepadModeDualShock4 {
-		ctype = platform.MoonlightCtypePS
+		ctype, caps = platform.MoonlightCtypePS, dw.padArrivalCapabilities(id)
 	}
-	sender.SendMoonlightControllerArrival(uint16(slot), dw.padSlots.mask(), ctype, 0xFFFF, 0)
+	sender.SendMoonlightControllerArrival(uint16(slot), dw.padSlots.mask(), ctype, 0xFFFF|uint32(service.LiButtonTouchpad), caps)
 }
 
 // onHostRumble applies the host's rumble request to the pad that holds that
@@ -246,17 +194,7 @@ func (dw *DiskWidget) forwardGamepadState(id string, state platform.GamepadCaptu
 			if !ok {
 				return // stopped while this sample was in flight
 			}
-			sender.SendMoonlightControllerEvent(
-				uint16(slot),
-				dw.padSlots.mask(),
-				state.Buttons,
-				state.LeftTrigger,
-				state.RightTrigger,
-				state.LeftX,
-				state.LeftY,
-				state.RightX,
-				state.RightY,
-			)
+			dw.sendPadState(id, slot, state, dw.padTouchpadClick(id, state))
 			return
 		}
 	}
@@ -272,7 +210,7 @@ func (dw *DiskWidget) stopAllGamepadCaptures() {
 		cap.Stop()
 		platform.StopGamepadRumble(id)
 		delete(dw.activeCaptures, id)
-		dw.stopTouchpad(id)
+		dw.stopPadHID(id)
 		dw.releasePadSlot(id)
 	}
 }

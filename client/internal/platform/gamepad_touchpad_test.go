@@ -40,13 +40,13 @@ func TestParseRejectsOtherReports(t *testing.T) {
 	if _, _, ok := parseDS4Report(make([]byte, 64)); ok {
 		t.Error("report id 0 is not a DS4 input report")
 	}
-	short := report(0, [10]byte{})[:20]
+	short := report(0, [10]byte{})[:42]
 	if _, _, ok := parseDS4Report(short); ok {
 		t.Error("a short report has no touch data")
 	}
 }
 
-func finger(id uint8, x, y int) ds4Finger { return ds4Finger{Active: true, ID: id, X: x, Y: y} }
+func finger(id uint8, x, y int) DS4Finger { return DS4Finger{Active: true, ID: id, X: x, Y: y} }
 
 func TestTouchpadMouseMovesRelativelyAndNeverJumpsOnANewTouch(t *testing.T) {
 	var m touchpadMouse
@@ -57,7 +57,7 @@ func TestTouchpadMouseMovesRelativelyAndNeverJumpsOnANewTouch(t *testing.T) {
 		t.Fatalf("swipe: %d,%d (gain 0.6)", dx, dy)
 	}
 	// Lift, then touch somewhere else: no jump.
-	m.move(ds4Finger{Active: false, ID: 1})
+	m.move(DS4Finger{Active: false, ID: 1})
 	if dx, dy := m.move(finger(2, 1500, 100)); dx != 0 || dy != 0 {
 		t.Fatalf("new touch jumped: %d,%d", dx, dy)
 	}
@@ -104,5 +104,37 @@ func TestDecoderEmitsMotionAndClickEdgesOnly(t *testing.T) {
 	}
 	if !got[2].ClickChanged || got[2].ClickDown {
 		t.Errorf("release: %+v", got[2])
+	}
+}
+
+func TestParseDS4ReportMotionBatteryAndSecondFinger(t *testing.T) {
+	rep := report(0, [10]byte{0, 0, 0x80, 0, 0, 0, 0x05, 0x7f, 0xd7, 0x3a})
+	// gyro pitch 160 (10 deg/s), accel Y 8192 (1 g)
+	rep[13], rep[14] = 160, 0
+	rep[21], rep[22] = 0x00, 0x20
+	rep[30] = 0x14 // cable, level 4
+	r, ok := ParseDS4Report(rep)
+	if !ok || r.Fingers[0].Active || !r.Fingers[1].Active || r.Fingers[1].ID != 5 || r.Fingers[1].X != 1919 || r.Fingers[1].Y != 941 {
+		t.Fatalf("fingers: %+v", r.Fingers)
+	}
+	if x, _, _ := r.GyroDegS(); x != 10 {
+		t.Errorf("gyro x %v", x)
+	}
+	if _, y, _ := r.AccelMS2(); y < 9.80 || y > 9.81 {
+		t.Errorf("accel y %v", y)
+	}
+	if !r.HasMotion() {
+		t.Error("gravity on Y: has motion")
+	}
+	if st, pct, ok := r.BatteryState(); !ok || st != 0x03 || pct != 40 {
+		t.Errorf("battery %d %d %v", st, pct, ok)
+	}
+	// A Raiju: no sensors, no battery.
+	r, _ = ParseDS4Report(report(0, [10]byte{}))
+	if r.HasMotion() {
+		t.Error("all-zero accel is no sensor")
+	}
+	if _, _, ok := r.BatteryState(); ok {
+		t.Error("battery byte 0 is no battery")
 	}
 }

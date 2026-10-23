@@ -24,7 +24,7 @@ extern void do_send_mouse_button(char action, int button);
 extern void do_send_scroll(signed char clicks);
 extern void do_send_multi_controller(
     unsigned short controllerNumber, unsigned short activeGamepadMask,
-    unsigned short buttons,
+    unsigned int buttons,
     unsigned char leftTrigger, unsigned char rightTrigger,
     short leftStickX, short leftStickY,
     short rightStickX, short rightStickY);
@@ -35,6 +35,11 @@ extern void do_send_pen(unsigned char eventType, unsigned char toolType, unsigne
                         float x, float y, float pressureOrDistance,
                         unsigned short rotation, unsigned char tilt);
 extern int do_host_supports_raw_hid(void);
+extern int do_host_supports_controller_ext(void);
+extern void do_send_controller_touch(unsigned char cn, unsigned char eventType, unsigned int pointerId,
+                                     float x, float y, float pressure);
+extern void do_send_controller_motion(unsigned char cn, unsigned char motionType, float x, float y, float z);
+extern void do_send_controller_battery(unsigned char cn, unsigned char state, unsigned char percent);
 extern int do_send_raw_hid(unsigned char kind, unsigned char slot, unsigned char endpoint,
                            unsigned short total, unsigned short offset,
                            const unsigned char *data, unsigned short length, int reliable);
@@ -485,7 +490,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8) {
 }
 
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
-	controllerNumber uint16, activeGamepadMask uint16, buttons uint16,
+	controllerNumber uint16, activeGamepadMask uint16, buttons uint32,
 	leftTrigger uint8, rightTrigger uint8,
 	leftStickX int16, leftStickY int16,
 	rightStickX int16, rightStickY int16,
@@ -494,7 +499,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 		return
 	}
 	C.do_send_multi_controller(
-		C.ushort(controllerNumber), C.ushort(activeGamepadMask), C.ushort(buttons),
+		C.ushort(controllerNumber), C.ushort(activeGamepadMask), C.uint(buttons),
 		C.uchar(leftTrigger), C.uchar(rightTrigger),
 		C.short(leftStickX), C.short(leftStickY),
 		C.short(rightStickX), C.short(rightStickY),
@@ -602,6 +607,38 @@ func goMoonlightConnected() {
 //export goMoonlightRumble
 func goMoonlightRumble(controller, lowFreq, highFreq C.ushort) {
 	dispatchRumble(uint16(controller), uint16(lowFreq), uint16(highFreq))
+}
+
+//export goMoonlightPadMotion
+func goMoonlightPadMotion(controller C.ushort, motionType C.uchar, rateHz C.ushort) {
+	dispatchPadMotion(uint16(controller), uint8(motionType), uint16(rateHz))
+}
+
+//export goMoonlightPadLight
+func goMoonlightPadLight(controller C.ushort, r, g, b C.uchar) {
+	dispatchPadLight(uint16(controller), uint8(r), uint8(g), uint8(b))
+}
+
+func (w *MoonlightCgoWrapper) HostSupportsControllerExtensions() bool {
+	return liStartConnectionActive.Load() && C.do_host_supports_controller_ext() != 0
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightControllerTouch(controller, eventType uint8, pointerID uint32, x, y, pressure float32) {
+	if liStartConnectionActive.Load() {
+		C.do_send_controller_touch(C.uchar(controller), C.uchar(eventType), C.uint(pointerID), C.float(x), C.float(y), C.float(pressure))
+	}
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightControllerMotion(controller, motionType uint8, x, y, z float32) {
+	if liStartConnectionActive.Load() {
+		C.do_send_controller_motion(C.uchar(controller), C.uchar(motionType), C.float(x), C.float(y), C.float(z))
+	}
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightControllerBattery(controller, state, percent uint8) {
+	if liStartConnectionActive.Load() {
+		C.do_send_controller_battery(C.uchar(controller), C.uchar(state), C.uchar(percent))
+	}
 }
 
 //export goMoonlightTerminated

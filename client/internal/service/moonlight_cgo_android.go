@@ -1103,7 +1103,7 @@ void do_send_mouse_button(char act, int btn) {
     if (ret != 0) ALOGE("LiSendMouseButtonEvent FAILED ret=%d act=%d btn=%d", ret, (int)act, btn);
 }
 void do_send_scroll(signed char c) { LiSendScrollEvent(c); }
-void do_send_multi_controller(unsigned short cn, unsigned short am, unsigned short b, unsigned char lt, unsigned char rt, short lx, short ly, short rx, short ry) {
+void do_send_multi_controller(unsigned short cn, unsigned short am, unsigned int b, unsigned char lt, unsigned char rt, short lx, short ly, short rx, short ry) {
     LiSendMultiControllerEvent(cn, am, b, lt, rt, lx, ly, rx, ry);
 }
 void do_send_controller_arrival(unsigned short cn, unsigned short am, unsigned char ctype,
@@ -1432,6 +1432,14 @@ func (w *MoonlightCgoWrapper) IsInputActive() bool { return liStartConnectionAct
 // through USB/IP.
 
 func (w *MoonlightCgoWrapper) RawHIDEpoch() uint64 { return 0 }
+
+// The Android client reads no pad touchpads or motion sensors yet.
+func (w *MoonlightCgoWrapper) HostSupportsControllerExtensions() bool { return false }
+func (w *MoonlightCgoWrapper) SendMoonlightControllerTouch(controller, eventType uint8, pointerID uint32, x, y, pressure float32) {
+}
+func (w *MoonlightCgoWrapper) SendMoonlightControllerMotion(controller, motionType uint8, x, y, z float32) {
+}
+func (w *MoonlightCgoWrapper) SendMoonlightControllerBattery(controller, state, percent uint8) {}
 func (w *MoonlightCgoWrapper) SendMoonlightRawHID(kind, slot, endpoint uint8, total, offset uint16, data []byte, reliable bool) bool {
 	return false
 }
@@ -1467,9 +1475,9 @@ func (w *MoonlightCgoWrapper) SendMoonlightScroll(c int8) {
 		C.do_send_scroll(C.schar(c))
 	}
 }
-func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(cn uint16, am uint16, b uint16, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16) {
+func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(cn uint16, am uint16, b uint32, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16) {
 	if liStartConnectionActive.Load() {
-		C.do_send_multi_controller(C.ushort(cn), C.ushort(am), C.ushort(b), C.uchar(lt), C.uchar(rt), C.short(lx), C.short(ly), C.short(rx), C.short(ry))
+		C.do_send_multi_controller(C.ushort(cn), C.ushort(am), C.uint(b), C.uchar(lt), C.uchar(rt), C.short(lx), C.short(ly), C.short(rx), C.short(ry))
 	}
 }
 

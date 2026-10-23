@@ -93,7 +93,7 @@ type MoonlightInputSender interface {
 	SendMoonlightMousePosition(x, y, refW, refH int16)
 	SendMoonlightMouseButton(action int8, button int)
 	SendMoonlightScroll(clicks int8)
-	SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16)
+	SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint32, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16)
 	// SendMoonlightControllerArrival announces controllerNumber's pad type via
 	// LiSendControllerArrivalEvent (LI_CTYPE_* -- LiCtypeXbox/LiCtypePS/...)
 	// before any SendMoonlightControllerEvent for it, so a Sunshine-compatible

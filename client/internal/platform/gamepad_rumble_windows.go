@@ -155,3 +155,19 @@ func StopGamepadRumble(id string) {
 		delete(rumbleTargets, id)
 	}
 }
+
+// SetGamepadLight sets the light colour of a pad driven through its HID output
+// report (a DualShock 4's lightbar), as a game set it on the host's virtual pad.
+// Other pads have no light to set.
+func SetGamepadLight(id string, r, g, b uint8) {
+	rumbleMu.Lock()
+	defer rumbleMu.Unlock()
+	t, ok := rumbleTargets[id]
+	if !ok {
+		t = resolveRumbleTarget(id)
+		rumbleTargets[id] = t
+	}
+	if t.hid != nil {
+		t.hid.setLight(r, g, b)
+	}
+}

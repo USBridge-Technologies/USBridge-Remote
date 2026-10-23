@@ -40,7 +40,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, refW, refH int16)
 func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int)           {}
 func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8)                            {}
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
-	cn uint16, am uint16, b uint16, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16,
+	cn uint16, am uint16, b uint32, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16,
 ) {
 }
 func (w *MoonlightCgoWrapper) SendMoonlightControllerArrival(
@@ -64,6 +64,13 @@ func (w *MoonlightCgoWrapper) SendMoonlightCamera(frame uint16, keyframe bool, a
 }
 
 func (w *MoonlightCgoWrapper) RawHIDEpoch() uint64 { return 0 }
+
+func (w *MoonlightCgoWrapper) HostSupportsControllerExtensions() bool { return false }
+func (w *MoonlightCgoWrapper) SendMoonlightControllerTouch(controller, eventType uint8, pointerID uint32, x, y, pressure float32) {
+}
+func (w *MoonlightCgoWrapper) SendMoonlightControllerMotion(controller, motionType uint8, x, y, z float32) {
+}
+func (w *MoonlightCgoWrapper) SendMoonlightControllerBattery(controller, state, percent uint8) {}
 
 func (w *MoonlightCgoWrapper) SendMoonlightRawHID(kind, slot, endpoint uint8, total, offset uint16, data []byte, reliable bool) bool {
 	return false

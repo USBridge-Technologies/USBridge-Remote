@@ -65,6 +65,10 @@ var (
 // motor and high the small one, both 0..65535 (Moonlight's scale). 0,0 stops
 // the vibration. id is the pad's /dev/input/eventN node.
 func SetGamepadRumble(id string, low, high uint16) {
+	// A DualShock 4-layout pad takes its HID output report, evdev or not.
+	if writeDS4Output(id, func(st *ds4OutState) { st.low, st.high = low, high }) {
+		return
+	}
 	rumbleMu.Lock()
 	defer rumbleMu.Unlock()
 
@@ -111,6 +115,8 @@ func SetGamepadRumble(id string, low, high uint16) {
 
 // StopGamepadRumble silences the pad and releases its force-feedback effect.
 func StopGamepadRumble(id string) {
+	writeDS4Output(id, func(st *ds4OutState) { st.low, st.high = 0, 0 })
+	forgetDS4Output(id)
 	rumbleMu.Lock()
 	defer rumbleMu.Unlock()
 	if st := rumbleStates[id]; st != nil {

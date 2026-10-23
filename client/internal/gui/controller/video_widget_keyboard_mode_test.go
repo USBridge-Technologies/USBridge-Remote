@@ -39,7 +39,7 @@ func (r *recordingInput) SendMoonlightMouseMove(dx, dy int16)               {}
 func (r *recordingInput) SendMoonlightMousePosition(x, y, refW, refH int16) {}
 func (r *recordingInput) SendMoonlightMouseButton(action int8, button int)  {}
 func (r *recordingInput) SendMoonlightScroll(clicks int8)                   {}
-func (r *recordingInput) SendMoonlightControllerEvent(uint16, uint16, uint16, uint8, uint8, int16, int16, int16, int16) {
+func (r *recordingInput) SendMoonlightControllerEvent(uint16, uint16, uint32, uint8, uint8, int16, int16, int16, int16) {
 }
 func (r *recordingInput) SendMoonlightPenEvent(uint8, uint8, uint8, float32, float32, float32, uint16, uint8) {
 }

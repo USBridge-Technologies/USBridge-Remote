@@ -794,7 +794,7 @@ func (m *MoonlightService) SendMoonlightScroll(clicks int8) {
 	}
 }
 
-func (m *MoonlightService) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {
+func (m *MoonlightService) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint32, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {
 	if m.activeWrapper != nil {
 		m.activeWrapper.SendMoonlightControllerEvent(controllerNumber, activeGamepadMask, buttons, leftTrigger, rightTrigger, leftStickX, leftStickY, rightStickX, rightStickY)
 	}

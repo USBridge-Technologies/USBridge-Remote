@@ -44,6 +44,8 @@ extern void goMoonlightStage(int stage, int result, int errCode);
 extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goMoonlightRumble(unsigned short controllerNumber, unsigned short lowFreq, unsigned short highFreq);
+extern void goMoonlightPadMotion(unsigned short controllerNumber, unsigned char motionType, unsigned short reportRateHz);
+extern void goMoonlightPadLight(unsigned short controllerNumber, unsigned char r, unsigned char g, unsigned char b);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
@@ -98,6 +100,8 @@ static void cl_stage_failed(int s, int ec) { goMoonlightStage(s, -1, ec); }
 static void cl_connected(void)             { goMoonlightConnected(); }
 static void cl_terminated(int ec)          { goMoonlightTerminated(ec); }
 static void cl_rumble(unsigned short n, unsigned short low, unsigned short high) { goMoonlightRumble(n, low, high); }
+static void cl_set_motion(uint16_t n, uint8_t type, uint16_t rate) { goMoonlightPadMotion(n, type, rate); }
+static void cl_set_led(uint16_t n, uint8_t r, uint8_t g, uint8_t b) { goMoonlightPadLight(n, r, g, b); }
 static void cl_log(const char *fmt, ...) {
     char buf[256];
     va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
@@ -1435,6 +1439,7 @@ static int do_li_start(
     cl.stageFailed = cl_stage_failed; cl.connectionStarted = cl_connected;
     cl.connectionTerminated = cl_terminated; cl.logMessage = cl_log;
     cl.rumble = cl_rumble;
+    cl.setMotionEventState = cl_set_motion; cl.setControllerLED = cl_set_led;
 
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
     if (ret != 0) return ret;
@@ -1477,11 +1482,11 @@ static void do_send_mouse_position(short x, short y, short refW, short refH) {
 static void do_send_mouse_button(char action, int button) { LiSendMouseButtonEvent(action, button); }
 static void do_send_scroll(signed char clicks)            { LiSendScrollEvent(clicks); }
 static void do_send_multi_controller(
-    unsigned short cn, unsigned short am, unsigned short b,
+    unsigned short cn, unsigned short am, unsigned int b,
     unsigned char lt, unsigned char rt,
     short lx, short ly, short rx, short ry)
 {
-    LiSendMultiControllerEvent(cn, am, b, lt, rt, lx, ly, rx, ry);
+    LiSendMultiControllerEvent(cn, am, (int)b, lt, rt, lx, ly, rx, ry);
 }
 static void do_send_controller_arrival(unsigned short cn, unsigned short am, unsigned char ctype,
     unsigned int supportedButtonFlags, unsigned short capabilities)
@@ -1494,6 +1499,25 @@ static void do_send_pen(unsigned char eventType, unsigned char toolType, unsigne
                          unsigned short rotation, unsigned char tilt)
 {
     LiSendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance, 0.0f, 0.0f, rotation, tilt);
+}
+// Sunshine controller extensions: a pad's touchpad, motion sensors and
+// battery (see moonlight_pad.go).
+static int do_host_supports_controller_ext(void)
+{
+    return (LiGetHostFeatureFlags() & LI_FF_CONTROLLER_TOUCH_EVENTS) != 0;
+}
+static void do_send_controller_touch(unsigned char cn, unsigned char eventType, unsigned int pointerId,
+                                     float x, float y, float pressure)
+{
+    LiSendControllerTouchEvent(cn, eventType, pointerId, x, y, pressure);
+}
+static void do_send_controller_motion(unsigned char cn, unsigned char motionType, float x, float y, float z)
+{
+    LiSendControllerMotionEvent(cn, motionType, x, y, z);
+}
+static void do_send_controller_battery(unsigned char cn, unsigned char state, unsigned char percent)
+{
+    LiSendControllerBatteryEvent(cn, state, percent);
 }
 // Raw HID devices rebuilt by a USBridge host (see moonlight_rawhid.go).
 static int do_host_supports_raw_hid(void)
@@ -1769,7 +1793,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8) {
 	C.do_send_scroll(C.schar(clicks))
 }
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
-	controllerNumber uint16, activeGamepadMask uint16, buttons uint16,
+	controllerNumber uint16, activeGamepadMask uint16, buttons uint32,
 	leftTrigger uint8, rightTrigger uint8,
 	leftStickX int16, leftStickY int16,
 	rightStickX int16, rightStickY int16,
@@ -1778,7 +1802,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 		return
 	}
 	C.do_send_multi_controller(
-		C.ushort(controllerNumber), C.ushort(activeGamepadMask), C.ushort(buttons),
+		C.ushort(controllerNumber), C.ushort(activeGamepadMask), C.uint(buttons),
 		C.uchar(leftTrigger), C.uchar(rightTrigger),
 		C.short(leftStickX), C.short(leftStickY),
 		C.short(rightStickX), C.short(rightStickY),
@@ -1911,6 +1935,38 @@ func goMoonlightConnected() {
 //export goMoonlightRumble
 func goMoonlightRumble(controller, lowFreq, highFreq C.ushort) {
 	dispatchRumble(uint16(controller), uint16(lowFreq), uint16(highFreq))
+}
+
+//export goMoonlightPadMotion
+func goMoonlightPadMotion(controller C.ushort, motionType C.uchar, rateHz C.ushort) {
+	dispatchPadMotion(uint16(controller), uint8(motionType), uint16(rateHz))
+}
+
+//export goMoonlightPadLight
+func goMoonlightPadLight(controller C.ushort, r, g, b C.uchar) {
+	dispatchPadLight(uint16(controller), uint8(r), uint8(g), uint8(b))
+}
+
+func (w *MoonlightCgoWrapper) HostSupportsControllerExtensions() bool {
+	return liStartConnectionActive.Load() && C.do_host_supports_controller_ext() != 0
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightControllerTouch(controller, eventType uint8, pointerID uint32, x, y, pressure float32) {
+	if liStartConnectionActive.Load() {
+		C.do_send_controller_touch(C.uchar(controller), C.uchar(eventType), C.uint(pointerID), C.float(x), C.float(y), C.float(pressure))
+	}
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightControllerMotion(controller, motionType uint8, x, y, z float32) {
+	if liStartConnectionActive.Load() {
+		C.do_send_controller_motion(C.uchar(controller), C.uchar(motionType), C.float(x), C.float(y), C.float(z))
+	}
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightControllerBattery(controller, state, percent uint8) {
+	if liStartConnectionActive.Load() {
+		C.do_send_controller_battery(C.uchar(controller), C.uchar(state), C.uchar(percent))
+	}
 }
 
 //export goMoonlightTerminated

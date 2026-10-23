@@ -198,7 +198,12 @@ func TestLiveTouchpad(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var sumX, sumY, moves, clicks int
-	tp, err := StartGamepadTouchpad(id, func(e TouchpadEvent) {
+	var mouse TouchpadMouse
+	tp, err := StartGamepadHID(id, func(r DS4Report) {
+		e, ok := mouse.Feed(r)
+		if !ok {
+			return
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		if e.DX != 0 || e.DY != 0 {

@@ -8,3 +8,6 @@ func SetGamepadRumble(id string, low, high uint16) {}
 
 // StopGamepadRumble is a no-op, see SetGamepadRumble.
 func StopGamepadRumble(id string) {}
+
+// SetGamepadLight is a no-op, see SetGamepadRumble.
+func SetGamepadLight(id string, r, g, b uint8) {}

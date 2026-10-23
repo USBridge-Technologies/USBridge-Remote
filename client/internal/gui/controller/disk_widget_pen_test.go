@@ -30,7 +30,7 @@ func (f *fakePenSender) SendMoonlightMouseMove(int16, int16)                   {
 func (f *fakePenSender) SendMoonlightMousePosition(int16, int16, int16, int16) {}
 func (f *fakePenSender) SendMoonlightMouseButton(int8, int)                    {}
 func (f *fakePenSender) SendMoonlightScroll(int8)                              {}
-func (f *fakePenSender) SendMoonlightControllerEvent(uint16, uint16, uint16, uint8, uint8, int16, int16, int16, int16) {
+func (f *fakePenSender) SendMoonlightControllerEvent(uint16, uint16, uint32, uint8, uint8, int16, int16, int16, int16) {
 }
 func (f *fakePenSender) SendMoonlightControllerArrival(uint16, uint16, uint8, uint32, uint16) {}
 func (f *fakePenSender) SendMoonlightUtf8Text(string) {}

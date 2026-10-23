@@ -5,6 +5,8 @@ package platform
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 	"unsafe"
@@ -103,12 +105,71 @@ func invertAxis(v int16) int16 {
 
 type linuxAxisRange struct{ min, max int32 }
 
+// linuxPadLayout says what a pad's evdev codes mean. Kernel gamepad drivers
+// (xpad, hid-playstation, hid-sony) report the Xbox layout: ABS_RX/RY the
+// right stick, ABS_Z/RZ the triggers, BTN_SOUTH the bottom face button. A
+// DualShock 4-layout pad that only hid-generic binds (a Razer Raiju) reports
+// its HID usages as they are instead: Z/Rz the right stick, Rx/Ry the
+// triggers, and buttons 1-14 in the DS4's own order from BTN_A on.
+type linuxPadLayout struct {
+	name    string
+	axes    map[uint16]uint16 // evdev axis -> the Xbox-layout axis it is
+	buttons map[uint16]uint16 // evdev key -> Moonlight button flag
+}
+
+var linuxXboxLayout = linuxPadLayout{
+	name: "Xbox",
+	axes: map[uint16]uint16{
+		linuxAbsX: linuxAbsX, linuxAbsY: linuxAbsY, linuxAbsZ: linuxAbsZ,
+		linuxAbsRX: linuxAbsRX, linuxAbsRY: linuxAbsRY, linuxAbsRZ: linuxAbsRZ,
+	},
+	buttons: linuxButtonMap,
+}
+
+var linuxDS4HIDLayout = linuxPadLayout{
+	name: "DualShock 4 HID",
+	axes: map[uint16]uint16{
+		linuxAbsX: linuxAbsX, linuxAbsY: linuxAbsY,
+		linuxAbsZ: linuxAbsRX, linuxAbsRZ: linuxAbsRY, // right stick
+		linuxAbsRX: linuxAbsZ, linuxAbsRY: linuxAbsRZ, // L2, R2
+	},
+	buttons: map[uint16]uint16{
+		0x130: MoonlightButtonX,             // Square
+		0x131: MoonlightButtonA,             // Cross
+		0x132: MoonlightButtonB,             // Circle
+		0x133: MoonlightButtonY,             // Triangle
+		0x134: MoonlightButtonLeftShoulder,  // L1
+		0x135: MoonlightButtonRightShoulder, // R1
+		// 0x136/0x137 are L2/R2's digital bits: the analog axes carry them.
+		0x138: MoonlightButtonBack,       // Share
+		0x139: MoonlightButtonStart,      // Options
+		0x13A: MoonlightButtonLeftStick,  // L3
+		0x13B: MoonlightButtonRightStick, // R3
+		0x13C: MoonlightButtonGuide,      // PS
+		// 0x13D is the touchpad click, which the HID reader handles.
+	},
+}
+
+// linuxPadLayoutFor picks the layout of the pad behind an evdev node.
+func linuxPadLayoutFor(deviceID string) linuxPadLayout {
+	base := filepath.Join("/sys/class/input", filepath.Base(deviceID), "device")
+	drv, err := os.Readlink(filepath.Join(base, "device", "driver"))
+	if err != nil || filepath.Base(drv) != "hid-generic" {
+		return linuxXboxLayout
+	}
+	if _, vid, pid, _ := ds4HIDRaw(deviceID); isDS4Family(vid, pid) {
+		return linuxDS4HIDLayout
+	}
+	return linuxXboxLayout
+}
+
 type linuxState struct {
 	buttons      uint16
 	leftTrigger  uint8
 	rightTrigger uint8
 	hatX, hatY   int32
-	axes         map[uint16]linuxAxisRange
+	axes         map[uint16]linuxAxisRange // by Xbox-layout axis
+	layout       linuxPadLayout
 	// Raw int32 values from evdev for full 16-bit precision.
 	leftXRaw, leftYRaw   int32
 	rightXRaw, rightYRaw int32
@@ -151,7 +212,14 @@ func (s *linuxState) normalizeTrigger(code uint16, raw int32) uint8 {
 // is off-centre or a button that is held when the capture starts (or after a
 // SYN_DROPPED) stays wrong until it moves again.
 func (s *linuxState) seed(fd int) {
+	// axis is the Xbox-layout axis; read whichever evdev axis is that.
 	value := func(axis uint16) (int32, bool) {
+		for code, logical := range s.layout.axes {
+			if logical == axis {
+				info, ok := linuxEviocgabs(fd, code)
+				return info.Value, ok
+			}
+		}
 		info, ok := linuxEviocgabs(fd, axis)
 		return info.Value, ok
 	}
@@ -181,7 +249,7 @@ func (s *linuxState) seed(fd int) {
 	}
 	if keys, ok := linuxEviocgkey(fd); ok {
 		s.buttons = 0
-		for code, bit := range linuxButtonMap {
+		for code, bit := range s.layout.buttons {
 			if linuxKeyDown(keys, code) {
 				s.buttons |= bit
 			}
@@ -248,10 +316,12 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 			logrus.Infof("🎮 [LinuxCapture] Stopped: %s", deviceID)
 		}()
 
-		st := &linuxState{axes: make(map[uint16]linuxAxisRange)}
+		st := &linuxState{axes: make(map[uint16]linuxAxisRange), layout: linuxPadLayoutFor(deviceID)}
+		logrus.Infof("🎮 [LinuxCapture] %s: %s layout", deviceID, st.layout.name)
 		axisName := map[uint16]string{linuxAbsX: "LX", linuxAbsY: "LY", linuxAbsZ: "LT", linuxAbsRX: "RX", linuxAbsRY: "RY", linuxAbsRZ: "RT"}
-		for _, axis := range []uint16{linuxAbsX, linuxAbsY, linuxAbsZ, linuxAbsRX, linuxAbsRY, linuxAbsRZ} {
-			if info, ok := linuxEviocgabs(fd, axis); ok && info.Maximum > info.Minimum {
+		for _, code := range []uint16{linuxAbsX, linuxAbsY, linuxAbsZ, linuxAbsRX, linuxAbsRY, linuxAbsRZ} {
+			axis := st.layout.axes[code]
+			if info, ok := linuxEviocgabs(fd, code); ok && info.Maximum > info.Minimum {
 				st.axes[axis] = linuxAxisRange{min: info.Minimum, max: info.Maximum}
 				logrus.Infof("🎮 [LinuxCapture] axis %s (code=%d) range=[%d..%d]",
 					axisName[axis], axis, info.Minimum, info.Maximum)
@@ -326,7 +396,7 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 
 			switch evType {
 			case linuxEvKey:
-				if bit, ok := linuxButtonMap[evCode]; ok {
+				if bit, ok := st.layout.buttons[evCode]; ok {
 					prev := st.buttons
 					if evValue != 0 {
 						st.buttons |= bit
@@ -348,6 +418,9 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 					logrus.Debugf("🎮 [LinuxCapture] unknown KEY code=0x%04x val=%d", evCode, evValue)
 				}
 			case linuxEvAbs:
+				if logical, ok := st.layout.axes[evCode]; ok {
+					evCode = logical
+				}
 				switch uint16(evCode) {
 				case linuxAbsX:
 					st.leftXRaw = evValue

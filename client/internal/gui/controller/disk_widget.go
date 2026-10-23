@@ -160,8 +160,9 @@ type DiskWidget struct {
 
 	// Gamepad capture
 	activeCaptures map[string]gamepadCaptureHandle
-	// activeTouchpads are the touchpad-as-mouse readers of the captured pads that have one.
-	activeTouchpads map[string]*platform.TouchpadCapture
+	// padHIDs are the HID report readers (*padHID) of the captured pads that
+	// have one (DualShock 4-layout pads); read from their goroutines too.
+	padHIDs sync.Map
 	// padSlots gives every captured pad its Moonlight controller number; it is
 	// safe from the Moonlight rumble callback thread, which must not touch
 	// activeCaptures (UI-goroutine only).

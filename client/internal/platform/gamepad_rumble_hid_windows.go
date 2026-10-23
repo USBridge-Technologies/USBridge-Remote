@@ -23,7 +23,8 @@ const (
 	ds4OutputReportID  = 0x05
 	ds4OutputReportLen = 32
 	// Byte 1 of the report says which parts of it the pad should apply.
-	ds4FlagRumble = 0x01
+	ds4FlagRumble   = 0x01
+	ds4FlagLightbar = 0x02
 
 	// A DS4 keeps vibrating until told otherwise, but a pad that loses a report
 	// or a firmware watchdog would stop early; refreshing while active is cheap.
@@ -48,6 +49,14 @@ type hidRumbleProtocol struct {
 	// outLen is the output report length the pad's game collection must report
 	// before the protocol is trusted for it.
 	outLen uint16
+	// light sets the light colour in a report build made, nil if the pad has none.
+	light func(rep []byte, r, g, b uint8)
+}
+
+// ds4Light sets the lightbar colour (bytes 6-8) of a DS4 output report.
+func ds4Light(rep []byte, r, g, b uint8) {
+	rep[1] |= ds4FlagLightbar
+	rep[6], rep[7], rep[8] = r, g, b
 }
 
 var hidRumbleProtocols = []hidRumbleProtocol{
@@ -64,6 +73,7 @@ var hidRumbleProtocols = []hidRumbleProtocol{
 		},
 		build:  ds4RumbleReport,
 		outLen: ds4OutputReportLen,
+		light:  ds4Light,
 	},
 }
 
@@ -83,6 +93,7 @@ type hidRumbler struct {
 
 	mu        sync.Mutex
 	low, high uint16
+	rgb       *[3]uint8 // the host's light colour, nil until it sets one
 	stop      chan struct{}
 	done      chan struct{}
 }
@@ -117,13 +128,36 @@ func newHIDRumbler(vid, pid uint16) *hidRumbler {
 	return nil
 }
 
+// report is the output report for the current motors and light; r.mu held.
+func (r *hidRumbler) report() []byte {
+	rep := r.proto.build(r.low, r.high)
+	if r.rgb != nil && r.proto.light != nil {
+		r.proto.light(rep, r.rgb[0], r.rgb[1], r.rgb[2])
+	}
+	return rep
+}
+
 func (r *hidRumbler) set(low, high uint16) {
 	r.mu.Lock()
 	r.low, r.high = low, high
-	err := r.w.write(r.proto.build(low, high))
+	err := r.w.write(r.report())
 	r.mu.Unlock()
 	if err != nil {
 		logrus.Debugf("🎮 [Rumble] write failed: %v", err)
+	}
+}
+
+// setLight sets the pad's light colour, if it has one.
+func (r *hidRumbler) setLight(red, green, blue uint8) {
+	if r.proto.light == nil {
+		return
+	}
+	r.mu.Lock()
+	r.rgb = &[3]uint8{red, green, blue}
+	err := r.w.write(r.report())
+	r.mu.Unlock()
+	if err != nil {
+		logrus.Debugf("🎮 [Rumble] light write failed: %v", err)
 	}
 }
 
@@ -139,7 +173,7 @@ func (r *hidRumbler) refresh() {
 		case <-t.C:
 			r.mu.Lock()
 			if r.low != 0 || r.high != 0 {
-				_ = r.w.write(r.proto.build(r.low, r.high))
+				_ = r.w.write(r.report())
 			}
 			r.mu.Unlock()
 		}

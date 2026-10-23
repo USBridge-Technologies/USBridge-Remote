@@ -643,7 +643,7 @@ func (c *WebRTCVideoClient) SendMoonlightScroll(clicks int8) {
 	c.sendInput(webrtcweb.EncodeScroll(int16(clicks) * wheelDelta))
 }
 
-func (c *WebRTCVideoClient) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {
+func (c *WebRTCVideoClient) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint32, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {
 	// Not implemented yet -- input_wasm.go only encodes the packet types
 	// VideoWidget's mouse/keyboard paths actually exercise today (see its
 	// own doc comment). No gamepad UI is wired up to the web client yet

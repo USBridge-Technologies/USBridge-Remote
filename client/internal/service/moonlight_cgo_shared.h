@@ -15,6 +15,8 @@
  *   extern void goMoonlightConnected(void);
  *   extern void goMoonlightTerminated(int errCode);
  *   extern void goMoonlightRumble(unsigned short controllerNumber, unsigned short lowFreq, unsigned short highFreq);
+ *   extern void goMoonlightPadMotion(unsigned short controllerNumber, unsigned char motionType, unsigned short reportRateHz);
+ *   extern void goMoonlightPadLight(unsigned short controllerNumber, unsigned char r, unsigned char g, unsigned char b);
  *   extern void goVideoFormatNegotiated(int videoFormat);
  */
 
@@ -88,6 +90,8 @@ static void cl_stage_failed(int s, int ec) { goMoonlightStage(s, -1, ec); }
 static void cl_connected(void)             { goMoonlightConnected(); }
 static void cl_terminated(int ec)          { goMoonlightTerminated(ec); }
 static void cl_rumble(unsigned short n, unsigned short low, unsigned short high) { goMoonlightRumble(n, low, high); }
+static void cl_set_motion(uint16_t n, uint8_t type, uint16_t rate) { goMoonlightPadMotion(n, type, rate); }
+static void cl_set_led(uint16_t n, uint8_t r, uint8_t g, uint8_t b) { goMoonlightPadLight(n, r, g, b); }
 static void cl_log(const char *fmt, ...) {
     char buf[256];
     va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
@@ -324,6 +328,8 @@ int do_li_start(
     cl.connectionStarted    = cl_connected;
     cl.connectionTerminated = cl_terminated;
     cl.rumble               = cl_rumble;
+    cl.setMotionEventState  = cl_set_motion;
+    cl.setControllerLED     = cl_set_led;
     cl.logMessage           = cl_log;
 
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
@@ -422,12 +428,12 @@ void do_send_scroll(signed char clicks) {
 }
 void do_send_multi_controller(
     unsigned short controllerNumber, unsigned short activeGamepadMask,
-    unsigned short buttons,
+    unsigned int buttons,
     unsigned char leftTrigger, unsigned char rightTrigger,
     short leftStickX, short leftStickY,
     short rightStickX, short rightStickY)
 {
-    LiSendMultiControllerEvent(controllerNumber, activeGamepadMask, buttons,
+    LiSendMultiControllerEvent(controllerNumber, activeGamepadMask, (int)buttons,
         leftTrigger, rightTrigger,
         leftStickX, leftStickY, rightStickX, rightStickY);
 }
@@ -445,6 +451,21 @@ void do_send_pen(unsigned char eventType, unsigned char toolType, unsigned char 
                   unsigned short rotation, unsigned char tilt) {
     LiSendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance,
         0.0f, 0.0f, rotation, tilt);
+}
+// Sunshine controller extensions: a pad's touchpad, motion sensors and
+// battery (see moonlight_pad.go).
+int do_host_supports_controller_ext(void) {
+    return (LiGetHostFeatureFlags() & LI_FF_CONTROLLER_TOUCH_EVENTS) != 0;
+}
+void do_send_controller_touch(unsigned char cn, unsigned char eventType, unsigned int pointerId,
+                              float x, float y, float pressure) {
+    LiSendControllerTouchEvent(cn, eventType, pointerId, x, y, pressure);
+}
+void do_send_controller_motion(unsigned char cn, unsigned char motionType, float x, float y, float z) {
+    LiSendControllerMotionEvent(cn, motionType, x, y, z);
+}
+void do_send_controller_battery(unsigned char cn, unsigned char state, unsigned char percent) {
+    LiSendControllerBatteryEvent(cn, state, percent);
 }
 // Raw HID devices rebuilt by a USBridge host (see moonlight_rawhid.go).
 int do_host_supports_raw_hid(void) {

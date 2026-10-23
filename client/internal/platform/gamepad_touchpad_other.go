@@ -1,10 +1,10 @@
-//go:build !windows
+//go:build !windows && !(linux && !android)
 
 package platform
 
-// StartGamepadTouchpad is only implemented on Windows (it reads the pad's HID
-// input report). Linux exposes a DualShock 4 touchpad as its own evdev device
-// and macOS reports it through IOKit; neither is wired up.
-func StartGamepadTouchpad(deviceID string, onEvent func(TouchpadEvent)) (*TouchpadCapture, error) {
+// StartGamepadHID is implemented on Windows and Linux, which let a user
+// program read a pad's HID input report. macOS reports the touchpad through
+// IOKit, which is not wired up.
+func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCapture, error) {
 	return nil, ErrNoTouchpad
 }

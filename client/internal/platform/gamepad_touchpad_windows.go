@@ -11,10 +11,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// StartGamepadTouchpad reads the touchpad of a DualShock 4-layout pad
-// ("winmm:N") from its HID input report and reports it as relative mouse
-// motion and a left click. It returns ErrNoTouchpad for any other pad.
-func StartGamepadTouchpad(deviceID string, onEvent func(TouchpadEvent)) (*TouchpadCapture, error) {
+// StartGamepadHID reads the HID input report of a DualShock 4-layout pad
+// ("winmm:N") and hands each one to onReport, from its own goroutine. It
+// returns ErrNoTouchpad for any other pad.
+func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCapture, error) {
 	joyID, err := strconv.Atoi(strings.TrimPrefix(deviceID, "winmm:"))
 	if err != nil || !strings.HasPrefix(deviceID, "winmm:") {
 		return nil, ErrNoTouchpad
@@ -46,17 +46,18 @@ func StartGamepadTouchpad(deviceID string, onEvent func(TouchpadEvent)) (*Touchp
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		var dec touchpadDecoder
 		buf := make([]byte, inLen)
 		for {
 			var n uint32
 			if err := windows.ReadFile(h, buf, &n, nil); err != nil {
 				return // cancelled by Stop, or the pad went away
 			}
-			dec.feed(buf[:n], onEvent)
+			if r, ok := ParseDS4Report(buf[:n]); ok {
+				onReport(r)
+			}
 		}
 	}()
-	logrus.Infof("🎮 [Touchpad] %s (%04x:%04x) touchpad is a relative mouse", deviceID, vid, pid)
+	logrus.Infof("🎮 [Touchpad] %s (%04x:%04x): reading its HID report (touchpad, motion, battery)", deviceID, vid, pid)
 	return &TouchpadCapture{stop: func() {
 		windows.CancelIoEx(h, nil)
 		<-done
