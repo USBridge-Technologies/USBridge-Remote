@@ -97,7 +97,8 @@ func deliverScrollGestureFromObjC(dy C.float) {
 		return
 	}
 	iosScrollAccumY += float32(dy)
-	const pixelsPerTick = 20
+	// UIKit points are dp.
+	const pixelsPerTick = scrollDPPerNotch
 	ticks := int(iosScrollAccumY / pixelsPerTick)
 	if ticks == 0 {
 		return

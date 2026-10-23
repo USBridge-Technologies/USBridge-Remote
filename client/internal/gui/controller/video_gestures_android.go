@@ -129,9 +129,16 @@ func deliverScrollGestureFromJNI(dy C.jfloat) {
 	if vw == nil {
 		return
 	}
-	// Accumulate centroid-Y delta (px).
+	// Accumulate centroid-Y delta (px); a notch is scrollDPPerNotch dp.
 	scrollAccumY += float32(dy)
-	const pixelsPerTick = 20
+	scale := float32(1)
+	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+		scale = vw.parentWindow.Canvas().Scale()
+	}
+	if scale <= 0 {
+		scale = 1
+	}
+	pixelsPerTick := scrollDPPerNotch * scale
 	ticks := int(scrollAccumY / pixelsPerTick)
 	if ticks == 0 {
 		return

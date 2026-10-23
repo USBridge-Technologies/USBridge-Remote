@@ -461,7 +461,8 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 
 		if webTouch.modeScroll {
 			webTouch.scrollAccY += panDy
-			const pixelsPerTick = 20
+			// CSS pixels are dp.
+			const pixelsPerTick = scrollDPPerNotch
 			ticks := int(webTouch.scrollAccY / pixelsPerTick)
 			if ticks != 0 {
 				webTouch.scrollAccY -= float32(ticks) * pixelsPerTick
