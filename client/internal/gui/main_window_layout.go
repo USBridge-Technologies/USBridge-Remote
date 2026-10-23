@@ -2209,44 +2209,87 @@ func (mw *MainWindow) showClipboardMenu() {
 	if anchor == nil {
 		return
 	}
+	// report shows a failed manual transfer; called off the UI goroutine.
+	report := func(err error) {
+		if err == nil {
+			return
+		}
+		logrus.Warnf("[clipboard-sync] manual transfer failed: %v", err)
+		msg := err.Error()
+		switch {
+		case errors.Is(err, api.ErrClipboardNotConnected):
+			msg = i18n.Current.ClipboardNotConnected
+		case errors.Is(err, api.ErrClipboardEmpty):
+			msg = i18n.Current.ClipboardEmpty
+		}
+		fyne.Do(func() {
+			view.ShowInfoDialog(i18n.Current.ClipboardSyncEnabled, msg, mw.window)
+		})
+	}
 	run := func(op func() error) {
 		cs := mw.clipboardSync
 		if cs == nil {
 			view.ShowInfoDialog(i18n.Current.ClipboardSyncEnabled, i18n.Current.ClipboardNotConnected, mw.window)
 			return
 		}
-		go func() {
-			err := op()
-			if err == nil {
+		go func() { report(op()) }()
+	}
+	// typeText is Send without a clipboard agent: the text is typed into
+	// the host as keystrokes over the Moonlight session.
+	typeText := func() {
+		vw := mw.videoWidget
+		if vw == nil {
+			view.ShowInfoDialog(i18n.Current.ClipboardSyncEnabled, i18n.Current.ClipboardNotConnected, mw.window)
+			return
+		}
+		vw.TypeClipboardText(func(typed int) {
+			if typed > 0 {
 				return
 			}
-			logrus.Warnf("[clipboard-sync] manual transfer failed: %v", err)
-			msg := err.Error()
-			switch {
-			case errors.Is(err, api.ErrClipboardNotConnected):
+			msg := i18n.Current.ClipboardEmpty
+			if !vw.IsStreaming() {
 				msg = i18n.Current.ClipboardNotConnected
-			case errors.Is(err, api.ErrClipboardEmpty):
-				msg = i18n.Current.ClipboardEmpty
 			}
 			fyne.Do(func() {
 				view.ShowInfoDialog(i18n.Current.ClipboardSyncEnabled, msg, mw.window)
 			})
-		}()
+		})
 	}
-	items := []view.StyledMenuItem{
-		{
-			Label: i18n.Current.ClipboardSend,
-			OnTap: func() {
-				run(func() error { return mw.clipboardSync.PushNow() })
+	var items []view.StyledMenuItem
+	if mw.videoWidget != nil && mw.videoWidget.IsHardwareKVM() {
+		// USBridge KVM has no clipboard agent: only text can go to the
+		// target, typed through the emulated keyboard.
+		items = []view.StyledMenuItem{{Label: i18n.Current.ClipboardSend, OnTap: typeText}}
+	} else {
+		items = []view.StyledMenuItem{
+			{
+				Label: i18n.Current.ClipboardSend,
+				OnTap: func() {
+					cs := mw.clipboardSync
+					if cs == nil {
+						typeText()
+						return
+					}
+					go func() {
+						err := cs.PushNow()
+						if errors.Is(err, api.ErrClipboardNotConnected) {
+							// No agent clipboard (plain Sunshine host, agent
+							// still connecting): type the text instead.
+							fyne.Do(typeText)
+							return
+						}
+						report(err)
+					}()
+				},
 			},
-		},
-		{
-			Label: i18n.Current.ClipboardReceive,
-			OnTap: func() {
-				run(func() error { return mw.clipboardSync.PullNow() })
+			{
+				Label: i18n.Current.ClipboardReceive,
+				OnTap: func() {
+					run(func() error { return mw.clipboardSync.PullNow() })
+				},
 			},
-		},
-		mw.clipboardAutoSyncMenuItem(i18n.Current.ClipboardAutoSync),
+			mw.clipboardAutoSyncMenuItem(i18n.Current.ClipboardAutoSync),
+		}
 	}
 	if useMobileControl() {
 		view.ShowMobileStyledMenuAbove(anchor, items)

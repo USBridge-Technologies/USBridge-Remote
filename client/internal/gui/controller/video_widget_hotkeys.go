@@ -134,25 +134,46 @@ func (vw *VideoWidget) typeClipboardText() {
 	}
 	// Read without blocking Fyne's goroutine: the browser build can only
 	// read the clipboard asynchronously (see view.ReadClipboard).
-	view.ReadClipboard(vw.parentWindow, vw.typeText)
+	view.ReadClipboard(vw.parentWindow, func(text string) { vw.typeText(text) })
 }
 
-func (vw *VideoWidget) typeText(text string) {
-	if text == "" {
+// IsHardwareKVM reports a session with USBridge KVM hardware, which has no
+// clipboard agent: the clipboard can only reach it as typed text.
+func (vw *VideoWidget) IsHardwareKVM() bool {
+	return vw != nil && knownUSBridgeHardware(vw.agentOS)
+}
+
+// TypeClipboardText is the clipboard menu's Send where no clipboard agent
+// is reachable: the local clipboard's text is typed into the host over
+// Moonlight input. done gets the number of characters typed (0: the
+// clipboard holds no text, or nothing is streaming).
+func (vw *VideoWidget) TypeClipboardText(done func(typed int)) {
+	if vw.parentWindow == nil || vw.moonlightInput() == nil {
+		done(0)
 		return
+	}
+	view.ReadClipboard(vw.parentWindow, func(text string) { done(vw.typeText(text)) })
+}
+
+func (vw *VideoWidget) typeText(text string) int {
+	if text == "" {
+		return 0
 	}
 	const maxPaste = 4096
 	runes := []rune(text)
 	if len(runes) > maxPaste {
 		runes = runes[:maxPaste]
 	}
-	logrus.Infof("⌨️ [hotkey] Ctrl+Alt+Shift+V: typing %d characters from the clipboard", len(runes))
+	logrus.Infof("⌨️ [clipboard] typing %d characters from the clipboard", len(runes))
+	typed := 0
 	for _, r := range runes {
 		if r == '\r' {
 			continue
 		}
 		vw.typeRune(r)
+		typed++
 	}
+	return typed
 }
 
 // syncHostCursor makes the host's cursor match Show Mouse mid-session by
