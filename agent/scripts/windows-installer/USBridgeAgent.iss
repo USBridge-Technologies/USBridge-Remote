@@ -150,19 +150,87 @@ begin
     Result := 'The USBridge Agent service did not stop. Stop it in Services (services.msc) and run setup again.';
 end;
 
-function UsbipInstalled(): Boolean;
+// The Index-th (0-based) number of a dotted version; missing or non-numeric
+// parts count as 0.
+function VersionPart(S: String; Index: Integer): Integer;
+var
+  I, P: Integer;
 begin
-  Result := RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#UsbipAppId}');
+  for I := 1 to Index do begin
+    P := Pos('.', S);
+    if P = 0 then
+      S := ''
+    else
+      Delete(S, 1, P);
+  end;
+  P := Pos('.', S);
+  if P > 0 then
+    S := Copy(S, 1, P - 1);
+  Result := StrToIntDef(S, 0);
+end;
+
+// < 0 when A is older than B, 0 when equal, > 0 when newer.
+function CompareVersions(const A, B: String): Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 0 to 3 do begin
+    Result := VersionPart(A, I) - VersionPart(B, I);
+    if Result <> 0 then
+      exit;
+  end;
+end;
+
+// usbip-win2's own setup leaves an Apps entry; a program that installs only
+// its driver package (HIDMaestro 2.0.1+) does not. Without the entry the
+// root-hub filter is missing too, and passthrough needs it (the host
+// controller alone does not pass SET_CONFIGURATION / SET_INTERFACE on), so
+// our setup runs usbip-win2's installer in that case.
+function UsbipInstalledVersion(): String;
+begin
+  Result := '';
+  if not RegQueryStringValue(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#UsbipAppId}', 'DisplayVersion', Result) then
+    if RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#UsbipAppId}') then
+      Result := '0';
+end;
+
+const
+  UsbipUpgradeTimedOut = 1460; // ERROR_TIMEOUT
+
+// Runs usbip-win2's setup over an older install. The upgrade unloads the old
+// driver, which on 0.9.8.0 can hang once anything has attached since Windows
+// started -- so it gets a time limit instead of blocking our setup forever.
+function RunUsbipUpgrade(const Setup, LogPath: String; TimeoutMs: Integer): Integer;
+var
+  Script: String;
+begin
+  Script := ExpandConstant('{tmp}\usbip-upgrade.ps1');
+  SaveStringToFile(Script,
+    'param([string]$Setup, [string]$Log, [int]$TimeoutMs)' + #13#10 +
+    '$a = @(''/VERYSILENT'', ''/SUPPRESSMSGBOXES'', ''/NORESTART'', ''/SP-'', ''/NOICONS'', ''/COMPONENTS=main,client'', ''/TASKS=vcredist'', "/LOG=`"$Log`"")' + #13#10 +
+    '$p = Start-Process -FilePath $Setup -ArgumentList $a -PassThru' + #13#10 +
+    'if (-not $p.WaitForExit($TimeoutMs)) { exit ' + IntToStr(UsbipUpgradeTimedOut) + ' }' + #13#10 +
+    'exit $p.ExitCode' + #13#10, False);
+  Result := Exec0(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -File "' + Script + '" -Setup "' + Setup + '" -Log "' + LogPath + '" -TimeoutMs ' + IntToStr(TimeoutMs));
 end;
 
 procedure InstallUsbip();
 var
-  Setup: String;
+  Setup, Installed, Params: String;
+  Code: Integer;
 begin
-  if UsbipInstalled() then begin
-    Log('usbip-win2 already installed, skipping');
+  Installed := UsbipInstalledVersion();
+  if (Installed <> '') and (CompareVersions(Installed, '{#UsbipVersion}') >= 0) then begin
+    Log('usbip-win2 ' + Installed + ' already installed, skipping');
     exit;
   end;
+  if Installed <> '' then
+    // 0.9.8.0 (shipped e.g. by Handheld Companion 1.2.1.2) can hang its next
+    // driver unload or host-controller restart after a single attach
+    // (vadimgrn/usbip-win2#188, fixed in 0.9.8.1).
+    Log('usbip-win2 ' + Installed + ' is older than {#UsbipVersion}, upgrading');
   SetStatus('Downloading the USB passthrough driver...');
   try
     DownloadTemporaryFile('{#UsbipUrl}', 'USBip-setup.exe', '{#UsbipSha256}', nil);
@@ -175,7 +243,15 @@ begin
   SetStatus('Installing the USB passthrough driver...');
   // Driver + usbip.exe only (both components are "fixed" in its setup);
   // vcredist is needed by its devnode.exe/usbip.exe.
-  if Exec0(Setup, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOICONS /COMPONENTS="main,client" /TASKS="vcredist" /LOG="' + ExpandConstant('{tmp}\usbip-setup.log') + '"') <> 0 then
+  Params := '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOICONS /COMPONENTS="main,client" /TASKS="vcredist" /LOG="' + ExpandConstant('{tmp}\usbip-setup.log') + '"';
+  if Installed = '' then
+    Code := Exec0(Setup, Params)
+  else
+    Code := RunUsbipUpgrade(Setup, ExpandConstant('{tmp}\usbip-setup.log'), 180000);
+  if Code = UsbipUpgradeTimedOut then
+    MsgBox('Upgrading the USB passthrough driver from ' + Installed + ' to {#UsbipVersion} did not finish: the old driver is still in use.' + #13#10#13#10 +
+           'Restart Windows and run this setup again before connecting any USB device.', mbError, MB_OK)
+  else if Code <> 0 then
     MsgBox('The USB passthrough driver setup failed. See ' + ExpandConstant('{tmp}\usbip-setup.log') + '.', mbError, MB_OK);
 end;
 
