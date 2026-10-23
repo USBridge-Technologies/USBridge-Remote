@@ -130,7 +130,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	}
 
 	dw.dashboardAudioGap = view.NewDeviceDashboardCardGap()
-	dw.dashboardAudioCard = view.NewDeviceDashboardCard(view.DeviceDashboardAudioIconSVG, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind, "audio", dw.refreshDashboardCardLayout)
+	dw.dashboardAudioCard = view.NewDeviceDashboardCard(view.DeviceDashboardAudioIconSVG, "Audio Pipeline", "", nil, dw.dashboardAudio, audioBind, "audio", dw.refreshDashboardCardLayout)
 	narrowColumn := container.NewVBox(
 		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", hidHeaderRight, dw.dashboardHID, hidBind, "hid", dw.refreshDashboardCardLayout),
 		view.NewDeviceDashboardCardGap(),
