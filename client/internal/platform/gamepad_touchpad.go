@@ -50,16 +50,32 @@ type DS4Finger struct {
 	X, Y   int   // 0..1919, 0..941
 }
 
-// DS4Report is what a DS4-layout USB input report (id 0x01) carries besides
-// the buttons and sticks.
+// DS4Report is what a PlayStation pad's input report carries besides the
+// buttons and sticks (gamepad_ps.go's ParsePadReport); the name is the
+// DualShock 4's, whose layout came first.
 type DS4Report struct {
+	// Family is the pad's (PadDS4 when zero, as ParseDS4Report leaves it).
+	Family  PadFamily
 	Fingers [2]DS4Finger
 	Click   bool
+	// Extra holds the buttons Moonlight carries in buttonFlags2 besides the
+	// touchpad click: a DualSense's mute (ExtMisc), an Edge's paddles.
+	Extra uint32
 	// Gyro is pitch, yaw, roll; Accel is X, Y, Z -- raw, in the nominal units.
 	Gyro, Accel [3]int16
 	// Battery is byte 30: the level in tenths (low nibble), bit 4 the cable.
-	// A clone that reports no battery leaves it 0.
+	// A clone that reports no battery leaves it 0. A DualSense's status
+	// byte: the level (low nibble), the charging status (high: 0
+	// discharging, 1 charging, 2 full).
 	Battery uint8
+}
+
+// TouchpadSize is the pad's touchpad in its own units.
+func (r DS4Report) TouchpadSize() (w, h int) {
+	if r.Family.IsDualSense() {
+		return DS5TouchpadWidth, DS5TouchpadHeight
+	}
+	return DS4TouchpadWidth, DS4TouchpadHeight
 }
 
 func ds4Finger(b []byte) DS4Finger {
@@ -117,6 +133,22 @@ func (r DS4Report) GyroDegS() (x, y, z float32) {
 // BatteryState turns byte 30 into a Moonlight battery state (LI_BATTERY_STATE_*)
 // and percentage; ok is false for a pad that reports no battery (0).
 func (r DS4Report) BatteryState() (state, percent uint8, ok bool) {
+	if r.Family.IsDualSense() {
+		level := r.Battery & 0x0F
+		pct := level*10 + 5
+		if pct > 100 {
+			pct = 100
+		}
+		switch r.Battery >> 4 {
+		case 0:
+			return 0x02, pct, true // discharging
+		case 1:
+			return 0x03, pct, true // charging
+		case 2:
+			return 0x05, 100, true // full
+		}
+		return 0, 0, false // an error state
+	}
 	if r.Battery == 0 {
 		return 0, 0, false
 	}

@@ -166,6 +166,9 @@ type DiskWidget struct {
 	// padModes is each captured pad's effective mode (gamepadMode*), for
 	// announcing it again on a new stream connection.
 	padModes sync.Map
+	// padAudios are the captured pads' sound devices (*padAudio), playing
+	// the host's pad sound.
+	padAudios sync.Map
 	// padSlots gives every captured pad its Moonlight controller number; it is
 	// safe from the Moonlight rumble callback thread, which must not touch
 	// activeCaptures (UI-goroutine only).
@@ -361,7 +364,18 @@ const (
 	// DirectInput is a real raw gadget mode) -- the virtual-pad shape is the
 	// only choice that actually exists for it.
 	gamepadModeDualShock4 = "dualshock4"
+	// gamepadModeDualSense maps it to a virtual DualSense (a DualSense Edge
+	// when the local pad is one): the mute button, adaptive triggers, and
+	// the voice-coil haptics on top of what a DualShock 4 has. The host
+	// tells the two apart by the mute button in the arrival's supported
+	// buttons (MISC_FLAG), as Moonlight's own clients describe a DualSense.
+	gamepadModeDualSense = "dualsense"
 )
+
+// isPlayStationMode reports whether a mode's virtual pad is a PlayStation one.
+func isPlayStationMode(mode string) bool {
+	return mode == gamepadModeDualShock4 || mode == gamepadModeDualSense
+}
 
 func normalizeGamepadMode(mode string) string {
 	switch strings.ToLower(mode) {
@@ -371,6 +385,8 @@ func normalizeGamepadMode(mode string) string {
 		return gamepadModeMapX360
 	case gamepadModeDualShock4:
 		return gamepadModeDualShock4
+	case gamepadModeDualSense:
+		return gamepadModeDualSense
 	}
 	return gamepadModeDirectInput
 }
@@ -383,6 +399,8 @@ func gamepadModeLabel(mode string) string {
 		return i18n.Current.DeviceMapX360
 	case gamepadModeDualShock4:
 		return i18n.Current.DeviceDualShock4
+	case gamepadModeDualSense:
+		return i18n.Current.DeviceDualSense
 	}
 	return i18n.Current.DeviceDirectInput
 }
@@ -400,9 +418,9 @@ func (dw *DiskWidget) effectiveGamepadMode(mode string) string {
 			return gamepadModeMapX360
 		}
 		return gamepadModeXInput
-	case gamepadModeDualShock4:
+	case gamepadModeDualShock4, gamepadModeDualSense:
 		if software {
-			return gamepadModeDualShock4
+			return strings.ToLower(mode)
 		}
 		return gamepadModeXInput
 	case gamepadModeXInput, gamepadModeDirectInput:
@@ -421,7 +439,7 @@ func (dw *DiskWidget) effectiveGamepadMode(mode string) string {
 // offers.
 func (dw *DiskWidget) gamepadModeOptions() []string {
 	if dw.virtualPads() {
-		return []string{i18n.Current.DeviceMapX360, i18n.Current.DeviceDualShock4}
+		return []string{i18n.Current.DeviceMapX360, i18n.Current.DeviceDualShock4, i18n.Current.DeviceDualSense}
 	}
 	return []string{i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput}
 }
@@ -435,6 +453,8 @@ func gamepadModeFromLabel(label string) string {
 		return gamepadModeMapX360
 	case i18n.Current.DeviceDualShock4:
 		return gamepadModeDualShock4
+	case i18n.Current.DeviceDualSense:
+		return gamepadModeDualSense
 	}
 	return gamepadModeDirectInput
 }

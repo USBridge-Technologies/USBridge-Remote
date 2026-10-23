@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -11,20 +12,17 @@ import (
 
 // Rumble for PlayStation-layout DirectInput pads. They are read through WinMM,
 // which cannot write, and have no XInput slot, so the pad's own HID output
-// report is written directly.
-//
-// The protocol is DualShock 4's (USB output report 0x05, 32 bytes), which the
-// Razer Raiju family and other DS4 clones speak. The Raiju Tournament Edition's
-// game collection reports exactly that output length. Only pads listed in
-// hidRumbleProtocols are driven: writing an output report the pad does not
-// expect could reconfigure it.
+// report is written directly (gamepad_ps.go): a DualShock 4's report 0x05,
+// which the Razer Raiju family and other DS4 clones speak, or a DualSense's
+// 0x02 (USB) / 0x31 (Bluetooth), which also carries its adaptive triggers.
+// Only pads listed in hidRumbleProtocols are driven: writing an output report
+// the pad does not expect could reconfigure it.
 
 const (
 	ds4OutputReportID  = 0x05
 	ds4OutputReportLen = 32
 	// Byte 1 of the report says which parts of it the pad should apply.
-	ds4FlagRumble   = 0x01
-	ds4FlagLightbar = 0x02
+	ds4FlagRumble = 0x01
 
 	// A DS4 keeps vibrating until told otherwise, but a pad that loses a report
 	// or a firmware watchdog would stop early; refreshing while active is cheap.
@@ -34,34 +32,22 @@ const (
 // ds4RumbleReport builds the output report for Moonlight's 0..65535 levels:
 // low is the large (left) motor, high the small (right) one; the pad takes 8 bits.
 func ds4RumbleReport(low, high uint16) []byte {
-	r := make([]byte, ds4OutputReportLen)
-	r[0] = ds4OutputReportID
-	r[1] = ds4FlagRumble
-	r[4] = byte(high >> 8) // right / fast motor
-	r[5] = byte(low >> 8)  // left / heavy motor
-	return r
+	return ds4Output(&psOutState{low: low, high: high})
 }
 
 type hidRumbleProtocol struct {
 	name    string
+	family  PadFamily
 	matches func(vid, pid uint16) bool
-	build   func(low, high uint16) []byte
-	// outLen is the output report length the pad's game collection must report
-	// before the protocol is trusted for it.
-	outLen uint16
-	// light sets the light colour in a report build made, nil if the pad has none.
-	light func(rep []byte, r, g, b uint8)
-}
-
-// ds4Light sets the lightbar colour (bytes 6-8) of a DS4 output report.
-func ds4Light(rep []byte, r, g, b uint8) {
-	rep[1] |= ds4FlagLightbar
-	rep[6], rep[7], rep[8] = r, g, b
+	// outLens are the output report lengths the pad's game collection may
+	// report before the protocol is trusted for it (a DualSense: USB, Bluetooth).
+	outLens []uint16
 }
 
 var hidRumbleProtocols = []hidRumbleProtocol{
 	{
-		name: "DualShock 4",
+		name:   "DualShock 4",
+		family: PadDS4,
 		matches: func(vid, pid uint16) bool {
 			switch vid {
 			case 0x054C: // Sony: DualShock 4 v1/v2 and the USB adapter
@@ -71,9 +57,13 @@ var hidRumbleProtocols = []hidRumbleProtocol{
 			}
 			return false
 		},
-		build:  ds4RumbleReport,
-		outLen: ds4OutputReportLen,
-		light:  ds4Light,
+		outLens: []uint16{ds4OutputReportLen},
+	},
+	{
+		name:    "DualSense",
+		family:  PadDS5,
+		matches: func(vid, pid uint16) bool { return PadFamilyOf(vid, pid).IsDualSense() },
+		outLens: []uint16{ds5OutputUSBLen, ds5OutputBTLen},
 	},
 }
 
@@ -88,14 +78,14 @@ func hidRumbleProtocolFor(vid, pid uint16) *hidRumbleProtocol {
 
 // hidRumbler drives one pad's motors and keeps them going while non-zero.
 type hidRumbler struct {
-	proto *hidRumbleProtocol
-	w     *hidWriter
+	proto     *hidRumbleProtocol
+	w         *hidWriter
+	bluetooth bool // the collection takes the Bluetooth report
 
-	mu        sync.Mutex
-	low, high uint16
-	rgb       *[3]uint8 // the host's light colour, nil until it sets one
-	stop      chan struct{}
-	done      chan struct{}
+	mu   sync.Mutex
+	st   psOutState // motors, light, trigger effects
+	stop chan struct{}
+	done chan struct{}
 }
 
 // newHIDRumbler opens the pad's game collection for writing.
@@ -111,7 +101,7 @@ func newHIDRumbler(vid, pid uint16) *hidRumbler {
 	}
 	for _, c := range cols {
 		// The gamepad collection (generic desktop / game pad) that takes the report.
-		if c.UsagePage != 0x01 || c.Usage != 0x05 || c.OutputLen != proto.outLen {
+		if c.UsagePage != 0x01 || c.Usage != 0x05 || !slices.Contains(proto.outLens, c.OutputLen) {
 			continue
 		}
 		w, err := openHIDWriter(c.Path)
@@ -119,7 +109,7 @@ func newHIDRumbler(vid, pid uint16) *hidRumbler {
 			logrus.Warnf("🎮 [Rumble] cannot open %s for writing: %v", c.Path, err)
 			return nil
 		}
-		r := &hidRumbler{proto: proto, w: w, stop: make(chan struct{}), done: make(chan struct{})}
+		r := &hidRumbler{proto: proto, w: w, bluetooth: c.OutputLen == ds5OutputBTLen, stop: make(chan struct{}), done: make(chan struct{})}
 		go r.refresh()
 		logrus.Infof("🎮 [Rumble] %04x:%04x vibrates through its %s HID output report", vid, pid, proto.name)
 		return r
@@ -128,18 +118,15 @@ func newHIDRumbler(vid, pid uint16) *hidRumbler {
 	return nil
 }
 
-// report is the output report for the current motors and light; r.mu held.
+// report is the output report for the current state; r.mu held.
 func (r *hidRumbler) report() []byte {
-	rep := r.proto.build(r.low, r.high)
-	if r.rgb != nil && r.proto.light != nil {
-		r.proto.light(rep, r.rgb[0], r.rgb[1], r.rgb[2])
-	}
-	return rep
+	return psOutputReport(r.proto.family, &r.st, r.bluetooth)
 }
 
-func (r *hidRumbler) set(low, high uint16) {
+// update changes the state with f and writes the report.
+func (r *hidRumbler) update(f func(*psOutState)) {
 	r.mu.Lock()
-	r.low, r.high = low, high
+	f(&r.st)
 	err := r.w.write(r.report())
 	r.mu.Unlock()
 	if err != nil {
@@ -147,17 +134,30 @@ func (r *hidRumbler) set(low, high uint16) {
 	}
 }
 
-// setLight sets the pad's light colour, if it has one.
+func (r *hidRumbler) set(low, high uint16) {
+	r.update(func(st *psOutState) { st.low, st.high = low, high })
+}
+
+// setLight sets the pad's light colour.
 func (r *hidRumbler) setLight(red, green, blue uint8) {
-	if r.proto.light == nil {
-		return
+	r.update(func(st *psOutState) { st.rgb = &[3]uint8{red, green, blue} })
+}
+
+// setTriggers applies adaptive-trigger effects (a DualSense only).
+func (r *hidRumbler) setTriggers(flags, typeLeft, typeRight uint8, left, right [10]byte) {
+	if r.proto.family.IsDualSense() {
+		r.update(func(st *psOutState) { st.setTriggers(flags, typeLeft, typeRight, left, right) })
 	}
+}
+
+// noteHaptics records that the voice coils play the host's haptics.
+func (r *hidRumbler) noteHaptics() {
 	r.mu.Lock()
-	r.rgb = &[3]uint8{red, green, blue}
-	err := r.w.write(r.report())
+	wasOff := time.Since(r.st.hapticsAt) > 200*time.Millisecond
+	r.st.hapticsAt = time.Now()
 	r.mu.Unlock()
-	if err != nil {
-		logrus.Debugf("🎮 [Rumble] light write failed: %v", err)
+	if wasOff && r.proto.family.IsDualSense() {
+		r.update(func(*psOutState) {})
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *hidRumbler) refresh() {
 			return
 		case <-t.C:
 			r.mu.Lock()
-			if r.low != 0 || r.high != 0 {
+			if r.st.low != 0 || r.st.high != 0 {
 				_ = r.w.write(r.report())
 			}
 			r.mu.Unlock()

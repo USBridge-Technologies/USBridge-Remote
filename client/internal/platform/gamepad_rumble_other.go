@@ -11,3 +11,9 @@ func StopGamepadRumble(id string) {}
 
 // SetGamepadLight is a no-op, see SetGamepadRumble.
 func SetGamepadLight(id string, r, g, b uint8) {}
+
+// SetGamepadTriggers is a no-op, see SetGamepadRumble.
+func SetGamepadTriggers(id string, flags, typeLeft, typeRight uint8, left, right [10]byte) {}
+
+// NoteGamepadHaptics is a no-op, see SetGamepadRumble.
+func NoteGamepadHaptics(id string) {}

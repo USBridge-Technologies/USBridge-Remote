@@ -10,16 +10,50 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
-// A DualShock 4-layout pad's HID input report on Linux comes from the hidraw
-// node of the HID device behind the pad's evdev node: hid-generic (a Razer
-// Raiju) and hid-playstation (a real DualShock 4) both create one, and the
+// A PlayStation pad's HID input report on Linux comes from the hidraw node of
+// the HID device behind the pad's evdev node: hid-generic (a Razer Raiju) and
+// hid-playstation (a real DualShock 4 or DualSense) both create one, and the
 // logged-in user may read it (uaccess).
 
-// ds4HIDRaw returns the hidraw node of the DS4-layout pad behind an evdev
+// psHID is the hidraw side of a PlayStation pad.
+type psHID struct {
+	node      string
+	vid, pid  uint16
+	family    PadFamily
+	bluetooth bool
+	// usbDir is the pad's USB device in sysfs ("" over Bluetooth): its
+	// sound card is there too.
+	usbDir string
+}
+
+// psHIDOf finds the PlayStation pad behind an evdev node
+// ("/dev/input/eventN"), or ErrNoTouchpad.
+func psHIDOf(deviceID string) (psHID, error) {
+	node, vid, pid, err := ds4HIDRaw(deviceID)
+	h := psHID{node: node, vid: vid, pid: pid, family: PadFamilyOf(vid, pid)}
+	if err != nil {
+		return h, err
+	}
+	base := filepath.Join("/sys/class/input", filepath.Base(deviceID), "device", "device")
+	if uevent, err := os.ReadFile(filepath.Join(base, "uevent")); err == nil {
+		h.bluetooth = strings.Contains(string(uevent), "HID_ID=0005:")
+	}
+	if !h.bluetooth {
+		// .../usb1/1-1/1-1.1/1-1.1:1.3/0003:1532:1007.0055: the HID device's
+		// interface, then the USB device.
+		if real, err := filepath.EvalSymlinks(base); err == nil {
+			h.usbDir = filepath.Dir(filepath.Dir(real))
+		}
+	}
+	return h, nil
+}
+
+// ds4HIDRaw returns the hidraw node of the PlayStation pad behind an evdev
 // node ("/dev/input/eventN"), or ErrNoTouchpad.
 func ds4HIDRaw(deviceID string) (string, uint16, uint16, error) {
 	ev := filepath.Base(deviceID)
@@ -36,7 +70,7 @@ func ds4HIDRaw(deviceID string) (string, uint16, uint16, error) {
 		return uint16(v)
 	}
 	vid, pid := readHex("vendor"), readHex("product")
-	if !isDS4Family(vid, pid) {
+	if PadFamilyOf(vid, pid) == PadOther {
 		return "", vid, pid, ErrNoTouchpad
 	}
 	nodes, _ := filepath.Glob(filepath.Join(base, "device", "hidraw", "hidraw*"))
@@ -46,14 +80,15 @@ func ds4HIDRaw(deviceID string) (string, uint16, uint16, error) {
 	return "/dev/" + filepath.Base(nodes[0]), vid, pid, nil
 }
 
-// StartGamepadHID reads the HID input report of a DualShock 4-layout pad
-// (its evdev node) and hands each one to onReport, from its own goroutine. It
-// returns ErrNoTouchpad for any other pad.
+// StartGamepadHID reads the HID input report of a PlayStation pad (its evdev
+// node) and hands each one to onReport, from its own goroutine. It returns
+// ErrNoTouchpad for any other pad.
 func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCapture, error) {
-	node, vid, pid, err := ds4HIDRaw(deviceID)
+	h, err := psHIDOf(deviceID)
 	if err != nil {
 		return nil, err
 	}
+	node, vid, pid := h.node, h.vid, h.pid
 	f, err := os.Open(node)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", node, err)
@@ -61,7 +96,7 @@ func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCaptur
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		buf := make([]byte, 64)
+		buf := make([]byte, 128)
 		for {
 			n, err := f.Read(buf)
 			if err != nil {
@@ -70,7 +105,7 @@ func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCaptur
 				}
 				return // closed by Stop, or the pad went away
 			}
-			if r, ok := ParseDS4Report(buf[:n]); ok {
+			if r, ok := ParsePadReport(buf[:n], h.family); ok {
 				onReport(r)
 			}
 		}
@@ -83,44 +118,34 @@ func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCaptur
 	}}, nil
 }
 
-// A DualShock 4-layout pad's motors and lightbar are driven through its
-// hidraw node with output report 0x05, as on Windows: hid-generic (a Razer
-// Raiju) gives such a pad no evdev force feedback at all. Both share one
-// report, so the last motor levels and colour are kept per pad and every
-// write carries both.
+// A PlayStation pad's motors, lightbar and adaptive triggers are driven
+// through its hidraw node with its own output report (gamepad_ps.go), as on
+// Windows: hid-generic (a Razer Raiju) gives such a pad no evdev force
+// feedback at all, and no driver has the triggers. All of it shares one
+// report, so the host's last wishes are kept per pad and every write carries
+// them.
 var ds4Out = struct {
 	sync.Mutex
-	pads map[string]*ds4OutState
-}{pads: map[string]*ds4OutState{}}
+	pads map[string]*psOutState
+}{pads: map[string]*psOutState{}}
 
-type ds4OutState struct {
-	low, high uint16
-	rgb       *[3]uint8
-}
-
-// writeDS4Output changes a DS4-layout pad's output state with f and writes
+// writeDS4Output changes a PlayStation pad's output state with f and writes
 // it; false if id is not such a pad or the write failed.
-func writeDS4Output(id string, f func(*ds4OutState)) bool {
-	node, _, _, err := ds4HIDRaw(id)
+func writeDS4Output(id string, f func(*psOutState)) bool {
+	h, err := psHIDOf(id)
 	if err != nil {
 		return false
 	}
+	node := h.node
 	ds4Out.Lock()
 	defer ds4Out.Unlock()
 	st := ds4Out.pads[id]
 	if st == nil {
-		st = &ds4OutState{}
+		st = &psOutState{}
 		ds4Out.pads[id] = st
 	}
 	f(st)
-	rep := make([]byte, 32)
-	rep[0], rep[1] = 0x05, 0x01
-	rep[4] = byte(st.high >> 8) // right / fast motor
-	rep[5] = byte(st.low >> 8)  // left / heavy motor
-	if st.rgb != nil {
-		rep[1] |= 0x02
-		rep[6], rep[7], rep[8] = st.rgb[0], st.rgb[1], st.rgb[2]
-	}
+	rep := psOutputReport(h.family, st, h.bluetooth)
 	w, err := os.OpenFile(node, os.O_WRONLY, 0)
 	if err != nil {
 		logrus.Debugf("🎮 [Rumble] open %s: %v", node, err)
@@ -141,8 +166,44 @@ func forgetDS4Output(id string) {
 	ds4Out.Unlock()
 }
 
-// SetGamepadLight sets the lightbar of a DualShock 4-layout pad, keeping its
-// motors as they are. Other pads have no light.
+// SetGamepadLight sets the lightbar of a PlayStation pad, keeping its motors
+// as they are. Other pads have no light.
 func SetGamepadLight(id string, r, g, b uint8) {
-	writeDS4Output(id, func(st *ds4OutState) { st.rgb = &[3]uint8{r, g, b} })
+	writeDS4Output(id, func(st *psOutState) { st.rgb = &[3]uint8{r, g, b} })
+}
+
+// SetGamepadTriggers applies the host's adaptive-trigger effects to a
+// DualSense (IDX_DS_ADAPTIVE_TRIGGERS); other pads have none.
+func SetGamepadTriggers(id string, flags, typeLeft, typeRight uint8, left, right [10]byte) {
+	if h, err := psHIDOf(id); err != nil || !h.family.IsDualSense() {
+		return
+	}
+	writeDS4Output(id, func(st *psOutState) { st.setTriggers(flags, typeLeft, typeRight, left, right) })
+}
+
+// NoteGamepadHaptics records that the host's haptics play on a DualSense's
+// voice coils, so its motors' rumble emulation stays off.
+func NoteGamepadHaptics(id string) {
+	ds4Out.Lock()
+	st := ds4Out.pads[id]
+	if st == nil {
+		st = &psOutState{}
+		ds4Out.pads[id] = st
+	}
+	wasOff := time.Since(st.hapticsAt) > 200*time.Millisecond
+	st.hapticsAt = time.Now()
+	ds4Out.Unlock()
+	if wasOff {
+		writeDS4Output(id, func(*psOutState) {})
+	}
+}
+
+// GamepadFamily is the PlayStation family of the pad behind an evdev node,
+// PadOther for any other pad.
+func GamepadFamily(deviceID string) PadFamily {
+	h, err := psHIDOf(deviceID)
+	if err != nil {
+		return PadOther
+	}
+	return h.family
 }

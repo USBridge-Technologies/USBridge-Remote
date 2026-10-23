@@ -23,6 +23,7 @@ var (
 	procHidOutFreePreparsed  = modHidOut.NewProc("HidD_FreePreparsedData")
 	procHidOutGetCaps        = modHidOut.NewProc("HidP_GetCaps")
 	procHidOutSetOutputRep   = modHidOut.NewProc("HidD_SetOutputReport")
+	procHidOutGetFeature     = modHidOut.NewProc("HidD_GetFeature")
 	modCfgMgr                = windows.NewLazySystemDLL("cfgmgr32.dll")
 	procCMInterfaceListSize  = modCfgMgr.NewProc("CM_Get_Device_Interface_List_SizeW")
 	procCMInterfaceListW     = modCfgMgr.NewProc("CM_Get_Device_Interface_ListW")
@@ -164,4 +165,15 @@ func (w *hidWriter) close() {
 		windows.CloseHandle(w.h)
 		w.h = 0
 	}
+}
+
+// hidGetFeature reads feature report id (buf[0] is set to it) from an open
+// HID collection.
+func hidGetFeature(h windows.Handle, buf []byte, id byte) error {
+	buf[0] = id
+	r, _, err := procHidOutGetFeature.Call(uintptr(h), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if r == 0 {
+		return err
+	}
+	return nil
 }

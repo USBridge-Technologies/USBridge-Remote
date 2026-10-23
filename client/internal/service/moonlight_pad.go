@@ -49,6 +49,11 @@ const (
 	LiCCapGyro           uint16 = 0x20
 	LiCCapBatteryState   uint16 = 0x40
 	LiCCapRGBLED         uint16 = 0x80
+	// LiCCapPadAudio (USBridge, LI_CCAP_UB_PAD_AUDIO): the client plays the
+	// pad's speaker/headset sound on the pad. LiCCapHapticsPCM (Vibeshine,
+	// LI_CCAP_HAPTICS_PCM): it plays a DualSense's haptics on its voice coils.
+	LiCCapPadAudio   uint16 = 0x4000
+	LiCCapHapticsPCM uint16 = 0x8000
 
 	// LiButtonTouchpad is TOUCHPAD_FLAG, the touchpad click in the 32-bit
 	// buttonFlags of SendMoonlightControllerEvent.

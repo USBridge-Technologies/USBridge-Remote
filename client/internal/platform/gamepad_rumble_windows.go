@@ -171,3 +171,34 @@ func SetGamepadLight(id string, r, g, b uint8) {
 		t.hid.setLight(r, g, b)
 	}
 }
+
+// hidTarget is the HID-driven target of pad id, resolving it on first use; nil
+// for a pad without one. rumbleMu held.
+func hidTargetLocked(id string) *hidRumbler {
+	t, ok := rumbleTargets[id]
+	if !ok {
+		t = resolveRumbleTarget(id)
+		rumbleTargets[id] = t
+	}
+	return t.hid
+}
+
+// SetGamepadTriggers applies the host's adaptive-trigger effects to a
+// DualSense (IDX_DS_ADAPTIVE_TRIGGERS); other pads have none.
+func SetGamepadTriggers(id string, flags, typeLeft, typeRight uint8, left, right [10]byte) {
+	rumbleMu.Lock()
+	defer rumbleMu.Unlock()
+	if h := hidTargetLocked(id); h != nil {
+		h.setTriggers(flags, typeLeft, typeRight, left, right)
+	}
+}
+
+// NoteGamepadHaptics records that the host's haptics play on a DualSense's
+// voice coils, so its motors' rumble emulation stays off.
+func NoteGamepadHaptics(id string) {
+	rumbleMu.Lock()
+	defer rumbleMu.Unlock()
+	if h := hidTargetLocked(id); h != nil {
+		h.noteHaptics()
+	}
+}

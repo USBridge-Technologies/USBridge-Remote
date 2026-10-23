@@ -8,3 +8,6 @@ package platform
 func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCapture, error) {
 	return nil, ErrNoTouchpad
 }
+
+// GamepadFamily is PadOther: no pad's HID report is read here.
+func GamepadFamily(deviceID string) PadFamily { return PadOther }

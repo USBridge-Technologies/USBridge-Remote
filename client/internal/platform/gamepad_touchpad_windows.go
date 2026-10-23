@@ -11,7 +11,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// StartGamepadHID reads the HID input report of a DualShock 4-layout pad
+// StartGamepadHID reads the HID input report of a PlayStation pad
 // ("winmm:N") and hands each one to onReport, from its own goroutine. It
 // returns ErrNoTouchpad for any other pad.
 func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCapture, error) {
@@ -20,7 +20,8 @@ func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCaptur
 		return nil, ErrNoTouchpad
 	}
 	vid, pid, ok := winmmVIDPIDOf(uintptr(joyID))
-	if !ok || !isDS4Family(vid, pid) {
+	family := PadFamilyOf(vid, pid)
+	if !ok || family == PadOther {
 		return nil, ErrNoTouchpad
 	}
 	cols, err := hidCollections(vid, pid)
@@ -42,6 +43,13 @@ func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCaptur
 	if err != nil {
 		return nil, fmt.Errorf("open the pad's HID collection: %w", err)
 	}
+	// A DualSense on Bluetooth sends a short report until its calibration
+	// (feature 0x05) is read; then the full one, 0x31.
+	if family.IsDualSense() && inLen > 64 {
+		if err := hidGetFeature(h, make([]byte, 41), 0x05); err != nil {
+			logrus.Debugf("🎮 [Touchpad] %s: calibration read failed: %v", deviceID, err)
+		}
+	}
 
 	done := make(chan struct{})
 	go func() {
@@ -52,7 +60,7 @@ func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCaptur
 			if err := windows.ReadFile(h, buf, &n, nil); err != nil {
 				return // cancelled by Stop, or the pad went away
 			}
-			if r, ok := ParseDS4Report(buf[:n]); ok {
+			if r, ok := ParsePadReport(buf[:n], family); ok {
 				onReport(r)
 			}
 		}
@@ -64,4 +72,18 @@ func StartGamepadHID(deviceID string, onReport func(DS4Report)) (*TouchpadCaptur
 		windows.CloseHandle(h)
 		logrus.Infof("🎮 [Touchpad] stopped for %s", deviceID)
 	}}, nil
+}
+
+// GamepadFamily is the PlayStation family of the pad "winmm:N", PadOther for
+// any other pad.
+func GamepadFamily(deviceID string) PadFamily {
+	joyID, err := strconv.Atoi(strings.TrimPrefix(deviceID, "winmm:"))
+	if err != nil || !strings.HasPrefix(deviceID, "winmm:") {
+		return PadOther
+	}
+	vid, pid, ok := winmmVIDPIDOf(uintptr(joyID))
+	if !ok {
+		return PadOther
+	}
+	return PadFamilyOf(vid, pid)
 }

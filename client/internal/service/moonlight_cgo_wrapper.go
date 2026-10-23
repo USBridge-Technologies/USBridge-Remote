@@ -619,6 +619,24 @@ func goMoonlightPadLight(controller C.ushort, r, g, b C.uchar) {
 	dispatchPadLight(uint16(controller), uint8(r), uint8(g), uint8(b))
 }
 
+//export goMoonlightPadTriggers
+func goMoonlightPadTriggers(controller C.ushort, flags, typeLeft, typeRight C.uchar, left, right *C.uchar) {
+	var l, r [10]byte
+	copy(l[:], C.GoBytes(unsafe.Pointer(left), 10))
+	copy(r[:], C.GoBytes(unsafe.Pointer(right), 10))
+	dispatchPadTriggers(uint16(controller), uint8(flags), uint8(typeLeft), uint8(typeRight), l, r)
+}
+
+//export goMoonlightPadHaptics
+func goMoonlightPadHaptics(controller C.ushort, sequence C.uint, pcm *C.uchar, frames C.ushort) {
+	dispatchPadHaptics(uint16(controller), uint32(sequence), C.GoBytes(unsafe.Pointer(pcm), C.int(frames)*4), int(frames))
+}
+
+//export goMoonlightPadAudio
+func goMoonlightPadAudio(controller C.ushort, sequence C.uint, format C.uchar, data *C.uchar, length, frames C.ushort) {
+	dispatchPadAudio(uint16(controller), uint32(sequence), uint8(format), C.GoBytes(unsafe.Pointer(data), C.int(length)), int(frames))
+}
+
 func (w *MoonlightCgoWrapper) HostSupportsControllerExtensions() bool {
 	return liStartConnectionActive.Load() && C.do_host_supports_controller_ext() != 0
 }

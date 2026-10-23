@@ -157,7 +157,7 @@ func linuxPadLayoutFor(deviceID string) linuxPadLayout {
 	if err != nil || filepath.Base(drv) != "hid-generic" {
 		return linuxXboxLayout
 	}
-	if _, vid, pid, _ := ds4HIDRaw(deviceID); isDS4Family(vid, pid) {
+	if _, vid, pid, _ := ds4HIDRaw(deviceID); isDS4Family(vid, pid) { // a DS4 clone on hid-generic
 		return linuxDS4HIDLayout
 	}
 	return linuxXboxLayout

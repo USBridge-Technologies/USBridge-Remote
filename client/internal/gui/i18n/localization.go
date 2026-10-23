@@ -634,6 +634,7 @@ type LocalizedStrings struct {
 	DeviceXInput                         string // "XInput"
 	DeviceMapX360                        string // software agent: gamepad mapped to a virtual Xbox 360 pad
 	DeviceDualShock4                     string // software agent: gamepad mapped to a virtual DualShock 4 pad
+	DeviceDualSense                      string // software agent: gamepad mapped to a virtual DualSense pad
 	XInputIncompatibleWithHID            string // error: XInput + keyboard/mouse
 	GamepadDisconnectHIDConfirm          string // toast: connecting XInput gamepad will drop keyboard/mouse
 	HIDDisconnectGamepadConfirm          string // toast: connecting keyboard/mouse will drop the XInput gamepad
@@ -1420,6 +1421,7 @@ func EN() *LocalizedStrings {
 		DeviceXInput:                         "XInput",
 		DeviceMapX360:                        "Map Xbox 360",
 		DeviceDualShock4:                     "DualShock 4",
+		DeviceDualSense:                      "DualSense",
 		XInputIncompatibleWithHID:            "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
 		GamepadDisconnectHIDConfirm:          "Connecting the gamepad will disconnect the keyboard and mouse.",
 		HIDDisconnectGamepadConfirm:          "Connecting the keyboard or mouse will disconnect the gamepad.",

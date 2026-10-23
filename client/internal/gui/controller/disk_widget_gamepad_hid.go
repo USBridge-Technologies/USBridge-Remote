@@ -12,28 +12,30 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// The HID extras of a captured DualShock 4-layout pad -- touchpad, click,
-// motion sensors, battery -- read from the pad's own HID input report next to
-// the normal capture (platform.StartGamepadHID).
+// The HID extras of a captured PlayStation pad -- touchpad, click, a
+// DualSense's mute button and an Edge's paddles, motion sensors, battery --
+// read from the pad's own HID input report next to the normal capture
+// (platform.StartGamepadHID).
 //
 // Where they go depends on the host. A host with Sunshine's controller
 // extensions (LI_FF_CONTROLLER_TOUCH_EVENTS) and a pad announced as a
-// DualShock 4 gets them as they are, for its virtual DualShock 4: the
-// contacts as controller touch events, the click as TOUCHPAD_FLAG in the
-// pad's buttons, the sensors once the host asks for them (setMotionEventState)
-// and the battery when it changes. Any other host gets the touchpad as a
-// relative mouse.
+// PlayStation one gets them as they are, for its virtual DualShock 4 or
+// DualSense: the contacts as controller touch events, the click, mute and
+// paddles in the pad's extended buttons, the sensors once the host asks for
+// them (setMotionEventState) and the battery when it changes. Any other host
+// gets the touchpad as a relative mouse.
 
 // padHID is one pad's HID reader and what has been sent from it.
 type padHID struct {
 	id      string
 	capture *platform.TouchpadCapture
-	ds4     bool // announced to the host as a DualShock 4
+	ps      bool // announced to the host as a PlayStation pad
 
 	mu      sync.Mutex
 	mouse   platform.TouchpadMouse
 	touch   [2]platform.DS4Finger // contacts as last sent
 	click   bool
+	extra   uint32 // mute, paddles, as last sent
 	battery uint8
 	last    platform.GamepadCaptureState // the capture's latest state, to resend with a click change
 	hasLast bool
@@ -48,10 +50,10 @@ func pointerID(f platform.DS4Finger, contact int) uint32 { return uint32(contact
 // thread, read from the HID readers.
 var padMotionWanted [maxGamepadSlots]atomic.Uint32
 
-// startPadHID starts the HID reader of a captured pad, if it is a DualShock
-// 4-layout one; ds4 says whether it was announced as a DualShock 4.
-func (dw *DiskWidget) startPadHID(id string, ds4 bool) {
-	p := &padHID{id: id, ds4: ds4}
+// startPadHID starts the HID reader of a captured pad, if it is a
+// PlayStation one; ps says whether it was announced as one.
+func (dw *DiskWidget) startPadHID(id string, ps bool) {
+	p := &padHID{id: id, ps: ps}
 	capture, err := platform.StartGamepadHID(id, func(r platform.DS4Report) { dw.onPadHIDReport(p, r) })
 	if err != nil {
 		if !errors.Is(err, platform.ErrNoTouchpad) {
@@ -87,7 +89,7 @@ func (dw *DiskWidget) stopPadHID(id string) {
 // padExtensionSender is the sender for p's extras and its controller number,
 // when the host takes them for this pad.
 func (dw *DiskWidget) padExtensionSender(p *padHID) (service.MoonlightPadSender, int, bool) {
-	if !p.ds4 || dw.moonlightProvider == nil {
+	if !p.ps || dw.moonlightProvider == nil {
 		return nil, 0, false
 	}
 	sender := dw.moonlightProvider()
@@ -115,10 +117,10 @@ func (dw *DiskWidget) onPadHIDReport(p *padHID, r platform.DS4Report) {
 	}
 	cn := uint8(slot)
 
-	if r.Click != p.click {
-		p.click = r.Click
+	if r.Click != p.click || r.Extra != p.extra {
+		p.click, p.extra = r.Click, r.Extra
 		if p.hasLast {
-			dw.sendPadState(p.id, slot, p.last, p.click)
+			dw.sendPadState(p.id, slot, p.last, p.extButtonsLocked())
 		}
 	}
 
@@ -129,9 +131,9 @@ func (dw *DiskWidget) onPadHIDReport(p *padHID, r platform.DS4Report) {
 			if was.Active {
 				pad.SendMoonlightControllerTouch(cn, service.LiTouchUp, pointerID(was, i), 0, 0, 0)
 			}
-			pad.SendMoonlightControllerTouch(cn, service.LiTouchDown, pointerID(f, i), touchX(f), touchY(f), 1)
+			pad.SendMoonlightControllerTouch(cn, service.LiTouchDown, pointerID(f, i), touchX(r, f), touchY(r, f), 1)
 		case f.Active && (f.X != was.X || f.Y != was.Y):
-			pad.SendMoonlightControllerTouch(cn, service.LiTouchMove, pointerID(f, i), touchX(f), touchY(f), 1)
+			pad.SendMoonlightControllerTouch(cn, service.LiTouchMove, pointerID(f, i), touchX(r, f), touchY(r, f), 1)
 		case !f.Active && was.Active:
 			pad.SendMoonlightControllerTouch(cn, service.LiTouchUp, pointerID(was, i), 0, 0, 0)
 		}
@@ -157,30 +159,52 @@ func (dw *DiskWidget) onPadHIDReport(p *padHID, r platform.DS4Report) {
 	}
 }
 
-func touchX(f platform.DS4Finger) float32 {
-	return float32(f.X) / (platform.DS4TouchpadWidth - 1)
+// touchX and touchY normalize a contact across the pad's own touchpad.
+func touchX(r platform.DS4Report, f platform.DS4Finger) float32 {
+	w, _ := r.TouchpadSize()
+	return float32(f.X) / float32(w-1)
 }
 
-func touchY(f platform.DS4Finger) float32 {
-	return float32(f.Y) / (platform.DS4TouchpadHeight - 1)
+func touchY(r platform.DS4Report, f platform.DS4Finger) float32 {
+	_, h := r.TouchpadSize()
+	return float32(f.Y) / float32(h-1)
 }
 
-// padTouchpadClick records the capture's latest state for a pad with a HID
-// reader and returns whether its touchpad is held down (as the host takes it).
-func (dw *DiskWidget) padTouchpadClick(id string, state platform.GamepadCaptureState) bool {
+// extButtonsLocked is what the HID report holds of the pad's extended
+// buttons (Moonlight's buttonFlags2 << 16), as a host with the controller
+// extensions takes them; p.mu held.
+func (p *padHID) extButtonsLocked() uint32 {
+	ext := p.extra
+	if p.click {
+		ext |= service.LiButtonTouchpad
+	}
+	return ext
+}
+
+// padExtButtons records the capture's latest state for a pad with a HID
+// reader and returns its extended buttons (touchpad click, mute, paddles).
+func (dw *DiskWidget) padExtButtons(id string, state platform.GamepadCaptureState) uint32 {
 	v, ok := dw.padHIDs.Load(id)
 	if !ok {
-		return false
+		return 0
 	}
 	p := v.(*padHID)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.last, p.hasLast = state, true
-	return p.click
+	if !p.ps {
+		return 0
+	}
+	return p.extButtonsLocked()
 }
 
-// sendPadState sends one multi-controller event, with the touchpad click.
-func (dw *DiskWidget) sendPadState(id string, slot int, state platform.GamepadCaptureState, click bool) {
+// padFamily is the PlayStation family of a captured pad.
+func (dw *DiskWidget) padFamily(id string) platform.PadFamily {
+	return platform.GamepadFamily(id)
+}
+
+// sendPadState sends one multi-controller event, with the extended buttons.
+func (dw *DiskWidget) sendPadState(id string, slot int, state platform.GamepadCaptureState, ext uint32) {
 	if dw.moonlightProvider == nil {
 		return
 	}
@@ -188,21 +212,25 @@ func (dw *DiskWidget) sendPadState(id string, slot int, state platform.GamepadCa
 	if sender == nil || !sender.IsInputActive() {
 		return
 	}
-	buttons := uint32(state.Buttons)
-	if click {
-		buttons |= service.LiButtonTouchpad
-	}
+	buttons := uint32(state.Buttons) | ext
 	sender.SendMoonlightControllerEvent(uint16(slot), dw.padSlots.mask(), buttons,
 		state.LeftTrigger, state.RightTrigger, state.LeftX, state.LeftY, state.RightX, state.RightY)
 }
 
-// padArrivalCapabilities is what a pad announced as a DualShock 4 can do
+// padArrivalCapabilities is what a pad announced as a PlayStation one can do
 // (LI_CCAP_*): with a HID reader, its touchpad, sensors, battery and light
-// reach the host.
-func (dw *DiskWidget) padArrivalCapabilities(id string) uint16 {
+// reach the host; with its sound device open, the host's pad sound plays on
+// it -- the speaker/headset, and on a DualSense announced as one its haptics.
+func (dw *DiskWidget) padArrivalCapabilities(id, mode string) uint16 {
 	caps := service.LiCCapAnalogTriggers | service.LiCCapRumble
 	if _, ok := dw.padHIDs.Load(id); ok {
 		caps |= service.LiCCapTouchpad | service.LiCCapAccel | service.LiCCapGyro | service.LiCCapBatteryState | service.LiCCapRGBLED
+	}
+	if a := dw.padAudioOf(id); a != nil {
+		caps |= service.LiCCapPadAudio
+		if mode == gamepadModeDualSense && a.out.HasHaptics() {
+			caps |= service.LiCCapHapticsPCM
+		}
 	}
 	return caps
 }

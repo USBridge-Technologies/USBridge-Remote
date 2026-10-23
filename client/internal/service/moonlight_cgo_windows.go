@@ -46,6 +46,9 @@ extern void goMoonlightTerminated(int errCode);
 extern void goMoonlightRumble(unsigned short controllerNumber, unsigned short lowFreq, unsigned short highFreq);
 extern void goMoonlightPadMotion(unsigned short controllerNumber, unsigned char motionType, unsigned short reportRateHz);
 extern void goMoonlightPadLight(unsigned short controllerNumber, unsigned char r, unsigned char g, unsigned char b);
+extern void goMoonlightPadTriggers(unsigned short controllerNumber, unsigned char eventFlags, unsigned char typeLeft, unsigned char typeRight, unsigned char *left, unsigned char *right);
+extern void goMoonlightPadHaptics(unsigned short controllerNumber, unsigned int sequence, unsigned char *pcm, unsigned short frames);
+extern void goMoonlightPadAudio(unsigned short controllerNumber, unsigned int sequence, unsigned char format, unsigned char *data, unsigned short length, unsigned short frames);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
@@ -102,6 +105,9 @@ static void cl_terminated(int ec)          { goMoonlightTerminated(ec); }
 static void cl_rumble(unsigned short n, unsigned short low, unsigned short high) { goMoonlightRumble(n, low, high); }
 static void cl_set_motion(uint16_t n, uint8_t type, uint16_t rate) { goMoonlightPadMotion(n, type, rate); }
 static void cl_set_led(uint16_t n, uint8_t r, uint8_t g, uint8_t b) { goMoonlightPadLight(n, r, g, b); }
+static void cl_set_triggers(uint16_t n, uint8_t flags, uint8_t tl, uint8_t tr, uint8_t *l, uint8_t *r) { goMoonlightPadTriggers(n, flags, tl, tr, l, r); }
+static void cl_haptics(uint16_t n, uint32_t seq, const uint8_t *pcm, uint16_t frames) { goMoonlightPadHaptics(n, seq, (unsigned char *)pcm, frames); }
+static void cl_pad_audio(uint16_t n, uint32_t seq, uint8_t format, const uint8_t *data, uint16_t length, uint16_t frames) { goMoonlightPadAudio(n, seq, format, (unsigned char *)data, length, frames); }
 static void cl_log(const char *fmt, ...) {
     char buf[256];
     va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
@@ -1440,6 +1446,7 @@ static int do_li_start(
     cl.connectionTerminated = cl_terminated; cl.logMessage = cl_log;
     cl.rumble = cl_rumble;
     cl.setMotionEventState = cl_set_motion; cl.setControllerLED = cl_set_led;
+    cl.setAdaptiveTriggers = cl_set_triggers; cl.controllerHaptics = cl_haptics; cl.padAudio = cl_pad_audio;
 
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
     if (ret != 0) return ret;
@@ -1945,6 +1952,24 @@ func goMoonlightPadMotion(controller C.ushort, motionType C.uchar, rateHz C.usho
 //export goMoonlightPadLight
 func goMoonlightPadLight(controller C.ushort, r, g, b C.uchar) {
 	dispatchPadLight(uint16(controller), uint8(r), uint8(g), uint8(b))
+}
+
+//export goMoonlightPadTriggers
+func goMoonlightPadTriggers(controller C.ushort, flags, typeLeft, typeRight C.uchar, left, right *C.uchar) {
+	var l, r [10]byte
+	copy(l[:], C.GoBytes(unsafe.Pointer(left), 10))
+	copy(r[:], C.GoBytes(unsafe.Pointer(right), 10))
+	dispatchPadTriggers(uint16(controller), uint8(flags), uint8(typeLeft), uint8(typeRight), l, r)
+}
+
+//export goMoonlightPadHaptics
+func goMoonlightPadHaptics(controller C.ushort, sequence C.uint, pcm *C.uchar, frames C.ushort) {
+	dispatchPadHaptics(uint16(controller), uint32(sequence), C.GoBytes(unsafe.Pointer(pcm), C.int(frames)*4), int(frames))
+}
+
+//export goMoonlightPadAudio
+func goMoonlightPadAudio(controller C.ushort, sequence C.uint, format C.uchar, data *C.uchar, length, frames C.ushort) {
+	dispatchPadAudio(uint16(controller), uint32(sequence), uint8(format), C.GoBytes(unsafe.Pointer(data), C.int(length)), int(frames))
 }
 
 func (w *MoonlightCgoWrapper) HostSupportsControllerExtensions() bool {

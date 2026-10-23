@@ -60,6 +60,9 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 		service.SetRumbleHandler(dw.onHostRumble)
 		service.SetPadMotionHandler(dw.onHostPadMotion)
 		service.SetPadLightHandler(dw.onHostPadLight)
+		service.SetPadTriggersHandler(dw.onHostPadTriggers)
+		service.SetPadHapticsHandler(dw.onHostPadHaptics)
+		service.SetPadAudioHandler(dw.onHostPadAudio)
 	})
 
 	// Stop captures for devices that are no longer mounted.
@@ -70,6 +73,7 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 			platform.StopGamepadRumble(id)
 			delete(dw.activeCaptures, id)
 			dw.stopPadHID(id)
+			dw.stopPadAudio(id)
 			dw.releasePadSlot(id)
 		}
 	}
@@ -100,7 +104,10 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 		mode := dw.effectiveGamepadMode(wantedMode[id])
 		dw.padModes.Store(id, mode)
 		padArrivalEpoch[slot].Store(0)
-		dw.startPadHID(id, mode == gamepadModeDualShock4)
+		dw.startPadHID(id, isPlayStationMode(mode))
+		if isPlayStationMode(mode) {
+			dw.startPadAudio(id)
+		}
 		dw.announceGamepadArrival(id, slot, mode)
 	}
 }
@@ -160,11 +167,18 @@ func (dw *DiskWidget) announceGamepadArrival(id string, slot int, mode string) {
 		return
 	}
 	padArrivalEpoch[slot].Store(service.MoonlightStreamEpoch())
-	ctype, caps := platform.MoonlightCtypeXbox, uint16(0)
-	if mode == gamepadModeDualShock4 {
-		ctype, caps = platform.MoonlightCtypePS, dw.padArrivalCapabilities(id)
+	ctype, caps, buttons := platform.MoonlightCtypeXbox, uint16(0), uint32(0xFFFF)
+	if isPlayStationMode(mode) {
+		ctype, caps = platform.MoonlightCtypePS, dw.padArrivalCapabilities(id, mode)
+		buttons |= uint32(service.LiButtonTouchpad)
+		if mode == gamepadModeDualSense {
+			buttons |= platform.ExtMisc
+			if dw.padFamily(id) == platform.PadDS5Edge {
+				buttons |= platform.ExtPaddle1 | platform.ExtPaddle2 | platform.ExtPaddle3 | platform.ExtPaddle4
+			}
+		}
 	}
-	sender.SendMoonlightControllerArrival(uint16(slot), dw.padSlots.mask(), ctype, 0xFFFF|uint32(service.LiButtonTouchpad), caps)
+	sender.SendMoonlightControllerArrival(uint16(slot), dw.padSlots.mask(), ctype, buttons, caps)
 }
 
 // padArrivalEpoch is, per controller number, the stream connection its pad
@@ -233,7 +247,7 @@ func (dw *DiskWidget) forwardGamepadState(id string, state platform.GamepadCaptu
 				return // stopped while this sample was in flight
 			}
 			dw.ensureGamepadArrival(id, slot)
-			dw.sendPadState(id, slot, state, dw.padTouchpadClick(id, state))
+			dw.sendPadState(id, slot, state, dw.padExtButtons(id, state))
 			return
 		}
 	}
@@ -250,6 +264,7 @@ func (dw *DiskWidget) stopAllGamepadCaptures() {
 		platform.StopGamepadRumble(id)
 		delete(dw.activeCaptures, id)
 		dw.stopPadHID(id)
+		dw.stopPadAudio(id)
 		dw.releasePadSlot(id)
 	}
 }

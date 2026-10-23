@@ -4,8 +4,8 @@ import "sync"
 
 // maxGamepadSlots is how many controllers one client reports. Moonlight numbers
 // them 0..N-1 and announces them with an "active gamepad mask" (bit i set = pad
-// i is connected); the streamer's virtual pads follow those numbers.
-const maxGamepadSlots = 4
+// i is connected, 16 bits); the streamer's virtual pads follow those numbers.
+const maxGamepadSlots = 16
 
 // gamepadSlots assigns each captured pad its Moonlight controller number.
 //

@@ -17,6 +17,7 @@
  *   extern void goMoonlightRumble(unsigned short controllerNumber, unsigned short lowFreq, unsigned short highFreq);
  *   extern void goMoonlightPadMotion(unsigned short controllerNumber, unsigned char motionType, unsigned short reportRateHz);
  *   extern void goMoonlightPadLight(unsigned short controllerNumber, unsigned char r, unsigned char g, unsigned char b);
+ *   extern void goMoonlightPadTriggers(...), goMoonlightPadHaptics(...), goMoonlightPadAudio(...);
  *   extern void goVideoFormatNegotiated(int videoFormat);
  */
 
@@ -92,6 +93,9 @@ static void cl_terminated(int ec)          { goMoonlightTerminated(ec); }
 static void cl_rumble(unsigned short n, unsigned short low, unsigned short high) { goMoonlightRumble(n, low, high); }
 static void cl_set_motion(uint16_t n, uint8_t type, uint16_t rate) { goMoonlightPadMotion(n, type, rate); }
 static void cl_set_led(uint16_t n, uint8_t r, uint8_t g, uint8_t b) { goMoonlightPadLight(n, r, g, b); }
+static void cl_set_triggers(uint16_t n, uint8_t flags, uint8_t tl, uint8_t tr, uint8_t *l, uint8_t *r) { goMoonlightPadTriggers(n, flags, tl, tr, l, r); }
+static void cl_haptics(uint16_t n, uint32_t seq, const uint8_t *pcm, uint16_t frames) { goMoonlightPadHaptics(n, seq, (unsigned char *)pcm, frames); }
+static void cl_pad_audio(uint16_t n, uint32_t seq, uint8_t format, const uint8_t *data, uint16_t length, uint16_t frames) { goMoonlightPadAudio(n, seq, format, (unsigned char *)data, length, frames); }
 static void cl_log(const char *fmt, ...) {
     char buf[256];
     va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
@@ -330,6 +334,9 @@ int do_li_start(
     cl.rumble               = cl_rumble;
     cl.setMotionEventState  = cl_set_motion;
     cl.setControllerLED     = cl_set_led;
+    cl.setAdaptiveTriggers  = cl_set_triggers;
+    cl.controllerHaptics    = cl_haptics;
+    cl.padAudio             = cl_pad_audio;
     cl.logMessage           = cl_log;
 
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);

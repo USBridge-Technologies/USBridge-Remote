@@ -3,7 +3,7 @@
 package controller
 
 /*
-#cgo LDFLAGS: -lX11
+#cgo LDFLAGS: -lX11 -ldl
 
 #include "mouse_capture_linux.h"
 */

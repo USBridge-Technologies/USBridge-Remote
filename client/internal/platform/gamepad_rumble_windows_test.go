@@ -32,7 +32,8 @@ func TestOnlyKnownPadsGetAHIDRumbleProtocol(t *testing.T) {
 	}{
 		{0x1532, 0x1007, true},  // Razer Raiju TE (verified)
 		{0x054C, 0x09CC, true},  // DualShock 4 v2
-		{0x054C, 0x0CE6, false}, // DualSense: a different report
+		{0x054C, 0x0CE6, true},  // DualSense: its own report
+		{0x054C, 0x0DF2, true},  // DualSense Edge
 		{0x045E, 0x028E, false}, // an Xbox pad goes through XInput
 		{0x1532, 0x0A29, false}, // Razer Wolverine V2 Xbox
 	} {
