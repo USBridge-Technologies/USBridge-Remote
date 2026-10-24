@@ -13,7 +13,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
@@ -163,14 +162,6 @@ func newVirtualDisplayFieldLabel(text string) fyne.CanvasObject {
 	label.TextSize = 9
 	label.TextStyle.Monospace = true
 	return view.NewInset(container.New(&virtualDisplayLabelColLayout{}, label), 0, 12, 0, 0)
-}
-
-// newVirtualDisplayNote is a wrapped, muted explanation line above the offer's fields.
-func newVirtualDisplayNote(text string) fyne.CanvasObject {
-	label := widget.NewLabel(text)
-	label.Wrapping = fyne.TextWrapWord
-	label.Importance = widget.LowImportance
-	return label
 }
 
 func newVirtualDisplayFieldRow(label string, field fyne.CanvasObject) fyne.CanvasObject {

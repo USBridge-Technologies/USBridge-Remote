@@ -361,7 +361,7 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 		body.Add(vw.newHostAppRow(offer.apps))
 	}
 	if offer.virtual {
-		body.Add(newVirtualDisplayNote(i18n.Current.VirtualDisplayOfferNote))
+		body.Add(view.NewDialogHint(i18n.Current.VirtualDisplayOfferNote, 340))
 		body.Add(modeRow)
 		body.Add(primaryRow)
 		body.Add(exclusiveRow)
@@ -437,6 +437,12 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 		},
 	}
 	skipBtn.ExtendBaseWidget(skipBtn)
+	// The muted look is what "Virtual" takes on where the screen as is is the default;
+	// "Stream as is" itself is a primary, green button, on the left.
+	mutedFill, mutedText, mutedHoverFill, mutedHoverText := skipBtn.fillColor, skipBtn.textColor, skipBtn.hoverFillColor, skipBtn.hoverTextColor
+	primary := newVirtualDisplayAddButton(nil)
+	skipBtn.fillColor, skipBtn.textColor = primary.fillColor, primary.textColor
+	skipBtn.hoverFillColor, skipBtn.hoverTextColor, skipBtn.hoverBorderColor = primary.hoverFillColor, primary.hoverTextColor, primary.hoverBorderColor
 
 	createBtn := newVirtualDisplayAddButton(func() {
 		answer()
@@ -479,9 +485,9 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 		title, subtitle = i18n.Current.HostAppOfferTitle, i18n.Current.VirtualDisplayOfferAsIsSubtitle
 		asIsBtn := newVirtualDisplayAddButton(skipBtn.onTapped)
 		asIsBtn.labelText = i18n.Current.VirtualDisplayOfferSkip
-		createBtn.fillColor, createBtn.textColor = skipBtn.fillColor, skipBtn.textColor
-		createBtn.hoverFillColor, createBtn.hoverTextColor = skipBtn.hoverFillColor, skipBtn.hoverTextColor
-		buttons = []fyne.CanvasObject{createBtn, asIsBtn}
+		createBtn.fillColor, createBtn.textColor = mutedFill, mutedText
+		createBtn.hoverFillColor, createBtn.hoverTextColor = mutedHoverFill, mutedHoverText
+		buttons = []fyne.CanvasObject{asIsBtn, createBtn}
 	}
 
 	_, closePopup = showBrandedOverlayDialog(brandedOverlayDialogSpec{

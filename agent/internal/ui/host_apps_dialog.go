@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -212,32 +213,56 @@ func (w *Window) showHostAppEditor(parent fyne.Window, app streamhost.HostApp, o
 		}
 	}
 	browse := func(target *widget.Entry, folder bool) fyne.CanvasObject {
-		b := newIconActionButton("", theme.NewColoredResource(theme.FolderOpenIcon(), design.ColorNameMutedOlive), func() {
+		// quoted is a file path as the command field wants it.
+		quoted := func(path string) string {
+			if strings.ContainsAny(path, " 	") {
+				return `"` + path + `"`
+			}
+			return path
+		}
+		// fyneBrowse is the fallback for a system without a native dialog.
+		fyneBrowse := func() {
 			if folder {
-				d := dialog.NewFolderOpen(func(u fyne.ListableURI, err error) {
+				dialog.NewFolderOpen(func(u fyne.ListableURI, err error) {
 					if err == nil && u != nil {
 						target.SetText(u.Path())
 					}
-				}, parent)
-				d.Show()
+				}, parent).Show()
 				return
 			}
-			d := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
+			dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
 				if err == nil && r != nil {
 					path := r.URI().Path()
 					_ = r.Close()
-					if strings.ContainsAny(path, " \t") {
-						path = `"` + path + `"`
-					}
-					target.SetText(path)
+					target.SetText(quoted(path))
 					if workDir.Text == "" {
 						if dir, err := storage.Parent(r.URI()); err == nil {
 							workDir.SetText(dir.Path())
 						}
 					}
 				}
-			}, parent)
-			d.Show()
+			}, parent).Show()
+		}
+		b := newIconActionButton("", theme.NewColoredResource(theme.FolderOpenIcon(), design.ColorNameMutedOlive), func() {
+			// The system's own dialog, like the client's disk picker; Fyne's only when
+			// that can't be opened.
+			go func() {
+				path, shown := pickNativePath(folder, loc().HostAppCmd)
+				fyne.Do(func() {
+					switch {
+					case !shown:
+						fyneBrowse()
+					case path == "":
+					case folder:
+						target.SetText(path)
+					default:
+						target.SetText(quoted(path))
+						if workDir.Text == "" {
+							workDir.SetText(filepath.Dir(path))
+						}
+					}
+				})
+			}()
 		})
 		b.Quiet = true
 		return b
