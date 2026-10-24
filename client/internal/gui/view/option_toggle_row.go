@@ -23,12 +23,6 @@ func NewOptionToggleRow(title, badge, description string, descWidth float32, che
 	return row, func() bool { return check.Checked }
 }
 
-// NewDialogHint is a hint line in the style of the option rows' descriptions
-// (small, muted, wrapped to width).
-func NewDialogHint(text string, width float32) fyne.CanvasObject {
-	return newVideoDialogDescription(text, width)
-}
-
 // NewDeviceDashboardTextToggle is a dashboard row button with a short text
 // label that shows an on/off state: accent border and text while on, the
 // muted delete-button chrome while off. Rebuilt on every dashboard refresh,
