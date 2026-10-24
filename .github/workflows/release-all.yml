@@ -1203,6 +1203,10 @@ jobs:
           want="$(gpg --batch --with-colons --show-keys scripts/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
           gpg --batch --with-colons --list-secret-keys "$want" >/dev/null
 
+          # apt-ftparchive ships in apt-utils, which the runner image no longer has.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apt-utils
+
           cd out
           apt-ftparchive packages . > Packages
           gzip -9kn Packages
