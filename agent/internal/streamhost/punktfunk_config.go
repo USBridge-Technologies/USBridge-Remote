@@ -7,7 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
+
+	"usbridge_agent/internal/displaypower"
 )
 
 // punktfunkConfigDir is where this agent pins punktfunk-host's config
@@ -144,6 +148,11 @@ func (b *punktfunkBackend) SetOutputName(name string) error {
 		if _, connector, ok := strings.Cut(name, "|"); ok {
 			name = connector
 		}
+		resolved, ok := punktfunkMonitorName(name)
+		if !ok {
+			return fmt.Errorf("punktfunk has no monitor %q", name)
+		}
+		name = resolved
 		// Nothing listed means the compositor can't be asked right now
 		// (agent started before the desktop); the name is taken on trust.
 		if devices := b.ListCaptureDevices(); len(devices) > 0 {
@@ -163,6 +172,41 @@ func (b *punktfunkBackend) SetOutputName(name string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(name+"\n"), 0o644)
+}
+
+// punktfunkMonitorName is the name Punktfunk captures the monitor by. On Windows
+// that is its GDI name (`\.\DISPLAYn`); the API hands every backend the other
+// streamers' names for a monitor -- its friendly name (Sunshine, Vibepollo), its
+// device path, its index -- and Punktfunk fails every session on one it doesn't
+// know ("no monitor named ..."). ok is false for a name that matches no monitor of
+// the desktop now. Anywhere else, or when the desktop can't be listed, the name is
+// taken as it is.
+// punktfunkListMonitors lists the desktop's monitors; a package var so tests can stand in.
+var punktfunkListMonitors = displaypower.ListInSession
+
+func punktfunkMonitorName(name string) (resolved string, ok bool) {
+	if runtime.GOOS != "windows" || strings.HasPrefix(name, `\.\`) {
+		return name, true
+	}
+	all, err := punktfunkListMonitors()
+	if err != nil {
+		return name, true
+	}
+	var active []displaypower.Monitor
+	for _, m := range all {
+		if m.Active && !m.Virtual && m.GDIName != "" {
+			active = append(active, m)
+		}
+	}
+	if idx, err := strconv.Atoi(name); err == nil && idx >= 0 && idx < len(active) {
+		return active[idx].GDIName, true
+	}
+	for _, m := range active {
+		if strings.EqualFold(m.Name, strings.TrimSuffix(name, " (off)")) || strings.EqualFold(m.ID, name) {
+			return m.GDIName, true
+		}
+	}
+	return name, false
 }
 
 // punktfunkManagedOutputPrefix starts the name of every display Punktfunk

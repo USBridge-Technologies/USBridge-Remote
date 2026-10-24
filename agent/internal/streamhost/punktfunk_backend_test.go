@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"usbridge_agent/internal/displaypower"
 )
 
 // fakePunktfunk stands in for punktfunk-host's management API, validating
@@ -257,6 +259,8 @@ func TestParsePunktfunkMonitors(t *testing.T) {
 }
 
 func TestPunktfunkOutputNamePersists(t *testing.T) {
+	punktfunkListMonitors = func() ([]displaypower.Monitor, error) { return nil, displaypower.ErrUnsupported }
+	t.Cleanup(func() { punktfunkListMonitors = displaypower.ListInSession })
 	stateDir := t.TempDir()
 	b := NewPunktfunk("", stateDir, "")
 	if got := b.OutputName(); got != "" {

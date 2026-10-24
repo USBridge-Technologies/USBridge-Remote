@@ -322,6 +322,21 @@ type punktfunkPrep struct {
 	Undo string `json:"undo,omitempty"`
 }
 
+// punktfunkShellCommand makes a command Punktfunk can run through the shell. It runs
+// a command with cmd.exe, which can't open a URL (steam://open/bigpicture: "'steam:'
+// is not recognized as an internal or external command"); `start` hands it to the
+// registered handler.
+func punktfunkShellCommand(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+	if runtime.GOOS != "windows" {
+		return cmd
+	}
+	if scheme, _, ok := strings.Cut(cmd, "://"); ok && len(scheme) > 1 && !strings.ContainsAny(scheme, " /\\\"&") {
+		return fmt.Sprintf("start \"\" \"%s\"", cmd)
+	}
+	return cmd
+}
+
 // punktfunkApps converts the list: ids in list order, as RustShine numbers
 // them; a detached-only entry (Steam Big Picture) runs its first detached
 // command; a working directory becomes a cd in front of the command.
@@ -332,6 +347,7 @@ func punktfunkApps(apps []HostApp) []punktfunkApp {
 		if cmd == "" && len(a.Detached) > 0 {
 			cmd = strings.TrimSpace(a.Detached[0])
 		}
+		cmd = punktfunkShellCommand(cmd)
 		if cmd != "" && a.WorkingDir != "" {
 			if runtime.GOOS == "windows" {
 				cmd = fmt.Sprintf("cd /d \"%s\" && %s", a.WorkingDir, cmd)
@@ -355,7 +371,7 @@ func punktfunkApps(apps []HostApp) []punktfunkApp {
 				// punktfunk runs every step's do; an undo-only step's do is a no-op.
 				do = "exit 0"
 			}
-			p.Prep = append(p.Prep, punktfunkPrep{Do: do, Undo: s.Undo})
+			p.Prep = append(p.Prep, punktfunkPrep{Do: punktfunkShellCommand(do), Undo: punktfunkShellCommand(s.Undo)})
 		}
 		out = append(out, p)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -96,7 +97,12 @@ func TestPunktfunkAppsConversion(t *testing.T) {
 	if got[0].ID != 1 || got[0].Cmd != "" || got[0].Icon != "monitor" {
 		t.Fatalf("desktop %+v", got[0])
 	}
-	if got[1].Cmd != "steam://open/bigpicture" || got[1].Icon != "steam" || len(got[1].Prep) != 1 || got[1].Prep[0].Undo != "steam://close/bigpicture" {
+	wantOpen, wantClose := "steam://open/bigpicture", "steam://close/bigpicture"
+	if runtime.GOOS == "windows" {
+		// cmd.exe can't open a URL itself.
+		wantOpen, wantClose = `start "" "steam://open/bigpicture"`, `start "" "steam://close/bigpicture"`
+	}
+	if got[1].Cmd != wantOpen || got[1].Icon != "steam" || len(got[1].Prep) != 1 || got[1].Prep[0].Undo != wantClose {
 		t.Fatalf("steam %+v", got[1])
 	}
 	if got[2].ID != 3 || !strings.Contains(got[2].Cmd, "/opt/game") || !strings.HasSuffix(got[2].Cmd, "./game") {

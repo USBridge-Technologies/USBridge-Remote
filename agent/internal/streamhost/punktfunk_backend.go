@@ -356,7 +356,14 @@ func (b *punktfunkBackend) Start(adminPort int) error {
 		extra[punktfunkConfigDirEnv] = dir
 	}
 	if monitor := b.OutputName(); monitor != "" && !strings.HasPrefix(monitor, punktfunkVirtualPrefix) {
-		extra[punktfunkCaptureMonitorEnv] = monitor
+		// A name saved while another streamer was active (or before this
+		// translation) is mapped to Punktfunk's; one that matches no monitor is
+		// left unpinned, since Punktfunk fails every session on it.
+		if resolved, ok := punktfunkMonitorName(monitor); ok {
+			extra[punktfunkCaptureMonitorEnv] = resolved
+		} else {
+			log.Printf("[punktfunk] the pinned monitor %q is not on this desktop -- streaming Punktfunk's default", monitor)
+		}
 	}
 	// One line a second while a client streams: frames sent, how many were
 	// new ones (uniq) rather than repeats, and the slowest capture/encode/
