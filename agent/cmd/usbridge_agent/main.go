@@ -9,6 +9,7 @@ import (
 	"usbridge_agent/internal/app"
 	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/logcap"
+	"usbridge_agent/internal/monitors"
 	"usbridge_agent/internal/ui"
 )
 
@@ -29,6 +30,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == displaypower.HelperArg {
 		log.SetOutput(os.Stdout)
 		os.Exit(displaypower.RunHelper(os.Args[2:]))
+	}
+
+	// Lists the monitors the user's session sees; the service can't (Session 0).
+	if len(os.Args) > 1 && os.Args[1] == monitors.HelperArg {
+		os.Exit(monitors.RunHelper())
 	}
 
 	headless := flag.Bool("headless", false, "run without a GUI (HTTP server, Sunshine, Tailscale only); a later normal launch attaches a GUI to this instance instead of starting a second one")

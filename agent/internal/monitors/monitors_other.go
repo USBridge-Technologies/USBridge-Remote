@@ -20,3 +20,8 @@ func GDINames() []string { return nil }
 
 // WithPhysicalDPI is Windows-only; elsewhere it just runs f.
 func WithPhysicalDPI(f func()) { f() }
+
+// HelperArg and RunHelper exist for the Windows Session 0 workaround only.
+const HelperArg = "monitors-helper"
+
+func RunHelper() int { return 1 }

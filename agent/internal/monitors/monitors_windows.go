@@ -114,6 +114,13 @@ func monitorDescription(gdi string) string {
 // List returns the active monitors, primary first, then top-to-bottom and
 // left-to-right. Coordinates are physical pixels.
 func List() ([]Monitor, error) {
+	if snap, ok := sessionSnapshot(); ok {
+		return snap.Monitors, nil
+	}
+	return listLocal()
+}
+
+func listLocal() ([]Monitor, error) {
 	var infos []monitorInfoEx
 	withDPIContext(dpiContextPerMonitorAware2, func() { infos = enumMonitors() })
 	if len(infos) == 0 {
@@ -148,6 +155,13 @@ func List() ([]Monitor, error) {
 // EnumDisplayMonitors order -- unsorted, the order kbinani/screenshot indexes
 // displays in, so its index i is GDINames()[i].
 func GDINames() []string {
+	if snap, ok := sessionSnapshot(); ok {
+		return snap.GDI
+	}
+	return gdiNamesLocal()
+}
+
+func gdiNamesLocal() []string {
 	var infos []monitorInfoEx
 	withDPIContext(dpiContextPerMonitorAware2, func() { infos = enumMonitors() })
 	out := make([]string, 0, len(infos))
@@ -161,6 +175,14 @@ func GDINames() []string {
 // sees it -- the space ffplay's -left/-top (SDL) positions its window in.
 // With display scaling those are not the physical pixels List reports.
 func LogicalOrigin(id string) (x, y int, ok bool) {
+	if snap, have := sessionSnapshot(); have {
+		o, found := snap.Logical[id]
+		return o[0], o[1], found
+	}
+	return logicalOriginLocal(id)
+}
+
+func logicalOriginLocal(id string) (x, y int, ok bool) {
 	withDPIContext(dpiContextUnaware, func() {
 		for _, mi := range enumMonitors() {
 			if windows.UTF16ToString(mi.SzDevice[:]) == id {
