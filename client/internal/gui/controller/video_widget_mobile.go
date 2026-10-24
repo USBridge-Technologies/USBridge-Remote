@@ -4,6 +4,7 @@ package controller
 
 import (
 	"math"
+	"strings"
 	"sync/atomic"
 
 	"usbridge-client/internal/service"
@@ -105,6 +106,15 @@ func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
 		})
 	}
 	if text == "" {
+		return
+	}
+	// The IME's Enter comes as a newline (UTF-8 "\n" types nothing):
+	// press the same Enter as the special keys row.
+	if i := strings.IndexAny(text, "\r\n"); i >= 0 {
+		rest := strings.TrimPrefix(text[i:], "\r")
+		vw.handleNativeIMEText(0, text[:i])
+		vw.handleVirtualKeyPress(40, 0)
+		vw.handleNativeIMEText(0, strings.TrimPrefix(rest, "\n"))
 		return
 	}
 	if vw.TypesAsUSBKeyboard() {

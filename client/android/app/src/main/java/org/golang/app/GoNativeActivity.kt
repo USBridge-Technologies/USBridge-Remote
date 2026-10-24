@@ -417,13 +417,19 @@ open class GoNativeActivity : NativeActivity() {
             } else {
                 defaultKeyListener
             }
-            edit.setOnEditorActionListener(TextView.OnEditorActionListener { _, actionId, _: KeyEvent? ->
-                if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    if (io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true) {
+            edit.setOnEditorActionListener(TextView.OnEditorActionListener { _, actionId, event: KeyEvent? ->
+                val sticky = io.usbridge.client.MainActivity.getInstance()?.isStickyIME() == true
+                if (sticky) {
+                    // Sticky (type 0) has NO_ENTER_ACTION: the IME's Enter
+                    // arrives as IME_NULL with the key's down and up events.
+                    // Press Enter once and keep the keyboard open.
+                    if (event == null || event.action == KeyEvent.ACTION_DOWN) {
                         io.usbridge.client.KeyboardBridge.onIMETextInput(0, "\n")
-                    } else {
-                        keyboardTyped("\n")
                     }
+                    return@OnEditorActionListener true
+                }
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    keyboardTyped("\n")
                 }
                 false
             })
