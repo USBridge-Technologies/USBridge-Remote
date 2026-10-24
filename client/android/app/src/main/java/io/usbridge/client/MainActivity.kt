@@ -657,6 +657,66 @@ class MainActivity : GoNativeActivity() {
         return opened
     }
 
+    /**
+     * Copies a file under the app's cache dir into the public Downloads
+     * folder (MediaStore on Android 10+, so no storage permission). Returns
+     * where it landed ("Downloads/<name>"), "" on failure. Used by the
+     * benchmark's Save: the Fyne save dialog left a 0-byte file on Android.
+     */
+    fun saveToDownloads(path: String, name: String, mimeType: String): String {
+        return try {
+            val src = java.io.File(path)
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                val values = android.content.ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: return ""
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    src.inputStream().use { it.copyTo(out) }
+                } ?: return ""
+                "Downloads/$name"
+            } else {
+                val dir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: return ""
+                dir.mkdirs()
+                src.copyTo(java.io.File(dir, name), overwrite = true)
+                java.io.File(dir, name).absolutePath
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "saveToDownloads failed", e)
+            ""
+        }
+    }
+
+    /**
+     * Opens the system share sheet (messengers, mail, ...) for a file under
+     * the app's cache dir, through the FileProvider like clipboardSetFile.
+     */
+    fun shareFile(path: String, mimeType: String, title: String): Boolean {
+        return try {
+            val file = java.io.File(path)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this, "io.usbridge.client.fileprovider", file
+            )
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, file.name)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(send, title).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runOnUiThread { startActivity(chooser) }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "shareFile failed", e)
+            false
+        }
+    }
+
     fun getActiveNetworkInterfaceName(): String? {
         return try {
             val connectivity = getSystemService(ConnectivityManager::class.java) ?: return null

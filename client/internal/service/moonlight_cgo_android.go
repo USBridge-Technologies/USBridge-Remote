@@ -36,6 +36,7 @@ package service
 extern void goMoonlightStage(int stage, int result, int errCode);
 extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
+extern void goVideoFormatNegotiated(int videoFormat);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride);
@@ -693,6 +694,7 @@ static void amc_stop_output_thread(void) {
 
 static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
     ALOGI("dr_setup: %dx%d@%d", w, h, rate);
+    goVideoFormatNegotiated(fmt);
     amc_init(fmt, w, h, rate);
     return 0;
 }
@@ -1444,11 +1446,24 @@ func (w *MoonlightCgoWrapper) SendMoonlightRawHID(kind, slot, endpoint uint8, to
 	return false
 }
 
-// NegotiatedVideoCodecName is not yet wired on Android: dr_setup here uses
-// its fmt parameter locally to pick the AMediaCodec MIME type but never
-// reports it back to Go (unlike the shared macOS/Linux dr_setup in
-// moonlight_cgo_shared.h). Follow-up.
-func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool) { return "", false }
+// negotiatedVideoFormat holds the VIDEO_FORMAT_* value dr_setup was given --
+// the server's actual codec for this session (the benchmark's Codec row reads
+// it). -1 until a session reports one.
+var negotiatedVideoFormat atomic.Int32
+
+func init() { negotiatedVideoFormat.Store(-1) }
+
+//export goVideoFormatNegotiated
+func goVideoFormatNegotiated(format C.int) {
+	negotiatedVideoFormat.Store(int32(format))
+}
+
+func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool) {
+	if !liStartConnectionActive.Load() {
+		return "", false
+	}
+	return videoFormatCodecName(negotiatedVideoFormat.Load())
+}
 
 func (w *MoonlightCgoWrapper) SendMoonlightKey(c int16, a, m int8) {
 	if liStartConnectionActive.Load() {
@@ -1536,6 +1551,7 @@ func goMoonlightConnected() {
 func goMoonlightTerminated(e C.int) {
 	logrus.Errorf("🌕 [Moonlight/Android] ❌ terminated: code=%d active=%v", int(e), liStartConnectionActive.Load())
 	activeStreamTermErr = fmt.Errorf("terminated %d", int(e))
+	negotiatedVideoFormat.Store(-1)
 	if liStartConnectionActive.Load() {
 		activeStreamOnce.Do(func() { close(activeStreamDone) })
 	}

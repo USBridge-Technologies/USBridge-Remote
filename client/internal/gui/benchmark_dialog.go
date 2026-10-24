@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"bytes"
 	"archive/zip"
 	"context"
 	"encoding/json"
@@ -1017,6 +1018,15 @@ func (mw *MainWindow) showBenchmarkResults(res *benchmarkResult, dir string) {
 			popup.Hide()
 		}
 	})
+	canShare := fileExportAvailable()
+	var shareBtn fyne.CanvasObject
+	if canShare {
+		if compact {
+			shareBtn = view.NewDialogIconButton(assets.ShareIconDark, func() { mw.shareBenchmarkResults(res) })
+		} else {
+			shareBtn = view.NewDialogApplyButton(i18n.Current.BenchShareResults, func() { mw.shareBenchmarkResults(res) })
+		}
+	}
 	savedPath := ""
 	if dir != "" {
 		savedPath = fmt.Sprintf(i18n.Current.BenchSavedTo, dir)
@@ -1027,10 +1037,18 @@ func (mw *MainWindow) showBenchmarkResults(res *benchmarkResult, dir string) {
 			mw.downloadBenchmarkResults(res)
 		})
 		path := benchEllipsize(savedPath, 8, wrap-36, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff})
-		footer = container.NewBorder(nil, nil, nil, dl, path)
+		var right fyne.CanvasObject = dl
+		if shareBtn != nil {
+			right = container.NewHBox(shareBtn, dl)
+		}
+		footer = container.NewBorder(nil, nil, nil, right, path)
 	} else {
 		saved := benchText(savedPath, color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}, 9, false)
-		footer = container.NewBorder(nil, nil, saved, container.New(&view.DeviceRowControlsLayout{Gap: 12}, closeBtn, download))
+		controls := []fyne.CanvasObject{closeBtn, download}
+		if shareBtn != nil {
+			controls = []fyne.CanvasObject{closeBtn, shareBtn, download}
+		}
+		footer = container.NewBorder(nil, nil, saved, container.New(&view.DeviceRowControlsLayout{Gap: 12}, controls...))
 	}
 
 	popup = showBenchStyledDialogEx(mw.window, i18n.Current.BenchResultsTitle, scroll, footer, benchResultsSizeFn, nil, compact)
@@ -1042,6 +1060,10 @@ func (mw *MainWindow) showBenchmarkResults(res *benchmarkResult, dir string) {
 func (mw *MainWindow) downloadBenchmarkResults(res *benchmarkResult) {
 	name := "usbridge-benchmark-" + res.CreatedAt.Format("20060102_150405") + ".zip"
 	title := i18n.Current.BenchSaveResults
+	if fileExportAvailable() {
+		mw.exportBenchmarkZip(res, name, false)
+		return
+	}
 	if nativeSaveAvailable() {
 		go func() {
 			path, err := nativeSaveFile(title, name)
@@ -1057,6 +1079,49 @@ func (mw *MainWindow) downloadBenchmarkResults(res *benchmarkResult) {
 		return
 	}
 	mw.fyneSaveBenchmarkZip(res, name)
+}
+
+// shareBenchmarkResults hands the zip to the system share sheet (messengers, mail).
+func (mw *MainWindow) shareBenchmarkResults(res *benchmarkResult) {
+	name := "usbridge-benchmark-" + res.CreatedAt.Format("20060102_150405") + ".zip"
+	mw.exportBenchmarkZip(res, name, true)
+}
+
+// exportBenchmarkZip builds the zip in the app's temp (cache) dir, then either
+// opens the share sheet or copies it into Downloads. Android's Fyne save dialog
+// left a 0-byte file, so the bytes are written here and only copied by the OS.
+func (mw *MainWindow) exportBenchmarkZip(res *benchmarkResult, name string, share bool) {
+	go func() {
+		fail := func(err error) {
+			fyne.Do(func() {
+				view.ShowErrorDialog(fmt.Errorf(i18n.Current.BenchSaveResultsFailed, err), mw.window)
+			})
+		}
+		var buf bytes.Buffer
+		if err := writeBenchmarkZip(&buf, res); err != nil {
+			fail(err)
+			return
+		}
+		tmp := filepath.Join(os.TempDir(), name)
+		if err := os.WriteFile(tmp, buf.Bytes(), 0o600); err != nil {
+			fail(err)
+			return
+		}
+		if share {
+			if err := shareFile(tmp, "application/zip", i18n.Current.BenchShareResults); err != nil {
+				fail(err)
+			}
+			return
+		}
+		where, err := saveFileToDownloads(tmp, name, "application/zip")
+		if err != nil {
+			fail(err)
+			return
+		}
+		fyne.Do(func() {
+			view.ShowInfoDialog(i18n.Current.BenchResultsTitle, fmt.Sprintf(i18n.Current.BenchSaveResultsDone, where), mw.window)
+		})
+	}()
 }
 
 func (mw *MainWindow) fyneSaveBenchmarkZip(res *benchmarkResult, name string) {

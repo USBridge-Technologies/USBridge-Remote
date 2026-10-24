@@ -42,6 +42,8 @@ var (
 	uploadIcon []byte
 	//go:embed download-svgrepo-com.svg
 	downloadIcon []byte
+	//go:embed share-icon.svg
+	shareIcon []byte
 	//go:embed cam-svgrepo-com.svg
 	cameraIcon []byte
 	//go:embed fullscreen-svgrepo-com.svg
@@ -334,6 +336,7 @@ var (
 	UploadIconMuted        = fyne.NewStaticResource("upload-svgrepo-com-muted.svg", recolorStrokeIcon(uploadIcon, "#8E8E8E", "2"))
 	DownloadIconDark       = fyne.NewStaticResource("download-svgrepo-com-dark.svg", recolorStrokeIcon(downloadIcon, "#0b0f12", "2"))
 	DownloadIconLight      = fyne.NewStaticResource("download-svgrepo-com-light.svg", recolorStrokeIcon(downloadIcon, "#c4e77a", "2"))
+	ShareIconDark          = fyne.NewStaticResource("share-icon-dark.svg", recolorStrokeIcon(shareIcon, "#0b0f12", "2"))
 	CameraIcon             = fyne.NewStaticResource("cam-svgrepo-com.svg", recolorStrokeIcon(cameraIcon, "#C9C9C9", "1.8"))
 	CameraIconActive       = fyne.NewStaticResource("cam-svgrepo-com-active.svg", recolorStrokeIcon(cameraIcon, "#93C572", "1.8"))
 	// CameraIconStatusBar is the Control header's own video/fps/resolution

@@ -185,6 +185,7 @@ type LocalizedStrings struct {
 	BenchSaveResults                  string
 	BenchSaveResultsDone              string
 	BenchSaveResultsFailed            string
+	BenchShareResults                 string
 	BenchStalls                       string
 	BenchNoStalls                     string
 	BenchFooterBusy                   string
@@ -983,6 +984,7 @@ func EN() *LocalizedStrings {
 		BenchSaveResults:                  "Download results…",
 		BenchSaveResultsDone:              "Results saved to %s",
 		BenchSaveResultsFailed:            "Couldn't save results: %v",
+		BenchShareResults:                 "Share results…",
 		BenchStalls:                       "Every stall",
 		BenchNoStalls:                     "no stalls",
 		BenchFooterBusy:                   "measuring streamers",
@@ -2053,6 +2055,7 @@ func ES() *LocalizedStrings {
 	locale.BenchSaveResults = "Descargar resultados…"
 	locale.BenchSaveResultsDone = "Resultados guardados en %s"
 	locale.BenchSaveResultsFailed = "No se pudieron guardar los resultados: %v"
+	locale.BenchShareResults = "Compartir resultados…"
 	locale.BenchStalls = "Todas las congelaciones"
 	locale.BenchNoStalls = "sin congelaciones"
 	locale.MenuHotkeys = "Atajos de teclado"
@@ -2577,6 +2580,7 @@ func UKProper() *LocalizedStrings {
 	locale.BenchSaveResults = "Завантажити результати…"
 	locale.BenchSaveResultsDone = "Результати збережено в %s"
 	locale.BenchSaveResultsFailed = "Не вдалося зберегти результати: %v"
+	locale.BenchShareResults = "Поділитися результатами…"
 	locale.BenchStalls = "Усі фризи"
 	locale.BenchNoStalls = "без фризів"
 	locale.MenuHotkeys = "Гарячі клавіші"
