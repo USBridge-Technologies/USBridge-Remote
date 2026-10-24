@@ -120,7 +120,11 @@ type VideoStartDialog struct {
 	// is true (Windows/macOS/Linux/iOS/Android today); defaults off
 	// everywhere -- see playout_buffer.go.
 	playoutBufferSlider *videoDialogBitrateSlider
-	playoutBufferHint   *videoDialogWrapText
+	// scrollSpeedSlider: the two-finger scroll speed on touch screens
+	// (service.ScrollSpeedLevel, SaveScrollSpeedPreference) -- draft until
+	// Apply/Start like the jitter buffer; nil off touch screens.
+	scrollSpeedSlider *videoDialogBitrateSlider
+	playoutBufferHint *videoDialogWrapText
 	// fecSlider/fecRow: the agent's streamer FEC (models.VideoFecInfo),
 	// shown in the bitrate card only when the agent reports it takes the
 	// setting; fecChoices are the slider's positions (auto first where the
@@ -1901,6 +1905,20 @@ func (vsd *VideoStartDialog) createInterface() {
 		playoutBufferRow = newVideoDialogCompactSliderRow(i18n.Current.PlayoutBuffer, levelText, vsd.playoutBufferSlider)
 	}
 
+	// Two-finger scroll speed, on touch screens only.
+	var scrollSpeedRow fyne.CanvasObject
+	if IsMobile() {
+		vsd.scrollSpeedSlider = newVideoDialogBitrateSlider(service.ScrollSpeedMinLevel, service.ScrollSpeedMaxLevel, 1)
+		vsd.scrollSpeedSlider.Value = float64(service.ScrollSpeedLevel())
+		speedText := newVideoDialogPillText()
+		vsd.scrollSpeedSlider.OnChanged = func(value float64) {
+			speedText.Text = strconv.Itoa(service.ClampScrollSpeedLevel(int(value + 0.5)))
+			speedText.Refresh()
+		}
+		vsd.scrollSpeedSlider.OnChanged(vsd.scrollSpeedSlider.Value)
+		scrollSpeedRow = newVideoDialogCompactSliderRow(i18n.Current.ScrollSpeed, speedText, vsd.scrollSpeedSlider)
+	}
+
 	// FEC: the agent's streamer FEC, shown once Configure learns the agent
 	// takes it.
 	vsd.fecValue = newVideoDialogPillText()
@@ -1974,6 +1992,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	bitrateCardRows := []fyne.CanvasObject{bitrateHeaderRow, vsd.bitrateSlider, bitrateHintsRow}
 	if playoutBufferRow != nil {
 		bitrateCardRows = append(bitrateCardRows, playoutBufferRow)
+	}
+	if scrollSpeedRow != nil {
+		bitrateCardRows = append(bitrateCardRows, scrollSpeedRow)
 	}
 	bitrateCardRows = append(bitrateCardRows, vsd.fecRow)
 	bitrateCardContent := NewInsetExact(container.NewVBox(bitrateCardRows...), 10, 10, 6, 4)
@@ -2468,6 +2489,9 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	if vsd.playoutBufferSlider != nil {
 		vsd.playoutBufferSlider.SetValue(float64(service.PlayoutBufferLevel()))
 	}
+	if vsd.scrollSpeedSlider != nil {
+		vsd.scrollSpeedSlider.SetValue(float64(service.ScrollSpeedLevel()))
+	}
 	vsd.syncHintWrapWidths()
 	if vsd.dialog != nil && vsd.parent != nil {
 		vsd.dialog.Move(fyne.NewPos(0, 0))
@@ -2941,6 +2965,11 @@ func (vsd *VideoStartDialog) applyLocalOverlaySettings() {
 		service.SetPlayoutBufferLevel(level)
 		SavePlayoutBufferPreference(level)
 	}
+	if vsd.scrollSpeedSlider != nil {
+		level := service.ClampScrollSpeedLevel(int(vsd.scrollSpeedSlider.Value + 0.5))
+		service.SetScrollSpeedLevel(level)
+		SaveScrollSpeedPreference(level)
+	}
 	if vsd.hostVirtualDisplayRow != nil && vsd.hostVirtualDisplayRow.Visible() {
 		service.SetHostVirtualDisplayEnabled(vsd.hostVirtualDisplayCheck.Checked)
 	}
@@ -2956,6 +2985,9 @@ func (vsd *VideoStartDialog) revertLocalOverlayDrafts() {
 	}
 	if vsd.playoutBufferSlider != nil {
 		vsd.playoutBufferSlider.SetValue(float64(service.PlayoutBufferLevel()))
+	}
+	if vsd.scrollSpeedSlider != nil {
+		vsd.scrollSpeedSlider.SetValue(float64(service.ScrollSpeedLevel()))
 	}
 	if vsd.hostVirtualDisplayCheck != nil {
 		vsd.hostVirtualDisplayCheck.SetChecked(service.HostVirtualDisplayEnabled())

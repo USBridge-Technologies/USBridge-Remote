@@ -41,6 +41,8 @@ import "C"
 import (
 	"time"
 
+	"usbridge-client/internal/service"
+
 	"fyne.io/fyne/v2"
 )
 
@@ -129,7 +131,7 @@ func deliverScrollGestureFromJNI(dy C.jfloat) {
 	if vw == nil {
 		return
 	}
-	// Accumulate centroid-Y delta (px); a notch is scrollDPPerNotch dp.
+	// Accumulate centroid-Y delta (px); a notch is service.ScrollDPPerNotch() dp.
 	scrollAccumY += float32(dy)
 	scale := float32(1)
 	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
@@ -138,7 +140,7 @@ func deliverScrollGestureFromJNI(dy C.jfloat) {
 	if scale <= 0 {
 		scale = 1
 	}
-	pixelsPerTick := scrollDPPerNotch * scale
+	pixelsPerTick := service.ScrollDPPerNotch() * scale
 	ticks := int(scrollAccumY / pixelsPerTick)
 	if ticks == 0 {
 		return

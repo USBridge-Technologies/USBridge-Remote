@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/mobile"
@@ -462,7 +463,7 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 		if webTouch.modeScroll {
 			webTouch.scrollAccY += panDy
 			// CSS pixels are dp.
-			const pixelsPerTick = scrollDPPerNotch
+			pixelsPerTick := service.ScrollDPPerNotch()
 			ticks := int(webTouch.scrollAccY / pixelsPerTick)
 			if ticks != 0 {
 				webTouch.scrollAccY -= float32(ticks) * pixelsPerTick

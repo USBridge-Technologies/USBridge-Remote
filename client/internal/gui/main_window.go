@@ -362,6 +362,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	view.ApplyPreviewUserScale()
 	view.RestoreNetGraphPreferences()
 	view.RestorePlayoutBufferPreference()
+	view.RestoreScrollSpeedPreference()
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService()

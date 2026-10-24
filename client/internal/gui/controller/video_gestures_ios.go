@@ -13,6 +13,8 @@ import "C"
 import (
 	"time"
 
+	"usbridge-client/internal/service"
+
 	"fyne.io/fyne/v2"
 )
 
@@ -98,7 +100,7 @@ func deliverScrollGestureFromObjC(dy C.float) {
 	}
 	iosScrollAccumY += float32(dy)
 	// UIKit points are dp.
-	const pixelsPerTick = scrollDPPerNotch
+	pixelsPerTick := service.ScrollDPPerNotch()
 	ticks := int(iosScrollAccumY / pixelsPerTick)
 	if ticks == 0 {
 		return

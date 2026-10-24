@@ -717,6 +717,7 @@ type LocalizedStrings struct {
 	PlayoutBufferLowEnd                  string    // hint under the slider's left end
 	PlayoutBufferSmoothEnd               string    // hint under the slider's right end
 	PlayoutBufferBadge                   string // small platform badge next to the Jitter Buffer title
+	ScrollSpeed                          string // two-finger scroll speed slider title, video parameters dialog (touch screens)
 	Fec                                  string // FEC slider caption in the bitrate card (agent POST /api/video/fec)
 	FecAuto                              string // the FEC slider's auto position
 	VideoSource                          string // "Video source" picker caption, video parameters dialog (agent POST /api/video/source)
@@ -1503,6 +1504,7 @@ func EN() *LocalizedStrings {
 		PlayoutBufferLowEnd:                  "Lowest latency",
 		PlayoutBufferSmoothEnd:               "Smoothest",
 		PlayoutBufferBadge:                   "Beta",
+		ScrollSpeed:                          "Two-finger scroll",
 		Fec:                                  "FEC",
 		FecAuto:                              "Auto",
 		VideoSource:                          "Screen",
