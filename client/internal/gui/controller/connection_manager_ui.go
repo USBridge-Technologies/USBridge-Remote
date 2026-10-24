@@ -213,47 +213,30 @@ func (cm *ConnectionManager) initTailscaleMode() {
 	go cm.refreshTailscaleStatus()
 }
 
-// showLanguageMenu is the header's language button's tap callback (see
-// gui.connectionHeaderActions.OnShowLanguageMenu) -- styled via
-// ShowStyledMenuTeal to read like the per-connection protocol dropdown's
-// own AUTO/TS/LAN popup (teal, 10px), even though this stays a plain
-// ShowStyledMenu (full language names, no HeaderDropdown trigger).
-func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
-	currentLanguage := cm.app.Preferences().StringWithFallback(i18n.LanguagePrefKey, "en")
-	items := []view.StyledMenuItem{
-		{
-			Label:    "English",
-			Selected: currentLanguage == "en",
-			OnTap: func() {
-				cm.setLanguage("en")
-			},
-		},
-		{
-			Label:    "Español",
-			Selected: currentLanguage == "es",
-			OnTap: func() {
-				cm.setLanguage("es")
-			},
-		},
-		{
-			Label:    "Українська",
-			Selected: currentLanguage == "uk" || currentLanguage == "ua",
-			OnTap: func() {
-				cm.setLanguage("uk")
-			},
-		},
-	}
-	if view.IsMobile() {
-		view.ShowMobileLanguageMenu(anchor, items)
-		return
-	}
-	view.ShowStyledMenuTeal(anchor, items)
+// ClientLanguage is one of the client's languages (Client settings).
+type ClientLanguage struct {
+	Code, Name string
 }
 
-// ShowLanguageMenu is showLanguageMenu, exported for
-// createConnectionAddressBar (package gui) to call.
-func (cm *ConnectionManager) ShowLanguageMenu(anchor fyne.CanvasObject) {
-	cm.showLanguageMenu(anchor)
+// ClientLanguages are the languages the client is translated into.
+var ClientLanguages = []ClientLanguage{
+	{"en", "English"},
+	{"es", "Español"},
+	{"uk", "Українська"},
+}
+
+// CurrentLanguage is the code of the language in use ("ua" read as "uk").
+func (cm *ConnectionManager) CurrentLanguage() string {
+	code := cm.app.Preferences().StringWithFallback(i18n.LanguagePrefKey, "en")
+	if code == "ua" {
+		code = "uk"
+	}
+	return code
+}
+
+// SetLanguage switches the client's language and rebuilds the UI.
+func (cm *ConnectionManager) SetLanguage(code string) {
+	cm.setLanguage(code)
 }
 
 func (cm *ConnectionManager) showLinkMenu(anchor fyne.CanvasObject, items []view.StyledMenuItem) {

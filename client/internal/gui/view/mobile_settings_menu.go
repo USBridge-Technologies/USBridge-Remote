@@ -14,8 +14,8 @@ import (
 
 // ShowMobileSettingsMenu is the phone Connections gear panel: a larger
 // Grid/List segmented control (same look as the desktop header toggle)
-// plus icon rows for What's new / Info / Community / Language.
-func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode func(string), onHardwareAgent, onSoftwareAgent, onInfo, onCommunity, onLanguage func()) {
+// plus icon rows for What's new / Info / Community / Client settings.
+func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode func(string), onHardwareAgent, onSoftwareAgent, onInfo, onCommunity, onClientSettings func()) {
 	if anchor == nil {
 		return
 	}
@@ -56,7 +56,7 @@ func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode fu
 		}),
 		row(i18n.Current.MenuInfo, assets.QuestionIconTeal, onInfo),
 		row(i18n.Current.MenuCommunity, assets.DiscordIconTeal, onCommunity),
-		row(i18n.Current.Language, assets.LanguageIconTeal, onLanguage),
+		row(i18n.Current.MenuClientSettings, assets.GearIconTeal, onClientSettings),
 	)
 	popup = showStyledPanel(anchor, content, 236, false)
 }
@@ -64,7 +64,7 @@ func ShowMobileSettingsMenu(anchor fyne.CanvasObject, mode string, onViewMode fu
 // ShowMobileControlSettingsMenu is the phone Control gear panel: same
 // 13px / 38-tall / 220-wide teal rows as Connections, plus Power Reset
 // and Account (no Grid/List toggle).
-func ShowMobileControlSettingsMenu(anchor fyne.CanvasObject, onPowerReset, onHardwareAgent, onSoftwareAgent, onInfo, onCommunity, onLanguage, onAccount, onBenchmark, onHotkeys, onKVMSettings func()) {
+func ShowMobileControlSettingsMenu(anchor fyne.CanvasObject, onPowerReset, onHardwareAgent, onSoftwareAgent, onInfo, onCommunity, onClientSettings, onAccount, onBenchmark, onHotkeys, onKVMSettings func()) {
 	if anchor == nil {
 		return
 	}
@@ -85,7 +85,7 @@ func ShowMobileControlSettingsMenu(anchor fyne.CanvasObject, onPowerReset, onHar
 		newMobileSettingsRow("Software Agent", assets.SoftwareAgentIconTeal, func() { hideThen(onSoftwareAgent) }),
 		newMobileSettingsRow(i18n.Current.MenuInfo, assets.QuestionIconTeal, func() { hideThen(onInfo) }),
 		newMobileSettingsRow(i18n.Current.MenuCommunity, assets.DiscordIconTeal, func() { hideThen(onCommunity) }),
-		newMobileSettingsRow(i18n.Current.Language, assets.LanguageIconTeal, func() { hideThen(onLanguage) }),
+		newMobileSettingsRow(i18n.Current.MenuClientSettings, assets.GearIconTeal, func() { hideThen(onClientSettings) }),
 		newMobileSettingsRow(i18n.Current.MenuAccount, assets.AccountIconTeal, func() { hideThen(onAccount) }),
 	)
 	if onKVMSettings != nil {

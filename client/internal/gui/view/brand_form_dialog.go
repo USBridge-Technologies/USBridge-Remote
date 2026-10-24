@@ -52,6 +52,22 @@ func NewDialogHint(text string, width float32) fyne.CanvasObject {
 	return newVideoDialogWrapText(width, 10, false, videoDialogWrapSpan{Text: text, Color: videoDialogHintColor})
 }
 
+// NewDialogStepSlider is the Video dialog's compact slider (caption and a
+// value pill over the slider) for whole steps lo..hi, starting at value;
+// label names a step. current reports where it is now.
+func NewDialogStepSlider(caption string, lo, hi, value int, label func(int) string) (row fyne.CanvasObject, current func() int) {
+	slider := newVideoDialogBitrateSlider(float64(lo), float64(hi), 1)
+	slider.Value = float64(value)
+	text := newVideoDialogPillText()
+	step := func() int { return max(lo, min(hi, int(slider.Value+0.5))) }
+	slider.OnChanged = func(float64) {
+		text.Text = label(step())
+		text.Refresh()
+	}
+	slider.OnChanged(slider.Value)
+	return newVideoDialogCompactSliderRow(caption, text, slider), step
+}
+
 func NewDialogVSpace(height float32) fyne.CanvasObject {
 	return videoDialogVSpace(height)
 }

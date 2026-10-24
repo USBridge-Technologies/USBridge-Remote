@@ -521,11 +521,7 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 // reported actions to the real controller calls.
 func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 	actions := connectionHeaderActions{
-		OnShowLanguageMenu: func(anchor fyne.CanvasObject) {
-			if mw.connectionManager != nil {
-				mw.connectionManager.ShowLanguageMenu(anchor)
-			}
-		},
+		OnClientSettings: mw.showClientSettingsDialog,
 		OnOpenCommunity: func(anchor fyne.CanvasObject) {
 			if mw.connectionManager != nil {
 				mw.connectionManager.ShowCommunityMenu(anchor)
@@ -651,7 +647,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	}
 	// Control's own reuse of the connections screen's header accessories
 	// (see connection_header.go's newHeaderSettingsMenuButton) -- same
-	// Info/Community/Language/Account actions as createConnectionAddressBar
+	// Info/Community/Client settings/Account actions as createConnectionAddressBar
 	// wires into newConnectionHeader, just collapsed into one gear-icon
 	// dropdown instead of four separate buttons so they don't crowd this
 	// row's pcpanel/status-icon/protocol/exit elements.
@@ -661,11 +657,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 				mw.pcpanelWidget.ShowPowerMenu()
 			}
 		},
-		OnShowLanguageMenu: func(anchor fyne.CanvasObject) {
-			if mw.connectionManager != nil {
-				mw.connectionManager.ShowLanguageMenu(anchor)
-			}
-		},
+		OnClientSettings: mw.showClientSettingsDialog,
 		OnOpenCommunity: func(anchor fyne.CanvasObject) {
 			if mw.connectionManager != nil {
 				mw.connectionManager.ShowCommunityMenu(anchor)

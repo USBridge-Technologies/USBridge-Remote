@@ -24,9 +24,9 @@ import (
 // composition root (createConnectionAddressBar) wires these to the actual
 // controller calls.
 type connectionHeaderActions struct {
-	// OnShowLanguageMenu is called with the language button itself as the
-	// anchor, so the popup menu can position itself against it.
-	OnShowLanguageMenu  func(anchor fyne.CanvasObject)
+	// OnClientSettings opens the client's own settings (language, touch
+	// scroll speed): showClientSettingsDialog.
+	OnClientSettings    func()
 	OnOpenCommunity     func(anchor fyne.CanvasObject)
 	OnOpenInfo          func(anchor fyne.CanvasObject)
 	OnOpenHardwareAgent func()
@@ -103,7 +103,7 @@ var gearIconHeader = fyne.NewStaticResource("gear-header.svg", []byte(`<svg xmln
 // (mainWindowLayout's own tabHeaderButtons).
 type headerSettingsMenuActions struct {
 	OnPowerReset        func()
-	OnShowLanguageMenu  func(anchor fyne.CanvasObject)
+	OnClientSettings    func()
 	OnOpenCommunity     func(anchor fyne.CanvasObject)
 	OnOpenInfo          func(anchor fyne.CanvasObject)
 	OnOpenHardwareAgent func()
@@ -119,15 +119,14 @@ type headerSettingsMenuActions struct {
 }
 
 // newHeaderSettingsMenuButton builds a single gear-icon button that opens a
-// ShowStyledMenuTeal dropdown (the same teal/10px look as the language
-// menu's own popup -- see connection_manager_ui.go's showLanguageMenu)
+// ShowStyledMenuTeal dropdown (teal, 10px)
 // listing Power Reset/Hardware Agent/Software Agent/Info/Community/
-// Language/Account -- Control's own reuse of newConnectionHeader's
+// Client settings/Account -- Control's own reuse of newConnectionHeader's
 // accessory row (see createMainAddressBar), collapsed into one button
 // instead of several separate ones so they don't compete for space with
 // Control's own tab-selector/status-icon row. Info and Community open the
-// same nested link menus as the connections header; Language forwards to
-// actions.OnShowLanguageMenu, anchored to this gear button.
+// same nested link menus as the connections header; Client settings opens
+// actions.OnClientSettings (language and touch scrolling).
 func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasObject {
 	var btn *headerStatusBadgeButton
 	btn = newHeaderStatusBadgeButton(gearIconHeader, func() {
@@ -146,11 +145,7 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 						actions.OnOpenCommunity(btn)
 					}
 				},
-				func() {
-					if actions.OnShowLanguageMenu != nil {
-						actions.OnShowLanguageMenu(btn)
-					}
-				},
+				actions.OnClientSettings,
 				actions.OnOpenAccount,
 				actions.OnRunBenchmark,
 				actions.OnShowHotkeys,
@@ -184,9 +179,9 @@ func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasO
 					actions.OnOpenCommunity(btn)
 				}
 			}},
-			{Label: i18n.Current.Language, Icon: assets.LanguageIconTeal, OnTap: func() {
-				if actions.OnShowLanguageMenu != nil {
-					actions.OnShowLanguageMenu(btn)
+			{Label: i18n.Current.MenuClientSettings, Icon: assets.GearIconTeal, OnTap: func() {
+				if actions.OnClientSettings != nil {
+					actions.OnClientSettings()
 				}
 			}},
 			{Label: i18n.Current.MenuAccount, Icon: assets.AccountIconTeal, OnTap: func() {
@@ -227,10 +222,10 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	const logoHeight = 28
 	logoLockup.SetMinSize(fyne.NewSize(logoHeight*logoAspectRatio, logoHeight))
 
-	var langBtn *headerStatusBadgeButton
-	langBtn = newHeaderStatusBadgeButton(assets.LanguageIconHeader, func() {
-		if actions.OnShowLanguageMenu != nil {
-			actions.OnShowLanguageMenu(langBtn)
+	// Client settings (language, touch scrolling).
+	langBtn := newHeaderStatusBadgeButton(gearIconHeader, func() {
+		if actions.OnClientSettings != nil {
+			actions.OnClientSettings()
 		}
 	})
 	langBtn.SetBadgeText("")

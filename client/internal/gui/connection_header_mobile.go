@@ -94,11 +94,7 @@ func newMobileConnectionOverflowButton(actions connectionHeaderActions) fyne.Can
 					actions.OnOpenCommunity(btn)
 				}
 			},
-			func() {
-				if actions.OnShowLanguageMenu != nil {
-					actions.OnShowLanguageMenu(btn)
-				}
-			},
+			actions.OnClientSettings,
 		)
 	})
 	btn.SetBadgeText("")

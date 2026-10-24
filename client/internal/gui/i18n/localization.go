@@ -94,6 +94,7 @@ type LocalizedStrings struct {
 	MenuAccount                       string
 	MenuBenchmark                     string
 	MenuKVMSettings                   string
+	MenuClientSettings                string
 	KVMNetEthernet                    string
 	KVMNetWiFi                        string
 	KVMEventLog                       string
@@ -885,6 +886,7 @@ func EN() *LocalizedStrings {
 		MenuAccount:                       "Account",
 		MenuBenchmark:                     "Run benchmark",
 		MenuKVMSettings:                   "KVM settings",
+		MenuClientSettings:                "Client settings",
 		KVMNetEthernet:                    "Ethernet",
 		KVMNetWiFi:                        "Wi-Fi",
 		KVMEventLog:                       "Event log",
@@ -1957,6 +1959,8 @@ func ES() *LocalizedStrings {
 	locale.ScriptsStateRunning = "Activo"
 	locale.MenuBenchmark = "Ejecutar benchmark"
 	locale.MenuKVMSettings = "Ajustes del KVM"
+	locale.MenuClientSettings = "Ajustes del cliente"
+	locale.ScrollSpeed = "Desplazamiento con dos dedos"
 	locale.KVMNetEthernet = "Ethernet"
 	locale.KVMNetWiFi = "Wi-Fi"
 	locale.KVMEventLog = "Registro de eventos"
@@ -2473,6 +2477,8 @@ func UKProper() *LocalizedStrings {
 	locale.ScriptsStateRunning = "Онлайн"
 	locale.MenuBenchmark = "Запустити бенчмарк"
 	locale.MenuKVMSettings = "Налаштування KVM"
+	locale.MenuClientSettings = "Налаштування клієнта"
+	locale.ScrollSpeed = "Прокрутка двома пальцями"
 	locale.KVMNetEthernet = "Ethernet"
 	locale.KVMNetWiFi = "Wi-Fi"
 	locale.KVMEventLog = "Журнал подій"
