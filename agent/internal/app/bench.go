@@ -3,9 +3,12 @@ package app
 import (
 	"fmt"
 	"log"
+	"runtime"
+	"strings"
 
 	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/benchvideo"
+	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/forkrelease"
 	"usbridge_agent/internal/monitors"
 	"usbridge_agent/internal/streamhost"
@@ -56,6 +59,49 @@ func (a *App) BenchVideoOutput() string {
 	return ""
 }
 
+// BenchVirtualID is the benchmark's "virtual display" pick in place of a monitor
+// (Windows): every streamer is pinned to benchVirtualSpec, so the agent keeps the one
+// virtual monitor up across the backend switches. Without it each streamer used its
+// own saved pick, and a switch to one with a physical monitor took the virtual monitor
+// down and put the other monitors back mid-benchmark -- the next two streamers started
+// into that and failed.
+const BenchVirtualID = "virtual"
+
+const defaultBenchVirtualSpec = "virtual:1920x1080@60"
+
+// BenchVirtualSpec is the "virtual:WxH@FPS" the virtual-display benchmark runs (or would
+// run) at: the one pinned, else the virtual display picked for streaming now, else the default.
+func (a *App) BenchVirtualSpec() string {
+	a.streamMu.Lock()
+	pinned := a.benchMonitor == BenchVirtualID
+	spec := a.benchVirtualSpec
+	a.streamMu.Unlock()
+	if pinned && spec != "" {
+		return spec
+	}
+	if cur := a.SunshineOutputName(); strings.HasPrefix(cur, "virtual:") {
+		return cur
+	}
+	return defaultBenchVirtualSpec
+}
+
+// isVirtualMonitor: id is the GDI name of the virtual monitor on the desktop now. The
+// client lists it like any monitor while it is up, so picking it must mean the same as
+// picking BenchVirtualID -- pinned as a physical monitor, the streamers whose own pick is
+// a physical one took the virtual monitor down at each backend switch.
+func isVirtualMonitor(id string) bool {
+	list, err := displaypower.ListInSession()
+	if err != nil {
+		return false
+	}
+	for _, m := range list {
+		if m.Virtual && m.Active && m.GDIName == id {
+			return true
+		}
+	}
+	return false
+}
+
 // BenchMonitors lists the host's monitors for the benchmark's monitor pick,
 // named after what the streamers themselves report where they do (Sunshine
 // logs each monitor's model name; Windows alone mostly says "Generic PnP
@@ -75,6 +121,14 @@ func (a *App) BenchMonitors() ([]monitors.Monitor, error) {
 		if n := names[list[i].ID]; n != "" {
 			list[i].Name = n
 		}
+	}
+	if runtime.GOOS == "windows" {
+		// Sized by the mode it will run in (what was picked at connect), not a fixed one.
+		w, h := 1920, 1080
+		if m, err := displaypower.ParseMode(strings.TrimPrefix(a.BenchVirtualSpec(), "virtual:")); err == nil {
+			w, h = m.Width, m.Height
+		}
+		list = append(list, monitors.Monitor{ID: BenchVirtualID, Name: "Virtual display", Width: w, Height: h})
 	}
 	return list, nil
 }
@@ -99,7 +153,10 @@ func (a *App) BenchMonitor() string {
 // (~25 s for Sunshine) on each side of the benchmark, spent on a streamer
 // that was about to be restarted or replaced anyway.
 func (a *App) SetBenchMonitor(id string, deferRestart bool) error {
-	if id != "" {
+	if id != "" && id != BenchVirtualID && isVirtualMonitor(id) {
+		id = BenchVirtualID
+	}
+	if id != "" && id != BenchVirtualID {
 		list, err := monitors.List()
 		if err != nil {
 			return err
@@ -115,6 +172,13 @@ func (a *App) SetBenchMonitor(id string, deferRestart bool) error {
 		return nil
 	}
 	a.benchMonitor = id
+	if id == BenchVirtualID {
+		// Keep the mode the virtual monitor is in now, so it isn't rebuilt at the pin.
+		a.benchVirtualSpec = defaultBenchVirtualSpec
+		if cur := a.SunshineOutputName(); strings.HasPrefix(cur, "virtual:") {
+			a.benchVirtualSpec = cur
+		}
+	}
 	if id == "" {
 		return a.restoreBenchOutputs(deferRestart)
 	}
@@ -146,7 +210,13 @@ func (a *App) applyBenchMonitor(b streamhost.Backend, kind string) (changed, ok 
 		return false, true
 	}
 	var output string
+	if a.benchMonitor == BenchVirtualID {
+		output, ok = a.benchVirtualSpec, true
+	}
 	for _, d := range b.ListCaptureDevices() {
+		if ok {
+			break
+		}
 		if d.GDIName == a.benchMonitor {
 			output, ok = d.OutputName, true
 			break

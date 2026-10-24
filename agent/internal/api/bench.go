@@ -8,9 +8,11 @@ import (
 	"log"
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
 
 	"usbridge_agent/internal/benchvideo"
+	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/hostload"
 	"usbridge_agent/internal/monitors"
 )
@@ -34,6 +36,8 @@ type benchApplication interface {
 	// video has to play on because the active streamer shows only that
 	// one, "" when it shows a monitor the video opens on anyway.
 	BenchVideoOutput() string
+	// BenchVirtualSpec: the "virtual:WxH@FPS" a virtual-display benchmark runs at.
+	BenchVirtualSpec() string
 }
 
 // BackendSwitchTiming splits a bench/backend switch for the benchmark's
@@ -181,8 +185,24 @@ func (s *Server) benchVideoStart(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
+	var req struct {
+		FPS int `json:"fps"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req) // optional body (older clients send "{}")
+	if req.FPS == 0 && b.BenchMonitor() == benchVirtualMonitorID {
+		// A client that doesn't say (older): the virtual display's own rate.
+		if m, err := displaypower.ParseMode(strings.TrimPrefix(b.BenchVirtualSpec(), "virtual:")); err == nil {
+			req.FPS = m.Hz
+		}
+	}
+	b.BenchPlayer().SetFPS(req.FPS)
 	var target *monitors.Monitor
-	if id := b.BenchMonitor(); id != "" {
+	if id := b.BenchMonitor(); id == benchVirtualMonitorID {
+		// The streamed virtual monitor is wherever it came up (DISPLAYn).
+		if m, found := settledVirtualMonitor(ctx); found {
+			target = &m
+		}
+	} else if id != "" {
 		mons, err := b.BenchMonitors()
 		if err != nil {
 			s.fail(w, http.StatusInternalServerError, "bench_video_failed", err)
@@ -237,6 +257,66 @@ func (s *Server) benchLoadStop(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.ok(w, "bench_load", resp)
+}
+
+// benchVirtualMonitorID mirrors app.BenchVirtualID.
+const benchVirtualMonitorID = "virtual"
+
+// settledVirtualMonitor waits (up to 15s) for the desktop's monitor set to stop changing
+// with the virtual monitor in it, then returns that monitor. A stream host that brings up
+// its own virtual monitor (Punktfunk) has the agent take its own down and put the other
+// monitors back for a few seconds, then switch them off again; the test video must not
+// be placed, and the measured window not start, in the middle of that.
+func settledVirtualMonitor(ctx context.Context) (monitors.Monitor, bool) {
+	const stable = 3 * time.Second
+	deadline := time.Now().Add(15 * time.Second)
+	var last string
+	var since time.Time
+	for {
+		key := ""
+		if list, err := displaypower.ListInSession(); err == nil {
+			for _, m := range list {
+				if m.Active {
+					key += m.GDIName + ";"
+					if m.Virtual {
+						key += "v;"
+					}
+				}
+			}
+		}
+		now := time.Now()
+		if key != last || since.IsZero() {
+			last, since = key, now
+		}
+		if strings.Contains(last, "v;") && now.Sub(since) >= stable {
+			break
+		}
+		if now.After(deadline) || ctx.Err() != nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return activeVirtualMonitor()
+}
+
+// activeVirtualMonitor is the virtual monitor on the user's desktop now.
+func activeVirtualMonitor() (monitors.Monitor, bool) {
+	list, err := displaypower.ListInSession()
+	if err != nil {
+		return monitors.Monitor{}, false
+	}
+	for _, m := range list {
+		if m.Virtual && m.Active && m.GDIName != "" {
+			// Position (the player is placed by it) comes from the monitor list.
+			if all, err := monitors.List(); err == nil {
+				if mm, ok := monitors.Find(all, m.GDIName); ok {
+					return mm, true
+				}
+			}
+			return monitors.Monitor{ID: m.GDIName, Name: m.Name, Width: m.Width, Height: m.Height}, true
+		}
+	}
+	return monitors.Monitor{}, false
 }
 
 // listedBenchBackends is every streamer that exists for this OS: Punktfunk

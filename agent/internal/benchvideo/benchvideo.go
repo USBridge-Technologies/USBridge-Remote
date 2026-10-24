@@ -91,6 +91,18 @@ type Player struct {
 	info     Info
 	stopTime *time.Timer
 	dlMu     sync.Mutex
+	fps      int
+}
+
+// SetFPS tells the next Start the frame rate the streamers are asked for. The clip is
+// 60fps, so above that it is the ceiling of the whole benchmark: the desktop shows only
+// 60 new pictures a second and no streamer can deliver more, however fast it is set up.
+// Above 60 ffplay plays a generated pattern at that rate instead (the other players
+// can't generate one and keep the clip).
+func (p *Player) SetFPS(fps int) {
+	p.mu.Lock()
+	p.fps = fps
+	p.mu.Unlock()
 }
 
 // New returns a Player caching its content under stateDir/bench.
@@ -201,9 +213,25 @@ func (p *Player) Start(ctx context.Context, target *monitors.Monitor, output str
 	if player == "" {
 		return Info{}, errors.New("no video player on the host: install ffmpeg (ffplay), mpv or VLC")
 	}
+	p.mu.Lock()
+	fps := p.fps
+	p.mu.Unlock()
+	if fps > 60 && player == "ffplay" {
+		content = ""
+		log.Printf("[bench] streamers run at %d fps: the 60fps clip would cap them, playing a generated %dfps pattern", fps, fps)
+	}
 	args, label, err := playerArgs(player, content)
 	if err != nil {
 		return Info{}, err
+	}
+	if content == "" && fps > 60 && player == "ffplay" {
+		// Two boxes crossing a flat background: every frame is a new picture, and it
+		// costs the host's CPU/GPU next to nothing (testsrc2 draws a whole test card).
+		// (overlay re-evaluates its position every frame; drawbox does not.)
+		args = append(args[:len(args)-1], fmt.Sprintf("color=c=0x202830:s=1920x1080:r=%[1]d[bg];"+
+			"color=c=white:s=120x120:r=%[1]d[a];color=c=0x61f0d3:s=120x120:r=%[1]d[b];"+
+			`[bg][a]overlay=x=mod(t*1500\,1800):y=300[m];[m][b]overlay=x=1800-mod(t*1000\,1800):y=660`, fps))
+		label = fmt.Sprintf("moving boxes 1080p%d", fps)
 	}
 	if target != nil {
 		args = append(placementArgs(player, *target), args...)

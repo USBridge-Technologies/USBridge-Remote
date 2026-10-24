@@ -212,7 +212,7 @@ func (mw *MainWindow) benchmarkOne(ctx context.Context, run *service.BenchRun, r
 		return err
 	}
 	step(i18n.Current.BenchStepVideo, 0.1)
-	video, err := client.BenchVideoStart()
+	video, err := client.BenchVideoStartFPS(run.ExpectedFPS)
 	if err != nil {
 		return fmt.Errorf("video: %w", err)
 	}

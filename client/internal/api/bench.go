@@ -158,8 +158,12 @@ func (c *USBClient) BenchPrepare() (ready bool, note string, err error) {
 // BenchVideoStart starts the content fullscreen on the host from its first
 // frame, on the pinned monitor if there is one, and reports what's playing
 // where.
-func (c *USBClient) BenchVideoStart() (BenchVideo, error) {
-	body, err := c.PostRawWithTimeout("/api/bench/video/start", []byte("{}"), 4*time.Minute)
+func (c *USBClient) BenchVideoStart() (BenchVideo, error) { return c.BenchVideoStartFPS(0) }
+
+// BenchVideoStartFPS is BenchVideoStart for streamers asked for fps: above 60 the host
+// plays a pattern that changes that often (its 60fps clip would cap every streamer).
+func (c *USBClient) BenchVideoStartFPS(fps int) (BenchVideo, error) {
+	body, err := c.PostRawWithTimeout("/api/bench/video/start", []byte(fmt.Sprintf(`{"fps":%d}`, fps)), 4*time.Minute)
 	var out struct {
 		Player           string `json:"player"`
 		Content          string `json:"content"`

@@ -75,6 +75,9 @@ type App struct {
 	// changed it, restored when the pin is cleared. Guarded by streamMu.
 	benchMonitor    string
 	benchOrigOutput map[string]string
+	// benchVirtualSpec: the "virtual:WxH@FPS" every streamer is pinned to while the
+	// benchmark is on the virtual display (see BenchVirtualID).
+	benchVirtualSpec string
 	// benchRestartPending: a deferred SetBenchMonitor changed the running
 	// streamer's monitor without restarting it; the next SetStreamBackend
 	// restarts it (same kind) or replaces it (other kind). Guarded by

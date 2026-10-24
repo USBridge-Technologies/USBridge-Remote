@@ -218,7 +218,10 @@ const punktfunkManagedOutputPrefix = "Virtual-punktfunk"
 // streamed from when a virtual display is picked, "" when a monitor is
 // mirrored. The benchmark plays its test video there (app.BenchVideoOutput).
 func (b *punktfunkBackend) VirtualOutputPrefix() string {
-	if strings.HasPrefix(b.OutputName(), punktfunkVirtualPrefix) {
+	// Only KWin names an output the video can be moved to; on Windows its virtual
+	// display is an ordinary monitor, which the benchmark places the player on by
+	// position (moving to a "compositor output" failed there: bench video start).
+	if runtime.GOOS == "linux" && strings.HasPrefix(b.OutputName(), punktfunkVirtualPrefix) {
 		return punktfunkManagedOutputPrefix
 	}
 	return ""
