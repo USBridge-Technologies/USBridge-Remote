@@ -53,6 +53,8 @@ type TokenBackend interface {
 	SendSAS() error
 	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
+	HostApps() ([]streamhost.HostApp, error)
+	SetHostApps(apps []streamhost.HostApp) (pending bool, err error)
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
 	UpdateTLSAddr(port int, enabled bool) (config.Config, error)
@@ -250,6 +252,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/send-sas", s.handleSendSAS)
 	mux.HandleFunc("GET /token/clients", s.handleListClients)
 	mux.HandleFunc("POST /token/unpair", s.handleUnpair)
+	mux.HandleFunc("GET /token/apps", s.handleHostApps)
+	mux.HandleFunc("POST /token/apps", s.handleSetHostApps)
 	mux.HandleFunc("POST /token/pin", s.handlePIN)
 	mux.HandleFunc("POST /engine/relinquish", s.handleRelinquishEngine)
 	mux.HandleFunc("POST /token/listen-addr", s.handleListenAddr)
@@ -508,6 +512,29 @@ func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleHostApps(w http.ResponseWriter, r *http.Request) {
+	apps, err := s.token.HostApps()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apps)
+}
+
+func (s *Server) handleSetHostApps(w http.ResponseWriter, r *http.Request) {
+	var apps []streamhost.HostApp
+	if err := readJSON(r, &apps); err != nil {
+		writeError(w, err)
+		return
+	}
+	pending, err := s.token.SetHostApps(apps)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, hostAppsResult{Pending: pending})
 }
 
 // handleRelinquishEngine asks this instance to gracefully step down from

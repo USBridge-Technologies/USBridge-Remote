@@ -465,7 +465,15 @@ func TestSunshineConfigArgs_ConfigPathFirstThenIsolatedOverrides(t *testing.T) {
 			t.Errorf("args[%d] = %q, want prefix %q", i+1, got, prefix)
 			continue
 		}
-		if path := strings.TrimPrefix(got, prefix); !strings.HasPrefix(path, dataDir) {
+		path := strings.TrimPrefix(got, prefix)
+		if prefix == "file_apps=" {
+			// The agent's one app list for every stream host (apps.go).
+			if path != HostAppsPath(b.stateDir) {
+				t.Errorf("args[%d] = %q, want the shared app list %q", i+1, got, HostAppsPath(b.stateDir))
+			}
+			continue
+		}
+		if !strings.HasPrefix(path, dataDir) {
 			t.Errorf("args[%d] = %q, want its path under sunshineDataDir() %q", i+1, got, dataDir)
 		}
 	}

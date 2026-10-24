@@ -91,6 +91,29 @@ type LocalizedStrings struct {
 	MoonlightClients     string
 	MoonlightHeader      string
 	RemoveAllMoonlight   string
+	HostApps             string
+	HostAppsHint         string
+	HostAppAdd           string
+	HostAppEdit          string
+	HostAppName          string
+	HostAppCmd           string
+	HostAppWorkDir       string
+	HostAppDetached      string
+	HostAppDetachedHint  string
+	HostAppPrep          string
+	HostAppPrepDo        string
+	HostAppPrepUndo      string
+	HostAppPrepAdd       string
+	HostAppPrepAdmin     string
+	HostAppImage         string
+	HostAppElevated      string
+	HostAppAutoDetach    string
+	HostAppWaitAll       string
+	HostAppExitTimeout   string
+	HostAppNoGlobalPrep  string
+	HostAppsPending      string
+	HostAppNeedsName     string
+	HostAppDelete        string
 	WebRTCToggle         string
 
 	// Status rows (technical labels stay English)
@@ -413,6 +436,29 @@ func EN() *LocalizedStrings {
 		MoonlightClients:     "Moonlight Clients",
 		MoonlightHeader:      "Moonlight client",
 		RemoveAllMoonlight:   "Remove all paired Moonlight devices?",
+		HostApps:             "Host Apps",
+		HostAppsHint:         "What a Moonlight client can start here: Desktop, Steam, a game. One list for every stream host.",
+		HostAppAdd:           "Add App",
+		HostAppEdit:          "Edit App",
+		HostAppName:          "Name",
+		HostAppCmd:           "Command",
+		HostAppWorkDir:       "Working dir",
+		HostAppDetached:      "Detached",
+		HostAppDetachedHint:  "Started and left running, one command per line (e.g. steam://open/bigpicture)",
+		HostAppPrep:          "Prep commands",
+		HostAppPrepDo:        "Do",
+		HostAppPrepUndo:      "Undo",
+		HostAppPrepAdd:       "Add Step",
+		HostAppPrepAdmin:     "Admin",
+		HostAppImage:         "Image",
+		HostAppElevated:      "Run as administrator",
+		HostAppAutoDetach:    "Keep streaming if the app exits right away",
+		HostAppWaitAll:       "Wait for all app processes to exit",
+		HostAppExitTimeout:   "Exit timeout, s",
+		HostAppNoGlobalPrep:  "Skip the global prep commands",
+		HostAppsPending:      "Saved. The streamer loads the list when the current stream ends.",
+		HostAppNeedsName:     "The app needs a name",
+		HostAppDelete:        "Remove %s?",
 		WebRTCToggle:         "USBridge-streamer Web (WebRTC)",
 
 		Streamer:   "Streamer",
@@ -675,6 +721,29 @@ func ES() *LocalizedStrings {
 	locale.MoonlightClients = "Clientes Moonlight"
 	locale.MoonlightHeader = "Cliente Moonlight"
 	locale.RemoveAllMoonlight = "Quitar todos los dispositivos Moonlight emparejados?"
+	locale.HostApps = "Apps del host"
+	locale.HostAppsHint = "Lo que un cliente Moonlight puede iniciar aqui: Escritorio, Steam, un juego. Una lista para todos los servidores de streaming."
+	locale.HostAppAdd = "Agregar app"
+	locale.HostAppEdit = "Editar app"
+	locale.HostAppName = "Nombre"
+	locale.HostAppCmd = "Comando"
+	locale.HostAppWorkDir = "Carpeta"
+	locale.HostAppDetached = "Separados"
+	locale.HostAppDetachedHint = "Se inician y quedan abiertos, un comando por linea (p. ej. steam://open/bigpicture)"
+	locale.HostAppPrep = "Comandos previos"
+	locale.HostAppPrepDo = "Hacer"
+	locale.HostAppPrepUndo = "Deshacer"
+	locale.HostAppPrepAdd = "Agregar paso"
+	locale.HostAppPrepAdmin = "Admin"
+	locale.HostAppImage = "Imagen"
+	locale.HostAppElevated = "Ejecutar como administrador"
+	locale.HostAppAutoDetach = "Seguir transmitiendo si la app se cierra enseguida"
+	locale.HostAppWaitAll = "Esperar a que terminen todos los procesos de la app"
+	locale.HostAppExitTimeout = "Tiempo de cierre, s"
+	locale.HostAppNoGlobalPrep = "Omitir los comandos previos globales"
+	locale.HostAppsPending = "Guardado. El servidor carga la lista cuando termine la transmision actual."
+	locale.HostAppNeedsName = "La app necesita un nombre"
+	locale.HostAppDelete = "Quitar %s?"
 	locale.WebRTCToggle = "USBridge-streamer Web (WebRTC)"
 
 	locale.NotRunning = "No en ejecucion"
@@ -926,6 +995,29 @@ func UK() *LocalizedStrings {
 	locale.MoonlightClients = "Клієнти Moonlight"
 	locale.MoonlightHeader = "Клієнт Moonlight"
 	locale.RemoveAllMoonlight = "Від’єднати всі спарені пристрої Moonlight?"
+	locale.HostApps = "Застосунки хоста"
+	locale.HostAppsHint = "Що клієнт Moonlight може тут запустити: робочий стіл, Steam, гру. Один список для всіх стрим-хостів."
+	locale.HostAppAdd = "Додати застосунок"
+	locale.HostAppEdit = "Змінити застосунок"
+	locale.HostAppName = "Назва"
+	locale.HostAppCmd = "Команда"
+	locale.HostAppWorkDir = "Робоча тека"
+	locale.HostAppDetached = "Окремі"
+	locale.HostAppDetachedHint = "Запускаються й лишаються працювати, по команді на рядок (напр. steam://open/bigpicture)"
+	locale.HostAppPrep = "Підготовчі команди"
+	locale.HostAppPrepDo = "Виконати"
+	locale.HostAppPrepUndo = "Скасувати"
+	locale.HostAppPrepAdd = "Додати крок"
+	locale.HostAppPrepAdmin = "Адмін"
+	locale.HostAppImage = "Зображення"
+	locale.HostAppElevated = "Запускати від адміністратора"
+	locale.HostAppAutoDetach = "Продовжувати стрим, якщо застосунок одразу закрився"
+	locale.HostAppWaitAll = "Чекати завершення всіх процесів застосунку"
+	locale.HostAppExitTimeout = "Час на закриття, с"
+	locale.HostAppNoGlobalPrep = "Пропускати глобальні підготовчі команди"
+	locale.HostAppsPending = "Збережено. Стример завантажить список, коли закінчиться поточний стрим."
+	locale.HostAppNeedsName = "Застосунку потрібна назва"
+	locale.HostAppDelete = "Видалити %s?"
 	locale.WebRTCToggle = "USBridge-streamer Web (WebRTC)"
 
 	locale.NotRunning = "Не запущено"

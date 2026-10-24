@@ -64,13 +64,16 @@ func (b *sunshineBackend) credentialsFilePath() string {
 
 // appsFilePath is where this agent keeps apps.json (the Moonlight app/game
 // list) — passed explicitly via Sunshine's "file_apps=" config override,
-// for the same reason as credentialsFilePath.
+// for the same reason as credentialsFilePath. The agent's one list for
+// every stream host (apps.go); the one a fork kept in its own data
+// directory before is moved there once.
 func (b *sunshineBackend) appsFilePath() string {
 	dir := b.sunshineDataDir()
 	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "apps.json")
+	adoptHostAppsFile(b.stateDir, filepath.Join(dir, "apps.json"))
+	return HostAppsPath(b.stateDir)
 }
 
 // pkeyPath/certPath are where this agent keeps the TLS keypair Sunshine

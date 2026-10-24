@@ -41,6 +41,7 @@ type ServerInfo struct {
 	PairStatus             int    `xml:"PairStatus"`
 	ServerCodecModeSupport int    `xml:"ServerCodecModeSupport"`
 	MacAddress             string `xml:"mac"`
+	CurrentGame            int    `xml:"currentgame"` // the running app's ID, 0 = none
 	// Apollo/Vibepollo's virtual display (SudoVDA on Windows), reported on
 	// both the paired and the unpaired /serverinfo. Capable: the host can
 	// stream a per-client virtual monitor; DriverReady: its driver is
@@ -108,7 +109,9 @@ func NewClient(host string, port, httpsPort int, identity *Identity) *Client {
 // SetDialTransport replaces the underlying transport on all HTTP clients with
 // one that uses the provided dialer. Call this when Tailscale runs in userspace
 // (Android) so connections to Tailscale IPs go through the Tailscale netstack
-// instead of the default OS dialer which can't reach them.
+// instead of the default OS dialer which can't reach them. A nil dialCtx puts
+// the OS dialer back -- the transport stays replaced otherwise, so a LAN host
+// after a Tailscale one would still be dialed through the netstack and hang.
 func (c *Client) SetDialTransport(dialCtx func(ctx context.Context, network, addr string) (net.Conn, error)) {
 	base := &http.Transport{Proxy: http.ProxyURL(nil), DialContext: dialCtx}
 	tlsCfg := &tls.Config{

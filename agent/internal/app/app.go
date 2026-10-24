@@ -164,6 +164,8 @@ type App struct {
 	// click racing the entitlement watchdog's own downgrade, say) --
 	// a.stream/a.streamKind must only ever be read/written while held.
 	streamMu sync.Mutex
+	// A host-app-list restart waits for the stream to end (host_apps.go).
+	hostAppsRestartPending atomic.Bool
 	// Crash-loop backoff for restartStreamerAfterExit.
 	streamerExitMu     sync.Mutex
 	streamerLastExit   time.Time

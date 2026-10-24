@@ -84,6 +84,11 @@ type LocalizedStrings struct {
 	VirtualDisplayOfferCreate         string
 	VirtualDisplayOfferMode           string
 	VirtualDisplayOfferSkip           string
+	VirtualDisplayOfferAsIsSubtitle   string
+	HostAppOfferTitle                 string
+	HostAppOfferSubtitle              string
+	HostAppOfferApp                   string
+	HostAppOfferStart                 string
 	TailscaleRedirectHint             string
 	AutoRegistrationBadge             string
 	ConnectionBadgeUnknown            string
@@ -876,6 +881,11 @@ func EN() *LocalizedStrings {
 		VirtualDisplayOfferCreate:         "Virtual",
 		VirtualDisplayOfferMode:           "Mode",
 		VirtualDisplayOfferSkip:           "Stream as is",
+		VirtualDisplayOfferAsIsSubtitle:   "Streams the host's screen as is. A virtual display at %[2]dx%[3]d@%[1]d can be made for the session instead.",
+		HostAppOfferTitle:                 "Start streaming",
+		HostAppOfferSubtitle:              "The host has several apps. Pick the one to stream.",
+		HostAppOfferApp:                   "App",
+		HostAppOfferStart:                 "Start",
 		TailscaleRedirectHint:             "After connection, the redirect will open on the web.",
 		AutoRegistrationBadge:             "AUTO-REGISTRATION",
 		ConnectionBadgeUnknown:            "Unknown",
@@ -1662,6 +1672,11 @@ func ES() *LocalizedStrings {
 	locale.VirtualDisplayOfferCreate = "Virtual"
 	locale.VirtualDisplayOfferMode = "Modo"
 	locale.VirtualDisplayOfferSkip = "Transmitir asi"
+	locale.VirtualDisplayOfferAsIsSubtitle = "Transmite la pantalla del host tal cual. En su lugar se puede crear una pantalla virtual a %[2]dx%[3]d@%[1]d para la sesion."
+	locale.HostAppOfferTitle = "Iniciar transmision"
+	locale.HostAppOfferSubtitle = "El host tiene varias aplicaciones. Elige la que quieres transmitir."
+	locale.HostAppOfferApp = "App"
+	locale.HostAppOfferStart = "Iniciar"
 	locale.WLANStreamingMode = "Modo streaming de Wi-Fi"
 	locale.WLANStreamingModeHint = "Sin escaneos Wi-Fi en segundo plano durante la transmision: elimina los tirones periodicos"
 	locale.WiFiTune = "Desactivar escaneos del driver Wi-Fi"
@@ -2181,6 +2196,11 @@ func UKProper() *LocalizedStrings {
 	locale.VirtualDisplayOfferCreate = "Віртуальний"
 	locale.VirtualDisplayOfferMode = "Режим"
 	locale.VirtualDisplayOfferSkip = "Як є"
+	locale.VirtualDisplayOfferAsIsSubtitle = "Транслюється екран хоста як є. Замість нього можна створити на сеанс віртуальний дисплей %[2]dx%[3]d@%[1]d."
+	locale.HostAppOfferTitle = "Почати трансляцію"
+	locale.HostAppOfferSubtitle = "На хості кілька застосунків. Оберіть, який транслювати."
+	locale.HostAppOfferApp = "Застосунок"
+	locale.HostAppOfferStart = "Почати"
 	locale.WLANStreamingMode = "Режим стрімінгу Wi-Fi"
 	locale.WLANStreamingModeHint = "Без фонових сканувань Wi-Fi під час стріму: прибирає періодичні ривки"
 	locale.WiFiTune = "Вимкнути сканування драйвера Wi-Fi"

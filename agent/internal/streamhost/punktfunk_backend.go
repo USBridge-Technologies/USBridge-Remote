@@ -326,6 +326,9 @@ func (b *punktfunkBackend) Start(adminPort int) error {
 			log.Printf("[punktfunk] warning: could not create %s: %v", dir, err)
 		}
 		repairPunktfunkConfigDir(dir)
+		if err := writePunktfunkApps(b.stateDir, dir); err != nil {
+			log.Printf("[punktfunk] warning: could not write the app list: %v", err)
+		}
 	}
 
 	// Provisions the shared TLS identity (see shared_auth.go) into

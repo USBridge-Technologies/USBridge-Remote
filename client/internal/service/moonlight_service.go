@@ -78,6 +78,8 @@ type MoonlightService struct {
 	gameStreamOnly       atomic.Bool
 	hostVirtualDisplay   atomic.Bool // its /serverinfo reports VirtualDisplayCapable
 	hostVirtualDisplayOK atomic.Bool // ... and VirtualDisplayDriverReady
+
+	launchAppID atomic.Int32 // the host app the next /launch starts (host_apps.go); 0 = Desktop
 }
 
 // SetAPISecret stores the master secret used to HMAC-sign requests to the usbridge API.
@@ -306,11 +308,13 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		return fmt.Errorf("connect aborted by disconnect (post-applist)")
 	}
 
-	appId := 0
-	for _, app := range apps {
-		logrus.Infof("🎮 Found Moonlight App: %s (ID: %d)", app.AppTitle, app.ID)
-		if appId == 0 || app.AppTitle == "Desktop" {
-			appId = app.ID
+	appId := m.pickLaunchApp(apps)
+	if serverInfo.CurrentGame != 0 && serverInfo.CurrentGame != appId && m.launchAppID.Load() != 0 {
+		// Another app is still running on the host: /launch would be refused
+		// and /resume reattach to it, not start the chosen one.
+		logrus.Infof("🎮 host runs app %d, ending it to start app %d", serverInfo.CurrentGame, appId)
+		if err := m.client.Quit(serverInfo.CurrentGame); err != nil {
+			logrus.Warnf("🎮 /cancel of app %d failed (non-fatal): %v", serverInfo.CurrentGame, err)
 		}
 	}
 
@@ -900,6 +904,9 @@ func (m *MoonlightService) prepareGameStreamClient() {
 		// doc comment for why a real dial (not just Status()) matters here,
 		// e.g. after a DERP relay change.
 		m.tailscaleSvc.WaitForPeerReachable(context.Background(), m.client.Host, strconv.Itoa(m.client.Port), 8*time.Second)
+	} else {
+		// A previous Tailscale host left the tsnet dialer in m.client.
+		m.client.SetDialTransport(nil)
 	}
 }
 

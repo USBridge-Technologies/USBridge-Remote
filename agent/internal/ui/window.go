@@ -71,6 +71,8 @@ type TokenProvider interface {
 	RestartSunshine() error
 	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
+	HostApps() ([]streamhost.HostApp, error)
+	SetHostApps(apps []streamhost.HostApp) (pending bool, err error)
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
 	UpdateTLSAddr(port int, enabled bool) (config.Config, error)
@@ -3926,12 +3928,15 @@ func (w *Window) newMoonlightHeader(win fyne.Window) fyne.CanvasObject {
 		}, win)
 	})
 	moonlightDeleteAllBtn.Danger = true
+	hostAppsBtn := quiet("", theme.NewColoredResource(theme.GridIcon(), design.ColorNameMutedOlive), func() {
+		w.showHostAppsDialog(win)
+	})
 	title := canvas.NewText(loc().MoonlightHeader, design.ColorTailscaleChipLabel)
 	title.TextSize = 10
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	title.Alignment = fyne.TextAlignLeading
 	actions := container.New(&tightHBoxLayout{gap: 0},
-		moonlightAddBtn, w.moonlightBtn, moonlightDeleteAllBtn)
+		moonlightAddBtn, w.moonlightBtn, hostAppsBtn, moonlightDeleteAllBtn)
 	inner := container.New(&tightHBoxLayout{gap: 4},
 		moonlightHeaderLogo(), title, actions)
 	bg := canvas.NewRectangle(design.ColorGray950)

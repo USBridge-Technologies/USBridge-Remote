@@ -894,7 +894,7 @@ func (vw *VideoWidget) ApplyVideoFPS(fps int) error {
 	cfg.VideoFPS = fps
 	if vw.shouldOfferVirtualDisplay(cfg) {
 		fyne.Do(func() {
-			vw.showVirtualDisplayOffer(cfg, func(cfg models.VideoDeviceConfig) {
+			vw.showVirtualDisplayOffer(cfg, virtualOffer{virtual: true, preferVirtual: true}, func(cfg models.VideoDeviceConfig) {
 				if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
 					logrus.Warnf("⚠️ failed to apply fps %d: %v", fps, err)
 				}

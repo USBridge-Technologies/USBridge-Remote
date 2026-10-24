@@ -34,6 +34,12 @@ type captureModeBody struct {
 	Mode string `json:"mode"`
 }
 
+// hostAppsResult answers POST /token/apps: Pending, the stream host loads
+// the list once the running stream ends.
+type hostAppsResult struct {
+	Pending bool `json:"pending"`
+}
+
 type unpairBody struct {
 	UniqueID string `json:"unique_id"`
 }

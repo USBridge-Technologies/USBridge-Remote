@@ -293,6 +293,18 @@ func (c *Client) ListSunshineClients() ([]streamhost.Client, error) {
 	return clients, err
 }
 
+func (c *Client) HostApps() ([]streamhost.HostApp, error) {
+	var apps []streamhost.HostApp
+	err := c.do(http.MethodGet, "/token/apps", nil, &apps)
+	return apps, err
+}
+
+func (c *Client) SetHostApps(apps []streamhost.HostApp) (bool, error) {
+	var res hostAppsResult
+	err := c.do(http.MethodPost, "/token/apps", apps, &res)
+	return res.Pending, err
+}
+
 func (c *Client) UnpairSunshineClient(uniqueID string) error {
 	return c.do(http.MethodPost, "/token/unpair", unpairBody{UniqueID: uniqueID}, nil)
 }

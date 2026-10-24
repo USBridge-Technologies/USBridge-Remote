@@ -1,11 +1,15 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
+	"usbridge-client/internal/api/moonlight"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -40,14 +44,21 @@ const (
 func (vw *VideoWidget) resetConnectVirtualOffer() {
 	vw.connectVirtualOffer.Store(connectOfferUnchecked)
 	virtualOfferDeclined.Clear()
+	if c, ok := vw.videoClient.(interface{ SetLaunchApp(int) }); ok {
+		// App IDs are the previous host's; the offer picks again.
+		c.SetLaunchApp(0)
+	}
 }
 
 // holdForConnectVirtualOffer runs on the first control bootstrap after a
-// connect: when the host is Windows and a physical monitor is selected, it
-// asks to stream a virtual display instead (by default the main and the only
+// connect and asks before anything starts: which of the host's apps to
+// stream when it lists more than one, and, with a physical monitor selected
+// on a host that can make one, whether to stream a virtual display instead.
+// On Windows the virtual display is the default (the main and the only
 // display -- the only way Windows gives a steady 120 fps at low GPU/CPU
-// load) before anything starts. It returns true while that check or question
-// is open; the answer starts the stream itself.
+// load); elsewhere it is offered, the screen as is being the default. It
+// returns true while that check or question is open; the answer starts the
+// stream itself.
 func (vw *VideoWidget) holdForConnectVirtualOffer() bool {
 	switch vw.connectVirtualOffer.Load() {
 	case connectOfferDone:
@@ -67,14 +78,18 @@ func (vw *VideoWidget) holdForConnectVirtualOffer() bool {
 			vw.setDesiredStreaming(true)
 			vw.scheduleVideoReconcile("control-bootstrap")
 		}
-		cfg, ok := vw.connectVirtualOfferConfig()
-		if !ok {
+		cfg, offerVirtual := vw.connectVirtualOfferConfig()
+		apps := vw.connectHostApps()
+		if vw.parentWindow == nil || (!offerVirtual && len(apps) < 2) {
 			startAsIs()
 			return
 		}
-		logrus.Infof("🖥️ Windows host streaming %s: offering a virtual display before the first start", cfg.DevicePath)
+		offer := virtualOffer{apps: apps, virtual: offerVirtual, preferVirtual: vw.isWindowsAgent()}
+		if offerVirtual {
+			logrus.Infof("🖥️ %s host streaming %s: offering a virtual display before the first start", vw.agentOS, cfg.DevicePath)
+		}
 		fyne.Do(func() {
-			vw.showVirtualDisplayOffer(cfg, func(next models.VideoDeviceConfig) {
+			vw.showVirtualDisplayOffer(cfg, offer, func(next models.VideoDeviceConfig) {
 				vw.connectVirtualOffer.Store(connectOfferDone)
 				if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
 					return
@@ -102,9 +117,6 @@ func (vw *VideoWidget) connectVirtualOfferConfig() (models.VideoDeviceConfig, bo
 			vw.SetAgentEnvironment(info.AgentOS, info.AgentDisplay)
 		}
 	}
-	if !vw.isWindowsAgent() {
-		return models.VideoDeviceConfig{}, false
-	}
 	cfg, err := localPreferredVideoConfig()
 	if err != nil {
 		if cfg, err = vw.resolvePreferredVideoConfig(); err != nil {
@@ -118,7 +130,73 @@ func (vw *VideoWidget) connectVirtualOfferConfig() (models.VideoDeviceConfig, bo
 		info, err := getVideoInfoData(client)
 		return cfg, err == nil && info != nil && info.VirtualDisplaySupported
 	}
-	return cfg, vw.shouldOfferVirtualDisplay(cfg)
+	return cfg, vw.virtualDisplayOfferable(cfg)
+}
+
+// virtualOffer is what the offer asks: the host's apps to choose from (none
+// when fewer than two), and whether the virtual display is offered and is
+// the default choice.
+type virtualOffer struct {
+	apps          []moonlight.App
+	virtual       bool
+	preferVirtual bool
+}
+
+// connectHostApps is the host's app list for the connect offer, nil when
+// it can't be read (not paired yet: pairing comes with the first start);
+// never on the UI goroutine.
+func (vw *VideoWidget) connectHostApps() []moonlight.App {
+	c, ok := vw.videoClient.(interface {
+		ListHostApps(ctx context.Context) ([]moonlight.App, error)
+	})
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apps, err := c.ListHostApps(ctx)
+	if err != nil {
+		logrus.Infof("🎮 host app list unavailable: %v", err)
+		return nil
+	}
+	return apps
+}
+
+// lastHostAppTitle is the app chosen last, preselected on the next connect.
+var lastHostAppTitle atomic.Value
+
+// newHostAppRow is the offer's app picker, preset to the app chosen last,
+// else Desktop; every choice goes straight to the next launch.
+func (vw *VideoWidget) newHostAppRow(apps []moonlight.App) fyne.CanvasObject {
+	setApp, _ := vw.videoClient.(interface{ SetLaunchApp(int) })
+	ids := make(map[string]int, len(apps))
+	titles := make([]string, 0, len(apps))
+	for _, app := range apps {
+		if _, dup := ids[app.AppTitle]; dup {
+			continue
+		}
+		ids[app.AppTitle] = app.ID
+		titles = append(titles, app.AppTitle)
+	}
+	selected := titles[0]
+	if _, ok := ids["Desktop"]; ok {
+		selected = "Desktop"
+	}
+	if last, ok := lastHostAppTitle.Load().(string); ok {
+		if _, listed := ids[last]; listed {
+			selected = last
+		}
+	}
+	choose := func(title string) {
+		lastHostAppTitle.Store(title)
+		if setApp != nil {
+			setApp.SetLaunchApp(ids[title])
+		}
+		logrus.Infof("🎮 host app for the stream: %s (ID: %d)", title, ids[title])
+	}
+	choose(selected)
+	picker := view.NewDeviceDashboardModePicker(titles, selected, choose)
+	return container.NewBorder(nil, nil, newVirtualDisplayFieldLabel(i18n.Current.HostAppOfferApp), nil, picker)
 }
 
 // virtualOfferResolutions and virtualOfferFPS are the offer's choices besides the
@@ -180,19 +258,30 @@ func (vw *VideoWidget) applyOfferingVirtualDisplay(cfg models.VideoDeviceConfig,
 			apply(cfg)
 			return
 		}
-		fyne.Do(func() { vw.showVirtualDisplayOffer(cfg, apply, nil) })
+		fyne.Do(func() { vw.showVirtualDisplayOffer(cfg, virtualOffer{virtual: true, preferVirtual: true}, apply, nil) })
 	}()
 }
 
-// shouldOfferVirtualDisplay asks the agent; never on the UI goroutine.
+// shouldOfferVirtualDisplay asks the agent; never on the UI goroutine. Only
+// a Windows host gets the offer on every start: elsewhere the screen as is
+// is the default, the virtual display only offered on connect.
 func (vw *VideoWidget) shouldOfferVirtualDisplay(cfg models.VideoDeviceConfig) bool {
-	if vw.usbClient == nil || vw.parentWindow == nil || !vw.isWindowsAgent() {
-		return false
-	}
-	if cfg.DevicePath == "" || strings.HasPrefix(cfg.DevicePath, "virtual:") {
+	if !vw.isWindowsAgent() {
 		return false
 	}
 	if _, declined := virtualOfferDeclined.Load(cfg.DevicePath); declined {
+		return false
+	}
+	return vw.virtualDisplayOfferable(cfg)
+}
+
+// virtualDisplayOfferable: a physical monitor is selected on a host that can
+// stream a virtual display; never on the UI goroutine.
+func (vw *VideoWidget) virtualDisplayOfferable(cfg models.VideoDeviceConfig) bool {
+	if vw.usbClient == nil || vw.parentWindow == nil {
+		return false
+	}
+	if cfg.DevicePath == "" || strings.HasPrefix(cfg.DevicePath, "virtual:") {
 		return false
 	}
 	info, err := getVideoInfoData(vw.usbClient)
@@ -216,7 +305,7 @@ func (vw *VideoWidget) shouldOfferVirtualDisplay(cfg models.VideoDeviceConfig) b
 // showVirtualDisplayOffer asks; apply gets the chosen config off the UI
 // goroutine. dismissed, when set, runs when the offer is closed with X;
 // otherwise closing applies nothing.
-func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, apply func(models.VideoDeviceConfig), dismissed func()) {
+func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, offer virtualOffer, apply func(models.VideoDeviceConfig), dismissed func()) {
 	width, height := cfg.VideoWidth, cfg.VideoHeight
 	if width <= 0 || height <= 0 {
 		width, height = 1920, 1080
@@ -250,7 +339,15 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 
 	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 340, true, nil)
 	exclusiveRow, exclusiveChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayExclusive, "", i18n.Current.VirtualDisplayExclusiveHint, 340, true, nil)
-	body := container.NewVBox(modeRow, primaryRow, exclusiveRow)
+	body := container.NewVBox()
+	if len(offer.apps) > 1 {
+		body.Add(vw.newHostAppRow(offer.apps))
+	}
+	if offer.virtual {
+		body.Add(modeRow)
+		body.Add(primaryRow)
+		body.Add(exclusiveRow)
+	}
 
 	// The native video stays hidden while this is open: a stream still
 	// connecting creates its layer, holes reset, over this dialog.
@@ -330,12 +427,33 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, app
 	})
 	createBtn.labelText = i18n.Current.VirtualDisplayOfferCreate
 
+	title := fmt.Sprintf(i18n.Current.VirtualDisplayOfferTitle, fps)
+	subtitle := fmt.Sprintf(i18n.Current.VirtualDisplayOfferSubtitle, fps, width, height)
+	buttons := []fyne.CanvasObject{skipBtn, createBtn}
+	switch {
+	case !offer.virtual:
+		// Only the app to pick: one button starts the stream as is.
+		title, subtitle = i18n.Current.HostAppOfferTitle, i18n.Current.HostAppOfferSubtitle
+		startBtn := newVirtualDisplayAddButton(skipBtn.onTapped)
+		startBtn.labelText = i18n.Current.HostAppOfferStart
+		buttons = []fyne.CanvasObject{startBtn}
+	case !offer.preferVirtual:
+		// Not Windows: the screen as is is the default, the virtual display
+		// the alternative.
+		title, subtitle = i18n.Current.HostAppOfferTitle, i18n.Current.VirtualDisplayOfferAsIsSubtitle
+		asIsBtn := newVirtualDisplayAddButton(skipBtn.onTapped)
+		asIsBtn.labelText = i18n.Current.VirtualDisplayOfferSkip
+		createBtn.fillColor, createBtn.textColor = skipBtn.fillColor, skipBtn.textColor
+		createBtn.hoverFillColor, createBtn.hoverTextColor = skipBtn.hoverFillColor, skipBtn.hoverTextColor
+		buttons = []fyne.CanvasObject{createBtn, asIsBtn}
+	}
+
 	_, closePopup = showBrandedOverlayDialog(brandedOverlayDialogSpec{
 		parent:          vw.parentWindow,
-		title:           fmt.Sprintf(i18n.Current.VirtualDisplayOfferTitle, fps),
-		subtitle:        fmt.Sprintf(i18n.Current.VirtualDisplayOfferSubtitle, fps, width, height),
+		title:           title,
+		subtitle:        subtitle,
 		body:            body,
-		rightButtons:    []fyne.CanvasObject{skipBtn, createBtn},
+		rightButtons:    buttons,
 		compactFooter:   true,
 		hideCancel:      true,
 		headerPadBottom: 6,

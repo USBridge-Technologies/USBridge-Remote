@@ -480,6 +480,12 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	if launchPath == "" {
 		return nil
 	}
+	// The agent's app list (apps.go), read by gamestream-server per request.
+	if path := HostAppsPath(b.stateDir); path != "" && b.ConfigKey("file_apps") != path {
+		if err := b.SetConfigKey("file_apps", path); err != nil {
+			log.Printf("[rustshine] warning: could not name the app list in %s: %v", b.ConfigPath(), err)
+		}
+	}
 	if _, err := os.Stat(launchPath); err != nil {
 		log.Printf("[rustshine] launch path not found, skipping auto-start: %s", launchPath)
 		return nil
