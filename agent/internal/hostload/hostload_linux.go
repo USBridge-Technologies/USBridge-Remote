@@ -270,7 +270,10 @@ func (w *nvidiaWatch) pmonLine(line string) {
 	if len(f) < 8 || w.streamer == nil {
 		return
 	}
-	if !isStreamer(f[len(f)-1]) {
+	// The command column is comm (cut at 15 characters, and whatever the
+	// process renamed itself to: usbridge-streamer's main thread is "5"),
+	// so go by the pid's argv[0] and keep the column as a fallback.
+	if !isStreamer(procName("/proc/"+f[1])) && !isStreamer(f[len(f)-1]) {
 		return
 	}
 	add := func(key, v string) {

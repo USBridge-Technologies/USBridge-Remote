@@ -26,10 +26,29 @@ type overlayOcclusion[H comparable] struct {
 	setHidden func(bool)
 	setHoles  func([]H)
 	applied   []H // last list pushed to the surface (nil = none)
+
+	// A fresh surface may have taken a hole push before its window existed
+	// (the push is dropped) or kept one from the stream it replaced, so for
+	// a while after reset the list is re-pushed even when it matches
+	// applied; otherwise a dialog closed during the restart (the benchmark
+	// starts its stream right as the setup dialog goes away) left its hole.
+	resyncUntil time.Time
+	lastResync  time.Time
 }
 
+// resyncWindow is how long after reset the hole list is re-pushed, every
+// resyncEvery.
+const (
+	resyncWindow = 4 * time.Second
+	resyncEvery  = 250 * time.Millisecond
+)
+
 // reset forgets the pushed holes: a new native surface starts without any.
-func (o *overlayOcclusion[H]) reset() { o.applied = nil }
+func (o *overlayOcclusion[H]) reset() {
+	o.applied = nil
+	o.resyncUntil = time.Now().Add(resyncWindow)
+	o.lastResync = time.Time{}
+}
 
 // sync keeps Fyne overlays on canvas c visible over the surface: open
 // menus/popups become holes (toHoles maps them into the surface's
@@ -51,10 +70,13 @@ func (o *overlayOcclusion[H]) sync(c fyne.Canvas, toHoles func([]view.OverlayRec
 	if len(rects) > 0 {
 		holes = toHoles(rects)
 	}
-	if !slices.Equal(holes, o.applied) {
+	now := time.Now()
+	resync := now.Before(o.resyncUntil) && now.Sub(o.lastResync) >= resyncEvery
+	if !slices.Equal(holes, o.applied) || resync {
+		changed = !slices.Equal(holes, o.applied)
 		o.setHoles(holes)
 		o.applied = holes
-		changed = true
+		o.lastResync = now
 	}
 	o.setHidden(false)
 	return true, changed

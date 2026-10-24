@@ -2807,6 +2807,13 @@ void android_vk_force_recreate_swapchain(void) {
 int android_vk_create(int x, int y, int w, int h) {
     if (atomic_load(&g_active)) vk_full_cleanup();
 
+    // Holes belong to the surface they were cut for; Go resets its own copy
+    // on create and would never push an empty list over a stale one (a
+    // dialog closed while the stream restarted left its hole, black).
+    pthread_mutex_lock(&g_state_mu);
+    g_hole_count = 0;
+    pthread_mutex_unlock(&g_state_mu);
+
     if (!java_create_overlay(x, y, w, h)) {
         VLOGE("android_vk_create: java_create_overlay failed"); return 0;
     }

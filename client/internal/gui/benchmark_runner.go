@@ -193,8 +193,17 @@ func (mw *MainWindow) benchmarkOne(ctx context.Context, run *service.BenchRun, r
 		return fmt.Errorf("stream: %w", err)
 	}
 	run.StartupMs = float64(startup.Microseconds()) / 1000
-	if codec, ok := vw.NegotiatedVideoCodecName(); ok {
-		run.Codec = codec
+	// The first frame can land before LiStartConnection returns, and the
+	// codec is only reported once it has: wait for it instead of reading
+	// it once (which left the Codec row at n/a).
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		if codec, ok := vw.NegotiatedVideoCodecName(); ok {
+			run.Codec = codec
+			break
+		}
+		if time.Now().After(deadline) || sleepCtx(ctx, 100*time.Millisecond) != nil {
+			break
+		}
 	}
 	logrus.Infof("📈 [Benchmark] %s: switch %.0fms (stop %s %.0fms, start %.0fms), first frame %.0fms, codec %s",
 		run.Backend, run.SwitchMs, run.StoppedBackend, run.StopMs, run.StartMs, run.StartupMs, run.Codec)

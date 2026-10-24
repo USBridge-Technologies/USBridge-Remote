@@ -28,7 +28,12 @@ const Interval = 500 * time.Millisecond
 
 // streamerNames are the streamer processes' image names, lower case,
 // without ".exe".
-var streamerNames = []string{"sunshine", "usbridge-streamer"}
+// punktfunk splits the work across processes (the host, plus the capture and
+// encode workers where NVENC/capture actually run), so all three count.
+var streamerNames = []string{
+	"sunshine", "usbridge-streamer",
+	"punktfunk-host", "punktfunk-encode-worker", "punktfunk-capture-worker",
+}
 
 func isStreamer(name string) bool {
 	name = strings.TrimSuffix(strings.ToLower(name), ".exe")
