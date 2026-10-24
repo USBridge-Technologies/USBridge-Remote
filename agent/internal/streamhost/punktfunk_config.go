@@ -185,7 +185,7 @@ func (b *punktfunkBackend) SetOutputName(name string) error {
 var punktfunkListMonitors = displaypower.ListInSession
 
 func punktfunkMonitorName(name string) (resolved string, ok bool) {
-	if runtime.GOOS != "windows" || strings.HasPrefix(name, `\.\`) {
+	if runtime.GOOS != "windows" || strings.HasPrefix(name, `\\.\`) {
 		return name, true
 	}
 	all, err := punktfunkListMonitors()
