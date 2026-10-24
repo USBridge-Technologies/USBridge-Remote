@@ -123,14 +123,17 @@ func (vw *VideoWidget) connectVirtualOfferConfig() (models.VideoDeviceConfig, bo
 			return models.VideoDeviceConfig{}, false
 		}
 	}
-	if strings.HasPrefix(cfg.DevicePath, "virtual:") {
-		// Already on the virtual display: still asked on every connect, since
-		// "only the virtual display" (the agent switches the other monitors
-		// off for the session) is chosen here.
-		info, err := getVideoInfoData(client)
-		return cfg, err == nil && info != nil && info.VirtualDisplaySupported
+	if cfg.DevicePath == "" {
+		return cfg, false
 	}
-	return cfg, vw.virtualDisplayOfferable(cfg)
+	// Offered whenever the host can make a virtual display (the MttVDD driver
+	// is installed), whatever is selected: a physical monitor, the virtual
+	// one left up from before, or the virtual display itself. Whether the
+	// virtual monitor exists right now says nothing about that, and "only the
+	// virtual display" (the agent switches the other monitors off for the
+	// session) is chosen here, so it is asked on every connect.
+	info, err := getVideoInfoData(client)
+	return cfg, err == nil && info != nil && info.VirtualDisplaySupported
 }
 
 // virtualOffer is what the offer asks: the host's apps to choose from (none

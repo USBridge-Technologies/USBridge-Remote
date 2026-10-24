@@ -67,7 +67,7 @@ func (a *App) BenchVideoOutput() string {
 // into that and failed.
 const BenchVirtualID = "virtual"
 
-const defaultBenchVirtualSpec = "virtual:1920x1080@60"
+const defaultBenchVirtualSpec = "virtual:1920x1080@120"
 
 // BenchVirtualSpec is the "virtual:WxH@FPS" the virtual-display benchmark runs (or would
 // run) at: the one pinned, else the virtual display picked for streaming now, else the default.
