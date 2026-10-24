@@ -99,7 +99,11 @@ func killOnCloseJob() windows.Handle {
 		}
 		info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 			BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-				LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+				// BREAKAWAY_OK: Sunshine starts an app's commands (Steam, a game) with
+				// CREATE_BREAKAWAY_FROM_JOB, which Windows refuses with "access denied"
+				// (error 5) when the job doesn't allow it -- nothing the user picked
+				// besides Desktop launched.
+				LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK,
 			},
 		}
 		if _, err := windows.SetInformationJobObject(
