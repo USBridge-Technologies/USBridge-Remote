@@ -95,6 +95,8 @@ type Application interface {
 	// VirtualDisplaySupported reports whether the current stream backend
 	// supports native virtual displays.
 	VirtualDisplaySupported() bool
+	// StreamerName is the active stream host's display name.
+	StreamerName() string
 	// VideoFec/SetVideoFec: the streamer's FEC, the client's FEC slider --
 	// see app.App.VideoFec. ok is false where the backend has no FEC setting.
 	VideoFec() (percent int, auto, autoSupported, ok bool)
@@ -923,6 +925,9 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		"pyrowave_color_444_available": pyroWave444Available,
 		"pyrowave_hdr_available":       pyroWaveHdrAvailable,
 		"virtual_display_supported":    s.app.VirtualDisplaySupported(),
+		// The stream host's display name: the client reads from it whether the
+		// virtual monitor is worth offering (USBridge Streamer needs none).
+		"streamer": s.app.StreamerName(),
 	}
 	// The client's FEC slider (POST /api/video/fec): present when this
 	// backend takes it.
@@ -1402,7 +1407,9 @@ func (s *Server) addVirtualEntryLocked(path string) VideoDeviceInfo {
 			Connected: true,
 		}
 	}
-	s.virtualDisplays = append(s.virtualDisplays, vd)
+	// Only one virtual display exists at a time: the spec chosen last replaces the
+	// earlier ones, which would otherwise pile up as extra "virtual" devices.
+	s.virtualDisplays = []VideoDeviceInfo{vd}
 	return vd
 }
 

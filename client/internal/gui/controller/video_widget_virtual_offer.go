@@ -234,6 +234,23 @@ func (vw *VideoWidget) physicalVideoConfig(cfg models.VideoDeviceConfig) (models
 	return cfg, false
 }
 
+// asIsVideoConfig is cfg when its monitor is one the host lists now, else cfg moved
+// onto the first physical monitor (the saved path may be from another stream host);
+// never on the UI goroutine.
+func (vw *VideoWidget) asIsVideoConfig(cfg models.VideoDeviceConfig) (models.VideoDeviceConfig, bool) {
+	devices, err := vw.GetAvailableVideoDevices()
+	if err != nil {
+		return cfg, false
+	}
+	for _, d := range devices {
+		if d.Path == cfg.DevicePath && d.Bus != "virtual" && !strings.HasPrefix(d.Path, "virtual:") &&
+			!strings.Contains(strings.ToUpper(d.Name), "VDD") {
+			return cfg, true
+		}
+	}
+	return vw.physicalVideoConfig(cfg)
+}
+
 // virtualSpecMode parses a "virtual:WxH@FPS" device path.
 func virtualSpecMode(path string) (w, h, fps int, ok bool) {
 	spec, found := strings.CutPrefix(path, "virtual:")
@@ -344,6 +361,7 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 		body.Add(vw.newHostAppRow(offer.apps))
 	}
 	if offer.virtual {
+		body.Add(newVirtualDisplayNote(i18n.Current.VirtualDisplayOfferNote))
 		body.Add(modeRow)
 		body.Add(primaryRow)
 		body.Add(exclusiveRow)
@@ -376,6 +394,24 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 		onTapped: func() {
 			answer()
 			virtualOfferDeclined.Store(cfg.DevicePath, true)
+			if offer.virtual && !strings.HasPrefix(cfg.DevicePath, "virtual:") {
+				// The host may still have a virtual display selected from an earlier
+				// session or another stream host (Sunshine keeps its own choice):
+				// "as is" has to pin the physical monitor on the agent, or it brings
+				// the virtual one up anyway and switches the others off.
+				go func() {
+					if next, ok := vw.asIsVideoConfig(cfg); ok {
+						apply(next)
+						return
+					}
+					if dismissed != nil {
+						dismissed()
+						return
+					}
+					apply(cfg)
+				}()
+				return
+			}
 			if strings.HasPrefix(cfg.DevicePath, "virtual:") {
 				// "As is" is the host's own screens: off the virtual display,
 				// onto a physical monitor, the local ones left as they are.

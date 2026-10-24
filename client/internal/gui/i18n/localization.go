@@ -85,6 +85,7 @@ type LocalizedStrings struct {
 	VirtualDisplayOfferMode           string
 	VirtualDisplayOfferSkip           string
 	VirtualDisplayOfferAsIsSubtitle   string
+	VirtualDisplayOfferNote           string
 	HostAppOfferTitle                 string
 	HostAppOfferSubtitle              string
 	HostAppOfferApp                   string
@@ -655,98 +656,98 @@ type LocalizedStrings struct {
 	WiFiTuneHint                         string // subtitle while the tune is still needed
 	WiFiTuneDoneHint                     string // subtitle once the tune is in place
 	// Android Wi-Fi tips dialog (controller/wifi_tips.go): settings no app can change.
-	WiFiTipsMenu           string
-	WiFiTipsTitle          string
-	WiFiTipsSubtitle       string
-	WiFiTipsNowOn          string
-	WiFiTipsNowOff         string
-	WiFiTipScanTitle       string
-	WiFiTipScanWhere       string
-	WiFiTipAdaptiveTitle   string
-	WiFiTipAdaptiveWhere   string
-	WiFiTipMobileDataTitle string
-	WiFiTipMobileDataWhere string
-	WiFiTipThrottleTitle   string
-	WiFiTipThrottleWhere   string
-	WiFiTipsAppNote        string
-	WiFiTipsOpen           string
-	WiFiTipsOK             string
-	WiFiTipsDontShow       string
-	AWDLGrantAccess                      string // prominent header button label: grant the one-time AWDL sudoers permission
-	UDPBufferGrantAccess                 string // header button label (Linux): raise the kernel's UDP receive-buffer cap once
-	ClipboardSend                        string // clipboard menu: push the local clipboard to the host now
-	ClipboardReceive                     string // clipboard menu: pull the host clipboard to this device now
-	ClipboardAutoSync                    string // clipboard menu: automatic two-way sync toggle
-	ClipboardNotConnected                string // clipboard menu error: sync channel not connected
-	ClipboardEmpty                       string // clipboard menu error: nothing to transfer
-	KeyboardInputKeys                    string // keyboard input mode: raw keys, host layout decides
-	KeyboardInputText                    string // keyboard input mode: characters typed with the client layout
-	RemoteKeyboardLayout                 string // hardware KVM: the target's keyboard layout, "%s" = its name
-	RemoteKeyboardLayoutAuto             string // hardware KVM: target layout = this computer's
-	EnableVSync                          string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
-	EnableVSyncHint                      string // description shown under the VSync checkbox
-	EnableVSyncBadge                     string // small badge next to the VSync title, e.g. "RECOMMENDED"
-	AMDFSR                               string // "Upscale Quality" picker title, video parameters dialog (macOS: bilinear/bicubic/lanczos/AMD FSR 1.0)
-	AMDFSRHint                           string // description shown under the upscale quality picker
-	AMDFSRBadge                          string // small badge next to the upscale quality title, e.g. "NEW"
-	UpscaleBilinear                      string // upscale quality picker option: "Off" -- fast default, no extra GPU cost, bypasses the Metal upscale path entirely (see UPSCALE_MODE_BILINEAR's own comment)
-	UpscaleBicubic                       string // upscale quality picker option: smoother than bilinear
-	UpscaleLanczos                       string // upscale quality picker option: sharper than bicubic
-	UpscaleFSR1                          string // upscale quality picker option: AMD FSR 1.0 (EASU+RCAS), sharpest, macOS only for now
-	AIVision                             string // "AI Vision overlay" switch title, AI & Scripts tab (debugging view)
-	AIVisionHint                         string // hint under the AI Vision switch
-	AIVisionBadge                        string // small badge next to the AI Vision title ("Debug")
-	Color444                             string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
-	Color444Hint                         string // hint under the checkbox when 4:4:4 is available (checked or not)
-	Color444UnavailableHint              string // hint when agent reports color_444_available=false (GPU/encoder cannot do HEVC 4:4:4)
-	Color444UnavailableMessage           string // info dialog body when tapping the 4:4:4 warning triangle
-	Color444RequiresH265Hint             string
-	Color444Badge                        string // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
-	Hdr                                  string // "HDR Color (RustShine)" checkbox -- mirrors Color444 exactly, independent axis (see rust-shine's docs/COLOR_MODES.md)
-	HdrHint                              string // hint under the checkbox when HDR is available (checked or not)
-	HdrUnavailableHint                   string // hint when agent reports hdr_available=false
-	HdrUnavailableMessage                string // info dialog body when tapping the HDR warning triangle
-	HdrClientUnsupportedHint             string // hint when the agent offers HDR but this client can't display it (service.HdrDisplaySupported)
-	HdrRequiresH265Hint                  string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
-	HdrBadge                             string // badge next to the HDR title -- empty: HDR is free-tier (unlike 4:4:4's "PRO"), see newVideoDialogBadge's caller
-	NetGraph                             string // "Net Graph" checkbox title, video parameters dialog -- live network/render HUD, pure local overlay like AI Vision
-	NetGraphHint                         string // hint shown under the Net Graph checkbox
-	NetGraphBadge                        string // small badge next to the Net Graph title, e.g. "MAC"
-	NetGraphSize                         string // Connections footer metrics-settings panel: HUD size slider label
-	NetGraphBackground                   string // Connections footer metrics-settings panel: HUD wash opacity slider label
-	FrameSmoothing                       string // "Smooth Motion" checkbox title, video parameters dialog -- motion-extrapolated stall concealment, pure local rendering fallback like AI Vision
-	FrameSmoothingHint                   string // hint shown under the Smooth Motion checkbox
-	FrameSmoothingBadge                  string // small badge next to the Smooth Motion title, e.g. "BETA"
-	PlayoutBuffer                        string    // "Jitter Buffer" slider title, video parameters dialog -- moonlight-common-c fork's FramePacer.h; off by default
-	PlayoutBufferHint                    string    // hint shown under the Jitter Buffer slider
-	PlayoutBufferLevelNames              [5]string // the slider's levels, 0 = off .. 4 = smoothest (service.PlayoutBufferLevel)
-	PlayoutBufferLowEnd                  string    // hint under the slider's left end
-	PlayoutBufferSmoothEnd               string    // hint under the slider's right end
-	PlayoutBufferBadge                   string // small platform badge next to the Jitter Buffer title
-	ScrollSpeed                          string // two-finger scroll speed slider title, video parameters dialog (touch screens)
-	Fec                                  string // FEC slider caption in the bitrate card (agent POST /api/video/fec)
-	FecAuto                              string // the FEC slider's auto position
-	VideoSource                          string // "Video source" picker caption, video parameters dialog (agent POST /api/video/source)
-	VideoSourceWholeFrame                string // video source: the capture card's whole frame
-	VideoSourceCustom                    string // video source: a resolution typed in
-	VideoSourceAuto                      string // video source: the agent finds the screen in the frame
-	VideoSourceAutoDetail                string // video source picker: what Auto does
-	VideoSourceWholeFrameDetail          string // video source picker: what the whole frame is
-	VideoSourceWidth                     string // custom source resolution: width field placeholder
-	VideoSourceHeight                    string // custom source resolution: height field placeholder
-	VideoSourceRect                      string // custom source: optional exact area field placeholder
-	VideoSourceHint                      string // hint under the video source picker
-	HostVirtualDisplay                   string // "Virtual display" checkbox title, video parameters dialog -- only against a plain Apollo/Vibepollo host
-	HostVirtualDisplayHint               string // hint shown under the host Virtual display checkbox
-	OtherSettings                        string // labeled divider above the video-parameters toggle list, same style as OrEnterManually
-	MuteAudio                            string // "Mute Audio"
-	UnmuteAudio                          string // "Unmute Audio"
-	DeviceAudio                          string // "Audio"
-	DeviceUSBAudio                       string // "USB Audio Codec"
-	AudioDeviceUAC1                      string // "UAC1"
-	AudioDeviceUAC2                      string // "UAC2"
-	DriveModeDisk                        string // "USB Stick"
-	DriveModeCDROM                       string // "CD-ROM"
+	WiFiTipsMenu                string
+	WiFiTipsTitle               string
+	WiFiTipsSubtitle            string
+	WiFiTipsNowOn               string
+	WiFiTipsNowOff              string
+	WiFiTipScanTitle            string
+	WiFiTipScanWhere            string
+	WiFiTipAdaptiveTitle        string
+	WiFiTipAdaptiveWhere        string
+	WiFiTipMobileDataTitle      string
+	WiFiTipMobileDataWhere      string
+	WiFiTipThrottleTitle        string
+	WiFiTipThrottleWhere        string
+	WiFiTipsAppNote             string
+	WiFiTipsOpen                string
+	WiFiTipsOK                  string
+	WiFiTipsDontShow            string
+	AWDLGrantAccess             string // prominent header button label: grant the one-time AWDL sudoers permission
+	UDPBufferGrantAccess        string // header button label (Linux): raise the kernel's UDP receive-buffer cap once
+	ClipboardSend               string // clipboard menu: push the local clipboard to the host now
+	ClipboardReceive            string // clipboard menu: pull the host clipboard to this device now
+	ClipboardAutoSync           string // clipboard menu: automatic two-way sync toggle
+	ClipboardNotConnected       string // clipboard menu error: sync channel not connected
+	ClipboardEmpty              string // clipboard menu error: nothing to transfer
+	KeyboardInputKeys           string // keyboard input mode: raw keys, host layout decides
+	KeyboardInputText           string // keyboard input mode: characters typed with the client layout
+	RemoteKeyboardLayout        string // hardware KVM: the target's keyboard layout, "%s" = its name
+	RemoteKeyboardLayoutAuto    string // hardware KVM: target layout = this computer's
+	EnableVSync                 string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
+	EnableVSyncHint             string // description shown under the VSync checkbox
+	EnableVSyncBadge            string // small badge next to the VSync title, e.g. "RECOMMENDED"
+	AMDFSR                      string // "Upscale Quality" picker title, video parameters dialog (macOS: bilinear/bicubic/lanczos/AMD FSR 1.0)
+	AMDFSRHint                  string // description shown under the upscale quality picker
+	AMDFSRBadge                 string // small badge next to the upscale quality title, e.g. "NEW"
+	UpscaleBilinear             string // upscale quality picker option: "Off" -- fast default, no extra GPU cost, bypasses the Metal upscale path entirely (see UPSCALE_MODE_BILINEAR's own comment)
+	UpscaleBicubic              string // upscale quality picker option: smoother than bilinear
+	UpscaleLanczos              string // upscale quality picker option: sharper than bicubic
+	UpscaleFSR1                 string // upscale quality picker option: AMD FSR 1.0 (EASU+RCAS), sharpest, macOS only for now
+	AIVision                    string // "AI Vision overlay" switch title, AI & Scripts tab (debugging view)
+	AIVisionHint                string // hint under the AI Vision switch
+	AIVisionBadge               string // small badge next to the AI Vision title ("Debug")
+	Color444                    string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
+	Color444Hint                string // hint under the checkbox when 4:4:4 is available (checked or not)
+	Color444UnavailableHint     string // hint when agent reports color_444_available=false (GPU/encoder cannot do HEVC 4:4:4)
+	Color444UnavailableMessage  string // info dialog body when tapping the 4:4:4 warning triangle
+	Color444RequiresH265Hint    string
+	Color444Badge               string    // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
+	Hdr                         string    // "HDR Color (RustShine)" checkbox -- mirrors Color444 exactly, independent axis (see rust-shine's docs/COLOR_MODES.md)
+	HdrHint                     string    // hint under the checkbox when HDR is available (checked or not)
+	HdrUnavailableHint          string    // hint when agent reports hdr_available=false
+	HdrUnavailableMessage       string    // info dialog body when tapping the HDR warning triangle
+	HdrClientUnsupportedHint    string    // hint when the agent offers HDR but this client can't display it (service.HdrDisplaySupported)
+	HdrRequiresH265Hint         string    // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
+	HdrBadge                    string    // badge next to the HDR title -- empty: HDR is free-tier (unlike 4:4:4's "PRO"), see newVideoDialogBadge's caller
+	NetGraph                    string    // "Net Graph" checkbox title, video parameters dialog -- live network/render HUD, pure local overlay like AI Vision
+	NetGraphHint                string    // hint shown under the Net Graph checkbox
+	NetGraphBadge               string    // small badge next to the Net Graph title, e.g. "MAC"
+	NetGraphSize                string    // Connections footer metrics-settings panel: HUD size slider label
+	NetGraphBackground          string    // Connections footer metrics-settings panel: HUD wash opacity slider label
+	FrameSmoothing              string    // "Smooth Motion" checkbox title, video parameters dialog -- motion-extrapolated stall concealment, pure local rendering fallback like AI Vision
+	FrameSmoothingHint          string    // hint shown under the Smooth Motion checkbox
+	FrameSmoothingBadge         string    // small badge next to the Smooth Motion title, e.g. "BETA"
+	PlayoutBuffer               string    // "Jitter Buffer" slider title, video parameters dialog -- moonlight-common-c fork's FramePacer.h; off by default
+	PlayoutBufferHint           string    // hint shown under the Jitter Buffer slider
+	PlayoutBufferLevelNames     [5]string // the slider's levels, 0 = off .. 4 = smoothest (service.PlayoutBufferLevel)
+	PlayoutBufferLowEnd         string    // hint under the slider's left end
+	PlayoutBufferSmoothEnd      string    // hint under the slider's right end
+	PlayoutBufferBadge          string    // small platform badge next to the Jitter Buffer title
+	ScrollSpeed                 string    // two-finger scroll speed slider title, video parameters dialog (touch screens)
+	Fec                         string    // FEC slider caption in the bitrate card (agent POST /api/video/fec)
+	FecAuto                     string    // the FEC slider's auto position
+	VideoSource                 string    // "Video source" picker caption, video parameters dialog (agent POST /api/video/source)
+	VideoSourceWholeFrame       string    // video source: the capture card's whole frame
+	VideoSourceCustom           string    // video source: a resolution typed in
+	VideoSourceAuto             string    // video source: the agent finds the screen in the frame
+	VideoSourceAutoDetail       string    // video source picker: what Auto does
+	VideoSourceWholeFrameDetail string    // video source picker: what the whole frame is
+	VideoSourceWidth            string    // custom source resolution: width field placeholder
+	VideoSourceHeight           string    // custom source resolution: height field placeholder
+	VideoSourceRect             string    // custom source: optional exact area field placeholder
+	VideoSourceHint             string    // hint under the video source picker
+	HostVirtualDisplay          string    // "Virtual display" checkbox title, video parameters dialog -- only against a plain Apollo/Vibepollo host
+	HostVirtualDisplayHint      string    // hint shown under the host Virtual display checkbox
+	OtherSettings               string    // labeled divider above the video-parameters toggle list, same style as OrEnterManually
+	MuteAudio                   string    // "Mute Audio"
+	UnmuteAudio                 string    // "Unmute Audio"
+	DeviceAudio                 string    // "Audio"
+	DeviceUSBAudio              string    // "USB Audio Codec"
+	AudioDeviceUAC1             string    // "UAC1"
+	AudioDeviceUAC2             string    // "UAC2"
+	DriveModeDisk               string    // "USB Stick"
+	DriveModeCDROM              string    // "CD-ROM"
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -882,6 +883,7 @@ func EN() *LocalizedStrings {
 		VirtualDisplayOfferMode:           "Mode",
 		VirtualDisplayOfferSkip:           "Stream as is",
 		VirtualDisplayOfferAsIsSubtitle:   "Streams the host's screen as is. A virtual display at %[2]dx%[3]d@%[1]d can be made for the session instead.",
+		VirtualDisplayOfferNote:           "A virtual display mostly matters for the Sunshine-based forks (Sunshine, Vibepollo), where a physical monitor caps the refresh rate. USBridge Streamer captures the real monitors at full speed, so most likely you don't need one there.",
 		HostAppOfferTitle:                 "Start streaming",
 		HostAppOfferSubtitle:              "The host has several apps. Pick the one to stream.",
 		HostAppOfferApp:                   "App",
@@ -1673,6 +1675,7 @@ func ES() *LocalizedStrings {
 	locale.VirtualDisplayOfferMode = "Modo"
 	locale.VirtualDisplayOfferSkip = "Transmitir asi"
 	locale.VirtualDisplayOfferAsIsSubtitle = "Transmite la pantalla del host tal cual. En su lugar se puede crear una pantalla virtual a %[2]dx%[3]d@%[1]d para la sesion."
+	locale.VirtualDisplayOfferNote = "Una pantalla virtual importa sobre todo en los forks basados en Sunshine (Sunshine, Vibepollo), donde un monitor fisico limita la frecuencia. USBridge Streamer captura los monitores reales a toda velocidad, asi que lo mas probable es que alli no la necesites."
 	locale.HostAppOfferTitle = "Iniciar transmision"
 	locale.HostAppOfferSubtitle = "El host tiene varias aplicaciones. Elige la que quieres transmitir."
 	locale.HostAppOfferApp = "App"
@@ -2197,6 +2200,7 @@ func UKProper() *LocalizedStrings {
 	locale.VirtualDisplayOfferMode = "Режим"
 	locale.VirtualDisplayOfferSkip = "Як є"
 	locale.VirtualDisplayOfferAsIsSubtitle = "Транслюється екран хоста як є. Замість нього можна створити на сеанс віртуальний дисплей %[2]dx%[3]d@%[1]d."
+	locale.VirtualDisplayOfferNote = "Віртуальний дисплей потрібен здебільшого форкам на базі Sunshine (Sunshine, Vibepollo), де фізичний монітор обмежує частоту. USBridge Streamer захоплює справжні монітори на повній швидкості, тож там він, найімовірніше, не потрібен."
 	locale.HostAppOfferTitle = "Почати трансляцію"
 	locale.HostAppOfferSubtitle = "На хості кілька застосунків. Оберіть, який транслювати."
 	locale.HostAppOfferApp = "Застосунок"

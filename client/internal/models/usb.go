@@ -150,6 +150,9 @@ type VideoStatus struct {
 	PyroWaveColor444Available bool `json:"pyrowave_color_444_available"`
 	PyroWaveHdrAvailable      bool `json:"pyrowave_hdr_available"`
 	VirtualDisplaySupported   bool `json:"virtual_display_supported"`
+	// Streamer is the host's stream host by display name ("USBridge Streamer
+	// (Proprietary)", "Sunshine", ...); "" from older agents.
+	Streamer string `json:"streamer,omitempty"`
 	// Fec is present when the agent takes the client's FEC slider (POST
 	// /api/video/fec, see USBClient.SetVideoFec); nil from older agents.
 	Fec *VideoFecInfo `json:"fec,omitempty"`

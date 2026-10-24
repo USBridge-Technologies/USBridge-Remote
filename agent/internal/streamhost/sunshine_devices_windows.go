@@ -115,6 +115,12 @@ func (b *sunshineBackend) ListCaptureDevices() []CaptureDevice {
 		if name == "" {
 			name = d.DisplayName
 		}
+		// The log is a snapshot of the last start: a monitor switched off by then
+		// is listed 0x0 (monitors off are added back by withMonitorPower), and the
+		// agent's virtual monitor, one entry per start, is the API's "virtual:" entry.
+		if d.Info.Resolution.Width <= 0 || d.Info.Resolution.Height <= 0 || strings.Contains(strings.ToUpper(name), "VDD") {
+			continue
+		}
 		out = append(out, CaptureDevice{
 			OutputName:  d.DeviceID,
 			DisplayName: name,
