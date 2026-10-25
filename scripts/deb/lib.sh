@@ -8,6 +8,7 @@
 # purge only once neither package is left.
 
 DEB_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$DEB_LIB_DIR/../polkit.sh"
 
 DEB_REPO_URL="https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download"
 DEB_LIST="/etc/apt/sources.list.d/usbridge.list"
@@ -33,6 +34,7 @@ apt-get update -o Dir::Etc::sourcelist=$DEB_LIST -o Dir::Etc::sourceparts=- -o A
 apt-get install -y --only-upgrade -o Dpkg::Options::=--force-confold $DEB_PACKAGES
 EOF
     chmod 0755 "$root$libdir/apt-upgrade"
+    polkit_add_policy "$root" "$libdir" apt-upgrade
 
     cat > "$root/DEBIAN/postinst" <<EOF
 #!/bin/sh

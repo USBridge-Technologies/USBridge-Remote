@@ -14,6 +14,7 @@
 # binaries.
 
 ARCH_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$ARCH_LIB_DIR/../polkit.sh"
 
 ARCH_REPO=usbridge
 # Both overridable only to test the update flow against a local repository
@@ -57,6 +58,7 @@ CONF
 pacman --config "\$conf" -Sy --noconfirm --needed \$(pacman -Qq $ARCH_PACKAGES 2>/dev/null)
 EOF
     chmod 0755 "$root$libdir/pacman-upgrade"
+    polkit_add_policy "$root" "$libdir" pacman-upgrade
 
     cat > "$root/.INSTALL" <<EOF
 _keyrings=/usr/share/pacman/keyrings

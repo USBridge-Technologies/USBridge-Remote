@@ -14,6 +14,7 @@
 # %config(noreplace), so enabled=0 in it survives upgrades.
 
 RPM_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$RPM_LIB_DIR/../polkit.sh"
 
 # Both overridable only to test the update flow against a local repository
 # signed with a throwaway key; releases always use these defaults.
@@ -60,6 +61,7 @@ done
 exec dnf -y --repo=usbridge --refresh upgrade \$pkgs
 EOF
     chmod 0755 "$root$libdir/dnf-upgrade"
+    polkit_add_policy "$root" "$libdir" dnf-upgrade
 }
 
 # rpm_glibc ROOT: "libc.so.6(GLIBC_X.Y)(64bit)" for the newest GLIBC_ symbol
