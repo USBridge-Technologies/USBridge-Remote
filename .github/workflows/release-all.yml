@@ -495,8 +495,8 @@ jobs:
         shell: msys2 {0}
         run: cat client/logs/build_windows.log 2>/dev/null || echo "no log file found"
       - name: Package into a single archive
-        # dist/windows/ is a portable app folder (exe + launcher + all DLLs
-        # + bundled Tailscale runtime alongside) — that's correct, it's meant
+        # dist/windows/ is a portable app folder (exe + launcher + all DLLs)
+        # — that's correct, it's meant
         # to run standalone with no external deps. Zip the whole folder as
         # one file so those don't end up as loose release assets.
         shell: msys2 {0}

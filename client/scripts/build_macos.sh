@@ -352,20 +352,6 @@ else
     echo -e "   ${YELLOW}⚠${NC} swiftc not found -- \"Copy Text from Screen\" will stay unavailable in this build"
 fi
 
-# 5c. Bundle Tailscale (Go binary — statically linked, no dylib deps)
-echo -e "\n${YELLOW}🔗 Bundling Tailscale...${NC}"
-_ts_src=""
-for _d in /opt/homebrew/bin /usr/local/bin; do
-    [ -f "$_d/tailscale" ] && _ts_src="$_d/tailscale" && break
-done
-if [ -n "$_ts_src" ]; then
-    cp -L "$_ts_src" "$APP_MACOS_DIR/tailscale"
-    chmod 755 "$APP_MACOS_DIR/tailscale"
-    echo -e "${GREEN}✓${NC} MacOS/tailscale"
-else
-    :
-fi
-
 # 5d. Bundle the local ui.parse ONNX offload's RUNTIME LIB only (internal/
 # localui, AI Vision's detector) -- the runtime comes from
 # fetch_onnxruntime.sh's redistributable PyPI build (self-contained -- no
@@ -479,7 +465,7 @@ if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
         codesign_retry --force --sign "$CODESIGN_IDENTITY" \
             --options runtime --timestamp "$dylib"
     done < <(find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f 2>/dev/null)
-    # Sign standalone executables in MacOS/ (qemu-nbd, qemu-img, tailscale, ffmpeg)
+    # Sign standalone executables in MacOS/ (qemu-nbd, qemu-img, ffmpeg)
     while IFS= read -r exe; do
         codesign_retry --force --sign "$CODESIGN_IDENTITY" \
             --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$exe"

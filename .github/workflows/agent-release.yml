@@ -44,7 +44,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       USBRIDGE_SKIP_NOTARIZE: "1" # нотаризацию macOS проводим отдельными шагами ниже
-      USBRIDGE_SKIP_TAILSCALE: "0"
       USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"
     steps:
       - uses: actions/checkout@v4
