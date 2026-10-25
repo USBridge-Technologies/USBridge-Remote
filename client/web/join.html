@@ -22,6 +22,7 @@
   .role { display: inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 13px; color: var(--text); }
   button { width: 100%; padding: 12px 16px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
+  a.appbtn { display: block; box-sizing: border-box; text-align: center; text-decoration: none; padding: 12px 16px; margin-top: 10px; border-radius: 10px; border: 1px solid var(--border); color: var(--text); font-weight: 600; }
   button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); margin-top: 10px; }
   .steps { margin: 0 0 18px; padding-left: 20px; color: var(--muted); font-size: 14px; }
   .steps li { margin: 4px 0; }
@@ -53,13 +54,14 @@
       <li>Come back to this tab: it connects by itself.</li>
     </ol>
     <button id="go" disabled>Loading...</button>
+    <a id="openapp" class="appbtn" href="#" hidden>Open in the USBridge app</a>
     <button id="cancel" class="ghost" hidden>Cancel</button>
     <div class="status" id="status" role="status" aria-live="polite"></div>
     <p class="apps">USBridge apps: <a href="https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest" target="_blank" rel="noopener">Windows / macOS / Linux</a> &middot;
       <a href="https://play.google.com/store/apps/details?id=io.usbridge.client" target="_blank" rel="noopener">Android</a> &middot;
       <a href="https://apps.apple.com/us/app/usbridge-client/id6787665935" target="_blank" rel="noopener">iPhone / iPad</a> &middot;
       <a href="https://web.usbridge.io" target="_blank" rel="noopener">Web</a><br>
-      Joining from the apps is coming; for now guests connect here, in the browser.</p>
+      The Windows, macOS and Linux apps open this invitation with the button above (Operator and Technician roles); in the browser you can join with any role.</p>
   </div>
 </main>
 <div id="stage" tabindex="0" aria-label="Remote screen"></div>
@@ -98,6 +100,9 @@
     $("title").textContent = i.device_name || "Shared computer";
     $("role").textContent = roleName(i.role); $("roleline").hidden = false;
     $("hint").textContent = i.email_hint;
+    // The desktop app takes over (usbridge:// is registered by its installer, or by the app itself on first start).
+    if (i.role !== "viewer") { $("openapp").href = "usbridge://join?share=" + encodeURIComponent(shareID); $("openapp").hidden = false;
+      if (new URLSearchParams(location.search).get("app") === "1") { status("Opening the USBridge app... if nothing happens, use the button or continue here in the browser."); location.href = $("openapp").href; } }
     var until = i.share_exp ? "Access until " + new Date(i.share_exp * 1000).toLocaleString() + "." : "";
     var ask = i.require_consent ? " The person at the computer will be asked to allow each connection." : "";
     $("sub").textContent = ("You've been given access to this computer. " + until + ask).trim();
