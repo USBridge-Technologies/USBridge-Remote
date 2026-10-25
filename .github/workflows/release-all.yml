@@ -119,7 +119,8 @@ jobs:
             libpulse0 libopus0 libcap2 libdrm2 libevdev2 \
             libxtst6 libxrandr2 libxfixes3 libnuma1 libcurl4 \
             libayatana-appindicator3-1 libssl3 \
-            libpipewire-0.3-0 libwayland-client0 libwayland-egl1
+            libpipewire-0.3-0 libwayland-client0 libwayland-egl1 \
+            libarchive-tools zstd rpm
       - name: Build (Linux)
         working-directory: agent
         env:
@@ -132,6 +133,8 @@ jobs:
             agent/dist/*.zip
             agent/dist/*.AppImage
             agent/dist/*.deb
+            agent/dist/*.pkg.tar.zst
+            agent/dist/*.rpm
           if-no-files-found: error
           retention-days: 7
 
@@ -407,7 +410,8 @@ jobs:
             libgl1-mesa-dev xorg-dev libxkbcommon-dev libpulse-dev \
             libva-dev libva-drm2 libvdpau-dev libdrm-dev libx264-dev \
             nasm meson ninja-build ocl-icd-libopencl1 \
-            libopus-dev libssl-dev libusb-1.0-0-dev pkg-config cmake libvulkan-dev
+            libopus-dev libssl-dev libusb-1.0-0-dev pkg-config cmake libvulkan-dev \
+            libarchive-tools zstd rpm
       - name: Cache FFmpeg
         id: ffmpeg-cache
         uses: actions/cache@v4
@@ -421,7 +425,7 @@ jobs:
       - name: Build (Linux)
         # build_linux.sh packages an AppImage directly (client/dist/USBridgeClient-Linux-x86_64-<VERSION>.AppImage),
         # bundling FFmpeg/libpulse/libopus/etc. via linuxdeploy, then the .deb
-        # from the same AppDir.
+        # Arch package and RPM from the same AppDir.
         working-directory: client
         env:
           USBRIDGE_FFMPEG_PREFIX: ${{ github.workspace }}/client/dist/linux/ffmpeg
@@ -432,6 +436,8 @@ jobs:
           path: |
             client/dist/USBridgeClient-Linux-x86_64-*.AppImage
             client/dist/USBridgeClient-Linux-x86_64-*.deb
+            client/dist/usbridge-client-*.pkg.tar.zst
+            client/dist/usbridge-client-*.rpm
           if-no-files-found: error
           retention-days: 7
 
@@ -495,8 +501,8 @@ jobs:
         shell: msys2 {0}
         run: cat client/logs/build_windows.log 2>/dev/null || echo "no log file found"
       - name: Package into a single archive
-        # dist/windows/ is a portable app folder (exe + launcher + all DLLs
-        # + bundled Tailscale runtime alongside) — that's correct, it's meant
+        # dist/windows/ is a portable app folder (exe + launcher + all DLLs)
+        # — that's correct, it's meant
         # to run standalone with no external deps. Zip the whole folder as
         # one file so those don't end up as loose release assets.
         shell: msys2 {0}
@@ -1221,6 +1227,68 @@ jobs:
           gpg --batch --yes --local-user "$want" -abs -o Release.gpg Release
           cat Packages
 
+      - name: Build and sign the pacman repository
+        # The Arch counterpart of the APT index: a [usbridge] pacman database
+        # next to the versioned .pkg.tar.zst files, which installed packages
+        # read from /releases/latest/download/ (scripts/arch/lib.sh).
+        # Packages and database are signed with the same GPG key as the APT
+        # index; pacman's package cache needs the versioned file names, which
+        # the "Flatten artifacts" version strip doesn't touch.
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg-arch"
+          mkdir -m 700 "$GNUPGHOME"
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          want="$(gpg --batch --with-colons --show-keys scripts/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
+          gpg --batch --with-colons --list-secret-keys "$want" >/dev/null
+
+          cd out
+          ls usbridge-agent-*.pkg.tar.zst usbridge-client-*.pkg.tar.zst
+          for p in *.pkg.tar.zst; do
+            gpg --batch --yes --local-user "$want" --detach-sign --no-armor -o "$p.sig" "$p"
+          done
+          # repo-add only exists on Arch. pacman fetches each package's .sig
+          # from the release next to it.
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" -w /repo archlinux:base \
+            repo-add -q usbridge.db.tar.gz ./*.pkg.tar.zst
+          # Release assets can't be symlinks: publish the database itself as
+          # usbridge.db (all pacman downloads), without the files database.
+          rm -f usbridge.db usbridge.files usbridge.files.tar.gz
+          mv usbridge.db.tar.gz usbridge.db
+          gpg --batch --yes --local-user "$want" --detach-sign --no-armor -o usbridge.db.sig usbridge.db
+          tar -xzOf usbridge.db | grep -A1 -E '^%(FILENAME|VERSION)%'
+          # Stable-name copies for /releases/latest/download/ links (the site,
+          # install.sh), made after repo-add so the database never lists them.
+          cp usbridge-agent-*.pkg.tar.zst USBridgeAgent-Linux-x86_64.pkg.tar.zst
+          cp usbridge-client-*.pkg.tar.zst USBridgeClient-Linux-x86_64.pkg.tar.zst
+
+      - name: Sign the RPMs
+        # In-package signatures dnf checks against the key both RPMs ship
+        # (scripts/rpm/lib.sh): the same GPG key as the APT index.
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg-rpm"
+          mkdir -m 700 "$GNUPGHOME"
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          want="$(gpg --batch --with-colons --show-keys scripts/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
+          gpg --batch --with-colons --list-secret-keys "$want" >/dev/null
+
+          sudo apt-get install -y -qq rpm
+          ls out/usbridge-agent-*.rpm out/usbridge-client-*.rpm
+          # Ubuntu's rpm looks for /usr/bin/gpg2, which gnupg 2.x no longer ships.
+          rpmsign --addsign --define "_gpg_name $want" --define "__gpg $(command -v gpg)" out/*.rpm
+          rpm -qpi out/*.rpm | grep -E '^(Name|Version|Signature)'
+          # Stable-name copies for /releases/latest/download/ links (the site,
+          # install.sh); the dnf repository lists only the versioned files.
+          cp out/usbridge-agent-*.rpm out/USBridgeAgent-Linux-x86_64.rpm
+          cp out/usbridge-client-*.rpm out/USBridgeClient-Linux-x86_64.rpm
+
       - name: Derive release tag
         id: tag
         run: |
@@ -1247,6 +1315,42 @@ jobs:
           # opt out of it too, and a prerelease (test) build must never take
           # over /releases/latest from the last real release.
           make_latest: ${{ inputs.prerelease && 'false' || 'true' }}
+
+      - name: Publish the dnf repository
+        # dnf reads a repodata/ directory, which flat release assets can't
+        # hold, so only the metadata goes to the rpm-repo branch (one
+        # force-pushed commit, served by raw.githubusercontent.com, see
+        # scripts/rpm/lib.sh); its package locations point at this release's
+        # .rpm assets. Never for a prerelease, like /releases/latest.
+        if: ${{ !inputs.prerelease }}
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg-dnf"
+          mkdir -m 700 "$GNUPGHOME"
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          want="$(gpg --batch --with-colons --show-keys scripts/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
+          gpg --batch --with-colons --list-secret-keys "$want" >/dev/null
+
+          sudo apt-get install -y -qq createrepo-c
+          repo="$RUNNER_TEMP/rpm-repo"
+          mkdir -p "$repo/pkgs"
+          cp out/usbridge-*.rpm "$repo/pkgs/"
+          createrepo_c --baseurl "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" \
+            --outputdir "$repo" "$repo/pkgs"
+          rm -rf "$repo/pkgs"
+          gpg --batch --yes --local-user "$want" --detach-sign --armor -o "$repo/repodata/repomd.xml.asc" "$repo/repodata/repomd.xml"
+
+          cd "$repo"
+          git init -q -b rpm-repo
+          git add repodata
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "dnf repository for $TAG"
+          git push -q --force "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" rpm-repo
 
   # Deploys the browser/WASM web client -- see web-deploy.yml (also
   # independently dispatchable on its own, for testing this exact deploy

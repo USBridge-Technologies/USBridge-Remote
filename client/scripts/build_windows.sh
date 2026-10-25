@@ -50,29 +50,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-download_file() {
-    local url="$1"
-    local dest="$2"
-
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$dest"
-        return
-    fi
-    if command -v wget >/dev/null 2>&1; then
-        wget -q -O "$dest" "$url"
-        return
-    fi
-    if command -v powershell >/dev/null 2>&1; then
-        powershell -NoProfile -NonInteractive -Command \
-            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '$url' -OutFile '$dest'"
-        return
-    fi
-
-    echo -e "${RED}❌ Downloader not found for $url${NC}"
-    echo "   Need one of: curl, wget or powershell."
-    exit 1
-}
-
 extract_zip() {
     local archive="$1"
     local dest="$2"
@@ -98,30 +75,6 @@ extract_zip() {
     echo -e "${RED}❌ Archiver not found for $archive${NC}"
     echo "   Need one of: unzip, bsdtar, tar or powershell."
     exit 1
-}
-
-extract_msi() {
-    local msi_path="$1"
-    local dest="$2"
-
-    mkdir -p "$dest"
-    if command -v msiexec.exe >/dev/null 2>&1 && command -v powershell >/dev/null 2>&1; then
-        local msi_win dest_win exit_code
-        msi_win="$(cygpath -w "$msi_path" 2>/dev/null || echo "$msi_path")"
-        dest_win="$(cygpath -w "$dest" 2>/dev/null || echo "$dest")"
-        # Administrative install (/a) unpacks the MSI payload without installing it.
-        # Routed through PowerShell Start-Process (quiet, hidden window) since invoking
-        # msiexec.exe directly from bash mangles the "TARGETDIR=..." argument quoting
-        # and pops up the usage dialog instead of running silently.
-        powershell -NoProfile -NonInteractive -Command \
-            "\$p = Start-Process msiexec.exe -ArgumentList '/a \"$msi_win\" /qn TARGETDIR=\"$dest_win\"' -Wait -PassThru -WindowStyle Hidden; exit \$p.ExitCode"
-        exit_code=$?
-        [ "$exit_code" = "0" ] && return 0
-        return 1
-    fi
-
-    echo -e "${RED}❌ msiexec/powershell not found for unpacking $msi_path${NC}"
-    return 1
 }
 
 hash_file_sha256() {
@@ -913,113 +866,6 @@ for _fdll in "${FORCE_DLLS[@]}"; do
     fi
 done
 
-# 7f. Bundle Tailscale CLI (tailscale.exe + tailscaled.exe)
-# Enables system-level Tailscale routing so C sockets (Moonlight RTSP/RTP)
-# can reach Tailscale 100.x IPs without the Go tsnet proxy overhead.
-# The app also works without this via the built-in tsnet proxy, but having
-# tailscale.exe / tailscaled.exe in bin/ lets users run a system TS daemon.
-echo -e "\n${YELLOW}🔗 Bundling Tailscale CLI (tailscale.exe + tailscaled.exe)...${NC}"
-
-TAILSCALE_CACHE_DIR="$REPO_ROOT/.cache/tailscale-windows"
-TAILSCALE_BIN_DIR=""
-
-# 1. Check PATH / TAILSCALE_ROOT / MSYS2 prefixes
-for _ts_candidate in \
-    "${TAILSCALE_ROOT:-}" \
-    "${TAILSCALE_ROOT:-}/bin" \
-    "/ucrt64/bin" \
-    "/mingw64/bin" \
-    "/clang64/bin"
-do
-    [ -z "$_ts_candidate" ] && continue
-    if [ -f "$_ts_candidate/tailscale.exe" ] || [ -f "$_ts_candidate/tailscaled.exe" ]; then
-        TAILSCALE_BIN_DIR="$_ts_candidate"
-        echo -e "${GREEN}✓${NC} Tailscale found locally: $TAILSCALE_BIN_DIR"
-        break
-    fi
-done
-
-# 2. Check disk cache from a previous download
-if [ -z "$TAILSCALE_BIN_DIR" ] && [ -f "$TAILSCALE_CACHE_DIR/tailscale.exe" ]; then
-    TAILSCALE_BIN_DIR="$TAILSCALE_CACHE_DIR"
-    echo -e "${GREEN}✓${NC} Tailscale found in download cache: $TAILSCALE_CACHE_DIR"
-fi
-
-# 3. Download from pkgs.tailscale.com / GitHub releases
-if [ -z "$TAILSCALE_BIN_DIR" ] && [ "${SKIP_TAILSCALE_DOWNLOAD:-0}" != "1" ]; then
-    echo -e "${YELLOW}⚠${NC} Tailscale not found locally, downloading latest stable..."
-    mkdir -p "$TAILSCALE_CACHE_DIR"
-
-    # Resolve latest stable version tag
-    TS_VERSION=""
-    if command -v curl >/dev/null 2>&1; then
-        TS_VERSION=$(curl -fsSL \
-            "https://api.github.com/repos/tailscale/tailscale/releases/latest" \
-            2>/dev/null \
-            | grep '"tag_name"' | head -1 \
-            | sed 's/.*"tag_name": *"v\([^"]*\)".*/\1/')
-    fi
-    [ -z "$TS_VERSION" ] && TS_VERSION="1.98.8"
-    echo "   Tailscale version: $TS_VERSION"
-
-    # pkgs.tailscale.com no longer publishes a raw windows_amd64.zip — only the
-    # NSIS installer exe and the MSI. The MSI can be unpacked without installing
-    # anything via an administrative install (msiexec /a), which yields the plain
-    # tailscale.exe / tailscaled.exe / wintun.dll payload.
-    TS_MSI="$TAILSCALE_CACHE_DIR/tailscale-setup-${TS_VERSION}-amd64.msi"
-    TS_URL="https://pkgs.tailscale.com/stable/tailscale-setup-${TS_VERSION}-amd64.msi"
-
-    echo "   Downloading: $TS_URL"
-    if download_file "$TS_URL" "$TS_MSI" 2>/dev/null; then
-        TS_EXTRACT_DIR="$TAILSCALE_CACHE_DIR/extracted"
-        rm -rf "$TS_EXTRACT_DIR"
-        if extract_msi "$TS_MSI" "$TS_EXTRACT_DIR"; then
-            _ts_exe=$(find "$TS_EXTRACT_DIR" -name "tailscale.exe" 2>/dev/null | head -1)
-            if [ -n "$_ts_exe" ]; then
-                _ts_dir="$(dirname "$_ts_exe")"
-                # Flatten to cache root
-                for _f in tailscale.exe tailscaled.exe wintun.dll; do
-                    _fp="$_ts_dir/$_f"
-                    [ -f "$_fp" ] && cp -L "$_fp" "$TAILSCALE_CACHE_DIR/"
-                done
-                TAILSCALE_BIN_DIR="$TAILSCALE_CACHE_DIR"
-                echo -e "${GREEN}✓${NC} Tailscale extracted from MSI to $TAILSCALE_CACHE_DIR"
-            else
-                echo -e "${RED}❌ tailscale.exe not found in extracted MSI${NC}"
-            fi
-        else
-            echo -e "${RED}❌ Failed to extract MSI: $TS_MSI${NC}"
-        fi
-    else
-        echo -e "${RED}❌ Download failed: $TS_URL${NC}"
-        echo "   Set TAILSCALE_ROOT=/path/to/dir/with/tailscale.exe to provide it manually"
-        echo "   Or: set SKIP_TAILSCALE_DOWNLOAD=1 to skip bundling"
-    fi
-fi
-
-if [ -n "$TAILSCALE_BIN_DIR" ]; then
-    TS_COPIED=0
-    for _ts_bin in tailscale.exe tailscaled.exe wintun.dll; do
-        _src="$TAILSCALE_BIN_DIR/$_ts_bin"
-        if [ -f "$_src" ]; then
-            cp -L "$_src" "$DIST_WIN_BIN/"
-            echo -e "   ${GREEN}✓${NC} bin/$_ts_bin"
-            TS_COPIED=$((TS_COPIED + 1))
-        elif [ "$_ts_bin" != "wintun.dll" ]; then
-            echo -e "   ${YELLOW}⚠${NC} $_ts_bin not found in $TAILSCALE_BIN_DIR"
-        fi
-    done
-    # Walk DLL deps of tailscale binaries
-    mapfile -t _ts_bins < <(
-        find "$DIST_WIN_BIN" -maxdepth 1 \( -name "tailscale.exe" -o -name "tailscaled.exe" \) 2>/dev/null
-    )
-    [ "${#_ts_bins[@]}" -gt 0 ] && _walk_deps "$DIST_WIN_DLLS" "${_ts_bins[@]}"
-else
-    echo -e "${YELLOW}⚠${NC} Tailscale binaries not bundled"
-    echo "   Video still works via built-in tsnet proxy (no system Tailscale needed)"
-    echo "   To bundle: export TAILSCALE_ROOT=/path/to/tailscale && rebuild"
-fi
-
 # 8. README
 
 cat > "$DIST_WIN/README.txt" << 'README'
@@ -1030,24 +876,13 @@ Double-click USBridge_Client.exe to launch.
 Folder structure:
   USBridge_Client.exe          —   (  )
   bin\USBridge_Client_app.exe  —   ( )
-  bin\tailscale.exe            — Tailscale CLI (system VPN, for C-socket routing)
-  bin\tailscaled.exe           — Tailscale daemon (run as service for best performance)
   bin\qemu-nbd.exe             — QEMU NBD (for   VMDK/QCOW2/VDI )
   bin\qemu-img.exe             — QEMU image tool
   lib\                         — runtime DLLs (FFmpeg, OpenSSL, MinGW runtime, etc.)
 
 Tailscale / networking:
-  The app uses built-in (embedded) Tailscale for all Go-level connections.
-  Moonlight video/audio RTSP and RTP are automatically proxied via the embedded
-  tsnet stack — no system Tailscale installation required.
-
-  If you install system Tailscale (tailscaled.exe as a service or via the official
-  installer at https://tailscale.com/download/windows), the bundled bin\tailscale.exe
-  and bin\tailscaled.exe can be used to manage it from the command line.
-
-  To run the bundled daemon manually (one-time, no install):
-    bin\tailscaled.exe --state=tailscale.state
-    bin\tailscale.exe up
+  The app uses built-in (embedded) Tailscale (tsnet) for all connections,
+  including Moonlight video/audio — no system Tailscale installation required.
 
 Video modes:
   Moonlight streaming — libavcodec (D3D11VA hardware decode) + WASAPI audio.

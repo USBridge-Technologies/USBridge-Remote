@@ -122,3 +122,16 @@ func TestStageInDirFailsOnReadOnlyDir(t *testing.T) {
 		t.Fatal("stageInDir into a read-only directory: want error, got nil")
 	}
 }
+
+func TestParsePacmanVersion(t *testing.T) {
+	got, err := parsePacmanVersion("usbridge-agent 3.1.40-1\n")
+	if err != nil || got != "3.1.40" {
+		t.Fatalf("parsePacmanVersion = %q, %v; want 3.1.40", got, err)
+	}
+	if isNewerVersion("3.1.40", got) {
+		t.Fatalf("3.1.40-1 must count as installed 3.1.40")
+	}
+	if _, err := parsePacmanVersion("error: package 'usbridge-agent' was not found\n"); err == nil {
+		t.Fatalf("want an error for pacman's not-found message")
+	}
+}

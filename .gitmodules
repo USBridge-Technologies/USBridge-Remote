@@ -1,3 +1,4 @@
 [submodule "client/moonlight-common-c"]
 	path = client/moonlight-common-c
 	url = https://github.com/itsme228/moonlight-common-c.git
+	ignore = untracked

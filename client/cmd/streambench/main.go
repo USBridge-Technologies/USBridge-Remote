@@ -32,6 +32,8 @@ func main() {
 	settle := flag.Int("settle", 3, "seconds to wait after the first frame before recording")
 	label := flag.String("label", "", "free-form tag copied into the output (streamer, loss level, ...)")
 	dump := flag.String("dump", "", "write the raw run (every frame and 100ms counter tick) as JSON to this file")
+	color444 := flag.Bool("color444", false, "request 4:4:4 chroma (HEVC)")
+	hdr := flag.Bool("hdr", false, "request HDR10 (HEVC Main10)")
 	flag.Parse()
 	logrus.SetLevel(logrus.WarnLevel)
 
@@ -45,6 +47,8 @@ func main() {
 	m.SetExpectedVideoSize(*width, *height)
 	m.SetFPS(*fps)
 	m.SetBitrate(*bitrate)
+	m.SetColor444(*color444)
+	m.SetHdr(*hdr)
 	// An unpaired client asks the host for a PIN; print it so a script can submit it to the host
 	// (the agent's POST /token/pin).
 	m.SetOnPairingPINRequired(func(pin string) { fmt.Println("PIN", pin) })

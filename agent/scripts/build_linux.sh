@@ -224,4 +224,25 @@ if command -v dpkg-deb >/dev/null 2>&1; then
 else
     echo -e "${YELLOW}dpkg-deb not found: skipping the .deb${NC}"
 fi
+
+# ── Build Arch package ────────────────────────────────────────────────────────
+# Same layout again for Arch Linux, updated by pacman (see build_arch.sh).
+# A devstreamer build has no package: its suffix can't go into a pkgver.
+if [[ -n "$APPIMAGE_SUFFIX" ]]; then
+    echo -e "${YELLOW}$APPIMAGE_SUFFIX build: skipping the Arch package${NC}"
+elif command -v bsdtar >/dev/null 2>&1 && command -v zstd >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build_arch.sh"
+else
+    echo -e "${YELLOW}bsdtar or zstd not found: skipping the Arch package${NC}"
+fi
+
+# ── Build RPM ─────────────────────────────────────────────────────────────────
+# And for Fedora/RHEL, updated by dnf (see build_rpm.sh).
+if [[ -n "$APPIMAGE_SUFFIX" ]]; then
+    echo -e "${YELLOW}$APPIMAGE_SUFFIX build: skipping the RPM${NC}"
+elif command -v rpmbuild >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build_rpm.sh"
+else
+    echo -e "${YELLOW}rpmbuild not found: skipping the RPM${NC}"
+fi
 echo "Binary: $OUTPUT_PATH"

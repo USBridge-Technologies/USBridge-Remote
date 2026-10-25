@@ -50,8 +50,12 @@ Terminal=false
 Categories=Network;RemoteAccess;
 EOF
 
+# Depends: what the agent links (GL, X11 through Fyne's GLFW) and what the
+# streamers it downloads (Sunshine, punktfunk-host: see internal/forkrelease)
+# link or load without bundling — checked with ldd on clean installs.
 deb_build "$ROOT" "$OUT" usbridge-agent "$VERSION" \
-    "libc6, libgl1, libx11-6" "pkexec | policykit-1" net \
+    "libc6, libstdc++6, libgl1, libegl1, libgbm1, libdrm2, libvulkan1, libx11-6, libx11-xcb1, libxcb1, libxrandr2, libxinerama1, libxi6, libxcursor1, libxxf86vm1, libxkbcommon0, libwayland-client0, libpipewire-0.3-0t64 | libpipewire-0.3-0, libgpg-error0" \
+    "pkexec | policykit-1" net \
     "USBridge Agent - remote access host" \
     "Streams this computer's desktop to USBridge clients and shares its USB
 devices. Downloads the selected streamer (USBridge Streamer or Sunshine)

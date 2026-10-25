@@ -76,14 +76,27 @@ func (b *rustshineBackend) BindAddress() string {
 // adapter_name would otherwise capture from a nonexistent device and fail
 // outright. This only fills a gap — an adapter_name already set (e.g. via
 // SetOutputName picking a specific card/connector) is left untouched.
+//
+// "x11"/"portal" are Sunshine-only values; the streamer reads anything but
+// v4l2/kms/gdi as v4l2 (a capture card), which captures nothing on a PC. Both
+// map to "kms": the streamer's KMS capture falls back to grabbing the X
+// server's picture when DRM can't be used (no GPU in a VM, NVIDIA under Xorg),
+// so an X11 session with or without a DRM device streams either way.
 func (b *rustshineBackend) SetCaptureMode(mode string) error {
+	if mode == "x11" || mode == "portal" {
+		mode = "kms"
+	}
 	if err := b.SetConfigKey("capture", mode); err != nil {
 		return err
 	}
 	if mode == "kms" && runtime.GOOS == "linux" && b.ConfigKey("adapter_name") == "" {
-		if card := b.firstKmsCardPath(); card != "" {
-			return b.SetConfigKey("adapter_name", card)
+		card := b.firstKmsCardPath()
+		if card == "" {
+			// No DRM device at all (a VM without a GPU): a path that can never
+			// be the default /dev/video0 capture card.
+			card = "/dev/dri/card0"
 		}
+		return b.SetConfigKey("adapter_name", card)
 	}
 	return nil
 }
