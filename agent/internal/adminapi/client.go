@@ -13,6 +13,7 @@ import (
 
 	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
@@ -259,6 +260,19 @@ func (c *Client) SetStreamerAutoUpdate(enabled bool) error {
 
 func (c *Client) SnoozeStreamerUpdate(version string) error {
 	return c.do(http.MethodPost, "/token/snooze-streamer-update", stringBody{Value: version}, nil)
+}
+
+func (c *Client) GuestPending() []guestauth.Session {
+	var out []guestauth.Session
+	_ = c.do(http.MethodGet, "/token/guest-pending", nil, &out)
+	return out
+}
+
+func (c *Client) GuestDecide(shareID string, allow bool) error {
+	return c.do(http.MethodPost, "/token/guest-decide", struct {
+		ShareID string `json:"share_id"`
+		Allow   bool   `json:"allow"`
+	}{shareID, allow}, nil)
 }
 
 func (c *Client) RemoteWindowLockEnabled() bool {

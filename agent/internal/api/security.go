@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"usbridge_agent/internal/guestauth"
+
 	"golang.org/x/time/rate"
 )
 
@@ -86,6 +88,8 @@ type SecurityMiddleware struct {
 	// pick up a freshly rotated key.
 	keyMu     sync.RWMutex
 	masterKey []byte
+	// guests handles X-Guest-Ticket requests (guest.go); nil = guest access off.
+	guests *guestauth.Manager
 }
 
 // NewSecurityMiddleware creates middleware with the given master key (raw bytes).
@@ -144,6 +148,9 @@ func isSyncPath(path string) bool {
 // verifyHMAC checks the X-Auth-Signature / X-Auth-Timestamp headers.
 // Returns false and writes an HTTP error if verification fails.
 func (m *SecurityMiddleware) verifyHMAC(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	if r.Header.Get("X-Guest-Ticket") != "" {
+		return m.verifyGuest(w, r, body)
+	}
 	sig := r.Header.Get("X-Auth-Signature")
 	tsStr := r.Header.Get("X-Auth-Timestamp")
 	masterKey := m.currentMasterKey()
@@ -191,6 +198,9 @@ func (m *SecurityMiddleware) verifyHMAC(w http.ResponseWriter, r *http.Request, 
 // defeat the point of streaming — the caller signs with an empty body to
 // match.
 func (m *SecurityMiddleware) verifyHMACNoBody(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get("X-Guest-Ticket") != "" {
+		return m.verifyGuest(w, r, nil)
+	}
 	sig := r.Header.Get("X-Auth-Signature")
 	tsStr := r.Header.Get("X-Auth-Timestamp")
 	masterKey := m.currentMasterKey()

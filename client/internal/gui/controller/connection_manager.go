@@ -62,6 +62,9 @@ type SavedConnection struct {
 }
 
 type ConnectionManager struct {
+	// shareStats: last-seen guest counts per contact (connection_manager_share.go).
+	shareStats shareStats
+
 	app    fyne.App
 	window fyne.Window
 	config *models.AppConfig

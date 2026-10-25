@@ -38,6 +38,7 @@ import (
 	"usbridge_agent/internal/devicecert"
 	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/entitlement"
+	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/forkrelease"
 	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/input"
@@ -111,6 +112,7 @@ type App struct {
 	tlsWatchdogOnce sync.Once
 	handler         http.Handler
 	apiServer       *api.Server
+	guests          *guestauth.Manager
 	fyneApp         fyne.App
 	clipboard       *clipboard.Manager
 	usbBroker       *usbpass.Service
@@ -679,6 +681,7 @@ func New() (*App, error) {
 		applyStreamUSBPassBridgeAddr(instance.stream, addr)
 	}
 	instance.apiServer = apiServer
+	instance.initGuestAccess(apiServer)
 	handler := apiServer.Routes()
 	instance.handler = handler
 	instance.server = &http.Server{
@@ -865,6 +868,7 @@ func (a *App) Run(headless, startHidden bool) error {
 	go a.streamerUpdateWatchdog(ctx)
 	go a.turnCredentialsWatchdog(ctx)
 	go a.webrtcSignalRelayWatchdog(ctx)
+	go a.guestsWatchdog(ctx)
 	go a.usbBrokerWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()

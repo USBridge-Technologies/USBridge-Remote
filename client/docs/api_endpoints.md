@@ -182,6 +182,30 @@ POST /api/iso/upload
 
 ---
 
+## Guest Access (software agent)
+
+Lets people other than the owner connect with their own identity, a role and an end date instead of the master key. Design and security model: [docs/GUEST_ACCESS.md](../../docs/GUEST_ACCESS.md).
+
+### Owner endpoints (signed with the master key; guests are always refused)
+```http
+GET    /api/guests                  # shares, live count, free limit, plan
+POST   /api/guests                  # {"email","role","expires_in","require_consent"}
+DELETE /api/guests/{id}             # revoke for good
+POST   /api/guests/{id}/end         # disconnect now, keep the share
+POST   /api/guests/{id}/decide      # {"allow": bool} answer a pending request to connect
+```
+`role` is `viewer`, `operator` or `technician`; `expires_in` is seconds (0 = no end date). `POST /api/guests` answers `402 free_limit` (Free allows one live guest), `503 cloud_unavailable` (the cloud sends the invitation e-mail) or `429 rate_limit`.
+
+### Guest requests
+A guest request carries `X-Guest-Ticket` (backend-signed, 10 minutes), `X-Auth-Timestamp` and `X-Auth-Signature` = base64 of the raw 64-byte ECDSA P-256 signature, made with the key the ticket is bound to, over `SHA256(METHOD + URI + TIMESTAMP + BODY)`. A WebRTC offer is signed over its SDP, not the JSON around it. Anything not granted to the guest's role answers `403 not_permitted`; before the person at the computer has allowed the session, `403 consent_required`.
+```http
+POST /api/guest/hello       # ask to start a session -> state pending | allowed | denied
+GET  /api/guest/me          # role and session state
+POST /api/guest/wt-grant    # signed WebTransport CONNECT grant (the role is part of what is signed)
+```
+
+---
+
 ## Public Endpoints
 
 ### Health Check

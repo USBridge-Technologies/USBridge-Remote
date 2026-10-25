@@ -13,6 +13,7 @@ import (
 
 	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
@@ -47,6 +48,10 @@ type TokenBackend interface {
 	StreamerAutoUpdateEnabled() bool
 	SetStreamerAutoUpdate(enabled bool) error
 	SnoozeStreamerUpdate(version string) error
+	// Guest access: guests waiting for the person at this machine to allow
+	// them in, and that person's answer.
+	GuestPending() []guestauth.Session
+	GuestDecide(shareID string, allow bool) error
 	RemoteWindowLockEnabled() bool
 	SetRemoteWindowLock(enabled bool) error
 	RestartSunshine() error
@@ -246,6 +251,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/streamer-auto-update", s.handleStreamerAutoUpdate)
 	mux.HandleFunc("POST /token/streamer-auto-update", s.handleSetStreamerAutoUpdate)
 	mux.HandleFunc("POST /token/snooze-streamer-update", s.handleSnoozeStreamerUpdate)
+	mux.HandleFunc("GET /token/guest-pending", s.handleGuestPending)
+	mux.HandleFunc("POST /token/guest-decide", s.handleGuestDecide)
 	mux.HandleFunc("GET /token/remote-window-lock", s.handleRemoteWindowLock)
 	mux.HandleFunc("POST /token/remote-window-lock", s.handleSetRemoteWindowLock)
 	mux.HandleFunc("POST /token/restart-sunshine", s.handleRestartSunshine)
@@ -470,6 +477,30 @@ func (s *Server) handleSnoozeStreamerUpdate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.token.SnoozeStreamerUpdate(body.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleGuestPending(w http.ResponseWriter, r *http.Request) {
+	list := s.token.GuestPending()
+	if list == nil {
+		list = []guestauth.Session{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleGuestDecide(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ShareID string `json:"share_id"`
+		Allow   bool   `json:"allow"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.GuestDecide(body.ShareID, body.Allow); err != nil {
 		writeError(w, err)
 		return
 	}

@@ -89,6 +89,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       ✓ Bi-directional file & text clipboard<br>    
       ✓ Multi-monitor display switching<br>
       ✓ Integrated Tailscale P2P networking<br>
+      ✓ Guest access: invite people by e-mail with a role and an end date<br>
       ✓ Native Wayland support (promptless capture)
     </td>
     <td width="33%" valign="top">

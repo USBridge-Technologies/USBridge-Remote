@@ -23,6 +23,7 @@ import (
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/display"
 	"usbridge_agent/internal/displaypower"
+	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/hostload"
 	"usbridge_agent/internal/usbpass"
 	"usbridge_agent/internal/vdisplay"
@@ -133,6 +134,7 @@ type Server struct {
 	masterKey    []byte
 	sunshinePort int
 	sec          *SecurityMiddleware
+	guests       *guestauth.Manager
 
 	usb *usbpass.Service
 
@@ -237,6 +239,16 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/storage/status", sec.LimitPolling(s.storageStatus))
 	mux.HandleFunc("/api/scripts/list", sec.LimitPolling(s.scriptsList))
 	mux.HandleFunc("/api/scripts/status", sec.LimitPolling(s.scriptsStatus))
+	// Guest access (guest.go): management is owner-only (absent from routeCaps),
+	// hello/me are how a verified guest asks for and checks its session.
+	mux.HandleFunc("GET /api/guests", sec.LimitPolling(s.guestsList))
+	mux.HandleFunc("POST /api/guests", sec.LimitPolling(s.guestsInvite))
+	mux.HandleFunc("DELETE /api/guests/{id}", sec.LimitPolling(s.guestsRevoke))
+	mux.HandleFunc("POST /api/guests/{id}/decide", sec.LimitPolling(s.guestsDecide))
+	mux.HandleFunc("POST /api/guests/{id}/end", sec.LimitPolling(s.guestsEndSession))
+	mux.HandleFunc("POST /api/guest/hello", sec.LimitPolling(s.guestHello))
+	mux.HandleFunc("GET /api/guest/me", sec.LimitPolling(s.guestMe))
+	mux.HandleFunc("POST /api/guest/wt-grant", sec.LimitPolling(s.guestWTGrant))
 	mux.HandleFunc("/api/auth/tailscale/status", sec.LimitPolling(s.tailscaleStatus))
 	mux.HandleFunc("/api/auth/tailscale/register", sec.LimitPolling(s.tailscaleRegister))
 	mux.HandleFunc("/api/keyboard", sec.LimitRealtime(s.keyboard))
@@ -313,6 +325,13 @@ func (s *Server) webrtcProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	if r.Method == http.MethodPost && r.URL.Path == "/webrtc/offer" {
+		body := readBody(r)
+		if status, code := s.AuthorizeOffer(r.Method, r.URL.RequestURI(), r.Header, body); status != 0 {
+			writeGuestDenied(w, status, code)
+			return
+		}
+	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		resp.Header.Del("Access-Control-Allow-Origin")
 		resp.Header.Del("Access-Control-Allow-Methods")
@@ -344,7 +363,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Auth-Signature, X-Auth-Timestamp, X-USBridge-Video-Trace")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Auth-Signature, X-Auth-Timestamp, X-Guest-Ticket, X-USBridge-Video-Trace")
 		w.Header().Set("Access-Control-Max-Age", "600")
 
 		// Private Network Access (PNA) requirement for Chrome:

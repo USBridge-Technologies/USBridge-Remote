@@ -169,6 +169,9 @@ type LocalizedStrings struct {
 	UpdateAvailableHint string
 	StreamerUpdateAsk   string
 
+	// Guest access
+	GuestAskConnect string // %s e-mail, %s role
+
 	// Common
 	ErrorTitle     string
 	Yes            string
@@ -502,19 +505,20 @@ func EN() *LocalizedStrings {
 		UpdateAvailableHint: "Update available",
 		StreamerUpdateAsk:   "A USBridge-streamer update is available. Install now?",
 
-		ErrorTitle:     "Error",
-		Yes:            "Yes",
-		No:             "No",
-		OK:             "OK",
-		Cancel:         "Cancel",
-		Save:           "Save",
-		Update:         "Update",
-		NotNow:         "Not Now",
-		Download:       "Download",
-		LogOut:         "Log out",
-		LicenseManager: "License Manager",
-		Copy:           "Copy",
-		Submit:         "Submit",
+		ErrorTitle:      "Error",
+		Yes:             "Yes",
+		No:              "No",
+		GuestAskConnect: "%s (%s) wants to connect. Allow?",
+		OK:              "OK",
+		Cancel:          "Cancel",
+		Save:            "Save",
+		Update:          "Update",
+		NotNow:          "Not Now",
+		Download:        "Download",
+		LogOut:          "Log out",
+		LicenseManager:  "License Manager",
+		Copy:            "Copy",
+		Submit:          "Submit",
 
 		TokenTitle:       "Token",
 		CopyLink:         "Copy Link",

@@ -56,6 +56,11 @@ type ConnectionCardData struct {
 	SyncBadge       string
 	SyncOptions     []string
 	SyncEnabled     bool
+
+	// ShareCount is how many people have access (0 = nobody, chip shows only the icon);
+	// ShareWaiting how many of them are still to accept or waiting for the host's OK.
+	ShareCount   int
+	ShareWaiting int
 }
 
 // ConnectionCardActions are the events a grid card can report.
@@ -66,6 +71,8 @@ type ConnectionCardActions struct {
 	OnProtocolChange func(string)
 	OnSyncChange     func(string)
 	OnSyncLocked     func()
+	// OnShare opens the guest-access dialog (nil hides the chip).
+	OnShare func()
 	// OnSave commits the inline-edited Name/LAN/TS/Token fields (only wired
 	// up while ConnectionRowState.Editing is set -- see the Save icon
 	// button in the card's edit layout). Same shape as the modal editor's
@@ -169,7 +176,11 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 			plaque = newConnectionCardChipsRow(platformLabel, strings.TrimSpace(data.CapabilityText), accent)
 		}
 		syncDrop := newConnectionSyncDropdown(data.SyncBadge, data.SyncOptions, data.SyncEnabled, state.Disabled, actions.OnSyncChange, actions.OnSyncLocked)
-		chipsRow = NewInset(container.NewBorder(nil, nil, plaque, syncDrop), 0, 0, 4, 8)
+		var rightChips fyne.CanvasObject = syncDrop
+		if actions.OnShare != nil {
+			rightChips = container.NewHBox(newConnectionShareChip(data.ShareCount, data.ShareWaiting, state.Disabled, actions.OnShare), syncDrop)
+		}
+		chipsRow = NewInset(container.NewBorder(nil, nil, plaque, rightChips), 0, 0, 4, 8)
 	}
 
 	var statsBox fyne.CanvasObject

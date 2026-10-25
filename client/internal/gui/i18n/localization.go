@@ -764,6 +764,46 @@ type LocalizedStrings struct {
 	ErrorVideoInfo             string // "Error getting video information"
 	VideoWaitingConnection     string // "Waiting for connection..."
 	VideoTakenOver             string // the stream was opened elsewhere
+
+	// Guest access (sharing a computer with other people)
+	ShareTitle            string
+	ShareHint             string
+	ShareEmailLabel       string
+	ShareEmailPlaceholder string
+	ShareRoleLabel        string
+	ShareRoleViewer       string
+	ShareRoleOperator     string
+	ShareRoleTechnician   string
+	ShareExpiryLabel      string
+	ShareExpiry1h         string
+	ShareExpiry1d         string
+	ShareExpiry7d         string
+	ShareExpiry30d        string
+	ShareExpiryNever      string
+	ShareAskConsent       string
+	ShareAskConsentDesc   string
+	ShareInvite           string
+	ShareClose            string
+	ShareGuestsLabel      string
+	ShareNoGuests         string
+	ShareRevoke           string
+	ShareDisconnect       string
+	ShareAllow            string
+	ShareDeny             string
+	ShareStatusInvited    string
+	ShareStatusActive     string
+	ShareStatusWaiting    string
+	ShareStatusIdle       string
+	ShareStatusEnded      string
+	ShareInvitedOK        string
+	ShareInvitedNoMail    string
+	ShareErrFree          string
+	ShareErrCloud         string
+	ShareErrRate          string
+	ShareErrUnsupported   string
+	ShareErrEmail         string
+	ShareLoading          string
+	ShareBadgeTip         string
 	VideoInfoReceived          string // "Video information received"
 	VideoInfoUnavailable       string // "Video information unavailable"
 	VirtualKeyboardClickToType string // "click to type"
@@ -1570,6 +1610,44 @@ func EN() *LocalizedStrings {
 		DeviceRowTemplateStatus:    "—",
 		FullscreenWindowTitle:      "USBridge - Fullscreen",
 		SnapshotRowTemplateSize:    "—",
+		ShareTitle:            "Share access",
+		ShareHint:             "Guests sign in with their e-mail and get an invitation by mail. Your master key is never shared.",
+		ShareEmailLabel:       "Guest e-mail",
+		ShareEmailPlaceholder: "name@company.com",
+		ShareRoleLabel:        "Role",
+		ShareRoleViewer:       "Viewer: watch only",
+		ShareRoleOperator:     "Operator: mouse, keyboard, clipboard",
+		ShareRoleTechnician:   "Technician: plus USB, disks, displays",
+		ShareExpiryLabel:      "Access for",
+		ShareExpiry1h:         "1 hour",
+		ShareExpiry1d:         "1 day",
+		ShareExpiry7d:         "7 days",
+		ShareExpiry30d:        "30 days",
+		ShareExpiryNever:      "No end date",
+		ShareAskConsent:       "Ask me before they connect",
+		ShareAskConsentDesc:   "Switch off for computers nobody sits at.",
+		ShareInvite:           "Send invitation",
+		ShareClose:            "Close",
+		ShareGuestsLabel:      "People with access",
+		ShareNoGuests:         "No one yet.",
+		ShareRevoke:           "Revoke",
+		ShareDisconnect:       "Disconnect",
+		ShareAllow:            "Allow",
+		ShareDeny:             "Deny",
+		ShareStatusInvited:    "Invited",
+		ShareStatusActive:     "Connected",
+		ShareStatusWaiting:    "Waiting for your OK",
+		ShareStatusIdle:       "Has access",
+		ShareStatusEnded:      "Ended",
+		ShareInvitedOK:        "Invitation sent to %s",
+		ShareInvitedNoMail:    "Access created for %s, but the e-mail could not be sent. Send them this link: %s",
+		ShareErrFree:          "The free plan allows one guest. Upgrade to Pro for more.",
+		ShareErrCloud:         "Cannot reach the USBridge cloud to send the invitation.",
+		ShareErrRate:          "Too many invitations, try again later.",
+		ShareErrUnsupported:   "This computer does not support guest access. Update its agent.",
+		ShareErrEmail:         "Enter a valid e-mail address.",
+		ShareLoading:          "Loading...",
+		ShareBadgeTip:         "%d with access",
 		SnapshotRowTemplateDate:    "—",
 
 		// Time formats

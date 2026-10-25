@@ -40,6 +40,9 @@ const webrtcSignalRelayReconnectBackoff = 15 * time.Second
 // point it at an httptest.Server standing in for rustshine (same pattern as
 // entitlement.TestSetBackendBaseURL) -- every production caller only ever
 // sees the real address.
+// relayOfferAuthorizer is api.Server.AuthorizeOffer, set once the API server exists.
+var relayOfferAuthorizer func(method, uri string, h http.Header, body []byte) (int, string)
+
 var rustshineWebRTCOfferURL = "http://127.0.0.1:8444/webrtc/offer"
 
 // webrtcSignalRelayWatchdog maintains this agent's persistent WebSocket to
@@ -187,6 +190,13 @@ func replayOfferTo(targetURL string, raw []byte, headers map[string]string) (str
 	for k, v := range headers {
 		if k != "" && v != "" {
 			req.Header.Set(k, v)
+		}
+	}
+	// A guest's offer is verified (and re-signed for rustshine) by the agent
+	// here; an owner's passes through unchanged. See api.Server.AuthorizeOffer.
+	if relayOfferAuthorizer != nil {
+		if status, code := relayOfferAuthorizer("POST", "/webrtc/offer", req.Header, raw); status != 0 {
+			return "", fmt.Errorf("%s", code)
 		}
 	}
 	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)

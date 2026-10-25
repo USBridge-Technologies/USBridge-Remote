@@ -26,6 +26,7 @@ import (
 	"usbridge_agent/internal/autostart"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/netutil"
@@ -66,6 +67,10 @@ type TokenProvider interface {
 	StreamerAutoUpdateEnabled() bool
 	SetStreamerAutoUpdate(enabled bool) error
 	SnoozeStreamerUpdate(version string) error
+	// Guest access: guests waiting for the person at this machine to allow
+	// them in, and that person's answer.
+	GuestPending() []guestauth.Session
+	GuestDecide(shareID string, allow bool) error
 	RemoteWindowLockEnabled() bool
 	SetRemoteWindowLock(enabled bool) error
 	RestartSunshine() error
@@ -2866,6 +2871,7 @@ func (w *Window) performRefresh() {
 			status.streamerRunning = w.token.StreamerRunning()
 			status.sessionActive = w.token.SessionActive()
 			certStatus = w.token.CertStatus()
+			w.promptPendingGuests(w.token.GuestPending())
 			certLoggedIn = w.token.AccountStatus().LoggedIn
 		}
 		fyne.Do(func() {

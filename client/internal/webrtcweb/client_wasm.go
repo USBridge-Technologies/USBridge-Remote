@@ -15,16 +15,20 @@
 package webrtcweb
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall/js"
 	"time"
+
+	"usbridge-client/internal/guestclient"
 )
 
 // WebRTCClient drives a browser RTCPeerConnection against rustshine's own
@@ -41,6 +45,9 @@ type WebRTCClient struct {
 	// produces headers, they just won't match anything rustshine expects,
 	// same as any other wrong/missing key.
 	masterKey string
+	// guest, when set, signs requests as an invited guest instead of with
+	// masterKey (see SetGuest).
+	guest *guestclient.Session
 	// hwID is the agent's hw_id (from the pairing QR/deep link, "" if none
 	// was carried -- see SavedConnection.HwID's doc comment), used only to
 	// address usbridge-entitlement's WebRTC signaling relay in postOffer's
@@ -106,6 +113,18 @@ type WebRTCClient struct {
 // agent API without any protocol changes on the agent side.
 func NewWebRTCClient(baseURL, masterKey, hwID string) *WebRTCClient {
 	return &WebRTCClient{baseURL: baseURL, masterKey: masterKey, hwID: hwID}
+}
+
+// SetGuest makes this client connect as an invited guest: offers carry the
+// guest's ticket and signature instead of the master-key HMAC, and an empty
+// baseURL means "no direct route, go through the signaling relay".
+func (c *WebRTCClient) SetGuest(g *guestclient.Session) {
+	c.mu.Lock()
+	c.guest = g
+	if g != nil {
+		c.hwID = g.HwID
+	}
+	c.mu.Unlock()
 }
 
 // signHMAC reproduces agent/internal/api/security.go's CalculateHMAC:
@@ -446,10 +465,28 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 		return "", err
 	}
 	path := "/webrtc/offer"
-	ts, sig := c.signHMAC("POST", path, string(reqBody))
-	authHeaders := map[string]string{"X-Auth-Timestamp": ts, "X-Auth-Signature": sig}
+	var authHeaders map[string]string
+	c.mu.Lock()
+	guest := c.guest
+	c.mu.Unlock()
+	if guest != nil {
+		// The SDP is what a guest signs: the relay re-wraps the JSON around it.
+		h, gerr := guest.Headers(context.Background(), "POST", path, []byte(offerSDP))
+		if gerr != nil {
+			return "", fmt.Errorf("webrtc: guest sign-in: %w", gerr)
+		}
+		authHeaders = h
+	} else {
+		ts, sig := c.signHMAC("POST", path, string(reqBody))
+		authHeaders = map[string]string{"X-Auth-Timestamp": ts, "X-Auth-Signature": sig}
+	}
 
-	respBody, err := doOfferFetch(c.baseURL+path, reqBody, authHeaders)
+	var respBody []byte
+	if guest != nil && c.baseURL == "" {
+		err = errors.New("no direct route to the computer") // straight to the relay below
+	} else {
+		respBody, err = doOfferFetch(c.baseURL+path, reqBody, authHeaders)
+	}
 	if err != nil {
 		if !shouldFallbackToRelay(err, hwID) {
 			return "", fmt.Errorf("webrtc: fetch /webrtc/offer: %w", err)

@@ -3,6 +3,7 @@
 package webrtcweb
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"sync"
 	"syscall/js"
 	"time"
+
+	"usbridge-client/internal/guestclient"
 )
 
 // WebTransportClient streams from rust-shine without WebRTC: WebTransport
@@ -31,6 +34,8 @@ import (
 type WebTransportClient struct {
 	baseURL   string
 	masterKey string
+	// guest: connect as an invited guest (SetGuest); needs a direct route.
+	guest *guestclient.Session
 
 	bitrateKbps   int
 	fps           int
@@ -117,6 +122,9 @@ type wtInfo struct {
 // so an unreachable UDP port falls back to WebRTC quickly.
 const wtConnectTimeout = 5 * time.Second
 
+// SetGuest makes this client connect as an invited guest.
+func (c *WebTransportClient) SetGuest(g *guestclient.Session) { c.guest = g }
+
 // Connect looks up the endpoint (signed GET /webtransport/info), opens the
 // session and starts playback. sessionID is unused (one session per
 // connection, like /webrtc/offer).
@@ -131,8 +139,39 @@ func (c *WebTransportClient) Connect(sessionID string) error {
 	}
 
 	const infoPath = "/webtransport/info"
-	ts, sig := signHMAC(c.masterKey, "GET", infoPath, "")
-	body, err := doFetch("GET", c.baseURL+infoPath, nil, map[string]string{"X-Auth-Timestamp": ts, "X-Auth-Signature": sig})
+	var ts, sig, role string
+	var body []byte
+	if c.guest != nil {
+		if c.baseURL == "" {
+			return ErrWebTransportUnavailable // WebTransport has no relay: it needs a direct route
+		}
+		// The agent signs the CONNECT for a guest (rust-shine only knows the
+		// master key) and names the guest's role in it.
+		const grantPath = "/api/guest/wt-grant"
+		h, gerr := c.guest.Headers(context.Background(), "POST", grantPath, nil)
+		if gerr != nil {
+			return fmt.Errorf("webtransport: guest sign-in: %w", gerr)
+		}
+		body, err = doFetch("POST", c.baseURL+grantPath, []byte("{}"), h)
+		if err == nil {
+			var env struct {
+				Data struct {
+					wtInfo
+					TS   string `json:"ts"`
+					Sig  string `json:"sig"`
+					Role string `json:"role"`
+				} `json:"data"`
+			}
+			if jerr := json.Unmarshal(body, &env); jerr != nil {
+				return fmt.Errorf("webtransport: bad grant answer: %w", jerr)
+			}
+			ts, sig, role = env.Data.TS, env.Data.Sig, env.Data.Role
+			body, _ = json.Marshal(env.Data.wtInfo)
+		}
+	} else {
+		ts, sig = signHMAC(c.masterKey, "GET", infoPath, "")
+		body, err = doFetch("GET", c.baseURL+infoPath, nil, map[string]string{"X-Auth-Timestamp": ts, "X-Auth-Signature": sig})
+	}
 	if err != nil {
 		var httpErr *offerHTTPError
 		if errors.As(err, &httpErr) && (httpErr.Status == 404 || httpErr.Status == 503) {
@@ -149,8 +188,13 @@ func (c *WebTransportClient) Connect(sessionID string) error {
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	ts, sig = signHMAC(c.masterKey, "CONNECT", info.Path, "")
-	sessionURL := fmt.Sprintf("https://%s:%d%s?ts=%s&sig=%s", host, info.Port, info.Path, ts, sig)
+	sessionURL := ""
+	if c.guest != nil {
+		sessionURL = fmt.Sprintf("https://%s:%d%s?ts=%s&sig=%s&role=%s", host, info.Port, info.Path, ts, sig, role)
+	} else {
+		ts, sig = signHMAC(c.masterKey, "CONNECT", info.Path, "")
+		sessionURL = fmt.Sprintf("https://%s:%d%s?ts=%s&sig=%s", host, info.Port, info.Path, ts, sig)
+	}
 
 	hello := map[string]any{}
 	if c.bitrateKbps > 0 {

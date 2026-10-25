@@ -639,6 +639,8 @@ func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx 
 				connectionSyncBadge(connectionOriginCloud),
 			},
 			SyncEnabled: cm.canSyncConnections(),
+			ShareCount:   cm.shareStatFor(conn.MasterKey).Live,
+			ShareWaiting: cm.shareStatFor(conn.MasterKey).Waiting,
 		},
 		rowState,
 		view.ConnectionCardActions{
@@ -704,6 +706,12 @@ func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx 
 			},
 			OnSyncLocked: func() {
 				cm.OpenAccount()
+			},
+			OnShare: func() {
+				if cm.connectionPending {
+					return
+				}
+				cm.openShareDialog(idx)
 			},
 		},
 	)

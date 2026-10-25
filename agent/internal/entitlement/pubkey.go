@@ -73,3 +73,11 @@ func mustDecodePublicKey(b64 string) ed25519.PublicKey {
 	}
 	return ed25519.PublicKey(raw)
 }
+
+// PublicKey is the backend's Ed25519 verification key -- also what verifies
+// guest tickets (internal/guestauth), which the backend signs with the same
+// key under their own domain tag.
+func PublicKey() ed25519.PublicKey { return publicKey }
+
+// BackendBaseURL is the entitlement backend's base URL (no trailing slash).
+func BackendBaseURL() string { return backendBaseURL }

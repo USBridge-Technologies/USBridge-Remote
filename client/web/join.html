@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>USBridge Guest Access</title>
+<style>
+  :root {
+    --bg: #0e100d; --surface: #181b16; --border: #2b2f28; --text: #e8eadf; --muted: #9aa092;
+    --accent: #c4e77a; --accent-text: #11140d; --danger: #e08a93;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f4f5ef; --surface: #ffffff; --border: #d9dccf; --text: #1b1e16; --muted: #5f655a; --accent: #5b7f1e; --accent-text: #ffffff; --danger: #b3363f; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; }
+  .card { width: 100%; max-width: 420px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px 24px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p { margin: 0 0 16px; color: var(--muted); }
+  .role { display: inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 13px; color: var(--text); }
+  button { width: 100%; padding: 12px 16px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); margin-top: 10px; }
+  .status { margin-top: 16px; min-height: 1.5em; color: var(--muted); font-size: 14px; }
+  .status.error { color: var(--danger); }
+  #stage { position: fixed; inset: 0; display: none; background: #000; }
+  #stage.on { display: block; }
+  #bar { position: fixed; top: 0; left: 50%; transform: translate(-50%, -100%); transition: transform .2s; z-index: 20;
+         background: var(--surface); border: 1px solid var(--border); border-top: 0; border-radius: 0 0 12px 12px; padding: 8px 14px; display: flex; gap: 12px; align-items: center; font-size: 14px; }
+  #stage.on ~ #bar:hover, #bar.show { transform: translate(-50%, 0); }
+  #bar-hot { position: fixed; top: 0; left: 25%; right: 25%; height: 10px; z-index: 19; display: none; }
+  #stage.on ~ #bar-hot { display: block; }
+  #bar button { width: auto; padding: 6px 12px; }
+  #usbridge-video-overlay { position: fixed !important; inset: 0 !important; width: 100% !important; height: 100% !important; object-fit: contain !important; z-index: 1 !important; }
+</style>
+</head>
+<body>
+<main id="landing">
+  <div class="card">
+    <h1 id="title">Guest access</h1>
+    <p id="sub">Sign in with the e-mail address that received the invitation.</p>
+    <p id="roleline" hidden>Your role: <span class="role" id="role"></span></p>
+    <button id="go" disabled>Loading...</button>
+    <button id="cancel" class="ghost" hidden>Cancel</button>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </div>
+</main>
+<div id="stage" tabindex="0" aria-label="Remote screen"></div>
+<div id="bar-hot"></div>
+<div id="bar"><span id="bar-title"></span><span class="role" id="bar-role"></span><button id="leave" class="ghost">Leave</button></div>
+
+<script>window.usbridgeJoinOnly = true;</script>
+<script src="wasm_exec.js"></script>
+<script>
+(function () {
+  "use strict";
+  var BACKEND = "https://usbridge-entitlement.fatkulinamir80.workers.dev";
+  var $ = function (id) { return document.getElementById(id); };
+  var m = /^#\/join\/([A-Za-z0-9_-]{22,64})$/.exec(location.hash);
+  var shareID = m && m[1];
+  var direct = new URLSearchParams(location.search).get("direct") || "";
+  var token = store("get", "usbridge.guestToken");
+  var wasmReady = false, role = "", busy = false;
+
+  function store(op, k, v) { try { return op === "get" ? sessionStorage.getItem(k) : (v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v)); } catch (e) { return null; } }
+  function status(text, isErr) { var s = $("status"); s.textContent = text || ""; s.className = "status" + (isErr ? " error" : ""); }
+  function setBusy(b, label) { busy = b; var g = $("go"); g.disabled = b || !wasmReady; if (label) g.textContent = label; }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  if (!shareID) {
+    $("title").textContent = "This link is not valid";
+    $("sub").textContent = "Open the link from the invitation e-mail again.";
+    $("go").hidden = true;
+    return;
+  }
+
+  // Load the Go/wasm half (guest session, WebRTC); the page itself is plain DOM.
+  var go = new Go();
+  WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then(function (r) {
+    go.run(r.instance);
+    wasmReady = true;
+    $("go").disabled = false;
+    $("go").textContent = token ? "Connect" : "Sign in and connect";
+  }).catch(function (e) {
+    status("Could not load the viewer: " + e.message, true);
+  });
+
+  // Account sign-in: the same device-code login the apps use. The browser tab
+  // that opens lets the guest pick Google, GitHub or an e-mail code.
+  async function signIn() {
+    var start = await fetch(BACKEND + "/v1/account/login/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    if (!start.ok) throw new Error("Sign-in is unavailable right now.");
+    var s = await start.json();
+    var win = window.open(s.verification_url, "_blank");
+    status(win ? "Finish signing in in the new tab..." : "Allow pop-ups for this page, then press the button again.");
+    if (!win) throw new Error("The sign-in window was blocked.");
+    var until = Date.now() + (s.expires_in || 600) * 1000;
+    while (Date.now() < until) {
+      await sleep(2000);
+      var p = await (await fetch(BACKEND + "/v1/account/login/poll?code=" + encodeURIComponent(s.code))).json();
+      if (p.status === "complete") { token = p.account_token; store("set", "usbridge.guestToken", token); return; }
+      if (p.status === "expired") break;
+    }
+    throw new Error("Sign-in timed out. Try again.");
+  }
+
+  $("go").addEventListener("click", async function () {
+    if (busy || !wasmReady) return;
+    setBusy(true, "Working...");
+    $("cancel").hidden = false;
+    try {
+      if (!token) await signIn();
+      status("Connecting...");
+      var video = await usbridgeJoin(shareID, token, direct, {
+        onInfo: function (i) {
+          role = i.role;
+          $("title").textContent = i.deviceName || "Shared computer";
+          $("role").textContent = roleName(i.role); $("roleline").hidden = false;
+          if (i.requireConsent) status("Waiting for the person at the computer to allow the connection...");
+        },
+        onState: function (st) {
+          if (st === "waiting-for-host") status("Waiting for the person at the computer to allow the connection...");
+          if (st === "disconnected" || st === "failed" || st === "closed") leave("The connection ended.");
+        }
+      });
+      showStage(video);
+    } catch (e) {
+      var msg = String((e && e.message) || e);
+      if (/sign in first|not the one that was invited/i.test(msg)) { token = null; store("set", "usbridge.guestToken", null); }
+      status(msg, true);
+      setBusy(false, token ? "Try again" : "Sign in and connect");
+    }
+  });
+
+  $("cancel").addEventListener("click", function () { location.reload(); });
+  $("leave").addEventListener("click", function () { leave(""); });
+
+  function roleName(r) { return { viewer: "Viewer", operator: "Operator", technician: "Technician" }[r] || r; }
+
+  function leave(msg) {
+    try { usbridgeGuestLeave(); } catch (e) {}
+    if (msg) store("set", "usbridge.guestMsg", msg);
+    location.reload();
+  }
+  var carried = store("get", "usbridge.guestMsg");
+  if (carried) { status(carried); store("set", "usbridge.guestMsg", null); }
+
+  // ---- the screen and (if the role allows) keyboard and mouse -------------
+  function showStage(video) {
+    $("landing").hidden = true;
+    var stage = $("stage");
+    stage.className = "on";
+    video.style.cssText = "";
+    stage.appendChild(video);
+    $("bar-title").textContent = $("title").textContent;
+    $("bar-role").textContent = roleName(role);
+    var bar = $("bar"); bar.className = "show"; setTimeout(function () { bar.className = ""; }, 2500);
+    $("bar-hot").addEventListener("mouseenter", function () { bar.className = "show"; });
+    bar.addEventListener("mouseleave", function () { bar.className = ""; });
+    if (role === "operator" || role === "technician") attachInput(stage, video);
+    stage.focus();
+  }
+
+  var VK = { Enter: 13, Escape: 27, Backspace: 8, Tab: 9, Space: 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46,
+    Home: 36, End: 35, PageUp: 33, PageDown: 34, Insert: 45, ShiftLeft: 16, ShiftRight: 16, ControlLeft: 17, ControlRight: 17,
+    AltLeft: 18, AltRight: 18, MetaLeft: 91, MetaRight: 92, CapsLock: 20, Semicolon: 186, Equal: 187, Comma: 188, Minus: 189,
+    Period: 190, Slash: 191, Backquote: 192, BracketLeft: 219, Backslash: 220, BracketRight: 221, Quote: 222 };
+  function vkOf(code) {
+    if (VK[code] != null) return VK[code];
+    var k = /^Key([A-Z])$/.exec(code); if (k) return k[1].charCodeAt(0);
+    var d = /^Digit([0-9])$/.exec(code); if (d) return 48 + Number(d[1]);
+    var f = /^F([0-9]{1,2})$/.exec(code); if (f && Number(f[1]) >= 1 && Number(f[1]) <= 12) return 111 + Number(f[1]);
+    return 0;
+  }
+  function mods(e) { return (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0); }
+
+  function attachInput(stage, video) {
+    // Where the picture sits inside the letterboxed element.
+    function pos(e) {
+      var r = video.getBoundingClientRect(), vw = video.videoWidth || 1920, vh = video.videoHeight || 1080;
+      var s = Math.min(r.width / vw, r.height / vh), cw = vw * s, ch = vh * s;
+      var x = (e.clientX - r.left - (r.width - cw) / 2) / s, y = (e.clientY - r.top - (r.height - ch) / 2) / s;
+      return [Math.max(0, Math.min(vw - 1, Math.round(x))), Math.max(0, Math.min(vh - 1, Math.round(y))), vw, vh];
+    }
+    var last = 0;
+    stage.addEventListener("mousemove", function (e) {
+      var now = performance.now(); if (now - last < 8) return; last = now;
+      var p = pos(e); usbridgeGuestMouseMove(p[0], p[1], p[2], p[3]);
+    });
+    function btn(e) { return e.button === 0 ? 1 : e.button === 1 ? 2 : e.button === 2 ? 3 : 0; }
+    stage.addEventListener("mousedown", function (e) { stage.focus(); var p = pos(e); usbridgeGuestMouseMove(p[0], p[1], p[2], p[3]); if (btn(e)) usbridgeGuestMouseButton(btn(e), true); e.preventDefault(); });
+    stage.addEventListener("mouseup", function (e) { if (btn(e)) usbridgeGuestMouseButton(btn(e), false); e.preventDefault(); });
+    stage.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    stage.addEventListener("wheel", function (e) { if (e.deltaY) usbridgeGuestScroll(e.deltaY < 0 ? 120 : -120); e.preventDefault(); }, { passive: false });
+    stage.addEventListener("keydown", function (e) { var v = vkOf(e.code); if (v) { usbridgeGuestKey(v, mods(e), true); e.preventDefault(); } });
+    stage.addEventListener("keyup", function (e) { var v = vkOf(e.code); if (v) { usbridgeGuestKey(v, mods(e), false); e.preventDefault(); } });
+  }
+})();
+</script>
+</body>
+</html>

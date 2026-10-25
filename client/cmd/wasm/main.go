@@ -53,7 +53,14 @@ func main() {
 	js.Global().Set("usbridgeStopBrowserGamepad", js.FuncOf(stopBrowserGamepad))
 	js.Global().Set("usbridgeRegisterHIDDevice", js.FuncOf(registerHIDDevice))
 	js.Global().Set("usbridgeSetLogLevel", js.FuncOf(setLogLevel))
+	registerGuestEntryPoints()
 	applySavedLogLevel()
+
+	// web/join.html (invitation landing page) drives the guest entry points above
+	// itself; it has no use for the full dashboard.
+	if js.Global().Get("usbridgeJoinOnly").Truthy() {
+		select {}
+	}
 
 	// Recovers HID gamepads granted in an earlier visit (getDevices() needs
 	// no user gesture, unlike requestDevice() -- see gamepad_hid_wasm.go's
