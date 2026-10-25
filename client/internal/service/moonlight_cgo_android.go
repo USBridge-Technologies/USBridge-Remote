@@ -75,6 +75,7 @@ extern int  android_vk_aimage_supported(void);
 extern int  android_vk_try_submit_aimage(void *img);
 extern void android_vk_release_aimages(void);
 extern void android_vk_set_pacing(int level);
+extern void android_vk_set_hdr(int on);
 
 // Bodies in net_graph_stats_android.c (not inline here: this file has
 // //export, so a non-static function body in this preamble would be
@@ -120,6 +121,7 @@ static uint64_t       g_amc_pts        = 0;
 static uint32_t       g_amc_last_rtp   = 0;
 static uint64_t       g_amc_rtp_ticks  = 0;
 static int            g_amc_hevc       = 0; // stream is HEVC (for SPS parsing)
+static int            g_amc_hdr        = 0; // Main10 stream shown as HDR10
 static int            g_sps_w = 0, g_sps_h = 0; // last coded size seen in an SPS
 
 // ── Connection callbacks ──────────────────────────────────────────────────────
@@ -502,11 +504,18 @@ static int amc_is_qualcomm(const char *name) {
 enum { AMC_FMT_PLAIN, AMC_FMT_LOWLAT, AMC_FMT_LOWLAT_RATE };
 
 static AMediaFormat *amc_new_format(const char *mime, int width, int height, int fps,
-                                    const char *decoder, int tier) {
+                                    const char *decoder, int tier, int hdr) {
     AMediaFormat *fmt = AMediaFormat_new();
     AMediaFormat_setString(fmt, "mime", mime);
     AMediaFormat_setInt32(fmt,  "width",  width);
     AMediaFormat_setInt32(fmt,  "height", height);
+    if (hdr) {
+        // HDR10: BT.2020 primaries, ST 2084 (PQ), limited range (MediaFormat
+        // COLOR_STANDARD_BT2020 = 6, COLOR_TRANSFER_ST2084 = 6, COLOR_RANGE_LIMITED = 2).
+        AMediaFormat_setInt32(fmt, "color-standard", 6);
+        AMediaFormat_setInt32(fmt, "color-transfer", 6);
+        AMediaFormat_setInt32(fmt, "color-range", 2);
+    }
     if (tier >= AMC_FMT_LOWLAT) amc_low_latency_format(fmt);
     if (tier >= AMC_FMT_LOWLAT_RATE) {
         // Without these the platform sizes decoder clocks for 30 fps:
@@ -577,6 +586,12 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
         }
     }
 
+    // A Main10 stream (HEVC Main10 / REXT10 4:4:4, AV1 Main10 / High10) is shown
+    // as HDR10, which only the Vulkan path over the image reader can do.
+    g_amc_hdr = g_air != NULL && (fmt_codec & (0x0200 | 0x0800 | 0x2000 | 0x4000)) != 0;
+    android_vk_set_hdr(g_amc_hdr);
+    ALOGI("amc_init: format 0x%x -> %s", fmt_codec, g_amc_hdr ? "HDR10" : "SDR");
+
     const char *mime = "video/avc";
     g_amc_hevc = 0; g_sps_w = 0; g_sps_h = 0;
     if (fmt_codec & 0x0F00) { // VIDEO_FORMAT_MASK_H265
@@ -595,7 +610,7 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
     for (; tier >= AMC_FMT_PLAIN && !started; tier--) {
         g_amc = amc_create_decoder(mime, tier >= AMC_FMT_LOWLAT, name, sizeof(name));
         if (!g_amc) break;
-        AMediaFormat *fmt = amc_new_format(mime, width, height, fps, name, tier);
+        AMediaFormat *fmt = amc_new_format(mime, width, height, fps, name, tier, g_amc_hdr);
         media_status_t st = AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0);
         AMediaFormat_delete(fmt);
         const char *step = "configure";
@@ -866,6 +881,8 @@ static void amc_present_image(AImage *img) {
 // Vulkan gave its images back) and the GL context.
 static void amc_teardown(void) {
     g_amc_negotiated_fmt = -1;
+    g_amc_hdr = 0;
+    android_vk_set_hdr(0);
     if (g_amc) {
         amc_stop_output_thread();
         AMediaCodec_stop(g_amc);

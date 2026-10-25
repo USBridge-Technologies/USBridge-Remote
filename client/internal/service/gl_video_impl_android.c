@@ -874,6 +874,21 @@ int android_decoder_best_size(const char *mime, int w, int h, int fps, int *out)
 
 void android_gl_set_low_latency(int on) { g_low_latency = on ? 1 : 0; }
 
+// android_hdr_display_supported asks VideoSurfaceBridge.hdrDisplaySupported
+// whether the display shows HDR10 and a hardware HEVC decoder takes Main10.
+int android_hdr_display_supported(void) {
+    if (!g_cls_vsb) return 0;
+    int detach;
+    JNIEnv *env = get_env(&detach);
+    if (!env) return 0;
+    jboolean ok = JNI_FALSE;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "hdrDisplaySupported", "()Z");
+    if (mid && !(*env)->ExceptionCheck(env)) ok = (*env)->CallStaticBooleanMethod(env, g_cls_vsb, mid);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); ok = JNI_FALSE; }
+    detach_env(detach);
+    return ok ? 1 : 0;
+}
+
 // android_display_max_refresh asks VideoSurfaceBridge.maxRefreshRate for the
 // display's highest refresh rate (Hz, rounded), 0 if unknown.
 int android_display_max_refresh(void) {

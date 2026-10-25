@@ -182,6 +182,41 @@ object VideoSurfaceBridge {
         }
     }
 
+    /**
+     * Whether this device can show an HDR10 stream: the display lists HDR10
+     * (PQ) and a hardware HEVC decoder takes Main10. Asked when the stream
+     * dialog opens, before any stream exists.
+     */
+    @JvmStatic
+    fun hdrDisplaySupported(): Boolean {
+        return try {
+            val activity = MainActivity.getInstance() ?: return false
+            @Suppress("DEPRECATION")
+            val display = activity.windowManager.defaultDisplay
+            @Suppress("DEPRECATION")
+            val hdr10 = display.hdrCapabilities?.supportedHdrTypes
+                ?.contains(android.view.Display.HdrCapabilities.HDR_TYPE_HDR10) == true
+            if (!hdr10) return false
+            val mime = "video/hevc"
+            MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                if (info.isEncoder) return@any false
+                val type = info.supportedTypes.firstOrNull { it.equals(mime, ignoreCase = true) } ?: return@any false
+                val hw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    info.isHardwareAccelerated && !info.isSoftwareOnly
+                } else {
+                    !info.name.startsWith("OMX.google.") && !info.name.startsWith("c2.android.")
+                }
+                hw && info.getCapabilitiesForType(type).profileLevels.any {
+                    it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 ||
+                        it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "hdrDisplaySupported failed", e)
+            false
+        }
+    }
+
     /** The display's highest refresh rate in Hz (rounded), 0 if unknown. */
     @JvmStatic
     fun maxRefreshRate(): Int {

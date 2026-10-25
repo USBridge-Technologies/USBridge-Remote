@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdatomic.h>
@@ -195,6 +196,14 @@ static void vk_store_video_dest(int dx, int dy, int dw, int dh, int sw, int sh) 
 // Set to 1 by android_vk_force_recreate_swapchain() to request an explicit
 // swapchain recreation on the next render-thread iteration (e.g. after fullscreen).
 static atomic_int g_force_recreate;
+
+// HDR10 session: the stream is HEVC/AV1 Main10 (BT.2020, PQ). The swapchain
+// then presents the decoder's PQ values untouched on an HDR10_ST2084 surface
+// format, and the YCbCr conversion uses BT.2020 coefficients. Set by
+// android_vk_set_hdr from the decoder setup; g_swap_hdr is what the current
+// swapchain actually is (HDR10 formats may be missing on a given surface).
+static atomic_int g_hdr_wanted;
+static int        g_swap_hdr = 0;
 
 // ─── Render thread state ──────────────────────────────────────────────────────
 
@@ -513,6 +522,7 @@ static int vk_create_instance(void) {
     if (avail) vkEnumerateInstanceExtensionProperties(NULL, &availN, avail);
 
     const char *exts[8];
+    int hasColorSpaceExt = 0;
     uint32_t n = 0;
     exts[n++] = VK_KHR_SURFACE_EXTENSION_NAME;
     exts[n++] = VK_KHR_ANDROID_SURFACE_EXTENSION_NAME;
@@ -524,6 +534,9 @@ static int vk_create_instance(void) {
     if (hasGpdp2)     exts[n++] = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
     if (hasExtMemCap) exts[n++] = VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
     g_inst_has_ext_mem_caps = hasGpdp2 && hasExtMemCap;
+    // Lists the HDR10 surface formats (VK_COLOR_SPACE_HDR10_ST2084_EXT).
+    hasColorSpaceExt = avail && has_ext(avail, availN, "VK_EXT_swapchain_colorspace");
+    if (hasColorSpaceExt) exts[n++] = "VK_EXT_swapchain_colorspace";
     free(avail);
 
     VkInstanceCreateInfo ci = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
@@ -668,7 +681,19 @@ static int vk_create_swapchain(int w, int h) {
     vkGetPhysicalDeviceSurfaceFormatsKHR(g_pdev, g_surf, &nfmt, fmts);
     g_swap_fmt = fmts[0].format;
     VkColorSpaceKHR csp = fmts[0].colorSpace;
-    for (uint32_t i = 0; i < nfmt; i++) {
+    g_swap_hdr = 0;
+    if (atomic_load(&g_hdr_wanted)) {
+        for (uint32_t i = 0; i < nfmt; i++) {
+            VLOGI("surface format %d colorspace %d", (int)fmts[i].format, (int)fmts[i].colorSpace);
+            if (!g_swap_hdr && fmts[i].colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT &&
+                (fmts[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ||
+                 fmts[i].format == VK_FORMAT_A2R10G10B10_UNORM_PACK32)) {
+                g_swap_fmt = fmts[i].format; csp = fmts[i].colorSpace; g_swap_hdr = 1;
+            }
+        }
+        if (!g_swap_hdr) VLOGE("HDR10 requested but the surface offers no HDR10_ST2084 format -- presenting as SDR");
+    }
+    for (uint32_t i = 0; i < nfmt && !g_swap_hdr; i++) {
         if (fmts[i].format == VK_FORMAT_R8G8B8A8_UNORM ||
             fmts[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
             g_swap_fmt = fmts[i].format; csp = fmts[i].colorSpace; break;
@@ -724,8 +749,8 @@ static int vk_create_swapchain(int w, int h) {
     sci.presentMode      = pm;
     sci.clipped          = VK_TRUE;
 
-    VLOGI("swapchain %dx%d %s (%d images)",
-          (int)g_swap_ext.width, (int)g_swap_ext.height,
+    VLOGI("swapchain %dx%d %s%s (%d images)",
+          (int)g_swap_ext.width, (int)g_swap_ext.height, g_swap_hdr ? "HDR10 " : "",
           (pm == VK_PRESENT_MODE_MAILBOX_KHR) ? "MAILBOX" : "FIFO",
           (int)imgCount);
 
@@ -1674,6 +1699,7 @@ static uint64_t vk_yc_key(AHardwareBuffer *ahb) {
 static VkFormat                 g_yc_fmt      = VK_FORMAT_UNDEFINED;
 static uint64_t                 g_yc_extfmt   = 0;
 static int                      g_yc_have_fmt = 0;
+static int                      g_yc_hdr = 0; // conversion built for an HDR10 swapchain
 static VkSamplerYcbcrConversion g_yc_conv     = VK_NULL_HANDLE;
 static VkSampler                g_yc_sampler  = VK_NULL_HANDLE;
 // Pipeline objects, rebuilt with the conversion (immutable sampler) or when
@@ -1852,7 +1878,7 @@ static int vk_yc_build_pipeline(void) {
 // buffer format described by fp (and the current swapchain format).
 static int vk_yc_ensure_format(const VkAndroidHardwareBufferFormatPropertiesANDROID *fp) {
     uint64_t ext = fp->format == VK_FORMAT_UNDEFINED ? fp->externalFormat : 0;
-    if (!g_yc_have_fmt || g_yc_fmt != fp->format || g_yc_extfmt != ext) {
+    if (!g_yc_have_fmt || g_yc_fmt != fp->format || g_yc_extfmt != ext || g_yc_hdr != g_swap_hdr) {
         vkDeviceWaitIdle(g_dev);
         vk_yc_destroy_all();
 
@@ -1869,7 +1895,16 @@ static int vk_yc_ensure_format(const VkAndroidHardwareBufferFormatPropertiesANDR
         VkFilter filter = (fp->formatFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT)
                               ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
         cci.chromaFilter  = filter;
-        if (p_vkCreateSamplerYcbcrConversionKHR(g_dev, &cci, NULL, &g_yc_conv) != VK_SUCCESS) {
+        VkResult cres = VK_ERROR_INITIALIZATION_FAILED;
+        if (g_swap_hdr && cci.ycbcrModel != VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_2020) {
+            // The driver describes the buffer as BT.709/601; an HDR10 stream is BT.2020.
+            VkSamplerYcbcrConversionCreateInfo hci = cci;
+            hci.ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_2020;
+            cres = p_vkCreateSamplerYcbcrConversionKHR(g_dev, &hci, NULL, &g_yc_conv);
+            VLOGI("ycbcr: HDR10 BT.2020 model override (driver suggested %d): %s", (int)cci.ycbcrModel, cres == VK_SUCCESS ? "ok" : "refused");
+        }
+        if (cres != VK_SUCCESS) cres = p_vkCreateSamplerYcbcrConversionKHR(g_dev, &cci, NULL, &g_yc_conv);
+        if (cres != VK_SUCCESS) {
             VLOGE("ycbcr: conversion create failed (fmt=%d ext=0x%llx)", (int)fp->format, (unsigned long long)ext);
             g_yc_conv = VK_NULL_HANDLE;
             return 0;
@@ -1889,7 +1924,7 @@ static int vk_yc_ensure_format(const VkAndroidHardwareBufferFormatPropertiesANDR
             g_yc_sampler = VK_NULL_HANDLE;
             return 0;
         }
-        g_yc_fmt = fp->format; g_yc_extfmt = ext; g_yc_have_fmt = 1;
+        g_yc_fmt = fp->format; g_yc_extfmt = ext; g_yc_have_fmt = 1; g_yc_hdr = g_swap_hdr;
         VLOGI("ycbcr: conversion for fmt=%d ext=0x%llx model=%d range=%d chroma=(%d,%d) filter=%s",
               (int)fp->format, (unsigned long long)ext, (int)fp->suggestedYcbcrModel,
               (int)fp->suggestedYcbcrRange, (int)fp->suggestedXChromaOffset,
@@ -2796,6 +2831,14 @@ int android_vk_is_hidden(void)  { return atomic_load(&g_hidden); }
 // Vulkan swapchain on the next iteration. Call this after a fullscreen
 // transition to pick up the new surface dimensions immediately instead of
 // waiting for the proactive size-change detection in vk_render_frame.
+// android_vk_set_hdr switches the next swapchain to an HDR10 surface format
+// (or back to SDR) and recreates it when that changes the answer. Called by
+// the decoder setup with whether the negotiated stream is Main10.
+void android_vk_set_hdr(int on) {
+    on = on ? 1 : 0;
+    if (atomic_exchange(&g_hdr_wanted, on) != on) atomic_store(&g_force_recreate, 1);
+}
+
 void android_vk_force_recreate_swapchain(void) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_force_recreate, 1);
@@ -3197,6 +3240,24 @@ void android_vk_set_cursor_scale(int scale) {
     atomic_store(&g_cursor_visible, was_visible);
 }
 
+// hdr10_pack_pixel turns one 8-bit sRGB RGBA pixel into a 10-bit PQ word for
+// the HDR10 swapchain (A2B10G10R10, or A2R10G10B10 when argb): the cursor
+// is copied into the swapchain image as raw bytes, which that format would
+// read as garbage. Graphics white (255) lands on 203 nits, the BT.2408 level.
+static uint32_t hdr10_pack_pixel(const uint8_t *rgba, int argb) {
+    uint32_t c[3];
+    for (int i = 0; i < 3; i++) {
+        float v = rgba[i] / 255.0f;
+        float lin = v <= 0.04045f ? v / 12.92f : powf((v + 0.055f) / 1.055f, 2.4f);
+        float y = powf(lin * 203.0f / 10000.0f, 0.1593017578125f);
+        float pq = powf((0.8359375f + 18.8515625f * y) / (1.0f + 18.6875f * y), 78.84375f);
+        c[i] = (uint32_t)(pq * 1023.0f + 0.5f);
+        if (c[i] > 1023) c[i] = 1023;
+    }
+    return argb ? (c[2] | (c[1] << 10) | (c[0] << 20) | (3u << 30))
+                : (c[0] | (c[1] << 10) | (c[2] << 20) | (3u << 30));
+}
+
 // android_vk_set_cursor_pixels uploads a pre-rendered RGBA cursor bitmap from
 // Go. Replaces the current cursor buffer. Thread-safe: waits for GPU idle.
 // src_rgba: packed RGBA bytes, 4 bytes/pixel, row-major, w×h pixels.
@@ -3278,6 +3339,12 @@ void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h) {
                 g_cursor_spans[nspans].buf_off = buf_off;
                 for (int px = run_start; px < x; px++) {
                     const uint8_t *p = src_rgba + (y * w + px) * 4;
+                    if (g_swap_hdr) {
+                        uint32_t word = hdr10_pack_pixel(p, g_swap_fmt == VK_FORMAT_A2R10G10B10_UNORM_PACK32);
+                        memcpy(dst + buf_off, &word, 4);
+                        buf_off += 4;
+                        continue;
+                    }
                     dst[buf_off++] = is_bgra ? p[2] : p[0]; // R or B
                     dst[buf_off++] = p[1];                   // G
                     dst[buf_off++] = is_bgra ? p[0] : p[2]; // B or R
