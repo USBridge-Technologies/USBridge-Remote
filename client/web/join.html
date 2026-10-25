@@ -23,6 +23,11 @@
   button { width: 100%; padding: 12px 16px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
   button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); margin-top: 10px; }
+  .steps { margin: 0 0 18px; padding-left: 20px; color: var(--muted); font-size: 14px; }
+  .steps li { margin: 4px 0; }
+  .steps b { color: var(--text); }
+  .apps { margin: 18px 0 0; font-size: 12px; }
+  .apps a { color: var(--muted); }
   .status { margin-top: 16px; min-height: 1.5em; color: var(--muted); font-size: 14px; }
   .status.error { color: var(--danger); }
   #stage { position: fixed; inset: 0; display: none; background: #000; }
@@ -42,9 +47,19 @@
     <h1 id="title">Guest access</h1>
     <p id="sub">Sign in with the e-mail address that received the invitation.</p>
     <p id="roleline" hidden>Your role: <span class="role" id="role"></span></p>
+    <ol class="steps" id="steps">
+      <li>Press <b>Sign in and connect</b>.</li>
+      <li>In the tab that opens, sign in with <b id="hint">the invited address</b> (Google, GitHub or an e-mail code).</li>
+      <li>Come back to this tab: it connects by itself.</li>
+    </ol>
     <button id="go" disabled>Loading...</button>
     <button id="cancel" class="ghost" hidden>Cancel</button>
     <div class="status" id="status" role="status" aria-live="polite"></div>
+    <p class="apps">USBridge apps: <a href="https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest" target="_blank" rel="noopener">Windows / macOS / Linux</a> &middot;
+      <a href="https://play.google.com/store/apps/details?id=io.usbridge.client" target="_blank" rel="noopener">Android</a> &middot;
+      <a href="https://apps.apple.com/us/app/usbridge-client/id6787665935" target="_blank" rel="noopener">iPhone / iPad</a> &middot;
+      <a href="https://web.usbridge.io" target="_blank" rel="noopener">Web</a><br>
+      Joining from the apps is coming; for now guests connect here, in the browser.</p>
   </div>
 </main>
 <div id="stage" tabindex="0" aria-label="Remote screen"></div>
@@ -76,6 +91,18 @@
     return;
   }
 
+  // Who is inviting me to what -- shown before any sign-in so the page makes sense.
+  fetch(BACKEND + "/v1/shares/" + shareID + "/public").then(function (r) { return r.ok ? r.json() : null; }).then(function (i) {
+    if (!i) return;
+    if (!i.live) { $("title").textContent = "This invitation is no longer valid"; $("sub").textContent = "Ask the owner of the computer for a new one."; $("go").hidden = true; $("steps").hidden = true; return; }
+    $("title").textContent = i.device_name || "Shared computer";
+    $("role").textContent = roleName(i.role); $("roleline").hidden = false;
+    $("hint").textContent = i.email_hint;
+    var until = i.share_exp ? "Access until " + new Date(i.share_exp * 1000).toLocaleString() + "." : "";
+    var ask = i.require_consent ? " The person at the computer will be asked to allow each connection." : "";
+    $("sub").textContent = ("You've been given access to this computer. " + until + ask).trim();
+  }).catch(function () {});
+
   // Load the Go/wasm half (guest session, WebRTC); the page itself is plain DOM.
   var go = new Go();
   WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then(function (r) {
@@ -90,11 +117,11 @@
   // Account sign-in: the same device-code login the apps use. The browser tab
   // that opens lets the guest pick Google, GitHub or an e-mail code.
   async function signIn() {
-    var start = await fetch(BACKEND + "/v1/account/login/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    var start = await fetch(BACKEND + "/v1/account/login/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ for: "guest" }) });
     if (!start.ok) throw new Error("Sign-in is unavailable right now.");
     var s = await start.json();
     var win = window.open(s.verification_url, "_blank");
-    status(win ? "Finish signing in in the new tab..." : "Allow pop-ups for this page, then press the button again.");
+    status(win ? "Finish signing in in the new tab, then come back to this tab. It connects by itself." : "Allow pop-ups for this page, then press the button again.");
     if (!win) throw new Error("The sign-in window was blocked.");
     var until = Date.now() + (s.expires_in || 600) * 1000;
     while (Date.now() < until) {
@@ -115,7 +142,7 @@
       status("Connecting...");
       var video = await usbridgeJoin(shareID, token, direct, {
         onInfo: function (i) {
-          role = i.role;
+          role = i.role; $("steps").hidden = true;
           $("title").textContent = i.deviceName || "Shared computer";
           $("role").textContent = roleName(i.role); $("roleline").hidden = false;
           if (i.requireConsent) status("Waiting for the person at the computer to allow the connection...");
