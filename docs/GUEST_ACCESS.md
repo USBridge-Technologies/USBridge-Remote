@@ -9,7 +9,7 @@ Share a computer with other people the way TeamViewer or RustDesk do: by e-mail,
 
 Roles: **Viewer** watches the screen. **Operator** also uses mouse, keyboard and clipboard. **Technician** also gets USB devices, disks, displays and video settings. Settings, service control, key management and pairing stay with the owner.
 
-Plans: Free allows one live guest; Pro and Enterprise have no limit and keep an audit trail. A guest who connects through the cloud signaling relay needs the owner to be on Pro.
+Plans: Free allows one live guest; Pro and Enterprise have no limit and keep an audit trail. A guest reaches a Free machine through the cloud signaling relay too: the relay stays open for that machine while it has a live share, and an offer passes the relay only with a valid ticket for a live share of that very device. Owners' own relay access still needs Pro.
 
 ## For the guest
 Open the link from the e-mail (`/join.html#/join/<id>` on the web client) and sign in with the address that received it (Google, GitHub, Microsoft or an e-mail code). If the owner asked to be consulted, the page waits until the person at the computer allows it.
@@ -23,6 +23,6 @@ Open the link from the e-mail (`/join.html#/join/<id>` on the web client) and si
 - Identity is the e-mail of a USBridge account, not a Tailscale login, so nothing has to be done in the Tailscale admin console.
 
 ## Known limits
-- Revoking or disconnecting a guest refuses everything new, but an already-running video stream is not cut yet.
+- Revoking, expiring or disconnecting a guest ends the running stream at once (rust-shine `POST /webrtc/kick`, needs a streamer from rust-shine 0.3.184 or newer; older streamers keep an already-running stream until it ends).
 - The Share dialog is on the desktop grid card only; guest texts are English only for now.
 - The full web GUI has no guest mode; guests use the dedicated join page. A native client as a guest is not built yet.
