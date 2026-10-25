@@ -14,3 +14,4 @@ client/web/models/
 client/web/mcp-bridge/node_modules/
 /client/third_party/pyrowave/build/
 /client/third_party/pyrowave/build-win/
+/password
