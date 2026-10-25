@@ -250,7 +250,15 @@ func ShowWhatsNewDialog(parent fyne.Window) {
 
 	gotIt := newVideoDialogApplyButton(i18n.Current.WhatsNewGotIt, closeDialog)
 	github := newWhatsNewGitHubLink()
-	footerInner := container.NewBorder(nil, nil, github, gotIt)
+	var footerLeft fyne.CanvasObject = github
+	if Updates != nil {
+		updatesBtn := newVideoDialogCancelButton(i18n.Current.UpdatesLink, func() {
+			closeDialog()
+			ShowUpdatesDialog(parent)
+		})
+		footerLeft = container.New(&DeviceRowControlsLayout{Gap: 12}, github, updatesBtn)
+	}
+	footerInner := container.NewBorder(nil, nil, footerLeft, gotIt)
 	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerInner, footerPad, footerPad, 8, 10))
 
 	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInsetExact(body, bodyPad, bodyPad, 12, 8))

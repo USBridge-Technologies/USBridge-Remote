@@ -300,15 +300,26 @@ type LocalizedStrings struct {
 	FeatCompanyRolloutSub      string
 
 	// Updates
-	UpdateAvailable     string
-	UpdateAvailableBody string
-	Updating            string
-	DownloadingVersion  string
-	WhatsNewTitle       string
-	WhatsNewGotIt       string
-	WhatsNewBadge       string
-	WhatsNewSubtitle    string
-	WhatsNewGitHub      string
+	UpdateAvailable      string
+	UpdateAvailableBody  string
+	Updating             string
+	DownloadingVersion   string
+	WhatsNewTitle        string
+	WhatsNewGotIt        string
+	UpdatesLink          string
+	UpdatesTitle         string
+	UpdatesCurrent       string // %s = running version
+	UpdatesChannelStable string
+	UpdatesChannelTest   string
+	UpdatesChannelHint   string
+	UpdatesChecking      string
+	UpdatesUpToDate      string
+	UpdatesAvailable     string // %s = new version
+	UpdatesCheckFailed   string // %s = error
+	UpdatesCheckAgain    string
+	WhatsNewBadge        string
+	WhatsNewSubtitle     string
+	WhatsNewGitHub       string
 
 	// Tray
 	TrayOpen         string
@@ -627,15 +638,26 @@ func EN() *LocalizedStrings {
 		FeatCompanyRollout:         "Built for company-wide rollout",
 		FeatCompanyRolloutSub:      "Access and policy at company scale",
 
-		UpdateAvailable:     "Update Available",
-		UpdateAvailableBody: "USBridge Agent %s is available (you have %s). Update now?",
-		Updating:            "Updating…",
-		DownloadingVersion:  "Downloading version %s…",
-		WhatsNewTitle:       "What's new",
-		WhatsNewGotIt:       "Got it",
-		WhatsNewBadge:       "New",
-		WhatsNewSubtitle:    "The latest agent features, USB passthrough, and streaming updates.",
-		WhatsNewGitHub:      "View Full Changelog on GitHub",
+		UpdateAvailable:      "Update Available",
+		UpdateAvailableBody:  "USBridge Agent %s is available (you have %s). Update now?",
+		Updating:             "Updating…",
+		DownloadingVersion:   "Downloading version %s…",
+		WhatsNewTitle:        "What's new",
+		WhatsNewGotIt:        "Got it",
+		UpdatesLink:          "Updates",
+		UpdatesTitle:         "Updates",
+		UpdatesCurrent:       "Installed version: %s",
+		UpdatesChannelStable: "Release",
+		UpdatesChannelTest:   "Test",
+		UpdatesChannelHint:   "Test installs the newest pre-release build from GitHub. Switch back to Release to follow stable versions.",
+		UpdatesChecking:      "Checking for updates…",
+		UpdatesUpToDate:      "You're up to date.",
+		UpdatesAvailable:     "Version %s is available.",
+		UpdatesCheckFailed:   "Update check failed: %s",
+		UpdatesCheckAgain:    "Check again",
+		WhatsNewBadge:        "New",
+		WhatsNewSubtitle:     "The latest agent features, USB passthrough, and streaming updates.",
+		WhatsNewGitHub:       "View Full Changelog on GitHub",
 
 		TrayOpen:         "Open USBridge Agent",
 		TrayRestart:      "Restart Streaming",
@@ -1182,6 +1204,17 @@ func UK() *LocalizedStrings {
 	locale.DownloadingVersion = "Завантаження версії %s…"
 	locale.WhatsNewTitle = "Що нового"
 	locale.WhatsNewGotIt = "Зрозуміло"
+	locale.UpdatesLink = "Оновлення"
+	locale.UpdatesTitle = "Оновлення"
+	locale.UpdatesCurrent = "Встановлена версія: %s"
+	locale.UpdatesChannelStable = "Реліз"
+	locale.UpdatesChannelTest = "Тест"
+	locale.UpdatesChannelHint = "Тест ставить найновішу пре-релізну збірку з GitHub. Поверніться на Реліз, щоб отримувати стабільні версії."
+	locale.UpdatesChecking = "Перевірка оновлень…"
+	locale.UpdatesUpToDate = "Встановлена остання версія."
+	locale.UpdatesAvailable = "Доступна версія %s."
+	locale.UpdatesCheckFailed = "Не вдалося перевірити оновлення: %s"
+	locale.UpdatesCheckAgain = "Перевірити ще раз"
 	locale.WhatsNewBadge = "Нове"
 	locale.WhatsNewSubtitle = "Нові функції агента, прокидання USB і оновлення стрімінгу."
 	locale.WhatsNewGitHub = "Повний changelog на GitHub"

@@ -20,6 +20,9 @@ func Check(ctx context.Context, currentVersion string) *Manifest {
 	return nil
 }
 
+// CheckNow always reports up to date, like Check.
+func CheckNow(ctx context.Context, currentVersion string) (*Manifest, error) { return nil, nil }
+
 // DownloadAndApply is never reachable in practice (Check never returns a
 // non-nil Manifest for a caller to pass in here), but is kept with the same
 // signature as the enabled build so call sites don't need build tags of
@@ -31,3 +34,6 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress Progre
 // CheckAndApply mirrors the enabled build's "check, then apply, swallowing
 // every failure" contract — here that's simply a no-op.
 func CheckAndApply(ctx context.Context, currentVersion string) {}
+
+// Enabled reports whether this build can self-update at all.
+const Enabled = false

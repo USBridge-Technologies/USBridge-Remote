@@ -52,6 +52,10 @@ type Manifest struct {
 	App       string                   `json:"app"`
 	Version   string                   `json:"version"`
 	Platforms map[string]PlatformAsset `json:"platforms"`
+
+	// Tag is the GitHub release this manifest was fetched from; empty means
+	// /releases/latest. Not part of the signed bytes.
+	Tag string `json:"-"`
 }
 
 // releaseAssetURL points at a fixed, version-independent asset name under
@@ -61,7 +65,40 @@ type Manifest struct {
 // never set make_latest, so they're structurally invisible here — the
 // update channel only ever sees stable releases.
 func releaseAssetURL(name string) string {
-	return fmt.Sprintf("https://github.com/%s/%s/releases/latest/download/%s", repoOwner, repoName, name)
+	return assetURL("", name)
+}
+
+// assetURL is releaseAssetURL for a specific release tag ("" = latest).
+func assetURL(tag, name string) string {
+	if tag == "" {
+		return fmt.Sprintf("https://github.com/%s/%s/releases/latest/download/%s", repoOwner, repoName, name)
+	}
+	return fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s", repoOwner, repoName, tag, name)
+}
+
+// latestTestTag finds the newest "test-*" prerelease (the API lists newest
+// first). Only picks which release to read; the manifest signature is
+// still what gates trust.
+func latestTestTag(ctx context.Context, client *http.Client) (string, error) {
+	api := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=30", repoOwner, repoName)
+	body, err := fetchBytes(ctx, client, api)
+	if err != nil {
+		return "", fmt.Errorf("list releases: %w", err)
+	}
+	var releases []struct {
+		Tag        string `json:"tag_name"`
+		Prerelease bool   `json:"prerelease"`
+		Draft      bool   `json:"draft"`
+	}
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return "", fmt.Errorf("parse releases: %w", err)
+	}
+	for _, r := range releases {
+		if r.Prerelease && !r.Draft && strings.HasPrefix(r.Tag, testTagPrefix) {
+			return r.Tag, nil
+		}
+	}
+	return "", fmt.Errorf("no test pre-release published")
 }
 
 // fetchManifest downloads and signature-verifies this app's update
@@ -71,11 +108,18 @@ func releaseAssetURL(name string) string {
 // rather than surfacing them as fatal.
 func fetchManifest(ctx context.Context, client *http.Client) (*Manifest, error) {
 	manifestName := "manifest-" + appName + ".json"
-	body, err := fetchBytes(ctx, client, releaseAssetURL(manifestName))
+	tag := ""
+	if GetChannel() == ChannelTest {
+		var err error
+		if tag, err = latestTestTag(ctx, client); err != nil {
+			return nil, err
+		}
+	}
+	body, err := fetchBytes(ctx, client, assetURL(tag, manifestName))
 	if err != nil {
 		return nil, fmt.Errorf("fetch manifest: %w", err)
 	}
-	sigText, err := fetchBytes(ctx, client, releaseAssetURL(manifestName+".sig"))
+	sigText, err := fetchBytes(ctx, client, assetURL(tag, manifestName+".sig"))
 	if err != nil {
 		return nil, fmt.Errorf("fetch manifest signature: %w", err)
 	}
@@ -95,10 +139,15 @@ func fetchManifest(ctx context.Context, client *http.Client) (*Manifest, error) 
 	if m.App != appName {
 		return nil, fmt.Errorf("manifest is for app %q, expected %q", m.App, appName)
 	}
+	m.Tag = tag
 	return &m, nil
 }
 
 func fetchBytes(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+	return fetchBytesMax(ctx, client, url, manifestMaxBytes)
+}
+
+func fetchBytesMax(ctx context.Context, client *http.Client, url string, max int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -112,7 +161,7 @@ func fetchBytes(ctx context.Context, client *http.Client, url string) ([]byte, e
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, url)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, manifestMaxBytes))
+	return io.ReadAll(io.LimitReader(resp.Body, max))
 }
 
 // isNewerVersion reports whether remote is a strictly newer dotted version

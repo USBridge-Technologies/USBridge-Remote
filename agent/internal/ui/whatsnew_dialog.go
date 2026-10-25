@@ -141,7 +141,16 @@ func showWhatsNewDialog(parent fyne.Window) {
 	titleExtra := container.New(&tightHBoxLayout{gap: 8}, version, dateLbl, older, newer)
 	gotIt := newDialogCTA(loc().WhatsNewGotIt, closeDialog)
 	github := newWhatsNewGitHubLink()
-	footer := container.NewBorder(nil, nil, github, gotIt)
+	var footerLeft fyne.CanvasObject = github
+	if updatesBackend != nil {
+		updatesBtn := newIconActionButton(loc().UpdatesLink, nil, func() {
+			closeDialog()
+			showUpdatesDialog(parent)
+		})
+		updatesBtn.Compact = true
+		footerLeft = container.New(&tightHBoxLayout{gap: 12}, github, updatesBtn)
+	}
+	footer := container.NewBorder(nil, nil, footerLeft, gotIt)
 	panel := newBrandedDialogPanelChromeExtra(loc().WhatsNewTitle, loc().WhatsNewSubtitle, titleExtra, whatsNewDialogWidth, 20, 8, 8, 10, body, footer, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{
 		Panel:        panel,

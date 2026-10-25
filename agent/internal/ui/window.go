@@ -1884,6 +1884,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		win.Close()
 	})
 	if w.ownsEngine {
+		w.installUpdatesBackend(win)
 		go w.promptForUpdate(win)
 	}
 
@@ -2870,8 +2871,8 @@ func (w *Window) performRefresh() {
 			status.wifiTune.applicable, status.wifiTune.done = netutil.WiFiTuneStatus()
 			status.streamerRunning = w.token.StreamerRunning()
 			status.sessionActive = w.token.SessionActive()
-			certStatus = w.token.CertStatus()
 			w.promptPendingGuests(w.token.GuestPending())
+			certStatus = w.token.CertStatus()
 			certLoggedIn = w.token.AccountStatus().LoggedIn
 		}
 		fyne.Do(func() {

@@ -62,6 +62,23 @@ func platformKey() string {
 // "nothing to do" and continue startup normally; this never blocks longer
 // than checkTimeout.
 func Check(ctx context.Context, currentVersion string) *Manifest {
+	m, err := check(ctx, currentVersion, false)
+	if err != nil {
+		logrus.WithField("component", "update").WithError(err).Debug("update check skipped (offline, GitHub unreachable, or no signed manifest yet)")
+		return nil
+	}
+	return m
+}
+
+// CheckNow is the user-initiated check behind the version dialog. Unlike
+// Check it reports failures, and on the test channel it also offers a
+// rebuild of the same version (test builds often keep VERSION). A nil
+// manifest with a nil error means up to date.
+func CheckNow(ctx context.Context, currentVersion string) (*Manifest, error) {
+	return check(ctx, currentVersion, true)
+}
+
+func check(ctx context.Context, currentVersion string, manual bool) (*Manifest, error) {
 	log := logrus.WithField("component", "update")
 
 	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
@@ -70,16 +87,17 @@ func Check(ctx context.Context, currentVersion string) *Manifest {
 	client := &http.Client{Timeout: checkTimeout}
 	manifest, err := fetchManifest(checkCtx, client)
 	if err != nil {
-		log.WithError(err).Debug("update check skipped (offline, GitHub unreachable, or no signed manifest yet)")
-		return nil
+		return nil, err
 	}
 
-	if !isNewerVersion(manifest.Version, currentVersion) {
+	newer := isNewerVersion(manifest.Version, currentVersion)
+	sameOnTest := manual && GetChannel() == ChannelTest && !isNewerVersion(currentVersion, manifest.Version)
+	if !newer && !sameOnTest {
 		log.WithFields(logrus.Fields{
 			"current": currentVersion,
 			"latest":  manifest.Version,
 		}).Debug("already up to date")
-		return nil
+		return nil, nil
 	}
 
 	if _, ok := manifest.Platforms[platformKey()]; !ok {
@@ -88,10 +106,10 @@ func Check(ctx context.Context, currentVersion string) *Manifest {
 			"platform":  platformKey(),
 			"platforms": sortedPlatformKeys(manifest.Platforms),
 		}).Warn("update available but manifest has no artifact for this platform")
-		return nil
+		return nil, fmt.Errorf("release %s has no build for %s", manifest.Version, platformKey())
 	}
 
-	return manifest
+	return manifest, nil
 }
 
 // DownloadAndApply downloads the platform artifact named in manifest
@@ -133,7 +151,7 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress Progre
 	defer dlCancel()
 
 	dlClient := &http.Client{Timeout: 0} // context governs the overall deadline; large files stream
-	path, err := downloadArtifact(dlCtx, dlClient, releaseAssetURL(asset.Asset), asset.SHA256, onProgress)
+	path, err := downloadArtifact(dlCtx, dlClient, assetURL(manifest.Tag, asset.Asset), asset.SHA256, onProgress)
 	if err != nil {
 		return fmt.Errorf("download/verify update: %w", err)
 	}

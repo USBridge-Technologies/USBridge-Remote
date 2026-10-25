@@ -153,6 +153,8 @@ func main() {
 	// See internal/update's package doc for the MITM-resistance design
 	// (Ed25519-signed manifest, then SHA-256-verified artifact) — that part
 	// is unchanged, only whether an approved update applies automatically.
+	mainWindow.InstallUpdatesBackend(version)
+
 	mainWindow.SetOnReadyCallback(func() {
 		manifest := update.Check(context.Background(), version)
 		if manifest == nil {

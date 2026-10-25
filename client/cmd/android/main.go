@@ -86,6 +86,7 @@ func main() {
 	update.InstallAPK = platform.InstallAPK
 	update.CanRequestInstall = platform.CanRequestPackageInstalls
 	update.RequestInstallPermission = platform.RequestInstallPermission
+	mainWindow.InstallUpdatesBackend(version)
 	go func() {
 		manifest := update.Check(context.Background(), version)
 		if manifest == nil {

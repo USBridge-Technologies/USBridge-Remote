@@ -534,6 +534,17 @@ type LocalizedStrings struct {
 	WhatsNewSubtitle         string
 	WhatsNewGitHub           string
 	WhatsNewGotIt            string
+	UpdatesLink              string
+	UpdatesTitle             string
+	UpdatesCurrent           string // %s = running version
+	UpdatesChannelStable     string
+	UpdatesChannelTest       string
+	UpdatesChannelHint       string
+	UpdatesChecking          string
+	UpdatesUpToDate          string
+	UpdatesAvailable         string // %s = new version
+	UpdatesCheckFailed       string // %s = error
+	UpdatesCheckAgain        string
 
 	// Video Settings/Dialogs
 	VideoQualitySettings string
@@ -753,17 +764,6 @@ type LocalizedStrings struct {
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
 	DeepLinkToken         string // "Master Key:"
-	DeepLinkConnectPrompt string // "Do you want to connect to this server?\n\nChoose action:"
-	DeepLinkConnect       string // "Connect"
-	DeepLinkSave          string // "Save"
-
-	// Error messages
-	ErrorMessage               string // "Error: %v"
-	ErrorNotConnectedShort     string // "Error: not connected to USBridge"
-	ErrorVideoStart            string // "Error starting video: %v"
-	ErrorVideoInfo             string // "Error getting video information"
-	VideoWaitingConnection     string // "Waiting for connection..."
-	VideoTakenOver             string // the stream was opened elsewhere
 
 	// Guest access (sharing a computer with other people)
 	ShareTitle            string
@@ -804,6 +804,17 @@ type LocalizedStrings struct {
 	ShareErrEmail         string
 	ShareLoading          string
 	ShareBadgeTip         string
+	DeepLinkConnectPrompt string // "Do you want to connect to this server?\n\nChoose action:"
+	DeepLinkConnect       string // "Connect"
+	DeepLinkSave          string // "Save"
+
+	// Error messages
+	ErrorMessage               string // "Error: %v"
+	ErrorNotConnectedShort     string // "Error: not connected to USBridge"
+	ErrorVideoStart            string // "Error starting video: %v"
+	ErrorVideoInfo             string // "Error getting video information"
+	VideoWaitingConnection     string // "Waiting for connection..."
+	VideoTakenOver             string // the stream was opened elsewhere
 	VideoInfoReceived          string // "Video information received"
 	VideoInfoUnavailable       string // "Video information unavailable"
 	VirtualKeyboardClickToType string // "click to type"
@@ -1371,6 +1382,17 @@ func EN() *LocalizedStrings {
 		WhatsNewSubtitle:         "Explore the latest features, hardware passthrough capabilities, and performance optimizations.",
 		WhatsNewGitHub:           "View Full Changelog on GitHub",
 		WhatsNewGotIt:            "Got it",
+		UpdatesLink:              "Updates",
+		UpdatesTitle:             "Updates",
+		UpdatesCurrent:           "Installed version: %s",
+		UpdatesChannelStable:     "Release",
+		UpdatesChannelTest:       "Test",
+		UpdatesChannelHint:       "Test installs the newest pre-release build from GitHub. Switch back to Release to follow stable versions.",
+		UpdatesChecking:          "Checking for updates…",
+		UpdatesUpToDate:          "You're up to date.",
+		UpdatesAvailable:         "Version %s is available.",
+		UpdatesCheckFailed:       "Update check failed: %s",
+		UpdatesCheckAgain:        "Check again",
 
 		// Video Settings/Dialogs
 		VideoQualitySettings: "Video Quality Settings",
@@ -1588,28 +1610,6 @@ func EN() *LocalizedStrings {
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",
 		DeepLinkToken:         "Master Key:",
-		DeepLinkConnectPrompt: "Do you want to connect to this server?\n\nChoose action:",
-		DeepLinkConnect:       "Connect",
-		DeepLinkSave:          "Save",
-
-		// Error messages
-		ErrorMessage:               "Error: %v",
-		ErrorNotConnectedShort:     "Error: not connected to USBridge",
-		ErrorVideoStart:            "Error starting video: %v",
-		ErrorVideoInfo:             "Error getting video information",
-		VideoWaitingConnection:     "Waiting for connection...",
-		VideoTakenOver:             "Video opened in another window. Press Start to bring it back here.",
-		VideoInfoReceived:          "Video information received",
-		VideoInfoUnavailable:       "Video information unavailable",
-		VirtualKeyboardClickToType: "click to type",
-		UnitPx:                     "px",
-		UnitPercent:                "%",
-		UnitKbps:                   "kbps",
-		UnitMbps:                   "Mbps",
-		DeviceRowTemplateName:      "—",
-		DeviceRowTemplateStatus:    "—",
-		FullscreenWindowTitle:      "USBridge - Fullscreen",
-		SnapshotRowTemplateSize:    "—",
 		ShareTitle:            "Share access",
 		ShareHint:             "Guests sign in with their e-mail and get an invitation by mail. Your master key is never shared.",
 		ShareEmailLabel:       "Guest e-mail",
@@ -1648,6 +1648,28 @@ func EN() *LocalizedStrings {
 		ShareErrEmail:         "Enter a valid e-mail address.",
 		ShareLoading:          "Loading...",
 		ShareBadgeTip:         "%d with access",
+		DeepLinkConnectPrompt: "Do you want to connect to this server?\n\nChoose action:",
+		DeepLinkConnect:       "Connect",
+		DeepLinkSave:          "Save",
+
+		// Error messages
+		ErrorMessage:               "Error: %v",
+		ErrorNotConnectedShort:     "Error: not connected to USBridge",
+		ErrorVideoStart:            "Error starting video: %v",
+		ErrorVideoInfo:             "Error getting video information",
+		VideoWaitingConnection:     "Waiting for connection...",
+		VideoTakenOver:             "Video opened in another window. Press Start to bring it back here.",
+		VideoInfoReceived:          "Video information received",
+		VideoInfoUnavailable:       "Video information unavailable",
+		VirtualKeyboardClickToType: "click to type",
+		UnitPx:                     "px",
+		UnitPercent:                "%",
+		UnitKbps:                   "kbps",
+		UnitMbps:                   "Mbps",
+		DeviceRowTemplateName:      "—",
+		DeviceRowTemplateStatus:    "—",
+		FullscreenWindowTitle:      "USBridge - Fullscreen",
+		SnapshotRowTemplateSize:    "—",
 		SnapshotRowTemplateDate:    "—",
 
 		// Time formats
@@ -2374,6 +2396,17 @@ func UKProper() *LocalizedStrings {
 	locale.WhatsNewSubtitle = "Нові функції, проброс периферії та оптимізації продуктивності."
 	locale.WhatsNewGitHub = "Повний changelog на GitHub"
 	locale.WhatsNewGotIt = "Зрозуміло"
+	locale.UpdatesLink = "Оновлення"
+	locale.UpdatesTitle = "Оновлення"
+	locale.UpdatesCurrent = "Встановлена версія: %s"
+	locale.UpdatesChannelStable = "Реліз"
+	locale.UpdatesChannelTest = "Тест"
+	locale.UpdatesChannelHint = "Тест ставить найновішу пре-релізну збірку з GitHub. Поверніться на Реліз, щоб отримувати стабільні версії."
+	locale.UpdatesChecking = "Перевірка оновлень…"
+	locale.UpdatesUpToDate = "Встановлена остання версія."
+	locale.UpdatesAvailable = "Доступна версія %s."
+	locale.UpdatesCheckFailed = "Не вдалося перевірити оновлення: %s"
+	locale.UpdatesCheckAgain = "Перевірити ще раз"
 	locale.VideoQualitySettings = "Налаштування якості відео"
 	locale.Resolution = "Роздільна здатність"
 	locale.FrameRate = "Частота кадрів"

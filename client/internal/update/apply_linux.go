@@ -131,6 +131,9 @@ func pkgApply(ctx context.Context, version string) (bool, error) {
 	if !strings.HasPrefix(exe, pkgInstallDir+"/") {
 		return false, nil
 	}
+	if GetChannel() == ChannelTest {
+		return true, fmt.Errorf("the test channel can't update a package-managed install (%s is root-owned): use the AppImage or the portable build", pkgInstallDir)
+	}
 
 	tool := "apt"
 	for _, t := range []string{"pacman", "dnf"} {

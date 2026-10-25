@@ -13,7 +13,9 @@ import (
 // chrome i18n table — edit it here when staging a release so the window
 // can be previewed as it will ship.
 type whatsNewCopy struct {
-	EN, ES, UK string
+	EN string `json:"en"`
+	ES string `json:"es,omitempty"`
+	UK string `json:"uk,omitempty"`
 }
 
 func (c whatsNewCopy) String() string {
@@ -57,28 +59,28 @@ const (
 )
 
 type whatsNewPoint struct {
-	Glyph whatsNewGlyph
-	Title whatsNewCopy
-	Body  whatsNewCopy
+	Glyph whatsNewGlyph `json:"glyph"`
+	Title whatsNewCopy  `json:"title"`
+	Body  whatsNewCopy  `json:"body"`
 	// LinkLabel and LinkURL replace the kind badge with a pill button.
 	// LinkTone "purple" is the Mac tablet pill; "teal" is the Download pill.
-	LinkLabel whatsNewCopy
-	LinkURL   string
-	LinkTone  string
+	LinkLabel whatsNewCopy `json:"link_label,omitempty"`
+	LinkURL   string       `json:"link_url,omitempty"`
+	LinkTone  string       `json:"link_tone,omitempty"`
 }
 
 // whatsNewItem is one plaque. Several Points share the same Kind so they
 // stay in one card instead of stacking duplicate plaques.
 type whatsNewItem struct {
-	Kind   whatsNewKind
-	Points []whatsNewPoint
+	Kind   whatsNewKind    `json:"kind"`
+	Points []whatsNewPoint `json:"points"`
 }
 
 // whatsNewCard is one post-update appeal. Newest first in the catalog.
 type whatsNewCard struct {
-	Version string
-	Date    string
-	Items   []whatsNewItem
+	Version string         `json:"version"`
+	Date    string         `json:"date"`
+	Items   []whatsNewItem `json:"items"`
 }
 
 func whatsNewKindRank(kind whatsNewKind) int {
