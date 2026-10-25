@@ -113,6 +113,7 @@ type App struct {
 	handler         http.Handler
 	apiServer       *api.Server
 	guests          *guestauth.Manager
+	guestKick       func(shareID string) // ends a revoked guest's running stream
 	fyneApp         fyne.App
 	clipboard       *clipboard.Manager
 	usbBroker       *usbpass.Service

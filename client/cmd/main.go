@@ -154,6 +154,7 @@ func main() {
 	// (Ed25519-signed manifest, then SHA-256-verified artifact) — that part
 	// is unchanged, only whether an approved update applies automatically.
 	mainWindow.InstallUpdatesBackend(version)
+	mainWindow.StartWhatsNewSync()
 
 	mainWindow.SetOnReadyCallback(func() {
 		manifest := update.Check(context.Background(), version)

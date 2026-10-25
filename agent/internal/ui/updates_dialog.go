@@ -29,6 +29,27 @@ type updatesBackendFuncs struct {
 
 var updatesBackend *updatesBackendFuncs
 
+// startWhatsNewSync shows the cached release notes at once and refreshes
+// them from the selected channel's GitHub release in the background; the
+// embedded catalog covers a first offline launch.
+func startWhatsNewSync() {
+	if data := update.CachedWhatsNew(); data != nil {
+		if err := setRemoteWhatsNew(data); err != nil {
+			logrus.WithField("component", "update").WithError(err).Warn("ignoring cached release notes")
+		}
+	}
+	go func() {
+		data, err := update.FetchWhatsNew(context.Background())
+		if err != nil {
+			logrus.WithField("component", "update").WithError(err).Debug("release notes not refreshed (offline or not published yet)")
+			return
+		}
+		if err := setRemoteWhatsNew(data); err != nil {
+			logrus.WithField("component", "update").WithError(err).Warn("ignoring downloaded release notes")
+		}
+	}()
+}
+
 // installUpdatesBackend wires the dialog to internal/update. An attach-only
 // GUI never calls it: applying an update there would not touch the headless
 // instance that runs the engine (see docs/AUTO_UPDATE.md).
@@ -42,6 +63,7 @@ func (w *Window) installUpdatesBackend(parent fyne.Window) {
 			} else {
 				update.SetChannel(update.ChannelStable)
 			}
+			startWhatsNewSync()
 		},
 		check: func() (string, error) {
 			manifest, err := update.CheckNow(context.Background(), appVersion)

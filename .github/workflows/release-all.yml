@@ -1189,6 +1189,15 @@ jobs:
             -app agent -version "$AGENT_VERSION" -dir out \
             -manifest-out out/manifest-agent.json -sig-out out/manifest-agent.json.sig
 
+          # Release notes for the What's new window: the apps download these
+          # instead of relying only on the copy built into the binary.
+          cp client/internal/gui/view/whatsnew.json out/whatsnew-client.json
+          cp agent/internal/ui/whatsnew.json out/whatsnew-agent.json
+          UPDATE_SIGNING_KEY="$CLIENT_UPDATE_ED25519_PRIVATE_KEY" go run scripts/sign_update_manifest.go \
+            -sign-file out/whatsnew-client.json -sig-out out/whatsnew-client.json.sig
+          UPDATE_SIGNING_KEY="$AGENT_UPDATE_ED25519_PRIVATE_KEY" go run scripts/sign_update_manifest.go \
+            -sign-file out/whatsnew-agent.json -sig-out out/whatsnew-agent.json.sig
+
       - name: Build and sign the APT index
         # A flat APT repository made of this release's own assets: Packages,
         # Release, InRelease next to the .deb files. Installed packages point

@@ -139,7 +139,7 @@ func (c *WebTransportClient) Connect(sessionID string) error {
 	}
 
 	const infoPath = "/webtransport/info"
-	var ts, sig, role string
+	var ts, sig, role, share string
 	var body []byte
 	if c.guest != nil {
 		if c.baseURL == "" {
@@ -159,13 +159,14 @@ func (c *WebTransportClient) Connect(sessionID string) error {
 					wtInfo
 					TS   string `json:"ts"`
 					Sig  string `json:"sig"`
-					Role string `json:"role"`
+					Role  string `json:"role"`
+					Share string `json:"share"`
 				} `json:"data"`
 			}
 			if jerr := json.Unmarshal(body, &env); jerr != nil {
 				return fmt.Errorf("webtransport: bad grant answer: %w", jerr)
 			}
-			ts, sig, role = env.Data.TS, env.Data.Sig, env.Data.Role
+			ts, sig, role, share = env.Data.TS, env.Data.Sig, env.Data.Role, env.Data.Share
 			body, _ = json.Marshal(env.Data.wtInfo)
 		}
 	} else {
@@ -190,7 +191,7 @@ func (c *WebTransportClient) Connect(sessionID string) error {
 	}
 	sessionURL := ""
 	if c.guest != nil {
-		sessionURL = fmt.Sprintf("https://%s:%d%s?ts=%s&sig=%s&role=%s", host, info.Port, info.Path, ts, sig, role)
+		sessionURL = fmt.Sprintf("https://%s:%d%s?ts=%s&sig=%s&role=%s&share=%s", host, info.Port, info.Path, ts, sig, role, url.QueryEscape(share))
 	} else {
 		ts, sig = signHMAC(c.masterKey, "CONNECT", info.Path, "")
 		sessionURL = fmt.Sprintf("https://%s:%d%s?ts=%s&sig=%s", host, info.Port, info.Path, ts, sig)

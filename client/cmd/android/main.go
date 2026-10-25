@@ -87,6 +87,7 @@ func main() {
 	update.CanRequestInstall = platform.CanRequestPackageInstalls
 	update.RequestInstallPermission = platform.RequestInstallPermission
 	mainWindow.InstallUpdatesBackend(version)
+	mainWindow.StartWhatsNewSync()
 	go func() {
 		manifest := update.Check(context.Background(), version)
 		if manifest == nil {

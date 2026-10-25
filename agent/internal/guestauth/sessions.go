@@ -156,10 +156,11 @@ func (s *Sessions) End(shareID, kind string) {
 	cur := s.m[shareID]
 	delete(s.m, shareID)
 	s.mu.Unlock()
-	if cur == nil {
-		return
+	if cur != nil {
+		s.fire(Event{ShareID: cur.ShareID, Email: cur.Email, Kind: kind})
 	}
-	s.fire(Event{ShareID: cur.ShareID, Email: cur.Email, Kind: kind})
+	// Even without a record: a stream can outlive its idle-expired entry, and
+	// ending a share that has none running is harmless.
 	if s.end != nil {
 		s.end(shareID)
 	}

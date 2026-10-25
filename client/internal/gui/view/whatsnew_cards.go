@@ -1,8 +1,13 @@
 package view
 
 import (
+	_ "embed"
+	"encoding/json"
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 
 	"usbridge-client/internal/gui/i18n"
 
@@ -155,240 +160,139 @@ func markWhatsNewCatalogSeen() {
 	refreshWhatsNewFooterUnseen()
 }
 
-// whatsNewCatalog is the release-notes deck. Add a new card at the top
-// before shipping; leave older ones so the window can page through them.
-func whatsNewCatalog() []whatsNewCard {
-	return []whatsNewCard{
-		{
-			Version: "3.1.8",
-			Date:    "October 2026",
-			Items: []whatsNewItem{
-				{
-					Kind: whatsNewKindFree,
-					Points: []whatsNewPoint{
-						{
-							Glyph: whatsNewGlyphUSB,
-							Title: whatsNewCopy{
-								EN: "Microphone and MIDI on the remote PC",
-								ES: "Microfono y MIDI en el PC remoto",
-								UK: "Мікрофон і MIDI на віддаленому ПК",
-							},
-							Body: whatsNewCopy{
-								EN: "Switch them on in Devices: the PC gets your microphone and MIDI keyboard as its own, from any platform.",
-								ES: "Activalos en Dispositivos: el PC recibe tu microfono y tu teclado MIDI como propios, desde cualquier plataforma.",
-								UK: "Увімкніть у Пристроях: ПК отримує ваш мікрофон і MIDI-клавіатуру як власні, з будь-якої платформи.",
-							},
-						},
-						{
-							Glyph: whatsNewGlyphDisplay,
-							Title: whatsNewCopy{
-								EN: "Virtual display on connect",
-								ES: "Pantalla virtual al conectar",
-								UK: "Віртуальний дисплей при підключенні",
-							},
-							Body: whatsNewCopy{
-								EN: "A Windows host, or plain Vibepollo and Apollo, can open a screen sized for this device.",
-								ES: "Un host Windows, o Vibepollo y Apollo sin agente, abre una pantalla a la medida de este dispositivo.",
-								UK: "Хост на Windows або Vibepollo і Apollo без агента відкривають екран під розмір цього пристрою.",
-							},
-						},
-					},
-				},
-				{
-					Kind: whatsNewKindOpensource,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphColor,
-						Title: whatsNewCopy{
-							EN: "PyroWave on Mac",
-							ES: "PyroWave en Mac",
-							UK: "PyroWave на Mac",
-						},
-						Body: whatsNewCopy{
-							EN: "Native Metal decoding with 4:4:4 and HDR10, and plain Sunshine hosts connect without a master key.",
-							ES: "Decodificacion nativa en Metal con 4:4:4 y HDR10; los hosts Sunshine sin agente conectan sin clave maestra.",
-							UK: "Нативне декодування на Metal з 4:4:4 і HDR10, а звичайні хости Sunshine підключаються без майстер-ключа.",
-						},
-					}},
-				},
-				{
-					Kind: whatsNewKindOther,
-					Points: []whatsNewPoint{
-						{
-							Glyph: whatsNewGlyphMetrics,
-							Title: whatsNewCopy{
-								EN: "Android: from ~140 ms to ~20 ms",
-								ES: "Android: de ~140 ms a ~20 ms",
-								UK: "Android: з ~140 мс до ~20 мс",
-							},
-							Body: whatsNewCopy{
-								EN: "Low-latency decoding straight into Vulkan, and Wi-Fi tips with shortcuts to the right settings.",
-								ES: "Decodificacion de baja latencia directa a Vulkan y consejos de Wi-Fi con accesos a los ajustes.",
-								UK: "Декодування з низькою затримкою прямо у Vulkan і поради щодо Wi-Fi з переходом у потрібні налаштування.",
-							},
-						},
-						{
-							Glyph: whatsNewGlyphCloud,
-							Title: whatsNewCopy{
-								EN: "Steadier picture and pointer",
-								ES: "Imagen y puntero mas estables",
-								UK: "Стабільніші картинка й курсор",
-							},
-							Body: whatsNewCopy{
-								EN: "Video keeps playing under menus, and the mouse stays on target at any stream resolution.",
-								ES: "El video sigue bajo los menus y el raton acierta con cualquier resolucion del stream.",
-								UK: "Відео не зупиняється під меню, а миша влучає за будь-якої роздільності стріму.",
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			Version: "3.0.111",
-			Date:    "October 2026",
-			Items: []whatsNewItem{
-				{
-					Kind: whatsNewKindFree,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphUSB,
-						Title: whatsNewCopy{
-							EN: "Free USB passthrough",
-							ES: "Passthrough USB gratis",
-							UK: "Безкоштовний проброс USB",
-						},
-						Body: whatsNewCopy{
-							EN: "USB passthrough is now included in the free version, except graphics tablets.",
-							ES: "El passthrough USB ya esta en la version gratuita, salvo tabletas graficas.",
-							UK: "Проброс USB тепер доступний у безкоштовній версії, крім графічних планшетів.",
-						},
-					}},
-				},
-				{
-					Kind: whatsNewKindHardwareAgent,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphBoard,
-						Title: whatsNewCopy{
-							EN: "NanoKVM firmware",
-							ES: "Firmware para NanoKVM",
-							UK: "Прошивка для NanoKVM",
-						},
-						Body: whatsNewCopy{
-							EN: "Firmware for NanoKVM: a much faster KVM at 60 FPS, with gamepad support.",
-							ES: "Firmware para NanoKVM: un KVM mucho mas rapido a 60 FPS, con soporte de gamepads.",
-							UK: "Прошивка для NanoKVM: набагато швидший KVM на 60 FPS і підтримка геймпадів.",
-						},
-						LinkLabel: whatsNewCopy{EN: "Download", ES: "Descargar", UK: "Завантажити"},
-						LinkURL:   "https://www.usbridge.io/hardware-agent",
-						LinkTone:  "teal",
-					}},
-				},
-				{
-					Kind: whatsNewKindOpensource,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphBoard,
-						Title: whatsNewCopy{
-							EN: "ESP module for Mac tablets",
-							ES: "Modulo ESP para tabletas en Mac",
-							UK: "ESP-модуль для планшета на Mac",
-						},
-						Body: whatsNewCopy{
-							EN: "Pass a graphics tablet through to a Mac.",
-							ES: "Pasa una tableta grafica a un Mac.",
-							UK: "Проброс графічного планшета на Mac.",
-						},
-						LinkLabel: whatsNewCopy{EN: "Mac Tablet Support", ES: "Mac Tablet Support", UK: "Mac Tablet Support"},
-						LinkURL:   "https://www.usbridge.io/macos-wacom-support",
-						LinkTone:  "purple",
-					}},
-				},
-			},
-		},
-		{
-			Version: "3.0.45",
-			Date:    "September 2026",
-			Items: []whatsNewItem{
-				{
-					Kind: whatsNewKindBeta,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphAI,
-						Title: whatsNewCopy{
-							EN: "AI Vision Overlay",
-							ES: "Overlay AI Vision",
-							UK: "Накладка AI Vision",
-						},
-						Body: whatsNewCopy{
-							EN: "Live object detection overlay on the video feed.",
-							ES: "Overlay de deteccion de objetos en vivo sobre el video.",
-							UK: "Накладка розпізнавання об’єктів поверх відео.",
-						},
-					}},
-				},
-				{
-					Kind: whatsNewKindPro,
-					Points: []whatsNewPoint{
-						{
-							Glyph: whatsNewGlyphColor,
-							Title: whatsNewCopy{
-								EN: "4:4:4 True Color Fidelity",
-								ES: "Fidelidad de color 4:4:4",
-								UK: "Точна передача кольору 4:4:4",
-							},
-							Body: whatsNewCopy{
-								EN: "Full chroma for sharper text and color-critical work.",
-								ES: "Croma completo para texto mas nitido y trabajo de color.",
-								UK: "Повна кольоровість для чіткішого тексту і точної передачі кольору.",
-							},
-						},
-					},
-				},
-				{
-					Kind: whatsNewKindFree,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphDisplay,
-						Title: whatsNewCopy{
-							EN: "Virtual Displays",
-							ES: "Pantallas virtuales",
-							UK: "Віртуальні дисплеї",
-						},
-						Body: whatsNewCopy{
-							EN: "Extra screens without extra hardware.",
-							ES: "Pantallas extra sin hardware extra.",
-							UK: "Додаткові екрани без зайвого заліза.",
-						},
-					}},
-				},
-				{
-					Kind: whatsNewKindOther,
-					Points: []whatsNewPoint{
-						{
-							Glyph: whatsNewGlyphCloud,
-							Title: whatsNewCopy{
-								EN: "Cloud Connection Sync",
-								ES: "Sincronizacion de conexiones",
-								UK: "Хмарна синхронізація з’єднань",
-							},
-							Body: whatsNewCopy{
-								EN: "Saved connections stay in sync across devices when you log in with Google.",
-								ES: "Las conexiones guardadas se sincronizan entre dispositivos al entrar con Google.",
-								UK: "Збережені з’єднання синхронізуються між пристроями після входу з Google.",
-							},
-						},
-						{
-							Glyph: whatsNewGlyphMetrics,
-							Title: whatsNewCopy{
-								EN: "Video metrics",
-								ES: "Metricas de video",
-								UK: "Відеометрики",
-							},
-							Body: whatsNewCopy{
-								EN: "Live bitrate, FPS, and other stream parameters while you watch.",
-								ES: "Bitrate, FPS y otros parametros del stream en vivo mientras miras.",
-								UK: "Наживо bitrate, FPS та інші параметри передачі відео під час перегляду.",
-							},
-						},
-					},
-				},
-			},
-		},
+// whatsNewEmbedded is the catalog shipped in the binary: the fallback when
+// there is no network and no cached copy. CI publishes the same file as
+// the release asset whatsnew-client.json, so notes can be fixed after a
+// release without rebuilding.
+//
+//go:embed whatsnew.json
+var whatsNewEmbedded []byte
+
+var (
+	whatsNewRemoteMu    sync.Mutex
+	whatsNewRemoteCards []whatsNewCard
+)
+
+type whatsNewFile struct {
+	App   string         `json:"app"`
+	Cards []whatsNewCard `json:"cards"`
+}
+
+const (
+	whatsNewMaxCards  = 40
+	whatsNewMaxItems  = 8
+	whatsNewMaxPoints = 8
+	whatsNewMaxText   = 500
+)
+
+// parseWhatsNew decodes and sanitizes a catalog. Cards without a version
+// are dropped and sizes are capped, so a malformed file degrades to fewer
+// cards instead of an unreadable dialog.
+func parseWhatsNew(data []byte) ([]whatsNewCard, error) {
+	var f whatsNewFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, err
 	}
+	if f.App != "client" {
+		return nil, fmt.Errorf("whatsnew is for app %q, expected %q", f.App, "client")
+	}
+	clip := func(c whatsNewCopy) whatsNewCopy {
+		cut := func(s string) string {
+			if r := []rune(s); len(r) > whatsNewMaxText {
+				return string(r[:whatsNewMaxText])
+			}
+			return s
+		}
+		return whatsNewCopy{EN: cut(c.EN), ES: cut(c.ES), UK: cut(c.UK)}
+	}
+	var out []whatsNewCard
+	for _, c := range f.Cards {
+		c.Version = strings.TrimSpace(c.Version)
+		if c.Version == "" || len(out) >= whatsNewMaxCards {
+			continue
+		}
+		if len(c.Items) > whatsNewMaxItems {
+			c.Items = c.Items[:whatsNewMaxItems]
+		}
+		for i := range c.Items {
+			if len(c.Items[i].Points) > whatsNewMaxPoints {
+				c.Items[i].Points = c.Items[i].Points[:whatsNewMaxPoints]
+			}
+			for j := range c.Items[i].Points {
+				p := &c.Items[i].Points[j]
+				p.Title, p.Body = clip(p.Title), clip(p.Body)
+				if p.LinkURL != "" && !strings.HasPrefix(p.LinkURL, "https://") {
+					p.LinkURL = ""
+				}
+			}
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// SetRemoteWhatsNew installs a signature-verified catalog fetched from the
+// release (or the cached copy of it). Call refresh of the footer pip on the
+// UI goroutine afterwards.
+func SetRemoteWhatsNew(data []byte) error {
+	cards, err := parseWhatsNew(data)
+	if err != nil {
+		return err
+	}
+	whatsNewRemoteMu.Lock()
+	whatsNewRemoteCards = cards
+	whatsNewRemoteMu.Unlock()
+	return nil
+}
+
+// whatsNewVersionLess reports whether dotted version a is older than b.
+// RefreshWhatsNewFooter re-evaluates the footer pip after SetRemoteWhatsNew.
+// UI goroutine only.
+func RefreshWhatsNewFooter() { refreshWhatsNewFooterUnseen() }
+
+func whatsNewVersionLess(a, b string) bool {
+	pa, pb := strings.Split(strings.TrimPrefix(a, "v"), "."), strings.Split(strings.TrimPrefix(b, "v"), ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
+// whatsNewCatalog is the release-notes deck, newest first: the embedded
+// cards, with any downloaded card of the same version replacing its
+// embedded twin and newer downloaded cards added on top.
+func whatsNewCatalog() []whatsNewCard {
+	cards, err := parseWhatsNew(whatsNewEmbedded)
+	if err != nil {
+		cards = nil
+	}
+	whatsNewRemoteMu.Lock()
+	remote := whatsNewRemoteCards
+	whatsNewRemoteMu.Unlock()
+	for _, rc := range remote {
+		replaced := false
+		for i := range cards {
+			if cards[i].Version == rc.Version {
+				cards[i] = rc
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			cards = append(cards, rc)
+		}
+	}
+	sort.SliceStable(cards, func(i, j int) bool {
+		return whatsNewVersionLess(cards[j].Version, cards[i].Version)
+	})
+	return cards
 }

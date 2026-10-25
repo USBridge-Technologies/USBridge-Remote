@@ -1,0 +1,538 @@
+{
+  "app": "client",
+  "cards": [
+    {
+      "version": "3.1.41",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Guest access",
+                "es": "Acceso de invitados",
+                "uk": "Гостьовий доступ"
+              },
+              "body": {
+                "en": "Share a computer by e-mail with a role and an end date.",
+                "es": "Comparte un equipo por correo con un rol y una fecha de fin.",
+                "uk": "Поділіться комп’ютером за e-mail із роллю та датою завершення."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.40",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "HDR10 on Android",
+                "es": "HDR10 en Android",
+                "uk": "HDR10 на Android"
+              },
+              "body": {
+                "en": "Main10 decoding shown on an HDR10 Vulkan swapchain.",
+                "es": "Decodificacion Main10 mostrada en una swapchain Vulkan HDR10.",
+                "uk": "Декодування Main10 виводиться на HDR10-swapchain у Vulkan."
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Arch Linux and RPM packages",
+                "es": "Paquetes para Arch Linux y RPM",
+                "uk": "Пакети для Arch Linux і RPM"
+              },
+              "body": {
+                "en": "Updates come through pacman or dnf, and the in-app updater asks for rights once.",
+                "es": "Las actualizaciones llegan por pacman o dnf, y el actualizador pide permisos una sola vez.",
+                "uk": "Оновлення приходять через pacman або dnf, а вбудований оновлювач просить права лише раз."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.30",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Host apps on every streamer",
+                "es": "Apps del host en cada streamer",
+                "uk": "Застосунки хоста для кожного стрімера"
+              },
+              "body": {
+                "en": "Pick the app to start on connect: Desktop, Steam or a game, whichever stream host you use.",
+                "es": "Elige la app que se inicia al conectar: Escritorio, Steam o un juego, con cualquier streamer.",
+                "uk": "Оберіть, що запускати при підключенні: стільницю, Steam або гру, з будь-яким стрімером."
+              }
+            },
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Virtual display, “as is”",
+                "es": "Pantalla virtual, «tal cual»",
+                "uk": "Віртуальний дисплей «як є»"
+              },
+              "body": {
+                "en": "“As is” keeps the physical monitor on, with a single virtual entry in the list.",
+                "es": "«Tal cual» mantiene el monitor fisico, con una sola entrada virtual en la lista.",
+                "uk": "«Як є» залишає фізичний монітор, а в списку лишається один віртуальний запис."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.28",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "DualSense and DualShock 4",
+                "es": "DualSense y DualShock 4",
+                "uk": "DualSense і DualShock 4"
+              },
+              "body": {
+                "en": "Headset sound, adaptive triggers, touchpad, motion and battery reach the host.",
+                "es": "Sonido en el auricular, gatillos adaptativos, touchpad, movimiento y bateria llegan al host.",
+                "uk": "Звук у навушниках, адаптивні тригери, тачпад, рух і батарея передаються на хост."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "hardware",
+          "points": [
+            {
+              "glyph": "board",
+              "title": {
+                "en": "Typing into a KVM",
+                "es": "Escribir en un KVM",
+                "uk": "Введення в KVM"
+              },
+              "body": {
+                "en": "Text goes to a hardware KVM with the target's keyboard layout; clipboard Send types it out.",
+                "es": "El texto llega al KVM con la distribucion de teclado del destino; Enviar del portapapeles lo teclea.",
+                "uk": "Текст надходить у KVM з розкладкою цілі; «Надіслати» з буфера друкує його."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.24",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Video source picker",
+                "es": "Selector de fuente de video",
+                "uk": "Вибір джерела відео"
+              },
+              "body": {
+                "en": "Choose which screen or capture source to watch, right in the video settings.",
+                "es": "Elige que pantalla o fuente de captura ver, en los ajustes de video.",
+                "uk": "Оберіть екран або джерело захоплення прямо в налаштуваннях відео."
+              }
+            },
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "Client settings",
+                "es": "Ajustes del cliente",
+                "uk": "Налаштування клієнта"
+              },
+              "body": {
+                "en": "Language and two-finger scroll speed live in the gear menu; Enter on the system keyboard works.",
+                "es": "Idioma y velocidad del scroll con dos dedos en el menu de engranaje; Enter del teclado del sistema funciona.",
+                "uk": "Мова та швидкість прокрутки двома пальцями — у меню шестерні; Enter системної клавіатури працює."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.23",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "Smoothness and FEC sliders",
+                "es": "Control de fluidez y FEC",
+                "uk": "Повзунки плавності та FEC"
+              },
+              "body": {
+                "en": "A latency/smoothness slider for the jitter buffer and a FEC slider for lossy networks.",
+                "es": "Un control de latencia/fluidez para el jitter buffer y otro de FEC para redes con perdidas.",
+                "uk": "Повзунок затримка/плавність для джитер-буфера і повзунок FEC для мереж із втратами."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.20",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "color",
+              "title": {
+                "en": "4:4:4 color is free",
+                "es": "El color 4:4:4 es gratis",
+                "uk": "Колір 4:4:4 безкоштовний"
+              },
+              "body": {
+                "en": "Full chroma for sharp text is now in the free version, no Pro needed.",
+                "es": "El croma completo para texto nitido ya esta en la version gratuita, sin Pro.",
+                "uk": "Повна кольоровість для чіткого тексту тепер у безкоштовній версії, без Pro."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.10",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Virtual display on connect",
+                "es": "Pantalla virtual al conectar",
+                "uk": "Віртуальний дисплей при підключенні"
+              },
+              "body": {
+                "en": "Pick the mode or keep the screen “as is”; the virtual monitor lives only for the session, and your monitors return the moment you disconnect.",
+                "es": "Elige el modo o deja la pantalla «tal cual»; el monitor virtual vive solo durante la sesion y tus monitores vuelven al desconectar.",
+                "uk": "Оберіть режим або залиште екран «як є»; віртуальний монітор існує лише під час сесії, а ваші монітори повертаються одразу після відключення."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.8",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "Microphone and MIDI on the remote PC",
+                "es": "Microfono y MIDI en el PC remoto",
+                "uk": "Мікрофон і MIDI на віддаленому ПК"
+              },
+              "body": {
+                "en": "Switch them on in Devices: the PC gets your microphone and MIDI keyboard as its own, from any platform.",
+                "es": "Activalos en Dispositivos: el PC recibe tu microfono y tu teclado MIDI como propios, desde cualquier plataforma.",
+                "uk": "Увімкніть у Пристроях: ПК отримує ваш мікрофон і MIDI-клавіатуру як власні, з будь-якої платформи."
+              },
+              "link_label": {
+                "en": ""
+              }
+            },
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Virtual display on connect",
+                "es": "Pantalla virtual al conectar",
+                "uk": "Віртуальний дисплей при підключенні"
+              },
+              "body": {
+                "en": "A Windows host, or plain Vibepollo and Apollo, can open a screen sized for this device.",
+                "es": "Un host Windows, o Vibepollo y Apollo sin agente, abre una pantalla a la medida de este dispositivo.",
+                "uk": "Хост на Windows або Vibepollo і Apollo без агента відкривають екран під розмір цього пристрою."
+              },
+              "link_label": {
+                "en": ""
+              }
+            }
+          ]
+        },
+        {
+          "kind": "opensource",
+          "points": [
+            {
+              "glyph": "color",
+              "title": {
+                "en": "PyroWave on Mac",
+                "es": "PyroWave en Mac",
+                "uk": "PyroWave на Mac"
+              },
+              "body": {
+                "en": "Native Metal decoding with 4:4:4 and HDR10, and plain Sunshine hosts connect without a master key.",
+                "es": "Decodificacion nativa en Metal con 4:4:4 y HDR10; los hosts Sunshine sin agente conectan sin clave maestra.",
+                "uk": "Нативне декодування на Metal з 4:4:4 і HDR10, а звичайні хости Sunshine підключаються без майстер-ключа."
+              },
+              "link_label": {
+                "en": ""
+              }
+            }
+          ]
+        },
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "Android: from ~140 ms to ~20 ms",
+                "es": "Android: de ~140 ms a ~20 ms",
+                "uk": "Android: з ~140 мс до ~20 мс"
+              },
+              "body": {
+                "en": "Low-latency decoding straight into Vulkan, and Wi-Fi tips with shortcuts to the right settings.",
+                "es": "Decodificacion de baja latencia directa a Vulkan y consejos de Wi-Fi con accesos a los ajustes.",
+                "uk": "Декодування з низькою затримкою прямо у Vulkan і поради щодо Wi-Fi з переходом у потрібні налаштування."
+              },
+              "link_label": {
+                "en": ""
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Steadier picture and pointer",
+                "es": "Imagen y puntero mas estables",
+                "uk": "Стабільніші картинка й курсор"
+              },
+              "body": {
+                "en": "Video keeps playing under menus, and the mouse stays on target at any stream resolution.",
+                "es": "El video sigue bajo los menus y el raton acierta con cualquier resolucion del stream.",
+                "uk": "Відео не зупиняється під меню, а миша влучає за будь-якої роздільності стріму."
+              },
+              "link_label": {
+                "en": ""
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.0.111",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "Free USB passthrough",
+                "es": "Passthrough USB gratis",
+                "uk": "Безкоштовний проброс USB"
+              },
+              "body": {
+                "en": "USB passthrough is now included in the free version, except graphics tablets.",
+                "es": "El passthrough USB ya esta en la version gratuita, salvo tabletas graficas.",
+                "uk": "Проброс USB тепер доступний у безкоштовній версії, крім графічних планшетів."
+              },
+              "link_label": {
+                "en": ""
+              }
+            }
+          ]
+        },
+        {
+          "kind": "hardware",
+          "points": [
+            {
+              "glyph": "board",
+              "title": {
+                "en": "NanoKVM firmware",
+                "es": "Firmware para NanoKVM",
+                "uk": "Прошивка для NanoKVM"
+              },
+              "body": {
+                "en": "Firmware for NanoKVM: a much faster KVM at 60 FPS, with gamepad support.",
+                "es": "Firmware para NanoKVM: un KVM mucho mas rapido a 60 FPS, con soporte de gamepads.",
+                "uk": "Прошивка для NanoKVM: набагато швидший KVM на 60 FPS і підтримка геймпадів."
+              },
+              "link_label": {
+                "en": "Download",
+                "es": "Descargar",
+                "uk": "Завантажити"
+              },
+              "link_url": "https://www.usbridge.io/hardware-agent",
+              "link_tone": "teal"
+            }
+          ]
+        },
+        {
+          "kind": "opensource",
+          "points": [
+            {
+              "glyph": "board",
+              "title": {
+                "en": "ESP module for Mac tablets",
+                "es": "Modulo ESP para tabletas en Mac",
+                "uk": "ESP-модуль для планшета на Mac"
+              },
+              "body": {
+                "en": "Pass a graphics tablet through to a Mac.",
+                "es": "Pasa una tableta grafica a un Mac.",
+                "uk": "Проброс графічного планшета на Mac."
+              },
+              "link_label": {
+                "en": "Mac Tablet Support",
+                "es": "Mac Tablet Support",
+                "uk": "Mac Tablet Support"
+              },
+              "link_url": "https://www.usbridge.io/macos-wacom-support",
+              "link_tone": "purple"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.0.45",
+      "date": "September 2026",
+      "items": [
+        {
+          "kind": "beta",
+          "points": [
+            {
+              "glyph": "ai",
+              "title": {
+                "en": "AI Vision Overlay",
+                "es": "Overlay AI Vision",
+                "uk": "Накладка AI Vision"
+              },
+              "body": {
+                "en": "Live object detection overlay on the video feed.",
+                "es": "Overlay de deteccion de objetos en vivo sobre el video.",
+                "uk": "Накладка розпізнавання об’єктів поверх відео."
+              },
+              "link_label": {
+                "en": ""
+              }
+            }
+          ]
+        },
+        {
+          "kind": "pro",
+          "points": [
+            {
+              "glyph": "color",
+              "title": {
+                "en": "4:4:4 True Color Fidelity",
+                "es": "Fidelidad de color 4:4:4",
+                "uk": "Точна передача кольору 4:4:4"
+              },
+              "body": {
+                "en": "Full chroma for sharper text and color-critical work.",
+                "es": "Croma completo para texto mas nitido y trabajo de color.",
+                "uk": "Повна кольоровість для чіткішого тексту і точної передачі кольору."
+              },
+              "link_label": {
+                "en": ""
+              }
+            }
+          ]
+        },
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Virtual Displays",
+                "es": "Pantallas virtuales",
+                "uk": "Віртуальні дисплеї"
+              },
+              "body": {
+                "en": "Extra screens without extra hardware.",
+                "es": "Pantallas extra sin hardware extra.",
+                "uk": "Додаткові екрани без зайвого заліза."
+              },
+              "link_label": {
+                "en": ""
+              }
+            }
+          ]
+        },
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Cloud Connection Sync",
+                "es": "Sincronizacion de conexiones",
+                "uk": "Хмарна синхронізація з’єднань"
+              },
+              "body": {
+                "en": "Saved connections stay in sync across devices when you log in with Google.",
+                "es": "Las conexiones guardadas se sincronizan entre dispositivos al entrar con Google.",
+                "uk": "Збережені з’єднання синхронізуються між пристроями після входу з Google."
+              },
+              "link_label": {
+                "en": ""
+              }
+            },
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "Video metrics",
+                "es": "Metricas de video",
+                "uk": "Відеометрики"
+              },
+              "body": {
+                "en": "Live bitrate, FPS, and other stream parameters while you watch.",
+                "es": "Bitrate, FPS y otros parametros del stream en vivo mientras miras.",
+                "uk": "Наживо bitrate, FPS та інші параметри передачі відео під час перегляду."
+              },
+              "link_label": {
+                "en": ""
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

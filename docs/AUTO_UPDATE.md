@@ -169,3 +169,21 @@ never touches it.
   If RustShine is effectively always active, that window to update may
   never open on its own; restarting the agent (so RustShine isn't holding
   the file) lets the next check succeed.
+
+## Update channels and What's new
+
+The version dialog (footer version -> What's new -> Updates) switches
+between **Release** (`/releases/latest`) and **Test** (the newest `test-*`
+prerelease, found through the GitHub releases API). The choice is stored in
+`<user config dir>/USBridge/<app>-update-channel`; `USBRIDGE_UPDATE_CHANNEL=test`
+overrides it. Package-managed Linux installs (deb/Arch/RPM) can't follow the
+test channel.
+
+The What's new cards live in `client/internal/gui/view/whatsnew.json` and
+`agent/internal/ui/whatsnew.json` (EN/ES/UK per string). Each file is
+embedded in the binary as the offline fallback, and `release-all.yml`
+publishes it as `whatsnew-<app>.json` plus an Ed25519 `.sig` (same key as
+the manifest). The apps fetch it from the selected channel's release at
+launch, cache the verified copy, and merge it over the embedded cards by
+version. To add notes for a release, add a card at the top of both files
+(the next release picks them up) -- no Go code to touch.

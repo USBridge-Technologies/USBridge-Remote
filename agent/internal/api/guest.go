@@ -386,6 +386,28 @@ func (s *Server) AuthorizeOffer(method, uri string, h http.Header, body []byte) 
 	return 0, ""
 }
 
+// webRTCKickURL is rust-shine's call that ends a guest's live sessions.
+var webRTCKickURL = "http://127.0.0.1:8444/webrtc/kick"
+
+// KickGuest ends the live streaming sessions (WebRTC and WebTransport) of a
+// share that was revoked, expired or kicked. New requests are refused by the
+// agent already; this is what stops a stream that is running.
+func (s *Server) KickGuest(shareID string) {
+	key := s.currentMasterKey()
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	req, err := http.NewRequest(http.MethodPost, webRTCKickURL, strings.NewReader(shareID))
+	if err != nil {
+		return
+	}
+	req.Header.Set("X-Auth-Timestamp", ts)
+	req.Header.Set("X-Auth-Signature", CalculateHMAC("POST", "/webrtc/kick", ts, shareID, key))
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return // no streamer running: nothing to end
+	}
+	resp.Body.Close()
+}
+
 // webTransportInfoURL is rust-shine's local signaling port (see webrtcProxy).
 var webTransportInfoURL = "http://127.0.0.1:8444/webtransport/info"
 
@@ -427,7 +449,8 @@ func (s *Server) guestWTGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	info["ts"] = ts
 	info["role"] = string(p.Role)
-	info["sig"] = CalculateHMAC("CONNECT", "/webtransport", ts, string(p.Role), key)
+	info["share"] = p.ShareID
+	info["sig"] = CalculateHMAC("CONNECT", "/webtransport", ts, string(p.Role)+"|"+p.ShareID, key)
 	s.ok(w, "wt_grant", info)
 }
 

@@ -1,7 +1,13 @@
 package ui
 
 import (
+	_ "embed"
+	"encoding/json"
+	"fmt"
 	"sort"
+	"strconv"
+	"strings"
+	"sync"
 
 	"usbridge_agent/internal/ui/i18n"
 )
@@ -53,8 +59,8 @@ const (
 	whatsNewGlyphUSB      whatsNewGlyph = "usb"
 	whatsNewGlyphProtocol whatsNewGlyph = "protocol"
 	whatsNewGlyphDisplay  whatsNewGlyph = "display"
-	whatsNewGlyphCloud   whatsNewGlyph = "cloud"
-	whatsNewGlyphMetrics whatsNewGlyph = "metrics"
+	whatsNewGlyphCloud    whatsNewGlyph = "cloud"
+	whatsNewGlyphMetrics  whatsNewGlyph = "metrics"
 )
 
 // whatsNewItem is one plaque. Several Points share the same Kind so they
@@ -96,156 +102,132 @@ func sortWhatsNewItems(items []whatsNewItem) []whatsNewItem {
 	return out
 }
 
-// whatsNewCatalog is the release-notes deck. Add a new card at the top
-// before shipping; leave older ones so the window can page through them.
-func whatsNewCatalog() []whatsNewCard {
-	return []whatsNewCard{
-		{
-			Version: "3.1.8",
-			Date:    "October 2026",
-			Items: []whatsNewItem{
-				{
-					Kind: whatsNewKindFree,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphUSB,
-						Title: whatsNewCopy{
-							EN: "The client's microphone and MIDI",
-							ES: "Microfono y MIDI del cliente",
-							UK: "Мікрофон і MIDI клієнта",
-						},
-						Body: whatsNewCopy{
-							EN: "This PC gets the client's microphone and MIDI keyboard as its own USB devices.",
-							ES: "Este PC recibe el microfono y el teclado MIDI del cliente como dispositivos USB propios.",
-							UK: "Цей ПК отримує мікрофон і MIDI-клавіатуру клієнта як власні USB-пристрої.",
-						},
-					}},
-				},
-				{
-					Kind: whatsNewKindOpensource,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphProtocol,
-						Title: whatsNewCopy{
-							EN: "Vibepollo",
-							ES: "Vibepollo",
-							UK: "Vibepollo",
-						},
-						Body: whatsNewCopy{
-							EN: "A new streamer to pick, installed and updated from here, with one shared virtual monitor on Windows.",
-							ES: "Un streamer nuevo, instalado y actualizado desde aqui, con un monitor virtual compartido en Windows.",
-							UK: "Новий стрімер на вибір, встановлюється й оновлюється звідси, зі спільним віртуальним монітором на Windows.",
-						},
-					}},
-				},
-				{
-					Kind: whatsNewKindOther,
-					Points: []whatsNewPoint{
-						{
-							Glyph: whatsNewGlyphCloud,
-							Title: whatsNewCopy{
-								EN: "Easier install",
-								ES: "Instalacion mas facil",
-								UK: "Простіше встановлення",
-							},
-							Body: whatsNewCopy{
-								EN: "One-click Windows setup with drivers and the service; on Linux, a .deb updated through APT.",
-								ES: "Instalador de Windows en un clic con drivers y servicio; en Linux, un .deb actualizado por APT.",
-								UK: "Встановлення на Windows в один клік з драйверами й службою; на Linux — .deb з оновленнями через APT.",
-							},
-						},
-						{
-							Glyph: whatsNewGlyphMetrics,
-							Title: whatsNewCopy{
-								EN: "Wi-Fi tuned for streaming",
-								ES: "Wi-Fi ajustado para streaming",
-								UK: "Wi-Fi, налаштований для стріму",
-							},
-							Body: whatsNewCopy{
-								EN: "A one-time tune in Permissions, and no background scans while a session runs.",
-								ES: "Un ajuste unico en Permisos y sin escaneos en segundo plano durante la sesion.",
-								UK: "Одноразове налаштування в Дозволах і жодних фонових сканувань під час сесії.",
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			Version: "3.0.111",
-			Date:    "October 2026",
-			Items: []whatsNewItem{
-				{
-					Kind: whatsNewKindFree,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphUSB,
-						Title: whatsNewCopy{
-							EN: "Free USB passthrough",
-							ES: "Passthrough USB gratis",
-							UK: "Безкоштовний проброс USB",
-						},
-						Body: whatsNewCopy{
-							EN: "USB passthrough is now included in the free version, except graphics tablets.",
-							ES: "El passthrough USB ya esta en la version gratuita, salvo tabletas graficas.",
-							UK: "Проброс USB тепер доступний у безкоштовній версії, крім графічних планшетів.",
-						},
-					}},
-				},
-				{
-					Kind: whatsNewKindOpensource,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphProtocol,
-						Title: whatsNewCopy{
-							EN: "Punktfunk",
-							ES: "Punktfunk",
-							UK: "Punktfunk",
-						},
-						Body: whatsNewCopy{
-							EN: "A new open-source streaming protocol, next to Sunshine.",
-							ES: "Un protocolo de streaming open source nuevo, junto a Sunshine.",
-							UK: "Новий протокол стрімінгу з відкритим кодом, поруч із Sunshine.",
-						},
-					}},
-				},
-			},
-		},
-		{
-			Version: "3.0.45",
-			Date:    "September 2026",
-			Items: []whatsNewItem{
-				{
-					Kind: whatsNewKindFree,
-					Points: []whatsNewPoint{{
-						Glyph: whatsNewGlyphDisplay,
-						Title: whatsNewCopy{
-							EN: "Virtual Display",
-							ES: "Virtual Display",
-							UK: "Virtual Display",
-						},
-						Body: whatsNewCopy{
-							EN: "Extra screens without extra hardware.",
-							ES: "Pantallas extra sin hardware extra.",
-							UK: "Додаткові екрани без зайвого заліза.",
-						},
-					}},
-				},
-				{
-					Kind: whatsNewKindOther,
-					Points: []whatsNewPoint{
-						{
-							Glyph: whatsNewGlyphCloud,
-							Title: whatsNewCopy{
-								EN: "USBridge protocol auto-update",
-								ES: "Autoactualizacion del protocolo USBridge",
-								UK: "Автооновлення протоколу USBridge",
-							},
-							Body: whatsNewCopy{
-								EN: "The streamer updates quietly in the background. Turn it off in General Settings to get a Yes/No prompt instead.",
-								ES: "El streamer se actualiza en segundo plano. Desactivalo en General Settings para ver un aviso de Si/No.",
-								UK: "Стрімер оновлюється тихо у фоні. У General Settings можна вимкнути авто і отримувати запит Так/Ні.",
-							},
-						},
-					},
-				},
-			},
-		},
+// whatsNewEmbedded is the catalog shipped in the binary: the fallback when
+// there is no network and no cached copy. CI publishes the same file as
+// the release asset whatsnew-agent.json, so notes can be fixed after a
+// release without rebuilding.
+//
+//go:embed whatsnew.json
+var whatsNewEmbedded []byte
+
+var (
+	whatsNewRemoteMu    sync.Mutex
+	whatsNewRemoteCards []whatsNewCard
+)
+
+type whatsNewFile struct {
+	App   string         `json:"app"`
+	Cards []whatsNewCard `json:"cards"`
+}
+
+const (
+	whatsNewMaxCards  = 40
+	whatsNewMaxItems  = 8
+	whatsNewMaxPoints = 8
+	whatsNewMaxText   = 500
+)
+
+// parseWhatsNew decodes and sanitizes a catalog. Cards without a version
+// are dropped and sizes are capped, so a malformed file degrades to fewer
+// cards instead of an unreadable dialog.
+func parseWhatsNew(data []byte) ([]whatsNewCard, error) {
+	var f whatsNewFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, err
 	}
+	if f.App != "agent" {
+		return nil, fmt.Errorf("whatsnew is for app %q, expected %q", f.App, "agent")
+	}
+	clip := func(c whatsNewCopy) whatsNewCopy {
+		cut := func(s string) string {
+			if r := []rune(s); len(r) > whatsNewMaxText {
+				return string(r[:whatsNewMaxText])
+			}
+			return s
+		}
+		return whatsNewCopy{EN: cut(c.EN), ES: cut(c.ES), UK: cut(c.UK)}
+	}
+	var out []whatsNewCard
+	for _, c := range f.Cards {
+		c.Version = strings.TrimSpace(c.Version)
+		if c.Version == "" || len(out) >= whatsNewMaxCards {
+			continue
+		}
+		if len(c.Items) > whatsNewMaxItems {
+			c.Items = c.Items[:whatsNewMaxItems]
+		}
+		for i := range c.Items {
+			if len(c.Items[i].Points) > whatsNewMaxPoints {
+				c.Items[i].Points = c.Items[i].Points[:whatsNewMaxPoints]
+			}
+			for j := range c.Items[i].Points {
+				p := &c.Items[i].Points[j]
+				p.Title, p.Body = clip(p.Title), clip(p.Body)
+			}
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// setRemoteWhatsNew installs a signature-verified catalog fetched from the
+// release (or the cached copy of it). Call refresh of the footer pip on the
+// UI goroutine afterwards.
+func setRemoteWhatsNew(data []byte) error {
+	cards, err := parseWhatsNew(data)
+	if err != nil {
+		return err
+	}
+	whatsNewRemoteMu.Lock()
+	whatsNewRemoteCards = cards
+	whatsNewRemoteMu.Unlock()
+	return nil
+}
+
+// whatsNewVersionLess reports whether dotted version a is older than b.
+func whatsNewVersionLess(a, b string) bool {
+	pa, pb := strings.Split(strings.TrimPrefix(a, "v"), "."), strings.Split(strings.TrimPrefix(b, "v"), ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
+// whatsNewCatalog is the release-notes deck, newest first: the embedded
+// cards, with any downloaded card of the same version replacing its
+// embedded twin and newer downloaded cards added on top.
+func whatsNewCatalog() []whatsNewCard {
+	cards, err := parseWhatsNew(whatsNewEmbedded)
+	if err != nil {
+		cards = nil
+	}
+	whatsNewRemoteMu.Lock()
+	remote := whatsNewRemoteCards
+	whatsNewRemoteMu.Unlock()
+	for _, rc := range remote {
+		replaced := false
+		for i := range cards {
+			if cards[i].Version == rc.Version {
+				cards[i] = rc
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			cards = append(cards, rc)
+		}
+	}
+	sort.SliceStable(cards, func(i, j int) bool {
+		return whatsNewVersionLess(cards[j].Version, cards[i].Version)
+	})
+	return cards
 }

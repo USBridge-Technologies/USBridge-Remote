@@ -67,7 +67,7 @@ jobs:
           set -euo pipefail
           cd client/deploy/cloudflare-web
           mkdir -p public/vendor/ort
-          cp ../../web/index.html ../../web/gui.html ../../web/wasm_exec.js ../../web/ai_vision.js public/
+          cp ../../web/index.html ../../web/gui.html ../../web/join.html ../../web/wasm_exec.js ../../web/ai_vision.js public/
           # Every vendor/ort/* file except the two oversized wasm binaries
           # uploaded to R2 above -- the small *.mjs loaders and the plain
           # (non-jsep, non-asyncify) CPU-fallback wasm, all under the 25MiB

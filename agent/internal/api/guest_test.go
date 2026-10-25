@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -239,8 +240,9 @@ func TestGuestWTGrantSignsRoleForRustshine(t *testing.T) {
 		t.Fatal(err)
 	}
 	ts, _ := resp.Data["ts"].(string)
-	if resp.Data["role"] != "viewer" || resp.Data["cert_hash"] != "abc" ||
-		resp.Data["sig"] != CalculateHMAC("CONNECT", "/webtransport", ts, "viewer", []byte("owner-master-key")) {
+	share, _ := resp.Data["share"].(string)
+	if resp.Data["role"] != "viewer" || resp.Data["cert_hash"] != "abc" || share == "" ||
+		resp.Data["sig"] != CalculateHMAC("CONNECT", "/webtransport", ts, "viewer|"+share, []byte("owner-master-key")) {
 		t.Fatalf("grant content: %v", resp.Data)
 	}
 	// The role is signed in: the same signature is not an owner's (empty body) one.
@@ -250,3 +252,21 @@ func TestGuestWTGrantSignsRoleForRustshine(t *testing.T) {
 }
 
 func sh2(k *guestKit) *guestauth.Share { return k.share(guestauth.RoleViewer, false) }
+
+func TestKickGuestSignsTheShareForRustshine(t *testing.T) {
+	var gotBody, gotSig, gotTS string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody, gotSig, gotTS = string(b), r.Header.Get("X-Auth-Signature"), r.Header.Get("X-Auth-Timestamp")
+	}))
+	defer ts.Close()
+	old := webRTCKickURL
+	webRTCKickURL = ts.URL + "/webrtc/kick"
+	defer func() { webRTCKickURL = old }()
+
+	s := &Server{masterKey: []byte("owner-master-key")}
+	s.KickGuest("share-1")
+	if gotBody != "share-1" || gotSig != CalculateHMAC("POST", "/webrtc/kick", gotTS, "share-1", []byte("owner-master-key")) {
+		t.Fatalf("kick request: body=%q sig=%q", gotBody, gotSig)
+	}
+}

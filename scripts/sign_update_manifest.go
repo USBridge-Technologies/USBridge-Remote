@@ -18,6 +18,9 @@
 //	    -manifest-out out/manifest-client.json \
 //	    -sig-out out/manifest-client.json.sig
 //
+// Release notes use the same key: -sign-file out/whatsnew-client.json
+// -sig-out out/whatsnew-client.json.sig signs the file as it is.
+//
 // -dir is scanned for every file matching this app's asset naming
 // convention (USBridgeClient-* / USBridgeAgent-*); each match's exact
 // SHA-256 is recorded. iOS assets (*.ipa) are always excluded — iOS has no
@@ -64,7 +67,15 @@ func run() error {
 	manifestOut := flag.String("manifest-out", "", "path to write the JSON manifest to")
 	sigOut := flag.String("sig-out", "", "path to write the base64 Ed25519 signature to")
 	keyEnv := flag.String("key-env", "UPDATE_SIGNING_KEY", "environment variable holding the base64 Ed25519 private key seed")
+	signFile := flag.String("sign-file", "", "sign this file's exact bytes instead of building a manifest (release notes: whatsnew-<app>.json); needs only -sig-out")
 	flag.Parse()
+
+	if *signFile != "" {
+		if *sigOut == "" {
+			return fmt.Errorf("-sign-file needs -sig-out")
+		}
+		return signOnly(*signFile, *sigOut, *keyEnv)
+	}
 
 	if *app != "client" && *app != "agent" {
 		return fmt.Errorf(`-app must be "client" or "agent", got %q`, *app)
@@ -118,6 +129,28 @@ func run() error {
 	}
 	sort.Strings(keys)
 	fmt.Printf("signed %s manifest v%s: %v -> %s (+ %s)\n", *app, *version, keys, *manifestOut, *sigOut)
+	return nil
+}
+
+// signOnly writes the base64 Ed25519 signature of path's exact bytes. The
+// apps verify release notes against the same public key as the manifest.
+func signOnly(path, sigOut, keyEnv string) error {
+	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(os.Getenv(keyEnv)))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		return fmt.Errorf("%s does not decode to a %d-byte Ed25519 seed", keyEnv, ed25519.SeedSize)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !json.Valid(body) {
+		return fmt.Errorf("%s is not valid JSON", path)
+	}
+	sig := ed25519.Sign(ed25519.NewKeyFromSeed(seed), body)
+	if err := os.WriteFile(sigOut, []byte(base64.StdEncoding.EncodeToString(sig)+"\n"), 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("signed %s -> %s\n", path, sigOut)
 	return nil
 }
 

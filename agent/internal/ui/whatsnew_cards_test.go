@@ -55,17 +55,16 @@ func TestWhatsNewKindColors(t *testing.T) {
 
 func TestWhatsNewCatalogHasCards(t *testing.T) {
 	cards := whatsNewCatalog()
-	if len(cards) != 3 {
-		t.Fatalf("shipping the current appeal plus the previous two, got %d", len(cards))
+	if len(cards) < 3 {
+		t.Fatalf("expected the shipped release history, got %d cards", len(cards))
 	}
-	if cards[0].Version != "3.1.8" || cards[0].Date != "October 2026" {
+	if cards[0].Version != "3.1.41" || cards[0].Date != "October 2026" {
 		t.Fatalf("newest card: %s %q", cards[0].Version, cards[0].Date)
 	}
-	if cards[1].Version != "3.0.111" || cards[1].Date != "October 2026" {
-		t.Fatalf("previous card: %s %q", cards[1].Version, cards[1].Date)
-	}
-	if cards[2].Version != "3.0.45" || cards[2].Date != "September 2026" {
-		t.Fatalf("oldest card: %s %q", cards[2].Version, cards[2].Date)
+	for i := 1; i < len(cards); i++ {
+		if !whatsNewVersionLess(cards[i].Version, cards[i-1].Version) {
+			t.Fatalf("cards not newest first: %s before %s", cards[i-1].Version, cards[i].Version)
+		}
 	}
 	for i, card := range cards {
 		if card.Version == "" {

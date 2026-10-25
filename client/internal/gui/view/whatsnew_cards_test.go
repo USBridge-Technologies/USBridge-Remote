@@ -2,6 +2,7 @@ package view
 
 import (
 	"image/color"
+	"strings"
 	"testing"
 
 	"usbridge-client/internal/gui/i18n"
@@ -95,17 +96,22 @@ func TestWhatsNewKindHardwareAgent(t *testing.T) {
 
 func TestWhatsNewCatalogHasCards(t *testing.T) {
 	cards := whatsNewCatalog()
-	if len(cards) != 3 {
-		t.Fatalf("shipping the current appeal plus the previous two, got %d", len(cards))
+	if len(cards) < 3 {
+		t.Fatalf("expected the shipped release history, got %d cards", len(cards))
 	}
-	if cards[0].Version != "3.1.8" || cards[0].Date != "October 2026" {
+	if cards[0].Version != "3.1.41" || cards[0].Date != "October 2026" {
 		t.Fatalf("newest card: %s %q", cards[0].Version, cards[0].Date)
 	}
-	if cards[1].Version != "3.0.111" || cards[1].Date != "October 2026" {
-		t.Fatalf("previous card: %s %q", cards[1].Version, cards[1].Date)
+	for i := 1; i < len(cards); i++ {
+		if !whatsNewVersionLess(cards[i].Version, cards[i-1].Version) {
+			t.Fatalf("cards not newest first: %s before %s", cards[i-1].Version, cards[i].Version)
+		}
 	}
-	if cards[2].Version != "3.0.45" || cards[2].Date != "September 2026" {
-		t.Fatalf("oldest card: %s %q", cards[2].Version, cards[2].Date)
+	if c := whatsNewCardByVersion(t, cards, "3.0.111"); c.Date != "October 2026" {
+		t.Fatalf("3.0.111 date %q", c.Date)
+	}
+	if c := whatsNewCardByVersion(t, cards, "3.0.45"); c.Date != "September 2026" {
+		t.Fatalf("3.0.45 date %q", c.Date)
 	}
 	if whatsNewKindRank(whatsNewKindBeta) >= whatsNewKindRank(whatsNewKindPro) {
 		t.Fatal("beta should be first")
@@ -153,7 +159,7 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 	if !sawBeta || !sawPro || !sawFree || !sawHardware || !sawOther {
 		t.Fatalf("missing plaques: beta=%v pro=%v free=%v hardware=%v other=%v", sawBeta, sawPro, sawFree, sawHardware, sawOther)
 	}
-	newest := sortWhatsNewItems(cards[1].Items)
+	newest := sortWhatsNewItems(whatsNewCardByVersion(t, cards, "3.0.111").Items)
 	if newest[0].Kind != whatsNewKindFree || newest[0].Points[0].Glyph != whatsNewGlyphUSB {
 		t.Fatal("first row of 3.0.111 should be free USB passthrough")
 	}
@@ -178,7 +184,14 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 
 func TestWhatsNewCatalogFingerprintJoinsVersions(t *testing.T) {
 	fp := whatsNewCatalogFingerprint()
-	if fp != "3.1.8\n3.0.111\n3.0.45" {
+	want := ""
+	for i, c := range whatsNewCatalog() {
+		if i > 0 {
+			want += "\n"
+		}
+		want += c.Version
+	}
+	if fp != want || !strings.HasPrefix(fp, "3.1.41\n") || !strings.HasSuffix(fp, "\n3.0.111\n3.0.45") {
 		t.Fatalf("got %q", fp)
 	}
 }
@@ -249,5 +262,51 @@ func TestWhatsNewLinkLayoutMobilePutsButtonUnderText(t *testing.T) {
 	wantX := (rowW - btn.Size().Width) / 2
 	if btn.Position().X < wantX-1 || btn.Position().X > wantX+1 {
 		t.Fatalf("button x=%v want %v", btn.Position().X, wantX)
+	}
+}
+
+func whatsNewCardByVersion(t *testing.T, cards []whatsNewCard, v string) whatsNewCard {
+	t.Helper()
+	for _, c := range cards {
+		if c.Version == v {
+			return c
+		}
+	}
+	t.Fatalf("no card for %s", v)
+	return whatsNewCard{}
+}
+
+func TestParseWhatsNewRejectsOtherAppAndUnsafeLinks(t *testing.T) {
+	if _, err := parseWhatsNew([]byte(`{"app":"agent","cards":[]}`)); err == nil {
+		t.Fatal("a catalog for another app must be rejected")
+	}
+	cards, err := parseWhatsNew([]byte(`{"app":"client","cards":[
+		{"version":"","items":[]},
+		{"version":"9.9.9","items":[{"kind":"free","points":[{"glyph":"usb","title":{"en":"t"},"body":{"en":"b"},"link_url":"javascript:x","link_label":{"en":"go"}}]}]}]}`))
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("cards=%v err=%v", cards, err)
+	}
+	if cards[0].Items[0].Points[0].LinkURL != "" {
+		t.Fatal("non-https link must be dropped")
+	}
+}
+
+func TestRemoteWhatsNewMergesOverEmbedded(t *testing.T) {
+	t.Cleanup(func() { _ = SetRemoteWhatsNew([]byte(`{"app":"client","cards":[]}`)) })
+	err := SetRemoteWhatsNew([]byte(`{"app":"client","cards":[
+		{"version":"99.0.0","date":"Soon","items":[{"kind":"free","points":[{"glyph":"usb","title":{"en":"new"},"body":{"en":"b"}}]}]},
+		{"version":"3.1.8","date":"Fixed","items":[{"kind":"free","points":[{"glyph":"usb","title":{"en":"x"},"body":{"en":"b"}}]}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cards := whatsNewCatalog()
+	if cards[0].Version != "99.0.0" {
+		t.Fatalf("remote card should lead, got %s", cards[0].Version)
+	}
+	if whatsNewCardByVersion(t, cards, "3.1.8").Date != "Fixed" {
+		t.Fatal("remote card should replace its embedded twin")
+	}
+	if whatsNewCardByVersion(t, cards, "3.0.45").Version == "" {
+		t.Fatal("embedded history must stay")
 	}
 }

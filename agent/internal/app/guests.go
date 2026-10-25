@@ -50,6 +50,7 @@ func (a *App) initGuestAccess(apiServer *api.Server) {
 		func(shareID string) { a.guestSessionEnded(shareID) },
 	)
 	a.guests = mgr
+	a.guestKick = apiServer.KickGuest
 	apiServer.SetGuestManager(mgr)
 	relayOfferAuthorizer = apiServer.AuthorizeOffer
 }
@@ -98,7 +99,11 @@ func (a *App) guestConsent(s guestauth.Session) {
 
 // guestSessionEnded is called whenever a guest stops being allowed (kicked,
 // revoked, expired, denied).
-func (a *App) guestSessionEnded(shareID string) {}
+func (a *App) guestSessionEnded(shareID string) {
+	if a.guestKick != nil {
+		go a.guestKick(shareID)
+	}
+}
 
 // GuestPending lists guests waiting for the person at this machine to allow
 // them in (ui.TokenProvider; the window asks about each one).

@@ -11,6 +11,32 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// StartWhatsNewSync shows the cached release notes at once and refreshes
+// them from the selected channel's GitHub release in the background; the
+// embedded catalog covers a first offline launch. Call after the app is
+// up. Safe to call again, e.g. after the channel changed.
+func (mw *MainWindow) StartWhatsNewSync() {
+	apply := func(data []byte, source string) {
+		if data == nil {
+			return
+		}
+		if err := view.SetRemoteWhatsNew(data); err != nil {
+			logrus.WithField("component", "update").WithError(err).Warnf("ignoring %s release notes", source)
+			return
+		}
+		fyne.Do(view.RefreshWhatsNewFooter)
+	}
+	apply(update.CachedWhatsNew(), "cached")
+	go func() {
+		data, err := update.FetchWhatsNew(context.Background())
+		if err != nil {
+			logrus.WithField("component", "update").WithError(err).Debug("release notes not refreshed (offline or not published yet)")
+			return
+		}
+		apply(data, "downloaded")
+	}()
+}
+
 // InstallUpdatesBackend wires the footer version -> What's new -> Updates
 // dialog (Release/Test channel switch, check and install on demand) to
 // internal/update. Does nothing in builds with self-update compiled out,
@@ -31,6 +57,7 @@ func (mw *MainWindow) InstallUpdatesBackend(version string) {
 			} else {
 				update.SetChannel(update.ChannelStable)
 			}
+			mw.StartWhatsNewSync()
 		},
 		Check: func() (string, error) {
 			manifest, err := update.CheckNow(context.Background(), version)

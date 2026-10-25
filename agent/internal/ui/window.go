@@ -1883,6 +1883,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}
 		win.Close()
 	})
+	startWhatsNewSync()
 	if w.ownsEngine {
 		w.installUpdatesBackend(win)
 		go w.promptForUpdate(win)

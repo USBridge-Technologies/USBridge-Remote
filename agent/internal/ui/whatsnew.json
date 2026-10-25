@@ -1,0 +1,330 @@
+{
+  "app": "agent",
+  "cards": [
+    {
+      "version": "3.1.41",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Guest access",
+                "es": "Acceso de invitados",
+                "uk": "Гостьовий доступ"
+              },
+              "body": {
+                "en": "Share this computer by e-mail with a role and an end date.",
+                "es": "Comparte este equipo por correo con un rol y una fecha de fin.",
+                "uk": "Поділіться цим комп’ютером за e-mail із роллю та датою завершення."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.40",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Arch Linux and RPM packages",
+                "es": "Paquetes para Arch Linux y RPM",
+                "uk": "Пакети для Arch Linux і RPM"
+              },
+              "body": {
+                "en": "Updates come through pacman or dnf, with a clear polkit prompt that is remembered instead of a password per update.",
+                "es": "Las actualizaciones llegan por pacman o dnf, con un aviso polkit claro que se recuerda en vez de pedir contrasena en cada una.",
+                "uk": "Оновлення приходять через pacman або dnf, із зрозумілим запитом polkit, який запам’ятовується, а не пароль на кожне оновлення."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.30",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Host apps for every streamer",
+                "es": "Apps del host para cada streamer",
+                "uk": "Застосунки хоста для кожного стрімера"
+              },
+              "body": {
+                "en": "Add Desktop, Steam or any game once; clients pick what to start when they connect.",
+                "es": "Anade Escritorio, Steam o cualquier juego una vez; los clientes eligen que iniciar al conectar.",
+                "uk": "Додайте стільницю, Steam або будь-яку гру один раз; клієнти обирають, що запускати при підключенні."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.25",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Screen picker",
+                "es": "Selector de pantalla",
+                "uk": "Вибір екрана"
+              },
+              "body": {
+                "en": "Choose which screen the software agent streams.",
+                "es": "Elige que pantalla transmite el agente de software.",
+                "uk": "Оберіть, який екран транслює програмний агент."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.22",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "Firewall row on Linux",
+                "es": "Fila de firewall en Linux",
+                "uk": "Рядок брандмауера в Linux"
+              },
+              "body": {
+                "en": "Permissions opens the agent's and the streamer's ports in ufw or firewalld with one click.",
+                "es": "Permisos abre los puertos del agente y del streamer en ufw o firewalld con un clic.",
+                "uk": "У «Дозволах» порти агента й стрімера відкриваються в ufw або firewalld одним кліком."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.15",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "opensource",
+          "points": [
+            {
+              "glyph": "protocol",
+              "title": {
+                "en": "Punktfunk on Windows",
+                "es": "Punktfunk en Windows",
+                "uk": "Punktfunk на Windows"
+              },
+              "body": {
+                "en": "Punktfunk brings up its own virtual monitor, and “only the virtual monitor” works for every streamer.",
+                "es": "Punktfunk levanta su propio monitor virtual y «solo el monitor virtual» funciona con cada streamer.",
+                "uk": "Punktfunk піднімає власний віртуальний монітор, а «лише віртуальний монітор» працює для кожного стрімера."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.10",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Monitors come back",
+                "es": "Los monitores vuelven",
+                "uk": "Монітори повертаються"
+              },
+              "body": {
+                "en": "The virtual monitor is up for a session only, and your other monitors return as soon as the client disconnects.",
+                "es": "El monitor virtual existe solo durante la sesion y tus otros monitores vuelven al desconectar el cliente.",
+                "uk": "Віртуальний монітор існує лише під час сесії, а інші монітори повертаються одразу після відключення клієнта."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.1.8",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "The client's microphone and MIDI",
+                "es": "Microfono y MIDI del cliente",
+                "uk": "Мікрофон і MIDI клієнта"
+              },
+              "body": {
+                "en": "This PC gets the client's microphone and MIDI keyboard as its own USB devices.",
+                "es": "Este PC recibe el microfono y el teclado MIDI del cliente como dispositivos USB propios.",
+                "uk": "Цей ПК отримує мікрофон і MIDI-клавіатуру клієнта як власні USB-пристрої."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "opensource",
+          "points": [
+            {
+              "glyph": "protocol",
+              "title": {
+                "en": "Vibepollo",
+                "es": "Vibepollo",
+                "uk": "Vibepollo"
+              },
+              "body": {
+                "en": "A new streamer to pick, installed and updated from here, with one shared virtual monitor on Windows.",
+                "es": "Un streamer nuevo, instalado y actualizado desde aqui, con un monitor virtual compartido en Windows.",
+                "uk": "Новий стрімер на вибір, встановлюється й оновлюється звідси, зі спільним віртуальним монітором на Windows."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Easier install",
+                "es": "Instalacion mas facil",
+                "uk": "Простіше встановлення"
+              },
+              "body": {
+                "en": "One-click Windows setup with drivers and the service; on Linux, a .deb updated through APT.",
+                "es": "Instalador de Windows en un clic con drivers y servicio; en Linux, un .deb actualizado por APT.",
+                "uk": "Встановлення на Windows в один клік з драйверами й службою; на Linux — .deb з оновленнями через APT."
+              }
+            },
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "Wi-Fi tuned for streaming",
+                "es": "Wi-Fi ajustado para streaming",
+                "uk": "Wi-Fi, налаштований для стріму"
+              },
+              "body": {
+                "en": "A one-time tune in Permissions, and no background scans while a session runs.",
+                "es": "Un ajuste unico en Permisos y sin escaneos en segundo plano durante la sesion.",
+                "uk": "Одноразове налаштування в Дозволах і жодних фонових сканувань під час сесії."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.0.111",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "Free USB passthrough",
+                "es": "Passthrough USB gratis",
+                "uk": "Безкоштовний проброс USB"
+              },
+              "body": {
+                "en": "USB passthrough is now included in the free version, except graphics tablets.",
+                "es": "El passthrough USB ya esta en la version gratuita, salvo tabletas graficas.",
+                "uk": "Проброс USB тепер доступний у безкоштовній версії, крім графічних планшетів."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "opensource",
+          "points": [
+            {
+              "glyph": "protocol",
+              "title": {
+                "en": "Punktfunk",
+                "es": "Punktfunk",
+                "uk": "Punktfunk"
+              },
+              "body": {
+                "en": "A new open-source streaming protocol, next to Sunshine.",
+                "es": "Un protocolo de streaming open source nuevo, junto a Sunshine.",
+                "uk": "Новий протокол стрімінгу з відкритим кодом, поруч із Sunshine."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "3.0.45",
+      "date": "September 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Virtual Display",
+                "es": "Virtual Display",
+                "uk": "Virtual Display"
+              },
+              "body": {
+                "en": "Extra screens without extra hardware.",
+                "es": "Pantallas extra sin hardware extra.",
+                "uk": "Додаткові екрани без зайвого заліза."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "USBridge protocol auto-update",
+                "es": "Autoactualizacion del protocolo USBridge",
+                "uk": "Автооновлення протоколу USBridge"
+              },
+              "body": {
+                "en": "The streamer updates quietly in the background. Turn it off in General Settings to get a Yes/No prompt instead.",
+                "es": "El streamer se actualiza en segundo plano. Desactivalo en General Settings para ver un aviso de Si/No.",
+                "uk": "Стрімер оновлюється тихо у фоні. У General Settings можна вимкнути авто і отримувати запит Так/Ні."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
