@@ -1260,6 +1260,10 @@ jobs:
           mv usbridge.db.tar.gz usbridge.db
           gpg --batch --yes --local-user "$want" --detach-sign --no-armor -o usbridge.db.sig usbridge.db
           tar -xzOf usbridge.db | grep -A1 -E '^%(FILENAME|VERSION)%'
+          # Stable-name copies for /releases/latest/download/ links (the site,
+          # install.sh), made after repo-add so the database never lists them.
+          cp usbridge-agent-*.pkg.tar.zst USBridgeAgent-Linux-x86_64.pkg.tar.zst
+          cp usbridge-client-*.pkg.tar.zst USBridgeClient-Linux-x86_64.pkg.tar.zst
 
       - name: Sign the RPMs
         # In-package signatures dnf checks against the key both RPMs ship
@@ -1280,6 +1284,10 @@ jobs:
           # Ubuntu's rpm looks for /usr/bin/gpg2, which gnupg 2.x no longer ships.
           rpmsign --addsign --define "_gpg_name $want" --define "__gpg $(command -v gpg)" out/*.rpm
           rpm -qpi out/*.rpm | grep -E '^(Name|Version|Signature)'
+          # Stable-name copies for /releases/latest/download/ links (the site,
+          # install.sh); the dnf repository lists only the versioned files.
+          cp out/usbridge-agent-*.rpm out/USBridgeAgent-Linux-x86_64.rpm
+          cp out/usbridge-client-*.rpm out/USBridgeClient-Linux-x86_64.rpm
 
       - name: Derive release tag
         id: tag
@@ -1331,7 +1339,7 @@ jobs:
           sudo apt-get install -y -qq createrepo-c
           repo="$RUNNER_TEMP/rpm-repo"
           mkdir -p "$repo/pkgs"
-          cp out/*.rpm "$repo/pkgs/"
+          cp out/usbridge-*.rpm "$repo/pkgs/"
           createrepo_c --baseurl "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" \
             --outputdir "$repo" "$repo/pkgs"
           rm -rf "$repo/pkgs"

@@ -179,10 +179,11 @@ func collectPlatforms(dir, app string) (map[string]platformAsset, error) {
 		if strings.Contains(e.Name(), "-Setup") {
 			continue
 		}
-		// A .deb install updates through apt from the release's APT index
-		// (agent/scripts/build_deb.sh); Linux self-update uses the
-		// AppImage, which shares "linux-amd64" with it.
-		if strings.HasSuffix(e.Name(), ".deb") {
+		// A .deb, Arch or RPM install updates through its package manager
+		// from the release's repositories (agent/scripts/build_deb.sh,
+		// build_arch.sh, build_rpm.sh); Linux self-update uses the
+		// AppImage, which shares "linux-amd64" with them.
+		if strings.HasSuffix(e.Name(), ".deb") || strings.HasSuffix(e.Name(), ".rpm") || strings.HasSuffix(e.Name(), ".pkg.tar.zst") {
 			continue
 		}
 
