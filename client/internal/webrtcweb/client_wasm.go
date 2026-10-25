@@ -988,7 +988,23 @@ func (c *WebRTCClient) Send(data []byte) error {
 	if c.dc == nil {
 		return fmt.Errorf("webrtc: DataChannel not open")
 	}
-	c.dc.Call("send", string(data))
+	return c.dcSend(string(data))
+}
+
+// dcSend sends on the DataChannel and turns a JS exception into an error.
+// RTCDataChannel.send throws InvalidStateError unless readyState is "open",
+// and syscall/js panics on a thrown exception, which kills the whole wasm
+// program: input events arrive before the channel opens (or after it closes).
+func (c *WebRTCClient) dcSend(v interface{}) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("webrtc: DataChannel send: %v", r)
+		}
+	}()
+	if c.dc.Get("readyState").String() != "open" {
+		return fmt.Errorf("webrtc: DataChannel not open")
+	}
+	c.dc.Call("send", v)
 	return nil
 }
 
@@ -1002,8 +1018,7 @@ func (c *WebRTCClient) SendBinary(data []byte) error {
 	}
 	array := js.Global().Get("Uint8Array").New(len(data))
 	js.CopyBytesToJS(array, data)
-	c.dc.Call("send", array)
-	return nil
+	return c.dcSend(array)
 }
 
 // Close tears down the RTCPeerConnection.
