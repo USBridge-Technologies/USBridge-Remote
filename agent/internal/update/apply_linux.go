@@ -107,17 +107,19 @@ func relaunch(exePath string) error {
 // subsequent rename-into-place is a same-filesystem (atomic) operation
 // rather than risking a cross-device rename failure against the system
 // temp directory the download landed in.
-// debInstallDir is where the .deb (scripts/build_deb.sh) installs the
-// agent; root-owned, so the binary can't be swapped in place.
-const debInstallDir = "/usr/lib/usbridge-agent"
+// pkgInstallDir is where the .deb (scripts/build_deb.sh), the Arch package
+// (scripts/build_arch.sh) and the RPM (scripts/build_rpm.sh) install the agent; root-owned, so the
+// binary can't be swapped in place.
+const pkgInstallDir = "/usr/lib/usbridge-agent"
 
-func init() { packageManagedApply = aptApply }
+func init() { packageManagedApply = pkgApply }
 
-// aptApply updates a .deb install through apt: pkexec runs the package's
-// own apt-upgrade script (root-owned, refreshes only the USBridge source
-// list), then the upgraded binary is relaunched. apt verifies the package
-// against the signed APT index, so nothing is downloaded here.
-func aptApply(ctx context.Context, version string) (bool, error) {
+// pkgApply updates a .deb, Arch or RPM install through its package manager:
+// pkexec runs the package's own apt-upgrade, pacman-upgrade or dnf-upgrade
+// script (root-owned, refreshes only the USBridge repository), then the
+// upgraded binary is relaunched. The package manager verifies the package
+// against the signed repository index, so nothing is downloaded here.
+func pkgApply(ctx context.Context, version string) (bool, error) {
 	if os.Getenv("APPIMAGE") != "" {
 		return false, nil
 	}
@@ -128,22 +130,58 @@ func aptApply(ctx context.Context, version string) (bool, error) {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	if filepath.Dir(exe) != debInstallDir {
+	if filepath.Dir(exe) != pkgInstallDir {
 		return false, nil
 	}
 
-	out, err := exec.CommandContext(ctx, "pkexec", filepath.Join(debInstallDir, "apt-upgrade")).CombinedOutput()
-	if err != nil {
-		return true, fmt.Errorf("apt upgrade (pkexec): %w: %s", err, lastLines(out, 5))
+	tool := "apt"
+	for _, t := range []string{"pacman", "dnf"} {
+		if _, err := os.Stat(filepath.Join(pkgInstallDir, t+"-upgrade")); err == nil {
+			tool = t
+		}
 	}
-	installed, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Version}", "usbridge-agent").Output()
+	helper := filepath.Join(pkgInstallDir, tool+"-upgrade")
+	out, err := exec.CommandContext(ctx, "pkexec", helper).CombinedOutput()
+	if err != nil {
+		return true, fmt.Errorf("%s upgrade (pkexec): %w: %s", tool, err, lastLines(out, 5))
+	}
+	installed, err := installedVersion(ctx, tool)
 	if err != nil {
 		return true, fmt.Errorf("read installed version: %w", err)
 	}
-	if isNewerVersion(version, string(installed)) {
-		return true, fmt.Errorf("apt still has %s, not %s yet — try again in a few minutes", installed, version)
+	if isNewerVersion(version, installed) {
+		return true, fmt.Errorf("%s still has %s, not %s yet — try again in a few minutes", tool, installed, version)
 	}
 	return true, relaunch(exe)
+}
+
+// installedVersion returns the installed package's upstream version,
+// without the Arch pkgrel ("3.1.39" from pacman's "usbridge-agent 3.1.39-1").
+func installedVersion(ctx context.Context, tool string) (string, error) {
+	switch tool {
+	case "dnf":
+		out, err := exec.CommandContext(ctx, "rpm", "-q", "--qf", "%{VERSION}", "usbridge-agent").Output()
+		return string(out), err
+	case "pacman":
+		out, err := exec.CommandContext(ctx, "pacman", "-Q", "usbridge-agent").Output()
+		if err != nil {
+			return "", err
+		}
+		return parsePacmanVersion(string(out))
+	}
+	out, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Version}", "usbridge-agent").Output()
+	return string(out), err
+}
+
+// parsePacmanVersion turns pacman -Q's "<name> <pkgver>-<pkgrel>" into
+// pkgver.
+func parsePacmanVersion(out string) (string, error) {
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return "", fmt.Errorf("unexpected pacman -Q output %q", out)
+	}
+	v, _, _ := strings.Cut(fields[1], "-")
+	return v, nil
 }
 
 func lastLines(b []byte, n int) string {

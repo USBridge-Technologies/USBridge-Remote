@@ -332,4 +332,18 @@ if command -v dpkg-deb >/dev/null 2>&1; then
 else
     echo -e "${YELLOW}dpkg-deb not found: skipping the .deb${NC}"
 fi
+
+# And as an Arch Linux package, updated by pacman (see build_arch.sh).
+if command -v bsdtar >/dev/null 2>&1 && command -v zstd >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build_arch.sh"
+else
+    echo -e "${YELLOW}bsdtar or zstd not found: skipping the Arch package${NC}"
+fi
+
+# And as an RPM for Fedora/RHEL, updated by dnf (see build_rpm.sh).
+if command -v rpmbuild >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build_rpm.sh"
+else
+    echo -e "${YELLOW}rpmbuild not found: skipping the RPM${NC}"
+fi
 echo "Binary: $OUTPUT_PATH"
