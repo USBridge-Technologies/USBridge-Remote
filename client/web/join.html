@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>USBridge Guest Access</title>
 <style>
+body.appmode #steps{display:none}
   :root {
     --bg: #0e100d; --surface: #181b16; --border: #2b2f28; --text: #e8eadf; --muted: #9aa092;
     --accent: #c4e77a; --accent-text: #11140d; --danger: #e08a93;
@@ -102,7 +103,7 @@
     $("hint").textContent = i.email_hint;
     // The desktop app takes over (usbridge:// is registered by its installer, or by the app itself on first start).
     if (i.role !== "viewer") { $("openapp").href = "usbridge://join?share=" + encodeURIComponent(shareID); $("openapp").hidden = false;
-      if (new URLSearchParams(location.search).get("app") === "1") { status("Opening the USBridge app... if nothing happens, use the button or continue here in the browser."); location.href = $("openapp").href; } }
+      if (new URLSearchParams(location.search).get("app") === "1") { document.body.classList.add("appmode"); $("go").textContent = "Continue in the browser instead"; status("Opening the USBridge app... if nothing happens, use the button above, or continue in the browser below."); location.href = $("openapp").href; } }
     var until = i.share_exp ? "Access until " + new Date(i.share_exp * 1000).toLocaleString() + "." : "";
     var ask = i.require_consent ? " The person at the computer will be asked to allow each connection." : "";
     $("sub").textContent = ("You've been given access to this computer. " + until + ask).trim();
@@ -114,7 +115,7 @@
     go.run(r.instance);
     wasmReady = true;
     $("go").disabled = false;
-    $("go").textContent = token ? "Connect" : "Sign in and connect";
+    if (!document.body.classList.contains("appmode")) $("go").textContent = token ? "Connect" : "Sign in and connect";
   }).catch(function (e) {
     status("Could not load the viewer: " + e.message, true);
   });
