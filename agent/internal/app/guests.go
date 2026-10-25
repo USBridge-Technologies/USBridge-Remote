@@ -127,3 +127,8 @@ func (a *App) GuestDecide(shareID string, allow bool) error {
 	}
 	return nil
 }
+
+// hasLiveGuestShare reports whether anyone currently has guest access here.
+func (a *App) hasLiveGuestShare() bool {
+	return a.guests != nil && a.guests.Store.LiveCount(time.Now()) > 0
+}

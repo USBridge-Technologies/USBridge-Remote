@@ -26,6 +26,10 @@ import (
 // eagerly.
 const webrtcSignalRelayTierRecheckInterval = 10 * time.Minute
 
+// webrtcSignalRelayFreeGuestRecheck is how often a Free machine looks (locally)
+// for a guest that would need the relay.
+const webrtcSignalRelayFreeGuestRecheck = 15 * time.Second
+
 // webrtcSignalRelayReconnectBackoff bounds how quickly a dropped or refused
 // relay connection is retried -- long enough not to hammer the backend
 // during a persistent outage, short enough that a transient network blip
@@ -75,8 +79,12 @@ func (a *App) webrtcSignalRelayWatchdog(ctx context.Context) {
 			continue
 		}
 		claims, verifyErr := entitlement.VerifyForHardware(a.cfg.EntitlementToken, hwID)
-		if verifyErr != nil || (claims.Tier != "pro" && claims.Tier != "enterprise") {
-			if !sleepOrDone(ctx, webrtcSignalRelayTierRecheckInterval) {
+		paid := verifyErr == nil && (claims.Tier == "pro" || claims.Tier == "enterprise")
+		// A Free machine keeps the relay open for its one guest: the check is
+		// local, so it is cheap to repeat often (an invitation shouldn't wait
+		// ten minutes for the relay to come up).
+		if !paid && !a.hasLiveGuestShare() {
+			if !sleepOrDone(ctx, webrtcSignalRelayFreeGuestRecheck) {
 				return
 			}
 			continue
