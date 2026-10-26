@@ -38,8 +38,8 @@ import (
 	"usbridge_agent/internal/devicecert"
 	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/entitlement"
-	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/forkrelease"
+	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/input"
 	"usbridge_agent/internal/logcap"
@@ -380,6 +380,12 @@ func Start(opts StartOptions, version string) error {
 	// pair gated on the user's answer.
 	if opts.Headless {
 		update.CheckAndApply(context.Background(), version)
+		// A headless agent runs for weeks; keep looking for releases daily.
+		go update.Watch(context.Background(), version, false, func(m *update.Manifest) {
+			if err := update.DownloadAndApply(context.Background(), m, nil); err != nil {
+				log.Printf("[app] daily update failed: %v", err)
+			}
+		})
 	}
 
 	instance, err := New()

@@ -157,31 +157,30 @@ func main() {
 	mainWindow.StartWhatsNewSync()
 
 	mainWindow.SetOnReadyCallback(func() {
-		manifest := update.Check(context.Background(), version)
-		if manifest == nil {
-			return
-		}
-		mainWindow.ShowUpdateAvailableDialog(manifest.Version, version, func(confirmed bool) {
-			if !confirmed {
-				logrus.Info("update declined by user")
-				return
-			}
-			// A progress dialog while this downloads — a silent update
-			// that just sits there with no visible activity is
-			// indistinguishable from having frozen.
-			progress := mainWindow.ShowUpdateProgressDialog(manifest.Version)
-			go func() {
-				err := update.DownloadAndApply(context.Background(), manifest, progress.Update)
-				// A successful apply on desktop relaunches the app and
-				// never returns here at all — reaching this point means
-				// it didn't, so the dialog needs to be dismissed instead
-				// of sitting there looking stuck.
-				progress.Close()
-				if err != nil {
-					logrus.Errorf("failed to apply update: %v", err)
-					mainWindow.ShowUpdateFailedDialog(err)
+		// Re-checked every 24h as well, for sessions that are never restarted.
+		go update.Watch(context.Background(), version, true, func(manifest *update.Manifest) {
+			mainWindow.ShowUpdateAvailableDialog(manifest.Version, version, func(confirmed bool) {
+				if !confirmed {
+					logrus.Info("update declined by user")
+					return
 				}
-			}()
+				// A progress dialog while this downloads — a silent update
+				// that just sits there with no visible activity is
+				// indistinguishable from having frozen.
+				progress := mainWindow.ShowUpdateProgressDialog(manifest.Version)
+				go func() {
+					err := update.DownloadAndApply(context.Background(), manifest, progress.Update)
+					// A successful apply on desktop relaunches the app and
+					// never returns here at all — reaching this point means
+					// it didn't, so the dialog needs to be dismissed instead
+					// of sitting there looking stuck.
+					progress.Close()
+					if err != nil {
+						logrus.Errorf("failed to apply update: %v", err)
+						mainWindow.ShowUpdateFailedDialog(err)
+					}
+				}()
+			})
 		})
 	})
 

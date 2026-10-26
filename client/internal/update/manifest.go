@@ -41,6 +41,11 @@ import (
 // verification even happens.
 const manifestMaxBytes = 1 << 20 // 1 MiB
 
+// releaseListMaxBytes caps the GitHub releases listing, which carries every
+// asset of every release (~90 KB each) and so overflowed manifestMaxBytes,
+// truncating the JSON ("unexpected end of JSON input").
+const releaseListMaxBytes = 8 << 20
+
 // PlatformAsset is one platform's entry in the signed manifest.
 type PlatformAsset struct {
 	Asset  string `json:"asset"`
@@ -80,8 +85,8 @@ func assetURL(tag, name string) string {
 // first). Only picks which release to read; the manifest signature is
 // still what gates trust.
 func latestTestTag(ctx context.Context, client *http.Client) (string, error) {
-	api := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=30", repoOwner, repoName)
-	body, err := fetchBytes(ctx, client, api)
+	api := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=15", repoOwner, repoName)
+	body, err := fetchBytesMax(ctx, client, api, releaseListMaxBytes)
 	if err != nil {
 		return "", fmt.Errorf("list releases: %w", err)
 	}

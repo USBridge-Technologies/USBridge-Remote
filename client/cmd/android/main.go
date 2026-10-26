@@ -88,11 +88,7 @@ func main() {
 	update.RequestInstallPermission = platform.RequestInstallPermission
 	mainWindow.InstallUpdatesBackend(version)
 	mainWindow.StartWhatsNewSync()
-	go func() {
-		manifest := update.Check(context.Background(), version)
-		if manifest == nil {
-			return
-		}
+	go update.Watch(context.Background(), version, true, func(manifest *update.Manifest) {
 		mainWindow.ShowUpdateAvailableDialog(manifest.Version, version, func(confirmed bool) {
 			if !confirmed {
 				logrus.Info("update declined by user")
@@ -110,7 +106,7 @@ func main() {
 				}
 			}()
 		})
-	}()
+	})
 
 	// Set up the network-change callback
 	platform.SetOnNetworkChangedCallback(func() {

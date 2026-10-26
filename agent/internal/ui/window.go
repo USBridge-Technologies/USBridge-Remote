@@ -26,8 +26,8 @@ import (
 	"usbridge_agent/internal/autostart"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
-	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/entitlement"
+	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/kwinplanes"
 	"usbridge_agent/internal/netutil"
@@ -1955,11 +1955,12 @@ func (w *Window) ShowAndRun(onClose func()) {
 // --headless launch has no window to ask through and applies silently
 // instead (see app.Start).
 func (w *Window) promptForUpdate(parent fyne.Window) {
-	manifest := update.Check(context.Background(), appVersion)
-	if manifest == nil {
-		return
-	}
+	update.Watch(context.Background(), appVersion, true, func(manifest *update.Manifest) {
+		w.offerUpdate(parent, manifest)
+	})
+}
 
+func (w *Window) offerUpdate(parent fyne.Window, manifest *update.Manifest) {
 	fyne.Do(func() {
 		showUpdateAvailableDialog(parent, manifest.Version, appVersion, func(confirmed bool) {
 			if !confirmed {
