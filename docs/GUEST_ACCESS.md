@@ -42,11 +42,10 @@ Every route not listed in `routeCaps` (`web/guest.go`) is owner-only and answers
 |---|---|---|
 | Viewer | view, audio | device info and status, video info and devices, screen, WebTransport grant, Moonlight pairing, audio info, devices, **start and stop**, polling of script / PCPanel / benchmark **status** |
 | Operator | + input, clipboard | keyboard, mouse (also tablet and touchscreen), gamepad (REST and WebSocket), PCPanel buttons; `/api/device/start` for keyboard, mouse and gamepad |
-| Technician | + USB, disks, display, video settings | USB passthrough, `/api/device/start` and `stop` for USB network and sound, drives and MTP (a drive is an uploaded file name only), disk space, uploads and storage status, **backup snapshots** (versions, snapshot list, file), video device / FEC / source, script **list, read and log** |
+| Technician | + USB, disks, display, video settings | USB passthrough, `/api/device/start` and `stop` for USB network and sound, drives and MTP (a drive is an uploaded file name only), disk space, uploads and storage status, **backup snapshots** (versions, snapshot list, file), video device / FEC / source, Starlark script **list, read, log, write, run, stop and delete** (scripts only press keys, read the screen and insert or eject images: no shell, no network, paths limited to the scripts folders) |
 
 Never given to a guest, whatever the role:
 
-- Running, writing, stopping or deleting **scripts** (`/api/scripts/run|write|stop|delete`): that is code execution on the KVM itself, not on the target computer.
 - Benchmark control (`/api/bench/*` other than status).
 - Settings, power, Wi-Fi and network configuration, service control, key management, Tailscale registration, auth sync.
 - Deleting disk images (`/api/iso/delete`), sharing (`/api/guests*`: inviting, revoking, deciding on a request).
