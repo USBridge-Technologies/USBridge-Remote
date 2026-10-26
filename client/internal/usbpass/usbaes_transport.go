@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -82,26 +83,73 @@ func deriveTunnelKey(sessionKey [32]byte, busID string, nonce []byte) [32]byte {
 	return out
 }
 
-// aeadStream mirrors Rust's AeadStream: independent monotonic counters for
-// each direction, folded into both the GCM nonce and the AAD so a frame
-// replayed or reordered on the wire fails to decrypt.
+// v2 of the control-plane framing (rust-shine transport.rs, same constants).
+//
+// v1 used one static key per pairing and an IV made of a counter plus a
+// direction byte that both ends set to 'U' when sending, so frame N of the
+// client and frame N of the agent shared a key and a nonce (AES-GCM nonce
+// reuse), every connection started over at counter 1 under the same key, and a
+// recorded session could be replayed. v2 gives every direction of every
+// connection its own key, derived from the pairing key and a fresh random salt
+// from each side:
+//
+//	dialer -> acceptor: "UAE2" || salt_i (16 bytes)
+//	acceptor -> dialer: salt_r (16 bytes)
+//	key(label) = SHA256("usbridge-usb-aead-v2" || key || salt_i || salt_r || label)
+//	             label "i2r" for what the dialer sends, "r2i" for what the acceptor sends
+//
+// Frames are unchanged on the wire (length || IV || ciphertext+tag); the IV is
+// the little-endian counter, and the receiver uses the counter it expects, so a
+// replayed, dropped or reordered frame fails to open.
+const (
+	usbAesHandshakeMagic   = "UAE2"
+	usbAesSaltLen          = 16
+	usbAesAeadInfo         = "usbridge-usb-aead-v2"
+	usbAesDirInfo          = "usbridge-usb-aead-dir-v2"
+	usbAesDirI2R           = "i2r"
+	usbAesDirR2I           = "r2i"
+	usbAesHandshakeTimeout = 10 * time.Second
+)
+
+// ErrAgentTooOld is returned when the agent closes the connection during the
+// v2 handshake: an agent that predates v2 reads the magic as a frame length and
+// hangs up.
+var ErrAgentTooOld = errors.New("usb passthrough: the agent does not speak the v2 handshake; update the agent / KVM firmware")
+
+func deriveDirectionKey(key [32]byte, saltI, saltR []byte, label string) [32]byte {
+	h := sha256.New()
+	h.Write([]byte(usbAesAeadInfo))
+	h.Write(key[:])
+	h.Write(saltI)
+	h.Write(saltR)
+	h.Write([]byte(label))
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+// deriveTunnelDirectionKey splits a single-attach tunnel key by direction.
+func deriveTunnelDirectionKey(key [32]byte, label string) [32]byte {
+	h := sha256.New()
+	h.Write([]byte(usbAesDirInfo))
+	h.Write(key[:])
+	h.Write([]byte(label))
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+// aeadStream mirrors Rust's AeadStream: one key and one monotonic counter per
+// direction, the counter folded into both the GCM nonce and the AAD.
 type aeadStream struct {
-	gcm         cipher.AEAD
+	send        cipher.AEAD
+	recv        cipher.AEAD
 	sendCounter uint64
 	recvCounter uint64
 	conn        net.Conn
 }
 
-func newAeadStream(conn net.Conn, key [32]byte) (*aeadStream, error) {
-	return newAeadStreamWithCounters(conn, key, 0, 0)
-}
-
-// newAeadStreamWithCounters is newAeadStream plus explicit starting
-// counters, for a stream that continues an AEAD sequence whose first frame
-// was already consumed elsewhere (see the tunnel listener's key-probing
-// accept path in usbtunnel.go, which must decrypt frame #1 itself before it
-// even knows which registered key matched).
-func newAeadStreamWithCounters(conn net.Conn, key [32]byte, sendCounter, recvCounter uint64) (*aeadStream, error) {
+func tuneConn(conn net.Conn) {
 	if tc, ok := conn.(*net.TCPConn); ok {
 		_ = tc.SetNoDelay(true)
 		// A dead agent (crashed, network drop, machine asleep) otherwise
@@ -115,11 +163,77 @@ func newAeadStreamWithCounters(conn net.Conn, key [32]byte, sendCounter, recvCou
 			Count:    6,
 		})
 	}
-	gcm, err := newGCMCipher(key)
+}
+
+func newAeadStreamFromKeys(conn net.Conn, sendKey, recvKey [32]byte, sendCounter, recvCounter uint64) (*aeadStream, error) {
+	tuneConn(conn)
+	send, err := newGCMCipher(sendKey)
 	if err != nil {
 		return nil, err
 	}
-	return &aeadStream{gcm: gcm, sendCounter: sendCounter, recvCounter: recvCounter, conn: conn}, nil
+	recv, err := newGCMCipher(recvKey)
+	if err != nil {
+		return nil, err
+	}
+	return &aeadStream{send: send, recv: recv, sendCounter: sendCounter, recvCounter: recvCounter, conn: conn}, nil
+}
+
+// connectAeadStream is the dialing side of the control plane (rust-shine's
+// AeadStream::connect): the handshake above, then a stream keyed per direction.
+func connectAeadStream(conn net.Conn, key [32]byte) (*aeadStream, error) {
+	saltI := make([]byte, usbAesSaltLen)
+	if _, err := rand.Read(saltI); err != nil {
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Now().Add(usbAesHandshakeTimeout))
+	if _, err := conn.Write(append([]byte(usbAesHandshakeMagic), saltI...)); err != nil {
+		return nil, err
+	}
+	saltR := make([]byte, usbAesSaltLen)
+	if _, err := io.ReadFull(conn, saltR); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, ErrAgentTooOld
+		}
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return newAeadStreamFromKeys(conn,
+		deriveDirectionKey(key, saltI, saltR, usbAesDirI2R),
+		deriveDirectionKey(key, saltI, saltR, usbAesDirR2I), 0, 0)
+}
+
+// acceptAeadStream is the accepting side (rust-shine's AeadStream::accept).
+// Only tests and in-process peers use it: the real acceptor is the broker.
+func acceptAeadStream(conn net.Conn, key [32]byte) (*aeadStream, error) {
+	_ = conn.SetDeadline(time.Now().Add(usbAesHandshakeTimeout))
+	head := make([]byte, len(usbAesHandshakeMagic)+usbAesSaltLen)
+	if _, err := io.ReadFull(conn, head); err != nil {
+		return nil, err
+	}
+	if string(head[:4]) != usbAesHandshakeMagic {
+		return nil, errors.New("peer does not speak the v2 handshake")
+	}
+	saltI := head[4:]
+	saltR := make([]byte, usbAesSaltLen)
+	if _, err := rand.Read(saltR); err != nil {
+		return nil, err
+	}
+	if _, err := conn.Write(saltR); err != nil {
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return newAeadStreamFromKeys(conn,
+		deriveDirectionKey(key, saltI, saltR, usbAesDirR2I),
+		deriveDirectionKey(key, saltI, saltR, usbAesDirI2R), 0, 0)
+}
+
+// newTunnelAeadStream is a stream over a single-attach tunnel key, the two
+// directions keyed apart. The tunnel listener (this side) is the acceptor: it
+// sends "r2i" and receives "i2r"; the relay that dials it does the opposite.
+func newTunnelAeadStream(conn net.Conn, tunnelKey [32]byte, sendLabel, recvLabel string, sendCounter, recvCounter uint64) (*aeadStream, error) {
+	return newAeadStreamFromKeys(conn,
+		deriveTunnelDirectionKey(tunnelKey, sendLabel),
+		deriveTunnelDirectionKey(tunnelKey, recvLabel), sendCounter, recvCounter)
 }
 
 func newGCMCipher(key [32]byte) (cipher.AEAD, error) {
@@ -130,23 +244,19 @@ func newGCMCipher(key [32]byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-func frameIV(counter uint64, sending bool) [12]byte {
+// frameIV is the little-endian counter, zero padded.
+func frameIV(counter uint64) [12]byte {
 	var iv [12]byte
 	binary.LittleEndian.PutUint64(iv[0:8], counter)
-	if sending {
-		iv[11] = 'U'
-	} else {
-		iv[11] = 'u'
-	}
 	return iv
 }
 
 func (s *aeadStream) sendFrame(plaintext []byte) error {
 	s.sendCounter++
-	iv := frameIV(s.sendCounter, true)
+	iv := frameIV(s.sendCounter)
 	var aad [8]byte
 	binary.LittleEndian.PutUint64(aad[:], s.sendCounter)
-	ct := s.gcm.Seal(nil, iv[:], plaintext, aad[:])
+	ct := s.send.Seal(nil, iv[:], plaintext, aad[:])
 
 	packet := make([]byte, 0, len(iv)+len(ct))
 	packet = append(packet, iv[:]...)
@@ -180,8 +290,9 @@ func (s *aeadStream) recvFrame() ([]byte, error) {
 	s.recvCounter++
 	var aad [8]byte
 	binary.LittleEndian.PutUint64(aad[:], s.recvCounter)
-	nonce := packet[:12]
-	pt, err := s.gcm.Open(nil, nonce, packet[12:], aad[:])
+	// The nonce is the counter expected here, not the bytes on the wire.
+	iv := frameIV(s.recvCounter)
+	pt, err := s.recv.Open(nil, iv[:], packet[12:], aad[:])
 	if err != nil {
 		return nil, fmt.Errorf("aes decrypt: %w", err)
 	}

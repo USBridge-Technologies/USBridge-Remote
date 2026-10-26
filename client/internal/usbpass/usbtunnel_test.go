@@ -61,7 +61,8 @@ func TestTunnelListenerAuthenticatesAndRelays(t *testing.T) {
 	}
 	defer conn.Close()
 
-	agentSide, err := newAeadStream(conn, key)
+	// the relay (the broker's data-plane side) dials: it sends "i2r", receives "r2i"
+	agentSide, err := newTunnelAeadStream(conn, key, usbAesDirI2R, usbAesDirR2I, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestTunnelListenerDropsUnauthenticated(t *testing.T) {
 	// A well-formed frame under a key nobody registered — must not
 	// authenticate, and the connection must be closed rather than
 	// bridged to the real exporter.
-	stream, err := newAeadStream(conn, [32]byte{1, 2, 3})
+	stream, err := newTunnelAeadStream(conn, [32]byte{1, 2, 3}, usbAesDirI2R, usbAesDirR2I, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,5 +107,52 @@ func TestTunnelListenerDropsUnauthenticated(t *testing.T) {
 	buf := make([]byte, 1)
 	if n, err := conn.Read(buf); err != io.EOF && n != 0 {
 		t.Fatalf("expected connection to be dropped, got n=%d err=%v", n, err)
+	}
+}
+
+// The registered key opens the tunnel only once, and only for a frame sealed in
+// the relay's direction: the listener's own direction cannot be used to get in.
+func TestTunnelKeyIsSingleUseAndDirectional(t *testing.T) {
+	exportAddr := spawnFakeExporter(t)
+	key := deriveTunnelKey(deriveSessionKey([]byte("test-secret")), "1-77", []byte("nonce-b"))
+	registerTunnelKey("1-77", key)
+
+	tl, err := StartTunnelListener("127.0.0.1:0", exportAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tl.Stop()
+
+	// wrong direction (sealed "r2i", the listener's own sending key): refused
+	c1, err := net.Dial("tcp", tl.ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c1.Close()
+	wrongDir, _ := newTunnelAeadStream(c1, key, usbAesDirR2I, usbAesDirI2R, 0, 0)
+	wrongDir.sendFrame([]byte("reflected"))
+	c1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if n, err := c1.Read(make([]byte, 1)); err != io.EOF && n != 0 {
+		t.Fatalf("a frame sealed in the listener's own direction opened the tunnel (n=%d err=%v)", n, err)
+	}
+
+	// right direction: opens, once
+	c2, _ := net.Dial("tcp", tl.ln.Addr().String())
+	defer c2.Close()
+	s2, _ := newTunnelAeadStream(c2, key, usbAesDirI2R, usbAesDirR2I, 0, 0)
+	s2.sendFrame([]byte("hello"))
+	c2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if got, err := s2.recvFrame(); err != nil || string(got) != "hello" {
+		t.Fatalf("legitimate tunnel: %q %v", got, err)
+	}
+
+	// the same key again (a replay of the recorded first frame): consumed, refused
+	c3, _ := net.Dial("tcp", tl.ln.Addr().String())
+	defer c3.Close()
+	s3, _ := newTunnelAeadStream(c3, key, usbAesDirI2R, usbAesDirR2I, 0, 0)
+	s3.sendFrame([]byte("hello"))
+	c3.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if n, err := c3.Read(make([]byte, 1)); err != io.EOF && n != 0 {
+		t.Fatalf("a consumed tunnel key opened a second tunnel (n=%d err=%v)", n, err)
 	}
 }

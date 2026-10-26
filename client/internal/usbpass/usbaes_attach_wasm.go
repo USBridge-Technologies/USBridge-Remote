@@ -232,7 +232,7 @@ func attachBrowserDevice(
 	}
 
 	key := deriveSessionKey(opts.Secret)
-	stream, err := newAeadStream(conn, key)
+	stream, err := connectAeadStream(conn, key)
 	if err != nil {
 		conn.Close()
 		return nil, nil, fmt.Errorf("aes session: %w", err)

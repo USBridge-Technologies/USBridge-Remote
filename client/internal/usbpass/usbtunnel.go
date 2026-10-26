@@ -96,13 +96,15 @@ func probeDecryptFirstFrame(key [32]byte, packet []byte) ([]byte, error) {
 	if len(packet) < 12 {
 		return nil, fmt.Errorf("short frame")
 	}
-	gcm, err := newGCMCipher(key)
+	// What the relay sends is keyed "i2r"; the first frame is #1.
+	gcm, err := newGCMCipher(deriveTunnelDirectionKey(key, usbAesDirI2R))
 	if err != nil {
 		return nil, err
 	}
 	var aad [8]byte
 	binary.LittleEndian.PutUint64(aad[:], 1) // first frame's fixed recvCounter
-	return gcm.Open(nil, packet[:12], packet[12:], aad[:])
+	iv := frameIV(1)
+	return gcm.Open(nil, iv[:], packet[12:], aad[:])
 }
 
 // TunnelListener is the public/network-facing endpoint for the USB/IP
@@ -201,7 +203,7 @@ func handleTunnelConn(conn net.Conn, exportAddr string) {
 	// sendCounter starts fresh (nothing sent yet on this connection);
 	// recvCounter starts at 1 since the frame just probed above was the
 	// real frame #1 — the stream below picks up at #2.
-	stream, err := newAeadStreamWithCounters(conn, key, 0, 1)
+	stream, err := newTunnelAeadStream(conn, key, usbAesDirR2I, usbAesDirI2R, 0, 1)
 	if err != nil {
 		logrus.Warnf("usbpass: tunnel: aead setup for bus=%s: %v", busID, err)
 		return

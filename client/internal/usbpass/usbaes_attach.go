@@ -70,7 +70,7 @@ func Attach(opts AttachOptions) error {
 	if err != nil {
 		return fmt.Errorf("connect agent %s: %w", opts.AgentAddr, err)
 	}
-	stream, err := newAeadStream(conn, key)
+	stream, err := connectAeadStream(conn, key)
 	if err != nil {
 		conn.Close()
 		return fmt.Errorf("aes session: %w", err)
