@@ -29,6 +29,11 @@ The invitation page has an **Open in the USBridge app** button, which opens `usb
 - Streaming: the agent verifies a guest's WebRTC offer, then re-signs it with the master key and states the role in `X-Usbridge-Guest-Role`; rust-shine (`crates/webrtc-video/src/guest.rs`) only opens the data channels that role allows. WebTransport gets an agent-signed grant that carries the role.
 - Identity is the e-mail of a USBridge account, not a Tailscale login, so nobody has to touch the Tailscale admin console, create keys or own a Tailscale account.
 
+## Hardware KVM
+The same sharing works on the KVM (`../usbridge`, `guestauth/` and `web/guest.go`): the same invitation, roles, consent, tickets and signatures, with the KVM as the authority (`/etc/usbridge/guests/guests.json`). Routes are gated by role like the desktop agent's; a guest's `/api/device/start` needs the capability of every kind of device it names and is turned into a merge, and a disk must be a bare uploaded file name (never a path, URL or NBD server). Disk uploads (`/api/iso/upload`) are verified against the guest key and need the disks capability. WebRTC offers are re-signed for rust-shine with the role; Moonlight pairing is bound to the share and removed with it. A licensed KVM counts as Pro (the backend marks it when it issues the device license).
+
+Differences from the desktop agent: no separate guest-network node (the guest reaches the KVM on the owner's LAN or Tailscale address, or through the browser), no cloud signaling relay, and Sunshine on the KVM has no per-client permissions, so a Viewer is not paired with Moonlight (Viewer uses the browser; Operator and Technician get what Sunshine gives every client). Not run on a real board yet.
+
 ## Known limits
 - Revoking, expiring or disconnecting a guest ends the running stream at once (rust-shine `POST /webrtc/kick`, needs a streamer from rust-shine 0.3.184 or newer; older streamers keep an already-running stream until it ends).
 - In the browser the transport order is WebTransport first, WebRTC when it fails (a guest behind the relay or a NAT has no direct route for WebTransport, so it ends on WebRTC, which punches through with ICE); a transport picked in the header is not overridden. Direct WebTransport behind a NAT (UPnP / NAT-PMP port mapping on the agent) is not done.
