@@ -56,3 +56,8 @@ func readTransportPref() string {
 	}
 	return ""
 }
+
+// BrowserTransportPicked reports whether the user chose a transport in the
+// header. Without a pick WebTransport is only the first try: a connect that
+// fails falls back to WebRTC.
+func BrowserTransportPicked() bool { return readTransportPref() != "" }

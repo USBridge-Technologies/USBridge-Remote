@@ -280,10 +280,24 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 		}
 		c.wireStream(wt, gen)
 		if err := wt.Connect(sessionID); err != nil {
-			return fmt.Errorf("WebTransport: %w -- switch the header to WebRTC to use that instead", err)
+			if BrowserTransportPicked() {
+				return fmt.Errorf("WebTransport: %w -- switch the header to WebRTC to use that instead", err)
+			}
+			// No pick: WebTransport was only the first try (it needs a direct
+			// route to the computer, which a guest behind the relay or a NAT
+			// does not have); WebRTC punches through.
+			logrus.Warnf("[webrtc-video] WebTransport failed (%v), falling back to WebRTC", err)
+			// A new generation first: the failed attempt's state callbacks
+			// must not tell the UI the (not yet started) stream dropped.
+			c.mu.Lock()
+			c.gen++
+			gen = c.gen
+			c.mu.Unlock()
+			wt.Close()
+		} else {
+			logrus.Info("[webrtc-video] streaming over WebTransport + WebCodecs")
+			client, transport = wt, "webtransport"
 		}
-		logrus.Info("[webrtc-video] streaming over WebTransport + WebCodecs")
-		client, transport = wt, "webtransport"
 	}
 	if client == nil {
 		rtc := webrtcweb.NewWebRTCClient(baseURL, secret, hwID)

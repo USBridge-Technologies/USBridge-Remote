@@ -299,3 +299,76 @@ func (b *sunshineBackend) UnpairClient(adminPort int, uniqueID string) error {
 	}
 	return nil
 }
+
+// Moonlight client permissions of the Sunshine fork (crypto::PERM in its
+// crypto.h): the groups a paired client may use.
+const (
+	PermInputController uint32 = 1 << 8
+	PermInputTouch      uint32 = 1 << 9
+	PermInputPen        uint32 = 1 << 10
+	PermInputMouse      uint32 = 1 << 11
+	PermInputKbd        uint32 = 1 << 12
+	PermClipboardSet    uint32 = 1 << 16
+	PermClipboardRead   uint32 = 1 << 17
+	PermFileUpload      uint32 = 1 << 18
+	PermFileDownload    uint32 = 1 << 19
+	PermServerCmd       uint32 = 1 << 20
+	PermList            uint32 = 1 << 24
+	PermView            uint32 = 1 << 25
+	PermLaunch          uint32 = 1 << 26
+)
+
+// ClientPermissioner is implemented by a stream host that can limit what a
+// paired Moonlight client does (the Sunshine fork). Hosts without it trust a
+// paired client fully, so a guest role that must not have input cannot be given
+// a Moonlight client there.
+type ClientPermissioner interface {
+	// SetClientPermissions limits the client with this certificate fingerprint
+	// to perm (the Perm* bits).
+	SetClientPermissions(adminPort int, stateDir, fingerprint string, perm uint32) error
+}
+
+// SetClientPermissions sets the permission mask of a paired client through the
+// admin API (/api/clients/update). The client is found by the fingerprint of its
+// certificate in the host's own trust file.
+func (b *sunshineBackend) SetClientPermissions(adminPort int, stateDir, fingerprint string, perm uint32) error {
+	_, clients, _ := readSunshineTrusted(stateDir)
+	uuid, name := "", ""
+	for _, c := range clients {
+		if c.Fingerprint != fingerprint {
+			continue
+		}
+		uuid, name = c.HostUUID, c.Name
+		if uuid == "" {
+			uuid = c.UniqueID
+		}
+	}
+	if uuid == "" {
+		return fmt.Errorf("client %.8s is not in the host's trust list", fingerprint)
+	}
+	user, pass := b.AdminUser(), b.adminPass()
+	token, err := fetchCSRFToken(adminPort, user, pass)
+	if err != nil {
+		log.Printf("[sunshine] csrf-token fetch failed, submitting permissions without one: %v", err)
+	}
+	body, _ := json.Marshal(map[string]any{"uuid": uuid, "name": name, "perm": perm})
+	url := fmt.Sprintf("https://%s:%d/api/clients/update", adminHost(), adminPort)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("X-CSRF-Token", token)
+	}
+	req.SetBasicAuth(user, pass)
+	resp, err := sunshineAdminHTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("client update failed: %s: %s", resp.Status, readErrBody(resp))
+	}
+	return nil
+}

@@ -44,9 +44,9 @@ var routeCaps = map[string]guestauth.Cap{
 	"/api/audio/info":          guestauth.CapAudio,
 	"/api/audio/devices":       guestauth.CapAudio,
 
-	// Pairing hands out a Moonlight client certificate, which the stream host
-	// treats as full input: only roles that may use input get one.
-	"/api/guest/moonlight-pair": guestauth.CapInput,
+	// Pairing hands out a Moonlight client certificate; the agent limits it to
+	// the role (view only for a Viewer) on the stream host, or refuses.
+	"/api/guest/moonlight-pair": guestauth.CapView,
 
 	"/api/keyboard":        guestauth.CapInput,
 	"/api/keyboard/layout": guestauth.CapInput,
@@ -65,6 +65,7 @@ var routeCaps = map[string]guestauth.Cap{
 
 	"/api/drives/local":         guestauth.CapDisks,
 	"/api/iso/space":            guestauth.CapDisks,
+	"/api/iso/upload":           guestauth.CapDisks,
 	"/api/backup/get_snapshots": guestauth.CapDisks,
 
 	"/api/video/virtual_displays": guestauth.CapDisplay,
@@ -139,10 +140,12 @@ func (m *SecurityMiddleware) verifyGuest(w http.ResponseWriter, r *http.Request,
 		return true
 	}
 	need, ok := guestCap(r.URL.Path)
-	if ok && r.URL.Path == "/api/device/start" && p.Role.Has(guestauth.CapInput) && inputOnlyDevices(body) {
-		// Starting the keyboard / mouse / gamepad is what input needs; the
-		// USB capability is only for the other kinds (drives, audio, MTP).
-		need = guestauth.CapInput
+	if ok && r.URL.Path == "/api/device/start" {
+		// Each kind of device is gated by its own capability (input, disks, USB),
+		// so a role may start exactly the kinds it holds.
+		if c, parsed := deviceStartCaps(body); parsed {
+			need = c
+		}
 	}
 	if !ok || !p.Role.Has(need) {
 		writeGuestDenied(w, http.StatusForbidden, "not_permitted")
@@ -157,27 +160,35 @@ func (m *SecurityMiddleware) verifyGuest(w http.ResponseWriter, r *http.Request,
 	return true
 }
 
-// inputDeviceKinds are the device kinds a guest with the input capability may
-// start; everything else (drives, MTP, USB audio, ...) needs the USB capability.
-var inputDeviceKinds = map[string]bool{"keyboard": true, "mouse": true, "gamepad": true}
+// deviceKindCap is the capability a guest needs to start one kind of device:
+// keyboard / mouse / gamepad need input, drives and MTP need disks, everything
+// else (USB audio, ...) needs the USB capability.
+func deviceKindCap(kind string) guestauth.Cap {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "keyboard", "mouse", "gamepad":
+		return guestauth.CapInput
+	case "drive", "mtp":
+		return guestauth.CapDisks
+	}
+	return guestauth.CapUSB
+}
 
-// inputOnlyDevices reports whether a /api/device/start body asks only for
-// input devices.
-func inputOnlyDevices(body []byte) bool {
+// deviceStartCaps returns every capability a /api/device/start body needs;
+// ok is false for a body that is empty or not parseable (the caller then keeps
+// the route's own capability).
+func deviceStartCaps(body []byte) (need guestauth.Cap, ok bool) {
 	var batch struct {
 		Devices []struct {
 			Device string `json:"device"`
 		} `json:"devices"`
 	}
 	if err := json.Unmarshal(body, &batch); err != nil || len(batch.Devices) == 0 {
-		return false
+		return 0, false
 	}
 	for _, d := range batch.Devices {
-		if !inputDeviceKinds[strings.ToLower(strings.TrimSpace(d.Device))] {
-			return false
-		}
+		need |= deviceKindCap(d.Device)
 	}
-	return true
+	return need, true
 }
 
 // SetGuestManager enables guest access on the running server.

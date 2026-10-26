@@ -1721,7 +1721,18 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 		req.Header.Set("X-File-Size", strconv.FormatInt(fileSize, 10))
 	}
 	req.Header.Set("Expect", "100-continue")
-	if uploadSignature != "" {
+	if c.guestSigner != nil {
+		// A guest signs like every other request, with an empty body (the
+		// multipart body is never part of the signature); the server needs the
+		// disks capability for the route.
+		h, err := c.guestSigner(context.Background(), "POST", "/api/iso/upload", nil)
+		if err != nil {
+			return fmt.Errorf("guest sign-in: %w", err)
+		}
+		for k, v := range h {
+			req.Header.Set(k, v)
+		}
+	} else if uploadSignature != "" {
 		req.Header.Set("X-Auth-Signature", uploadSignature)
 		req.Header.Set("X-Auth-Timestamp", uploadTimestamp)
 	} else if c.apiKey != "" {

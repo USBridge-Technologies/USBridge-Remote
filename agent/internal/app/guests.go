@@ -72,6 +72,19 @@ func (a *App) PairGuestClient(shareID, fingerprint, pin string) error {
 	if a.guests == nil {
 		return errors.New("guest access is off")
 	}
+	sh := a.guests.Store.Get(shareID)
+	if sh == nil {
+		return errors.New("unknown share")
+	}
+	perm, limited := guestMoonlightPerm(sh.Role)
+	if a.guestPermissioner() == nil {
+		if sh.Role == guestauth.RoleViewer {
+			// This stream host trusts a paired client fully: it cannot be told to
+			// keep a Viewer from the keyboard, so none is paired.
+			return errors.New("this stream host cannot limit a guest's input; use the browser")
+		}
+		limited = false // Operator / Technician get what such a host gives every client
+	}
 	if err := a.guests.Store.AddFingerprint(shareID, fingerprint); err != nil {
 		return err
 	}
@@ -86,6 +99,14 @@ func (a *App) PairGuestClient(shareID, fingerprint, pin string) error {
 					if err := a.UnpairSunshineClient(fingerprint); err != nil {
 						log.Printf("[guest] unpair late certificate: %v", err)
 					}
+				} else if limited {
+					if err := a.limitGuestClient(fingerprint, perm); err != nil {
+						// Fail closed: a client that could not be limited is not kept.
+						log.Printf("[guest] limit moonlight client of share %s: %v", shareID, err)
+						if uerr := a.UnpairSunshineClient(fingerprint); uerr != nil {
+							log.Printf("[guest] unpair unlimited client: %v", uerr)
+						}
+					}
 				}
 				return
 			}
@@ -95,6 +116,50 @@ func (a *App) PairGuestClient(shareID, fingerprint, pin string) error {
 		a.guests.Store.RemoveFingerprint(shareID, fingerprint)
 	}()
 	return nil
+}
+
+// guestMoonlightPerm is the permission mask a role's Moonlight client gets
+// (streamhost.Perm*). limited is false for a role that needs nothing taken away.
+func guestMoonlightPerm(role guestauth.Role) (perm uint32, limited bool) {
+	const (
+		view  = streamhost.PermList | streamhost.PermView | streamhost.PermLaunch
+		input = streamhost.PermInputController | streamhost.PermInputTouch | streamhost.PermInputPen |
+			streamhost.PermInputMouse | streamhost.PermInputKbd
+		clip = streamhost.PermClipboardSet | streamhost.PermClipboardRead
+	)
+	switch role {
+	case guestauth.RoleViewer:
+		return view, true
+	case guestauth.RoleOperator:
+		return view | input | clip, true
+	case guestauth.RoleTechnician:
+		// Everything but running commands on the host.
+		return view | input | clip | streamhost.PermFileUpload | streamhost.PermFileDownload, true
+	}
+	return 0, true
+}
+
+func (a *App) guestPermissioner() streamhost.ClientPermissioner {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
+	if a.stream == nil {
+		return nil
+	}
+	p, _ := a.stream.(streamhost.ClientPermissioner)
+	return p
+}
+
+// limitGuestClient applies perm to the guest's paired Moonlight client.
+func (a *App) limitGuestClient(fingerprint string, perm uint32) error {
+	p := a.guestPermissioner()
+	if p == nil {
+		return errors.New("stream host cannot limit clients")
+	}
+	port := a.cfg.SunshinePort
+	if port == 0 {
+		port = 47990
+	}
+	return p.SetClientPermissions(port, a.cfg.StateDir, fingerprint, perm)
 }
 
 func (a *App) guestCertTrusted(fingerprint string) bool {

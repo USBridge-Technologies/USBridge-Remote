@@ -477,9 +477,9 @@ func (s *Server) deviceStart(w http.ResponseWriter, r *http.Request) {
 	}
 	devices = filterDevices(devices)
 	if PrincipalFrom(r) != nil {
-		// A guest (input capability only) must not replace the owner's drives and
-		// other devices: only the input entries change.
-		devices = s.mergeInputDevices(devices)
+		// A guest must not replace what its role does not manage (the owner's
+		// drives, other devices): only the kinds it holds a capability for change.
+		devices = s.mergeGuestDevices(devices, PrincipalFrom(r).Role)
 	}
 	log.Printf("[api] device_start count=%d", len(devices))
 	if err := s.app.ReplaceDevices(devices); err != nil {
@@ -490,13 +490,14 @@ func (s *Server) deviceStart(w http.ResponseWriter, r *http.Request) {
 	s.ok(w, "devices_started", map[string]any{"count": len(devices)})
 }
 
-// mergeInputDevices returns the devices already listed that are not input
-// devices, followed by the requested (input) ones. The listing keeps what each
-// entry was started with, so replacing the whole list with this loses nothing.
-func (s *Server) mergeInputDevices(requested []DeviceRequest) []DeviceRequest {
+// mergeGuestDevices returns the devices already listed whose kind the guest's
+// role may not manage, followed by the requested ones. The listing keeps what
+// each entry was started with, so replacing the whole list with this loses
+// nothing.
+func (s *Server) mergeGuestDevices(requested []DeviceRequest, role guestauth.Role) []DeviceRequest {
 	out := make([]DeviceRequest, 0, len(requested)+4)
 	for _, d := range s.app.DeviceInfo().Devices {
-		if inputDeviceKinds[strings.ToLower(d.Device)] {
+		if role.Has(deviceKindCap(d.Device)) {
 			continue
 		}
 		out = append(out, DeviceRequest{Device: d.Device, Type: d.Type, Server: d.Server, Port: d.Port,

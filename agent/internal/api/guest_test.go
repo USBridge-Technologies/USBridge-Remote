@@ -271,18 +271,22 @@ func TestKickGuestSignsTheShareForRustshine(t *testing.T) {
 	}
 }
 
-func TestGuestMayStartOnlyInputDevices(t *testing.T) {
-	for body, want := range map[string]bool{
-		`{"devices":[{"device":"keyboard"},{"device":"mouse","type":"absolute"}]}`: true,
-		`{"devices":[{"device":"gamepad"}]}`:                                       true,
-		`{"devices":[{"device":"keyboard"},{"device":"drive"}]}`:                   false,
-		`{"devices":[{"device":"mtp"}]}`:                                           false,
-		`{"devices":[]}`:                                                           false,
-		`not json`:                                                                 false,
-		``:                                                                         false,
+func TestGuestDeviceStartNeedsPerKindCaps(t *testing.T) {
+	in, disks, usb := guestauth.CapInput, guestauth.CapDisks, guestauth.CapUSB
+	for body, want := range map[string]guestauth.Cap{
+		`{"devices":[{"device":"keyboard"},{"device":"mouse","type":"absolute"}]}`: in,
+		`{"devices":[{"device":"gamepad"}]}`:                                       in,
+		`{"devices":[{"device":"keyboard"},{"device":"drive"}]}`:                   in | disks,
+		`{"devices":[{"device":"mtp"}]}`:                                           disks,
+		`{"devices":[{"device":"audio"}]}`:                                         usb,
 	} {
-		if got := inputOnlyDevices([]byte(body)); got != want {
-			t.Errorf("%q: got %v, want %v", body, got, want)
+		if got, ok := deviceStartCaps([]byte(body)); !ok || got != want {
+			t.Errorf("%q: got %v/%v, want %v", body, got, ok, want)
+		}
+	}
+	for _, body := range []string{`{"devices":[]}`, `not json`, ``} {
+		if _, ok := deviceStartCaps([]byte(body)); ok {
+			t.Errorf("%q: should not parse", body)
 		}
 	}
 
