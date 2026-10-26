@@ -270,3 +270,37 @@ func TestKickGuestSignsTheShareForRustshine(t *testing.T) {
 		t.Fatalf("kick request: body=%q sig=%q", gotBody, gotSig)
 	}
 }
+
+func TestGuestMayStartOnlyInputDevices(t *testing.T) {
+	for body, want := range map[string]bool{
+		`{"devices":[{"device":"keyboard"},{"device":"mouse","type":"absolute"}]}`: true,
+		`{"devices":[{"device":"gamepad"}]}`:                                       true,
+		`{"devices":[{"device":"keyboard"},{"device":"drive"}]}`:                   false,
+		`{"devices":[{"device":"mtp"}]}`:                                           false,
+		`{"devices":[]}`:                                                           false,
+		`not json`:                                                                 false,
+		``:                                                                         false,
+	} {
+		if got := inputOnlyDevices([]byte(body)); got != want {
+			t.Errorf("%q: got %v, want %v", body, got, want)
+		}
+	}
+
+	// Through the middleware: an Operator is refused a drive (USB capability),
+	// even mixed with a keyboard, before the handler runs.
+	k := newGuestKit(t)
+	sh := k.share(guestauth.RoleOperator, false)
+	k.mgr.Sessions.Hello(&guestauth.Principal{ShareID: sh.ID, Email: sh.Email, Role: sh.Role})
+	for _, body := range []string{`{"devices":[{"device":"drive"}]}`, `{"devices":[{"device":"keyboard"},{"device":"drive"}]}`} {
+		w := k.do(sh, "POST", "/api/device/start", body)
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "not_permitted") {
+			t.Errorf("%s: got %d %s, want 403 not_permitted", body, w.Code, w.Body.String())
+		}
+	}
+	// A Viewer has no input capability at all.
+	viewer := k.share(guestauth.RoleViewer, false)
+	k.mgr.Sessions.Hello(&guestauth.Principal{ShareID: viewer.ID, Email: viewer.Email, Role: viewer.Role})
+	if w := k.do(viewer, "POST", "/api/device/start", `{"devices":[{"device":"keyboard"}]}`); w.Code != http.StatusForbidden {
+		t.Errorf("viewer starting a keyboard: got %d", w.Code)
+	}
+}

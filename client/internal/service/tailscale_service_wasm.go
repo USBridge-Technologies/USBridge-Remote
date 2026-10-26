@@ -47,6 +47,11 @@ type TailscalePeer struct {
 
 func NewTailscaleService() *TailscaleService { return &TailscaleService{} }
 
+// NewGuestTailscaleService: a browser guest has no tsnet (see TailscaleService here).
+func NewGuestTailscaleService(controlURL, authKey, hostname string) *TailscaleService {
+	return &TailscaleService{}
+}
+
 var errTailscaleUnsupported = fmt.Errorf("tailscale is not available in the browser — install a Tailscale client on this OS and browse to the tailnet address directly")
 
 func (s *TailscaleService) Start(ctx context.Context) error { return errTailscaleUnsupported }

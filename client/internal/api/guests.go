@@ -54,6 +54,9 @@ var (
 	ErrGuestCloudDown   = errors.New("cannot reach the USBridge cloud to send the invitation")
 	ErrGuestRateLimit   = errors.New("too many invitations, try again later")
 	ErrGuestUnsupported = errors.New("this agent does not support guest access")
+	// ErrGuestNetwork: the shared computer could not bring up the network its
+	// guests join (the invitation was not created).
+	ErrGuestNetwork = errors.New("this computer could not set up the guest network")
 )
 
 func (c *USBClient) guestCall(method, endpoint string, body any, out any) error {
@@ -104,6 +107,25 @@ func (c *USBClient) InviteGuest(inv GuestInvite) (inviteURL string, mailSent boo
 	return out.InviteURL, out.MailSent, nil
 }
 
+// GuestHello starts (or continues) this guest's session on the agent and says
+// where it stands: "allowed", "pending" (the person at the computer has not
+// answered) or "denied". Every other guest call needs it to be "allowed".
+func (c *USBClient) GuestHello() (string, error) {
+	raw, err := c.PostRaw("/api/guest/hello", []byte("{}"))
+	if err != nil {
+		return "", err
+	}
+	var env struct {
+		Data struct {
+			State string `json:"state"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return "", err
+	}
+	return strings.ToLower(env.Data.State), nil
+}
+
 // RevokeGuest ends a share for good.
 func (c *USBClient) RevokeGuest(id string) error {
 	return c.guestCall("DELETE", "/api/guests/"+url.PathEscape(id), nil, nil)
@@ -122,15 +144,6 @@ func (c *USBClient) DecideGuest(id string, allow bool) error {
 // mapGuestError turns makeRequest's "HTTP error 402: {json}" into a typed
 // error: the agent answers its refusals with a non-200 status and the code in
 // the JSON body's message.
-// TailscaleRequiredError: the shared computer is not on Tailscale yet, which
-// guests need to reach it. The agent has started its sign-in; AuthURL is the
-// page to finish it on ("" if the node is signed in but has no address yet).
-type TailscaleRequiredError struct{ AuthURL string }
-
-func (e *TailscaleRequiredError) Error() string {
-	return "the computer is not connected to Tailscale yet"
-}
-
 func mapGuestError(err error) error {
 	msg := err.Error()
 	if strings.Contains(msg, "HTTP error 404") || strings.Contains(msg, "HTTP error 501") {
@@ -140,14 +153,8 @@ func mapGuestError(err error) error {
 		var env struct {
 			Message string `json:"message"`
 			Error   string `json:"error"`
-			Data    struct {
-				AuthURL string `json:"auth_url"`
-			} `json:"data"`
 		}
 		if json.Unmarshal([]byte(msg[i:]), &env) == nil {
-			if env.Error == "tailscale_required" {
-				return &TailscaleRequiredError{AuthURL: env.Data.AuthURL}
-			}
 			if code := env.Message; code != "" {
 				return guestCodeError(code, err)
 			} else if env.Error != "" {
@@ -168,6 +175,8 @@ func guestCodeError(code string, fallback error) error {
 		return ErrGuestRateLimit
 	case "guest_access_off":
 		return ErrGuestUnsupported
+	case "tailscale_key_required", "tailscale_key_invalid", "tailnet_unavailable":
+		return ErrGuestNetwork
 	}
 	return fallback
 }

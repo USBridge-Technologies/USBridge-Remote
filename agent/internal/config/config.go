@@ -31,11 +31,15 @@ type Config struct {
 	// listener without needing a config migration. A pointer is required so
 	// an explicit false (the user turned it off) round-trips instead of
 	// collapsing back to the default.
-	TLSEnabled         *bool  `yaml:"tls_enabled,omitempty"`
-	UsbPassthroughPort int    `yaml:"usb_passthrough_port"`
-	TailscaleEnabled   bool   `yaml:"tailscale_enabled"`
-	NBDMountCommand    string `yaml:"nbd_mount_command"`
-	StateDir           string `yaml:"state_dir"`
+	TLSEnabled         *bool `yaml:"tls_enabled,omitempty"`
+	UsbPassthroughPort int   `yaml:"usb_passthrough_port"`
+	TailscaleEnabled   bool  `yaml:"tailscale_enabled"`
+	// GuestOwnTailscale: guests reach this computer over the owner's own
+	// Tailscale (the guest's Tailscale must see this node, e.g. a node the
+	// owner shared by hand) instead of the USBridge-run guest network.
+	GuestOwnTailscale bool   `yaml:"guest_own_tailscale,omitempty"`
+	NBDMountCommand   string `yaml:"nbd_mount_command"`
+	StateDir          string `yaml:"state_dir"`
 	// Moonlight/Sunshine protocol
 	MasterKey    string `yaml:"master_key"`
 	SunshinePort int    `yaml:"sunshine_port"`

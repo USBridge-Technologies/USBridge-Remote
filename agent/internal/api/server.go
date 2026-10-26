@@ -476,6 +476,11 @@ func (s *Server) deviceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	devices = filterDevices(devices)
+	if PrincipalFrom(r) != nil {
+		// A guest (input capability only) must not replace the owner's drives and
+		// other devices: only the input entries change.
+		devices = s.mergeInputDevices(devices)
+	}
 	log.Printf("[api] device_start count=%d", len(devices))
 	if err := s.app.ReplaceDevices(devices); err != nil {
 		log.Printf("[api] device_start failed: %v", err)
@@ -483,6 +488,21 @@ func (s *Server) deviceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ok(w, "devices_started", map[string]any{"count": len(devices)})
+}
+
+// mergeInputDevices returns the devices already listed that are not input
+// devices, followed by the requested (input) ones. The listing keeps what each
+// entry was started with, so replacing the whole list with this loses nothing.
+func (s *Server) mergeInputDevices(requested []DeviceRequest) []DeviceRequest {
+	out := make([]DeviceRequest, 0, len(requested)+4)
+	for _, d := range s.app.DeviceInfo().Devices {
+		if inputDeviceKinds[strings.ToLower(d.Device)] {
+			continue
+		}
+		out = append(out, DeviceRequest{Device: d.Device, Type: d.Type, Server: d.Server, Port: d.Port,
+			VendorID: d.VendorID, ProductID: d.ProductID, ProductName: d.ProductName, Manufacturer: d.Manufacturer})
+	}
+	return append(out, requested...)
 }
 
 func (s *Server) deviceStop(w http.ResponseWriter, r *http.Request) {

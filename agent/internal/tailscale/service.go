@@ -2,6 +2,7 @@ package tailscale
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -64,6 +65,44 @@ type Service struct {
 	// directory" warning on every retry once it's already been reported
 	// once for this process's lifetime.
 	loggedFallbackDir bool
+
+	// A guest node differs from the owner's node in where it registers
+	// (controlURL, empty = Tailscale), what it is called and which state
+	// directory it keeps, so the two never share an identity.
+	controlURL string
+	authKey    string
+	hostname   string
+	subdir     string
+}
+
+// NewGuestNode is a second node of this machine on the USBridge-run Headscale
+// that guests join (see guest access): own state directory, own name, own
+// control server. The owner's personal Tailscale is a separate Service.
+func NewGuestNode(stateDir, controlURL, authKey, hostname string) *Service {
+	s := New(stateDir)
+	s.controlURL, s.authKey, s.hostname, s.subdir = controlURL, authKey, hostname, "tailscale-guest"
+	// One-use key, ephemeral node: nothing to resume, and an identity left by
+	// an earlier (possibly failed) start would only get in the way of the key.
+	_ = os.RemoveAll(filepath.Join(stateDir, s.subdir))
+	return s
+}
+
+// WhoIsPeer returns the name the node behind remoteAddr registered with and
+// the tags the control server gave it (tags come from the key it joined with,
+// not from the node).
+func (s *Service) WhoIsPeer(ctx context.Context, remoteAddr string) (hostname string, tags []string, err error) {
+	lc, err := s.localClient()
+	if err != nil {
+		return "", nil, err
+	}
+	who, err := lc.WhoIs(ctx, remoteAddr)
+	if err != nil {
+		return "", nil, err
+	}
+	if who.Node == nil || !who.Node.Hostinfo.Valid() {
+		return "", nil, errors.New("unknown peer")
+	}
+	return who.Node.Hostinfo.Hostname(), who.Node.Tags, nil
 }
 
 func New(stateDir string) *Service {
@@ -375,9 +414,11 @@ func (s *Service) Server() (*tsnet.Server, error) {
 	// Keeping the node persistent lets it resume the same identity/IP from
 	// the state stored in Dir across restarts without any user action.
 	s.server = &tsnet.Server{
-		Dir:      stateDir,
-		Hostname: "usbridge-agent",
-		UserLogf: s.handleUserLogf,
+		Dir:        stateDir,
+		Hostname:   s.nodeName(),
+		ControlURL: s.controlURL,
+		AuthKey:    s.authKey,
+		UserLogf:   s.handleUserLogf,
 		// Logf is required for tsnet's own internal diagnostics (notably
 		// netstack's forward-to-localhost path for unclaimed ports, e.g. the
 		// Sunshine streaming ports) — netstack.Create's logger is a no-op
@@ -451,17 +492,28 @@ func (s *Service) Server() (*tsnet.Server, error) {
 // instead costs only the previously persisted node identity (one more
 // interactive re-login) -- not data loss -- and self-heals the moment this
 // runs, no admin action required.
+func (s *Service) nodeName() string {
+	if s.hostname != "" {
+		return s.hostname
+	}
+	return "usbridge-agent"
+}
+
 func (s *Service) resolveWritableStateDir() string {
 	base := s.stateDir
 	if base == "" {
 		b, _ := os.UserConfigDir()
 		base = filepath.Join(b, "usbridge-agent")
 	}
-	primary := filepath.Join(base, "tailscale")
+	sub := s.subdir
+	if sub == "" {
+		sub = "tailscale"
+	}
+	primary := filepath.Join(base, sub)
 	if dirIsWritable(primary) {
 		return primary
 	}
-	fallback := filepath.Join(base, "tailscale2")
+	fallback := filepath.Join(base, sub+"2")
 	if dirIsWritable(fallback) {
 		if !s.loggedFallbackDir {
 			s.loggedFallbackDir = true

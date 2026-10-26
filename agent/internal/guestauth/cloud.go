@@ -119,13 +119,10 @@ type CreateResult struct {
 }
 
 // CreateShare asks the backend to record sh and e-mail the invite.
-func (c *Cloud) CreateShare(ctx context.Context, sh *Share, deviceName, host string) (*CreateResult, error) {
+func (c *Cloud) CreateShare(ctx context.Context, sh *Share, deviceName, network string) (*CreateResult, error) {
 	req := map[string]any{
 		"id": sh.ID, "guest_email": sh.Email, "role": sh.Role,
-		"require_consent": sh.RequireConsent, "device_name": deviceName,
-	}
-	if host != "" {
-		req["host"] = host
+		"require_consent": sh.RequireConsent, "device_name": deviceName, "network": network,
 	}
 	if sh.ExpiresAt != 0 {
 		req["share_exp"] = sh.ExpiresAt
@@ -134,6 +131,32 @@ func (c *Cloud) CreateShare(ctx context.Context, sh *Share, deviceName, host str
 	var out CreateResult
 	if _, err := c.do(ctx, http.MethodPost, "/v1/device/shares", body, &out); err != nil {
 		return nil, err
+	}
+	return &out, nil
+}
+
+// SetShareHost tells the backend where guests reach this machine for id.
+func (c *Cloud) SetShareHost(ctx context.Context, id, host string) error {
+	body, _ := json.Marshal(map[string]string{"host": host})
+	_, err := c.do(ctx, http.MethodPost, "/v1/device/shares/"+id+"/host", body, nil)
+	return err
+}
+
+// TailnetKey is what this machine's guest node joins the guest network with.
+type TailnetKey struct {
+	ControlURL string `json:"control_url"`
+	AuthKey    string `json:"auth_key"`
+	Hostname   string `json:"hostname"`
+}
+
+// TailnetKey asks for a one-use key for the guest node (needs a live share).
+func (c *Cloud) TailnetKey(ctx context.Context) (*TailnetKey, error) {
+	var out TailnetKey
+	if _, err := c.do(ctx, http.MethodPost, "/v1/device/tailnet-key", []byte("{}"), &out); err != nil {
+		return nil, err
+	}
+	if out.ControlURL == "" || out.AuthKey == "" {
+		return nil, fmt.Errorf("guestauth: backend sent no tailnet key")
 	}
 	return &out, nil
 }

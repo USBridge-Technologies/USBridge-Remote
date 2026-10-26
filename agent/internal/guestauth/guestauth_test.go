@@ -1,7 +1,6 @@
 package guestauth
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -275,16 +274,9 @@ func TestFailedUnpairIsRetried(t *testing.T) {
 
 var errTest = errors.New("boom")
 
-func TestInviteNeedsTailscale(t *testing.T) {
-	st, err := OpenStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := &Manager{Store: st, Paid: func() bool { return true }, Address: func() string { return "" }}
-	if _, _, err := m.Invite(context.Background(), "a@b.example", RoleViewer, 0, true); !errors.Is(err, ErrNeedTailscale) {
-		t.Fatalf("want ErrNeedTailscale, got %v", err)
-	}
-	if st.LiveCount(time.Now()) != 0 {
-		t.Fatal("a refused invitation must leave no share behind")
+func TestNodeNameMatchesTheBackend(t *testing.T) {
+	// headscale.test.ts checks the same input -> same output.
+	if got := NodeName("AbC_-123456789012345678XYZ"); got != "g-abc12345678901234567" {
+		t.Fatalf("got %q", got)
 	}
 }

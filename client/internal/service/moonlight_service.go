@@ -956,6 +956,11 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 	if len(m.apiSecret) == 0 && m.guest == nil {
 		return fmt.Errorf("no master key: PIN must be entered on the host")
 	}
+	if m.guest != nil {
+		// A guest's PIN goes through the client that signs with the guest's
+		// ticket (and dials over the guest network).
+		return m.submitGuestPin(m.guestAPI(), pin)
+	}
 	host := m.serverHost
 	if host == "" {
 		host = "127.0.0.1"
@@ -998,9 +1003,6 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 		usbClient = usbapi.NewUSBClientWithHTTPClient(host, port, 10, tsHTTPClient)
 	} else {
 		usbClient = usbapi.NewUSBClientWithScheme(scheme, host, port, 10, nil)
-	}
-	if m.guest != nil {
-		return m.submitGuestPin(usbClient, pin)
 	}
 	usbClient.SetAPISecretV2(m.apiSecret)
 	_, err := usbClient.PostRaw("/api/moonlight/pin", body)

@@ -47,6 +47,15 @@ var (
 	ErrRateLimited = errors.New("too many attempts, try again later")
 )
 
+// Tailnet is what a guest's app needs to join the guest network: the control
+// server, a one-use key and the name to register under (the agent only lets
+// nodes with a live share's name through).
+type Tailnet struct {
+	ControlURL string `json:"control_url"`
+	AuthKey    string `json:"auth_key"`
+	Hostname   string `json:"hostname"`
+}
+
 // Session is one guest's way into one agent.
 type Session struct {
 	ShareID    string
@@ -56,6 +65,12 @@ type Session struct {
 	// Host is the computer's address on the tailnet, as the agent reported it
 	// when the invitation was made ("" if it was not on a tailnet then).
 	Host string
+	// Network is "usbridge" (the guest network, join it with Tailnet) or
+	// "tailscale" (the guest's own Tailscale must see the computer).
+	Network string
+	// Tailnet is how this app joins the network the computer is on (nil when
+	// the cloud has none set up).
+	Tailnet *Tailnet
 	// RequireConsent: the person at the computer will be asked to allow the connection.
 	RequireConsent bool
 
@@ -147,13 +162,15 @@ func (s *Session) renew(ctx context.Context, first bool) error {
 		return fmt.Errorf("guest ticket: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	var out struct {
-		Ticket         string `json:"ticket"`
-		ExpiresIn      int    `json:"expires_in"`
-		HwID           string `json:"hw_id"`
-		DeviceName     string `json:"device_name"`
-		Role           string `json:"role"`
-		RequireConsent bool   `json:"require_consent"`
-		Host           string `json:"host"`
+		Ticket         string   `json:"ticket"`
+		ExpiresIn      int      `json:"expires_in"`
+		HwID           string   `json:"hw_id"`
+		DeviceName     string   `json:"device_name"`
+		Role           string   `json:"role"`
+		RequireConsent bool     `json:"require_consent"`
+		Host           string   `json:"host"`
+		Tailnet        *Tailnet `json:"tailnet"`
+		Network        string   `json:"network"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil || out.Ticket == "" {
 		return fmt.Errorf("guest ticket: bad answer")
@@ -161,7 +178,7 @@ func (s *Session) renew(ctx context.Context, first bool) error {
 	s.mu.Lock()
 	s.ticket, s.ticketExp = out.Ticket, time.Now().Add(time.Duration(out.ExpiresIn)*time.Second)
 	s.HwID, s.DeviceName, s.Role, s.RequireConsent = out.HwID, out.DeviceName, out.Role, out.RequireConsent
-	s.Host = out.Host
+	s.Host, s.Tailnet, s.Network = out.Host, out.Tailnet, out.Network
 	s.mu.Unlock()
 	return nil
 }

@@ -35,8 +35,7 @@ func (a *App) initGuestAccess(apiServer *api.Server) {
 			h, _ := os.Hostname()
 			return strings.TrimSpace(h)
 		},
-		Paid:    a.paidTier,
-		Address: a.tailnetAddress,
+		Paid: a.paidTier,
 	}
 	if cloud, err := guestauth.OpenCloud(a.cfg.StateDir, entitlement.BackendBaseURL, hwID); err != nil {
 		log.Printf("[app] guest access: no cloud (invitations unavailable): %v", err)
@@ -51,6 +50,13 @@ func (a *App) initGuestAccess(apiServer *api.Server) {
 		},
 		func(shareID string) { a.guestSessionEnded(shareID) },
 	)
+	mgr.OwnTailscale = func() bool { return a.cfg.GuestOwnTailscale }
+	mgr.Tailnet = func(ctx context.Context) (string, error) {
+		if a.cfg.GuestOwnTailscale {
+			return a.ownTailnetAddress(ctx)
+		}
+		return a.ensureGuestNode(ctx)
+	}
 	mgr.Unpair = func(fp string) error { return a.UnpairSunshineClient(fp) }
 	a.guests = mgr
 	a.guestKick = apiServer.KickGuest
@@ -127,6 +133,7 @@ func (a *App) guestsWatchdog(ctx context.Context) {
 			return
 		case <-sweep.C:
 			a.guests.Sweep()
+			a.syncGuestNode(ctx)
 		case <-flush.C:
 			fctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			a.guests.FlushAudit(fctx)
@@ -179,17 +186,15 @@ func (a *App) hasLiveGuestShare() bool {
 	return a.guests != nil && a.guests.Store.LiveCount(time.Now()) > 0
 }
 
-// tailnetAddress is this machine's address on the tailnet (the agent's own
-// Tailscale node), which is what an invited guest connects to.
-func (a *App) tailnetAddress() string {
+// ownTailnetAddress is this machine's address on the owner's own Tailscale,
+// for shares that run on it (Config.GuestOwnTailscale).
+func (a *App) ownTailnetAddress(ctx context.Context) (string, error) {
 	if a.ts == nil {
-		return ""
+		return "", errors.New("Tailscale is not available")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
 	st, err := a.ts.Status(ctx)
-	if err != nil || st == nil || !st.Running {
-		return ""
+	if err != nil || st == nil || !st.Running || st.Self.IP4 == "" {
+		return "", errors.New("this computer is not connected to Tailscale: sign in to Tailscale first")
 	}
-	return st.Self.IP4
+	return st.Self.IP4, nil
 }

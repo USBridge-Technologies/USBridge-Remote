@@ -139,6 +139,11 @@ func (m *SecurityMiddleware) verifyGuest(w http.ResponseWriter, r *http.Request,
 		return true
 	}
 	need, ok := guestCap(r.URL.Path)
+	if ok && r.URL.Path == "/api/device/start" && p.Role.Has(guestauth.CapInput) && inputOnlyDevices(body) {
+		// Starting the keyboard / mouse / gamepad is what input needs; the
+		// USB capability is only for the other kinds (drives, audio, MTP).
+		need = guestauth.CapInput
+	}
 	if !ok || !p.Role.Has(need) {
 		writeGuestDenied(w, http.StatusForbidden, "not_permitted")
 		return false
@@ -149,6 +154,29 @@ func (m *SecurityMiddleware) verifyGuest(w http.ResponseWriter, r *http.Request,
 	}
 	g.Store.Touch(p.ShareID, time.Now())
 	*r = *r.WithContext(context.WithValue(r.Context(), principalKey{}, p))
+	return true
+}
+
+// inputDeviceKinds are the device kinds a guest with the input capability may
+// start; everything else (drives, MTP, USB audio, ...) needs the USB capability.
+var inputDeviceKinds = map[string]bool{"keyboard": true, "mouse": true, "gamepad": true}
+
+// inputOnlyDevices reports whether a /api/device/start body asks only for
+// input devices.
+func inputOnlyDevices(body []byte) bool {
+	var batch struct {
+		Devices []struct {
+			Device string `json:"device"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(body, &batch); err != nil || len(batch.Devices) == 0 {
+		return false
+	}
+	for _, d := range batch.Devices {
+		if !inputDeviceKinds[strings.ToLower(strings.TrimSpace(d.Device))] {
+			return false
+		}
+	}
 	return true
 }
 
@@ -244,14 +272,8 @@ func (s *Server) guestsInvite(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		s.ok(w, "guest_invited", map[string]any{"guest": sh, "invite_url": res.InviteURL, "mail_sent": res.MailSent})
-	case errors.Is(err, guestauth.ErrNeedTailscale):
-		// Start the Tailscale sign-in now and hand its link to the owner's
-		// client, which opens it and asks again once the node is up.
-		authURL := ""
-		if st, rerr := s.app.RegisterTailscale(r.Context(), "", ""); rerr == nil && st != nil {
-			authURL = st.AuthURL
-		}
-		s.respond(w, http.StatusConflict, APIResponse{Error: "tailscale_required", Details: err.Error(), Data: map[string]string{"auth_url": authURL}})
+	case errors.Is(err, guestauth.ErrTailnetUnavailable):
+		s.fail(w, http.StatusBadGateway, "tailnet_unavailable", err)
 	case errors.Is(err, guestauth.ErrFreeLimit):
 		s.fail(w, http.StatusPaymentRequired, "free_limit", err)
 	case errors.Is(err, guestauth.ErrBadShare):

@@ -75,6 +75,43 @@ type StreamProxy struct {
 	mu        sync.Mutex
 	listeners []io.Closer
 	seenUDP   map[int]bool
+
+	// admit, when set, decides per remote peer whether anything may be
+	// relayed (guest node: only nodes of a live share). Verdicts are cached
+	// briefly per IP so UDP does not ask for every packet.
+	admit    func(remote net.Addr) bool
+	verdicts sync.Map // IP string -> verdict
+}
+
+type verdict struct {
+	ok    bool
+	until time.Time
+}
+
+// SetAdmit installs the peer check; call before traffic is expected.
+func (p *StreamProxy) SetAdmit(fn func(remote net.Addr) bool) { p.admit = fn }
+
+// allowed reports whether remote may use this proxy.
+func (p *StreamProxy) allowed(remote net.Addr) bool {
+	if p.admit == nil {
+		return true
+	}
+	host, _, err := net.SplitHostPort(remote.String())
+	if err != nil {
+		host = remote.String()
+	}
+	if v, ok := p.verdicts.Load(host); ok {
+		if vv := v.(verdict); time.Now().Before(vv.until) {
+			return vv.ok
+		}
+	}
+	ok := p.admit(remote)
+	ttl := 5 * time.Second
+	if !ok {
+		ttl = 2 * time.Second
+	}
+	p.verdicts.Store(host, verdict{ok: ok, until: time.Now().Add(ttl)})
+	return ok
 }
 
 // Stop tears down every listener and relay goroutine this proxy started.
@@ -209,6 +246,10 @@ func (p *StreamProxy) startTCPRelay(port int, snoopRTSP bool, recordPeer bool) {
 
 func (p *StreamProxy) handleTCP(remote net.Conn, port int, snoopRTSP bool, recordPeer bool) {
 	defer remote.Close()
+
+	if !p.allowed(remote.RemoteAddr()) {
+		return
+	}
 
 	if recordPeer && p.usbBridge != nil {
 		p.usbBridge.RememberPeer(remote.RemoteAddr())
@@ -393,7 +434,7 @@ func (p *StreamProxy) startUDPRelay(port int) {
 				}
 				return
 			}
-			if n > 0 {
+			if n > 0 && p.allowed(addr) {
 				remoteAddr.Store(&addr)
 				local.WriteToUDP(buf[:n], backendAddr) //nolint:errcheck
 			}

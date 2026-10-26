@@ -19,9 +19,13 @@ type Manager struct {
 
 	// DeviceName is how this machine is called in the invite e-mail.
 	DeviceName func() string
-	// Address is where a guest reaches this machine: its tailnet address, or
-	// "" when it is not on one. Sent to the backend with the invitation.
-	Address func() string
+	// Tailnet brings up this machine's guest node (on the USBridge-run
+	// Headscale) if it is not up yet and returns the address guests reach it
+	// at. nil = no guest network (tests).
+	Tailnet func(ctx context.Context) (string, error)
+	// OwnTailscale says guests use the owner's own Tailscale instead (the
+	// Tailnet hook then returns that address and no guest node is started).
+	OwnTailscale func() bool
 	// Unpair removes a guest's Moonlight client certificate from the stream
 	// host's trust list (and so ends what it could still stream).
 	Unpair func(fingerprint string) error
@@ -41,9 +45,33 @@ const FreeMaxShares = 1
 // ErrCloudUnavailable: an invitation needs the cloud (it sends the e-mail).
 var ErrCloudUnavailable = errors.New("guestauth: cannot reach the USBridge cloud")
 
-// ErrNeedTailscale: a guest reaches this machine over the tailnet, so an
-// invitation can only be made once the machine is on one.
-var ErrNeedTailscale = errors.New("guestauth: this computer is not connected to Tailscale")
+// Networks a share can run on; the backend hands out guest-network keys only
+// for NetworkUSBridge, and the guest's app uses its own Tailscale otherwise.
+const (
+	NetworkUSBridge  = "usbridge"
+	NetworkTailscale = "tailscale"
+)
+
+// ErrTailnetUnavailable: a guest reaches this machine over the guest network,
+// which could not be brought up (no cloud, no key, node did not come online).
+var ErrTailnetUnavailable = errors.New("guestauth: cannot bring up the guest network")
+
+// NodeName is the name a guest's app registers on the guest network for a
+// share; the agent lets only nodes with a live share's name through. Matches
+// guestNodeName in the backend (headscale.ts).
+func NodeName(shareID string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(shareID) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	n := b.String()
+	if len(n) > 20 {
+		n = n[:20]
+	}
+	return "g-" + n
+}
 
 // Invite creates a share and has the cloud e-mail it. The local record is
 // removed again if the cloud refuses, so nothing is left half-created.
@@ -51,12 +79,6 @@ func (m *Manager) Invite(ctx context.Context, email string, role Role, expiresAt
 	now := time.Now()
 	if (m.Paid == nil || !m.Paid()) && m.Store.LiveCount(now) >= FreeMaxShares {
 		return nil, nil, ErrFreeLimit
-	}
-	host := ""
-	if m.Address != nil {
-		if host = m.Address(); host == "" {
-			return nil, nil, ErrNeedTailscale
-		}
 	}
 	sh, err := m.Store.Add(email, role, expiresAt, requireConsent, now)
 	if err != nil {
@@ -77,10 +99,27 @@ func (m *Manager) Invite(ctx context.Context, email string, role Role, expiresAt
 	if m.DeviceName != nil {
 		name = m.DeviceName()
 	}
-	res, err := m.Cloud.CreateShare(ctx, sh, name, host)
+	network := NetworkUSBridge
+	if m.OwnTailscale != nil && m.OwnTailscale() {
+		network = NetworkTailscale
+	}
+	res, err := m.Cloud.CreateShare(ctx, sh, name, network)
 	if err != nil {
 		m.Store.Remove(sh.ID)
 		return nil, nil, wrapCloud(err)
+	}
+	// The guest network needs a live share to get its key, so it comes up now
+	// and its address is added to the invitation (the guest only gets it when
+	// they sign in). If it cannot, the invitation is taken back.
+	if m.Tailnet != nil {
+		addr, terr := m.Tailnet(ctx)
+		if terr == nil {
+			terr = m.Cloud.SetShareHost(ctx, sh.ID, addr)
+		}
+		if terr != nil {
+			_ = m.Revoke(ctx, sh.ID)
+			return nil, nil, errors.Join(ErrTailnetUnavailable, terr)
+		}
 	}
 	m.Audit(AuditEvent{ShareID: sh.ID, Event: "created", TS: now.Unix(), Detail: sh.Email + " " + string(sh.Role)})
 	return sh, res, nil

@@ -10,6 +10,7 @@ import (
 
 	"usbridge-client/internal/guestclient"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
@@ -46,6 +47,7 @@ type guestSessionSetter interface {
 // key, and Moonlight pairing is bound to the share.
 func (mw *MainWindow) setGuestSession(s *guestclient.Session) {
 	mw.guestSession = s
+	mw.useGuestNetwork(s)
 	if s != nil {
 		// A guest never carries a master key: drop whatever an earlier owner
 		// connection left, so it cannot be sent to this (other) computer.
@@ -56,6 +58,48 @@ func (mw *MainWindow) setGuestSession(s *guestclient.Session) {
 	}
 	if g, ok := mw.videoClient.(guestSessionSetter); ok {
 		g.SetGuestSession(s)
+	}
+}
+
+// useGuestNetwork points everything that dials the computer (API, Moonlight,
+// disk widget) at the guest's own node on the guest network while a guest
+// session is active, and back at the user's own Tailscale afterwards. The
+// user's personal Tailscale login is never touched.
+func (mw *MainWindow) useGuestNetwork(s *guestclient.Session) {
+	if s != nil && s.Tailnet != nil {
+		if mw.ownerTailscale == nil {
+			mw.ownerTailscale = mw.tailscaleService
+		}
+		if mw.guestTailscale != nil {
+			_ = mw.guestTailscale.Stop()
+		}
+		mw.guestTailscale = service.NewGuestTailscaleService(s.Tailnet.ControlURL, s.Tailnet.AuthKey, s.Tailnet.Hostname)
+		mw.injectTailscale(mw.guestTailscale)
+		return
+	}
+	if mw.guestTailscale != nil {
+		old := mw.guestTailscale
+		mw.guestTailscale = nil
+		go func() { _ = old.Stop() }()
+	}
+	if mw.ownerTailscale != nil {
+		mw.injectTailscale(mw.ownerTailscale)
+		mw.ownerTailscale = nil
+	}
+}
+
+func (mw *MainWindow) injectTailscale(ts *service.TailscaleService) {
+	mw.tailscaleService = ts
+	if setter, ok := mw.videoClient.(interface {
+		SetTailscaleService(*service.TailscaleService)
+	}); ok {
+		setter.SetTailscaleService(ts)
+	}
+	if mw.diskWidget != nil {
+		mw.diskWidget.SetTailscaleService(ts)
+	}
+	if mw.videoWidget != nil {
+		mw.videoWidget.SetTailscaleService(ts)
 	}
 }
 

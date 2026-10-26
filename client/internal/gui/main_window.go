@@ -137,6 +137,10 @@ type MainWindow struct {
 	// guestSession is set while connecting to a computer as its guest (see
 	// guest_join.go); nil for the owner.
 	guestSession *guestclient.Session
+	// ownerTailscale / guestTailscale: while a guest session is active the
+	// guest network's node is swapped in for the user's own (guest_join.go).
+	ownerTailscale *service.TailscaleService
+	guestTailscale *service.TailscaleService
 	// gameStreamOnly: connected with an empty master key, i.e. to a plain
 	// Sunshine/GameStream host (or fork) with no usbridge agent API to
 	// authenticate against -- only the Moonlight stream is used, paired by

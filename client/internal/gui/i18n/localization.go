@@ -801,6 +801,7 @@ type LocalizedStrings struct {
 	ShareErrFree          string
 	ShareErrCloud         string
 	ShareErrRate          string
+	ShareErrNetwork       string
 	ShareErrUnsupported   string
 	ShareErrEmail         string
 	ShareLoading          string
@@ -1646,6 +1647,7 @@ func EN() *LocalizedStrings {
 		ShareErrFree:          "The free plan allows one guest. Upgrade to Pro for more.",
 		ShareErrCloud:         "Cannot reach the USBridge cloud to send the invitation.",
 		ShareErrRate:          "Too many invitations, try again later.",
+		ShareErrNetwork:       "This computer could not set up the guest network. Check its internet connection and try again.",
 		ShareErrUnsupported:   "This computer does not support guest access. Update its agent.",
 		ShareErrEmail:         "Enter a valid e-mail address.",
 		ShareLoading:          "Loading...",

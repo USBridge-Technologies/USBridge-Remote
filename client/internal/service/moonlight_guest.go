@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	usbapi "usbridge-client/internal/api"
@@ -70,17 +69,11 @@ func (m *MoonlightService) awaitGuestConsent(abort <-chan struct{}) error {
 	api := m.guestAPI()
 	deadline := time.Now().Add(guestConsentWait)
 	for {
-		raw, err := api.PostRaw("/api/guest/hello", []byte("{}"))
+		state, err := api.GuestHello()
 		if err != nil {
 			return fmt.Errorf("guest access: %w", err)
 		}
-		var env struct {
-			Data struct {
-				State string `json:"state"`
-			} `json:"data"`
-		}
-		_ = json.Unmarshal(raw, &env)
-		switch strings.ToLower(env.Data.State) {
+		switch state {
 		case "allowed":
 			return nil
 		case "denied":

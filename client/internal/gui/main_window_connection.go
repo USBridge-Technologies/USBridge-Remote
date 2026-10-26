@@ -688,7 +688,13 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 		// connecting toast's X still unblocks this wait.
 		// Signed out (a guest opening an invitation, a fresh install): sign in
 		// automatically instead of failing with "use Google login first".
-		if err := mw.ensureTailscaleSignedIn(waitCtx, gen); err != nil {
+		if g := mw.guestSession; g != nil && g.Network != "tailscale" {
+			// A guest's node registers with the one-use key from the ticket: no
+			// browser sign-in.
+			if g.Tailnet == nil {
+				return fmt.Errorf("the computer's guest network is not set up yet — ask the owner to send the invitation again")
+			}
+		} else if err := mw.ensureTailscaleSignedIn(waitCtx, gen); err != nil {
 			if mw.connectAborted(waitCtx, gen) {
 				return errConnectAborted
 			}
@@ -705,6 +711,11 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 			// racing it.
 			logrus.Warnf("⚠️ [CONNECT] tsnet not ready: %v", waitErr)
 			return fmt.Errorf("Tailscale did not come online in time — try again: %w", waitErr)
+		}
+		if mw.guestSession != nil {
+			if err := mw.waitForSharedNode(waitCtx, gen, host); err != nil {
+				return err
+			}
 		}
 		// The API budget starts now: signing in and coming up can use most of
 		// the one created before doConnect, leaving the first request (healthz)
@@ -1034,7 +1045,12 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 			info.AgentProtocol = "sunshine"
 		}
 	} else {
-		info, err = mw.verifyActiveConnectionWithContext(ctx)
+		if mw.guestSession != nil {
+			err = mw.waitForHostConsent(ctx, gen)
+		}
+		if err == nil {
+			info, err = mw.verifyActiveConnectionWithContext(ctx)
+		}
 	}
 	if err != nil {
 		logrus.Errorf("❌ Connection verification failed: %v", err)

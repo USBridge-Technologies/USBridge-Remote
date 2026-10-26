@@ -114,6 +114,7 @@ type App struct {
 	apiServer       *api.Server
 	guests          *guestauth.Manager
 	guestKick       func(shareID string) // ends a revoked guest's running stream
+	guestNodeState  guestNodeState       // the guest network node (guest_tailnet.go)
 	fyneApp         fyne.App
 	clipboard       *clipboard.Manager
 	usbBroker       *usbpass.Service

@@ -63,10 +63,23 @@ type TailscaleService struct {
 	// second press right after it reuses the pending sign-in instead of
 	// resetting the node.
 	lastLoginStart time.Time
+
+	// Guest node (NewGuestTailscaleService); zero for the user's own node.
+	controlURL string
+	authKey    string
+	hostname   string
 }
 
 func NewTailscaleService() *TailscaleService {
 	return &TailscaleService{}
+}
+
+// NewGuestTailscaleService is the node a guest connects through: it joins the
+// USBridge-run Headscale (controlURL) with a one-use key from the guest's
+// ticket, under its own name and state directory, so it never touches the
+// user's own Tailscale login.
+func NewGuestTailscaleService(controlURL, authKey, hostname string) *TailscaleService {
+	return &TailscaleService{controlURL: controlURL, authKey: authKey, hostname: hostname}
 }
 
 func (s *TailscaleService) Start(ctx context.Context) error {
@@ -493,16 +506,27 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 		os.Setenv("TS_DEBUG_MTU", "1440")
 	}
 
-	stateDir := tailscaleStateDir("usbridge-client")
+	appName, nodeName := "usbridge-client", "usbridge-client"
+	if s.controlURL != "" {
+		appName, nodeName = "usbridge-guest", s.hostname
+	}
+	stateDir := tailscaleStateDir(appName)
+	if s.controlURL != "" {
+		// One-use key, ephemeral node: nothing to resume, and a stale identity
+		// from an earlier session would only get in the way of the new key.
+		_ = os.RemoveAll(stateDir)
+	}
 	logrus.Infof("🛰️ [Tailscale] State directory: %s", stateDir)
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		logrus.WithError(err).Errorf("🛰️ [Tailscale] Failed to create state directory: %s", stateDir)
 	}
 
 	s.server = &tsnet.Server{
-		Dir:      stateDir,
-		Hostname: "usbridge-client",
-		UserLogf: s.handleUserLogf,
+		Dir:        stateDir,
+		Hostname:   nodeName,
+		ControlURL: s.controlURL,
+		AuthKey:    s.authKey,
+		UserLogf:   s.handleUserLogf,
 		// Logf is required for tsnet's own internal diagnostics (netstack,
 		// magicsock, wgengine, and — critically — the compiled ACL packet
 		// filter's accept/drop decisions on outbound dials). Without it,

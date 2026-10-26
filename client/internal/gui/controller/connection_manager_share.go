@@ -147,6 +147,8 @@ func shareErrorText(err error) string {
 		return i18n.Current.ShareErrCloud
 	case errors.Is(err, api.ErrGuestRateLimit):
 		return i18n.Current.ShareErrRate
+	case errors.Is(err, api.ErrGuestNetwork):
+		return i18n.Current.ShareErrNetwork
 	case errors.Is(err, api.ErrGuestUnsupported):
 		return i18n.Current.ShareErrUnsupported
 	}
@@ -311,19 +313,6 @@ func (cm *ConnectionManager) buildShareDialog(idx int, draft shareDraft, list *a
 			inv := api.GuestInvite{Email: email, Role: shareRoles[roleIdx], ExpiresIn: shareExpirySeconds[expiryIdx], RequireConsent: d.consent}
 			go func() {
 				link, sent, err := cm.agentClient(conn).InviteGuest(inv)
-				// The computer must be on Tailscale before it can be shared: open
-				// its sign-in page, then keep asking until the node is up.
-				var needTS *api.TailscaleRequiredError
-				if errors.As(err, &needTS) {
-					if u, perr := url.Parse(needTS.AuthURL); perr == nil && u.Scheme == "https" {
-						fyne.Do(func() { _ = fyne.CurrentApp().OpenURL(u) })
-					}
-					deadline := time.Now().Add(4 * time.Minute)
-					for errors.As(err, &needTS) && time.Now().Before(deadline) {
-						time.Sleep(3 * time.Second)
-						link, sent, err = cm.agentClient(conn).InviteGuest(inv)
-					}
-				}
 				switch {
 				case err != nil:
 					d.message, d.isError = shareErrorText(err), true

@@ -3075,8 +3075,19 @@ func (w *Window) showTailscaleDetailsDialog(parent fyne.Window) {
 		}
 	}
 
+	// Which network guests use: the USBridge guest network (nothing for the
+	// owner or the guest to set up in Tailscale) or the owner's own Tailscale.
+	ownTS := newStyledCheck("Guests use my own Tailscale (instead of the USBridge guest network)", w.cfg.GuestOwnTailscale, func(on bool) {
+		cfg := w.cfg
+		cfg.GuestOwnTailscale = on
+		if err := w.token.SaveConfig(cfg); err != nil {
+			log.Printf("[ui] save guest network choice: %v", err)
+			return
+		}
+		w.cfg = cfg
+	})
 	body := container.NewBorder(
-		w.tsMeta.root, nil, nil, nil,
+		w.tsMeta.root, ownTS, nil, nil,
 		w.tsSessionsWell,
 	)
 	var footer fyne.CanvasObject
