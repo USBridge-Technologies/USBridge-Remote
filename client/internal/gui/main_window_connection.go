@@ -701,8 +701,18 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 			return errConnectAborted
 		}
 		if waitErr != nil {
-			logrus.Warnf("⚠️ [CONNECT] tsnet not yet ready: %v (proceeding anyway)", waitErr)
+			// Nothing below can work without the tailnet: stop here instead of
+			// racing it.
+			logrus.Warnf("⚠️ [CONNECT] tsnet not ready: %v", waitErr)
+			return fmt.Errorf("Tailscale did not come online in time — try again: %w", waitErr)
 		}
+		// The API budget starts now: signing in and coming up can use most of
+		// the one created before doConnect, leaving the first request (healthz)
+		// a second or so -- a connect right after the sign-in then failed with
+		// "context deadline exceeded".
+		var apiCancel context.CancelFunc
+		apiCtx, apiCancel = context.WithTimeout(waitCtx, time.Duration(mw.config.APITimeout)*time.Second)
+		defer apiCancel()
 	}
 
 	if mw.videoWidget != nil {
