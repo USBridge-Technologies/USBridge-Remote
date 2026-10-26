@@ -1,6 +1,7 @@
 package guestauth
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -8,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -210,5 +212,79 @@ func TestRoleCaps(t *testing.T) {
 	}
 	if Role("x").Has(CapView) || RoleTechnician.Has(0) {
 		t.Fatal("unknown role / empty need must grant nothing")
+	}
+}
+
+func TestEndingAShareRemovesItsCertificates(t *testing.T) {
+	fp := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	for _, how := range []string{"revoke", "expire"} {
+		t.Run(how, func(t *testing.T) {
+			f := newFixture(t)
+			now := time.Now()
+			sh, err := f.store.Add("g@example.com", RoleOperator, now.Add(time.Hour).Unix(), false, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.store.AddFingerprint(sh.ID, fp); err != nil {
+				t.Fatal(err)
+			}
+			var removed []string
+			m := &Manager{Store: f.store, Sessions: NewSessions(nil, nil, nil), Unpair: func(x string) error { removed = append(removed, x); return nil }}
+			if how == "revoke" {
+				if err := m.Revoke(t.Context(), sh.ID); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				f.store.shares[sh.ID].ExpiresAt = now.Add(-time.Minute).Unix()
+				m.Sweep()
+			}
+			if len(removed) != 1 || removed[0] != fp {
+				t.Fatalf("removed = %v, want [%s]", removed, fp)
+			}
+			if got := f.store.Get(sh.ID).Fingerprints; len(got) != 0 {
+				t.Fatalf("share still lists %v", got)
+			}
+		})
+	}
+}
+
+func TestFailedUnpairIsRetried(t *testing.T) {
+	f := newFixture(t)
+	now := time.Now()
+	sh, _ := f.store.Add("g@example.com", RoleTechnician, 0, false, now)
+	fp := "cd" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd"
+	_ = f.store.AddFingerprint(sh.ID, fp)
+	fail := true
+	m := &Manager{Store: f.store, Sessions: NewSessions(nil, nil, nil), Unpair: func(string) error {
+		if fail {
+			return errTest
+		}
+		return nil
+	}}
+	_ = f.store.Revoke(sh.ID, now)
+	m.Sweep()
+	if len(f.store.Get(sh.ID).Fingerprints) != 1 {
+		t.Fatal("fingerprint dropped although the unpair failed")
+	}
+	fail = false
+	m.Sweep()
+	if len(f.store.Get(sh.ID).Fingerprints) != 0 {
+		t.Fatal("fingerprint kept after a successful unpair")
+	}
+}
+
+var errTest = errors.New("boom")
+
+func TestInviteNeedsTailscale(t *testing.T) {
+	st, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Store: st, Paid: func() bool { return true }, Address: func() string { return "" }}
+	if _, _, err := m.Invite(context.Background(), "a@b.example", RoleViewer, 0, true); !errors.Is(err, ErrNeedTailscale) {
+		t.Fatalf("want ErrNeedTailscale, got %v", err)
+	}
+	if st.LiveCount(time.Now()) != 0 {
+		t.Fatal("a refused invitation must leave no share behind")
 	}
 }

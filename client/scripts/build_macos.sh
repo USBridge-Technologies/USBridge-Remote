@@ -406,6 +406,17 @@ cat > "$APP_CONTENTS_DIR/Info.plist" << 'PLIST'
     <string>$VERSION</string>
     <key>CFBundleVersion</key>
     <string>$VERSION</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>USBridge link</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>usbridge</string>
+            </array>
+        </dict>
+    </array>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>NSCameraUsageDescription</key>

@@ -291,8 +291,10 @@ func (mw *MainWindow) Show() {
 	mw.startWindowPlacementAutosave()
 	mw.updateStatusBar()
 	mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromDeepLink, mw.handleSaveFromDeepLink)
+	mw.deepLinkHandler.onJoin = mw.handleJoinFromDeepLink
 	mw.checkDeepLink()
 	mw.startDeepLinkMonitoring()
+	go mw.offerURLSchemeRegistration()
 	mw.startAWDLWatchdog()
 	mw.startWLANWatchdog()
 	if mw.onReadyCallback != nil {

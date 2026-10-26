@@ -187,10 +187,11 @@ fi
 cat > "$APPDIR/usr/share/applications/$EXE_NAME.desktop" <<DESKTOP
 [Desktop Entry]
 Name=USBridge Client
-Exec=usbridge-client
+Exec=usbridge-client %u
 Icon=usbridge-client
 Type=Application
 Categories=Network;RemoteAccess;
+MimeType=x-scheme-handler/usbridge;
 Comment=USBridge remote desktop client (Moonlight streaming)
 DESKTOP
 cp "$APPDIR/usr/share/applications/$EXE_NAME.desktop" "$APPDIR/$EXE_NAME.desktop"

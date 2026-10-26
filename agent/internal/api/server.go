@@ -249,6 +249,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/guest/hello", sec.LimitPolling(s.guestHello))
 	mux.HandleFunc("GET /api/guest/me", sec.LimitPolling(s.guestMe))
 	mux.HandleFunc("POST /api/guest/wt-grant", sec.LimitPolling(s.guestWTGrant))
+	mux.HandleFunc("POST /api/guest/moonlight-pair", sec.LimitPolling(s.guestMoonlightPair))
 	mux.HandleFunc("/api/auth/tailscale/status", sec.LimitPolling(s.tailscaleStatus))
 	mux.HandleFunc("/api/auth/tailscale/register", sec.LimitPolling(s.tailscaleRegister))
 	mux.HandleFunc("/api/keyboard", sec.LimitRealtime(s.keyboard))

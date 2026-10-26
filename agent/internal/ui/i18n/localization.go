@@ -317,6 +317,7 @@ type LocalizedStrings struct {
 	UpdatesAvailable     string // %s = new version
 	UpdatesCheckFailed   string // %s = error
 	UpdatesCheckAgain    string
+	UpdatesChannelLabel  string
 	WhatsNewBadge        string
 	WhatsNewSubtitle     string
 	WhatsNewGitHub       string
@@ -655,6 +656,7 @@ func EN() *LocalizedStrings {
 		UpdatesAvailable:     "Version %s is available.",
 		UpdatesCheckFailed:   "Update check failed: %s",
 		UpdatesCheckAgain:    "Check again",
+		UpdatesChannelLabel:  "Update channel",
 		WhatsNewBadge:        "New",
 		WhatsNewSubtitle:     "The latest agent features, USB passthrough, and streaming updates.",
 		WhatsNewGitHub:       "View Full Changelog on GitHub",
@@ -1215,6 +1217,7 @@ func UK() *LocalizedStrings {
 	locale.UpdatesAvailable = "Доступна версія %s."
 	locale.UpdatesCheckFailed = "Не вдалося перевірити оновлення: %s"
 	locale.UpdatesCheckAgain = "Перевірити ще раз"
+	locale.UpdatesChannelLabel = "Канал оновлень"
 	locale.WhatsNewBadge = "Нове"
 	locale.WhatsNewSubtitle = "Нові функції агента, прокидання USB і оновлення стрімінгу."
 	locale.WhatsNewGitHub = "Повний changelog на GitHub"

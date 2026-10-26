@@ -101,7 +101,13 @@ func newMobileConnectionGridCard(data ConnectionCardData, state ConnectionRowSta
 	connectBtn.SetDisabled(state.Disabled)
 	connectBtn.SetLoading(state.Loading)
 
-	bottomRow := container.New(&mobileCardBottomRowLayout{}, syncDropdown, editBtn, protocolDropdown, connectBtn)
+	// The share chip sits with Edit; the row layout still sees four cells.
+	var editCell fyne.CanvasObject = editBtn
+	if actions.OnShare != nil {
+		editCell = container.NewHBox(editBtn, container.NewCenter(newConnectionShareChip(data.ShareCount, data.ShareWaiting, state.Disabled, actions.OnShare)))
+	}
+
+	bottomRow := container.New(&mobileCardBottomRowLayout{}, syncDropdown, editCell, protocolDropdown, connectBtn)
 
 	content := NewInsetExact(
 		container.New(&tightStatsVBoxLayout{Gap: 6}, topRow, statsBox, divider, bottomRow),

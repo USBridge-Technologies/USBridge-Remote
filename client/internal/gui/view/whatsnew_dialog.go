@@ -250,16 +250,23 @@ func ShowWhatsNewDialog(parent fyne.Window) {
 
 	gotIt := newVideoDialogApplyButton(i18n.Current.WhatsNewGotIt, closeDialog)
 	github := newWhatsNewGitHubLink()
-	var footerLeft fyne.CanvasObject = github
+	footerInner := container.NewBorder(nil, nil, github, gotIt)
+	footerParts := []fyne.CanvasObject{footerSep}
 	if Updates != nil {
-		updatesBtn := newVideoDialogCancelButton(i18n.Current.UpdatesLink, func() {
+		// Channel dropdown and the update check get their own row so a
+		// narrow phone footer can't squeeze them out.
+		channelLbl := canvas.NewText(i18n.Current.UpdatesChannelLabel, design.ColorConnectionsSectionSubtitle)
+		channelLbl.TextSize = 10
+		picker := newChannelPicker(Updates, nil)
+		checkBtn := newVideoDialogCancelButton(i18n.Current.UpdatesLink, func() {
 			closeDialog()
 			ShowUpdatesDialog(parent)
 		})
-		footerLeft = container.New(&DeviceRowControlsLayout{Gap: 12}, github, updatesBtn)
+		left := container.New(&DeviceRowControlsLayout{Gap: 8}, channelLbl, picker)
+		footerParts = append(footerParts, NewInsetExact(container.NewBorder(nil, nil, left, checkBtn), footerPad, footerPad, 8, 0))
 	}
-	footerInner := container.NewBorder(nil, nil, footerLeft, gotIt)
-	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerInner, footerPad, footerPad, 8, 10))
+	footerParts = append(footerParts, NewInsetExact(footerInner, footerPad, footerPad, 8, 10))
+	footerBlock := container.NewVBox(footerParts...)
 
 	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInsetExact(body, bodyPad, bodyPad, 12, 8))
 	bg := canvas.NewRectangle(design.ColorGray900)

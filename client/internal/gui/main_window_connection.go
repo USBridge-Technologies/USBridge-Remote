@@ -36,6 +36,7 @@ func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol str
 // handleConnectionFromManager handles connection from the manager (arrow on the card).
 // masterKey is the API secret (from QR sync).
 func (mw *MainWindow) handleConnectionFromManager(host, masterKey, protocol string, tailscaleRegister bool) {
+	mw.setGuestSession(nil) // the owner's connection, not a guest's
 	setForm := func() {
 		mw.hostEntry.SetText(host)
 		mw.tokenEntry.SetText(masterKey)
@@ -685,6 +686,14 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 		//
 		// Parent is waitCtx (user-cancelable, no API timeout) so the
 		// connecting toast's X still unblocks this wait.
+		// Signed out (a guest opening an invitation, a fresh install): sign in
+		// automatically instead of failing with "use Google login first".
+		if err := mw.ensureTailscaleSignedIn(waitCtx, gen); err != nil {
+			if mw.connectAborted(waitCtx, gen) {
+				return errConnectAborted
+			}
+			return err
+		}
 		waitReadyCtx, waitCancel := context.WithTimeout(waitCtx, 25*time.Second)
 		waitErr := mw.tailscaleService.WaitUntilReady(waitReadyCtx)
 		waitCancel()
@@ -717,7 +726,7 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 		protocol = models.ConnectionProtocolAuto
 	}
 
-	mw.setGameStreamOnly(strings.TrimSpace(masterKey) == "")
+	mw.setGameStreamOnly(mw.guestSession == nil && strings.TrimSpace(masterKey) == "")
 
 	if strings.TrimSpace(masterKey) != "" {
 		// Master key — perform QR sync.
@@ -1386,6 +1395,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 
 // handleDisconnect handles disconnecting
 func (mw *MainWindow) handleDisconnect() {
+	defer mw.setGuestSession(nil)
 	logrus.Infof("[shutdown] handleDisconnect: start connected=%v", mw.isConnected)
 
 	// Copy references for background cleanup

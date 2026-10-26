@@ -53,6 +53,9 @@ type Session struct {
 	HwID       string
 	DeviceName string
 	Role       string
+	// Host is the computer's address on the tailnet, as the agent reported it
+	// when the invitation was made ("" if it was not on a tailnet then).
+	Host string
 	// RequireConsent: the person at the computer will be asked to allow the connection.
 	RequireConsent bool
 
@@ -150,6 +153,7 @@ func (s *Session) renew(ctx context.Context, first bool) error {
 		DeviceName     string `json:"device_name"`
 		Role           string `json:"role"`
 		RequireConsent bool   `json:"require_consent"`
+		Host           string `json:"host"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil || out.Ticket == "" {
 		return fmt.Errorf("guest ticket: bad answer")
@@ -157,6 +161,7 @@ func (s *Session) renew(ctx context.Context, first bool) error {
 	s.mu.Lock()
 	s.ticket, s.ticketExp = out.Ticket, time.Now().Add(time.Duration(out.ExpiresIn)*time.Second)
 	s.HwID, s.DeviceName, s.Role, s.RequireConsent = out.HwID, out.DeviceName, out.Role, out.RequireConsent
+	s.Host = out.Host
 	s.mu.Unlock()
 	return nil
 }

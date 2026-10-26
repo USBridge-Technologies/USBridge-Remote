@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/guestclient"
 	"usbridge-client/internal/clipboard"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/controller"
@@ -133,6 +134,9 @@ type MainWindow struct {
 	isConnected     bool
 	isStreaming     bool
 	activeAPISecret []byte
+	// guestSession is set while connecting to a computer as its guest (see
+	// guest_join.go); nil for the owner.
+	guestSession *guestclient.Session
 	// gameStreamOnly: connected with an empty master key, i.e. to a plain
 	// Sunshine/GameStream host (or fork) with no usbridge agent API to
 	// authenticate against -- only the Moonlight stream is used, paired by
@@ -466,7 +470,9 @@ func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
 	// whichever one happened to exist when a WebRTC session came up.
 	client.SetOpenDataChannel(mw.videoClient.OpenDataChannel)
 
-	if len(mw.activeAPISecret) > 0 {
+	if g := mw.guestSession; g != nil {
+		client.SetGuestSigner(g.Headers)
+	} else if len(mw.activeAPISecret) > 0 {
 		client.SetAPISecretV2(mw.activeAPISecret)
 		// Keep Moonlight's PIN relay in sync so it uses the same HMAC key.
 		if ms, ok := mw.videoClient.(interface{ SetAPISecret([]byte) }); ok {

@@ -12,6 +12,7 @@ import (
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/hwid"
+	"usbridge_agent/internal/streamhost"
 )
 
 // initGuestAccess builds the guest-access manager (see internal/guestauth)
@@ -34,7 +35,8 @@ func (a *App) initGuestAccess(apiServer *api.Server) {
 			h, _ := os.Hostname()
 			return strings.TrimSpace(h)
 		},
-		Paid: a.paidTier,
+		Paid:    a.paidTier,
+		Address: a.tailnetAddress,
 	}
 	if cloud, err := guestauth.OpenCloud(a.cfg.StateDir, entitlement.BackendBaseURL, hwID); err != nil {
 		log.Printf("[app] guest access: no cloud (invitations unavailable): %v", err)
@@ -49,10 +51,54 @@ func (a *App) initGuestAccess(apiServer *api.Server) {
 		},
 		func(shareID string) { a.guestSessionEnded(shareID) },
 	)
+	mgr.Unpair = func(fp string) error { return a.UnpairSunshineClient(fp) }
 	a.guests = mgr
 	a.guestKick = apiServer.KickGuest
 	apiServer.SetGuestManager(mgr)
 	relayOfferAuthorizer = apiServer.AuthorizeOffer
+}
+
+// PairGuestClient relays a guest's pairing PIN to the stream host and binds
+// the certificate that then pairs (fingerprint) to the share. The binding is
+// recorded first and the share is checked again once the host trusts the
+// certificate, so a share revoked mid-pairing leaves nothing behind.
+func (a *App) PairGuestClient(shareID, fingerprint, pin string) error {
+	if a.guests == nil {
+		return errors.New("guest access is off")
+	}
+	if err := a.guests.Store.AddFingerprint(shareID, fingerprint); err != nil {
+		return err
+	}
+	if err := a.SubmitMoonlightPIN(pin); err != nil {
+		return err
+	}
+	go func() {
+		deadline := time.Now().Add(2 * time.Minute)
+		for time.Now().Before(deadline) {
+			if a.guestCertTrusted(fingerprint) {
+				if sh := a.guests.Store.Get(shareID); sh == nil || !sh.Live(time.Now()) {
+					if err := a.UnpairSunshineClient(fingerprint); err != nil {
+						log.Printf("[guest] unpair late certificate: %v", err)
+					}
+				}
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		// Never paired: forget the binding.
+		a.guests.Store.RemoveFingerprint(shareID, fingerprint)
+	}()
+	return nil
+}
+
+func (a *App) guestCertTrusted(fingerprint string) bool {
+	a.streamMu.Lock()
+	kind := ""
+	if a.stream != nil {
+		kind = streamhost.BackendKind(a.stream)
+	}
+	a.streamMu.Unlock()
+	return kind != "" && streamhost.TrustedFingerprints(a.cfg.StateDir, kind)[fingerprint]
 }
 
 // paidTier reports whether this machine's license is Pro or Enterprise.
@@ -131,4 +177,19 @@ func (a *App) GuestDecide(shareID string, allow bool) error {
 // hasLiveGuestShare reports whether anyone currently has guest access here.
 func (a *App) hasLiveGuestShare() bool {
 	return a.guests != nil && a.guests.Store.LiveCount(time.Now()) > 0
+}
+
+// tailnetAddress is this machine's address on the tailnet (the agent's own
+// Tailscale node), which is what an invited guest connects to.
+func (a *App) tailnetAddress() string {
+	if a.ts == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	st, err := a.ts.Status(ctx)
+	if err != nil || st == nil || !st.Running {
+		return ""
+	}
+	return st.Self.IP4
 }

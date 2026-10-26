@@ -122,6 +122,15 @@ func (c *USBClient) DecideGuest(id string, allow bool) error {
 // mapGuestError turns makeRequest's "HTTP error 402: {json}" into a typed
 // error: the agent answers its refusals with a non-200 status and the code in
 // the JSON body's message.
+// TailscaleRequiredError: the shared computer is not on Tailscale yet, which
+// guests need to reach it. The agent has started its sign-in; AuthURL is the
+// page to finish it on ("" if the node is signed in but has no address yet).
+type TailscaleRequiredError struct{ AuthURL string }
+
+func (e *TailscaleRequiredError) Error() string {
+	return "the computer is not connected to Tailscale yet"
+}
+
 func mapGuestError(err error) error {
 	msg := err.Error()
 	if strings.Contains(msg, "HTTP error 404") || strings.Contains(msg, "HTTP error 501") {
@@ -130,9 +139,20 @@ func mapGuestError(err error) error {
 	if i := strings.Index(msg, "{"); i >= 0 {
 		var env struct {
 			Message string `json:"message"`
+			Error   string `json:"error"`
+			Data    struct {
+				AuthURL string `json:"auth_url"`
+			} `json:"data"`
 		}
-		if json.Unmarshal([]byte(msg[i:]), &env) == nil && env.Message != "" {
-			return guestCodeError(env.Message, err)
+		if json.Unmarshal([]byte(msg[i:]), &env) == nil {
+			if env.Error == "tailscale_required" {
+				return &TailscaleRequiredError{AuthURL: env.Data.AuthURL}
+			}
+			if code := env.Message; code != "" {
+				return guestCodeError(code, err)
+			} else if env.Error != "" {
+				return guestCodeError(env.Error, err)
+			}
 		}
 	}
 	return err

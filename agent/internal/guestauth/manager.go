@@ -19,6 +19,12 @@ type Manager struct {
 
 	// DeviceName is how this machine is called in the invite e-mail.
 	DeviceName func() string
+	// Address is where a guest reaches this machine: its tailnet address, or
+	// "" when it is not on one. Sent to the backend with the invitation.
+	Address func() string
+	// Unpair removes a guest's Moonlight client certificate from the stream
+	// host's trust list (and so ends what it could still stream).
+	Unpair func(fingerprint string) error
 	// Paid reports whether the license is Pro/Enterprise (Free: one guest).
 	Paid func() bool
 
@@ -35,12 +41,22 @@ const FreeMaxShares = 1
 // ErrCloudUnavailable: an invitation needs the cloud (it sends the e-mail).
 var ErrCloudUnavailable = errors.New("guestauth: cannot reach the USBridge cloud")
 
+// ErrNeedTailscale: a guest reaches this machine over the tailnet, so an
+// invitation can only be made once the machine is on one.
+var ErrNeedTailscale = errors.New("guestauth: this computer is not connected to Tailscale")
+
 // Invite creates a share and has the cloud e-mail it. The local record is
 // removed again if the cloud refuses, so nothing is left half-created.
 func (m *Manager) Invite(ctx context.Context, email string, role Role, expiresAt int64, requireConsent bool) (*Share, *CreateResult, error) {
 	now := time.Now()
 	if (m.Paid == nil || !m.Paid()) && m.Store.LiveCount(now) >= FreeMaxShares {
 		return nil, nil, ErrFreeLimit
+	}
+	host := ""
+	if m.Address != nil {
+		if host = m.Address(); host == "" {
+			return nil, nil, ErrNeedTailscale
+		}
 	}
 	sh, err := m.Store.Add(email, role, expiresAt, requireConsent, now)
 	if err != nil {
@@ -61,7 +77,7 @@ func (m *Manager) Invite(ctx context.Context, email string, role Role, expiresAt
 	if m.DeviceName != nil {
 		name = m.DeviceName()
 	}
-	res, err := m.Cloud.CreateShare(ctx, sh, name)
+	res, err := m.Cloud.CreateShare(ctx, sh, name, host)
 	if err != nil {
 		m.Store.Remove(sh.ID)
 		return nil, nil, wrapCloud(err)
@@ -84,6 +100,7 @@ func (m *Manager) Revoke(ctx context.Context, id string) error {
 		return err
 	}
 	m.Sessions.End(id, "revoked")
+	m.dropCertificates(id)
 	if m.Cloud != nil {
 		if err := m.Cloud.RevokeShare(ctx, id); err != nil {
 			// Harmless for security (the agent refuses the share regardless);
@@ -92,6 +109,20 @@ func (m *Manager) Revoke(ctx context.Context, id string) error {
 		}
 	}
 	return nil
+}
+
+// dropCertificates removes the Moonlight certificates a share paired. A
+// failed removal puts the fingerprint back so the next sweep tries again.
+func (m *Manager) dropCertificates(id string) {
+	if m.Unpair == nil {
+		return
+	}
+	for _, fp := range m.Store.TakeFingerprints(id) {
+		if err := m.Unpair(fp); err != nil {
+			log.Printf("[guest] unpair certificate of share %s: %v", id, err)
+			_ = m.Store.AddFingerprint(id, fp)
+		}
+	}
 }
 
 // Audit queues an event for the cloud's trail (kept for Pro/Enterprise).
@@ -132,6 +163,11 @@ func (m *Manager) FlushAudit(ctx context.Context) {
 // Sweep ends sessions whose share has expired or been revoked; call it periodically.
 func (m *Manager) Sweep() {
 	now := time.Now()
+	for _, sh := range m.Store.List() {
+		if len(sh.Fingerprints) > 0 && !sh.Live(now) {
+			m.dropCertificates(sh.ID)
+		}
+	}
 	for _, sess := range m.Sessions.List() {
 		sh := m.Store.Get(sess.ShareID)
 		if sh == nil || !sh.Live(now) {

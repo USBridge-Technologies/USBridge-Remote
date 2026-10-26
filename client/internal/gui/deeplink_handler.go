@@ -22,6 +22,7 @@ import (
 type DeepLinkHandler struct {
 	onConnect func(host, masterKey, protocol string, tailscaleRegister bool)                                    // Connect
 	onSave    func(name, internalHost, tailscaleHost, masterKey, protocol, hwID string, tailscaleRegister bool) // Save only, without connecting
+	onJoin    func(shareID string)                                                                              // A guest invitation: usbridge://join?share=...
 	lastURI   string                                                                                            // Last processed URI (to avoid processing twice)
 }
 
@@ -75,6 +76,18 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 
 	// Remember the current URI
 	h.lastURI = uri
+
+	if strings.HasPrefix(uri, "usbridge://join") {
+		shareID, jerr := parseJoinLink(uri)
+		if jerr != nil {
+			view.ShowConnectionErrorDialog(jerr, parent)
+			return
+		}
+		if h.onJoin != nil {
+			h.onJoin(shareID)
+		}
+		return
+	}
 
 	// Parse the URI
 	internalHost, tailscaleHost, deviceHost, masterKey, protocol, hwID, immediate, err := h.parseDeepLink(uri)

@@ -24,6 +24,10 @@ type Share struct {
 	CreatedAt  int64 `json:"created_at"`
 	RevokedAt  int64 `json:"revoked_at,omitempty"`
 	LastSeenAt int64 `json:"last_seen_at,omitempty"`
+	// Fingerprints are the Moonlight client certificates (SHA-256 of the DER,
+	// hex) this guest paired with. They are removed from the stream host's
+	// trust list when the share ends, so a revoked guest cannot stream again.
+	Fingerprints []string `json:"fingerprints,omitempty"`
 }
 
 // Live reports whether the share still grants access at now.
@@ -120,6 +124,62 @@ func (s *Store) Revoke(id string, now time.Time) error {
 		sh.RevokedAt = now.Unix()
 	}
 	return s.saveLocked()
+}
+
+// maxFingerprints bounds the certificates one share may pair.
+const maxFingerprints = 4
+
+// AddFingerprint records a Moonlight client certificate paired for the share.
+func (s *Store) AddFingerprint(id, fp string) error {
+	fp = strings.ToLower(strings.TrimSpace(fp))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sh, ok := s.shares[id]
+	if !ok {
+		return ErrNoShare
+	}
+	for _, f := range sh.Fingerprints {
+		if f == fp {
+			return nil
+		}
+	}
+	if len(sh.Fingerprints) >= maxFingerprints {
+		return ErrBadShare
+	}
+	sh.Fingerprints = append(sh.Fingerprints, fp)
+	return s.saveLocked()
+}
+
+// RemoveFingerprint forgets one certificate (it never finished pairing).
+func (s *Store) RemoveFingerprint(id, fp string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sh, ok := s.shares[id]
+	if !ok {
+		return
+	}
+	out := sh.Fingerprints[:0]
+	for _, f := range sh.Fingerprints {
+		if f != fp {
+			out = append(out, f)
+		}
+	}
+	sh.Fingerprints = out
+	_ = s.saveLocked()
+}
+
+// TakeFingerprints returns the share's certificates and forgets them.
+func (s *Store) TakeFingerprints(id string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sh, ok := s.shares[id]
+	if !ok || len(sh.Fingerprints) == 0 {
+		return nil
+	}
+	out := sh.Fingerprints
+	sh.Fingerprints = nil
+	_ = s.saveLocked()
+	return out
 }
 
 // Get returns a copy of the share, or nil.

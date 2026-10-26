@@ -41,10 +41,11 @@ cat > "$ROOT/usr/share/applications/usbridge-client.desktop" <<'DESKTOP'
 Type=Application
 Name=USBridge Client
 Comment=Connect to your computers with USBridge
-Exec=usbridge-client
+Exec=usbridge-client %u
 Icon=usbridge-client
 Terminal=false
 Categories=Network;RemoteAccess;
+MimeType=x-scheme-handler/usbridge;
 DESKTOP
 
 rpm_build "$ROOT" "$REPO_ROOT/dist" usbridge-client "$VERSION" \

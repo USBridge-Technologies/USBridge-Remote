@@ -545,6 +545,7 @@ type LocalizedStrings struct {
 	UpdatesAvailable         string // %s = new version
 	UpdatesCheckFailed       string // %s = error
 	UpdatesCheckAgain        string
+	UpdatesChannelLabel      string
 
 	// Video Settings/Dialogs
 	VideoQualitySettings string
@@ -1393,6 +1394,7 @@ func EN() *LocalizedStrings {
 		UpdatesAvailable:         "Version %s is available.",
 		UpdatesCheckFailed:       "Update check failed: %s",
 		UpdatesCheckAgain:        "Check again",
+		UpdatesChannelLabel:      "Update channel",
 
 		// Video Settings/Dialogs
 		VideoQualitySettings: "Video Quality Settings",
@@ -2407,6 +2409,7 @@ func UKProper() *LocalizedStrings {
 	locale.UpdatesAvailable = "Доступна версія %s."
 	locale.UpdatesCheckFailed = "Не вдалося перевірити оновлення: %s"
 	locale.UpdatesCheckAgain = "Перевірити ще раз"
+	locale.UpdatesChannelLabel = "Канал оновлень"
 	locale.VideoQualitySettings = "Налаштування якості відео"
 	locale.Resolution = "Роздільна здатність"
 	locale.FrameRate = "Частота кадрів"

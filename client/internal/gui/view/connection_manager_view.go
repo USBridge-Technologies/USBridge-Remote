@@ -130,6 +130,9 @@ type ConnectionRowData struct {
 	SyncEnabled     bool
 	RegisterChecked bool
 	RegisterVisible bool
+	// ShareCount / ShareWaiting feed the share chip (see ConnectionCardData).
+	ShareCount   int
+	ShareWaiting int
 	RemoteOS        string
 	PlatformLabel   string
 }
@@ -160,6 +163,8 @@ type ConnectionRowActions struct {
 	// icon button (next to Connect), same confirm-then-delete flow the
 	// split-edit panel's own Delete button uses.
 	OnDelete func()
+	// OnShare opens the guest-access dialog (nil hides the chip).
+	OnShare func()
 }
 
 const (

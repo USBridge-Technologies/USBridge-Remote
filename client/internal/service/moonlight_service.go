@@ -16,6 +16,7 @@ import (
 	"time"
 
 	usbapi "usbridge-client/internal/api"
+	"usbridge-client/internal/guestclient"
 	"usbridge-client/internal/api/moonlight"
 	"usbridge-client/internal/models"
 
@@ -65,6 +66,7 @@ type MoonlightService struct {
 	apiSecret []byte // master secret for HMAC-signed API requests
 
 	client             *moonlight.Client
+	guest              *guestclient.Session // set for a guest of the computer: requests carry its ticket, pairing is bound to its share
 	pairingPIN         string               // retained across reconnects so the user only needs to enter one PIN
 	pairCancel         context.CancelFunc   // cancels an in-flight Pair() HTTP wait (Sunshine holds getservercert until the PIN is entered)
 	lastAppId          int                  // app ID from the last Launch(); used to quit before reconnect
@@ -189,6 +191,14 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 
 	// 1. Setup client with the correct host (and dialer, see prepareGameStreamClient)
 	m.prepareGameStreamClient()
+
+	// A guest is let in by the person at the computer before anything else.
+	if m.guest != nil {
+		if err := m.awaitGuestConsent(abort); err != nil {
+			m.isRunning = false
+			return err
+		}
+	}
 
 	tConnect := time.Now()
 
@@ -943,7 +953,7 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 	// LimitPIN): an unsigned one would let anyone on the network pair
 	// themselves. Without the master key the user enters the PIN on the
 	// host (agent window's Moonlight "+", or the streamer's own pairing page).
-	if len(m.apiSecret) == 0 {
+	if len(m.apiSecret) == 0 && m.guest == nil {
 		return fmt.Errorf("no master key: PIN must be entered on the host")
 	}
 	host := m.serverHost
@@ -988,6 +998,9 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 		usbClient = usbapi.NewUSBClientWithHTTPClient(host, port, 10, tsHTTPClient)
 	} else {
 		usbClient = usbapi.NewUSBClientWithScheme(scheme, host, port, 10, nil)
+	}
+	if m.guest != nil {
+		return m.submitGuestPin(usbClient, pin)
 	}
 	usbClient.SetAPISecretV2(m.apiSecret)
 	_, err := usbClient.PostRaw("/api/moonlight/pin", body)

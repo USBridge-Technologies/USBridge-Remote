@@ -86,6 +86,13 @@ Source: "{#AgentSetup}"; DestDir: "{tmp}"; DestName: "USBridgeAgent-Setup.exe"; 
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}\bin"; Components: client
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}\bin"; Tasks: desktopicon
 
+[Registry]
+; usbridge:// links (a guest invitation, a connect link) open the client. The
+; command must match what the client itself writes (internal/platform).
+Root: HKCU; Subkey: "Software\Classes\usbridge"; ValueType: string; ValueData: "URL:USBridge"; Flags: uninsdeletekey; Components: client
+Root: HKCU; Subkey: "Software\Classes\usbridge"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Components: client
+Root: HKCU; Subkey: "Software\Classes\usbridge\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""; Components: client
+
 [Run]
 ; shellexec: the agent setup needs administrator rights, and ShellExecute is
 ; what lets Windows show the UAC prompt for it from this unelevated setup.

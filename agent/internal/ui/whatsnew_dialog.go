@@ -31,6 +31,7 @@ const (
 )
 
 var whatsNewCardStroke = color.NRGBA{R: 0x3f, G: 0x3f, B: 0x3f, A: 0xff}
+
 // Slightly above ColorGray900 so feature rows lift off the dialog fill.
 var whatsNewCardFill = color.NRGBA{R: 0x22, G: 0x26, B: 0x29, A: 0xff}
 
@@ -141,16 +142,19 @@ func showWhatsNewDialog(parent fyne.Window) {
 	titleExtra := container.New(&tightHBoxLayout{gap: 8}, version, dateLbl, older, newer)
 	gotIt := newDialogCTA(loc().WhatsNewGotIt, closeDialog)
 	github := newWhatsNewGitHubLink()
-	var footerLeft fyne.CanvasObject = github
+	var footer fyne.CanvasObject = container.NewBorder(nil, nil, github, gotIt)
 	if updatesBackend != nil {
-		updatesBtn := newIconActionButton(loc().UpdatesLink, nil, func() {
+		channelLbl := canvas.NewText(loc().UpdatesChannelLabel, design.ColorEmptyHint)
+		channelLbl.TextSize = 10
+		picker := newChannelPicker(updatesBackend, nil)
+		checkBtn := newIconActionButton(loc().UpdatesLink, nil, func() {
 			closeDialog()
 			showUpdatesDialog(parent)
 		})
-		updatesBtn.Compact = true
-		footerLeft = container.New(&tightHBoxLayout{gap: 12}, github, updatesBtn)
+		checkBtn.Compact = true
+		left := container.New(&tightHBoxLayout{gap: 8}, channelLbl, picker)
+		footer = container.NewVBox(container.NewBorder(nil, nil, left, checkBtn), footer)
 	}
-	footer := container.NewBorder(nil, nil, footerLeft, gotIt)
 	panel := newBrandedDialogPanelChromeExtra(loc().WhatsNewTitle, loc().WhatsNewSubtitle, titleExtra, whatsNewDialogWidth, 20, 8, 8, 10, body, footer, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{
 		Panel:        panel,

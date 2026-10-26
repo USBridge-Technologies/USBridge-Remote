@@ -42,10 +42,11 @@ cat > "$ROOT/usr/share/applications/usbridge-client.desktop" <<'EOF'
 Type=Application
 Name=USBridge Client
 Comment=Connect to your computers with USBridge
-Exec=usbridge-client
+Exec=usbridge-client %u
 Icon=usbridge-client
 Terminal=false
 Categories=Network;RemoteAccess;
+MimeType=x-scheme-handler/usbridge;
 EOF
 
 deb_build "$ROOT" "$OUT" usbridge-client "$VERSION" \

@@ -44,6 +44,10 @@ var routeCaps = map[string]guestauth.Cap{
 	"/api/audio/info":          guestauth.CapAudio,
 	"/api/audio/devices":       guestauth.CapAudio,
 
+	// Pairing hands out a Moonlight client certificate, which the stream host
+	// treats as full input: only roles that may use input get one.
+	"/api/guest/moonlight-pair": guestauth.CapInput,
+
 	"/api/keyboard":        guestauth.CapInput,
 	"/api/keyboard/layout": guestauth.CapInput,
 	"/api/mouse":           guestauth.CapInput,
@@ -240,6 +244,14 @@ func (s *Server) guestsInvite(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		s.ok(w, "guest_invited", map[string]any{"guest": sh, "invite_url": res.InviteURL, "mail_sent": res.MailSent})
+	case errors.Is(err, guestauth.ErrNeedTailscale):
+		// Start the Tailscale sign-in now and hand its link to the owner's
+		// client, which opens it and asks again once the node is up.
+		authURL := ""
+		if st, rerr := s.app.RegisterTailscale(r.Context(), "", ""); rerr == nil && st != nil {
+			authURL = st.AuthURL
+		}
+		s.respond(w, http.StatusConflict, APIResponse{Error: "tailscale_required", Details: err.Error(), Data: map[string]string{"auth_url": authURL}})
 	case errors.Is(err, guestauth.ErrFreeLimit):
 		s.fail(w, http.StatusPaymentRequired, "free_limit", err)
 	case errors.Is(err, guestauth.ErrBadShare):
@@ -286,6 +298,69 @@ func (s *Server) guestHello(w http.ResponseWriter, r *http.Request) {
 	st := s.guests.Sessions.Hello(p)
 	s.guests.Store.Touch(p.ShareID, time.Now())
 	s.ok(w, "guest_hello", map[string]any{"state": st, "role": p.Role, "email": p.Email})
+}
+
+// guestPairer is implemented by the app: it relays a guest's pairing PIN to
+// the stream host and records the certificate the guest then pairs with.
+type guestPairer interface {
+	PairGuestClient(shareID, fingerprint, pin string) error
+}
+
+// guestMoonlightPair implements POST /api/guest/moonlight-pair
+// {"pin": "...", "fingerprint": "<sha256 hex of the client certificate DER>"}:
+// the guest's Moonlight client is pairing and needs the PIN entered on this
+// machine. Unlike the owner's /api/moonlight/pin this is authenticated by the
+// guest ticket and signature, and the certificate that pairs is bound to the
+// share so ending the share removes it.
+func (s *Server) guestMoonlightPair(w http.ResponseWriter, r *http.Request) {
+	p := PrincipalFrom(r)
+	if p == nil || s.guests == nil {
+		s.fail(w, http.StatusForbidden, "guest_only", nil)
+		return
+	}
+	if !s.guests.Sessions.Allowed(p) {
+		s.fail(w, http.StatusForbidden, "consent_required", nil)
+		return
+	}
+	pairer, ok := s.app.(guestPairer)
+	if !ok {
+		s.fail(w, http.StatusNotImplemented, "guest_pairing_unavailable", nil)
+		return
+	}
+	var req struct {
+		PIN         string `json:"pin"`
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&req); err != nil {
+		s.fail(w, http.StatusBadRequest, "invalid_request", err)
+		return
+	}
+	req.PIN = strings.TrimSpace(req.PIN)
+	req.Fingerprint = strings.ToLower(strings.TrimSpace(req.Fingerprint))
+	if req.PIN == "" || len(req.PIN) > 16 || !validFingerprint(req.Fingerprint) {
+		s.fail(w, http.StatusBadRequest, "invalid_request", nil)
+		return
+	}
+	if err := pairer.PairGuestClient(p.ShareID, req.Fingerprint, req.PIN); err != nil {
+		log.Printf("[guest] pairing for share %s: %v", p.ShareID, err)
+		s.fail(w, http.StatusInternalServerError, "pairing_failed", err)
+		return
+	}
+	s.guests.Audit(guestauth.AuditEvent{ShareID: p.ShareID, Event: "moonlight_pair", Detail: p.Email})
+	s.ok(w, "pin_accepted", nil)
+}
+
+// validFingerprint: 64 hex digits (SHA-256).
+func validFingerprint(fp string) bool {
+	if len(fp) != 64 {
+		return false
+	}
+	for _, c := range fp {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // guestMe implements GET /api/guest/me: what this guest is and where its session stands.

@@ -115,35 +115,10 @@ func showUpdatesDialog(parent fyne.Window) {
 	status.TextSize = 11
 
 	var (
-		channelRow = container.NewStack()
 		actionHost = container.NewStack()
 		generation int // drops results of a check the user already moved past
 		runCheck   func()
 	)
-	var selectChannel func(test bool)
-	renderChannel := func() {
-		test := b.testChannel()
-		mk := func(label string, selected bool, onTap func()) *iconActionButton {
-			if selected {
-				return newDialogCTA(label, onTap)
-			}
-			btn := newIconActionButton(label, nil, onTap)
-			btn.Compact = true
-			return btn
-		}
-		stable := mk(loc().UpdatesChannelStable, !test, func() { selectChannel(false) })
-		testBtn := mk(loc().UpdatesChannelTest, test, func() { selectChannel(true) })
-		channelRow.Objects = []fyne.CanvasObject{container.New(&tightHBoxLayout{gap: 8}, stable, testBtn)}
-		channelRow.Refresh()
-	}
-	selectChannel = func(test bool) {
-		if b.testChannel() == test {
-			return
-		}
-		b.setTestChannel(test)
-		renderChannel()
-		runCheck()
-	}
 	setStatus := func(text string, action fyne.CanvasObject) {
 		status.Text = text
 		status.Refresh()
@@ -186,7 +161,7 @@ func showUpdatesDialog(parent fyne.Window) {
 			})
 		}()
 	}
-	renderChannel()
+	channelRow := newChannelPicker(b, func() { runCheck() })
 
 	body := container.NewVBox(
 		wrapDialogLabel(current, 11, design.ColorTextLight),
@@ -201,4 +176,24 @@ func showUpdatesDialog(parent fyne.Window) {
 		OnOutsideTap: closeDialog,
 	})
 	runCheck()
+}
+
+// newChannelPicker is the Release/Test dropdown (Release by default);
+// onChanged runs after a switch has been stored.
+func newChannelPicker(b *updatesBackendFuncs, onChanged func()) fyne.CanvasObject {
+	stable, test := loc().UpdatesChannelStable, loc().UpdatesChannelTest
+	selected := stable
+	if b.testChannel() {
+		selected = test
+	}
+	return newDialogDropdown([]string{stable, test}, selected, func(v string) {
+		want := v == test
+		if b.testChannel() == want {
+			return
+		}
+		b.setTestChannel(want)
+		if onChanged != nil {
+			onChanged()
+		}
+	})
 }

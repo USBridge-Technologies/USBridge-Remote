@@ -115,7 +115,11 @@ func newMobileConnectionListRow(item ConnectionListItem, highlighted bool) fyne.
 	connectBtn.SetDisabled(item.State.Disabled)
 	connectBtn.SetLoading(item.State.Loading)
 
-	actions := container.New(&DeviceRowControlsLayout{Gap: 6}, editBtn, syncBtn, route, connectBtn)
+	cells := []fyne.CanvasObject{editBtn, syncBtn, route, connectBtn}
+	if item.Actions.OnShare != nil {
+		cells = append([]fyne.CanvasObject{newConnectionShareChip(data.ShareCount, data.ShareWaiting, item.State.Disabled, item.Actions.OnShare)}, cells...)
+	}
+	actions := container.New(&DeviceRowControlsLayout{Gap: 6}, cells...)
 	// vCenter: LAN+TS stack is taller than one line; keep action buttons
 	// vertically centered on the full row.
 	row := container.New(&mobileListRowLayout{gap: 8, vCenter: true}, left, actions)

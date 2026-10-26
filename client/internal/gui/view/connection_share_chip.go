@@ -16,13 +16,17 @@ var connectionShareIcon = fyne.NewStaticResource("connection-share.svg", []byte(
 // of people who have access; a dot after the number means someone has yet to
 // accept or is waiting for the host's OK. Tapping it opens the Share dialog.
 func newConnectionShareChip(count, waiting int, disabled bool, onTap func()) fyne.CanvasObject {
+	iconSize, btnSize := fyne.NewSize(13, 13), fyne.NewSize(22, 20)
+	if UseMobileConnections() {
+		iconSize, btnSize = fyne.NewSize(16, 16), fyne.NewSize(30, 30)
+	}
 	btn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill: color.Transparent,
 		HoverFill:  design.ColorSurfaceLight,
 		Stroke:     color.Transparent,
 		NormalIcon: connectionShareIcon,
-		IconSize:   fyne.NewSize(13, 13),
-		ButtonSize: fyne.NewSize(22, 20),
+		IconSize:   iconSize,
+		ButtonSize: btnSize,
 		OnTapped: func() {
 			if !disabled && onTap != nil {
 				onTap()

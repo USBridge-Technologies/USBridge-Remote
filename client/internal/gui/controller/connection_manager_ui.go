@@ -527,10 +527,18 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			RegisterVisible: tailscaleRegisterUISupported() && internalHost != "" && tailscaleHost == "",
 			RemoteOS:        conn.RemoteOS,
 			PlatformLabel:   view.ConnectionPlatformLabel(conn.RemoteOS, conn.RemoteProtocol),
+			ShareCount:      cm.shareStatFor(conn.MasterKey).Live,
+			ShareWaiting:    cm.shareStatFor(conn.MasterKey).Waiting,
 		},
 		State: rowState,
 		Actions: view.ConnectionRowActions{
 			OnSelect: fillForm,
+			OnShare: func() {
+				if cm.connectionPending {
+					return
+				}
+				cm.openShareDialog(idx)
+			},
 			OnUse: func() {
 				if !cm.beginConnectionFromRow(idx) {
 					return

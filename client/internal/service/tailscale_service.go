@@ -58,6 +58,11 @@ type TailscaleService struct {
 	authURLHandler     func(string)
 	lastBackendState   string
 	recoveringIdentity bool
+
+	// lastLoginStart is when StartLogin last began an interactive login; a
+	// second press right after it reuses the pending sign-in instead of
+	// resetting the node.
+	lastLoginStart time.Time
 }
 
 func NewTailscaleService() *TailscaleService {
@@ -228,6 +233,23 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 	lc, err := s.localClient()
 	if err != nil {
 		return "", err
+	}
+	// A node key left by an earlier sign-in (say Google) makes the control
+	// server refuse a different account (Microsoft): "device with nodekey
+	// ... already exists; please log out explicitly". We are not signed in
+	// here, so log out explicitly first and sign in with a fresh key. A
+	// press within a minute of the last start keeps the pending sign-in.
+	s.mu.Lock()
+	recent := time.Since(s.lastLoginStart) < time.Minute
+	s.lastLoginStart = time.Now()
+	s.mu.Unlock()
+	if st, serr := lc.Status(ctx); !recent && serr == nil && st != nil && strings.TrimSpace(st.BackendState) == "NeedsLogin" {
+		if lerr := lc.Logout(ctx); lerr != nil {
+			logrus.WithError(lerr).Debug("🛰️ [Tailscale] logout before a new sign-in failed (continuing)")
+		} else {
+			logrus.Info("🛰️ [Tailscale] cleared the previous node key before signing in")
+		}
+		s.setLatestAuthURL("")
 	}
 	_ = lc.StartLoginInteractive(ctx)
 	deadline := time.Now().Add(30 * time.Second)

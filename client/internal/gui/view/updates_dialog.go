@@ -75,33 +75,9 @@ func ShowUpdatesDialog(parent fyne.Window) {
 
 	var (
 		actionHost = container.NewStack()
-		channelRow = container.NewStack()
 		generation int // drops results of a check the user already moved past
 		runCheck   func()
 	)
-
-	var selectChannel func(test bool)
-	renderChannel := func() {
-		test := b.TestChannel()
-		mk := func(label string, selected bool, onTap func()) *videoDialogPillButton {
-			if selected {
-				return newVideoDialogApplyButton(label, onTap)
-			}
-			return newVideoDialogCancelButton(label, onTap)
-		}
-		stableBtn := mk(i18n.Current.UpdatesChannelStable, !test, func() { selectChannel(false) })
-		testBtn := mk(i18n.Current.UpdatesChannelTest, test, func() { selectChannel(true) })
-		channelRow.Objects = []fyne.CanvasObject{container.New(&DeviceRowControlsLayout{Gap: 8}, stableBtn, testBtn)}
-		channelRow.Refresh()
-	}
-	selectChannel = func(test bool) {
-		if b.TestChannel() == test {
-			return
-		}
-		b.SetTestChannel(test)
-		renderChannel()
-		runCheck()
-	}
 
 	setStatus := func(text string, action fyne.CanvasObject) {
 		status.Text = text
@@ -142,11 +118,11 @@ func ShowUpdatesDialog(parent fyne.Window) {
 			})
 		}()
 	}
-	renderChannel()
+	channelRow := newChannelPicker(b, func() { runCheck() })
 
 	body := container.NewVBox(
 		current, videoDialogVSpace(10),
-		channelRow, videoDialogVSpace(6), hint, videoDialogVSpace(12),
+		NewDialogField(i18n.Current.UpdatesChannelLabel, channelRow), videoDialogVSpace(6), hint, videoDialogVSpace(12),
 		status, videoDialogVSpace(8), actionHost,
 	)
 	form := container.NewBorder(headerBlock, nil, nil, nil, NewInset(body, 18, 18, 14, 12))
@@ -180,4 +156,24 @@ func ShowUpdatesDialog(parent fyne.Window) {
 		},
 	})
 	runCheck()
+}
+
+// newChannelPicker is the Release/Test dropdown (Release by default);
+// onChanged runs after a switch has been stored.
+func newChannelPicker(b *UpdatesBackend, onChanged func()) *HeaderDropdown {
+	stable, test := i18n.Current.UpdatesChannelStable, i18n.Current.UpdatesChannelTest
+	selected := stable
+	if b.TestChannel() {
+		selected = test
+	}
+	return NewDialogPicker([]string{stable, test}, selected, func(v string) {
+		want := v == test
+		if b.TestChannel() == want {
+			return
+		}
+		b.SetTestChannel(want)
+		if onChanged != nil {
+			onChanged()
+		}
+	})
 }
