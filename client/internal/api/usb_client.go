@@ -23,6 +23,7 @@ import (
 	"usbridge-client/internal/models"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/singleflight"
 )
 
 // progressReader wraps io.Reader and calls callback on read (for stream upload)
@@ -77,9 +78,13 @@ type USBClient struct {
 	guestSigner           GuestSigner
 	transportErrorHandler func(error)
 	cursorUpdateHandler   func(models.CursorState)
-	transportErrorMu      sync.Mutex
-	transportErrorCount   int
-	lastTransportErrorAt  time.Time
+	// getFlight merges identical in-flight GETs: several widgets ask the
+	// device for /api/device/info or /api/video/info at the same moment on
+	// connect, and a guest shares one source IP with the board's rate limit.
+	getFlight            singleflight.Group
+	transportErrorMu     sync.Mutex
+	transportErrorCount  int
+	lastTransportErrorAt time.Time
 
 	// openDataChannel, when set, lets every request this client makes ride
 	// the WebRTC PeerConnection's "api-tunnel" DataChannel instead of a
@@ -1110,10 +1115,33 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 	return c.makeRequestWithContext(context.Background(), method, endpoint, body, nil)
 }
 
+// makeRequestWithContext coalesces concurrent identical GETs into one round
+// trip. Only calls that overlap in time are merged (nothing is cached), so a
+// read issued after a mutation always reaches the device.
 func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint string, body []byte, headers map[string]string) ([]byte, error) {
 	if c == nil {
 		return nil, fmt.Errorf("usb client is nil")
 	}
+	if method != http.MethodGet || body != nil || len(headers) > 0 {
+		return c.doRequest(ctx, method, endpoint, body, headers)
+	}
+	// The shared flight must not die with the first caller's context; each
+	// caller still gives up on its own ctx.
+	ch := c.getFlight.DoChan(endpoint, func() (interface{}, error) {
+		return c.doRequest(context.WithoutCancel(ctx), method, endpoint, nil, nil)
+	})
+	select {
+	case r := <-ch:
+		if r.Err != nil {
+			return nil, r.Err
+		}
+		return append([]byte(nil), r.Val.([]byte)...), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (c *USBClient) doRequest(ctx context.Context, method, endpoint string, body []byte, headers map[string]string) ([]byte, error) {
 	url := c.baseURL + endpoint
 
 	var bodyReader io.Reader
