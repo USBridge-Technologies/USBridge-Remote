@@ -86,6 +86,9 @@ type LocalizedStrings struct {
 	VirtualDisplayAccess string
 	WiFiTuneAccess       string // Permissions line: one-time Wi-Fi tune for streaming
 	WiFiTuneInfo         string // what that tune does (info dialog)
+	KWinPlanesAccess     string // Permissions line: KWin composites into one plane for streaming
+	KWinPlanesInfo       string // what that does (info dialog)
+	KWinPlanesRelogin    string // shown after granting: needs a new Plasma login
 	InstallUSBDriver     string
 	GetUSBIPDriver       string
 	MoonlightClients     string
@@ -446,6 +449,9 @@ func EN() *LocalizedStrings {
 		VirtualDisplayAccess: "Virtual Display",
 		WiFiTuneAccess:       "Wi-Fi Without Scans",
 		WiFiTuneInfo:         "Wi-Fi drivers keep scanning other channels in the background, taking the radio off your network for a moment every 30-60 s: on a stream that shows as periodic stutters.\n\nGrant once (administrator rights) to turn those scans off for good: on Windows the Intel driver's \"Global BG Scan blocking\" is set to Always; on Linux Wi-Fi power saving and iwd's periodic scans are turned off. Wi-Fi reconnects for a few seconds while this is applied.\n\nDuring a stream the agent also holds Windows' own Wi-Fi scans off by itself, nothing to grant for that.",
+		KWinPlanesAccess:     "KWin: One Plane",
+		KWinPlanesInfo:       "KWin on a multi-plane GPU shows windows and video on separate hardware planes and flips between those layouts while windows animate (snapping to a screen edge, dragging back). A stream of that screen has to be put back together from the planes, and it flickers while KWin switches.\n\nGrant once (no administrator rights) to make KWin composite everything into one buffer, like GNOME does: KWIN_DRM_NO_DIRECT_SCANOUT=1 and KWIN_USE_OVERLAYS=0 are set from a script in ~/.config/plasma-workspace/env. It takes effect only after KWin is restarted: log out of Plasma and log in again. Fullscreen video and games use a little more GPU. Delete the script to undo.",
+		KWinPlanesRelogin:    "Done. KWin must be restarted for this to take effect: log out of Plasma and log in again.",
 		InstallUSBDriver:     "Install USB Driver",
 		GetUSBIPDriver:       "Get USB/IP Driver",
 		MoonlightClients:     "Moonlight Clients",
@@ -744,6 +750,9 @@ func ES() *LocalizedStrings {
 	locale.VirtualDisplayAccess = "Display virtual"
 	locale.WiFiTuneAccess = "Wi-Fi sin escaneos"
 	locale.WiFiTuneInfo = "Los drivers Wi-Fi escanean otros canales en segundo plano y sacan la radio de tu red un momento cada 30-60 s: en un stream se ve como tirones periodicos.\n\nConcede una vez (permisos de administrador) para desactivar esos escaneos para siempre: en Windows el \"Global BG Scan blocking\" del driver Intel pasa a Siempre; en Linux se desactivan el ahorro de energia del Wi-Fi y los escaneos periodicos de iwd. El Wi-Fi se reconecta unos segundos mientras se aplica.\n\nDurante un stream el agente tambien detiene por si mismo los escaneos Wi-Fi de Windows, sin conceder nada."
+	locale.KWinPlanesAccess = "KWin: un solo plano"
+	locale.KWinPlanesInfo = "KWin en una GPU con varios planos muestra ventanas y video en planos de hardware distintos y cambia entre esos esquemas mientras las ventanas se animan (al pegarlas a un borde o devolverlas). Un stream de esa pantalla hay que recomponerlo desde los planos y parpadea mientras KWin cambia.\n\nConcede una vez (sin permisos de administrador) para que KWin componga todo en un solo buffer, como GNOME: KWIN_DRM_NO_DIRECT_SCANOUT=1 y KWIN_USE_OVERLAYS=0 se definen desde un script en ~/.config/plasma-workspace/env. Se aplica solo despues de reiniciar KWin: cierra la sesion de Plasma y vuelve a iniciarla. El video a pantalla completa y los juegos usan un poco mas de GPU. Borra el script para deshacerlo."
+	locale.KWinPlanesRelogin = "Listo. Hay que reiniciar KWin para que se aplique: cierra la sesion de Plasma y vuelve a iniciarla."
 	locale.InstallUSBDriver = "Instalar driver USB"
 	locale.GetUSBIPDriver = "Obtener driver USB/IP"
 	locale.MoonlightClients = "Clientes Moonlight"
@@ -1018,6 +1027,9 @@ func UK() *LocalizedStrings {
 	locale.VirtualDisplayAccess = "Віртуальний дисплей"
 	locale.WiFiTuneAccess = "Wi-Fi без сканувань"
 	locale.WiFiTuneInfo = "Драйвери Wi-Fi постійно сканують інші канали у фоні й щоразу на мить відводять радіо від вашої мережі, кожні 30-60 с: на стрімі це періодичні ривки.\n\nНадайте один раз (права адміністратора), щоб вимкнути ці сканування назавжди: у Windows параметр драйвера Intel \"Global BG Scan blocking\" стає Always; у Linux вимикаються енергозбереження Wi-Fi і періодичні сканування iwd. Поки це застосовується, Wi-Fi перепідключиться на кілька секунд.\n\nПід час стріму агент і сам вимикає власні сканування Wi-Fi у Windows, для цього нічого надавати не треба."
+	locale.KWinPlanesAccess = "KWin: одна площина"
+	locale.KWinPlanesInfo = "KWin на GPU з кількома площинами показує вікна та відео на окремих апаратних площинах і перемикає ці розкладки, поки вікна анімуються (прилипання до краю екрана, відтягування назад). Стрім такого екрана доводиться збирати назад із площин, і він мерехтить, поки KWin перемикається.\n\nНадайте один раз (права адміністратора не потрібні), щоб KWin компонував усе в один буфер, як GNOME: KWIN_DRM_NO_DIRECT_SCANOUT=1 і KWIN_USE_OVERLAYS=0 задаються зі скрипта в ~/.config/plasma-workspace/env. Набуває чинності лише після перезапуску KWin: вийдіть із Plasma і увійдіть знову. Повноекранне відео та ігри навантажують GPU трохи більше. Видаліть скрипт, щоб скасувати."
+	locale.KWinPlanesRelogin = "Готово. Потрібен перезапуск KWin, щоб це запрацювало: вийдіть із Plasma і увійдіть знову."
 	locale.InstallUSBDriver = "Встановити USB driver"
 	locale.GetUSBIPDriver = "Отримати USB/IP Driver"
 	locale.MoonlightClients = "Клієнти Moonlight"

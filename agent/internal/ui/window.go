@@ -29,6 +29,7 @@ import (
 	"usbridge_agent/internal/guestauth"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/hwid"
+	"usbridge_agent/internal/kwinplanes"
 	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/streamhost"
@@ -241,6 +242,12 @@ type Window struct {
 	// netutil/wifitune_*.go). Per-session tuning needs no grant (see
 	// app/wlan_streaming.go).
 	wifiTuneCheck *permStatusChip
+	// kwinPlanesCheck: Linux with KWin on Wayland only -- Permissions row that
+	// makes KWin composite into one buffer (no direct scanout, no overlay
+	// planes) so the stream is not several KMS planes flipping while windows
+	// animate (see kwinplanes). A script in the user's Plasma env dir, in
+	// effect from the next login; no administrator rights.
+	kwinPlanesCheck *permStatusChip
 
 	// Screen Capture: a single unified control for how video gets captured.
 	// On Linux this is Sunshine's capture backend, picked automatically from
@@ -502,6 +509,7 @@ type uiStatus struct {
 	moonlightCount  int
 	usbStatus       usbpass.Status
 	wifiTune        wifiTuneState
+	kwinPlanes      kwinPlanesState
 	streamerRunning bool
 	sessionActive   bool
 	// firewallBlocking is collected off the UI thread: on firewalld it
@@ -1574,6 +1582,27 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.wifiTuneCheck.Hide()
 		permStatusRow.Add(w.wifiTuneCheck)
 	}
+	if runtime.GOOS == "linux" {
+		w.kwinPlanesCheck = newPermStatusChip(loc().KWinPlanesAccess, func() {
+			go func() {
+				err := kwinplanes.Apply()
+				fyne.Do(func() {
+					w.kwinPlanesCheck.requestDone()
+					if err != nil {
+						showErrorDialog(err, win)
+					} else if !kwinplanes.Active() {
+						showInfoDialog(loc().KWinPlanesAccess, loc().KWinPlanesRelogin, win)
+					}
+				})
+				w.performRefresh()
+			}()
+		})
+		w.kwinPlanesCheck.SetInfo(loc().PermInfo, func() {
+			showInfoDialog(loc().KWinPlanesAccess, loc().KWinPlanesInfo, win)
+		})
+		w.kwinPlanesCheck.Hide()
+		permStatusRow.Add(w.kwinPlanesCheck)
+	}
 	w.refreshPermRequestLabels()
 
 	var permTop []fyne.CanvasObject
@@ -2192,6 +2221,9 @@ func (w *Window) applyLanguage() {
 	}
 	if w.wifiTuneCheck != nil {
 		w.wifiTuneCheck.SetBaseLabel(c.WiFiTuneAccess)
+	}
+	if w.kwinPlanesCheck != nil {
+		w.kwinPlanesCheck.SetBaseLabel(c.KWinPlanesAccess)
 	}
 	w.refreshPermRequestLabels()
 	w.refreshAutostartChrome()
@@ -2860,6 +2892,9 @@ func (w *Window) performRefresh() {
 		if w.perms != nil && runtime.GOOS == "linux" {
 			status.firewallBlocking = w.perms.FirewallBlocking(w.firewallPorts())
 		}
+		if runtime.GOOS == "linux" {
+			status.kwinPlanes.applicable, status.kwinPlanes.done = kwinplanes.Status()
+		}
 		var entStatus entitlement.Status
 		var certStatus tlshost.CertStatus
 		var certLoggedIn bool
@@ -2885,6 +2920,7 @@ func (w *Window) performRefresh() {
 			w.refreshRustShineUI(entStatus)
 			w.refreshUSBPassthroughUI(entStatus, status.usbStatus)
 			w.refreshWiFiTuneUI(status.wifiTune)
+			w.refreshKWinPlanesUI(status.kwinPlanes)
 			w.refreshCertStatusUI(certStatus, certLoggedIn)
 			setStatusDot(w.streamerStatusDot, status.streamerRunning)
 			if w.token != nil {
