@@ -1165,6 +1165,7 @@ func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		logrus.Warnf("❌ [HTTP-TRACE] <- %d %s %s: %s", resp.StatusCode, method, endpoint, strings.TrimSpace(string(respBody)))
 		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -1321,6 +1322,7 @@ func (c *USBClient) makeRequestWithAcceptStatusesWithContext(ctx context.Context
 			return respBody, resp.StatusCode, nil
 		}
 	}
+	logrus.Warnf("❌ [HTTP-TRACE] <- %d %s %s: %s", resp.StatusCode, method, endpoint, strings.TrimSpace(string(respBody)))
 	return nil, resp.StatusCode, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
 }
 

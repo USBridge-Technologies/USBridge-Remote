@@ -32,7 +32,32 @@ The invitation page has an **Open in the USBridge app** button, which opens `usb
 ## Hardware KVM
 The same sharing works on the KVM (`../usbridge`, `guestauth/` and `web/guest.go`): the same invitation, roles, consent, tickets and signatures, with the KVM as the authority (`/etc/usbridge/guests/guests.json`). Routes are gated by role like the desktop agent's; a guest's `/api/device/start` needs the capability of every kind of device it names and is turned into a merge, and a disk must be a bare uploaded file name (never a path, URL or NBD server). Disk uploads (`/api/iso/upload`) are verified against the guest key and need the disks capability. WebRTC offers are re-signed for rust-shine with the role; Moonlight pairing is bound to the share and removed with it. A licensed KVM counts as Pro (the backend marks it when it issues the device license).
 
-Parity with the desktop agent: the guest network (a second kernel-mode `tailscaled` on the `tsguest0` interface, closed by an nftables table to the API and stream ports only, up only while a share is live), the cloud signaling relay for browsers, the Pro tier for a licensed KVM, and the consent prompt on the KVM's display (Allow / Deny, or answered from the owner's client). The stream host is rust-shine, so a Viewer is not paired with Moonlight there, as on the agent. Not run on a real board yet.
+Parity with the desktop agent: the guest network (a second kernel-mode `tailscaled` on the `tsguest0` interface, closed by an nftables table to the API and stream ports only, up only while a share is live), the cloud signaling relay for browsers, the Pro tier for a licensed KVM, and the consent prompt on the KVM's display (Allow / Deny, or answered from the owner's client). The stream host is rust-shine, so a Viewer is not paired with Moonlight there, as on the agent. Run on a Radxa ZERO 3W board (firmware 1.2.126): invitation, guest network, video, mouse, audio and the device pages work.
+
+### What a role reaches on the KVM
+
+Every route not listed in `routeCaps` (`web/guest.go`) is owner-only and answers a guest `403 {"error":"not_permitted"}`; a client must not poll such a route. A role holds the rights of the roles above it in this list:
+
+| Role | Rights | Routes |
+|---|---|---|
+| Viewer | view, audio | device info and status, video info and devices, screen, WebTransport grant, Moonlight pairing, audio info, devices, **start and stop**, polling of script / PCPanel / benchmark **status** |
+| Operator | + input, clipboard | keyboard, mouse (also tablet and touchscreen), gamepad (REST and WebSocket), PCPanel buttons; `/api/device/start` for keyboard, mouse and gamepad |
+| Technician | + USB, disks, display, video settings | USB passthrough, `/api/device/start` and `stop` for USB network and sound, drives and MTP (a drive is an uploaded file name only), disk space, uploads and storage status, **backup snapshots** (versions, snapshot list, file), video device / FEC / source, script **list, read and log** |
+
+Never given to a guest, whatever the role:
+
+- Running, writing, stopping or deleting **scripts** (`/api/scripts/run|write|stop|delete`): that is code execution on the KVM itself, not on the target computer.
+- Benchmark control (`/api/bench/*` other than status).
+- Settings, power, Wi-Fi and network configuration, service control, key management, Tailscale registration, auth sync.
+- Deleting disk images (`/api/iso/delete`), sharing (`/api/guests*`: inviting, revoking, deciding on a request).
+- Any path, URL or NBD server as a drive source.
+
+A new route is owner-only until it is added to `routeCaps` on purpose.
+
+### The guest network on the board
+
+- The board runs a second `tailscaled` on `tsguest0`; the owner's own `tailscaled` installs an iptables rule that drops every `100.64.0.0/10` source not arriving on `tailscale0`, which would swallow all guests. The agent therefore keeps `iptables -I INPUT 1 -i tsguest0 -j ACCEPT` first in `INPUT` while the node is up (re-checked on every watchdog tick, removed with the node). The nftables table `usbridge_guest` still closes the interface to the API and the stream ports. The kernel needs `CONFIG_NF_TABLES`, `NF_TABLES_INET` and `NFT_CT` (`rz3w-extra-modules.cfg`).
+- Headscale names a node `<name>-N` when the hostname is taken by an earlier registration that was not removed, so admission accepts `g-<share>` and `g-<share>-<digits>` of a live share (`guestNodeLabelMatches`). Stale registrations pile up in Headscale until the backend removes them (ephemeral nodes or deleting the same-named node before issuing a key is not done yet).
 
 ## Known limits
 - Revoking, expiring or disconnecting a guest ends the running stream at once (rust-shine `POST /webrtc/kick`, needs a streamer from rust-shine 0.3.184 or newer; older streamers keep an already-running stream until it ends).
