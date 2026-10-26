@@ -46,7 +46,12 @@ var BeforeRelaunch func()
 // apply_linux.go) instead of downloading and swapping the binary.
 // handled=false means this install isn't package-managed and the normal
 // download path runs.
-var packageManagedApply func(ctx context.Context, version string) (handled bool, err error)
+var packageManagedApply func(ctx context.Context, version, tag string) (handled bool, err error)
+
+// installIsPackageManaged reports whether a system package manager owns this
+// install (nil off Linux). Such an install can't be re-flashed with the same
+// version, so the test channel doesn't offer a same-version rebuild for it.
+var installIsPackageManaged func() bool
 
 // platformKey identifies this build in the manifest's "platforms" map.
 func platformKey() string {
@@ -91,7 +96,8 @@ func check(ctx context.Context, currentVersion string, manual bool) (*Manifest, 
 	}
 
 	newer := isNewerVersion(manifest.Version, currentVersion)
-	sameOnTest := manual && GetChannel() == ChannelTest && !isNewerVersion(currentVersion, manifest.Version)
+	sameOnTest := manual && GetChannel() == ChannelTest && !isNewerVersion(currentVersion, manifest.Version) &&
+		(installIsPackageManaged == nil || !installIsPackageManaged())
 	if !newer && !sameOnTest {
 		log.WithFields(logrus.Fields{
 			"current": currentVersion,
@@ -129,7 +135,7 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress Progre
 	log := logrus.WithField("component", "update")
 
 	if packageManagedApply != nil {
-		if handled, err := packageManagedApply(ctx, manifest.Version); handled {
+		if handled, err := packageManagedApply(ctx, manifest.Version, manifest.Tag); handled {
 			if err != nil {
 				return fmt.Errorf("apply update: %w", err)
 			}

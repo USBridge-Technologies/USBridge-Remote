@@ -131,6 +131,18 @@ func TestFetchBytesErrorsAndLimitsBody(t *testing.T) {
 }
 
 func TestFetchManifestVerifiesSignatureAndApp(t *testing.T) {
+	// The stored channel choice (a dev machine on Test) must not change which
+	// URLs this test's stub client sees.
+	t.Setenv("USBRIDGE_UPDATE_CHANNEL", "")
+	channelMu.Lock()
+	prevLoaded, prevValue := channelLoaded, channelValue
+	channelLoaded, channelValue = true, ChannelStable
+	channelMu.Unlock()
+	t.Cleanup(func() {
+		channelMu.Lock()
+		channelLoaded, channelValue = prevLoaded, prevValue
+		channelMu.Unlock()
+	})
 	pub, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)

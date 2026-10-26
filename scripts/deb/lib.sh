@@ -27,10 +27,25 @@ deb_add_repo() {
     cat > "$root$libdir/apt-upgrade" <<EOF
 #!/bin/sh
 # Upgrades the installed USBridge packages from the USBridge APT repository
-# only. Run as root through pkexec by the app's update dialog.
+# only. Run as root through pkexec by the app's update dialog. An optional
+# argument test-<version> reads that pre-release's own repository instead
+# (the app's Test update channel).
 set -eu
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -o Dir::Etc::sourcelist=$DEB_LIST -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+list=$DEB_LIST
+if [ \$# -gt 0 ]; then
+    case "\$1" in
+        test-[0-9]*) ;;
+        *) echo "unexpected release tag" >&2; exit 2 ;;
+    esac
+    case "\$1" in
+        *[!A-Za-z0-9._-]*) echo "unexpected release tag" >&2; exit 2 ;;
+    esac
+    list=\$(mktemp)
+    trap 'rm -f "\$list"' EXIT
+    echo "deb [arch=amd64 signed-by=$DEB_KEYRING] ${DEB_REPO_URL%/releases/*}/releases/download/\$1 ./" > "\$list"
+fi
+apt-get update -o Dir::Etc::sourcelist="\$list" -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
 apt-get install -y --only-upgrade -o Dpkg::Options::=--force-confold $DEB_PACKAGES
 EOF
     chmod 0755 "$root$libdir/apt-upgrade"

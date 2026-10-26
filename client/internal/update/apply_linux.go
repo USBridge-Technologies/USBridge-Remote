@@ -110,29 +110,39 @@ func relaunch(exePath string) error {
 // binary can't be swapped in place.
 const pkgInstallDir = "/opt/usbridge-client"
 
-func init() { packageManagedApply = pkgApply }
+func init() {
+	packageManagedApply = pkgApply
+	installIsPackageManaged = func() bool { _, ok := packageManagedExe(); return ok }
+}
+
+// packageManagedExe returns this binary's resolved path and whether it sits
+// in the root-owned package install dir (never for an AppImage).
+func packageManagedExe() (string, bool) {
+	if os.Getenv("APPIMAGE") != "" {
+		return "", false
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if !strings.HasPrefix(exe, pkgInstallDir+"/") {
+		return "", false
+	}
+	return exe, true
+}
 
 // pkgApply updates a .deb, Arch or RPM install through its package manager:
 // pkexec runs the package's own apt-upgrade, pacman-upgrade or dnf-upgrade
 // script (root-owned, refreshes only the USBridge repository), then the
 // upgraded binary is relaunched. The package manager verifies the package
 // against the signed repository index, so nothing is downloaded here.
-func pkgApply(ctx context.Context, version string) (bool, error) {
-	if os.Getenv("APPIMAGE") != "" {
+func pkgApply(ctx context.Context, version, tag string) (bool, error) {
+	exe, ok := packageManagedExe()
+	if !ok {
 		return false, nil
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return false, nil
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
-	}
-	if !strings.HasPrefix(exe, pkgInstallDir+"/") {
-		return false, nil
-	}
-	if GetChannel() == ChannelTest {
-		return true, fmt.Errorf("the test channel can't update a package-managed install (%s is root-owned): use the AppImage or the portable build", pkgInstallDir)
 	}
 
 	tool := "apt"
@@ -142,7 +152,16 @@ func pkgApply(ctx context.Context, version string) (bool, error) {
 		}
 	}
 	helper := filepath.Join(pkgInstallDir, tool+"-upgrade")
-	out, err := exec.CommandContext(ctx, "pkexec", helper).CombinedOutput()
+	args := []string{helper}
+	if GetChannel() == ChannelTest {
+		// Only the apt helper can read a release's own repository; pacman
+		// and dnf only follow the stable one.
+		if tool != "apt" || tag == "" {
+			return true, fmt.Errorf("the test channel can't update a %s install: use the AppImage or the portable build", tool)
+		}
+		args = append(args, tag)
+	}
+	out, err := exec.CommandContext(ctx, "pkexec", args...).CombinedOutput()
 	if err != nil {
 		return true, fmt.Errorf("%s upgrade (pkexec): %w: %s", tool, err, lastLines(out, 5))
 	}

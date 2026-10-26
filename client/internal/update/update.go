@@ -77,7 +77,8 @@ func check(ctx context.Context, currentVersion string, manual bool) (*Manifest, 
 	}
 
 	newer := isNewerVersion(manifest.Version, currentVersion)
-	sameOnTest := manual && GetChannel() == ChannelTest && !isNewerVersion(currentVersion, manifest.Version)
+	sameOnTest := manual && GetChannel() == ChannelTest && !isNewerVersion(currentVersion, manifest.Version) &&
+		(installIsPackageManaged == nil || !installIsPackageManaged())
 	if !newer && !sameOnTest {
 		log.WithFields(logrus.Fields{
 			"current": currentVersion,
@@ -117,7 +118,7 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress Progre
 	log := logrus.WithField("component", "update")
 
 	if packageManagedApply != nil {
-		if handled, err := packageManagedApply(ctx, manifest.Version); handled {
+		if handled, err := packageManagedApply(ctx, manifest.Version, manifest.Tag); handled {
 			if err != nil {
 				return fmt.Errorf("apply update: %w", err)
 			}
