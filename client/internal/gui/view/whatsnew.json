@@ -2,11 +2,97 @@
   "app": "client",
   "cards": [
     {
+      "version": "3.2.0",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Guests without Tailscale",
+                "es": "Invitados sin Tailscale",
+                "uk": "Гості без Tailscale"
+              },
+              "body": {
+                "en": "Share a computer by e-mail: guests join through USBridge, no Tailscale account needed.",
+                "es": "Comparte un equipo por correo: los invitados entran con USBridge, sin cuenta de Tailscale.",
+                "uk": "Діліться комп’ютером за e-mail: гості входять через USBridge без акаунта Tailscale."
+              }
+            },
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "Guest controls",
+                "es": "Control del invitado",
+                "uk": "Керування гостя"
+              },
+              "body": {
+                "en": "Guests with the input role can use keyboard, mouse and gamepad; drives stay owner-only.",
+                "es": "Los invitados con rol de entrada usan teclado, ratón y mando; los discos son solo del propietario.",
+                "uk": "Гості з роллю введення керують клавіатурою, мишею й геймпадом; диски лише для власника."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "board",
+              "title": {
+                "en": "Tailscale signs in itself",
+                "es": "Tailscale inicia sesión solo",
+                "uk": "Tailscale входить сам"
+              },
+              "body": {
+                "en": "Connecting by a link now signs Tailscale in first; no stuck “signed out” errors.",
+                "es": "Al conectar por un enlace, Tailscale inicia sesión primero; sin errores de sesión cerrada.",
+                "uk": "Підключення за посиланням спершу входить у Tailscale; без помилок «signed out»."
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Invitation opens the app",
+                "es": "La invitación abre la app",
+                "uk": "Запрошення відкриває застосунок"
+              },
+              "body": {
+                "en": "The invitation link hands off to USBridge by default; the browser is the fallback.",
+                "es": "El enlace de invitación abre USBridge por defecto; el navegador queda de alternativa.",
+                "uk": "Посилання-запрошення за замовчуванням відкриває USBridge; браузер як запасний варіант."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Update channels",
+                "es": "Canales de actualización",
+                "uk": "Канали оновлень"
+              },
+              "body": {
+                "en": "Tap the version to switch between Release and Test builds and update on demand.",
+                "es": "Toca la versión para cambiar entre Release y Test y actualizar al instante.",
+                "uk": "Натисніть версію, щоб перемкнутися між Release і Test та оновити одразу."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "3.1.41",
       "date": "October 2026",
       "items": [
         {
-          "kind": "other",
+          "kind": "free",
           "points": [
             {
               "glyph": "cloud",
@@ -16,9 +102,53 @@
                 "uk": "Гостьовий доступ"
               },
               "body": {
-                "en": "Share a computer by e-mail with a role and an end date.",
-                "es": "Comparte un equipo por correo con un rol y una fecha de fin.",
-                "uk": "Поділіться комп’ютером за e-mail із роллю та датою завершення."
+                "en": "Invite someone by e-mail with a role and an end date; the link opens the computer for them.",
+                "es": "Invita a alguien por correo con un rol y una fecha de fin; el enlace le abre el equipo.",
+                "uk": "Запросіть людину за e-mail з роллю та датою завершення; посилання відкриє їй комп’ютер."
+              }
+            },
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Roles",
+                "es": "Roles",
+                "uk": "Ролі"
+              },
+              "body": {
+                "en": "Watch only, control, or control with files: you choose what each guest can do.",
+                "es": "Solo ver, controlar o controlar con archivos: tú eliges qué puede hacer cada invitado.",
+                "uk": "Лише перегляд, керування або керування з файлами: ви обираєте, що може кожен гість."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "other",
+          "points": [
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "You stay in charge",
+                "es": "Tú decides",
+                "uk": "Ви керуєте"
+              },
+              "body": {
+                "en": "The host confirms a guest on connect and can revoke access at any time; a live stream ends at once.",
+                "es": "El anfitrión confirma al invitado al conectar y puede revocar el acceso en cualquier momento; la transmisión termina al instante.",
+                "uk": "Господар підтверджує гостя під час підключення й може будь-коли скасувати доступ; потік одразу припиняється."
+              }
+            },
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "Works on the Free plan",
+                "es": "Funciona en el plan Free",
+                "uk": "Працює на плані Free"
+              },
+              "body": {
+                "en": "A Free computer keeps the relay open for its guest, so sharing needs no upgrade.",
+                "es": "Un equipo Free mantiene el relé abierto para su invitado, sin necesidad de mejorar el plan.",
+                "uk": "Комп’ютер на Free тримає ретранслятор відкритим для гостя, оновлення плану не потрібне."
               }
             }
           ]

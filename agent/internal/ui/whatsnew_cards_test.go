@@ -58,7 +58,7 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 	if len(cards) < 3 {
 		t.Fatalf("expected the shipped release history, got %d cards", len(cards))
 	}
-	if cards[0].Version != "3.1.41" || cards[0].Date != "October 2026" {
+	if cards[0].Version != "3.2.0" || cards[0].Date != "October 2026" {
 		t.Fatalf("newest card: %s %q", cards[0].Version, cards[0].Date)
 	}
 	for i := 1; i < len(cards); i++ {
