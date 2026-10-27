@@ -128,6 +128,18 @@ int usbridge_mouse_capture_start(uintptr_t hwndPtr) {
     g_active = 1;
     ShowCursor(FALSE);
     g_cursor_hidden = 1;
+    // Keep the (hidden) pointer inside the window: without a clip it slips
+    // out of the window edge while the deltas keep going to the remote, and
+    // clicks then land on whatever is under it locally. Windows lifts the
+    // clip by itself when the window loses activation.
+    {
+        RECT rc;
+        POINT tl = {0, 0};
+        if (GetClientRect(hwnd, &rc) && ClientToScreen(hwnd, &tl)) {
+            RECT clip = { tl.x, tl.y, tl.x + rc.right, tl.y + rc.bottom };
+            ClipCursor(&clip);
+        }
+    }
     return 1;
 }
 
@@ -147,6 +159,7 @@ void usbridge_mouse_capture_stop(void) {
         g_raw_registered = 0;
     }
     g_hwnd = NULL;
+    ClipCursor(NULL);
     if (g_cursor_hidden) {
         ShowCursor(TRUE);
         g_cursor_hidden = 0;

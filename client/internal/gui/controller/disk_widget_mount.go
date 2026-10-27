@@ -1428,6 +1428,25 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 			deviceRequests = append(deviceRequests, mouseReq)
 		}
 
+		// This is a Full Replace: anything left out is unplugged. The Control
+		// tab's auto-connected keyboard is not always a mounted row in
+		// allDrives, so the rebuild used to drop it (seen live: the batch held
+		// only the mouse). Keep it when the agent reports one connected.
+		keyboardIncluded := false
+		for _, r := range deviceRequests {
+			if r.Device == "keyboard" {
+				keyboardIncluded = true
+			}
+		}
+		if !keyboardIncluded {
+			for _, device := range dw.mountedDevices {
+				if device.Status == "connected" && (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) {
+					deviceRequests = append(deviceRequests, newKeyboardStartRequest())
+					break
+				}
+			}
+		}
+
 		if len(deviceRequests) == 0 {
 			dw.showErrorAsync(fmt.Errorf("no mounted devices to reconfigure"))
 			return
@@ -1437,6 +1456,26 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests), false); err != nil {
 			dw.showErrorAsync(fmt.Errorf("error reconfiguring mouse: %w", err))
 			return
+		}
+
+		// Say what the agent actually ended up with: a gadget that stays on the
+		// old pointer type ignores the new mode's events (relative moves to an
+		// absolute tablet and the reverse), which looks like a dead mouse.
+		if info, err := dw.usbClient.GetDeviceInfo(); err != nil {
+			logrus.Warnf("♻️ [GADGET] mouse mode verify: device/info failed: %v", err)
+		} else {
+			want := mouseTransportType(newMode)
+			got := ""
+			for _, device := range info.Devices {
+				if device.Status == "connected" && isMouseDeviceType(device.Type) {
+					got = mouseModeFromDeviceType(device.Type)
+				}
+			}
+			if got == want {
+				logrus.Infof("♻️ [GADGET] mouse mode verify: gadget pointer=%q matches %q (requested %q)", got, want, newMode)
+			} else {
+				logrus.Warnf("♻️ [GADGET] mouse mode verify: gadget pointer=%q but %q wanted for mode %q", got, want, newMode)
+			}
 		}
 
 		if dw.onMouseTypeChanged != nil {

@@ -24,6 +24,7 @@ extern void vk_video_get_gpu_name(char *out, int out_len);
 extern void vk_video_set_hidden(int hidden);
 extern void vk_video_set_holes(const int *xywhr, int n);
 extern void vk_video_bring_to_top(void);
+extern void vk_video_reregister_raw_input(void);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
 extern int  vk_video_create_standalone(uintptr_t hint_hwnd, int vsync);
 extern int  vk_video_next_key_event(int *type_out, int *vk_out);
@@ -156,6 +157,12 @@ func VKVideoGetGPUName() (string, bool) {
 // window above the overlay inside the TOPMOST Z-order layer.
 func VKVideoBringToTop() {
 	C.vk_video_bring_to_top()
+}
+
+// VKVideoReregisterRawInput restores the overlay's Raw Input mouse registration
+// after Capture mode's own registration was removed (see the C comment).
+func VKVideoReregisterRawInput() {
+	C.vk_video_reregister_raw_input()
 }
 
 // VKVideoSetHidden hides (hidden=true) or shows (hidden=false) the overlay without

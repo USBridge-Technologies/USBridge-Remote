@@ -4785,6 +4785,23 @@ void vk_video_set_holes(const int *xywhr, int n) {
     if (hw) PostMessageW(hw, WM_USER+3, 0, 0);
 }
 
+// vk_video_reregister_raw_input — give the overlay window its Raw Input mouse
+// registration back. Raw Input registers a device class once per process, so
+// Capture mode's own registration (mouse_capture_windows.c) replaces the
+// overlay's and its RIDEV_REMOVE on stop drops it: without this, absolute
+// moves from the overlay never arrive again after leaving Capture.
+void vk_video_reregister_raw_input(void) {
+    HWND hw = g_child_hwnd;
+    if (!hw) return;
+    RAWINPUTDEVICE rid = {0};
+    rid.usUsagePage = 0x01;
+    rid.usUsage     = 0x02;
+    rid.dwFlags     = RIDEV_INPUTSINK;
+    rid.hwndTarget  = hw;
+    g_raw_mouse = RegisterRawInputDevices(&rid, 1, sizeof(rid)) ? 1 : 0;
+    goVKLog(g_raw_mouse ? "raw input re-registered for the overlay" : "raw input re-register FAILED", g_raw_mouse ? 0 : 1);
+}
+
 // vk_video_bring_to_top — re-assert HWND_TOPMOST on the overlay window.
 // Not needed in standalone mode (there's no competing Fyne window).
 void vk_video_bring_to_top(void) {

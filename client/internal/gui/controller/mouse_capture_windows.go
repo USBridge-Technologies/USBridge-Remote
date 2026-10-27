@@ -13,9 +13,11 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver"
+	"github.com/sirupsen/logrus"
 
 	"usbridge-client/internal/service"
 )
@@ -115,16 +117,45 @@ func activeWinMouseCapture() *windowsMouseCaptureEngine {
 	return activeWindowsMouseCapture
 }
 
+// Capture traffic counters, logged every 2s while moves flow: raw samples seen,
+// moves handed to Moonlight, and samples dropped because no stream input was
+// available. Tells "the engine saw nothing" from "the stream had no input"
+// from "sent, but the remote ignored it".
+var (
+	capStatSeen, capStatSent, capStatDropped atomic.Int64
+	capStatButtons                           atomic.Int64
+	capStatLogAt                             atomic.Int64
+)
+
+func logCaptureStats() {
+	now := time.Now().UnixNano()
+	last := capStatLogAt.Load()
+	if last == 0 {
+		capStatLogAt.CompareAndSwap(0, now)
+		return
+	}
+	if now-last < int64(2*time.Second) || !capStatLogAt.CompareAndSwap(last, now) {
+		return
+	}
+	logrus.Infof("🖱️ [Capture] 2s | raw moves=%d sent=%d dropped(no input)=%d buttons=%d",
+		capStatSeen.Swap(0), capStatSent.Swap(0), capStatDropped.Swap(0), capStatButtons.Swap(0))
+}
+
 //export goMouseCaptureMove
 func goMouseCaptureMove(dx, dy C.int) {
+	capStatSeen.Add(1)
+	logCaptureStats()
 	e := activeWinMouseCapture()
 	if e == nil || e.miProvider == nil {
+		capStatDropped.Add(1)
 		return
 	}
 	mi := e.miProvider()
 	if mi == nil {
+		capStatDropped.Add(1)
 		return
 	}
+	capStatSent.Add(1)
 	// RAWMOUSE's lLastX/lLastY (and our own absolute-device delta fallback in
 	// mouse_capture_windows.c) already use the same positive-Y-is-down
 	// convention LiSendMouseMoveEvent expects -- no sign flip needed here,
@@ -137,6 +168,7 @@ func goMouseCaptureMove(dx, dy C.int) {
 //
 //export goMouseCaptureButton
 func goMouseCaptureButton(button, pressed C.int) {
+	capStatButtons.Add(1)
 	e := activeWinMouseCapture()
 	if e == nil || e.miProvider == nil {
 		return

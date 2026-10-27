@@ -47,5 +47,6 @@ func (vw *VideoWidget) stopMouseCapture() {
 		logrus.Warnf("⚠️ [Capture] error stopping native mouse capture: %v", err)
 	}
 	vw.captureEngine = nil
+	restoreOverlayMouseInput()
 	logrus.Info("✅ [Capture] native mouse capture engine stopped")
 }
