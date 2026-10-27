@@ -1174,7 +1174,15 @@ func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
 	}
 	newMode = normalizeMouseMode(newMode)
 	drive := &dw.allDrives[rowID]
-	if !drive.IsMouse || drive.MouseType == newMode {
+	if !drive.IsMouse {
+		return
+	}
+	// What the gadget really runs, not what the row shows: the row can
+	// already say Capture (preferred mode) while the KVM is still absolute,
+	// and then neither this early return nor the same-transport shortcut
+	// below may skip the rebuild, or the pointer never turns relative.
+	actualTransport, gadgetKnown := dw.actualMouseTransport()
+	if drive.MouseType == newMode && (!gadgetKnown || actualTransport == mouseTransportType(newMode)) {
 		return
 	}
 
@@ -1190,7 +1198,11 @@ func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
 	// (same mouseTransportType) -- switching to/from it must be instant, like
 	// Moonlight's own Ctrl+Alt+Shift+Z, not gated behind the "rebuild gadget"
 	// confirmation that an actual transport change (touchpad<->absolute) needs.
-	if mouseTransportType(previousMode) == mouseTransportType(newMode) {
+	sameTransport := mouseTransportType(previousMode) == mouseTransportType(newMode)
+	if gadgetKnown {
+		sameTransport = actualTransport == mouseTransportType(newMode)
+	}
+	if sameTransport {
 		dw.requestDevicesRefresh()
 		return
 	}
@@ -1220,6 +1232,18 @@ func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
 	}
 
 	dw.reconfigureMountedDevicesForMouseMode(newMode)
+}
+
+// actualMouseTransport is the wire type ("mouse" or "absolute") of the mouse
+// the device reports as connected; known is false while none is mounted.
+func (dw *DiskWidget) actualMouseTransport() (transport string, known bool) {
+	for _, device := range dw.mountedDevices {
+		if device.Status != "connected" || !isMouseDeviceType(device.Type) {
+			continue
+		}
+		return mouseTransportType(mouseModeFromDeviceType(device.Type)), true
+	}
+	return "", false
 }
 
 func (dw *DiskWidget) isMouseMountedActual() bool {
