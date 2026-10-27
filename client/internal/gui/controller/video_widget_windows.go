@@ -47,7 +47,8 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
 	quit := make(chan struct{})
 	vkWinMouseQuit = quit
-	logrus.Info("[VK/Win] mouse forwarding started")
+	vw.absFastActive.Store(true)
+	logrus.Info("[VK/Win] mouse forwarding started (absolute moves bypass the Fyne loop)")
 	go func() {
 		ticker := time.NewTicker(4 * time.Millisecond) // ~250 Hz poll
 		defer ticker.Stop()
@@ -73,10 +74,48 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 				if len(batch) == 0 {
 					continue
 				}
+				if batch = vw.sendVKWinMovesDirect(scale, batch); len(batch) == 0 {
+					continue
+				}
 				vw.queueVKWinMouseBatch(scale, batch)
 			}
 		}
 	}()
+}
+
+// sendVKWinMovesDirect is the absolute-mode fast path: the overlay's Raw Input
+// samples (which the local cursor is NOT captured for -- the OS pointer keeps
+// moving as usual, the remote cursor just mirrors its position) go straight to
+// SendAbsolutePosition from this goroutine instead of waiting for Fyne's main
+// loop (fyne.Do), which delivered them in per-frame bursts. Only plain moves
+// are taken; buttons/scroll and every other mode still go through Fyne. It
+// returns the events that still need the Fyne path.
+func (vw *VideoWidget) sendVKWinMovesDirect(scale float32, batch []vkWinMouseEv) []vkWinMouseEv {
+	if !vw.absFastActive.Load() || !vw.isMouseConnected || vw.GetMouseInputMode() != mouseModeAbsolute ||
+		!service.VKVideoIsActive() || view.VideoShouldBeHidden() {
+		return batch
+	}
+	s := scale
+	if fsWin := vkWinFullscreenWin; fsWin != nil {
+		if fsWin.Canvas() != nil {
+			s = fsWin.Canvas().Scale()
+		}
+	} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+		s = vw.parentWindow.Canvas().Scale()
+	}
+	if s <= 0 {
+		return batch
+	}
+	rest := batch[:0]
+	for _, ev := range batch {
+		if ev.typ != 1 {
+			rest = append(rest, ev)
+			continue
+		}
+		x, y := vw.PositionToAbsolute(float32(ev.x)/s, float32(ev.y)/s)
+		vw.SendAbsolutePosition(x, y, false)
+	}
+	return rest
 }
 
 func (vw *VideoWidget) queueVKWinMouseBatch(scale float32, batch []vkWinMouseEv) {
@@ -127,6 +166,7 @@ func (vw *VideoWidget) queueVKWinMouseBatch(scale float32, batch []vkWinMouseEv)
 }
 
 func (vw *VideoWidget) stopVKMouseForwarding() {
+	vw.absFastActive.Store(false)
 	if vkWinMouseQuit != nil {
 		close(vkWinMouseQuit)
 		vkWinMouseQuit = nil

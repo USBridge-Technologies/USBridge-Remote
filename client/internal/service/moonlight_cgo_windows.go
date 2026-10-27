@@ -81,6 +81,12 @@ extern int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride)
 extern int vk_video_try_submit_vkframe(void *vk_image, int vk_format, int vk_layout, int width, int height,
                                         int narrow_range, void *wait_sem, uint64_t wait_value, int external,
                                         void *release_ctx, void (*release_fn)(void *));
+// Per-stage latency of the frame about to be handed over: net = first packet
+// received -> decoder submit, dec = decoder submit -> frame out (both us).
+// Logged with the render stages as net/dec/hold/e2e (Android's VideoLat).
+extern void vk_video_note_timing(uint64_t net_us, uint64_t dec_us);
+static uint64_t g_vl_net_us = 0;
+static double   g_vl_send_ms = 0;
 // GDI fallback (gl_video_impl_windows.c) — BGRA format.
 extern int gl_video_is_active(void);
 extern int gl_video_try_submit(uint8_t *bgra, int width, int height, int stride);
@@ -774,6 +780,7 @@ static void win_deliver_frame_d3dx(AVFrame *frame) {
     int vkfmt = 0;
     uint64_t val = 0;
     if (d3dx_deliver(frame, &img, &vkfmt, &sem, &val, &slot)) {
+        vk_video_note_timing(g_vl_net_us, (uint64_t)((win_mono_ms() - g_vl_send_ms) * 1000.0));
         if (!vk_video_try_submit_vkframe(img, vkfmt, 0, frame->width, frame->height,
                                           1, sem, val, 1, slot, d3dx_release_slot)) {
             d3dx_release_slot(slot);
@@ -839,6 +846,7 @@ static void win_deliver_frame_vulkan(AVFrame *frame) {
     // narrow_range=1: Moonlight/H264/HEVC streams are limited-range BT.601/709.
     AVFrame *ref = av_frame_clone(frame);
     if (ref) {
+        vk_video_note_timing(g_vl_net_us, (uint64_t)((win_mono_ms() - g_vl_send_ms) * 1000.0));
         if (!vk_video_try_submit_vkframe((void*)vkf->img[0], (int)vkfctx->format[0], (int)vkf->layout[0],
                                           frame->width, frame->height,
                                           1, (void*)vkf->sem[0], vkf->sem_value[0], 0,
@@ -1142,12 +1150,15 @@ static int win_decode_send(PDECODE_UNIT du) {
         uint64_t nowUs = PltGetMicroseconds();
         uint64_t recvToEnqueueUs = du->enqueueTimeUs - du->receiveTimeUs;
         uint64_t enqueueToNowUs = nowUs - du->enqueueTimeUs;
-        char msg[192];
+        char msg[256];
+        uint32_t rttMs = 0, rttVarMs = 0;
+        int haveRtt = LiGetEstimatedRttInfo(&rttMs, &rttVarMs);
         snprintf(msg, sizeof(msg),
-                 "Latency: hostProc=%.1fms recvToEnqueue=%lluus (network+reassembly) enqueueToSubmit=%lluus frame=%d",
+                 "Latency: hostProc=%.1fms recvToEnqueue=%lluus (network+reassembly) enqueueToSubmit=%lluus rtt=%ums+-%ums%s frame=%d",
                  du->frameHostProcessingLatency / 10.0,
                  (unsigned long long)recvToEnqueueUs,
                  (unsigned long long)enqueueToNowUs,
+                 (unsigned)rttMs, (unsigned)rttVarMs, haveRtt ? "" : "(n/a)",
                  du->frameNumber);
         goVTLog(msg);
     }
@@ -1188,6 +1199,10 @@ static int win_decode_send(PDECODE_UNIT du) {
     AVPacket *pkt = av_packet_alloc();
     pkt->data = data; pkt->size = total;
     double t_decode0 = win_mono_ms();
+    // Per-stage latency (see vk_video_note_timing): the decoder runs one
+    // packet at a time here, so the next frame out belongs to this one.
+    g_vl_net_us = (PltGetMicroseconds() - du->receiveTimeUs);
+    g_vl_send_ms = t_decode0;
     // EAGAIN means libavcodec did NOT take the packet: with frame threads its
     // input is full until a finished frame is received. Dropping the packet
     // there (as this used to, treating EAGAIN as success) silently breaks

@@ -679,7 +679,7 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 	}
 
 	// Absolute: cursor positioning via absolute tablet.
-	if t.videoWidget.IsAbsoluteLikeInputMode() {
+	if t.videoWidget.IsAbsoluteLikeInputMode() && !t.videoWidget.absFastActive.Load() {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		t.videoWidget.SendAbsolutePosition(x, y, false)
 	}

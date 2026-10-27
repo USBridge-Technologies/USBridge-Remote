@@ -294,6 +294,20 @@ type VideoWidget struct {
 	lastAbsSentTime       time.Time // time of the last absolute send (for debounce)
 	absSendMu             sync.Mutex
 	absButtons            uint8 // bitmask of buttons for absolute mode
+	// Throttled absolute moves are not dropped: the newest one is parked here
+	// and a timer sends it, so the cursor always ends up where the pointer
+	// stopped (absSendMu guards these).
+	absPendingX, absPendingY int
+	absPendingSet            bool
+	// absFastActive: the Windows overlay's Raw Input goroutine sends absolute
+	// moves itself (video_widget_windows.go), so Fyne's MouseMoved must not
+	// send an older position on top.
+	absFastActive atomic.Bool
+	absFlushArmed            bool
+	// Per-2s absolute-move diagnostics (see logAbsMoveStats).
+	absStatRecv, absStatThrottled, absStatFlushed, absStatSent atomic.Int64
+	absStatLagSumUs, absStatLagMaxUs, absStatCgoMaxUs          atomic.Int64
+	absStatLogAt                                               atomic.Int64 // unix nanos of last stats line
 	// Stats for periodic log (atomics — written from capture goroutine, read from log timer).
 	statAbsMoonlight  atomic.Int64 // absolute events sent via Moonlight LiSendMousePositionEvent
 	statAbsWS         atomic.Int64 // absolute events sent via WebSocket

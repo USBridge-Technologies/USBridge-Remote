@@ -1176,7 +1176,38 @@ static int vk_create_swapchain(int w, int h) {
     vkGetPhysicalDeviceSurfacePresentModesKHR(g_pdev, g_surf, &npm, pms);
     VkPresentModeKHR pm = VK_PRESENT_MODE_FIFO_KHR; // safe fallback
     int have_pm = 0;
-    if (!want_vsync) {
+    int has_mailbox = 0, has_immediate = 0;
+    for (uint32_t i = 0; i < npm; i++) {
+        if (pms[i] == VK_PRESENT_MODE_MAILBOX_KHR) has_mailbox = 1;
+        if (pms[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) has_immediate = 1;
+    }
+    {
+        char pml[160];
+        snprintf(pml, sizeof(pml), "surface present modes (%u):", npm);
+        size_t o = strlen(pml);
+        for (uint32_t i = 0; i < npm && o + 4 < sizeof(pml); i++)
+            o += snprintf(pml + o, sizeof(pml) - o, " %d", (int)pms[i]);
+        goVKLog(pml, 0);
+    }
+    // USBRIDGE_PRESENT_MODE=fifo|relaxed|mailbox|immediate forces a mode (A/B test).
+    const char *pm_env = getenv("USBRIDGE_PRESENT_MODE");
+    if (pm_env && *pm_env) {
+        VkPresentModeKHR want = (VkPresentModeKHR)-1;
+        if (!strcmp(pm_env, "fifo"))      want = VK_PRESENT_MODE_FIFO_KHR;
+        if (!strcmp(pm_env, "relaxed"))   want = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+        if (!strcmp(pm_env, "mailbox"))   want = VK_PRESENT_MODE_MAILBOX_KHR;
+        if (!strcmp(pm_env, "immediate")) want = VK_PRESENT_MODE_IMMEDIATE_KHR;
+        for (uint32_t i = 0; i < npm && !have_pm; i++)
+            if (pms[i] == want) { pm = want; have_pm = 1; }
+    }
+    // Drivers without MAILBOX (AMD on Windows) would fall to FIFO_RELAXED,
+    // where a full 3-image queue holds every frame 2-3 vblanks (33-50 ms at
+    // 60 Hz) before it shows. In a DWM-composed window IMMEDIATE does not
+    // queue, so it is the closest stand-in for MAILBOX.
+    if (!have_pm && want_vsync && !has_mailbox && has_immediate && !atomic_load(&g_conceal_enabled)) {
+        pm = VK_PRESENT_MODE_IMMEDIATE_KHR; have_pm = 1;
+    }
+    if (!have_pm && !want_vsync) {
         for (uint32_t i = 0; i < npm; i++) {
             if (pms[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) { pm = pms[i]; have_pm = 1; break; }
         }
@@ -2215,7 +2246,18 @@ static VkDescriptorSet vk_imgview_cache_get(VkImage img, VkFormat fmt, VkYcbcrPi
 // Per-stage CPU time of vk_render_frame_vkimage, summed over 5s and logged as
 // one line, so a render rate below the stream rate shows which wait eats the
 // frame budget (copy/decode wait, acquire, previous-frame fence, present).
-enum { VKST_DECODE, VKST_ACQUIRE, VKST_FENCE, VKST_RECORD, VKST_PRESENT, VKST_TOTAL, VKST_N };
+// net/dec: receive->decoder submit, submit->frame out (decoder thread, via
+// vk_video_note_timing). hold: hand-off to the renderer -> present returned.
+// e2e = net+dec+hold: receive -> present queued (the compositor/scanout adds
+// its own on top, which no app-side clock sees).
+enum { VKST_DECODE, VKST_ACQUIRE, VKST_FENCE, VKST_RECORD, VKST_PRESENT, VKST_TOTAL,
+       VKST_NET, VKST_DEC, VKST_HOLD, VKST_E2E, VKST_N };
+static uint64_t g_note_net_us = 0, g_note_dec_us = 0;   // decoder thread -> try_submit_vkframe
+static uint64_t g_vkf_net_us = 0, g_vkf_dec_us = 0;     // the pending frame's
+static double   g_vkf_handoff_t = 0;
+static uint64_t g_cur_net_us = 0, g_cur_dec_us = 0;     // the frame being rendered (render thread)
+static double   g_cur_handoff_t = 0;
+void vk_video_note_timing(uint64_t net_us, uint64_t dec_us) { g_note_net_us = net_us; g_note_dec_us = dec_us; }
 static double g_vkst_sum[VKST_N], g_vkst_max[VKST_N];
 static long   g_vkst_n = 0;
 static double g_vkst_t0 = 0.0;
@@ -2225,12 +2267,52 @@ static void vkst_add(int stage, double sec) {
     if (sec > g_vkst_max[stage]) g_vkst_max[stage] = sec;
 }
 
+// DWM composition of the overlay window: refresh rate and how many frames the
+// compositor reported late / dropped / missed for it over the window. A flip
+// the compositor has to redo (late/dropped) or an outstanding queue is latency
+// the app-side numbers above cannot see. dwmapi is loaded on demand.
+#include <dwmapi.h>
+static void vkst_log_dwm(double window_sec) {
+    typedef HRESULT (WINAPI *PFN_DwmGetTiming)(HWND, DWM_TIMING_INFO*);
+    static PFN_DwmGetTiming pGet;
+    static int tried;
+    static DWM_TIMING_INFO prev;
+    static int have_prev;
+    if (!tried) {
+        tried = 1;
+        HMODULE m = LoadLibraryW(L"dwmapi.dll");
+        if (m) pGet = (PFN_DwmGetTiming)GetProcAddress(m, "DwmGetCompositionTimingInfo");
+    }
+    if (!pGet) return;
+    DWM_TIMING_INFO ti; memset(&ti, 0, sizeof(ti)); ti.cbSize = sizeof(ti);
+    HRESULT hr = pGet(g_child_hwnd, &ti);
+    if (FAILED(hr)) { memset(&ti, 0, sizeof(ti)); ti.cbSize = sizeof(ti); hr = pGet(NULL, &ti); }
+    if (FAILED(hr)) return;
+    char m2[256];
+    double hz = ti.rateRefresh.uiDenominator ? (double)ti.rateRefresh.uiNumerator / (double)ti.rateRefresh.uiDenominator : 0.0;
+    if (have_prev) {
+        snprintf(m2, sizeof(m2),
+            "dwm (%.0fs): refresh=%.2fHz composed=%llu late=%llu dropped=%llu missed=%llu outstanding=%llu submitted=%llu displayed=%llu",
+            window_sec, hz,
+            (unsigned long long)(ti.cFrame - prev.cFrame),
+            (unsigned long long)(ti.cFramesLate - prev.cFramesLate),
+            (unsigned long long)(ti.cFramesDropped - prev.cFramesDropped),
+            (unsigned long long)(ti.cFramesMissed - prev.cFramesMissed),
+            (unsigned long long)ti.cFramesOutstanding,
+            (unsigned long long)(ti.cFrameSubmitted - prev.cFrameSubmitted),
+            (unsigned long long)(ti.cFrameDisplayed - prev.cFrameDisplayed));
+        goVKLog(m2, 0);
+    }
+    prev = ti; have_prev = 1;
+}
+
 static void vkst_frame_done(void) {
     g_vkst_n++;
     double now = mono_sec();
     if (g_vkst_t0 == 0.0) { g_vkst_t0 = now; return; }
     if (now - g_vkst_t0 < 5.0) return;
-    static const char *names[VKST_N] = { "decodeWait", "acquire", "fence", "record", "present", "total" };
+    static const char *names[VKST_N] = { "decodeWait", "acquire", "fence", "record", "present", "total",
+                                         "net", "dec", "hold", "e2e" };
     char msg[512];
     int o = snprintf(msg, sizeof(msg), "render stages (%.0fs, %ld frames, avg/max ms):",
                      now - g_vkst_t0, g_vkst_n);
@@ -2239,6 +2321,7 @@ static void vkst_frame_done(void) {
                       g_vkst_sum[i] * 1000.0 / (double)g_vkst_n, g_vkst_max[i] * 1000.0);
     }
     goVKLog(msg, 0);
+    vkst_log_dwm(now - g_vkst_t0);
     memset(g_vkst_sum, 0, sizeof(g_vkst_sum));
     memset(g_vkst_max, 0, sizeof(g_vkst_max));
     g_vkst_n = 0; g_vkst_t0 = now;
@@ -2533,6 +2616,12 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     dt = t_end - t0;
     vkst_add(VKST_PRESENT, dt);
     vkst_add(VKST_TOTAL, t_end - t_start);
+    if (g_cur_handoff_t > 0.0) {
+        double net = (double)g_cur_net_us / 1e6, decd = (double)g_cur_dec_us / 1e6;
+        double hold = t_end - g_cur_handoff_t;
+        vkst_add(VKST_NET, net); vkst_add(VKST_DEC, decd); vkst_add(VKST_HOLD, hold);
+        vkst_add(VKST_E2E, net + decd + hold);
+    }
     vkst_frame_done();
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW QueuePresent %.0f ms res=%d", dt * 1000.0, (int)res);
@@ -3826,6 +3915,7 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
                 img = g_vkf_img; fmt = g_vkf_fmt; layout = g_vkf_layout; fw = g_vkf_w; fh = g_vkf_h;
                 wsem = g_vkf_sem; wval = g_vkf_sem_value; wext = g_vkf_external; wnarrow = g_vkf_narrow;
                 rel_ctx = g_vkf_release_ctx; rel_fn = g_vkf_release_fn;
+                g_cur_net_us = g_vkf_net_us; g_cur_dec_us = g_vkf_dec_us; g_cur_handoff_t = g_vkf_handoff_t;
                 g_vkf_ready = 0;
             }
             LeaveCriticalSection(&g_cs);
@@ -4053,6 +4143,8 @@ int vk_video_try_submit_vkframe(void *vk_image, int vk_format, int vk_layout, in
     g_vkf_narrow = narrow_range;
     g_vkf_release_ctx = release_ctx;
     g_vkf_release_fn  = release_fn;
+    g_vkf_net_us = g_note_net_us; g_vkf_dec_us = g_note_dec_us;
+    g_vkf_handoff_t = mono_sec();
     g_vkf_ready = 1;
     g_submitted++;
     LeaveCriticalSection(&g_cs);

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	usbapi "usbridge-client/internal/api"
@@ -993,8 +994,9 @@ func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
 	const deadzone = 2
-	const minInterval = 8 * time.Millisecond
+	const minInterval = 4 * time.Millisecond
 
+	vw.absStatRecv.Add(1)
 	dx := x - vw.lastAbsX
 	if dx < 0 {
 		dx = -dx
@@ -1006,10 +1008,24 @@ func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
 
 	if !force {
 		if dx < deadzone && dy < deadzone {
+			// Back at the last sent spot: nothing newer to send.
+			vw.absPendingSet = false
 			return
 		}
-		if !vw.lastAbsSentTime.IsZero() && time.Since(vw.lastAbsSentTime) < minInterval {
-			return
+		if !vw.lastAbsSentTime.IsZero() {
+			if since := time.Since(vw.lastAbsSentTime); since < minInterval {
+				// Park the newest position instead of dropping it: the old
+				// code lost the final move of a gesture whenever it fell
+				// inside the interval, so the remote cursor stopped short
+				// until the next move.
+				vw.absStatThrottled.Add(1)
+				vw.absPendingX, vw.absPendingY, vw.absPendingSet = x, y, true
+				if !vw.absFlushArmed {
+					vw.absFlushArmed = true
+					time.AfterFunc(minInterval-since, vw.flushPendingAbsolute)
+				}
+				return
+			}
 		}
 	}
 
@@ -1017,6 +1033,53 @@ func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
 	vw.lastAbsY = y
 	vw.lastAbsSentTime = time.Now()
 	vw.sendAbsoluteEventLocked(x, y, 0)
+}
+
+// flushPendingAbsolute sends the position parked by SendAbsolutePosition.
+func (vw *VideoWidget) flushPendingAbsolute() {
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
+	vw.absFlushArmed = false
+	if !vw.absPendingSet {
+		return
+	}
+	x, y := vw.absPendingX, vw.absPendingY
+	vw.absStatFlushed.Add(1)
+	vw.sendAbsoluteEventLocked(x, y, 0)
+}
+
+// logAbsMoveStats prints one line per ~2s of absolute-pointer activity:
+// events received from Fyne, throttled (parked), flushed, sent, and how long
+// a send waited in the worker queue and inside the cgo call. Called from the
+// send worker after each move.
+func (vw *VideoWidget) logAbsMoveStats() {
+	now := time.Now().UnixNano()
+	last := vw.absStatLogAt.Load()
+	if last == 0 {
+		vw.absStatLogAt.CompareAndSwap(0, now)
+		return
+	}
+	if now-last < int64(2*time.Second) || !vw.absStatLogAt.CompareAndSwap(last, now) {
+		return
+	}
+	sent := vw.absStatSent.Swap(0)
+	lagSum := vw.absStatLagSumUs.Swap(0)
+	avgLag := int64(0)
+	if sent > 0 {
+		avgLag = lagSum / sent
+	}
+	logrus.Infof("🖱️ [AbsMouse] 2s | recv=%d throttled=%d flushed=%d sent=%d | queueLag avg=%dus max=%dus | cgoSend max=%dus",
+		vw.absStatRecv.Swap(0), vw.absStatThrottled.Swap(0), vw.absStatFlushed.Swap(0), sent,
+		avgLag, vw.absStatLagMaxUs.Swap(0), vw.absStatCgoMaxUs.Swap(0))
+}
+
+func atomicMax(a *atomic.Int64, v int64) {
+	for {
+		cur := a.Load()
+		if v <= cur || a.CompareAndSwap(cur, v) {
+			return
+		}
+	}
 }
 
 func (vw *VideoWidget) updateAbsoluteButtonLocked(button int, pressed bool) {
@@ -1042,13 +1105,24 @@ func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
 	vw.lastAbsX = x
 	vw.lastAbsY = y
 	vw.lastAbsSentTime = time.Now()
+	vw.absPendingSet = false // anything parked is older than this
 
 	if mi := vw.moonlightInput(); mi != nil {
 		cnt := vw.statAbsMoonlight.Add(1)
 		if cnt == 1 || cnt%100 == 0 {
 			logrus.Infof("🖱️ [Mouse] → LiSendMousePositionEvent cnt=%d x=%d y=%d active=%v", cnt, x, y, mi.IsInputActive())
 		}
-		vw.enqueueSend(func() { mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767) })
+		queuedAt := time.Now()
+		vw.enqueueSend(func() {
+			started := time.Now()
+			mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+			lag := started.Sub(queuedAt).Microseconds()
+			vw.absStatSent.Add(1)
+			vw.absStatLagSumUs.Add(lag)
+			atomicMax(&vw.absStatLagMaxUs, lag)
+			atomicMax(&vw.absStatCgoMaxUs, time.Since(started).Microseconds())
+			vw.logAbsMoveStats()
+		})
 		if scroll != 0 {
 			vw.enqueueSend(func() { mi.SendMoonlightScroll(int8(scroll)) })
 		}
@@ -1074,6 +1148,7 @@ func absoluteButtonToMoonlight(button int) int {
 func (vw *VideoWidget) PressAbsoluteButton(button int, x, y int) {
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
+	vw.absPendingSet = false
 	vw.updateAbsoluteButtonLocked(button, true)
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		// Send button BEFORE position so the EV_SYN from the position event carries
@@ -1091,6 +1166,7 @@ func (vw *VideoWidget) PressAbsoluteButton(button int, x, y int) {
 func (vw *VideoWidget) ReleaseAbsoluteButton(button int, x, y int) {
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
+	vw.absPendingSet = false
 	vw.updateAbsoluteButtonLocked(button, false)
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		moonlightBtn := absoluteButtonToMoonlight(button)
@@ -1105,6 +1181,7 @@ func (vw *VideoWidget) ReleaseAbsoluteButton(button int, x, y int) {
 func (vw *VideoWidget) ReleaseAllAbsoluteButtons(x, y int) {
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
+	vw.absPendingSet = false
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		if vw.absButtons&0x01 != 0 {
 			vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonLeft) })
@@ -1127,6 +1204,7 @@ func (vw *VideoWidget) ReleaseAllAbsoluteButtons(x, y int) {
 func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
+	vw.absPendingSet = false
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		moonlightBtn := absoluteButtonToMoonlight(button)
 		// Press then position (so position EV_SYN carries button=pressed),
