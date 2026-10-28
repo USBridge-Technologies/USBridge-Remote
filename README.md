@@ -87,7 +87,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <b>SUNSHINE OPEN-SOURCE</b><br>
       <i>Standard Game Streaming</i><br><br>
       ✓ Built-in open-source Sunshine streamer<br>
-      ✓ Alternative streamers: Vibepollo (Sunshine fork with Apollo built in, Windows) and punktfunk (Moonlight-compatible, Windows & Linux), switch in one click<br>
+      ✓ <a href="https://www.usbridge.io/sunshine-vs-apollo/">Alternative streamers</a>: Vibepollo (Sunshine fork with Apollo built in, Windows) and punktfunk (Moonlight-compatible, Windows & Linux), switch in one click<br>
       ✓ Built-in benchmark to compare Sunshine, RustShine, Vibepollo and punktfunk on your own hardware and network<br>
       ✓ Low-latency desktop & gaming access<br>
       ✓ Bi-directional file & text clipboard<br>    
@@ -101,7 +101,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <b>USBRIDGE FREE</b><br>
       <i>Rust based Stream Engine</i><br><br>
       ✓ Instant-connect custom remote protocol<br>
-      ✓ Raw USB peripheral device passthrough<br>
+      ✓ Raw <a href="https://www.usbridge.io/usb-passthrough/">USB peripheral device passthrough</a><br>
       ✓ Adaptive streaming optimized for Wi-Fi stability<br>
       ✓ HDR10<br>
       ✓ Lossless 4:4:4 chroma color accuracy<br>
@@ -109,7 +109,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       ✓ MIDI device passthrough (client → host)<br>
       ✓ GPU encoding: NVENC, AMF, QSV, VAAPI<br>
       ✓ Software H.264 (OpenH264) for VMs without a GPU<br>
-      ✓ PyroWave low-latency wavelet codec (by Valve)<br>
+      ✓ <a href="https://www.usbridge.io/pyrowave/">PyroWave</a> low-latency wavelet codec (by Valve)<br>
       ✓ Headless virtual display management<br>
       ✓ Low-latency gamepad controller passthrough<br>
       ✓ Web browser client access (no installation required)<br>
@@ -119,7 +119,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <code>+ BASIC FEATURES</code> <code>+ FREE FEATURES</code><br><br>
       <b>USBRIDGE PRO</b><br>
       <i>Professional Workflows</i><br><br>
-      ✓ Wacom tablet support with pressure & tilt<br>
+      ✓ Wacom tablet support with pressure & tilt (<a href="https://www.usbridge.io/macos-wacom-support/">macOS too</a>)<br>
       ✓ <a href="https://www.usbridge.io/hardware-agent/">Hardware KVM firmware</a> for Radxa Zero 3W, Radxa Cubie A7Z and Sipeed NanoKVM: BIOS/UEFI access, ISO virtual media, Btrfs snapshots ($19 lifetime per device, 24 h free evaluation)<br>
       ✓ <a href="https://www.usbridge.io/moonlight-hardware-streamer/">Hardware Moonlight streamer</a> on those boards: any HDMI source (PC, PS5, Xbox, Switch) to Moonlight at 1080p 60 FPS, no software on the source<br><br>
     </td>
@@ -149,7 +149,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
     </td>
     <td width="33%" valign="top">
       <b>DIY IP-KVM Firmware</b><br>
-      Flash the official firmware on a compatible board (Radxa Zero 3W, Radxa Cubie A7Z) with an HDMI-to-USB capture dongle to build your own IP-KVM. On a <b>Sipeed NanoKVM</b> it replaces the stock firmware: smooth 60 FPS instead of a stuttering picture, audio and microphone, gamepads, USB passthrough and Moonlight support (<a href="https://www.usbridge.io/nanokvm-firmware/">NanoKVM firmware</a>).<br><br>
+      Flash the official firmware on a compatible board (Radxa Zero 3W, Radxa Cubie A7Z) with an HDMI-to-USB capture dongle to build your own IP-KVM. On a <b>Sipeed NanoKVM</b> it replaces the stock firmware: smooth 60 FPS instead of a stuttering picture, audio and microphone, gamepads, USB passthrough and Moonlight support (<a href="https://www.usbridge.io/hardware-agent/">download the firmware</a>).<br><br>
       <a href="https://www.usbridge.io/hardware-agent"><img src="https://img.shields.io/badge/DOWNLOAD-DIY_FIRMWARE-007ec6?style=for-the-badge" alt="Get the Firmware"></a>
     </td>
     <td width="33%" valign="top">
@@ -159,6 +159,64 @@ The Agent runs on the target machine — the server or PC you want to access rem
     </td>
   </tr>
 </table>
+
+### NanoKVM with USBridge firmware: 60 FPS instead of lag
+
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=q8rX7o-Svqs"><img src="https://img.youtube.com/vi/q8rX7o-Svqs/maxresdefault.jpg" width="720" alt="Video: Sipeed NanoKVM flashed with USBridge firmware streams at 60 FPS with almost no input lag"></a>
+</div>
+
+A 2-minute video: a Sipeed NanoKVM with heavy lag in a home lab becomes a 60 FPS KVM over IP with almost no input lag after flashing USBridge firmware, fast enough to play games with a gamepad. Firmware for the NanoKVM, Radxa Zero 3W and Radxa Cubie A7Z is on the [Hardware Agent page](https://www.usbridge.io/hardware-agent/).
+
+## FAQ
+
+<details>
+<summary><b>Does USBridge work with Moonlight and Sunshine?</b></summary>
+
+Yes. The Agent ships the open-source Sunshine streamer, so the stock Moonlight client connects to it. Vibepollo (a Sunshine fork with Apollo built in) and punktfunk are built in too and switch in one click.
+</details>
+
+<details>
+<summary><b>Is there a hardware Moonlight streamer?</b></summary>
+
+Yes. A USBridge KVM 2.0, or a Radxa Zero 3W, Radxa Cubie A7Z or Sipeed NanoKVM flashed with USBridge firmware, is a Sunshine-compatible GameStream host for whatever is on its HDMI input: a PC, PS5, Xbox or Switch. It streams 1080p 60 FPS with audio to the stock Moonlight client, with no software on the source. See [Hardware Moonlight Streamer](https://www.usbridge.io/moonlight-hardware-streamer/).
+</details>
+
+<details>
+<summary><b>Which streamer is fastest on my PC?</b></summary>
+
+It depends on the GPU, the driver and the network. The built-in benchmark runs Sunshine, RustShine, Vibepollo and punktfunk on your own hardware and network and compares them. See [Sunshine vs Apollo vs Vibepollo vs Punktfunk](https://www.usbridge.io/sunshine-vs-apollo/).
+</details>
+
+<details>
+<summary><b>Which GPUs are supported for encoding?</b></summary>
+
+NVIDIA NVENC, AMD AMF, Intel QSV and VAAPI on Linux. Virtual machines and PCs without a GPU encoder use software H.264 (OpenH264).
+</details>
+
+<details>
+<summary><b>What is free and what needs Pro?</b></summary>
+
+4:4:4 color, HDR10, PyroWave, gamepads, microphone, MIDI and raw USB passthrough are free. Wacom tablets with pressure and tilt, and the hardware KVM firmware ($19 lifetime per device, 24 h free evaluation), are Pro.
+</details>
+
+<details>
+<summary><b>Can I turn a Sipeed NanoKVM or a Radxa board into an IP-KVM?</b></summary>
+
+Yes. Flash the USBridge firmware from the [Hardware Agent page](https://www.usbridge.io/hardware-agent/). You get BIOS/UEFI access, ISO and IMG virtual media, immutable Btrfs snapshots, 60 FPS video, audio and USB passthrough. Radxa boards need an HDMI-to-USB capture dongle.
+</details>
+
+<details>
+<summary><b>Do I need port forwarding?</b></summary>
+
+No. Connections go over Tailscale peer-to-peer, with automatic NAT traversal.
+</details>
+
+<details>
+<summary><b>Can I share access to a computer with someone else?</b></summary>
+
+Yes. Invite people by e-mail with a role and an end date; guests join through USBridge and need no Tailscale account.
+</details>
 
 ## Resources & License
 
@@ -174,6 +232,8 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <ul>
         <li><a href="https://usbridge.io">Official Website</a></li>
         <li><a href="https://discord.com/invite/xqQ6ybkfWS">Discord (Beta Testing & Bugs)</a></li>
+        <li><a href="https://www.reddit.com/r/USBridge/">Reddit</a></li>
+        <li><a href="https://www.youtube.com/@KVMUSBridge">YouTube</a></li>
         <li><a href="https://www.patreon.com/USBridge_Technologies">Patreon Support</a></li>
       </ul>
     </td>
