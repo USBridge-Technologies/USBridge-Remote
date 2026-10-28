@@ -107,6 +107,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       ✓ MIDI device passthrough (client → host)<br>
       ✓ GPU encoding: NVENC, AMF, QSV, VAAPI<br>
       ✓ Software H.264 (OpenH264) for VMs without a GPU<br>
+      ✓ PipeWire screen & audio capture on Linux<br>
       ✓ Headless virtual display management<br>
       ✓ Low-latency gamepad controller passthrough<br>
       ✓ Web browser client access (no installation required)<br>
