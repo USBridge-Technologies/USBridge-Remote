@@ -87,6 +87,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <b>SUNSHINE OPEN-SOURCE</b><br>
       <i>Standard Game Streaming</i><br><br>
       ✓ Built-in open-source Sunshine streamer<br>
+      ✓ Sunshine forks too: Vibepollo and punktfunk<br>
       ✓ Low-latency desktop & gaming access<br>
       ✓ Bi-directional file & text clipboard<br>    
       ✓ Multi-monitor display switching<br>
