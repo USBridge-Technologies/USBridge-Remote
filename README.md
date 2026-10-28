@@ -78,6 +78,8 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 ## Features
 
+**Hardware-accelerated encoding:** NVIDIA **NVENC** · AMD **AMF** · Intel **QSV** · Linux **VAAPI** · plus software **H.264 (OpenH264)** for VMs and machines without a GPU encoder
+
 <table>
   <tr>
     <td width="33%" valign="top">
@@ -100,6 +102,11 @@ The Agent runs on the target machine — the server or PC you want to access rem
       ✓ Raw USB peripheral device passthrough<br>
       ✓ Adaptive streaming optimized for Wi-Fi stability<br>
       ✓ HDR10<br>
+      ✓ Lossless 4:4:4 chroma color accuracy<br>
+      ✓ Microphone passthrough (client → host)<br>
+      ✓ MIDI device passthrough (client → host)<br>
+      ✓ GPU encoding: NVENC, AMF, QSV, VAAPI<br>
+      ✓ Software H.264 (OpenH264) for VMs without a GPU<br>
       ✓ Headless virtual display management<br>
       ✓ Low-latency gamepad controller passthrough<br>
       ✓ Web browser client access (no installation required)<br>
@@ -109,7 +116,6 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <code>+ BASIC FEATURES</code> <code>+ FREE FEATURES</code><br><br>
       <b>USBRIDGE PRO</b><br>
       <i>Professional Workflows</i><br><br>
-      ✓ Lossless 4:4:4 chroma color accuracy<br>
       ✓ Wacom tablet support with pressure & tilt<br><br>
     </td>
   </tr>
