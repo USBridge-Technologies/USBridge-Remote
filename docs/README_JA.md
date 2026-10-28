@@ -1,7 +1,7 @@
 # USBridge Remote
 
 <div align="center">
-  <img src="./assets/banner6.svg" width="1400" alt="USBridge Remote">
+  <img src="./assets/banner6.svg" width="1400" alt="USBridge Remote: low-latency remote desktop and KVM-over-IP">
 </div>
 
 <div align="center">
@@ -19,17 +19,17 @@
 
 ---
 
-**USBridge Remote**は、リモートマシンを管理するための統合された高性能クライアントです。**ハードウェアレベルのBIOSアクセス**（USBridge KVMデバイス経由）と**ソフトウェアベースのリモートデスクトップ**を1つの洗練されたインターフェースに統合するように設計されています。
+**USBridge Remote**は、低遅延の**リモートデスクトップ**および**KVM-over-IP**エコシステムです。Windows、macOS、Linux、Android、iOS、ブラウザ用のクライアント、内蔵の**Sunshine / Moonlight**ゲームストリーマーを備えたホストエージェント、**Radxa Zero 3W**、**Radxa Cubie A7Z**、**Sipeed NanoKVM**ボード用のIP-KVMファームウェアを提供します。これは、**ハードウェアレベルのBIOSアクセス**と**ソフトウェアリモートデスクトップ**を単一のインターフェースで統合し、ゲームパッド、Wacomタブレット、MIDI、マイク用のUSBパススルー、ポートフォワーディングなしのTailscale P2Pネットワーキングを実現します。
 
 <div align="center">
-  <img src="./assets/Functions.svg" width="1400" alt="USBridge Remote">
+  <img src="./assets/Functions.svg" width="1400" alt="USBridge Remote features: remote desktop, game streaming, USB passthrough, hardware KVM">
 </div>
 
 
 ## ダウンロード
 
 ### クライアント
-クライアントは制御インターフェースであり、ワークステーションやラップトップにインストールされるか（またはブラウザで直接実行されます）。接続、ライブリモートデスクトップ、仮想デバイスのパススルー、およびスナップショットレジストリを管理します。
+クライアントは制御インターフェースであり、ワークステーションやノートパソコンにインストールされるか、ブラウザで直接実行されます。接続、ライブリモートデスクトップ、仮想デバイスパススルー、スナップショットレジストリを管理します。
 
 | アーキテクチャ | Windows | macOS | Linux | Android | iOS | Webブラウザ |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -38,15 +38,15 @@
 
 Playストアアカウントなしで直接APKを希望しますか？自己更新ビルドも[最新リリース](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest)に公開されています。
 
-🌐 **ゼロインストールWebクライアント**：インストールは不要です。接続するには[web.usbridge.io](https://web.usbridge.io)を開くだけです。*(注意：Webクライアントは、ブラウザのセキュリティサンドボックスとWebRTCの制約により、一部の機能とパフォーマンスに制限があります。完全な体験を得るには、ネイティブアプリを使用してください。)* Webクライアントは、その信頼された`<label>.device.usbridge.io`名を通じてエージェントに到達します：エージェントは、ブラウザが初めて訪れたときにその証明書を取得し、USBridgeアカウントにサインインしている間のみ有効です — したがって、最初の試行には数分かかる場合があります。エージェントの**ステータス → 証明書**行、または[エージェントのドキュメント](agent/docs/README.md#platform-notes-from-the-top-level-readme)で詳細を確認してください。USBridge KVMは、`https://<kvm>:9443/`でWebクライアント自体にもサービスを提供し、可能な場合は独自の信頼された名前に移行します。
+🌐 **ゼロインストールWebクライアント**: インストール不要。すぐに接続するには[web.usbridge.io](https://web.usbridge.io)を開くだけです。*(注: Webクライアントは、ブラウザのセキュリティサンドボックスとWebRTCの制約により、一部の機能とパフォーマンスに制限があります。完全な体験を得るには、ネイティブアプリを使用してください。)* Webクライアントは、信頼された`<label>.device.usbridge.io`名を介してエージェントに接続します。エージェントは、ブラウザが初めてアクセスしたときにその証明書を取得し、あなたがエージェントでUSBridgeアカウントにサインインしている間のみ有効です。そのため、最初の試行には数分かかることがあります。エージェントの**ステータス → 証明書**行、または[エージェントドキュメント](agent/docs/README.md#platform-notes-from-the-top-level-readme)で詳細を確認してください。USBridge KVMは、`https://<kvm>:9443/`でWebクライアント自体にもサービスを提供し、可能な場合は独自の信頼された名前に移行します。
 
 ## エージェント
 
-エージェントは、リモートでアクセスしたいターゲットマシン（サーバーまたはPC）で実行されます。画面キャプチャ、入力注入、およびTailscaleネットワーキングを処理します。
+エージェントは、リモートでアクセスしたいターゲットマシン（サーバーまたはPC）で実行されます。画面キャプチャ、入力注入、Tailscaleネットワーキングを処理します。
 
 <table>
   <tr>
-    <!-- 左列: ダウンロードテーブル -->
+    <!-- Left Column: Downloads Table -->
     <td valign="middle">
       <table>
         <tr>
@@ -69,7 +69,7 @@ Playストアアカウントなしで直接APKを希望しますか？自己更�
         </tr>
       </table>
     </td>
-    <!-- 右列: 画像 -->
+    <!-- Right Column: Image -->
     <td valign="middle" width="450">
       <img src="./assets/agent-screenshot.svg" alt="USBridge Agent Interface" width="100%">
     </td>
@@ -78,7 +78,7 @@ Playストアアカウントなしで直接APKを希望しますか？自己更�
 
 ## 機能
 
-**ハードウェアアクセラレーションエンコーディング：** NVIDIA **NVENC** · AMD **AMF** · Intel **QSV** · Linux **VAAPI** · さらに、GPUエンコーダーのないVMやマシン用のソフトウェア**H.264 (OpenH264)**
+**ハードウェアアクセラレーションエンコーディング:** NVIDIA **NVENC** · AMD **AMF** · Intel **QSV** · Linux **VAAPI** · さらに、GPUエンコーダーのないVMおよびマシン用のソフトウェア**H.264 (OpenH264)**
 
 <table>
   <tr>
@@ -86,40 +86,42 @@ Playストアアカウントなしで直接APKを希望しますか？自己更�
       <code>基本機能</code><br><br>
       <b>SUNSHINEオープンソース</b><br>
       <i>標準ゲームストリーミング</i><br><br>
-      ✓ 組み込みのオープンソースSunshineストリーマー<br>
-      ✓ 代替ストリーマー：Vibepollo（Apolloが組み込まれたSunshineフォーク、Windows）およびpunktfunk（Moonlight互換、Windows & Linux）、1クリックで切り替え<br>
-      ✓ 自分のハードウェアとネットワークでSunshine、RustShine、Vibepollo、punktfunkを比較するための組み込みベンチマーク<br>
-      ✓ 低遅延のデスクトップ＆ゲームアクセス<br>
-      ✓ 双方向ファイル＆テキストクリップボード<br>    
-      ✓ マルチモニター表示切り替え<br>
+      ✓ 内蔵のオープンソースSunshineストリーマー<br>
+      ✓ <a href="https://www.usbridge.io/sunshine-vs-apollo/">代替ストリーマー</a>: Vibepollo（Apolloが組み込まれたSunshineフォーク、Windows）およびpunktfunk（Moonlight互換、WindowsおよびLinux）、ワンクリックで切り替え<br>
+      ✓ 自分のハードウェアとネットワークでSunshine、RustShine、Vibepollo、punktfunkを比較するための内蔵ベンチマーク<br>
+      ✓ 低遅延のデスクトップおよびゲームアクセス<br>
+      ✓ 双方向ファイルおよびテキストクリップボード<br>    
+      ✓ マルチモニタ表示切り替え<br>
       ✓ 統合されたTailscale P2Pネットワーキング<br>
-      ✓ ゲストアクセス：役割と終了日を指定してメールで人を招待<br>
+      ✓ ゲストアクセス: 役割と終了日を指定してメールで招待<br>
       ✓ ネイティブWaylandサポート（プロンプトなしのキャプチャ）
     </td>
     <td width="33%" valign="top">
       <code>+ 基本機能</code><br><br>
       <b>USBRIDGE FREE</b><br>
       <i>Rustベースのストリームエンジン</i><br><br>
-      ✓ インスタント接続カスタムリモートプロトコル<br>
-      ✓ 生USB周辺機器のパススルー<br>
+      ✓ 即時接続カスタムリモートプロトコル<br>
+      ✓ 生の<a href="https://www.usbridge.io/usb-passthrough/">USB周辺機器パススルー</a><br>
       ✓ Wi-Fiの安定性に最適化された適応ストリーミング<br>
       ✓ HDR10<br>
       ✓ ロスレス4:4:4クロマカラー精度<br>
-      ✓ マイクロフォンパススルー（クライアント → ホスト）<br>
+      ✓ マイクパススルー（クライアント → ホスト）<br>
       ✓ MIDIデバイスパススルー（クライアント → ホスト）<br>
-      ✓ GPUエンコーディング：NVENC、AMF、QSV、VAAPI<br>
-      ✓ GPUのないVM用のソフトウェアH.264（OpenH264）<br>
-      ✓ PyroWave低遅延ウェーブレットコーデック（Valve製）<br>
+      ✓ GPUエンコーディング: NVENC、AMF、QSV、VAAPI<br>
+      ✓ GPUのないVM用のソフトウェアH.264 (OpenH264)<br>
+      ✓ <a href="https://www.usbridge.io/pyrowave/">PyroWave</a>低遅延ウェーブレットコーデック（Valve製）<br>
       ✓ ヘッドレス仮想ディスプレイ管理<br>
       ✓ 低遅延ゲームパッドコントローラーパススルー<br>
       ✓ Webブラウザクライアントアクセス（インストール不要）<br>
-      ✓ Windowsプレログインアクセス（安全な認証情報入力）
+      ✓ Windowsプレログインアクセス（安全な資格情報入力）
     </td>
     <td width="33%" valign="top">
       <code>+ 基本機能</code> <code>+ 無料機能</code><br><br>
       <b>USBRIDGE PRO</b><br>
       <i>プロフェッショナルワークフロー</i><br><br>
-      ✓ 圧力と傾きを持つWacomタブレットサポート<br><br>
+      ✓ 圧力と傾きに対応したWacomタブレットサポート（<a href="https://www.usbridge.io/macos-wacom-support/">macOSでも</a>）<br>
+      ✓ <a href="https://www.usbridge.io/hardware-agent/">ハードウェアKVMファームウェア</a> Radxa Zero 3W、Radxa Cubie A7Z、Sipeed NanoKVM用: BIOS/UEFIアクセス、ISO仮想メディア、Btrfsスナップショット（デバイスごとに$19の生涯ライセンス、24時間の無料評価）<br>
+      ✓ <a href="https://www.usbridge.io/moonlight-hardware-streamer/">ハードウェアMoonlightストリーマー</a>これらのボード上で: 任意のHDMIソース（PC、PS5、Xbox、Switch）をMoonlightで1080p 60 FPSでストリーミング、ソースにソフトウェアは不要<br><br>
     </td>
   </tr>
 </table>
@@ -128,12 +130,12 @@ Playストアアカウントなしで直接APKを希望しますか？自己更�
 
 1. **エージェントをインストール**します。リモートでアクセスしたいマシンにインストールします。起動すると、接続トークンとTailscaleアドレスが表示されます。インターネット経由でアクセスする必要がある場合は、Tailscaleに接続します。
 
-2. **クライアントをインストール**します。ワークステーション、ラップトップ、または電話にインストールします。
+2. **クライアントをインストール**します。ワークステーション、ノートパソコン、または電話にインストールします。
 
-3. **接続を追加**します — エージェントウィンドウに表示されているIPまたはTailscaleアドレスを入力します。それだけです。
+3. **接続を追加**します — エージェントウィンドウに表示されるIPまたはTailscaleアドレスを入力します。それだけです。
 
 <div align="center">
-  <img src="./assets/QuickStart.svg" width="1400" alt="USBridge Remote">
+  <img src="./assets/QuickStart.svg" width="1400" alt="USBridge Remote quick start: install the agent, install the client, connect">
 </div>
 
 ## ハードウェア統合
@@ -142,21 +144,79 @@ Playストアアカウントなしで直接APKを希望しますか？自己更�
   <tr>
    <td width="33%" valign="top">
       <b>ハードウェアレベルのBIOS制御</b><br>
-      USBridge Remoteは、OSブート前のアウトオブバンド、ベアメタル管理のためにUSBridge-KVM 2.0アプライアンスとネイティブに統合されています。<br><br>
+      USBridge Remoteは、OSブート前のアウトオブバンド、ベアメタル管理のためにUSBridge-KVM 2.0アプライアンスとネイティブに統合されています。また、最初のハードウェアMoonlightストリーマーでもあります: ストックMoonlightクライアントはKVMとペアリングし、HDMIソース（PCまたはゲームコンソール）をソフトウェアなしでストリーミングします。<br><br>
       <a href="https://www.usbridge.io/hardware-agent?utm_campaign=readme-kvm&utm_medium=readme&utm_source=github#buy-usbridge-kvm-2-0"><img src="https://img.shields.io/badge/Buy-USBridge--KVM_2.0-2da44e?style=for-the-badge" alt="Buy USBridge-KVM 2.0"></a>
     </td>
     <td width="33%" valign="top">
       <b>DIY IP-KVMファームウェア</b><br>
-      USBキャプチャインターフェースを持つ互換性のあるSBC（例：Radxa Zero 3W/3E、Cubie A7）に公式ファームウェアを展開してカスタムKVMノードをプロビジョニングします。<br><br>
+      HDMI-to-USBキャプチャドングルを使用して、互換性のあるボード（Radxa Zero 3W、Radxa Cubie A7Z）に公式ファームウェアをフラッシュして、自分だけのIP-KVMを構築します。<b>Sipeed NanoKVM</b>では、ストックファームウェアを置き換えます: 途切れのない60 FPS、音声とマイク、ゲームパッド、USBパススルー、Moonlightサポートを実現します（<a href="https://www.usbridge.io/hardware-agent/">ファームウェアをダウンロード</a>）。<br><br>
       <a href="https://www.usbridge.io/hardware-agent"><img src="https://img.shields.io/badge/DOWNLOAD-DIY_FIRMWARE-007ec6?style=for-the-badge" alt="Get the Firmware"></a>
     </td>
     <td width="33%" valign="top">
       <b>USB/IPハードウェアドングル（ESP32-S3）</b><br>
-      ソフトウェアUSBパススルーはmacOSで壁にぶつかります：接続するVHCIドライバーがないため、リモートWacomタブレット（または他のUSBデバイス）を実際のハードウェアとして提示することができません。このドングルはMacに接続し、他の場所でソフトウェアが行うことをハードウェアで行います — エクスポートされたデバイスは独自のVID/PIDで列挙され、macOSの独自のドライバーによってバインドされます。<br><br>
+      ソフトウェアUSBパススルーはmacOSで壁にぶつかります: VHCIドライバーに接続できないため、リモートWacomタブレット（または他のUSBデバイス）を実際のハードウェアとして提示することができません。このドングルはMacに接続し、<code>vhci-hcd</code>が他の場所でソフトウェアで行うことをハードウェアで実行します — エクスポートされたデバイスは独自のVID/PIDで列挙され、macOSの独自のドライバーによってバインドされます。<br><br>
       <a href="esp32-acm/README.md"><img src="https://img.shields.io/badge/Open_Hardware-esp32--acm-f59e0b?style=for-the-badge" alt="esp32-acm firmware & docs"></a>
     </td>
   </tr>
 </table>
+
+### USBridgeファームウェアを搭載したNanoKVM: 遅延なしで60 FPS
+
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=q8rX7o-Svqs"><img src="https://img.youtube.com/vi/q8rX7o-Svqs/maxresdefault.jpg" width="720" alt="Video: Sipeed NanoKVM flashed with USBridge firmware streams at 60 FPS with almost no input lag"></a>
+</div>
+
+2分のビデオ: 自宅のラボで重い遅延があるSipeed NanoKVMが、USBridgeファームウェアをフラッシュした後、ほぼ遅延なしで60 FPSのKVM over IPに変わり、ゲームパッドでゲームをプレイするのに十分な速さになります。NanoKVM、Radxa Zero 3W、Radxa Cubie A7Z用のファームウェアは[ハードウェアエージェントページ](https://www.usbridge.io/hardware-agent/)にあります。
+
+## FAQ
+
+<details>
+<summary><b>USBridgeはMoonlightとSunshineと互換性がありますか？</b></summary>
+
+はい。エージェントにはオープンソースのSunshineストリーマーが搭載されているため、ストックMoonlightクライアントが接続できます。Vibepollo（Apolloが組み込まれたSunshineフォーク）とpunktfunkも内蔵されており、ワンクリックで切り替え可能です。
+</details>
+
+<details>
+<summary><b>ハードウェアMoonlightストリーマーはありますか？</b></summary>
+
+はい。USBridge KVM 2.0、またはUSBridgeファームウェアをフラッシュしたRadxa Zero 3W、Radxa Cubie A7Z、Sipeed NanoKVMは、HDMI入力に接続されたPC、PS5、Xbox、SwitchなどのSunshine互換GameStreamホストです。ストックMoonlightクライアントに1080p 60 FPSで音声をストリーミングし、ソースにソフトウェアは不要です。詳細は[ハードウェアMoonlightストリーマー](https://www.usbridge.io/moonlight-hardware-streamer/)を参照してください。
+</details>
+
+<details>
+<summary><b>私のPCで最も速いストリーマーはどれですか？</b></summary>
+
+GPU、ドライバー、ネットワークによります。内蔵ベンチマークは、Sunshine、RustShine、Vibepollo、punktfunkを自分のハードウェアとネットワークで実行し、比較します。詳細は[Sunshine vs Apollo vs Vibepollo vs Punktfunk](https://www.usbridge.io/sunshine-vs-apollo/)を参照してください。
+</details>
+
+<details>
+<summary><b>エンコーディングに対応しているGPUはどれですか？</b></summary>
+
+NVIDIA NVENC、AMD AMF、Intel QSV、LinuxのVAAPIです。GPUエンコーダーのない仮想マシンとPCは、ソフトウェアH.264 (OpenH264)を使用します。
+</details>
+
+<details>
+<summary><b>無料の機能とProが必要な機能は何ですか？</b></summary>
+
+4:4:4カラー、HDR10、PyroWave、ゲームパッド、マイク、MIDI、および生のUSBパススルーは無料です。圧力と傾きに対応したWacomタブレットとハードウェアKVMファームウェア（デバイスごとに$19の生涯ライセンス、24時間の無料評価）はProです。
+</details>
+
+<details>
+<summary><b>Sipeed NanoKVMまたはRadxaボードをIP-KVMに変えることはできますか？</b></summary>
+
+はい。[ハードウェアエージェントページ](https://www.usbridge.io/hardware-agent/)からUSBridgeファームウェアをフラッシュしてください。BIOS/UEFIアクセス、ISOおよびIMG仮想メディア、不変のBtrfsスナップショット、60 FPSビデオ、音声、USBパススルーが得られます。RadxaボードにはHDMI-to-USBキャプチャドングルが必要です。
+</details>
+
+<details>
+<summary><b>ポートフォワーディングは必要ですか？</b></summary>
+
+いいえ。接続はTailscaleのピアツーピア経由で行われ、自動NATトラバーサルが行われます。
+</details>
+
+<details>
+<summary><b>他の人とコンピュータへのアクセスを共有できますか？</b></summary>
+
+はい。役割と終了日を指定してメールで招待できます。ゲストはUSBridgeを通じて参加し、Tailscaleアカウントは必要ありません。
+</details>
 
 ## リソースとライセンス
 
@@ -164,21 +224,23 @@ Playストアアカウントなしで直接APKを希望しますか？自己更�
   <tr>
     <td width="33%" valign="top">
       <b>開発とロードマップ</b><br>
-      計画されたすべての機能、アーキテクチャの更新、およびリリーススケジュールを追跡するための公開ダッシュボードを維持しています。<br><br>
-      <a href="https://github.com/orgs/USBridge-Technologies/projects/3">ライブロードマップを見る</a>
+      計画されているすべての機能、アーキテクチャの更新、およびリリーススケジュールを追跡するための公開ダッシュボードを維持しています。<br><br>
+      <a href="https://github.com/orgs/USBridge-Technologies/projects/3">ライブロードマップを表示</a>
     </td>
     <td width="33%" valign="top">
       <b>プロジェクトリンク</b><br>
       <ul>
         <li><a href="https://usbridge.io">公式ウェブサイト</a></li>
-        <li><a href="https://discord.com/invite/xqQ6ybkfWS">Discord（ベータテスト＆バグ）</a></li>
+        <li><a href="https://discord.com/invite/xqQ6ybkfWS">Discord（ベータテストとバグ）</a></li>
+        <li><a href="https://www.reddit.com/r/USBridge/">Reddit</a></li>
+        <li><a href="https://www.youtube.com/@KVMUSBridge">YouTube</a></li>
         <li><a href="https://www.patreon.com/USBridge_Technologies">Patreonサポート</a></li>
       </ul>
     </td>
     <td width="33%" valign="top">
-      <b>ライセンス（GPLv3）</b><br>
-      このプロジェクトは<b>GPLv3</b>の下でライセンスされています。マルチプラットフォームクライアントは、<code>moonlight-common-c</code>（同じくGPLv3）のコードベースを組み込んでいます。<br><br>
-      <a href="LICENSE">LICENSEファイルを見る</a>
+      <b>ライセンス (GPLv3)</b><br>
+      このプロジェクトは<b>GPLv3</b>の下でライセンスされています。マルチプラットフォームクライアントは、<code>moonlight-common-c</code>（GPLv3でも）からのコードベースを組み込んでいます。<br><br>
+      <a href="LICENSE">ライセンスファイルを表示</a>
     </td>
   </tr>
 </table>
