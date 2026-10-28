@@ -1,7 +1,7 @@
 # USBridge Remote
 
 <div align="center">
-  <img src="./assets/banner6.svg" width="1400" alt="USBridge Remote">
+  <img src="./assets/banner6.svg" width="1400" alt="USBridge Remote: low-latency remote desktop and KVM-over-IP">
 </div>
 
 <div align="center">
@@ -19,10 +19,10 @@
 
 ---
 
-**USBridge Remote** is a unified high-performance client for managing remote machines. Engineered to combine **hardware-level BIOS access** (via USBridge KVM devices) and **software-based remote desktop** in a single, streamlined interface.
+**USBridge Remote** is a low-latency **remote desktop** and **KVM-over-IP** ecosystem: one client for Windows, macOS, Linux, Android, iOS and the browser, a host agent with a built-in **Sunshine / Moonlight** game streamer, and IP-KVM firmware for **Radxa Zero 3W**, **Radxa Cubie A7Z** and **Sipeed NanoKVM** boards. It combines **hardware-level BIOS access** and **software remote desktop** in a single interface, with USB passthrough for gamepads, Wacom tablets, MIDI and microphones, and Tailscale P2P networking with no port forwarding.
 
 <div align="center">
-  <img src="./assets/Functions.svg" width="1400" alt="USBridge Remote">
+  <img src="./assets/Functions.svg" width="1400" alt="USBridge Remote features: remote desktop, game streaming, USB passthrough, hardware KVM">
 </div>
 
 
@@ -119,7 +119,9 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <code>+ BASIC FEATURES</code> <code>+ FREE FEATURES</code><br><br>
       <b>USBRIDGE PRO</b><br>
       <i>Professional Workflows</i><br><br>
-      ✓ Wacom tablet support with pressure & tilt<br><br>
+      ✓ Wacom tablet support with pressure & tilt<br>
+      ✓ <a href="https://www.usbridge.io/hardware-agent/">Hardware KVM firmware</a> for Radxa Zero 3W, Radxa Cubie A7Z and Sipeed NanoKVM: BIOS/UEFI access, ISO virtual media, Btrfs snapshots ($19 lifetime per device, 24 h free evaluation)<br>
+      ✓ <a href="https://www.usbridge.io/moonlight-hardware-streamer/">Hardware Moonlight streamer</a> on those boards: any HDMI source (PC, PS5, Xbox, Switch) to Moonlight at 1080p 60 FPS, no software on the source<br><br>
     </td>
   </tr>
 </table>
@@ -133,7 +135,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
 3. **Add a connection** — enter the IP or Tailscale address shown in the Agent window. That's it.
 
 <div align="center">
-  <img src="./assets/QuickStart.svg" width="1400" alt="USBridge Remote">
+  <img src="./assets/QuickStart.svg" width="1400" alt="USBridge Remote quick start: install the agent, install the client, connect">
 </div>
 
 ## Hardware Integration
@@ -142,12 +144,12 @@ The Agent runs on the target machine — the server or PC you want to access rem
   <tr>
    <td width="33%" valign="top">
       <b>Hardware-Level BIOS Control</b><br>
-      USBridge Remote integrates natively with the USBridge-KVM 2.0 appliance for out-of-band, bare-metal management before OS boot.<br><br>
+      USBridge Remote integrates natively with the USBridge-KVM 2.0 appliance for out-of-band, bare-metal management before OS boot. It is also the first hardware Moonlight streamer: the stock Moonlight client pairs with the KVM and streams any HDMI source (a PC or a game console) with no software on it.<br><br>
       <a href="https://www.usbridge.io/hardware-agent?utm_campaign=readme-kvm&utm_medium=readme&utm_source=github#buy-usbridge-kvm-2-0"><img src="https://img.shields.io/badge/Buy-USBridge--KVM_2.0-2da44e?style=for-the-badge" alt="Buy USBridge-KVM 2.0"></a>
     </td>
     <td width="33%" valign="top">
       <b>DIY IP-KVM Firmware</b><br>
-      Deploy the official firmware on a compatible SBC (e.g., Radxa Zero 3W/3E, Cubie A7) with a USB capture interface to provision a custom KVM node.<br><br>
+      Flash the official firmware on a compatible board (Radxa Zero 3W, Radxa Cubie A7Z) with an HDMI-to-USB capture dongle to build your own IP-KVM. On a <b>Sipeed NanoKVM</b> it replaces the stock firmware: smooth 60 FPS instead of a stuttering picture, audio and microphone, gamepads, USB passthrough and Moonlight support (<a href="https://www.usbridge.io/nanokvm-firmware/">NanoKVM firmware</a>).<br><br>
       <a href="https://www.usbridge.io/hardware-agent"><img src="https://img.shields.io/badge/DOWNLOAD-DIY_FIRMWARE-007ec6?style=for-the-badge" alt="Get the Firmware"></a>
     </td>
     <td width="33%" valign="top">
