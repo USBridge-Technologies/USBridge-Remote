@@ -29,16 +29,16 @@
 ## Download
 
 ### Cliente
-O Cliente é a interface de controle — instalada em sua estação de trabalho ou laptop (ou executada diretamente em seu navegador). Ele gerencia conexões, desktop remoto ao vivo, passthrough de dispositivos virtuais e registro de snapshots.
+O Cliente é a interface de controle — instalada em sua estação de trabalho ou laptop (ou executada diretamente em seu navegador). Ele gerencia conexões, desktop remoto ao vivo, passagem de dispositivos virtuais e registro de instantâneos.
 
 | Arquitetura | Windows | macOS | Linux | Android | iOS | Navegador Web |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [Abrir App](https://web.usbridge.io) |
-| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [Abrir App](https://web.usbridge.io) |
+| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [Open App](https://web.usbridge.io) |
+| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [Open App](https://web.usbridge.io) |
 
-Prefere um APK direto sem uma conta da Play Store? Uma versão autoatualizável também é publicada na [última versão](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
+Prefere um APK direto sem uma conta do Play Store? Uma versão autoatualizável também é publicada na [última versão](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
-🌐 **Cliente Web Zero-Install**: Nenhuma instalação necessária. Basta abrir [web.usbridge.io](https://web.usbridge.io) para conectar instantaneamente. *(Nota: O cliente web opera com algumas limitações de recursos e desempenho devido à segurança do navegador e restrições do WebRTC. Para a experiência completa sem compromissos, use os aplicativos nativos).* O cliente web alcança um Agente através de seu nome confiável `<label>.device.usbridge.io`: o Agente recebe esse certificado na primeira vez que um navegador acessa, e apenas enquanto você estiver conectado à sua conta USBridge no Agente — então a primeira tentativa pode levar alguns minutos. Veja a linha **Status → Certificado** do Agente, ou a [documentação do Agente](agent/docs/README.md#platform-notes-from-the-top-level-readme) para detalhes. Um USBridge KVM também serve o cliente web em `https://<kvm>:9443/` e muda para seu próprio nome confiável quando pode.
+🌐 **Cliente Web Zero-Install**: Nenhuma instalação necessária. Basta abrir [web.usbridge.io](https://web.usbridge.io) para se conectar instantaneamente. *(Nota: O cliente web opera com algumas limitações de recursos e desempenho devido à segurança do navegador e restrições do WebRTC. Para a experiência completa, use os aplicativos nativos).* O cliente web alcança um Agente através de seu nome confiável `<label>.device.usbridge.io`: o Agente obtém esse certificado na primeira vez que um navegador acessa, e apenas enquanto você estiver logado em sua conta USBridge no Agente — então a primeira tentativa pode levar alguns minutos. Veja a linha **Status → Certificado** do Agente, ou a [documentação do Agente](agent/docs/README.md#platform-notes-from-the-top-level-readme) para detalhes. Um USBridge KVM também serve o cliente web em `https://<kvm>:9443/` e muda para seu próprio nome confiável quando puder.
 
 ## Agente
 
@@ -86,30 +86,32 @@ O Agente é executado na máquina alvo — o servidor ou PC que você deseja ace
       <code>FUNCIONALIDADE BÁSICA</code><br><br>
       <b>SUNSHINE OPEN-SOURCE</b><br>
       <i>Streaming de Jogos Padrão</i><br><br>
-      ✓ Streamer Sunshine open-source embutido<br>
+      ✓ Streamer Sunshine de código aberto embutido<br>
+      ✓ Streamers alternativos: Vibepollo (fork do Sunshine com Apollo embutido, Windows) e punktfunk (compatível com Moonlight, Windows & Linux), troca em um clique<br>
+      ✓ Benchmark embutido para comparar Sunshine, RustShine, Vibepollo e punktfunk em seu próprio hardware e rede<br>
       ✓ Acesso a desktop e jogos com baixa latência<br>
       ✓ Área de transferência de arquivos e texto bidirecional<br>    
-      ✓ Troca de exibição em múltiplos monitores<br>
+      ✓ Troca de exibição de múltiplos monitores<br>
       ✓ Rede P2P Tailscale integrada<br>
       ✓ Acesso de convidados: convide pessoas por e-mail com um papel e uma data de término<br>
-      ✓ Suporte nativo a Wayland (captura sem prompt)
+      ✓ Suporte nativo ao Wayland (captura sem prompt)
     </td>
     <td width="33%" valign="top">
       <code>+ RECURSOS BÁSICOS</code><br><br>
       <b>USBRIDGE FREE</b><br>
-      <i>Mecanismo de Streaming baseado em Rust</i><br><br>
+      <i>Motor de Stream baseado em Rust</i><br><br>
       ✓ Protocolo remoto personalizado de conexão instantânea<br>
-      ✓ Passthrough de dispositivo periférico USB bruto<br>
-      ✓ Streaming adaptativo otimizado para estabilidade Wi-Fi<br>
+      ✓ Passagem de dispositivo periférico USB bruto<br>
+      ✓ Streaming adaptativo otimizado para estabilidade de Wi-Fi<br>
       ✓ HDR10<br>
-      ✓ Precisão de cor 4:4:4 sem perdas<br>
-      ✓ Passthrough de microfone (cliente → host)<br>
-      ✓ Passthrough de dispositivo MIDI (cliente → host)<br>
+      ✓ Precisão de cor cromática 4:4:4 sem perdas<br>
+      ✓ Passagem de microfone (cliente → host)<br>
+      ✓ Passagem de dispositivo MIDI (cliente → host)<br>
       ✓ Codificação GPU: NVENC, AMF, QSV, VAAPI<br>
       ✓ Software H.264 (OpenH264) para VMs sem GPU<br>
       ✓ Codec de wavelet de baixa latência PyroWave (da Valve)<br>
       ✓ Gerenciamento de exibição virtual sem cabeça<br>
-      ✓ Passthrough de controlador de gamepad com baixa latência<br>
+      ✓ Passagem de controle de gamepad de baixa latência<br>
       ✓ Acesso ao cliente do navegador web (sem instalação necessária)<br>
       ✓ Acesso pré-login no Windows (entrada de credenciais segura)
     </td>
@@ -150,7 +152,7 @@ O Agente é executado na máquina alvo — o servidor ou PC que você deseja ace
     </td>
     <td width="33%" valign="top">
       <b>Dongle de Hardware USB/IP (ESP32-S3)</b><br>
-      O passthrough de USB por software encontra um obstáculo no macOS: não há driver VHCI para se conectar, então um tablet Wacom remoto (ou outro dispositivo USB) não pode ser apresentado como hardware real. Este dongle se conecta ao Mac e faz em hardware o que <code>vhci-hcd</code> faz em software em outros lugares — o dispositivo exportado é enumerado com seu próprio VID/PID, vinculado ao driver do próprio macOS.<br><br>
+      A passagem de USB por software encontra um obstáculo no macOS: não há driver VHCI para se conectar, então um tablet Wacom remoto (ou outro dispositivo USB) não pode ser apresentado como hardware real. Este dongle se conecta ao Mac e faz em hardware o que <code>vhci-hcd</code> faz em software em outros lugares — o dispositivo exportado é enumerado com seu próprio VID/PID, vinculado pelo próprio driver do macOS.<br><br>
       <a href="esp32-acm/README.md"><img src="https://img.shields.io/badge/Open_Hardware-esp32--acm-f59e0b?style=for-the-badge" alt="esp32-acm firmware & docs"></a>
     </td>
   </tr>
@@ -175,7 +177,7 @@ O Agente é executado na máquina alvo — o servidor ou PC que você deseja ace
     </td>
     <td width="33%" valign="top">
       <b>Licença (GPLv3)</b><br>
-      Este projeto está licenciado sob a <b>GPLv3</b>. O cliente multiplataforma incorpora código da <code>moonlight-common-c</code> (também GPLv3).<br><br>
+      Este projeto é licenciado sob a <b>GPLv3</b>. O cliente multiplataforma incorpora código de <code>moonlight-common-c</code> (também GPLv3).<br><br>
       <a href="LICENSE">Ver Arquivo de LICENÇA</a>
     </td>
   </tr>
