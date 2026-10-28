@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // appBundleName is the on-disk .app name for this binary — used both to
@@ -99,12 +101,55 @@ func currentAppBundlePath() (string, error) {
 	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
 		exePath = resolved
 	}
+	exePath = untranslocate(exePath)
 	marker := "/" + appBundleName + "/"
 	idx := strings.Index(exePath, marker)
 	if idx < 0 {
 		return "", fmt.Errorf("running binary %s is not inside %s (not installed as a normal .app bundle — e.g. running from `go run` or a bare binary), skipping self-update", exePath, appBundleName)
 	}
 	return exePath[:idx+len(marker)-1], nil
+}
+
+// untranslocate maps a path inside a Gatekeeper App Translocation mount
+// back to the real on-disk location. An app that still carries the
+// com.apple.quarantine xattr (e.g. downloaded with a browser and copied
+// into /Applications without Finder's drag-move clearing it) is launched
+// from a read-only nullfs mount at
+// /private/var/folders/.../AppTranslocation/<UUID>/d/<App>.app, whose
+// source is the original bundle — installing next to the translocated copy
+// fails with "Read-only file system". The mount table names the source, so
+// no private Security.framework call is needed. Paths outside a
+// translocation mount are returned unchanged.
+func untranslocate(path string) string {
+	const marker = "/AppTranslocation/"
+	i := strings.Index(path, marker)
+	if i < 0 {
+		return path
+	}
+	n, err := unix.Getfsstat(nil, unix.MNT_NOWAIT)
+	if err != nil || n <= 0 {
+		return path
+	}
+	mounts := make([]unix.Statfs_t, n)
+	if n, err = unix.Getfsstat(mounts, unix.MNT_NOWAIT); err != nil {
+		return path
+	}
+	for _, m := range mounts[:n] {
+		on := unix.ByteSliceToString(m.Mntonname[:])
+		// The mount point is .../AppTranslocation/<UUID>; the bundle sits
+		// under its "d/" subdirectory and the mount's source is the bundle.
+		prefix := on + "/d/"
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		rest := path[len(prefix):] // <App>.app/Contents/MacOS/...
+		slash := strings.IndexByte(rest, '/')
+		if slash < 0 {
+			return unix.ByteSliceToString(m.Mntfromname[:])
+		}
+		return unix.ByteSliceToString(m.Mntfromname[:]) + rest[slash:]
+	}
+	return path
 }
 
 // verifyAppleCodesign requires the downloaded bundle to carry a valid,
