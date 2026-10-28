@@ -87,7 +87,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <b>SUNSHINE OPEN-SOURCE</b><br>
       <i>Standard Game Streaming</i><br><br>
       ✓ Built-in open-source Sunshine streamer<br>
-      ✓ Alternative streamers: Vibepollo (Sunshine fork, Windows) and punktfunk (Moonlight-compatible, Windows & Linux), switch in one click<br>
+      ✓ Alternative streamers: Vibepollo (Sunshine fork with Apollo built in, Windows) and punktfunk (Moonlight-compatible, Windows & Linux), switch in one click<br>
       ✓ Built-in benchmark to compare Sunshine, RustShine, Vibepollo and punktfunk on your own hardware and network<br>
       ✓ Low-latency desktop & gaming access<br>
       ✓ Bi-directional file & text clipboard<br>    
