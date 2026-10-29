@@ -5,7 +5,7 @@ name: client-snap
 # as the release-client-snap artifact and, when SNAPCRAFT_STORE_CREDENTIALS is
 # set, publishes it to the Snap Store.
 #
-# release-all.yml calls this after client-linux, with the AppImage from that
+# release-all.yml and snap-only.yml call this after client-linux, with the AppImage from that
 # run's release-client-linux artifact. Dispatched by hand it takes the AppImage
 # from an existing GitHub Release instead, so the packaging can be tried
 # without a full multi-platform build (nothing is published then unless
@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+      channel:
+        # Overrides the prerelease mapping below (snap-only.yml).
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       release_tag:
@@ -110,4 +115,4 @@ jobs:
         uses: snapcore/action-publish@v1
         with:
           snap: ${{ steps.build.outputs.snap }}
-          release: ${{ (inputs.release_tag != '' || inputs.prerelease) && 'edge' || 'stable' }}
+          release: ${{ inputs.channel != '' && inputs.channel || ((inputs.release_tag != '' || inputs.prerelease) && 'edge' || 'stable') }}

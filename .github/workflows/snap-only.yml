@@ -1,0 +1,30 @@
+name: snap-only
+
+# Builds only the Linux client (client-linux.yml) and its snap
+# (client-snap.yml) from the selected ref, and publishes the snap to the Snap
+# Store. No GitHub Release, no other platforms, no repositories or web deploy:
+# for shipping a snap fix without a full release-all.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Snap Store channel"
+        required: true
+        type: choice
+        options: [stable, candidate, beta, edge]
+        default: stable
+
+permissions:
+  contents: read
+
+jobs:
+  client-linux:
+    uses: ./.github/workflows/client-linux.yml
+
+  client-snap:
+    needs: client-linux
+    uses: ./.github/workflows/client-snap.yml
+    with:
+      channel: ${{ inputs.channel }}
+    secrets: inherit

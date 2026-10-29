@@ -389,57 +389,8 @@ jobs:
   # ── Client ───────────────────────────────────────────────────────────────
 
   client-linux:
-    # Ubuntu 22.04 base (glibc 2.35) so the client runs on Ubuntu 22.04+ and
-    # Debian 12+, with the same FFmpeg 6.1 it always shipped: 22.04's own is
-    # 4.4, so build_ffmpeg_linux.sh builds 6.1.1 (+ dav1d, libvpl,
-    # nv-codec-headers) and build_linux.sh links and bundles that instead.
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: client/go.mod
-      - name: Install Linux build deps
-        # No libavcodec-dev & co.: FFmpeg comes from build_ffmpeg_linux.sh.
-        # ocl-icd-libopencl1: the bundled OpenVINO GPU plugin links libOpenCL.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgl1-mesa-dev xorg-dev libxkbcommon-dev libpulse-dev \
-            libva-dev libva-drm2 libvdpau-dev libdrm-dev libx264-dev \
-            nasm meson ninja-build ocl-icd-libopencl1 \
-            libopus-dev libssl-dev libusb-1.0-0-dev pkg-config cmake libvulkan-dev \
-            libarchive-tools zstd rpm
-      - name: Cache FFmpeg
-        id: ffmpeg-cache
-        uses: actions/cache@v4
-        with:
-          path: client/dist/linux/ffmpeg
-          key: ffmpeg-ubuntu22.04-${{ hashFiles('client/scripts/build_ffmpeg_linux.sh') }}
-      - name: Build FFmpeg 6.1
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
-        working-directory: client
-        run: ./scripts/build_ffmpeg_linux.sh
-      - name: Build (Linux)
-        # build_linux.sh packages an AppImage directly (client/dist/USBridgeClient-Linux-x86_64-<VERSION>.AppImage),
-        # bundling FFmpeg/libpulse/libopus/etc. via linuxdeploy, then the .deb
-        # Arch package and RPM from the same AppDir.
-        working-directory: client
-        env:
-          USBRIDGE_FFMPEG_PREFIX: ${{ github.workspace }}/client/dist/linux/ffmpeg
-        run: ./scripts/build_linux.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-client-linux
-          path: |
-            client/dist/USBridgeClient-Linux-x86_64-*.AppImage
-            client/dist/USBridgeClient-Linux-x86_64-*.deb
-            client/dist/usbridge-client-*.pkg.tar.zst
-            client/dist/usbridge-client-*.rpm
-          if-no-files-found: error
-          retention-days: 7
+    # See client-linux.yml (also used by snap-only.yml).
+    uses: ./.github/workflows/client-linux.yml
 
   client-snap:
     # Packs the snap from client-linux's AppImage, checks that it starts and,
