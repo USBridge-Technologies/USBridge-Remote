@@ -19,7 +19,7 @@
 
 ---
 
-**USBridge Remote** is a low-latency **remote desktop** and **KVM-over-IP** ecosystem: one client for Windows, macOS, Linux, Android, iOS and the browser, a host agent with a built-in **Sunshine / Moonlight** game streamer, and IP-KVM firmware for **Radxa Zero 3W**, **Radxa Cubie A7Z** and **Sipeed NanoKVM** boards. It combines **hardware-level BIOS access** and **software remote desktop** in a single interface, with USB passthrough for gamepads, Wacom tablets, MIDI and microphones, and Tailscale P2P networking with no port forwarding.
+**USBridge Remote** is a low-latency **remote desktop** and **KVM-over-IP** ecosystem: one client for Windows, macOS, Linux, Android, iOS and the browser, a host agent with a built-in **Sunshine / Moonlight** game streamer, and IP-KVM firmware for **Radxa Zero 3W/3E**, **Radxa Cubie A7Z** and **Sipeed NanoKVM** boards. It combines **hardware-level BIOS access** and **software remote desktop** in a single interface, with USB passthrough for gamepads, Wacom tablets, MIDI and microphones, and Tailscale P2P networking with no port forwarding.
 
 <div align="center">
   <img src="./assets/Functions.svg" width="1400" alt="USBridge Remote features: remote desktop, game streaming, USB passthrough, hardware KVM">
@@ -30,7 +30,7 @@
 
 **All-in-one installer (Client + Agent, pick either or both during setup):** [Windows Setup (.exe)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-Windows-x86_64-Setup.exe) · [macOS disk image (.dmg)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-macOS-arm64.dmg)
 
-Linux packages (.deb, .rpm, Arch) add the USBridge package repository, so the apps update with the rest of the system. All files are on the [latest release](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
+All files are on the [latest release](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
 ### Client
 The Client is the control interface — installed on your workstation or laptop (or run directly in your browser). It manages connections, live remote desktop, virtual device passthrough, and snapshot registry.
@@ -39,10 +39,40 @@ The Client is the control interface — installed on your workstation or laptop 
 | :--- | :--- | :--- | :--- |
 | **Windows** x86_64 | [Setup (.exe)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-Windows-x86_64-Setup.exe) | [Portable (.zip)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — |
 | **macOS** Apple Silicon | [Disk image (.dmg)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | — |
-| **Linux** x86_64 | [Debian / Ubuntu (.deb)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.deb) | [AppImage](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | [Fedora / RHEL (.rpm)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.rpm) · [Arch (.pkg.tar.zst)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.pkg.tar.zst) |
+| **Linux** x86_64 | [Debian / Ubuntu (.deb)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.deb) · [Fedora / RHEL (.rpm)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.rpm) · [Arch (.pkg.tar.zst)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.pkg.tar.zst) | [AppImage](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | [APT · DNF · pacman repository](#install-from-the-terminal) |
 | **Android** ARM64 | [APK (self-updating)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Android-arm64-selfupdate.apk) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) |
 | **iOS / iPadOS** | — | — | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) |
 | **Web browser** | — | [Open web.usbridge.io](https://web.usbridge.io) | — |
+
+### Install from the terminal
+
+One command installs the Client and the Agent. On Linux it picks the native package for your distribution (apt on Debian/Ubuntu, dnf on Fedora/RHEL, pacman on Arch), and the package adds the signed USBridge repository, so the apps then update with the rest of the system:
+
+```sh
+# Linux and macOS
+curl -fsSL https://www.usbridge.io/install.sh | sh
+# Agent only (a machine you only reach remotely)
+curl -fsSL https://www.usbridge.io/install.sh | sh -s -- --agent
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://www.usbridge.io/install.ps1 | iex
+```
+
+<details>
+<summary><b>Add the APT repository by hand (Debian / Ubuntu)</b></summary>
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/scripts/deb/usbridge-archive-keyring.gpg \
+  | sudo tee /usr/share/keyrings/usbridge-archive-keyring.gpg >/dev/null
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/usbridge-archive-keyring.gpg] https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download ./" \
+  | sudo tee /etc/apt/sources.list.d/usbridge.list
+sudo apt update && sudo apt install usbridge-client usbridge-agent
+```
+
+A downloaded `.deb`, `.rpm` or Arch package sets up the same repository when you install it.
+</details>
 
 🌐 **Zero-Install Web Client**: No installation required. Just open [web.usbridge.io](https://web.usbridge.io) to connect instantly. *(Note: The web client operates with some feature and performance limitations due to browser security sandbox and WebRTC constraints. For the full uncompromised experience, use the native apps).* The web client reaches an Agent through its trusted `<label>.device.usbridge.io` name: the Agent gets that certificate the first time a browser comes to it, and only while you're signed in to your USBridge account in the Agent — so the very first attempt can take a few minutes. See the Agent's **Status → Certificate** row, or the [Agent docs](agent/docs/README.md#platform-notes-from-the-top-level-readme) for details. A USBridge KVM also serves the web client itself at `https://<kvm>:9443/` and moves to its own trusted name when it can.
 
@@ -124,7 +154,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
       <b>USBRIDGE PRO</b><br>
       <i>Professional Workflows</i><br><br>
       ✓ Wacom tablet support with pressure & tilt (<a href="https://www.usbridge.io/macos-wacom-support/">macOS too</a>)<br>
-      ✓ <a href="https://www.usbridge.io/hardware-agent/">Hardware KVM firmware</a> for Radxa Zero 3W, Radxa Cubie A7Z and Sipeed NanoKVM: BIOS/UEFI access, ISO virtual media, Btrfs snapshots ($19 lifetime per device, 24 h free evaluation)<br>
+      ✓ <a href="https://www.usbridge.io/hardware-agent/">Hardware KVM firmware</a> for Radxa Zero 3W/3E, Radxa Cubie A7Z and Sipeed NanoKVM: BIOS/UEFI access, ISO virtual media, Btrfs snapshots ($19 lifetime per device, 24 h free evaluation)<br>
       ✓ <a href="https://www.usbridge.io/moonlight-hardware-streamer/">Hardware Moonlight streamer</a> on those boards: any HDMI source (PC, PS5, Xbox, Switch) to Moonlight at 1080p 60 FPS, no software on the source<br><br>
     </td>
   </tr>
@@ -153,7 +183,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
     </td>
     <td width="33%" valign="top">
       <b>DIY IP-KVM Firmware</b><br>
-      Flash the official firmware on a compatible board (Radxa Zero 3W, Radxa Cubie A7Z) with an HDMI-to-USB capture dongle to build your own IP-KVM. On a <b>Sipeed NanoKVM</b> it replaces the stock firmware: smooth 60 FPS instead of a stuttering picture, audio and microphone, gamepads, USB passthrough and Moonlight support (<a href="https://www.usbridge.io/hardware-agent/">download the firmware</a>).<br><br>
+      Flash the official firmware on a compatible board (Radxa Zero 3W/3E, Radxa Cubie A7Z) with an HDMI-to-USB capture dongle to build your own IP-KVM. On a <b>Sipeed NanoKVM</b> it replaces the stock firmware: smooth 60 FPS instead of a stuttering picture, audio and microphone, gamepads, USB passthrough and Moonlight support (<a href="https://www.usbridge.io/hardware-agent/">download the firmware</a>).<br><br>
       <a href="https://www.usbridge.io/hardware-agent"><img src="https://img.shields.io/badge/DOWNLOAD-DIY_FIRMWARE-007ec6?style=for-the-badge" alt="Get the Firmware"></a>
     </td>
     <td width="33%" valign="top">
@@ -188,7 +218,7 @@ Yes. The Agent ships the open-source Sunshine streamer, so the stock Moonlight c
 <details>
 <summary><b>Is there a hardware Moonlight streamer?</b></summary>
 
-Yes. A USBridge KVM 2.0, or a Radxa Zero 3W, Radxa Cubie A7Z or Sipeed NanoKVM flashed with USBridge firmware, is a Sunshine-compatible GameStream host for whatever is on its HDMI input: a PC, PS5, Xbox or Switch. It streams 1080p 60 FPS with audio to the stock Moonlight client, with no software on the source. See [Hardware Moonlight Streamer](https://www.usbridge.io/moonlight-hardware-streamer/).
+Yes. A USBridge KVM 2.0, or a Radxa Zero 3W/3E, Radxa Cubie A7Z or Sipeed NanoKVM flashed with USBridge firmware, is a Sunshine-compatible GameStream host for whatever is on its HDMI input: a PC, PS5, Xbox or Switch. It streams 1080p 60 FPS with audio to the stock Moonlight client, with no software on the source. See [Hardware Moonlight Streamer](https://www.usbridge.io/moonlight-hardware-streamer/).
 </details>
 
 <details>
