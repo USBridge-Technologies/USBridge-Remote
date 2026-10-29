@@ -19,36 +19,65 @@
 
 ---
 
-**USBridge Remote** é um ecossistema de **desktop remoto** e **KVM-over-IP** de baixa latência: um cliente para Windows, macOS, Linux, Android, iOS e o navegador, um agente host com um streamer de jogos **Sunshine / Moonlight** embutido, e firmware IP-KVM para placas **Radxa Zero 3W**, **Radxa Cubie A7Z** e **Sipeed NanoKVM**. Ele combina **acesso ao BIOS em nível de hardware** e **desktop remoto de software** em uma única interface, com passthrough USB para gamepads, tablets Wacom, MIDI e microfones, e rede P2P Tailscale sem necessidade de redirecionamento de portas.
+**USBridge Remote** é um ecossistema de **desktop remoto** de baixa latência e **KVM-over-IP**: um cliente para Windows, macOS, Linux, Android, iOS e o navegador, um agente host com um streamer de jogos **Sunshine / Moonlight** embutido, e firmware IP-KVM para placas **Radxa Zero 3W/3E**, **Radxa Cubie A7Z** e **Sipeed NanoKVM**. Ele combina **acesso ao BIOS em nível de hardware** e **desktop remoto de software** em uma única interface, com passthrough USB para gamepads, tablets Wacom, MIDI e microfones, e rede P2P Tailscale sem necessidade de redirecionamento de portas.
 
 <div align="center">
   <img src="./assets/Functions.svg" width="1400" alt="Recursos do USBridge Remote: desktop remoto, streaming de jogos, passthrough USB, KVM de hardware">
 </div>
 
-
 ## Download
 
 **Instalador tudo-em-um (Cliente + Agente, escolha um ou ambos durante a configuração):** [Windows Setup (.exe)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-Windows-x86_64-Setup.exe) · [imagem de disco macOS (.dmg)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-macOS-arm64.dmg)
 
-Os pacotes Linux (.deb, .rpm, Arch) adicionam o repositório de pacotes USBridge, para que os aplicativos sejam atualizados com o restante do sistema. Todos os arquivos estão na [última versão](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
+Todos os arquivos estão na [última versão](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
 ### Cliente
-O Cliente é a interface de controle — instalada em sua estação de trabalho ou laptop (ou executada diretamente em seu navegador). Ele gerencia conexões, desktop remoto ao vivo, passthrough de dispositivos virtuais e registro de snapshots.
+O Cliente é a interface de controle — instalada em sua estação de trabalho ou laptop (ou executada diretamente em seu navegador). Ele gerencia conexões, desktop remoto ao vivo, passthrough de dispositivos virtuais e registro de instantâneos.
 
 | Plataforma | Instalador | Portátil | Pacotes / Loja |
 | :--- | :--- | :--- | :--- |
 | **Windows** x86_64 | [Setup (.exe)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-Windows-x86_64-Setup.exe) | [Portátil (.zip)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — |
 | **macOS** Apple Silicon | [Imagem de disco (.dmg)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | — |
-| **Linux** x86_64 | [Debian / Ubuntu (.deb)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.deb) | [AppImage](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | [Fedora / RHEL (.rpm)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.rpm) · [Arch (.pkg.tar.zst)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.pkg.tar.zst) |
+| **Linux** x86_64 | [Debian / Ubuntu (.deb)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.deb) · [Fedora / RHEL (.rpm)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.rpm) · [Arch (.pkg.tar.zst)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.pkg.tar.zst) | [AppImage](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | [APT · DNF · repositório pacman](#install-from-the-terminal) |
 | **Android** ARM64 | [APK (autoatualizável)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Android-arm64-selfupdate.apk) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) |
 | **iOS / iPadOS** | — | — | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) |
 | **Navegador da Web** | — | [Abrir web.usbridge.io](https://web.usbridge.io) | — |
 
-🌐 **Cliente Web Zero-Install**: Nenhuma instalação necessária. Basta abrir [web.usbridge.io](https://web.usbridge.io) para se conectar instantaneamente. *(Nota: O cliente web opera com algumas limitações de recursos e desempenho devido à segurança do navegador e às restrições do WebRTC. Para uma experiência completa e sem compromissos, use os aplicativos nativos).* O cliente web alcança um Agente através de seu nome confiável `<label>.device.usbridge.io`: o Agente obtém esse certificado na primeira vez que um navegador acessa, e apenas enquanto você estiver logado em sua conta USBridge no Agente — então a primeira tentativa pode levar alguns minutos. Veja a linha **Status → Certificado** do Agente, ou a [documentação do Agente](agent/docs/README.md#platform-notes-from-the-top-level-readme) para detalhes. Um KVM USBridge também serve o cliente web em `https://<kvm>:9443/` e muda para seu próprio nome confiável quando pode.
+### Instalar pelo terminal
+
+Um comando instala o Cliente e o Agente. No Linux, ele escolhe o pacote nativo para sua distribuição (apt no Debian/Ubuntu, dnf no Fedora/RHEL, pacman no Arch), e o pacote adiciona o repositório assinado do USBridge, para que os aplicativos sejam atualizados junto com o restante do sistema:
+
+```sh
+# Linux e macOS
+curl -fsSL https://www.usbridge.io/install.sh | sh
+# Apenas Agente (uma máquina que você acessa apenas remotamente)
+curl -fsSL https://www.usbridge.io/install.sh | sh -s -- --agent
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://www.usbridge.io/install.ps1 | iex
+```
+
+<details>
+<summary><b>Adicionar o repositório APT manualmente (Debian / Ubuntu)</b></summary>
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/scripts/deb/usbridge-archive-keyring.gpg \
+  | sudo tee /usr/share/keyrings/usbridge-archive-keyring.gpg >/dev/null
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/usbridge-archive-keyring.gpg] https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download ./" \
+  | sudo tee /etc/apt/sources.list.d/usbridge.list
+sudo apt update && sudo apt install usbridge-client usbridge-agent
+```
+
+Um `.deb`, `.rpm` ou pacote Arch baixado configura o mesmo repositório quando você o instala.
+</details>
+
+🌐 **Cliente Web Zero-Install**: Nenhuma instalação necessária. Basta abrir [web.usbridge.io](https://web.usbridge.io) para conectar instantaneamente. *(Nota: O cliente web opera com algumas limitações de recursos e desempenho devido à segurança do navegador e às restrições do WebRTC. Para a experiência completa sem compromissos, use os aplicativos nativos).* O cliente web alcança um Agente através de seu nome confiável `<label>.device.usbridge.io`: o Agente obtém esse certificado na primeira vez que um navegador acessa, e apenas enquanto você estiver conectado à sua conta USBridge no Agente — então a primeira tentativa pode levar alguns minutos. Veja a linha **Status → Certificado** do Agente, ou a [documentação do Agente](agent/docs/README.md#platform-notes-from-the-top-level-readme) para detalhes. Um KVM USBridge também serve o próprio cliente web em `https://<kvm>:9443/` e muda para seu próprio nome confiável quando pode.
 
 ## Agente
 
-O Agente roda na máquina alvo — o servidor ou PC que você deseja acessar remotamente. Ele captura a tela e o som, passa seu teclado, mouse e gamepad para essa máquina e se conecta via Tailscale.
+O Agente é executado na máquina alvo — o servidor ou PC que você deseja acessar remotamente. Ele captura a tela e o som, passa seu teclado, mouse e gamepad para essa máquina e a conecta via Tailscale.
 
 <table>
   <tr>
@@ -75,7 +104,7 @@ O Agente roda na máquina alvo — o servidor ou PC que você deseja acessar rem
     </td>
     <!-- Right Column: Image -->
     <td valign="middle" width="450">
-      <img src="./assets/agent-screenshot.svg" alt="Janela do Agente USBridge: token de conexão, endereço Tailscale e status do stream" width="100%">
+      <img src="./assets/agent-screenshot.svg" alt="Janela do USBridge Agent: token de conexão, endereço Tailscale e status do stream" width="100%">
     </td>
   </tr>
 </table>
@@ -91,13 +120,13 @@ O Agente roda na máquina alvo — o servidor ou PC que você deseja acessar rem
       <b>SUNSHINE CÓDIGO ABERTO</b><br>
       <i>Streaming de Jogos Padrão</i><br><br>
       ✓ Streamer Sunshine de código aberto embutido<br>
-      ✓ <a href="https://www.usbridge.io/sunshine-vs-apollo/">Streamers alternativos</a>: Vibepollo (fork do Sunshine com Apollo embutido, Windows) e punktfunk (compatível com Moonlight, Windows e Linux), troca em um clique<br>
+      ✓ <a href="https://www.usbridge.io/sunshine-vs-apollo/">Streamers alternativos</a>: Vibepollo (fork do Sunshine com Apollo embutido, Windows) e punktfunk (compatível com Moonlight, Windows e Linux), alterna em um clique<br>
       ✓ Benchmark embutido para comparar Sunshine, RustShine, Vibepollo e punktfunk em seu próprio hardware e rede<br>
       ✓ Acesso a desktop e jogos de baixa latência<br>
       ✓ Área de transferência de arquivos e texto bidirecional<br>    
-      ✓ Troca de exibição multi-monitor<br>
+      ✓ Alternância de exibição multi-monitor<br>
       ✓ Rede P2P Tailscale integrada<br>
-      ✓ Acesso de convidado: convide pessoas por e-mail com um papel e uma data de término<br>
+      ✓ Acesso de convidados: convide pessoas por e-mail com um papel e uma data de término<br>
       ✓ Suporte nativo ao Wayland (captura sem prompt)
     </td>
     <td width="33%" valign="top">
@@ -105,7 +134,7 @@ O Agente roda na máquina alvo — o servidor ou PC que você deseja acessar rem
       <b>USBRIDGE GRATUITO</b><br>
       <i>Motor de Stream baseado em Rust</i><br><br>
       ✓ Protocolo remoto personalizado de conexão instantânea<br>
-      ✓ Passthrough de <a href="https://www.usbridge.io/usb-passthrough/">dispositivo periférico USB</a> bruto<br>
+      ✓ Passthrough de <a href="https://www.usbridge.io/usb-passthrough/">dispositivos periféricos USB</a> bruto<br>
       ✓ Streaming adaptativo otimizado para estabilidade de Wi-Fi<br>
       ✓ HDR10<br>
       ✓ Precisão de cor 4:4:4 sem perdas<br>
@@ -113,18 +142,18 @@ O Agente roda na máquina alvo — o servidor ou PC que você deseja acessar rem
       ✓ Passthrough de dispositivo MIDI (cliente → host)<br>
       ✓ Codificação GPU: NVENC, AMF, QSV, VAAPI<br>
       ✓ Software H.264 (OpenH264) para VMs sem GPU<br>
-      ✓ <a href="https://www.usbridge.io/pyrowave/">PyroWave</a> codec de wavelet de baixa latência (da Valve)<br>
-      ✓ Gestão de display virtual sem cabeça<br>
+      ✓ <a href="https://www.usbridge.io/pyrowave/">PyroWave</a> codec wavelet de baixa latência (da Valve)<br>
+      ✓ Gerenciamento de exibição virtual sem cabeça<br>
       ✓ Passthrough de controlador de gamepad de baixa latência<br>
-      ✓ Acesso ao cliente do navegador da web (sem instalação necessária)<br>
-      ✓ Acesso pré-login no Windows (entrada de credenciais segura)
+      ✓ Acesso ao cliente do navegador da web (nenhuma instalação necessária)<br>
+      ✓ Acesso pré-login do Windows (entrada de credenciais segura)
     </td>
     <td width="33%" valign="top">
       <code>+ RECURSOS BÁSICOS</code> <code>+ RECURSOS GRATUITOS</code><br><br>
       <b>USBRIDGE PRO</b><br>
       <i>Fluxos de Trabalho Profissionais</i><br><br>
-      ✓ Suporte a tablets Wacom com pressão e inclinação (<a href="https://www.usbridge.io/macos-wacom-support/">macOS também</a>)<br>
-      ✓ <a href="https://www.usbridge.io/hardware-agent/">Firmware KVM de hardware</a> para Radxa Zero 3W, Radxa Cubie A7Z e Sipeed NanoKVM: acesso ao BIOS/UEFI, mídia virtual ISO, snapshots Btrfs ($19 vitalício por dispositivo, avaliação gratuita de 24 h)<br>
+      ✓ Suporte a tablet Wacom com pressão e inclinação (<a href="https://www.usbridge.io/macos-wacom-support/">macOS também</a>)<br>
+      ✓ <a href="https://www.usbridge.io/hardware-agent/">Firmware KVM de hardware</a> para Radxa Zero 3W/3E, Radxa Cubie A7Z e Sipeed NanoKVM: acesso ao BIOS/UEFI, mídia virtual ISO, instantâneos Btrfs ($19 vitalício por dispositivo, avaliação gratuita de 24 h)<br>
       ✓ <a href="https://www.usbridge.io/moonlight-hardware-streamer/">Streamer Moonlight de hardware</a> nessas placas: qualquer fonte HDMI (PC, PS5, Xbox, Switch) para Moonlight a 1080p 60 FPS, sem software na fonte<br><br>
     </td>
   </tr>
@@ -148,17 +177,17 @@ O Agente roda na máquina alvo — o servidor ou PC que você deseja acessar rem
   <tr>
    <td width="33%" valign="top">
       <b>Controle de BIOS em Nível de Hardware</b><br>
-      O USBridge Remote integra-se nativamente com o dispositivo USBridge-KVM 2.0 para gerenciamento fora de banda, bare-metal antes da inicialização do SO. É também o primeiro streamer Moonlight de hardware: o cliente Moonlight padrão emparelha-se com o KVM e transmite qualquer fonte HDMI (um PC ou um console de jogos) sem software nele.<br><br>
+      USBridge Remote integra-se nativamente com o dispositivo USBridge-KVM 2.0 para gerenciamento fora de banda, bare-metal antes da inicialização do SO. É também o primeiro streamer Moonlight de hardware: o cliente Moonlight padrão emparelha-se com o KVM e transmite qualquer fonte HDMI (um PC ou um console de jogos) sem software nele.<br><br>
       <a href="https://www.usbridge.io/hardware-agent?utm_campaign=readme-kvm&utm_medium=readme&utm_source=github#buy-usbridge-kvm-2-0"><img src="https://img.shields.io/badge/Buy-USBridge--KVM_2.0-2da44e?style=for-the-badge" alt="Comprar USBridge-KVM 2.0"></a>
     </td>
     <td width="33%" valign="top">
       <b>Firmware IP-KVM DIY</b><br>
-      Flash o firmware oficial em uma placa compatível (Radxa Zero 3W, Radxa Cubie A7Z) com um dongle de captura HDMI-para-USB para construir seu próprio IP-KVM. Em um <b>Sipeed NanoKVM</b> ele substitui o firmware padrão: vídeo suave a 60 FPS em vez de uma imagem tremida, áudio e microfone, gamepads, passthrough USB e suporte ao Moonlight (<a href="https://www.usbridge.io/hardware-agent/">baixe o firmware</a>).<br><br>
+      Flash o firmware oficial em uma placa compatível (Radxa Zero 3W/3E, Radxa Cubie A7Z) com um dongle de captura HDMI-para-USB para construir seu próprio IP-KVM. Em um <b>Sipeed NanoKVM</b> substitui o firmware padrão: vídeo suave a 60 FPS em vez de uma imagem tremida, áudio e microfone, gamepads, passthrough USB e suporte ao Moonlight (<a href="https://www.usbridge.io/hardware-agent/">baixe o firmware</a>).<br><br>
       <a href="https://www.usbridge.io/hardware-agent"><img src="https://img.shields.io/badge/DOWNLOAD-DIY_FIRMWARE-007ec6?style=for-the-badge" alt="Obter o Firmware"></a>
     </td>
     <td width="33%" valign="top">
       <b>Dongle de Hardware USB/IP (ESP32-S3)</b><br>
-      O passthrough USB de software encontra um limite no macOS: não há driver VHCI para se conectar, então um tablet Wacom remoto (ou outro dispositivo USB) não pode ser apresentado como hardware real. Este dongle se conecta ao Mac e faz em hardware o que <code>vhci-hcd</code> faz em software em outros lugares — o dispositivo exportado é enumerado com seu próprio VID/PID, vinculado pelo driver do próprio macOS.<br><br>
+      O passthrough USB de software encontra um limite no macOS: não há driver VHCI para se conectar, então um tablet Wacom remoto (ou outro dispositivo USB) não pode ser apresentado como hardware real. Este dongle se conecta ao Mac e faz em hardware o que <code>vhci-hcd</code> faz em software em outros lugares — o dispositivo exportado é enumerado com seu próprio VID/PID, vinculado pelo próprio driver do macOS.<br><br>
       <a href="esp32-acm/README.md"><img src="https://img.shields.io/badge/Open_Hardware-esp32--acm-f59e0b?style=for-the-badge" alt="firmware & docs esp32-acm"></a>
     </td>
   </tr>
@@ -182,13 +211,13 @@ Um vídeo de 2 minutos: um Sipeed NanoKVM com grande lag em um laboratório dom�
 <details>
 <summary><b>O USBridge funciona com Moonlight e Sunshine?</b></summary>
 
-Sim. O Agente fornece o streamer Sunshine de código aberto, então o cliente Moonlight padrão se conecta a ele. Vibepollo (um fork do Sunshine com Apollo embutido) e punktfunk também estão embutidos e trocam em um clique.
+Sim. O Agente inclui o streamer Sunshine de código aberto, então o cliente Moonlight padrão se conecta a ele. Vibepollo (um fork do Sunshine com Apollo embutido) e punktfunk também estão embutidos e alternam em um clique.
 </details>
 
 <details>
 <summary><b>Existe um streamer Moonlight de hardware?</b></summary>
 
-Sim. Um USBridge KVM 2.0, ou um Radxa Zero 3W, Radxa Cubie A7Z ou Sipeed NanoKVM com firmware USBridge, é um host GameStream compatível com Sunshine para qualquer coisa em sua entrada HDMI: um PC, PS5, Xbox ou Switch. Ele transmite 1080p 60 FPS com áudio para o cliente Moonlight padrão, sem software na fonte. Veja [Streamer Moonlight de Hardware](https://www.usbridge.io/moonlight-hardware-streamer/).
+Sim. Um USBridge KVM 2.0, ou um Radxa Zero 3W/3E, Radxa Cubie A7Z ou Sipeed NanoKVM com firmware USBridge, é um host GameStream compatível com Sunshine para qualquer coisa em sua entrada HDMI: um PC, PS5, Xbox ou Switch. Ele transmite 1080p 60 FPS com áudio para o cliente Moonlight padrão, sem software na fonte. Veja [Streamer Moonlight de Hardware](https://www.usbridge.io/moonlight-hardware-streamer/).
 </details>
 
 <details>
@@ -200,19 +229,19 @@ Depende da GPU, do driver e da rede. O benchmark embutido executa Sunshine, Rust
 <details>
 <summary><b>Quais GPUs são suportadas para codificação?</b></summary>
 
-NVIDIA NVENC, AMD AMF, Intel QSV e VAAPI no Linux. Máquinas virtuais e PCs sem um codificador GPU usam software H.264 (OpenH264).
+NVIDIA NVENC, AMD AMF, Intel QSV e VAAPI no Linux. Máquinas virtuais e PCs sem um codificador GPU usam H.264 de software (OpenH264).
 </details>
 
 <details>
 <summary><b>O que é gratuito e o que precisa de Pro?</b></summary>
 
-Cor da 4:4:4, HDR10, PyroWave, gamepads, microfone, MIDI e passthrough USB bruto são gratuitos. Tablets Wacom com pressão e inclinação, e o firmware KVM de hardware ($19 vitalício por dispositivo, avaliação gratuita de 24 h), são Pro.
+Cor de 4:4:4, HDR10, PyroWave, gamepads, microfone, MIDI e passthrough USB bruto são gratuitos. Tablets Wacom com pressão e inclinação, e o firmware KVM de hardware ($19 vitalício por dispositivo, avaliação gratuita de 24 h), são Pro.
 </details>
 
 <details>
 <summary><b>Posso transformar um Sipeed NanoKVM ou uma placa Radxa em um IP-KVM?</b></summary>
 
-Sim. Flash o firmware USBridge da [página do Hardware Agent](https://www.usbridge.io/hardware-agent/). Você obtém acesso ao BIOS/UEFI, mídia virtual ISO e IMG, snapshots Btrfs imutáveis, vídeo a 60 FPS, áudio e passthrough USB. Placas Radxa precisam de um dongle de captura HDMI-para-USB.
+Sim. Flash o firmware USBridge da [página do Hardware Agent](https://www.usbridge.io/hardware-agent/). Você obtém acesso ao BIOS/UEFI, mídia virtual ISO e IMG, instantâneos Btrfs imutáveis, vídeo a 60 FPS, áudio e passthrough USB. Placas Radxa precisam de um dongle de captura HDMI-para-USB.
 </details>
 
 <details>
@@ -224,7 +253,7 @@ Não. As conexões vão pelo Tailscale peer-to-peer, com travessia NAT automáti
 <details>
 <summary><b>Posso compartilhar o acesso a um computador com outra pessoa?</b></summary>
 
-Sim. Convide pessoas por e-mail com um papel e uma data de término; os convidados entram pelo USBridge e não precisam de conta Tailscale.
+Sim. Convide pessoas por e-mail com um papel e uma data de término; os convidados se juntam através do USBridge e não precisam de conta Tailscale.
 </details>
 
 ## Recursos & Licença
@@ -248,7 +277,7 @@ Sim. Convide pessoas por e-mail com um papel e uma data de término; os convidad
     </td>
     <td width="33%" valign="top">
       <b>Licença (GPLv3)</b><br>
-      Este projeto está licenciado sob a <b>GPLv3</b>. O cliente multiplataforma incorpora código da <code>moonlight-common-c</code> (também GPLv3).<br><br>
+      Este projeto está licenciado sob a <b>GPLv3</b>. O cliente multiplataforma incorpora código da base de código <code>moonlight-common-c</code> (também GPLv3).<br><br>
       <a href="LICENSE">Ver Arquivo de LICENÇA</a>
     </td>
   </tr>
