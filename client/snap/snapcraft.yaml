@@ -12,7 +12,7 @@
 # in-app updater (internal/update skips the check when $SNAP is set).
 name: usbridge-client
 title: USBridge Client
-summary: Low-latency remote desktop, game streaming and KVM-over-IP client
+summary: Low-latency remote desktop, game streaming and IPKVM client
 description: |
   USBridge Client connects to computers running the USBridge Agent and to
   USBridge hardware KVMs (USBridge KVM 2.0, or a Radxa Zero 3W, Radxa Cubie
@@ -38,7 +38,7 @@ description: |
 website: https://www.usbridge.io/client/
 source-code: https://github.com/USBridge-Technologies/USBridge-Remote
 issues: https://github.com/USBridge-Technologies/USBridge-Remote/issues
-contact: https://discord.com/invite/xqQ6ybkfWS
+contact: https://www.usbridge.io/contact/
 license: GPL-3.0-only
 icon: snap/gui/usbridge-client.png
 adopt-info: usbridge-client
