@@ -46,8 +46,14 @@ func UDPBufferOK() bool {
 }
 
 // UDPBufferAdjustable reports whether EnsureUDPBuffer can work here: it needs
-// pkexec, which a snap can't reach.
+// pkexec, which a snap can't reach. There the user runs UDPBufferCommand.
 func UDPBufferAdjustable() bool { return !inSnap() }
+
+// UDPBufferCommand is what EnsureUDPBuffer does, as one terminal command.
+func UDPBufferCommand() string {
+	return fmt.Sprintf(`sudo sh -c 'printf "net.core.rmem_max=%[1]d\nnet.core.rmem_default=%[1]d\n" > %[2]s && sysctl -q -p %[2]s'`,
+		UDPBufferWanted, UDPBufferSysctlPath)
+}
 
 // EnsureUDPBuffer raises net.core.rmem_max / rmem_default now and installs the sysctl.d
 // drop-in, through one pkexec password prompt.

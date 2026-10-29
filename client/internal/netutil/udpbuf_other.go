@@ -13,6 +13,8 @@ func UDPBufferOK() bool { return true }
 
 func UDPBufferAdjustable() bool { return false }
 
+func UDPBufferCommand() string { return "" }
+
 func EnsureUDPBuffer() error {
 	return fmt.Errorf("the UDP receive buffer cap is only adjustable on Linux")
 }

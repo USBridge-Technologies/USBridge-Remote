@@ -191,7 +191,9 @@ func connectAeadStream(conn net.Conn, key [32]byte) (*aeadStream, error) {
 	}
 	saltR := make([]byte, usbAesSaltLen)
 	if _, err := io.ReadFull(conn, saltR); err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		// A v1 broker closes with our handshake still unread, which the
+		// kernel answers with a reset rather than a clean close.
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || isConnReset(err) {
 			return nil, ErrAgentTooOld
 		}
 		return nil, err

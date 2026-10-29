@@ -688,6 +688,8 @@ type LocalizedStrings struct {
 	WiFiTipsDontShow            string
 	AWDLGrantAccess             string // prominent header button label: grant the one-time AWDL sudoers permission
 	UDPBufferGrantAccess        string // header button label (Linux): raise the kernel's UDP receive-buffer cap once
+	UDPBufferRunCommand         string // that button's dialog where the app can't raise it itself (snap): the command follows
+	CopyCommand                 string // button copying a terminal command
 	ClipboardSend               string // clipboard menu: push the local clipboard to the host now
 	ClipboardReceive            string // clipboard menu: pull the host clipboard to this device now
 	ClipboardAutoSync           string // clipboard menu: automatic two-way sync toggle
@@ -1536,6 +1538,8 @@ func EN() *LocalizedStrings {
 		WiFiTipsOK:                           "OK",
 		WiFiTipsDontShow:                     "Don't show again",
 		UDPBufferGrantAccess:                 "Fix Video Packet Loss",
+		UDPBufferRunCommand:                  "The system limits the UDP receive buffer, so whole video frames don't fit and packets are lost. The snap can't change system settings itself: run this once in a terminal (it asks for your password), then reconnect.",
+		CopyCommand:                          "Copy command",
 		ClipboardSend:                        "Send Clipboard",
 		ClipboardReceive:                     "Get Clipboard",
 		ClipboardAutoSync:                    "Auto Sync (Both Ways)",
@@ -1791,6 +1795,8 @@ func ES() *LocalizedStrings {
 	locale.WiFiTune = "Desactivar escaneos del driver Wi-Fi"
 	locale.WiFiTuneHint = "Necesario: el driver aun escanea cada 30-60 s. Permisos de administrador una vez; el Wi-Fi se reconecta unos segundos"
 	locale.WiFiTuneDoneHint = "Hecho: el driver Wi-Fi ya no escanea en segundo plano"
+	locale.UDPBufferRunCommand = "El sistema limita el búfer de recepción UDP, así que los fotogramas de video no caben y se pierden paquetes. El snap no puede cambiar la configuración del sistema: ejecuta esto una vez en una terminal (pide tu contraseña) y vuelve a conectar."
+	locale.CopyCommand = "Copiar comando"
 	locale.WiFiTipsMenu = "Consejos Wi-Fi para streaming"
 	locale.WiFiTipsTitle = "Streaming fluido por Wi-Fi"
 	locale.WiFiTipsSubtitle = "Cada escaneo Wi-Fi en segundo plano es un tiron en el stream. Estos ajustes solo los puedes cambiar tu:"
@@ -2317,6 +2323,8 @@ func UKProper() *LocalizedStrings {
 	locale.WiFiTune = "Вимкнути сканування драйвера Wi-Fi"
 	locale.WiFiTuneHint = "Потрібно: драйвер досі сканує кожні 30-60 с. Права адміністратора один раз; Wi-Fi перепідключиться на кілька секунд"
 	locale.WiFiTuneDoneHint = "Готово: драйвер Wi-Fi більше не сканує у фоні"
+	locale.UDPBufferRunCommand = "Система обмежує буфер прийому UDP, тому відеокадри не вміщуються і пакети губляться. Snap не може сам змінити системні налаштування: виконайте це один раз у терміналі (попросить пароль) і перепідключіться."
+	locale.CopyCommand = "Скопіювати команду"
 	locale.WiFiTipsMenu = "Поради щодо Wi-Fi для стріму"
 	locale.WiFiTipsTitle = "Плавний стрім через Wi-Fi"
 	locale.WiFiTipsSubtitle = "Кожне фонове сканування Wi-Fi -- це ривок на стрімі. Ці налаштування можете змінити лише ви:"
