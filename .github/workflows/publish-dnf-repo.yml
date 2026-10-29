@@ -1,0 +1,35 @@
+name: publish-dnf-repo
+
+# Points the dnf repository (rpm-repo branch) at an existing release's RPMs.
+# release-all.yml does this itself for a real release; run this by hand when a
+# pre-release was promoted to latest afterwards, since its build skipped it
+# and Fedora/RHEL installs would keep being offered the previous version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release whose RPMs the repository should serve (e.g. release-v3.2.7)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the RPMs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${{ inputs.release_tag }}" --pattern 'usbridge-*.rpm' --dir rpms
+
+      - name: Publish
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get install -y -qq createrepo-c
+          scripts/rpm/publish_repo.sh "${{ inputs.release_tag }}" rpms

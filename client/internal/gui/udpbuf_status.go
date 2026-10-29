@@ -15,7 +15,7 @@ func (mw *MainWindow) refreshUDPBufferUI() {
 	if mw.udpBufGrantBtn == nil {
 		return
 	}
-	if netutil.UDPBufferOK() {
+	if netutil.UDPBufferOK() || !netutil.UDPBufferAdjustable() {
 		mw.udpBufGrantBtn.Hide()
 	} else {
 		mw.udpBufGrantBtn.Show()

@@ -45,6 +45,10 @@ func UDPBufferOK() bool {
 	return n == 0 || n >= UDPBufferWanted
 }
 
+// UDPBufferAdjustable reports whether EnsureUDPBuffer can work here: it needs
+// pkexec, which a snap can't reach.
+func UDPBufferAdjustable() bool { return !inSnap() }
+
 // EnsureUDPBuffer raises net.core.rmem_max / rmem_default now and installs the sysctl.d
 // drop-in, through one pkexec password prompt.
 func EnsureUDPBuffer() error {

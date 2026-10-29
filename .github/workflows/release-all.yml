@@ -1284,6 +1284,9 @@ jobs:
           # install.sh), made after repo-add so the database never lists them.
           cp usbridge-agent-*.pkg.tar.zst USBridgeAgent-Linux-x86_64.pkg.tar.zst
           cp usbridge-client-*.pkg.tar.zst USBridgeClient-Linux-x86_64.pkg.tar.zst
+          # pacman -U <url> fetches <url>.sig too; the copies are the same bytes.
+          cp usbridge-agent-*.pkg.tar.zst.sig USBridgeAgent-Linux-x86_64.pkg.tar.zst.sig
+          cp usbridge-client-*.pkg.tar.zst.sig USBridgeClient-Linux-x86_64.pkg.tar.zst.sig
 
       - name: Sign the RPMs
         # In-package signatures dnf checks against the key both RPMs ship
@@ -1348,29 +1351,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          set -euo pipefail
-          export GNUPGHOME="$RUNNER_TEMP/gnupg-dnf"
-          mkdir -m 700 "$GNUPGHOME"
-          trap 'rm -rf "$GNUPGHOME"' EXIT
-          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
-          want="$(gpg --batch --with-colons --show-keys scripts/deb/usbridge-archive-keyring.gpg | awk -F: '/^fpr/{print $10; exit}')"
-          gpg --batch --with-colons --list-secret-keys "$want" >/dev/null
-
           sudo apt-get install -y -qq createrepo-c
-          repo="$RUNNER_TEMP/rpm-repo"
-          mkdir -p "$repo/pkgs"
-          cp out/usbridge-*.rpm "$repo/pkgs/"
-          createrepo_c --baseurl "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" \
-            --outputdir "$repo" "$repo/pkgs"
-          rm -rf "$repo/pkgs"
-          gpg --batch --yes --local-user "$want" --detach-sign --armor -o "$repo/repodata/repomd.xml.asc" "$repo/repodata/repomd.xml"
-
-          cd "$repo"
-          git init -q -b rpm-repo
-          git add repodata
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -q -m "dnf repository for $TAG"
-          git push -q --force "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" rpm-repo
+          scripts/rpm/publish_repo.sh "$TAG" out
 
   # Deploys the browser/WASM web client -- see web-deploy.yml (also
   # independently dispatchable on its own, for testing this exact deploy
