@@ -168,9 +168,14 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 <div align="center">
   <a href="https://www.youtube.com/watch?v=q8rX7o-Svqs"><img src="https://img.youtube.com/vi/q8rX7o-Svqs/maxresdefault.jpg" width="720" alt="Video: Sipeed NanoKVM flashed with USBridge firmware streams at 60 FPS with almost no input lag"></a>
+  <br><br>
+  <img src="https://img.shields.io/badge/1080p-60_FPS-2da44e?style=flat-square" alt="1080p 60 FPS">
+  <img src="https://img.shields.io/badge/Tailscale-P2P-242424?style=flat-square&logo=tailscale&logoColor=white" alt="Tailscale P2P">
+  <img src="https://img.shields.io/badge/Audio-sound_%2B_mic-007ec6?style=flat-square" alt="Audio: sound and microphone">
+  <img src="https://img.shields.io/badge/FEC-packet_loss_recovery-f59e0b?style=flat-square" alt="FEC: forward error correction">
 </div>
 
-A 2-minute video: a Sipeed NanoKVM with heavy lag in a home lab becomes a 60 FPS KVM over IP with almost no input lag after flashing USBridge firmware, fast enough to play games with a gamepad. Firmware for the NanoKVM, Radxa Zero 3W and Radxa Cubie A7Z is on the [Hardware Agent page](https://www.usbridge.io/hardware-agent/).
+A 2-minute video: a Sipeed NanoKVM with heavy lag in a home lab becomes a 60 FPS KVM over IP with almost no input lag after flashing USBridge firmware, fast enough to play games with a gamepad. Tailscale works on the board itself, so it is reachable from anywhere with no port forwarding; sound plays both ways, and FEC (forward error correction) rebuilds lost packets, so the picture stays clean on Wi-Fi and over the internet. Firmware for the NanoKVM, Radxa Zero 3W and Radxa Cubie A7Z is on the [Hardware Agent page](https://www.usbridge.io/hardware-agent/).
 
 ## FAQ
 
