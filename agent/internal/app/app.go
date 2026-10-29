@@ -198,6 +198,11 @@ type App struct {
 	lastSunshineFetch     time.Time          // fetchSunshineInBackground's last first-run attempt (entMu)
 	lastVibepolloCheck    time.Time          // checkVibepolloUpdate's last look at Streamers-Forks (entMu)
 
+	// rustshineFetchFailed: the first entitlement check or RustShine download
+	// of this run failed, so startSunshineNow stops holding Sunshine back
+	// for a RustShine that isn't coming.
+	rustshineFetchFailed atomic.Bool
+
 	// accMu guards the account-login fields below -- see StartAccountLogin's
 	// doc comment. Separate mutex/status from entMu above: this is a
 	// different login entirely (account.Status, not entitlement.Status),
@@ -616,13 +621,13 @@ func New() (*App, error) {
 	logcap.Watch(instance.logPath)
 	instance.setStreamKind("sunshine")
 
-	// If this install was already switched to RustShine last run, pick it
-	// back up from a cold start too -- whenever its binary is staged. No
+	// RustShine is the default and an explicit pick alike: start on it
+	// whenever its binary is staged. No
 	// license is needed to run it: without a valid token (never linked, an
 	// offline machine whose token expired) RustShine runs its free tier,
 	// which lacks only pen tablets and 4:4:4 color; the license only ever
 	// decides those (rust-shine reads the token file itself).
-	if cfg.PreferredBackend == "rustshine" {
+	if cfg.WantsRustShine() {
 		if _, err := os.Stat(entitlement.StagePath(cfg.StateDir)); err == nil {
 			instance.setStreamKind("rustshine")
 		}
@@ -878,7 +883,13 @@ func (a *App) Run(headless, startHidden bool) error {
 	go a.webrtcSignalRelayWatchdog(ctx)
 	go a.guestsWatchdog(ctx)
 	go a.usbBrokerWatchdog(ctx)
-	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
+	// One immediate check, don't wait a full entitlementRecheckInterval after
+	// a restart. It is also what first downloads RustShine.
+	go func() {
+		if !a.recheckEntitlement(ctx) {
+			a.rustshineFetchFailed.Store(true)
+		}
+	}()
 	go func() { _ = a.server.ListenAndServe() }()
 	// Gated by the "Enable HTTPS" checkbox (see ui's HTTP Listen Address
 	// dialog, UpdateTLSAddr) -- on by default (TLSEnabledOK's nil-means-true
@@ -1113,6 +1124,12 @@ func (a *App) startSunshineNow() {
 	if a.streamKind == "vibepollo" && !forkrelease.VibepolloStaged(a.cfg.StateDir) {
 		// Vibepollo was uninstalled since it was picked: nothing to start.
 		log.Printf("[app] vibepollo is not downloaded; not starting it")
+		return
+	}
+	if a.streamKind == "sunshine" && a.sunshineMissing() && a.cfg.WantsRustShine() && !a.rustshineFetchFailed.Load() {
+		// First start with RustShine wanted but not downloaded yet: the
+		// entitlement check downloads it and switches to it. Sunshine is
+		// fetched only if that fails (a later watchdog tick).
 		return
 	}
 	if a.streamKind == "sunshine" && a.sunshineMissing() {
@@ -2194,10 +2211,10 @@ func (a *App) bootstrapFreeTier(ctx context.Context, hwID string) bool {
 		log.Printf("[app] warning: failed to persist entitlement token: %v", err)
 	}
 	a.refreshLocalEntitlementStatus()
-	// A fresh install whose installer already picked RustShine and gave USB
-	// consent (preferred_backend / usb_broker_consent in config.yaml) gets
-	// both right away instead of on the next recheck.
-	if a.cfg.PreferredBackend == "rustshine" {
+	// A fresh install wanting RustShine (the default, or the installer's
+	// preferred_backend) and with USB consent (usb_broker_consent in
+	// config.yaml) gets both right away instead of on the next recheck.
+	if a.cfg.WantsRustShine() {
 		a.ensureRustShineFresh(ctx, res.Token)
 	}
 	a.ensureUSBBroker(ctx, res.Token)
@@ -2684,7 +2701,7 @@ func (a *App) ClearLicense() error {
 	}
 	next := a.cfg
 	next.EntitlementToken = ""
-	next.PreferredBackend = ""
+	next.PreferredBackend = "sunshine"
 	if err := a.SaveConfig(next); err != nil {
 		return err
 	}
@@ -3322,6 +3339,7 @@ func (a *App) ensureRustShineFresh(ctx context.Context, entitlementToken string)
 			// transient backend error, ...). Until it succeeds, this install
 			// simply keeps running Sunshine.
 			log.Printf("[app] rustshine initial download failed (will retry next interval): %v", err)
+			a.rustshineFetchFailed.Store(true)
 			return
 		}
 		log.Printf("[app] rustshine downloaded")
@@ -3330,7 +3348,7 @@ func (a *App) ensureRustShineFresh(ctx context.Context, entitlementToken string)
 		a.entMu.Unlock()
 		// New() fell back to Sunshine because the binary wasn't staged yet;
 		// honour a saved RustShine preference now that it is.
-		if a.cfg.PreferredBackend == "rustshine" && a.streamKindView.Load() != "rustshine" {
+		if a.cfg.WantsRustShine() && a.streamKindView.Load() != "rustshine" {
 			if err := a.SetStreamBackend("rustshine"); err != nil {
 				log.Printf("[app] switching to preferred rustshine: %v", err)
 			}

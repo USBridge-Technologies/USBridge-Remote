@@ -101,10 +101,9 @@ type Config struct {
 	// re-derive everything from this machine's own hwid.Get() on every
 	// call, nothing durable to store beyond the token itself.
 	EntitlementToken string `yaml:"entitlement_token,omitempty"`
-	// PreferredBackend is the user's own explicit choice once entitled:
-	// "" (never linked / not entitled -- always Sunshine), "sunshine", or
-	// "rustshine". Only meaningful together with a currently-valid
-	// EntitlementToken; see App.applyPreferredBackend.
+	// PreferredBackend is the stream host to run: "rustshine" (the USBridge
+	// streamer), "sunshine", "punktfunk" or "vibepollo". "" means the default,
+	// the USBridge streamer (see WantsRustShine).
 	PreferredBackend string `yaml:"preferred_backend,omitempty"`
 	// RustShineWebRTCDisabled turns off gamestream-server's native WebRTC
 	// signaling endpoint (--webrtc-disable) -- the surface USBridge's
@@ -221,6 +220,12 @@ func (c Config) StreamerAutoUpdateEnabled() bool {
 
 // NvencTwoPassOK is false unless explicitly turned on; NvidiaMaxPerformanceOK
 // is true unless turned off.
+// WantsRustShine reports whether the USBridge streamer is the stream host to
+// run: picked explicitly, or nothing picked yet (it is the default).
+func (c Config) WantsRustShine() bool {
+	return c.PreferredBackend == "" || c.PreferredBackend == "rustshine"
+}
+
 func (c Config) NvencTwoPassOK() bool { return c.NvencTwoPass != nil && *c.NvencTwoPass }
 
 func (c Config) NvidiaMaxPerformanceOK() bool { return c.NvidiaPowerModeValue() == "max" }
