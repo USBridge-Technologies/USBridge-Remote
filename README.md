@@ -62,7 +62,7 @@ irm https://www.usbridge.io/install.ps1 | iex
 
 ```sh
 # Client from the Snap Store (Ubuntu, and Arch with snapd from the AUR)
-sudo snap install usbridge-client --edge
+sudo snap install usbridge-client
 ```
 
 <details>
