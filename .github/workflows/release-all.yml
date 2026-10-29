@@ -441,6 +441,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  client-snap:
+    # Packs the snap from client-linux's AppImage, checks that it starts and,
+    # with SNAPCRAFT_STORE_CREDENTIALS set, pushes it to the Snap Store (edge
+    # for a pre-release, stable otherwise). See client-snap.yml.
+    needs: client-linux
+    uses: ./.github/workflows/client-snap.yml
+    with:
+      prerelease: ${{ inputs.prerelease }}
+    secrets: inherit
+
   client-windows:
     # Ubuntu's mingw-w64 apt package rejects -mthreads (which Go's cgo
     # toolchain passes unconditionally when cross-compiling runtime/cgo for
@@ -1125,6 +1135,7 @@ jobs:
       - bundle-windows
       - bundle-macos
       - client-linux
+      - client-snap
       - client-windows
       - client-android
       - client-android-market

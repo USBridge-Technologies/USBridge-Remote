@@ -1,0 +1,113 @@
+name: client-snap
+
+# Packs the client snap (client/snap/snapcraft.yaml) from the Linux AppImage's
+# AppDir, installs it on the runner and checks that it starts, then uploads it
+# as the release-client-snap artifact and, when SNAPCRAFT_STORE_CREDENTIALS is
+# set, publishes it to the Snap Store.
+#
+# release-all.yml calls this after client-linux, with the AppImage from that
+# run's release-client-linux artifact. Dispatched by hand it takes the AppImage
+# from an existing GitHub Release instead, so the packaging can be tried
+# without a full multi-platform build (nothing is published then unless
+# publish is ticked).
+#
+# Repository Secret (optional):
+#   SNAPCRAFT_STORE_CREDENTIALS - `snapcraft export-login --snaps=usbridge-client
+#                                 --acls=package_access,package_push,package_update,package_release -`
+#                                 output. Without it the snap is still built
+#                                 and attached to the release, just not pushed
+#                                 to the store.
+
+on:
+  workflow_call:
+    inputs:
+      prerelease:
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release whose client AppImage to pack (e.g. release-v3.2.7)"
+        required: true
+      publish:
+        description: "Also push to the Snap Store (edge channel)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  snap:
+    runs-on: ubuntu-24.04
+    env:
+      SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the AppImage from this run
+        if: ${{ inputs.release_tag == '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: release-client-linux
+          path: appimage
+
+      - name: Get the AppImage from ${{ inputs.release_tag }}
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${{ inputs.release_tag }}" --pattern 'USBridgeClient-Linux-x86_64.AppImage' --dir appimage
+
+      - name: Unpack the AppDir
+        run: |
+          set -euo pipefail
+          img="$(ls appimage/*.AppImage | head -n1)"
+          chmod +x "$img"
+          (cd appimage && "../$img" --appimage-extract >/dev/null)
+          mkdir -p client/dist/linux
+          rm -rf client/dist/linux/AppDir
+          mv appimage/squashfs-root client/dist/linux/AppDir
+          test -x client/dist/linux/AppDir/usr/bin/usbridge-client
+
+      - name: Pack the snap
+        id: build
+        uses: snapcore/action-build@v1
+        with:
+          path: client
+
+      - name: Install it and check that it starts
+        # -version exits before any window opens, but only once every bundled
+        # and runtime library has been loaded.
+        run: |
+          set -euo pipefail
+          sudo snap install --dangerous "${{ steps.build.outputs.snap }}"
+          snap connections usbridge-client
+          out="$(usbridge-client -version 2>&1)" || { echo "$out"; exit 1; }
+          echo "$out"
+
+      - name: Name it like the other Linux assets
+        id: name
+        run: |
+          set -euo pipefail
+          ver="$(unsquashfs -cat "${{ steps.build.outputs.snap }}" meta/snap.yaml | awk '/^version:/{gsub(/["'\'']/, "", $2); print $2}')"
+          out="USBridgeClient-Linux-x86_64-$ver.snap"
+          cp "${{ steps.build.outputs.snap }}" "$out"
+          echo "file=$out" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-snap
+          path: ${{ steps.name.outputs.file }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish to the Snap Store
+        # A test build goes to edge, a real release to stable. The very first
+        # upload needs the name registered (snapcraft register usbridge-client).
+        if: ${{ env.SNAPCRAFT_STORE_CREDENTIALS != '' && (inputs.release_tag == '' || inputs.publish) }}
+        uses: snapcore/action-publish@v1
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: ${{ (inputs.release_tag != '' || inputs.prerelease) && 'edge' || 'stable' }}

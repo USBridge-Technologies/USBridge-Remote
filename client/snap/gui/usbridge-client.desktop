@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=USBridge Client
+Comment=Remote desktop, game streaming and KVM-over-IP
+Exec=usbridge-client %u
+Icon=${SNAP}/meta/gui/usbridge-client.png
+Terminal=false
+Categories=Network;RemoteAccess;
+MimeType=x-scheme-handler/usbridge;

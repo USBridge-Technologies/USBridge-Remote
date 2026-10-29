@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"runtime"
 	"time"
 
@@ -62,6 +63,11 @@ func CheckNow(ctx context.Context, currentVersion string) (*Manifest, error) {
 func check(ctx context.Context, currentVersion string, manual bool) (*Manifest, error) {
 	if runtime.GOOS == "ios" {
 		// Apple's App Store is the only sanctioned update path on iOS.
+		return nil, nil
+	}
+	if os.Getenv("SNAP") != "" {
+		// A snap is updated by snapd from the Snap Store, and its files are
+		// read-only (client/snap/snapcraft.yaml).
 		return nil, nil
 	}
 

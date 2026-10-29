@@ -216,7 +216,9 @@ func collectPlatforms(dir, app string) (map[string]platformAsset, error) {
 		// from the release's repositories (agent/scripts/build_deb.sh,
 		// build_arch.sh, build_rpm.sh); Linux self-update uses the
 		// AppImage, which shares "linux-amd64" with them.
-		if strings.HasSuffix(e.Name(), ".deb") || strings.HasSuffix(e.Name(), ".rpm") || strings.HasSuffix(e.Name(), ".pkg.tar.zst") {
+		// A snap updates from the Snap Store (client/snap/snapcraft.yaml).
+		if strings.HasSuffix(e.Name(), ".deb") || strings.HasSuffix(e.Name(), ".rpm") || strings.HasSuffix(e.Name(), ".pkg.tar.zst") ||
+			strings.HasSuffix(e.Name(), ".snap") {
 			continue
 		}
 

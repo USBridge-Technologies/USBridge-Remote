@@ -1,0 +1,86 @@
+# Snap of the client, packed from the AppDir that scripts/build_linux.sh
+# assembles (the same tree the AppImage, .deb, Arch package and RPM are made
+# from), so nothing is compiled twice. Run build_linux.sh first, then
+# `snapcraft pack` from client/ (release-all.yml's client-linux job does both).
+#
+# Strict confinement: the Snap Store doesn't grant classic to remote-desktop
+# apps. What needs root on the host doesn't work from the snap: pkexec isn't
+# reachable inside it, so the UDP buffer and Wi-Fi tuning, and passing this
+# computer's own USB devices through (usbip-host), report that pkexec isn't
+# installed (the UDP buffer one prints the sysctl to run by hand). Updates come from the Snap Store, never the in-app
+# updater (internal/update skips the check when $SNAP is set).
+name: usbridge-client
+title: USBridge Client
+summary: Low-latency remote desktop, game streaming and KVM-over-IP client
+description: |
+  USBridge Client connects to computers running the USBridge Agent and to
+  USBridge hardware KVMs (USBridge KVM 2.0, or a Radxa Zero 3W, Radxa Cubie
+  A7Z or Sipeed NanoKVM flashed with USBridge firmware).
+
+  - Low-latency desktop and game streaming, Moonlight / Sunshine compatible
+  - H.264, H.265, AV1 and PyroWave video, 4:4:4 color and HDR10
+  - Gamepads, microphone, MIDI and camera passed through to the remote machine
+  - BIOS/UEFI access, ISO virtual media and snapshots on hardware KVMs
+  - Tailscale peer-to-peer networking, no port forwarding
+
+  Some interfaces are not connected automatically. Connect the ones you need:
+
+    sudo snap connect usbridge-client:audio-record   # microphone
+    sudo snap connect usbridge-client:alsa           # MIDI devices
+    sudo snap connect usbridge-client:joystick       # gamepads
+    sudo snap connect usbridge-client:camera         # webcam
+    sudo snap connect usbridge-client:raw-usb        # USB device list
+
+  Passing this computer's own USB devices to the remote machine needs root
+  and works from the .deb, Arch or RPM package, not from the snap.
+website: https://www.usbridge.io/client/
+source-code: https://github.com/USBridge-Technologies/USBridge-Remote
+issues: https://github.com/USBridge-Technologies/USBridge-Remote/issues
+contact: https://discord.com/invite/xqQ6ybkfWS
+license: GPL-3.0-only
+icon: snap/gui/usbridge-client.png
+adopt-info: usbridge-client
+
+base: core24
+grade: stable
+confinement: strict
+
+platforms:
+  amd64:
+
+apps:
+  usbridge-client:
+    command: usr/bin/usbridge-client
+    desktop: usr/share/applications/usbridge-client.desktop
+    extensions: [gnome]
+    plugs:
+      - network
+      - network-bind
+      - network-observe
+      - hardware-observe
+      - audio-playback
+      - audio-record
+      - alsa
+      - joystick
+      - camera
+      - raw-usb
+      - removable-media
+      - home
+
+parts:
+  usbridge-client:
+    plugin: dump
+    source: dist/linux/AppDir
+    override-pull: |
+      craftctl default
+      craftctl set version="$(tr -d ' \t\n\r' < "$CRAFT_PROJECT_DIR/VERSION")"
+    override-build: |
+      craftctl default
+      # The AppDir's own launcher entry points at the AppImage; the snap
+      # ships its own, with the usbridge:// scheme handler.
+      rm -f "$CRAFT_PART_INSTALL"/usbridge-client.desktop "$CRAFT_PART_INSTALL"/.DirIcon \
+            "$CRAFT_PART_INSTALL"/AppRun "$CRAFT_PART_INSTALL"/*.png
+      rm -rf "$CRAFT_PART_INSTALL"/usr/share/applications "$CRAFT_PART_INSTALL"/usr/share/icons \
+             "$CRAFT_PART_INSTALL"/usr/share/pixmaps
+      install -Dm644 "$CRAFT_PROJECT_DIR/snap/gui/usbridge-client.desktop" \
+        "$CRAFT_PART_INSTALL"/usr/share/applications/usbridge-client.desktop

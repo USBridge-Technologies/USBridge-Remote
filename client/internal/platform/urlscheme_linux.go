@@ -54,6 +54,9 @@ func defaultHandler() string {
 // handler this app wrote earlier counts only while it points at the file that
 // is running now (an AppImage that was moved needs registering again).
 func IsURLSchemeRegistered() bool {
+	if os.Getenv("SNAP") != "" {
+		return true // the snap's own .desktop file declares the scheme (client/snap/gui)
+	}
 	h := defaultHandler()
 	if h == "" || !strings.Contains(h, "usbridge") {
 		return false
@@ -71,6 +74,11 @@ func IsURLSchemeRegistered() bool {
 
 // RegisterURLScheme makes usbridge:// links open this app for the current user.
 func RegisterURLScheme() error {
+	if os.Getenv("SNAP") != "" {
+		// A handler written from inside a snap would point at one
+		// revision's path, and $HOME there is the snap's own directory.
+		return nil
+	}
 	exe, err := launcherPath()
 	if err != nil {
 		return err
