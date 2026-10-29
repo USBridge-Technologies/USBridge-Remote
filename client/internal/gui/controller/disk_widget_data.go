@@ -709,6 +709,7 @@ func (dw *DiskWidget) loadMountedDevices() {
 				dw.mountedDevices[i] = &deviceInfo.Devices[i]
 			}
 			dw.setAgentUSBBroker(deviceInfo.USBBroker)
+			dw.setAgentSetupNetwork(deviceInfo.SetupNetwork)
 			dw.applyLiveAgentIdentity(deviceInfo.AgentOS, deviceInfo.AgentProtocol)
 			dw.usbPassSessions = passSessions
 			if dw.onAgentProtocol != nil && dw.agentProtocol != "" {

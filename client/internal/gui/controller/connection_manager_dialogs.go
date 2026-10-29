@@ -64,6 +64,10 @@ type connectionDialogSpec struct {
 	onSetupAddressSaved func(setupHost, masterKey string)
 	onDelete            func(close func())
 	onQR                func()
+	// internalHostChoices: the addresses the KVM is reachable at (its
+	// Ethernet ones first, then the USB cable's), offered in a menu under
+	// the fields -- a KVM found over USB (connection_manager_usb_offer.go).
+	internalHostChoices []hostChoice
 	// startWithPasteLink opens the dialog with the inline paste-link view
 	// already showing instead of the Name/LAN/TS/Token fields -- the "+"
 	// placeholder card's own Paste Link button jumps straight here instead
@@ -1414,7 +1418,11 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	// runs tsEntry through the same OnChanged/updateRegisterVisibility path
 	// as typing) should hide or show it.
 	formSwap := container.NewStack(statsBox)
-	normalForm := buildConnectionDialogForm(formSwap, registerCheckContainer)
+	var underFields fyne.CanvasObject = registerCheckContainer
+	if len(spec.internalHostChoices) > 1 {
+		underFields = container.NewVBox(view.NewInset(newHostChoiceButton(lanEntry, spec.internalHostChoices), 0, 0, 10, 0), registerCheckContainer)
+	}
+	normalForm := buildConnectionDialogForm(formSwap, underFields)
 
 	var d *widget.PopUp
 	pasteActive := false
@@ -2005,7 +2013,7 @@ func (cm *ConnectionManager) showAddDialog() {
 	cm.showPrefilledAddDialog("", "", "", "", "", false, false)
 }
 
-func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, masterKey, protocol string, scanned, startWithPasteLink bool) {
+func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, masterKey, protocol string, scanned, startWithPasteLink bool, opts ...func(*connectionDialogSpec)) {
 	feedbackText := ""
 	if scanned {
 		feedbackText = "\u2713 " + i18n.Current.QRScanSuccess
@@ -2021,7 +2029,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		source = analytics.SourceLink
 	}
 
-	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
+	spec := connectionDialogSpec{
 		title:                  i18n.Current.AddConnectionTitle,
 		subtitle:               i18n.Current.AddConnectionSubtitle,
 		connectLabel:           i18n.Current.DeepLinkConnect,
@@ -2082,7 +2090,11 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		onQR:                cm.handleQRScan,
 		onSetupAddressSaved: cm.followEthernetAddress,
 		analyticsSource:     &source,
-	})
+	}
+	for _, o := range opts {
+		o(&spec)
+	}
+	showConnectionEditorDialog(cm.window, cm.window, spec)
 }
 
 type connectionDialogIconButton struct {

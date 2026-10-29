@@ -826,7 +826,14 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 		mw.pollTailscaleRegistration(host, masterKey, protocol)
 	}
 
-	return mw.doConnectWithProtocol(apiCtx, host, protocol, gen)
+	if err := mw.doConnectWithProtocol(apiCtx, host, protocol, gen); err != nil {
+		return err
+	}
+	// Connected: a KVM offered over USB or by a link is saved now.
+	if mw.connectionManager != nil {
+		mw.connectionManager.SavePendingOnConnected(masterKey)
+	}
+	return nil
 }
 
 func (mw *MainWindow) pollTailscaleRegistration(host, masterKey, protocol string) {

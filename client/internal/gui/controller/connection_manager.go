@@ -168,6 +168,9 @@ type ConnectionManager struct {
 
 	// syncMu guards the fields below -- see connection_manager_sync.go.
 	syncMu        sync.Mutex
+	// pendingSave: a KVM offered over USB or by a link, saved once a
+	// connection to it succeeds (connection_manager_usb_offer.go).
+	pendingSave *pendingSave
 	syncVersion   int // last version this device knows the backend to be at; 0 = never successfully synced
 	syncPushTimer *time.Timer
 	syncLastError string

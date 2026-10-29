@@ -442,6 +442,9 @@ type DeviceInfoResponse struct {
 	// NanoKVM): gamepads are virtual Xbox 360 / DualShock 4 pads over the
 	// stream, as on a software agent, and USB passthrough is available.
 	USBBroker bool `json:"usb_broker,omitempty"`
+	// SetupNetwork: the Network Card has the "usbsetup" mode -- the KVM's
+	// USB setup network (http://10.55.0.1, the NanoKVM), switchable here.
+	SetupNetwork bool `json:"setup_network,omitempty"`
 }
 
 // DeviceStatusResponse device status response (new API)

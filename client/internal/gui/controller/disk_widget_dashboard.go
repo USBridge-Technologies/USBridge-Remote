@@ -1142,8 +1142,9 @@ func (dw *DiskWidget) dashboardRNDISModeMenuItems(idx int) []view.StyledMenuItem
 	if idx >= 0 && idx < len(dw.allDrives) {
 		current = normalizeRNDISMode(dw.allDrives[idx].RNDISMode)
 	}
-	items := make([]view.StyledMenuItem, 0, len(rndisModeOptions))
-	for _, label := range rndisModeOptions {
+	modes := dw.rndisModes()
+	items := make([]view.StyledMenuItem, 0, len(modes))
+	for _, label := range modes {
 		mode := label
 		items = append(items, view.StyledMenuItem{
 			Label:    label,

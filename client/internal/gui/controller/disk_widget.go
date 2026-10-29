@@ -291,6 +291,8 @@ type DiskWidget struct {
 	agentProtocol string
 	// agentUSBBroker: the KVM reports usb_broker (see virtualPads).
 	agentUSBBroker bool
+	// agentSetupNetwork: the KVM reports setup_network (rndisModes).
+	agentSetupNetwork bool
 
 	// mediaStatus: the agent's video/audio state as of the last device poll
 	// (loadMountedDevices). updateDevicesStatus reads it instead of asking
@@ -313,6 +315,27 @@ func (dw *DiskWidget) setAgentUSBBroker(v bool) {
 	if dw != nil {
 		dw.agentUSBBroker = v
 	}
+}
+
+// HasSetupNetworkMode: the Network Card offers "usbsetup" (rndisModes).
+func (dw *DiskWidget) HasSetupNetworkMode() bool {
+	return dw != nil && dw.agentSetupNetwork
+}
+
+func (dw *DiskWidget) setAgentSetupNetwork(v bool) {
+	if dw != nil {
+		dw.agentSetupNetwork = v
+	}
+}
+
+// rndisModes is rndisModeOptions, led by "usbsetup" on a KVM whose USB
+// setup network (http://10.55.0.1) is the Network Card's own mode: picking
+// it brings that network back after another mode or the card turned off.
+func (dw *DiskWidget) rndisModes() []string {
+	if dw != nil && dw.agentSetupNetwork {
+		return append([]string{rndisModeUSBSetup}, rndisModeOptions...)
+	}
+	return rndisModeOptions
 }
 
 // SetAgentIdentity records OS/tariff from connect verification (or the last
@@ -349,6 +372,10 @@ func (dw *DiskWidget) applyLiveAgentIdentity(osName, protocol string) {
 const MaxDevicesToMount = 5
 
 var rndisModeOptions = []string{"auto", "wifirouter", "etherouter", "etherbridge"}
+
+// rndisModeUSBSetup: the KVM's USB setup network (usbridge's setupnet)
+// instead of an RNDIS function of its own -- see DiskWidget.rndisModes.
+const rndisModeUSBSetup = "usbsetup"
 
 const (
 	gamepadModeDirectInput = "directinput"
@@ -465,7 +492,7 @@ func gamepadModeFromLabel(label string) string {
 
 func normalizeRNDISMode(mode string) string {
 	switch strings.ToLower(mode) {
-	case "auto", "wifirouter", "etherouter", "etherbridge":
+	case "auto", "wifirouter", "etherouter", "etherbridge", rndisModeUSBSetup:
 		return strings.ToLower(mode)
 	case "router":
 		return "auto"

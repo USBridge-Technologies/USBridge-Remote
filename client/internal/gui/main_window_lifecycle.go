@@ -9,6 +9,7 @@ import (
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/taskbar"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/platform"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
@@ -292,7 +293,15 @@ func (mw *MainWindow) Show() {
 	mw.updateStatusBar()
 	mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromDeepLink, mw.handleSaveFromDeepLink)
 	mw.deepLinkHandler.onJoin = mw.handleJoinFromDeepLink
+	if mw.connectionManager != nil {
+		mw.deepLinkHandler.onOffer = mw.connectionManager.OfferLink
+	}
 	mw.checkDeepLink()
+	// The client the KVM serves over its USB cable: that KVM, offered to
+	// connect to (unless a link above already did).
+	if mw.connectionManager != nil && platform.PageServedOverUSB() && !intentLinkPresent() {
+		mw.connectionManager.OfferKVMOverUSB()
+	}
 	mw.startDeepLinkMonitoring()
 	go mw.offerURLSchemeRegistration()
 	mw.startAWDLWatchdog()
@@ -366,6 +375,12 @@ func (mw *MainWindow) reloadUI() {
 	mw.applyInitialWindowSize()
 	mw.updateStatusBar()
 	logrus.Info("UI reloaded successfully")
+}
+
+// intentLinkPresent: the app was opened with a usbridge:// link.
+func intentLinkPresent() bool {
+	uri, _ := platform.GetIntentDataURI()
+	return uri != ""
 }
 
 // checkDeepLink checks for a deep link on app start.

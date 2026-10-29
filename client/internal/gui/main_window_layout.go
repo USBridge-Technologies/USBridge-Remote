@@ -2376,7 +2376,17 @@ func (mw *MainWindow) showRNDISModeMenu() {
 	}
 
 	currentMode := mw.diskWidget.GetRNDISMode()
-	items := []view.StyledMenuItem{
+	var items []view.StyledMenuItem
+	if mw.diskWidget.HasSetupNetworkMode() {
+		items = append(items, view.StyledMenuItem{
+			Label:    "usbsetup",
+			Selected: currentMode == "usbsetup",
+			OnTap: func() {
+				mw.diskWidget.SetRNDISMode("usbsetup")
+			},
+		})
+	}
+	items = append(items, []view.StyledMenuItem{
 		{
 			Label:    "auto",
 			Selected: currentMode == "auto",
@@ -2405,7 +2415,7 @@ func (mw *MainWindow) showRNDISModeMenu() {
 				mw.diskWidget.SetRNDISMode("etherbridge")
 			},
 		},
-	}
+	}...)
 
 	view.ShowStyledMenuTealAbove(mw.rndisIcon, items)
 }

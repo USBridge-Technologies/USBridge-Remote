@@ -24,6 +24,10 @@ type DeepLinkHandler struct {
 	onSave    func(name, internalHost, tailscaleHost, masterKey, protocol, hwID string, tailscaleRegister bool) // Save only, without connecting
 	onJoin    func(shareID string)                                                                              // A guest invitation: usbridge://join?share=...
 	lastURI   string                                                                                            // Last processed URI (to avoid processing twice)
+
+	// onOffer shows a connect link in the client's own Add Connection
+	// dialog; nil: the plain confirmation dialog below.
+	onOffer func(internalHost, tailscaleHost, masterKey, protocol string)
 }
 
 // NewDeepLinkHandler creates a new handler
@@ -106,6 +110,14 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 		return
 	}
 
+	if h.onOffer != nil {
+		host := internalHost
+		if host == "" {
+			host = deviceHost
+		}
+		h.onOffer(host, tailscaleHost, masterKey, protocol)
+		return
+	}
 	// Show the confirmation dialog
 	h.showConfirmDialog(internalHost, tailscaleHost, deviceHost, masterKey, protocol, hwID, parent)
 }
