@@ -330,6 +330,18 @@ func StageUSBBroker(ctx context.Context, stateDir, entitlementToken string, onPr
 	return err
 }
 
+// downloadClient is httpClient without its whole-request Timeout, which
+// also covers reading the body: an ~8 MB archive on a link slower than
+// ~6.5 Mbit/s never finished inside it ("context deadline exceeded ...
+// while reading body", confirmed live), every retry. The caller's
+// downloadTimeout context bounds the transfer; the backend still has to
+// start answering within httpTimeout.
+func downloadClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = httpTimeout
+	return &http.Client{Transport: transport}
+}
+
 func downloadArchive(ctx context.Context, url, wantSHA256Hex string, onProgress ProgressFunc) (path string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -337,7 +349,7 @@ func downloadArchive(ctx context.Context, url, wantSHA256Hex string, onProgress 
 	}
 	req.Header.Set("User-Agent", "usbridge-agent-entitlement")
 
-	resp, err := httpClient().Do(req)
+	resp, err := downloadClient().Do(req)
 	if err != nil {
 		return "", fmt.Errorf("entitlement: download: %w", err)
 	}
