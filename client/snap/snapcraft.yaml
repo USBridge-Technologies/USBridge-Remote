@@ -6,8 +6,8 @@
 # Strict confinement: the Snap Store doesn't grant classic to remote-desktop
 # apps. pkexec isn't reachable inside the snap, so what needs root on the host
 # changes: the Wi-Fi tune goes through NetworkManager's D-Bus API instead
-# (internal/netutil/wifitune_nm_linux.go), the UDP buffer button is hidden,
-# and passing this computer's own USB devices through (usbip-host) reports
+# (internal/netutil/wifitune_nm_linux.go), the UDP buffer button shows the
+# command to run in a terminal with a copy button, and passing this computer's own USB devices through (usbip-host) reports
 # that pkexec isn't installed. Updates come from the Snap Store, never the
 # in-app updater (internal/update skips the check when $SNAP is set).
 name: usbridge-client
@@ -15,8 +15,8 @@ title: USBridge Client
 summary: Low-latency remote desktop, game streaming and IPKVM client
 description: |
   USBridge Client connects to computers running the USBridge Agent and to
-  USBridge hardware KVMs (USBridge KVM 2.0, or a Radxa Zero 3W, Radxa Cubie
-  A7Z or Sipeed NanoKVM flashed with USBridge firmware).
+  USBridge hardware KVMs (USBridge KVM 2.0, or a Radxa Zero 3W/3E, Radxa
+  Cubie A7Z or Sipeed NanoKVM flashed with USBridge firmware).
 
   - Low-latency desktop and game streaming, Moonlight / Sunshine compatible
   - H.264, H.265, AV1 and PyroWave video, 4:4:4 color and HDR10
