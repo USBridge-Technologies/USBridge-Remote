@@ -48,7 +48,7 @@ The Client is the control interface — installed on your workstation or laptop 
 
 ## Agent
 
-The Agent runs on the target machine — the server or PC you want to access remotely. It handles screen capture, input injection, and Tailscale networking.
+The Agent runs on the target machine — the server or PC you want to access remotely. It captures the screen and sound, passes your keyboard, mouse and gamepad through to that machine, and connects it over Tailscale.
 
 <table>
   <tr>
