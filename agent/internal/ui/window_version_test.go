@@ -26,3 +26,16 @@ func TestFormatStreamerVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestShortStreamerVersion(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                           "",
+		"usbridge-streamer-v0.3.192": "v0.3.192",
+		"v2026.1025.2.usbridge":      "v2026.1025.2",
+		"2026.1025.2":                "v2026.1025.2",
+	} {
+		if got := shortStreamerVersion(in); got != want {
+			t.Errorf("shortStreamerVersion(%q) = %q want %q", in, got, want)
+		}
+	}
+}

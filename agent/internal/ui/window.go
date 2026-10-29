@@ -653,15 +653,23 @@ const rustshineWebURL = "https://web.usbridge.io"
 // matches Sunshine's short "v1.2.3" rather than losing the "v" or showing
 // the whole tag.
 func formatStreamerVersion(appVer, rustshineVer string, rustshineActive bool) string {
-	raw := strings.TrimSpace(appVer)
 	if rustshineActive {
-		tag := strings.TrimSpace(rustshineVer)
-		tag = strings.TrimPrefix(tag, "usbridge-streamer-v")
-		tag = strings.TrimPrefix(tag, "gamestream-server-v")
-		if tag != "" {
-			raw = tag
+		if v := shortStreamerVersion(rustshineVer); v != "" {
+			return v
 		}
 	}
+	return shortStreamerVersion(appVer)
+}
+
+// shortStreamerVersion turns a staged streamer's release tag into the
+// short "v1.2.3" the cards show: "usbridge-streamer-v0.3.192" and
+// "gamestream-server-v…" lose their prefix, Streamers-Forks tags
+// ("v2026.1025.2.usbridge") their ".usbridge" suffix. "" stays "".
+func shortStreamerVersion(tag string) string {
+	raw := strings.TrimSpace(tag)
+	raw = strings.TrimPrefix(raw, "usbridge-streamer-")
+	raw = strings.TrimPrefix(raw, "gamestream-server-")
+	raw = strings.TrimSuffix(raw, ".usbridge")
 	raw = strings.TrimPrefix(raw, "v")
 	if raw == "" {
 		return ""

@@ -405,14 +405,23 @@ func (w *Window) syncProtocolRowUpdate(row *protocolPickRow, st entitlement.Stat
 	case protocolFree, protocolPro, protocolEnterprise:
 		show := st.RustShineStaged && !protocolNeedsPurchase(row.key, st, acc)
 		row.SetUpdate(show, st.RustShineUpdateInProgress || w.streamerUpdateChecking, w.beginStreamerUpdateCheck)
+		ver := ""
+		if st.RustShineStaged {
+			ver = shortStreamerVersion(st.RustShineVersion)
+		}
+		row.SetVersion(ver)
 	case protocolPunktfunk:
 		row.SetUpdate(st.PunktfunkStaged, st.PunktfunkUpdateInProgress || w.punktfunkUpdateChecking, w.beginPunktfunkUpdateCheck)
+		row.SetVersion(shortStreamerVersion(st.PunktfunkVersion))
 	case protocolVibepollo:
 		row.SetUpdate(st.VibepolloStaged, st.VibepolloUpdateInProgress || w.vibepolloUpdateChecking, w.beginVibepolloUpdateCheck)
+		row.SetVersion(shortStreamerVersion(st.VibepolloVersion))
 	case protocolOpensource:
 		row.SetUpdate(st.SunshineUpdatable, st.SunshineUpdateInProgress || w.sunshineUpdateChecking, w.beginSunshineUpdateCheck)
+		row.SetVersion(shortStreamerVersion(st.SunshineVersion))
 	default:
 		row.SetUpdate(false, false, nil)
+		row.SetVersion("")
 	}
 }
 
@@ -634,6 +643,18 @@ type protocolPickRow struct {
 	onUpdate   func()
 	updateHitX float32
 	updateHitW float32
+	// version: the installed build's short tag ("v0.3.192"), shown under
+	// the badge; "" hides it.
+	version string
+}
+
+// SetVersion shows the installed streamer's version on the card.
+func (r *protocolPickRow) SetVersion(v string) {
+	if r.version == v {
+		return
+	}
+	r.version = v
+	r.Refresh()
 }
 
 // SetUpdate shows or hides the card's "check for updates" glyph.
@@ -731,6 +752,8 @@ func (r *protocolPickRow) CreateRenderer() fyne.WidgetRenderer {
 	badgeBg.CornerRadius = 6
 	badgeBg.StrokeWidth = 1
 	badgeBg.StrokeColor = r.badgeLine
+	ver := canvas.NewText(r.version, design.ColorMutedOlive)
+	ver.TextSize = 9
 
 	lock := canvas.NewImageFromResource(protocolLockIcon)
 	lock.FillMode = canvas.ImageFillStretch
@@ -756,11 +779,12 @@ func (r *protocolPickRow) CreateRenderer() fyne.WidgetRenderer {
 		title:      title,
 		sub:        sub,
 		badgeBg:    badgeBg,
+		ver:        ver,
 		lock:       lock,
 		info:       info,
 		update:     update,
 		updateBusy: updateBusy,
-		objects:    []fyne.CanvasObject{bg, border, radio, dot, title, badgeBg, sub, lock, info, update, updateBusy},
+		objects:    []fyne.CanvasObject{bg, border, radio, dot, title, badgeBg, sub, ver, lock, info, update, updateBusy},
 	}
 	// Apply checked/locked/hover state now: the objects above start in
 	// their defaults (dot shown), and a card whose state never changes after
@@ -771,7 +795,7 @@ func (r *protocolPickRow) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (r *protocolPickRow) MinSize() fyne.Size {
-	return fyne.NewSize(120, 56)
+	return fyne.NewSize(120, 64)
 }
 
 func (r *protocolPickRow) Tapped(e *fyne.PointEvent) {
@@ -842,6 +866,7 @@ type protocolPickRowRenderer struct {
 	title   *canvas.Text
 	sub     *canvas.Text
 	badgeBg *canvas.Rectangle
+	ver     *canvas.Text
 	lock    *canvas.Image
 	info    *canvas.Image
 	// update / updateBusy: the "check for updates" glyph, idle and while a
@@ -914,6 +939,10 @@ func (r *protocolPickRowRenderer) Layout(size fyne.Size) {
 	titleH := float32(16)
 	subH := float32(16)
 	blockH := titleH + 4 + subH
+	verSize := r.ver.MinSize()
+	if r.ver.Text != "" {
+		blockH += 2 + verSize.Height
+	}
 	textY := (size.Height - blockH) / 2
 	r.title.Move(fyne.NewPos(textX, textY))
 	r.title.Resize(fyne.NewSize(textW, titleH))
@@ -929,6 +958,13 @@ func (r *protocolPickRowRenderer) Layout(size fyne.Size) {
 	r.badgeBg.Resize(fyne.NewSize(chipW, chipH))
 	r.sub.Move(fyne.NewPos(textX+chipPadX, textY+titleH+4+chipPadY-0.5))
 	r.sub.Resize(subSize)
+	if r.ver.Text == "" {
+		r.ver.Hide()
+	} else {
+		r.ver.Move(fyne.NewPos(textX, textY+titleH+4+chipH+2))
+		r.ver.Resize(fyne.NewSize(textW, verSize.Height))
+		r.ver.Show()
+	}
 }
 
 func (r *protocolPickRowRenderer) MinSize() fyne.Size { return r.row.MinSize() }
@@ -975,6 +1011,11 @@ func (r *protocolPickRowRenderer) Refresh() {
 	r.sub.Color = subClr
 	r.badgeBg.StrokeColor = subClr
 	r.badgeBg.FillColor = protocolBadgeFill(subClr)
+	r.ver.Text = r.row.version
+	r.ver.Color = design.ColorMutedOlive
+	if r.row.disabled && !r.row.checked || r.row.locked && !r.row.checked {
+		r.ver.Color = design.ColorEmptyHint
+	}
 	r.bg.Refresh()
 	r.border.Refresh()
 	r.radio.Refresh()
@@ -982,6 +1023,7 @@ func (r *protocolPickRowRenderer) Refresh() {
 	r.title.Refresh()
 	r.badgeBg.Refresh()
 	r.sub.Refresh()
+	r.ver.Refresh()
 	r.lock.Refresh()
 	r.info.Refresh()
 	r.Layout(r.row.Size())
