@@ -117,7 +117,7 @@ func (s *stubApp) Screen() interface {
 }
 func (s *stubApp) VideoDevices() []VideoDeviceInfo              { return nil }
 func (s *stubApp) VirtualDisplaySupported() bool                { return false }
-func (s *stubApp) StreamerName() string { return "" }
+func (s *stubApp) StreamerName() string                         { return "" }
 func (s *stubApp) VideoFec() (int, bool, bool, bool)            { return 0, false, false, false }
 func (s *stubApp) SetVideoFec(int, bool) (bool, error)          { return false, nil }
 func (s *stubApp) VideoSource() (VideoSourceInfo, bool)         { return VideoSourceInfo{}, false }
@@ -439,6 +439,7 @@ func TestClipboardWS_RequestRepliesWithCurrentClipboard(t *testing.T) {
 }
 
 func (s *stubApp) VirtualDisplayPrimary() bool                 { return false }
+func (s *stubApp) VirtualDisplayUp() bool                      { return true }
 func (s *stubApp) SetVirtualDisplayPrimary(bool) (bool, error) { return false, nil }
 func (s *stubApp) SetVirtualDisplayExclusive(bool) error       { return nil }
 func (s *stubApp) ClientSessionEnded()                         {}

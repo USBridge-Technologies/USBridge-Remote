@@ -84,6 +84,16 @@ func (a *App) virtualSpec() string {
 	return spec
 }
 
+// VirtualDisplayUp reports whether the virtual monitor is attached now: on Windows the
+// agent's, up for a session only (its state file exists while it is); elsewhere, and
+// with a stream host that attaches its own, the stream host keeps it up.
+func (a *App) VirtualDisplayUp() bool {
+	if runtime.GOOS != "windows" || a.streamOwnsVirtualMonitor() {
+		return true
+	}
+	return displaypower.LoadState(a.virtualSessionStatePath()) != nil
+}
+
 // StopForService is the Windows service being stopped (Stop, or Windows shutting
 // down): the service returns from its handler right after, which ends the process
 // with no engine shutdown, so a session on the virtual monitor is undone here first

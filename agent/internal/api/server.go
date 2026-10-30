@@ -84,6 +84,10 @@ type Application interface {
 	// streamhost.Backend.SetVirtualDisplayPrimary.
 	VirtualDisplayPrimary() bool
 	SetVirtualDisplayPrimary(primary bool) (live bool, err error)
+	// VirtualDisplayUp: whether the virtual monitor is attached now. On Windows it
+	// is only for a session; its Main shows lit only then, so exactly one
+	// display's Main is lit -- the one that is the primary display now.
+	VirtualDisplayUp() bool
 	// SetVirtualDisplayExclusive saves whether the next virtual monitor
 	// switches every other monitor off while it exists (back on when it goes
 	// away). Backends without it do nothing.
@@ -1218,7 +1222,7 @@ func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
 		if cur := s.app.SunshineOutputName(); strings.HasPrefix(cur, "virtual:") {
 			s.addVirtualEntryLocked(cur)
 		}
-		primary := s.app.VirtualDisplayPrimary()
+		primary := s.app.VirtualDisplayPrimary() && s.app.VirtualDisplayUp()
 		for _, vd := range s.virtualDisplays {
 			vd.Primary = &primary
 			devices = append(devices, vd)
