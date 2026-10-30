@@ -555,6 +555,12 @@ func (dw *DiskWidget) refreshDashboard() {
 		))
 	}
 
+	if hidKeyboard != nil || hidMouse != nil {
+		hidRows = append(hidRows, dw.newDashboardUSBIdentityRows()...)
+	}
+	if r := dw.newDashboardEDIDRow(); r != nil {
+		videoRows = append(videoRows, r)
+	}
 	setDashboardRows(dw.dashboardHID, hidRows, "No keyboard, mouse, gamepad, or tablet devices")
 	setDashboardRows(dw.dashboardVideo, videoRows, "No capture devices")
 	if view.IsMobile() && len(audioRows) == 0 {

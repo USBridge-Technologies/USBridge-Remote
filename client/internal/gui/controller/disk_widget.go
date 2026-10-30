@@ -46,6 +46,9 @@ type DiskWidget struct {
 	dashboardContainer   fyne.CanvasObject
 	dashboardHID         *fyne.Container
 	dashboardVideo       *fyne.Container
+	// What the KVM shows the PC (disk_widget_identity.go); nil = no picker.
+	edidStatus  *models.EDIDStatus
+	usbIdentity *models.USBIdentityStatus
 	dashboardAudio       *fyne.Container
 	dashboardAudioCard   fyne.CanvasObject
 	dashboardAudioGap    fyne.CanvasObject
@@ -1322,6 +1325,7 @@ func (dw *DiskWidget) Refresh() {
 	dw.loadMountedDevices()
 	go dw.loadGamepadDevices()
 	go dw.loadUSBPassthroughDevices()
+	go dw.loadIdentityOptions()
 }
 
 // GetContainer returns the widget's container
@@ -1477,6 +1481,8 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 		dw.agentOS = ""
 		dw.agentProtocol = ""
 		fyne.Do(func() {
+			dw.edidStatus = nil
+			dw.usbIdentity = nil
 			dw.localDrives = nil
 			dw.mountedDevices = nil
 			dw.audioDevices = nil

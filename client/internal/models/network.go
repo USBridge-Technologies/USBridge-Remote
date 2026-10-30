@@ -109,3 +109,29 @@ type SDCardStatus struct {
 	FormatError     string         `json:"format_error,omitempty"`
 	Snapshots       SnapshotTiming `json:"snapshots"`
 }
+
+// What the KVM shows the PC (usbridge web/identity_api.go): the monitor's
+// EDID and the USB device's identity.
+type EDIDPreset struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type EDIDStatus struct {
+	Supported  bool         `json:"supported"`
+	Presets    []EDIDPreset `json:"presets"`
+	Selected   string       `json:"selected"`
+	PowerCycle bool         `json:"power_cycle_required"`
+}
+
+type USBIdentity struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Audio bool   `json:"audio"`
+}
+
+type USBIdentityStatus struct {
+	Identities []USBIdentity `json:"identities"`
+	KBM        string        `json:"kbm"`
+	Audio      string        `json:"audio"`
+}
