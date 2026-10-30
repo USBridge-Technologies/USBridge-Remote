@@ -84,6 +84,34 @@ func (a *App) virtualSpec() string {
 	return spec
 }
 
+// StopForService is the Windows service being stopped (Stop, or Windows shutting
+// down): the service returns from its handler right after, which ends the process
+// with no engine shutdown, so a session on the virtual monitor is undone here first
+// -- before, the virtual monitor stayed the only, primary screen and the real ones
+// dark (only the watcher, 20 s later, would put them back) -- and the stream host is
+// stopped.
+func StopForService() {
+	currentInstance.mu.Lock()
+	a := currentInstance.a
+	currentInstance.mu.Unlock()
+	if a == nil {
+		return
+	}
+	if state := a.virtualSessionStatePath(); displaypower.LoadState(state) != nil {
+		if res, err := streamhost.RunDisplayHelper("apply", state); err != nil || res.Error != "" {
+			log.Printf("[app] service stopping -- putting the displays back: %v %s", err, res.Error)
+		} else {
+			log.Printf("[app] service stopping -- the virtual monitor is down, the other monitors are back")
+		}
+	}
+	a.streamMu.Lock()
+	stream := a.stream
+	a.streamMu.Unlock()
+	if stream != nil {
+		_ = stream.Stop()
+	}
+}
+
 // ClientSessionEnded is the client saying its stream is over (it disconnects or
 // quits): the virtual monitor goes and the other monitors come back at once.
 func (a *App) ClientSessionEnded() {

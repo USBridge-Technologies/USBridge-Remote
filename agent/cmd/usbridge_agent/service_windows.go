@@ -137,7 +137,10 @@ loop:
 			break loop
 		}
 	}
-	changes <- svc.Status{State: svc.StopPending}
+	// Returning ends the process at once: undo a session on the virtual monitor
+	// and stop the stream host first (app.StopForService).
+	changes <- svc.Status{State: svc.StopPending, WaitHint: 30000}
+	app.StopForService()
 	return
 }
 
