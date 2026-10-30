@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1222,9 +1223,16 @@ func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
 		if cur := s.app.SunshineOutputName(); strings.HasPrefix(cur, "virtual:") {
 			s.addVirtualEntryLocked(cur)
 		}
-		primary := s.app.VirtualDisplayPrimary() && s.app.VirtualDisplayUp()
+		up := s.app.VirtualDisplayUp()
+		primary := s.app.VirtualDisplayPrimary() && up
 		for _, vd := range s.virtualDisplays {
 			vd.Primary = &primary
+			if runtime.GOOS == "windows" {
+				// Its On switch: lit while its monitor is up for a session; off
+				// moves the stream to a real monitor (monitorSetEnabled).
+				on := up && s.app.SunshineOutputName() == vd.Path
+				vd.MonitorID, vd.Enabled = vd.Path, &on
+			}
 			devices = append(devices, vd)
 		}
 		s.virtMu.Unlock()
@@ -1303,6 +1311,27 @@ func (s *Server) monitorSetEnabled(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.MonitorID == "" {
 		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	if strings.HasPrefix(req.MonitorID, "virtual:") {
+		// The virtual display's On switch (Windows): its monitor is only up for a
+		// session on it, so on streams it (up now, or with the next session) and
+		// off moves the stream to a real monitor -- the agent then detaches it and
+		// puts the displays back.
+		out := req.MonitorID
+		if !req.Enabled {
+			if s.app.SunshineOutputName() != req.MonitorID {
+				s.ok(w, "monitor_enabled", map[string]any{"monitor_id": req.MonitorID, "enabled": false})
+				return
+			}
+			out = s.firstPhysicalOutput(false)
+		}
+		if err := s.app.SetSunshineOutputName(out); err != nil {
+			s.fail(w, http.StatusInternalServerError, "monitor_power_failed", err)
+			return
+		}
+		log.Printf("[api] virtual display %s enabled=%v (output %q)", req.MonitorID, req.Enabled, out)
+		s.ok(w, "monitor_enabled", map[string]any{"monitor_id": req.MonitorID, "enabled": req.Enabled})
 		return
 	}
 	err := displaypower.SetEnabledInSession(req.MonitorID, req.Enabled)
