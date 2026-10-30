@@ -44,6 +44,30 @@ const virtualSessionStartup = 30 * time.Second
 // off (each check is a helper process in the user's session).
 const virtualOthersRecheck = 10 * time.Second
 
+// virtualStrayRecheck is how often, with no session, the agent checks the virtual
+// monitor isn't attached (each check is a helper process in the user's session).
+const virtualStrayRecheck = 30 * time.Second
+
+// strayVirtualMonitor reports whether the virtual monitor is part of the desktop
+// next to another monitor. With no session on it that is never wanted: the driver
+// install attaches it extended (the mouse and new windows wander off onto a screen
+// nobody sees), and so does a session whose undo never ran. Alone it is left be:
+// on a headless machine it is the only screen there is.
+func strayVirtualMonitor(monitors []displaypower.Monitor) bool {
+	virtual, other := false, false
+	for _, m := range monitors {
+		if !m.Active {
+			continue
+		}
+		if m.Virtual {
+			virtual = true
+		} else {
+			other = true
+		}
+	}
+	return virtual && other
+}
+
 // virtualMonitorOwner is a stream host that brings up its own virtual monitor
 // (Punktfunk on Windows): the agent then leaves the displays alone and only hands it
 // the "only the virtual monitor" choice (SetVirtualDisplayExclusive).
@@ -137,7 +161,7 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	var idleSince, lastOff, upAt time.Time
+	var idleSince, lastOff, upAt, lastStrayCheck time.Time
 	// up: the spec the virtual monitor was brought up in, "" while it is down.
 	up := ""
 	if displaypower.LoadState(state) != nil {
@@ -258,6 +282,18 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 			}
 			ownerOthers(spec, left)
 			continue
+		}
+		if starting == nil && up == "" && time.Since(lastStrayCheck) >= virtualStrayRecheck {
+			a.streamMu.Lock()
+			stream := a.stream
+			a.streamMu.Unlock()
+			if stream == nil || !stream.SessionActive() {
+				lastStrayCheck = time.Now()
+				if res, err := streamhost.RunDisplayHelper("list", "-"); err == nil && strayVirtualMonitor(res.Monitors) {
+					run("detach", "apply", state)
+					log.Printf("[app] the virtual monitor was attached with no session on it -- detached, the monitors are as before")
+				}
+			}
 		}
 		if starting != nil {
 			if spec != "" {
