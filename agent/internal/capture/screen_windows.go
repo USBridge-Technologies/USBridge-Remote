@@ -189,10 +189,11 @@ func sessionMonitorDevices() []api.VideoDeviceInfo {
 		if m.Virtual || !m.Active || m.Width <= 0 || m.Height <= 0 {
 			continue
 		}
-		on := true
+		on, primary := true, m.Primary
 		out = append(out, api.VideoDeviceInfo{
 			Path:           "monitor:" + m.ID,
-			Name:           fmt.Sprintf("%s (%dx%d)", m.Name, m.Width, m.Height),
+			Name:           fmt.Sprintf("%s (%dx%d)", monitorName(m), m.Width, m.Height),
+			MonitorPrimary: &primary,
 			Bus:            "dxgi",
 			Index:          len(out),
 			Connected:      true,
@@ -211,7 +212,7 @@ func sessionMonitorDevices() []api.VideoDeviceInfo {
 		off := false
 		out = append(out, api.VideoDeviceInfo{
 			Path:      "monitor:" + m.ID,
-			Name:      m.Name + " (off)",
+			Name:      monitorName(m) + " (off)",
 			Bus:       "dxgi",
 			Index:     len(out),
 			Connected: false,
@@ -237,26 +238,27 @@ func withMonitorPower(out []api.VideoDeviceInfo, gdi []string) []api.VideoDevice
 		}
 		for _, m := range all {
 			if m.Active && strings.EqualFold(m.GDIName, gdi[i]) {
-				on := true
-				out[i].MonitorID, out[i].Enabled = m.ID, &on
+				on, primary := true, m.Primary
+				out[i].MonitorID, out[i].Enabled, out[i].MonitorPrimary = m.ID, &on, &primary
 				listed[m.ID] = true
-				// The fallback's "Display N (WxH)" says nothing; the EDID name does.
-				if strings.HasPrefix(out[i].Name, "Display ") && m.Name != "" {
-					if j := strings.Index(out[i].Name, " ("); j >= 0 {
-						out[i].Name = m.Name + out[i].Name[j:]
-					}
+				// The monitor's own name, not the stream host's: that one is the
+				// fallback's "Display N" or the DXGI adapter's, which on a VM
+				// without 3D is "\\.\DISPLAY1 Microsoft Basic Render".
+				if j := strings.LastIndex(out[i].Name, " ("); j >= 0 {
+					out[i].Name = monitorName(m) + out[i].Name[j:]
 				}
 			}
 		}
 	}
 	for _, m := range all {
-		if m.Active || listed[m.ID] {
+		// The virtual monitor is the API's own "virtual:" entry, not a switched-off one.
+		if m.Active || m.Virtual || listed[m.ID] {
 			continue
 		}
 		off := false
 		out = append(out, api.VideoDeviceInfo{
 			Path:      "monitor:" + m.ID,
-			Name:      m.Name + " (off)",
+			Name:      monitorName(m) + " (off)",
 			Bus:       "dxgi",
 			Index:     len(out),
 			Connected: false,

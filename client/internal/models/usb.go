@@ -521,6 +521,9 @@ type SystemDevice struct {
 	// the monitor is off; a switched-off one is listed with Enabled false.
 	MonitorID string `json:"monitor_id,omitempty"`
 	Enabled   *bool  `json:"enabled,omitempty"`
+	// MonitorPrimary: an active Windows monitor -- whether it is the primary
+	// display now (its "Main" switch). Nil from agents that don't support it.
+	MonitorPrimary *bool `json:"monitor_primary,omitempty"`
 }
 
 // AudioStartRequest request to start audio capture.

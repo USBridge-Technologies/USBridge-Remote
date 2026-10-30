@@ -126,6 +126,7 @@ func saveState(path string, st *VirtualState) error {
 //	others STATEFILE 0|1                  monitors around a virtual one: off (0), back on (1)
 //	list -                                every monitor (List)
 //	enable - MONITOR_ID 0|1               switch one monitor off or on (SetEnabled)
+//	make-primary - MONITOR_ID             make one active monitor the primary display
 //	vname -                               the virtual monitor's GDI/friendly name, attached or not
 //	park -                                detach the virtual monitor a driver install attached
 //	watch STATEFILE AGENT_PID SERVICE     restore STATEFILE once the agent died and stayed down
@@ -184,6 +185,14 @@ func runHelper(args []string) HelperResult {
 			return HelperResult{Error: err.Error()}
 		}
 		return HelperResult{State: &VirtualState{GDIName: gdi, FriendlyName: friendly}}
+	case "make-primary":
+		if len(args) < 3 {
+			return HelperResult{Error: "usage: make-primary - MONITOR_ID"}
+		}
+		if err := MakePrimary(args[2]); err != nil {
+			return HelperResult{Error: err.Error()}
+		}
+		return HelperResult{}
 	case "enable":
 		if len(args) < 4 {
 			return HelperResult{Error: "usage: enable - MONITOR_ID 0|1"}

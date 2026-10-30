@@ -227,6 +227,26 @@ func (dw *DiskWidget) handleToggleVirtualDisplayPrimary(id string, primary bool)
 	}()
 }
 
+// handleMakeMonitorPrimary makes one of the agent's monitors the primary
+// display (a physical monitor's "Main" switch).
+func (dw *DiskWidget) handleMakeMonitorPrimary(monitorID string) {
+	if dw.usbClient == nil {
+		return
+	}
+	go func() {
+		dw.userOperationInFlight.Store(true)
+		defer dw.userOperationInFlight.Store(false)
+		if err := dw.usbClient.SetMonitorPrimary(monitorID); err != nil {
+			logrus.Errorf("Failed to make the monitor the main display: %v", err)
+			fyne.Do(func() {
+				view.ShowErrorDialog(fmt.Errorf(i18n.Current.VirtualDisplayPrimaryFailed, err), dw.window)
+			})
+			return
+		}
+		dw.loadVideoDevices()
+	}()
+}
+
 // handleToggleMonitorPower switches one of the agent's monitors on or off
 // (the dashboard's "On" switch).
 func (dw *DiskWidget) handleToggleMonitorPower(monitorID string, on bool) {

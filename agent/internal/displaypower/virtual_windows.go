@@ -100,7 +100,40 @@ func layout() ([]Placed, error) {
 
 // applyLayout moves active sources to the given positions (by GDI name; others keep
 // theirs) in one SetDisplayConfig. The source at (0,0) is the primary display.
-func applyLayout(l []Placed) error {
+func applyLayout(l []Placed) error { return applyLayoutSave(l, false) }
+
+// MakePrimary makes the active monitor id (a device path, see Monitor.ID) the primary
+// display, keeping the arrangement's shape: the user's own choice from the client's
+// Main button, so unlike a session's moves it is saved to Windows' display database.
+func MakePrimary(id string) error {
+	monitors, err := List()
+	if err != nil {
+		return err
+	}
+	for _, m := range monitors {
+		if m.ID != id {
+			continue
+		}
+		if !m.Active || m.GDIName == "" {
+			return ErrNotFound
+		}
+		l, err := layout()
+		if err != nil {
+			return err
+		}
+		next, ok := shiftedTo(l, m.GDIName)
+		if !ok {
+			return ErrNotFound
+		}
+		if samePlaces(next, l) {
+			return nil
+		}
+		return applyLayoutSave(next, true)
+	}
+	return ErrNotFound
+}
+
+func applyLayoutSave(l []Placed, save bool) error {
 	paths, modes, err := query(qdcOnlyActivePaths)
 	if err != nil {
 		return err
@@ -118,12 +151,16 @@ func applyLayout(l []Placed) error {
 			}
 		}
 	}
-	// Not saved to Windows' display database, like the attach and the mode: a
-	// session that never got to put them back (connection lost, agent killed,
-	// power cut) left the virtual monitor primary through a reboot too, the
-	// login screen on a monitor nobody can see (issue #23). Only the detach,
-	// the end state, is saved.
-	return set("positions", paths, modes, sdcApply|sdcUseSuppliedDisplayConfig|sdcAllowChanges)
+	// A session's moves are not saved to Windows' display database, like the attach
+	// and the mode: a session that never got to put them back (connection lost,
+	// agent killed, power cut) left the virtual monitor primary through a reboot
+	// too, the login screen on a monitor nobody can see (issue #23). Only the
+	// detach, the end state, is saved -- and the user's own MakePrimary.
+	flags := uint32(sdcApply | sdcUseSuppliedDisplayConfig | sdcAllowChanges)
+	if save {
+		flags |= sdcSaveToDatabase
+	}
+	return set("positions", paths, modes, flags)
 }
 
 // shiftedTo is l with target moved to the origin and everything else by the same

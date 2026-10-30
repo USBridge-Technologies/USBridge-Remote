@@ -2187,6 +2187,27 @@ func (c *USBClient) SetMonitorEnabled(monitorID string, enabled bool) error {
 	return nil
 }
 
+// SetMonitorPrimary makes one of the agent's active Windows monitors the
+// primary display (taskbar and new windows open there).
+func (c *USBClient) SetMonitorPrimary(monitorID string) error {
+	body, err := json.Marshal(map[string]any{"monitor_id": monitorID})
+	if err != nil {
+		return err
+	}
+	resp, err := c.makeRequest("POST", "/api/video/monitors/primary", body)
+	if err != nil {
+		return err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return fmt.Errorf("API error: %s", apiResp.Message)
+	}
+	return nil
+}
+
 func (c *USBClient) RemoveVirtualDisplay(id string) (*models.APIResponse, error) {
 	resp, err := c.makeRequest("DELETE", "/api/video/virtual_displays/"+url.PathEscape(id), nil)
 	if err != nil {

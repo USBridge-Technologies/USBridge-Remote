@@ -81,6 +81,21 @@ func SetEnabledInSession(id string, on bool) error {
 	return nil
 }
 
+// MakePrimaryInSession is MakePrimary, run in the user's session (see SetEnabledInSession).
+func MakePrimaryInSession(id string) error {
+	if sessionRunner == nil {
+		return MakePrimary(id)
+	}
+	res, err := sessionRunner("make-primary", "-", id)
+	if err != nil {
+		return err
+	}
+	if res.Error != "" {
+		return helperError(res.Error)
+	}
+	return nil
+}
+
 // helperError maps a helper's error text back onto this package's errors.
 func helperError(msg string) error {
 	for _, e := range []error{ErrUnsupported, ErrNotFound, ErrLastDisplay, ErrNoVirtualDriver} {

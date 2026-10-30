@@ -70,6 +70,7 @@ var routeCaps = map[string]guestauth.Cap{
 
 	"/api/video/virtual_displays": guestauth.CapDisplay,
 	"/api/video/monitors/enabled": guestauth.CapDisplay,
+	"/api/video/monitors/primary": guestauth.CapDisplay,
 
 	"/api/video/set_device": guestauth.CapVideoSettings,
 	"/api/video/fec":        guestauth.CapVideoSettings,

@@ -413,6 +413,9 @@ func (dw *DiskWidget) refreshDashboard() {
 			if t := dw.newDashboardMonitorPowerToggle(drive); t != nil {
 				extras = append(extras, t)
 			}
+			if t := dw.newDashboardMonitorPrimaryToggle(drive); t != nil {
+				extras = append(extras, t)
+			}
 			if drive.VideoDevice != nil && drive.VideoDevice.Bus == "virtual" {
 				if t := dw.newDashboardVirtualDisplayPrimaryToggle(drive); t != nil {
 					extras = append(extras, t)
@@ -1248,6 +1251,25 @@ func (dw *DiskWidget) newDashboardMonitorPowerToggle(drive DriveItem) fyne.Canva
 			return
 		}
 		dw.handleToggleMonitorPower(id, !on)
+	}, dw.dashboardVideoHover)
+	btn.SetDisabled(dw.controlsLocked())
+	return btn
+}
+
+// newDashboardMonitorPrimaryToggle is an active Windows monitor's "Main"
+// switch: lit on the primary display, tap another monitor's to make it the
+// primary one. Nil when the agent doesn't report it.
+func (dw *DiskWidget) newDashboardMonitorPrimaryToggle(drive DriveItem) fyne.CanvasObject {
+	if drive.VideoDevice == nil || drive.VideoDevice.MonitorID == "" || drive.VideoDevice.MonitorPrimary == nil {
+		return nil
+	}
+	id := drive.VideoDevice.MonitorID
+	on := *drive.VideoDevice.MonitorPrimary
+	btn := view.NewDeviceDashboardTextToggle(i18n.Current.VirtualDisplayPrimaryToggle, on, func() {
+		if dw.controlsLocked() || on {
+			return
+		}
+		dw.handleMakeMonitorPrimary(id)
 	}, dw.dashboardVideoHover)
 	btn.SetDisabled(dw.controlsLocked())
 	return btn

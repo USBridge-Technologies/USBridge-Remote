@@ -270,6 +270,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/video/virtual_displays/{id}", sec.LimitPolling(s.virtualDisplayDelete))
 	mux.HandleFunc("POST /api/video/virtual_displays/{id}/primary", sec.LimitPolling(s.virtualDisplaySetPrimary))
 	mux.HandleFunc("POST /api/video/monitors/enabled", sec.LimitPolling(s.monitorSetEnabled))
+	mux.HandleFunc("POST /api/video/monitors/primary", sec.LimitPolling(s.monitorSetPrimary))
 	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))
 	mux.HandleFunc("GET /api/bench/status", sec.LimitPolling(s.benchStatus))
 	mux.HandleFunc("POST /api/bench/backend", sec.LimitPolling(s.benchBackend))
@@ -1316,6 +1317,30 @@ func (s *Server) monitorSetEnabled(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// monitorSetPrimary makes a Windows monitor (by monitor_id, see VideoDeviceInfo) the
+// primary display: the client's Main button on a physical monitor.
+func (s *Server) monitorSetPrimary(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MonitorID string `json:"monitor_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.MonitorID == "" {
+		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	err := displaypower.MakePrimaryInSession(req.MonitorID)
+	switch {
+	case errors.Is(err, displaypower.ErrUnsupported):
+		s.fail(w, http.StatusNotImplemented, "monitor_primary_unsupported", err)
+	case errors.Is(err, displaypower.ErrNotFound):
+		s.fail(w, http.StatusNotFound, "monitor_not_found", err)
+	case err != nil:
+		s.fail(w, http.StatusInternalServerError, "monitor_primary_failed", err)
+	default:
+		log.Printf("[api] monitor %s is now the primary display", req.MonitorID)
+		s.ok(w, "monitor_primary", map[string]any{"monitor_id": req.MonitorID})
+	}
+}
+
 // virtualDisplaySetPrimary turns "the virtual monitor is the primary display"
 // on or off: saved for the next start and applied to the live virtual monitor
 // right away (no stream restart). The choice covers every virtual display
@@ -1405,17 +1430,34 @@ var drmConnectorNameRe = regexp.MustCompile(`^(card\d+)-(.+)$`)
 // DRM device, or "" when none is listed. compound selects RustShine's
 // "/dev/dri/cardN|CONNECTOR" form (by name, so it does not depend on index
 // order once the vkms connector disappears) instead of the numeric index.
+//
+// Of the physical ones: the primary display first, then one that is switched on,
+// then any. A switched-off monitor first in the list (on Windows the MttVDD
+// monitor was one, listed as off) made deleting the virtual display stream the
+// virtual monitor itself instead of the real screen.
 func (s *Server) firstPhysicalOutput(compound bool) string {
+	var physical []VideoDeviceInfo
 	for _, d := range s.app.VideoDevices() {
-		if d.Bus == "virtual" || isVkmsConnector(d) {
-			continue
+		if d.Bus != "virtual" && !isVkmsConnector(d) {
+			physical = append(physical, d)
 		}
-		if compound {
-			if m := drmConnectorNameRe.FindStringSubmatch(d.Name); m != nil {
-				return "/dev/dri/" + m[1] + "|" + m[2]
+	}
+	for _, pick := range []func(VideoDeviceInfo) bool{
+		func(d VideoDeviceInfo) bool { return d.MonitorPrimary != nil && *d.MonitorPrimary },
+		func(d VideoDeviceInfo) bool { return d.Connected },
+		func(VideoDeviceInfo) bool { return true },
+	} {
+		for _, d := range physical {
+			if !pick(d) {
+				continue
 			}
+			if compound {
+				if m := drmConnectorNameRe.FindStringSubmatch(d.Name); m != nil {
+					return "/dev/dri/" + m[1] + "|" + m[2]
+				}
+			}
+			return stripDevicePrefix(d.Path)
 		}
-		return stripDevicePrefix(d.Path)
 	}
 	return ""
 }

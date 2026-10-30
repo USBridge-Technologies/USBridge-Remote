@@ -128,6 +128,10 @@ type VideoDeviceInfo struct {
 	// monitor is listed with Connected false and Enabled false.
 	MonitorID string `json:"monitor_id,omitempty"`
 	Enabled   *bool  `json:"enabled,omitempty"`
+	// MonitorPrimary: an active Windows monitor -- whether it is the primary display
+	// now; POST /api/video/monitors/primary makes another one it. Not Primary, which
+	// clients before it show as the virtual display's Main switch.
+	MonitorPrimary *bool `json:"monitor_primary,omitempty"`
 }
 
 type LegacyDeviceInfo struct {
