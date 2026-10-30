@@ -41,6 +41,9 @@ func runMain(headless, tray bool, attach string) {
 		}
 		return
 	}
+	if !headless {
+		useSoftwareGLIfNeeded()
+	}
 	// With the service running, a plain launch (Start menu, the
 	// installer's "Open USBridge Agent") must be a window onto the
 	// service's engine. Left to the normal config discovery it looks in

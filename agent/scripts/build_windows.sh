@@ -294,6 +294,31 @@ else
     echo "   Install: pacman -S --needed mingw-w64-ucrt-x86_64-binutils"
 fi
 
+# ── Software OpenGL (Mesa llvmpipe) ───────────────────────────────────────────
+# For machines whose display driver has no OpenGL 2.1 (a VM without 3D, a
+# remote desktop session): Fyne can't open a window there. The GUI checks the
+# system OpenGL at start and loads these from softgl\ only when it falls
+# short (cmd/usbridge_agent/softgl_windows.go). mesa-dist-win, MIT.
+MESA_VERSION="26.2.4"
+MESA_SHA256="36a30a04d8cab6e2bea2d3c747c326d15024d9711dd80f45ef97ac6f2c3c5086"
+MESA_ARCHIVE="$REPO_ROOT/.cache/mesa3d-${MESA_VERSION}-release-mingw.7z"
+mkdir -p "$(dirname "$MESA_ARCHIVE")"
+if ! echo "$MESA_SHA256  $MESA_ARCHIVE" | sha256sum -c --status 2>/dev/null; then
+    echo "Downloading Mesa $MESA_VERSION (software OpenGL)..."
+    curl -fsSL -o "$MESA_ARCHIVE" "https://github.com/pal1000/mesa-dist-win/releases/download/${MESA_VERSION}/mesa3d-${MESA_VERSION}-release-mingw.7z"
+    echo "$MESA_SHA256  $MESA_ARCHIVE" | sha256sum -c --status || { echo -e "${RED}✗${NC} Mesa archive checksum mismatch" >&2; exit 1; }
+fi
+rm -rf "$DIST_DIR/softgl" && mkdir -p "$DIST_DIR/softgl"
+MESA_TMP="$(mktemp -d)"
+if command -v 7z >/dev/null 2>&1; then
+    7z x -y -o"$MESA_TMP" "$MESA_ARCHIVE" x64/opengl32.dll x64/libgallium_wgl.dll >/dev/null
+else
+    bsdtar -xf "$MESA_ARCHIVE" -C "$MESA_TMP" x64/opengl32.dll x64/libgallium_wgl.dll
+fi
+cp "$MESA_TMP/x64/opengl32.dll" "$MESA_TMP/x64/libgallium_wgl.dll" "$DIST_DIR/softgl/"
+rm -rf "$MESA_TMP"
+echo -e "${GREEN}✓${NC} Software OpenGL in softgl/ (Mesa $MESA_VERSION)"
+
 # ── Streaming hosts: none bundled ─────────────────────────────────────────────
 # Sunshine and RustShine are both downloaded by the agent at runtime -- see
 # this script's own top comment. Remove a dist/windows/sunshine or

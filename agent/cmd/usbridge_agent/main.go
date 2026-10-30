@@ -37,6 +37,11 @@ func main() {
 		os.Exit(monitors.RunHelper())
 	}
 
+	// Whether the system OpenGL can run Fyne (see softgl_windows.go).
+	if len(os.Args) > 1 && os.Args[1] == glProbeArg {
+		os.Exit(runGLProbe())
+	}
+
 	headless := flag.Bool("headless", false, "run without a GUI (HTTP server, Sunshine, Tailscale only); a later normal launch attaches a GUI to this instance instead of starting a second one")
 	installService := flag.Bool("install-service", false, "install Windows service (requires elevation)")
 	uninstallService := flag.Bool("uninstall-service", false, "uninstall Windows service (requires elevation)")
