@@ -90,3 +90,23 @@ func helperError(msg string) error {
 	}
 	return errors.New(msg)
 }
+
+// StrayVirtual reports whether the virtual monitor is part of the desktop next to
+// another monitor. Outside a session that streams it this is never wanted: the
+// driver install attaches it extended (the mouse and new windows wander off onto a
+// screen nobody sees), and so does a session whose undo never ran. Alone it is
+// left be: on a headless machine it is the only screen there is.
+func StrayVirtual(monitors []Monitor) bool {
+	virtual, other := false, false
+	for _, m := range monitors {
+		if !m.Active {
+			continue
+		}
+		if m.Virtual {
+			virtual = true
+		} else {
+			other = true
+		}
+	}
+	return virtual && other
+}

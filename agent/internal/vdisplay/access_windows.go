@@ -16,6 +16,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows/registry"
+
+	"usbridge_agent/internal/displaypower"
 )
 
 // On Windows the virtual monitor comes from VirtualDrivers' MttVDD driver
@@ -219,6 +221,13 @@ func InstallDriver() error {
 			return fmt.Errorf("the virtual display driver installed, but its monitor didn't appear within %s -- a reboot may be needed", installPollTimeout)
 		}
 		time.Sleep(250 * time.Millisecond)
+	}
+	// Windows attaches the new monitor extended though nothing streams it; it is
+	// only attached for a session that streams it.
+	if parked, err := displaypower.ParkVirtual(10 * time.Second); err != nil {
+		log.Printf("[vdisplay] detaching the newly installed virtual monitor: %v", err)
+	} else if parked {
+		log.Printf("[vdisplay] the newly installed virtual monitor is detached until a session streams it")
 	}
 	return nil
 }

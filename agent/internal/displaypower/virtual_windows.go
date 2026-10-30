@@ -661,6 +661,25 @@ func (st *VirtualState) restoreExclusive() error {
 // RestoreVirtual switches the other monitors back on, hands the primary role back and
 // detaches the virtual monitor. st may be nil (nothing remembered, e.g. after a crash):
 // then it only detaches it. A no-op when it is not attached.
+// ParkVirtual detaches the virtual monitor a fresh driver install brings up: Windows
+// attaches a newly arrived monitor extended, though nothing streams it. Waits up to
+// timeout for it to show up (the driver starts it a moment after its install) and
+// reports whether it detached one; a virtual monitor alone is left be (StrayVirtual).
+// Detached, Windows' display database keeps it off until a session attaches it.
+func ParkVirtual(timeout time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		monitors, err := List()
+		if err == nil && StrayVirtual(monitors) {
+			return true, detachVirtualTarget()
+		}
+		if time.Now().After(deadline) {
+			return false, err
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
 func RestoreVirtual(st *VirtualState) error {
 	if st != nil {
 		// While the virtual monitor is still there to move away from; Windows would

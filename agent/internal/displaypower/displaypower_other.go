@@ -2,6 +2,8 @@
 
 package displaypower
 
+import "time"
+
 // List reports ErrUnsupported off Windows.
 func List() ([]Monitor, error) { return nil, ErrUnsupported }
 
@@ -16,6 +18,8 @@ func (st *VirtualState) SetPrimary(bool) error { return ErrUnsupported }
 
 // RestoreVirtual reports ErrUnsupported off Windows.
 func RestoreVirtual(*VirtualState) error { return ErrUnsupported }
+
+func ParkVirtual(time.Duration) (bool, error) { return false, ErrUnsupported }
 
 // OthersOff reports ErrUnsupported off Windows.
 func OthersOff(st *VirtualState) (*VirtualState, error) { return st, ErrUnsupported }

@@ -97,6 +97,8 @@ Filename: "{app}\{#AppExeName}"; Parameters: "--uninstall-service"; Flags: runhi
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM usbridge-streamer.exe /IM usbridge-usb-broker.exe /IM sunshine.exe /IM punktfunk-host.exe /IM {#AppExeName}"; Flags: runhidden; RunOnceId: "KillAgent"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""USBridge Agent"""; Flags: runhidden; RunOnceId: "RemoveFirewall"
 
+#define VDisplayHelperArg "vdisplay-helper"
+
 [Code]
 const
   // LocalSystem's roaming profile: where the service keeps config.yaml and
@@ -269,7 +271,11 @@ begin
   ForceDirectories(ExtractFileDir(LogPath));
   if Exec0(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
        '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\drivers\install-mttvdd.ps1') + '" -LogPath "' + LogPath + '"') <> 0 then
-    MsgBox('The virtual display driver could not be installed. See ' + LogPath + '.', mbError, MB_OK);
+    MsgBox('The virtual display driver could not be installed. See ' + LogPath + '.', mbError, MB_OK)
+  else
+    // Windows attaches the new monitor extended though nothing streams it: the
+    // agent detaches it until a session that streams it (vdisplay-helper park).
+    Exec0(ExpandConstant('{app}\{#AppExeName}'), '{#VDisplayHelperArg} park -');
 end;
 
 // Seeds the service's config.yaml with this setup's choices, without

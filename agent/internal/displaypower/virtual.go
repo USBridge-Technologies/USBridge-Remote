@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Mode is a display mode: size and refresh rate.
@@ -125,6 +127,7 @@ func saveState(path string, st *VirtualState) error {
 //	list -                                every monitor (List)
 //	enable - MONITOR_ID 0|1               switch one monitor off or on (SetEnabled)
 //	vname -                               the virtual monitor's GDI/friendly name, attached or not
+//	park -                                detach the virtual monitor a driver install attached
 //
 // The state file is rewritten after every change, so a crash in between never loses
 // what there is to undo. Returns the process exit code.
@@ -151,6 +154,16 @@ func runHelper(args []string) HelperResult {
 			return HelperResult{Error: err.Error()}
 		}
 		return HelperResult{Monitors: m}
+	case "park":
+		// After a driver install (the agent setup): see ParkVirtual.
+		parked, err := ParkVirtual(20 * time.Second)
+		if err != nil {
+			return HelperResult{Error: err.Error()}
+		}
+		if parked {
+			log.Printf("[vdisplay] the virtual monitor the driver install attached is detached")
+		}
+		return HelperResult{}
 	case "vname":
 		gdi, friendly, err := PlannedVirtual()
 		if err != nil {
