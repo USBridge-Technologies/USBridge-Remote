@@ -1,9 +1,9 @@
-; Shared by USBridgeAgent.iss and the all-in-one USBridge.iss (#include in
-; their [Code]): whether this machine has a real GPU, which decides the
-; default of the virtual display driver checkbox -- on with a real GPU (a
-; VM's passed-through one included), off on a VM whose only adapters are
-; virtual, where the extra monitor extends the desktop off the VM window
-; (mouse offset, windows opening out of sight).
+// Shared by USBridgeAgent.iss and the all-in-one USBridge.iss (#include in
+// their [Code]): whether this machine has a real GPU, which decides the
+// default of the virtual display driver checkbox -- on with a real GPU (a
+// VM's passed-through one included), off on a VM whose only adapters are
+// virtual, where the extra monitor extends the desktop off the VM window
+// (mouse offset, windows opening out of sight).
 
 var
   RealGpuChecked, RealGpu: Boolean;
