@@ -44,6 +44,7 @@ x86_64
 *.xz
 *.gz
 *.aar
+*-sources.jar
 *.lz4
 *.tgz
 *.dll
