@@ -122,6 +122,10 @@ type BrandFormDialogSpec struct {
 	MinWidth float32
 	// PanelSize overrides the default content-sized panel (results dialog).
 	PanelSize func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
+	// FooterLeft, when set, takes the Cancel button's place on the left of
+	// the footer (a dialog whose only way out is Apply/close: KVM settings'
+	// Reboot KVM). Close and a tap outside still run OnCancel.
+	FooterLeft fyne.CanvasObject
 }
 
 // ShowBrandFormDialog opens a branded overlay matching Add Connection.
@@ -162,7 +166,11 @@ func ShowBrandFormDialog(spec BrandFormDialogSpec) *widget.PopUp {
 	footerSep.SetMinSize(fyne.NewSize(0, 1))
 	headerBlock := container.NewVBox(newVideoDialogTopAccentBar(), NewInset(title, 21, 44, 9, 4), headerSep)
 
-	footerButtons := container.NewBorder(nil, nil, container.NewCenter(cancel), container.New(&DeviceRowControlsLayout{Gap: 12}, apply))
+	var footerLeft fyne.CanvasObject = cancel
+	if spec.FooterLeft != nil {
+		footerLeft = spec.FooterLeft
+	}
+	footerButtons := container.NewBorder(nil, nil, container.NewCenter(footerLeft), container.New(&DeviceRowControlsLayout{Gap: 12}, apply))
 	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerButtons, 12, 18, 6, 0))
 
 	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInset(spec.Body, videoDialogBodyInsetLR, videoDialogBodyInsetLR, 12, 0))

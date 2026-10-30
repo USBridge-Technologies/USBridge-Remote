@@ -74,3 +74,31 @@ func (c *USBClient) SetSnapshotTiming(t models.SnapshotTiming) error {
 	resp, err := c.makeRequest("POST", "/api/settings/sdcard/snapshots", body)
 	return apiData(resp, err, "snapshots", nil)
 }
+
+// The KVM's own Tailscale (usbridge web/handlers.go AuthTailscale*).
+
+func (c *USBClient) GetKVMTailscale() (*models.TailscaleStatus, error) {
+	var s models.TailscaleStatus
+	resp, err := c.makeRequest("GET", "/api/auth/tailscale/status", nil)
+	if err := apiData(resp, err, "Tailscale", &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// LoginKVMTailscale joins the KVM to a tailnet: with an auth key directly,
+// without one the reply carries the login URL to open.
+func (c *USBClient) LoginKVMTailscale(authKey string) (*models.TailscaleStatus, error) {
+	body, _ := json.Marshal(map[string]string{"device_token": string(c.apiSecret), "auth_key": authKey})
+	var s models.TailscaleStatus
+	resp, err := c.makeRequest("POST", "/api/auth/tailscale/register", body)
+	if err := apiData(resp, err, "Tailscale", &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (c *USBClient) LogoutKVMTailscale() error {
+	resp, err := c.makeRequest("POST", "/api/auth/tailscale/logout", []byte("{}"))
+	return apiData(resp, err, "Tailscale", nil)
+}

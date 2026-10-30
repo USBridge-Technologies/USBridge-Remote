@@ -107,6 +107,11 @@ type LocalizedStrings struct {
 	KVMNetEthernet                    string
 	KVMNetWiFi                        string
 	KVMEventLog                       string
+	KVMTailscaleSignIn                string
+	KVMTailscaleKey                   string
+	KVMTailscaleLogout                string
+	KVMTailscaleOff                   string
+	KVMTailscaleWaiting               string
 	KVMNetSection                     string
 	KVMNetConnected                   string
 	KVMNetNoCable                     string
@@ -967,6 +972,11 @@ func EN() *LocalizedStrings {
 		KVMNetEthernet:                    "Ethernet",
 		KVMNetWiFi:                        "Wi-Fi",
 		KVMEventLog:                       "Event log",
+		KVMTailscaleSignIn:                "Sign in",
+		KVMTailscaleKey:                   "Auth key (optional)",
+		KVMTailscaleLogout:                "Log out",
+		KVMTailscaleOff:                   "Not signed in",
+		KVMTailscaleWaiting:               "Finish signing in in the browser",
 		KVMNetSection:                     "Section",
 		KVMNetConnected:                   "Connected",
 		KVMNetNoCable:                     "No cable",
@@ -2109,6 +2119,11 @@ func ES() *LocalizedStrings {
 	locale.KVMNetEthernet = "Ethernet"
 	locale.KVMNetWiFi = "Wi-Fi"
 	locale.KVMEventLog = "Registro de eventos"
+	locale.KVMTailscaleSignIn = "Iniciar sesión"
+	locale.KVMTailscaleKey = "Clave de autenticación (opcional)"
+	locale.KVMTailscaleLogout = "Cerrar sesión"
+	locale.KVMTailscaleOff = "Sin sesión"
+	locale.KVMTailscaleWaiting = "Termina el inicio de sesión en el navegador"
 	locale.KVMNetSection = "Sección"
 	locale.KVMNetConnected = "Conectado"
 	locale.KVMNetNoCable = "Sin cable"
@@ -2654,6 +2669,11 @@ func UKProper() *LocalizedStrings {
 	locale.KVMNetEthernet = "Ethernet"
 	locale.KVMNetWiFi = "Wi-Fi"
 	locale.KVMEventLog = "Журнал подій"
+	locale.KVMTailscaleSignIn = "Увійти"
+	locale.KVMTailscaleKey = "Ключ автентифікації (необов’язково)"
+	locale.KVMTailscaleLogout = "Вийти"
+	locale.KVMTailscaleOff = "Вхід не виконано"
+	locale.KVMTailscaleWaiting = "Завершіть вхід у браузері"
 	locale.KVMNetSection = "Розділ"
 	locale.KVMNetConnected = "Підключено"
 	locale.KVMNetNoCable = "Немає кабелю"

@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -249,25 +250,85 @@ func kvmSDPage(client *api.USBClient, parent fyne.Window) (fyne.CanvasObject, fu
 	), load
 }
 
-// kvmRebootButton reboots the KVM (after a confirmation); at the top of the
-// KVM settings dialog, whatever section is shown. msg gets the outcome.
-func kvmRebootButton(client *api.USBClient, msg *widget.Label, parent fyne.Window) fyne.CanvasObject {
-	return view.NewDialogCancelButton(i18n.Current.KVMReboot, func() {
-		view.ShowConfirmYesLeftDanger(i18n.Current.KVMReboot, i18n.Current.KVMRebootConfirm, func(ok bool) {
-			if !ok {
-				return
+// kvmTailscalePage is the KVM's own Tailscale: who it is signed in as, sign
+// in (with an auth key, or in the browser) and log out.
+func kvmTailscalePage(client *api.USBClient) (fyne.CanvasObject, func()) {
+	status := newWrapLabel()
+	msg := newWrapLabel()
+	key := view.NewStyledEntry()
+	key.Password = true
+	key.SetPlaceHolder("tskey-auth-…")
+	var signIn, logout fyne.CanvasObject
+	render := func(s *models.TailscaleStatus) {
+		switch {
+		case s.LoggedIn:
+			text := firstNonBlank(strings.TrimSuffix(s.DNSName, "."), s.HostName)
+			if s.IP4 != "" {
+				text += "\n" + s.IP4
 			}
-			msg.SetText("…")
-			go func() {
-				err := client.RebootKVM()
-				fyne.Do(func() {
-					if err != nil {
-						msg.SetText(err.Error())
-					} else {
-						msg.SetText(i18n.Current.KVMRebooting)
+			status.SetText(text)
+			signIn.Hide()
+			logout.Show()
+		case s.AuthURL != "":
+			status.SetText(i18n.Current.KVMTailscaleWaiting + "\n" + s.AuthURL)
+			signIn.Show()
+			logout.Hide()
+		default:
+			status.SetText(i18n.Current.KVMTailscaleOff)
+			signIn.Show()
+			logout.Hide()
+		}
+	}
+	load := func() {
+		go func() {
+			s, err := client.GetKVMTailscale()
+			fyne.Do(func() {
+				if err != nil {
+					status.SetText(err.Error())
+					return
+				}
+				render(s)
+			})
+		}()
+	}
+	signIn = view.NewDialogApplyButton(i18n.Current.KVMTailscaleSignIn, func() {
+		msg.SetText("…")
+		authKey := strings.TrimSpace(key.Text)
+		go func() {
+			s, err := client.LoginKVMTailscale(authKey)
+			fyne.Do(func() {
+				if err != nil {
+					msg.SetText(err.Error())
+					return
+				}
+				msg.SetText("")
+				key.SetText("")
+				render(s)
+				if !s.LoggedIn && s.AuthURL != "" {
+					if u, err := url.Parse(s.AuthURL); err == nil {
+						_ = fyne.CurrentApp().OpenURL(u)
 					}
-				})
-			}()
-		}, parent)
+				}
+			})
+		}()
 	})
+	logout = view.NewDialogCancelButton(i18n.Current.KVMTailscaleLogout, func() {
+		msg.SetText("…")
+		go func() {
+			err := client.LogoutKVMTailscale()
+			fyne.Do(func() {
+				msg.SetText(kvmResultText(err))
+				load()
+			})
+		}()
+	})
+	logout.Hide()
+	return container.NewVBox(
+		view.NewDialogSurfaceCard(status),
+		view.NewDialogVSpace(10),
+		view.NewDialogField(i18n.Current.KVMTailscaleKey, key),
+		view.NewDialogVSpace(8),
+		container.NewHBox(signIn, logout),
+		msg,
+	), load
 }

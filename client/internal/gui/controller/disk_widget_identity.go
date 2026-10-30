@@ -43,7 +43,9 @@ func (dw *DiskWidget) loadIdentityOptions() {
 }
 
 // refreshIdentityPickers puts the pickers into the card headers.
-func (dw *DiskWidget) refreshIdentityPickers(hasKeyboardOrMouse bool) {
+// usbAudio: the USB audio codec is in the gadget, which then takes the
+// audio identity (the board's selectedUSBIdentity): only that picker shows.
+func (dw *DiskWidget) refreshIdentityPickers(hasKeyboardOrMouse, usbAudio bool) {
 	if dw.dashboardVideoHeaderPickers != nil {
 		dw.dashboardVideoHeaderPickers.Objects = nil
 		if p := dw.newDashboardEDIDPicker(); p != nil {
@@ -54,7 +56,7 @@ func (dw *DiskWidget) refreshIdentityPickers(hasKeyboardOrMouse bool) {
 	if dw.dashboardHIDHeaderPickers != nil {
 		dw.dashboardHIDHeaderPickers.Objects = nil
 		if hasKeyboardOrMouse {
-			dw.dashboardHIDHeaderPickers.Objects = dw.newDashboardUSBIdentityPickers()
+			dw.dashboardHIDHeaderPickers.Objects = dw.newDashboardUSBIdentityPickers(usbAudio)
 		}
 		dw.dashboardHIDHeaderPickers.Refresh()
 	}
@@ -120,10 +122,10 @@ func (dw *DiskWidget) applyEDID(id string) {
 	}()
 }
 
-// newDashboardUSBIdentityPickers are the USB device pickers: one for the
-// keyboard and mouse, one for when USB audio is in the gadget too (the KVM
-// is one USB device, one name covers everything in it).
-func (dw *DiskWidget) newDashboardUSBIdentityPickers() []fyne.CanvasObject {
+// newDashboardUSBIdentityPickers is the USB device picker in use: the
+// keyboard-and-mouse one, or with USB audio in the gadget the audio one (the
+// KVM is one USB device, one name covers everything in it).
+func (dw *DiskWidget) newDashboardUSBIdentityPickers(usbAudio bool) []fyne.CanvasObject {
 	s := dw.usbIdentity
 	if s == nil || len(s.Identities) == 0 {
 		return nil
@@ -166,14 +168,14 @@ func (dw *DiskWidget) newDashboardUSBIdentityPickers() []fyne.CanvasObject {
 		p.SetDisabled(dw.controlsLocked())
 		return p
 	}
-	var out []fyne.CanvasObject
-	if p := picker(false, s.KBM); p != nil {
-		out = append(out, p)
+	current := s.KBM
+	if usbAudio {
+		current = s.Audio
 	}
-	if p := picker(true, s.Audio); p != nil {
-		out = append(out, p)
+	if p := picker(usbAudio, current); p != nil {
+		return []fyne.CanvasObject{p}
 	}
-	return out
+	return nil
 }
 
 func (dw *DiskWidget) applyUSBIdentity(kbm, audio string) {

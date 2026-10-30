@@ -558,7 +558,13 @@ func (dw *DiskWidget) refreshDashboard() {
 		))
 	}
 
-	dw.refreshIdentityPickers(hidKeyboard != nil || hidMouse != nil)
+	usbAudioOn := false
+	for _, d := range dw.allDrives {
+		if d.IsUSBAudio && d.IsMounted {
+			usbAudioOn = true
+		}
+	}
+	dw.refreshIdentityPickers(hidKeyboard != nil || hidMouse != nil, usbAudioOn)
 	setDashboardRows(dw.dashboardHID, hidRows, "No keyboard, mouse, gamepad, or tablet devices")
 	setDashboardRows(dw.dashboardVideo, videoRows, "No capture devices")
 	if view.IsMobile() && len(audioRows) == 0 {

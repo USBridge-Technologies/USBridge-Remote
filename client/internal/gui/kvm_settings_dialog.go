@@ -61,8 +61,8 @@ func (mw *MainWindow) showKVMSettingsDialog() {
 		}()
 	})
 	ethForm := container.NewVBox(
-		ethStatus,
-		view.NewDialogVSpace(6),
+		view.NewDialogSurfaceCard(ethStatus),
+		view.NewDialogVSpace(10),
 		eth.object(),
 		view.NewDialogVSpace(8),
 		container.NewHBox(ethApply),
@@ -160,7 +160,8 @@ func (mw *MainWindow) showKVMSettingsDialog() {
 		}()
 	})
 	wifiForm := container.NewVBox(
-		wifiStatus,
+		view.NewDialogSurfaceCard(wifiStatus),
+		view.NewDialogVSpace(4),
 		view.NewDialogVSpace(6),
 		view.NewDialogField(i18n.Current.KVMWiFiNetwork, container.NewBorder(nil, nil, nil, scanBtn, netPick)),
 		view.NewDialogVSpace(4),
@@ -235,17 +236,18 @@ func (mw *MainWindow) showKVMSettingsDialog() {
 		detail,
 	)
 
+	tsPage, loadTS := kvmTailscalePage(client)
 	powerPage, loadPower := kvmPowerPage(client)
 	updatesPage, loadUpdates := kvmUpdatesPage(client)
 	sdPage, loadSD := kvmSDPage(client, mw.window)
 
 	// Section switch. loaders run when a section is shown; pollers also
 	// on every refresh tick while it's the one shown.
-	sections := []string{i18n.Current.KVMNetEthernet, i18n.Current.KVMNetWiFi, i18n.Current.KVMPower,
+	sections := []string{i18n.Current.KVMNetEthernet, i18n.Current.KVMNetWiFi, "Tailscale", i18n.Current.KVMPower,
 		i18n.Current.KVMUpdates, i18n.Current.KVMSDCard, i18n.Current.KVMEventLog}
-	pages := []fyne.CanvasObject{ethPage, wifiPage, powerPage, updatesPage, sdPage, eventsPage}
-	loaders := []func(){nil, nil, loadPower, loadUpdates, loadSD, loadEvents}
-	pollers := []func(){nil, nil, nil, loadUpdates, loadSD, nil}
+	pages := []fyne.CanvasObject{ethPage, wifiPage, tsPage, powerPage, updatesPage, sdPage, eventsPage}
+	loaders := []func(){nil, nil, loadTS, loadPower, loadUpdates, loadSD, loadEvents}
+	pollers := []func(){nil, nil, loadTS, nil, loadUpdates, loadSD, nil}
 	var shown atomic.Int32
 	show := func(name string) {
 		for i, s := range sections {
@@ -326,11 +328,8 @@ func (mw *MainWindow) showKVMSettingsDialog() {
 		}
 	}()
 
-	rebootMsg := newWrapLabel()
 	body := container.NewVBox(
-		container.NewBorder(nil, nil, nil, kvmRebootButton(client, rebootMsg, mw.window),
-			view.NewDialogField(i18n.Current.KVMNetSection, sectionPick)),
-		rebootMsg,
+		view.NewDialogField(i18n.Current.KVMNetSection, sectionPick),
 		view.NewDialogVSpace(10),
 		container.NewStack(pages...),
 	)
@@ -342,6 +341,7 @@ func (mw *MainWindow) showKVMSettingsDialog() {
 		ApplyText:  i18n.Current.Close,
 		OnCancel:   closeFn,
 		OnApply:    closeFn,
+		FooterLeft: view.NewDialogCancelButton(i18n.Current.KVMReboot, mw.confirmRebootKVM),
 		MinWidth:   kvmSettingsWidth,
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			w := minF(kvmSettingsWidth+40, canvasSize.Width-24)
@@ -490,4 +490,28 @@ func (f *kvmIPForm) config() (models.NetIPConfig, error) {
 		return c, fmt.Errorf("%s?", i18n.Current.KVMNetIP)
 	}
 	return c, nil
+}
+
+// confirmRebootKVM is KVM settings' Reboot KVM (footer): the KVM itself restarts,
+// the target PC keeps running.
+func (mw *MainWindow) confirmRebootKVM() {
+	client := mw.usbClient
+	if client == nil {
+		return
+	}
+	view.ShowConfirmYesLeftDanger(i18n.Current.KVMReboot, i18n.Current.KVMRebootConfirm, func(ok bool) {
+		if !ok {
+			return
+		}
+		go func() {
+			err := client.RebootKVM()
+			fyne.Do(func() {
+				if err != nil {
+					view.ShowErrorDialog(err, mw.window)
+					return
+				}
+				view.ShowInfoDialog(i18n.Current.KVMReboot, i18n.Current.KVMRebooting, mw.window)
+			})
+		}()
+	}, mw.window)
 }

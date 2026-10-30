@@ -2,7 +2,7 @@
   "app": "client",
   "cards": [
     {
-      "version": "3.2.14",
+      "version": "3.2.15",
       "date": "October 2026",
       "items": [
         {
@@ -42,9 +42,22 @@
                 "uk": "Перезавантаження KVM"
               },
               "body": {
-                "en": "The KVM settings (gear) have a Reboot KVM button at the top; the target PC keeps running.",
-                "es": "Los ajustes del KVM (engranaje) tienen arriba un botón Reiniciar KVM; el PC sigue funcionando.",
-                "uk": "У налаштуваннях KVM (шестерня) угорі є кнопка «Перезавантажити KVM»; комп’ютер працює далі."
+                "en": "KVM settings (gear) have a Reboot KVM button at the bottom; the target PC keeps running.",
+                "es": "Los ajustes del KVM (engranaje) tienen abajo un botón Reiniciar KVM; el PC sigue funcionando.",
+                "uk": "У налаштуваннях KVM (шестерня) внизу є кнопка «Перезавантажити KVM»; комп’ютер працює далі."
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "KVM Tailscale in the app",
+                "es": "Tailscale del KVM en la app",
+                "uk": "Tailscale KVM у застосунку"
+              },
+              "body": {
+                "en": "KVM settings → Tailscale shows the KVM's tailnet name and IP; sign it in (browser or auth key) or log it out.",
+                "es": "Ajustes del KVM → Tailscale muestra el nombre e IP del KVM en la tailnet; inicia o cierra su sesión (navegador o clave).",
+                "uk": "Налаштування KVM → Tailscale показує ім’я та IP KVM у tailnet; увійдіть (браузер або ключ) чи вийдіть."
               }
             }
           ]
