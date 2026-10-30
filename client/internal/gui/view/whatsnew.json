@@ -2,7 +2,7 @@
   "app": "client",
   "cards": [
     {
-      "version": "3.2.13",
+      "version": "3.2.14",
       "date": "October 2026",
       "items": [
         {
@@ -42,9 +42,9 @@
                 "uk": "Перезавантаження KVM"
               },
               "body": {
-                "en": "KVM settings → Power has a Reboot KVM button; the target PC keeps running.",
-                "es": "Ajustes del KVM → Energía tiene un botón Reiniciar KVM; el PC sigue funcionando.",
-                "uk": "Налаштування KVM → Живлення має кнопку «Перезавантажити KVM»; комп’ютер працює далі."
+                "en": "The KVM settings (gear) have a Reboot KVM button at the top; the target PC keeps running.",
+                "es": "Los ajustes del KVM (engranaje) tienen arriba un botón Reiniciar KVM; el PC sigue funcionando.",
+                "uk": "У налаштуваннях KVM (шестерня) угорі є кнопка «Перезавантажити KVM»; комп’ютер працює далі."
               }
             }
           ]

@@ -235,7 +235,7 @@ func (mw *MainWindow) showKVMSettingsDialog() {
 		detail,
 	)
 
-	powerPage, loadPower := kvmPowerPage(client, mw.window)
+	powerPage, loadPower := kvmPowerPage(client)
 	updatesPage, loadUpdates := kvmUpdatesPage(client)
 	sdPage, loadSD := kvmSDPage(client, mw.window)
 
@@ -326,8 +326,11 @@ func (mw *MainWindow) showKVMSettingsDialog() {
 		}
 	}()
 
+	rebootMsg := newWrapLabel()
 	body := container.NewVBox(
-		view.NewDialogField(i18n.Current.KVMNetSection, sectionPick),
+		container.NewBorder(nil, nil, nil, kvmRebootButton(client, rebootMsg, mw.window),
+			view.NewDialogField(i18n.Current.KVMNetSection, sectionPick)),
+		rebootMsg,
 		view.NewDialogVSpace(10),
 		container.NewStack(pages...),
 	)

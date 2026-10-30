@@ -26,7 +26,7 @@ func newWrapLabel() *widget.Label {
 	return l
 }
 
-func kvmPowerPage(client *api.USBClient, parent fyne.Window) (fyne.CanvasObject, func()) {
+func kvmPowerPage(client *api.USBClient) (fyne.CanvasObject, func()) {
 	rows := container.NewVBox()
 	msg := newWrapLabel()
 	var render func(p *models.PowerSettings)
@@ -87,25 +87,7 @@ func kvmPowerPage(client *api.USBClient, parent fyne.Window) (fyne.CanvasObject,
 			})
 		}()
 	}
-	reboot := view.NewDialogCancelButton(i18n.Current.KVMReboot, func() {
-		view.ShowConfirmYesLeftDanger(i18n.Current.KVMReboot, i18n.Current.KVMRebootConfirm, func(ok bool) {
-			if !ok {
-				return
-			}
-			msg.SetText("…")
-			go func() {
-				err := client.RebootKVM()
-				fyne.Do(func() {
-					if err != nil {
-						msg.SetText(err.Error())
-					} else {
-						msg.SetText(i18n.Current.KVMRebooting)
-					}
-				})
-			}()
-		}, parent)
-	})
-	return container.NewVBox(rows, msg, view.NewDialogVSpace(8), container.NewHBox(reboot)), load
+	return container.NewVBox(rows, msg), load
 }
 
 func kvmUpdatesPage(client *api.USBClient) (fyne.CanvasObject, func()) {
@@ -265,4 +247,27 @@ func kvmSDPage(client *api.USBClient, parent fyne.Window) (fyne.CanvasObject, fu
 		container.NewHBox(save),
 		msg,
 	), load
+}
+
+// kvmRebootButton reboots the KVM (after a confirmation); at the top of the
+// KVM settings dialog, whatever section is shown. msg gets the outcome.
+func kvmRebootButton(client *api.USBClient, msg *widget.Label, parent fyne.Window) fyne.CanvasObject {
+	return view.NewDialogCancelButton(i18n.Current.KVMReboot, func() {
+		view.ShowConfirmYesLeftDanger(i18n.Current.KVMReboot, i18n.Current.KVMRebootConfirm, func(ok bool) {
+			if !ok {
+				return
+			}
+			msg.SetText("…")
+			go func() {
+				err := client.RebootKVM()
+				fyne.Do(func() {
+					if err != nil {
+						msg.SetText(err.Error())
+					} else {
+						msg.SetText(i18n.Current.KVMRebooting)
+					}
+				})
+			}()
+		}, parent)
+	})
 }
