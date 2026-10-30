@@ -21,7 +21,7 @@ import (
 const rustshineAgentVirtualKey = "usbridge_virtual_display"
 
 // agentVirtualDisplays: the agent attaches RustShine's virtual monitor itself (Windows:
-// MttVDD, Linux: vkms; on macOS the streamer still does, CGVirtualDisplay).
+// MttVDD, Linux: vkms, macOS: a CGVirtualDisplay the agent process holds).
 func agentVirtualDisplays() bool { return displaypower.AgentVirtual }
 
 // virtualSpec is the selected virtual monitor's "WxH@HZ", or "".
@@ -92,6 +92,14 @@ func (b *rustshineBackend) applyAgentVirtualDisplayLocked() {
 		if err := b.SetConfigKey("kms_connector", connector); err != nil {
 			log.Printf("[rustshine] could not point kms_connector at the virtual display: %v", err)
 		}
+		return
+	}
+	if runtime.GOOS == "darwin" {
+		// The CGVirtualDisplay's EDID identity: its display ID is new each time it
+		// comes up, so the streamer finds it by this whenever a session opens.
+		gdi, friendly, _ := displaypower.PlannedVirtual()
+		log.Printf("[rustshine] virtual display %s is %q %s (up for sessions only)", spec, friendly, gdi)
+		name(gdi)
 		return
 	}
 	if !virtualDriverInstalled() {

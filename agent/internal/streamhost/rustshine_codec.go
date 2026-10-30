@@ -246,7 +246,8 @@ func (b *rustshineBackend) PyroWaveColorStatus() (color444 bool, hdr bool) {
 // here mirrors Windows/macOS, not a runtime capability probe.
 func (b *rustshineBackend) VirtualDisplaySupported() bool {
 	if agentVirtualDisplays() {
-		// The agent's MttVDD monitor (rustshine_vdisplay_agent.go).
+		// The agent's monitor (rustshine_vdisplay_agent.go): MttVDD needs its
+		// driver; vkms and CGVirtualDisplay are always there.
 		return virtualDriverInstalled()
 	}
 	return runtime.GOOS == "darwin" || runtime.GOOS == "linux"

@@ -226,7 +226,7 @@ var sessionDisplayHelperStart func(exe string, args []string) error
 
 // StartDisplayWatcher starts `vdisplay-helper watch` for state in the user's session:
 // it puts the displays back if this agent dies mid-session and stays down
-// (displaypower.WatchAgent). For the Windows service and on Linux; elsewhere a no-op.
+// (displaypower.WatchAgent). For the Windows service, on Linux and macOS; elsewhere a no-op.
 func StartDisplayWatcher(state, service string) error {
 	if (runtime.GOOS == "windows" && !useSunshineSessionBroker()) || sessionDisplayHelperStart == nil {
 		return nil

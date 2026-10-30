@@ -8,11 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/kbinani/screenshot"
 
 	"usbridge_agent/internal/api"
+	"usbridge_agent/internal/displaypower"
+	"usbridge_agent/internal/monitors"
 	"usbridge_agent/internal/streamhost"
 )
 
@@ -64,16 +67,53 @@ func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 }
 
 func (s *Service) Devices() []api.VideoDeviceInfo {
+	// The monitors as displaypower sees them (by CGDirectDisplayID): which one
+	// is on and which is the primary one, for the client's On/Off and Main
+	// buttons, and the ones the agent switched off.
+	byID := map[string]displaypower.Monitor{}
+	all, _ := displaypower.List()
+	for _, m := range all {
+		byID[m.ID] = m
+	}
+	ids := monitors.ActiveDisplayIDs()
 	out := make([]api.VideoDeviceInfo, 0, screenshot.NumActiveDisplays())
 	for i := 0; i < screenshot.NumActiveDisplays(); i++ {
 		w, h := physicalDisplaySize(i)
-		out = append(out, api.VideoDeviceInfo{
+		info := api.VideoDeviceInfo{
 			Path:           fmt.Sprintf("display:%d", i),
 			Name:           fmt.Sprintf("Display %d (%dx%d)", i, w, h),
 			Bus:            "screen",
 			Index:          i,
 			Connected:      true,
 			SupportedModes: GetDisplayModes(i),
+		}
+		if i < len(ids) {
+			if m, ok := byID[strconv.FormatUint(uint64(ids[i]), 10)]; ok {
+				if m.Virtual {
+					// The virtual monitor, up for a session: the API's "virtual:"
+					// entry, never a monitor of its own.
+					continue
+				}
+				on, primary := true, m.Primary
+				info.Name = fmt.Sprintf("%s (%dx%d)", monitorName(m), w, h)
+				info.MonitorID, info.Enabled, info.MonitorPrimary = m.ID, &on, &primary
+			}
+		}
+		out = append(out, info)
+	}
+	for _, m := range all {
+		if m.Active || m.Virtual {
+			continue
+		}
+		off := false
+		out = append(out, api.VideoDeviceInfo{
+			Path:           "monitor:" + m.ID,
+			Name:           monitorName(m) + " (off)",
+			Bus:            "screen",
+			Index:          len(out),
+			MonitorID:      m.ID,
+			Enabled:        &off,
+			MonitorPrimary: &off,
 		})
 	}
 	return out

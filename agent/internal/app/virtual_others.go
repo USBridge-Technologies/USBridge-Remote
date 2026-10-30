@@ -13,7 +13,7 @@ import (
 	"usbridge_agent/internal/streamhost"
 )
 
-// The virtual monitor on a Windows or Linux host is the agent's, for every stream host, and
+// The virtual monitor on a Windows, Linux or macOS host is the agent's, for every stream host, and
 // it exists for the length of a session only: it comes up when a session on it
 // starts (made the primary display unless turned off, and the only one with "only
 // the virtual monitor"), and once the session is over the other monitors come back,
@@ -147,7 +147,7 @@ func (a *App) ClientSessionStarting(timeout time.Duration) {
 }
 
 // virtualOthersWatchdog brings the virtual monitor up and down with the sessions on
-// it. Windows and Linux; elsewhere it only answers the client's calls.
+// it. Windows, Linux and macOS; elsewhere it only answers the client's calls.
 func (a *App) virtualOthersWatchdog(ctx context.Context) {
 	if !displaypower.AgentVirtual {
 		for {
