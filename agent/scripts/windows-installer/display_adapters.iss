@@ -21,7 +21,7 @@ end;
 // all, like Hyper-V's synthetic video). True whenever WMI can't tell.
 function HasRealGpu(): Boolean;
 var
-  Locator, Service, Items, Item: Variant;
+  Locator, Service, Items, Item, Value: Variant;
   I: Integer;
   Id: String;
 begin
@@ -35,7 +35,11 @@ begin
       RealGpu := False;
       for I := 0 to Items.Count - 1 do begin
         Item := Items.ItemIndex(I);
-        Id := Uppercase(Item.PNPDeviceID);
+        Value := Item.PNPDeviceID;
+        Id := '';
+        if not VarIsNull(Value) then
+          Id := Value;
+        Id := Uppercase(Id);
         Log('Display adapter: ' + Id);
         if (Pos('PCI\VEN_', Id) = 1) and not IsVirtualDisplayVendor(Copy(Id, 9, 4)) then
           RealGpu := True;
