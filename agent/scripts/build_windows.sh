@@ -178,7 +178,14 @@ OPENGL32_IMPLIB="$("$CC_BIN" -print-file-name=libopengl32.a)"
     "$(bintool nm)" -g --defined-only "$OPENGL32_IMPLIB" | awk '$2 == "T" { print $3 }' | grep -v '^__' | sort -u
 } > "$DELAYLIB_DIR/opengl32.def"
 "$(bintool dlltool)" --input-def "$DELAYLIB_DIR/opengl32.def" --dllname opengl32.dll --output-delaylib "$DELAYLIB_DIR/libopengl32.a"
-export CGO_LDFLAGS="${CGO_LDFLAGS:-} -L$DELAYLIB_DIR"
+# A Windows path for the (native) gcc: MSYS2 converts POSIX paths in a native
+# program's arguments, not in the environment Go reads CGO_LDFLAGS from, and
+# gcc silently skipped "-L/d/a/...".
+DELAYLIB_LDDIR="$DELAYLIB_DIR"
+if command -v cygpath >/dev/null 2>&1; then
+    DELAYLIB_LDDIR="$(cygpath -m "$DELAYLIB_DIR")"
+fi
+export CGO_LDFLAGS="${CGO_LDFLAGS:-} -L$DELAYLIB_LDDIR"
 echo -e "${GREEN}✓${NC} opengl32.dll delay-loaded ($(grep -cv '^LIBRARY\|^EXPORTS' "$DELAYLIB_DIR/opengl32.def") exports)"
 
 echo -e "${YELLOW}Compiling...${NC}"
