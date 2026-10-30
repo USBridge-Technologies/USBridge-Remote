@@ -26,6 +26,22 @@ func TestPolkitRuleScopedToVkms(t *testing.T) {
 	}
 }
 
+func TestPolkitRuleMatchesModprobeResolvedToKmod(t *testing.T) {
+	// pkexec resolves symlinks: polkit sees /usr/bin/kmod for modprobe.
+	if !strings.Contains(polkitRuleContent, `(modprobe|kmod)$`) {
+		t.Error("rule must match modprobe resolved to kmod")
+	}
+}
+
+func TestGrantScriptLoadsVkmsWithConnectorsOff(t *testing.T) {
+	s := buildGrantScript("/tmp/r.rules", `"bob"`)
+	for _, want := range []string{"modprobe vkms", "echo off >", "echo change >"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("script missing %q: %s", want, s)
+		}
+	}
+}
+
 func TestPolkitRuleAllowsOnlyVkmsConnectorTee(t *testing.T) {
 	if !strings.Contains(polkitRuleContent, `Virtual-[0-9]+\/status|\/uevent)$`) {
 		t.Error("tee must be limited to the vkms connector status file")

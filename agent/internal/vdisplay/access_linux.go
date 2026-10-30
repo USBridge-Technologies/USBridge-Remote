@@ -33,6 +33,11 @@ const (
 // not announce a forced status change by itself, so without it KWin keeps
 // showing the output as connected.
 //
+// pkexec hands polkit the program with symlinks resolved, and modprobe is a
+// symlink to kmod (Arch, Debian, Ubuntu), so "program" is /usr/bin/kmod:
+// a rule matching only .../modprobe never fires and every load asked for
+// the password. The command line still reads "modprobe vkms".
+//
 // Scoped on purpose: modprobe [-r] vkms, and tee on
 // /sys/class/drm/cardN-Virtual-M/status -- no other module, file or program.
 const polkitRuleContent = `polkit.addRule(function(action, subject) {
@@ -40,7 +45,7 @@ const polkitRuleContent = `polkit.addRule(function(action, subject) {
     if (!subject.isInGroup("` + GroupName + `")) return;
     var prog = action.lookup("program");
     var cmd = action.lookup("command_line") || "";
-    if (/^\/(usr\/)?s?bin\/modprobe$/.test(prog) && /^\S+ (-r )?vkms$/.test(cmd)) return polkit.Result.YES;
+    if (/^\/(usr\/)?s?bin\/(modprobe|kmod)$/.test(prog) && /^\S+ (-r )?vkms$/.test(cmd)) return polkit.Result.YES;
     if (/^\/(usr\/)?s?bin\/tee$/.test(prog) && /^\S+ \/sys\/class\/drm\/card[0-9]+(-Virtual-[0-9]+\/status|\/uevent)$/.test(cmd)) return polkit.Result.YES;
 });
 `
@@ -51,12 +56,17 @@ func shellQuote(s string) string {
 }
 
 // buildGrantScript builds the /bin/sh -c script run under pkexec: create the
-// group, add the user, install the polkit rule. Pure so its shape is testable
-// without root.
+// group, add the user, install the polkit rule, and load vkms right away with
+// its connectors forced off -- the module is there before any client picks
+// the virtual monitor, without a monitor appearing on the desktop now. Pure
+// so its shape is testable without root.
 func buildGrantScript(tmpRule, currentUser string) string {
 	return fmt.Sprintf(
 		"(getent group %[1]s >/dev/null || groupadd %[1]s) && usermod -aG %[1]s %[2]s && "+
-			"install -d -m 0755 /etc/polkit-1/rules.d && install -m 0644 %[3]s %[4]s",
+			"install -d -m 0755 /etc/polkit-1/rules.d && install -m 0644 %[3]s %[4]s && "+
+			"{ [ -d /sys/module/vkms ] || modprobe vkms || true; } && "+
+			"{ for f in /sys/class/drm/card*-Virtual-*/status; do [ -e \"$f\" ] || continue; "+
+			"echo off > \"$f\"; c=\"${f%%/*}\"; c=\"${c%%-Virtual-*}\"; echo change > \"$c/uevent\"; done; true; }",
 		GroupName, currentUser, tmpRule, polkitRulePath,
 	)
 }
@@ -180,12 +190,29 @@ func Unload() error {
 	return firstErr
 }
 
-// Revive undoes Unload's forced-off state (connector status back to "detect")
-// so the streamer finds a connected vkms connector again. No-op when the
-// connector is not forced off or the grant is missing.
+// load loads vkms through the passwordless polkit rule, so the stream host
+// (Sunshine or RustShine) finds it already there and never runs pkexec itself
+// while a client connects.
+func load() error {
+	if _, err := os.Stat("/sys/module/vkms"); err == nil {
+		return nil
+	}
+	if out, err := exec.Command("pkexec", "modprobe", "vkms").CombinedOutput(); err != nil {
+		return fmt.Errorf("modprobe vkms: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Revive makes the virtual monitor available before the stream host looks
+// for it: loads vkms when it is not loaded (after a reboot) and undoes
+// Unload's forced-off state (connector status back to "detect"). No-op when
+// the grant is missing.
 func Revive() error {
 	if !AccessGranted() {
 		return nil
+	}
+	if err := load(); err != nil {
+		return err
 	}
 	var firstErr error
 	for _, f := range vkmsConnectorStatusFiles() {
