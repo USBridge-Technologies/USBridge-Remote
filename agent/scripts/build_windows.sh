@@ -157,8 +157,32 @@ export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
 
 LDFLAGS="${USBRIDGE_WINDOWS_LDFLAGS:--H=windowsgui} -X main.version=$VERSION"
 
+# opengl32.dll delay-loaded: glfw links -lopengl32, which made Windows load the
+# system opengl32.dll with the exe, before main could point the DLL search at
+# softgl\ (cmd/usbridge_agent/softgl_windows.go). Linked against a delay-import
+# library instead, it loads on its first use, after that. Built from the
+# toolchain's own libopengl32.a; -L puts it ahead of that one.
+TOOL_PREFIX="${CC_BIN%gcc*}"
+DELAYLIB_DIR="$REPO_ROOT/.cache/delaylib"
+mkdir -p "$DELAYLIB_DIR"
+OPENGL32_IMPLIB="$("$CC_BIN" -print-file-name=libopengl32.a)"
+{
+    echo "LIBRARY opengl32.dll"
+    echo "EXPORTS"
+    "${TOOL_PREFIX}nm" -g --defined-only "$OPENGL32_IMPLIB" | awk '$2 == "T" { print $3 }' | grep -v '^__' | sort -u
+} > "$DELAYLIB_DIR/opengl32.def"
+"${TOOL_PREFIX}dlltool" --input-def "$DELAYLIB_DIR/opengl32.def" --dllname opengl32.dll --output-delaylib "$DELAYLIB_DIR/libopengl32.a"
+export CGO_LDFLAGS="${CGO_LDFLAGS:-} -L$DELAYLIB_DIR"
+echo -e "${GREEN}✓${NC} opengl32.dll delay-loaded ($(grep -cv '^LIBRARY\|^EXPORTS' "$DELAYLIB_DIR/opengl32.def") exports)"
+
 echo -e "${YELLOW}Compiling...${NC}"
 go build -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"
+
+# A normal import of opengl32.dll would undo the software OpenGL fallback.
+if "${TOOL_PREFIX}objdump" -p "$OUTPUT_PATH" | sed -n '/^The Import Tables/,/^The Delay Import Tables\|^PE File Base Relocations\|^There is a/p' | grep -qi 'DLL Name: opengl32.dll'; then
+    echo -e "${RED}✗${NC} $OUTPUT_PATH imports opengl32.dll directly; it must be delay-loaded" >&2
+    exit 1
+fi
 
 # ── DLL utilities ─────────────────────────────────────────────────────────────
 OBJDUMP_BIN="${OBJDUMP_BIN:-}"
