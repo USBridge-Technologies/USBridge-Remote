@@ -235,7 +235,7 @@ func (mw *MainWindow) showKVMSettingsDialog() {
 		detail,
 	)
 
-	powerPage, loadPower := kvmPowerPage(client)
+	powerPage, loadPower := kvmPowerPage(client, mw.window)
 	updatesPage, loadUpdates := kvmUpdatesPage(client)
 	sdPage, loadSD := kvmSDPage(client, mw.window)
 

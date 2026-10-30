@@ -47,6 +47,12 @@ func (c *USBClient) CommitUpdate() error {
 	return apiData(resp, err, "update commit", nil)
 }
 
+// RebootKVM restarts the KVM itself (not the target PC).
+func (c *USBClient) RebootKVM() error {
+	resp, err := c.makeRequest("POST", "/api/settings/reboot", []byte("{}"))
+	return apiData(resp, err, "reboot", nil)
+}
+
 func (c *USBClient) GetSDCardStatus() (*models.SDCardStatus, error) {
 	var s models.SDCardStatus
 	resp, err := c.makeRequest("GET", "/api/settings/sdcard", nil)

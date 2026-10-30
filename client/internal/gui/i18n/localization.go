@@ -147,6 +147,9 @@ type LocalizedStrings struct {
 	KVMSDUsage                        string
 	KVMSDFormat                       string
 	KVMSDFormatConfirm                string
+	KVMReboot                         string
+	KVMRebootConfirm                  string
+	KVMRebooting                      string
 	KVMSDFormatBlocked                string
 	KVMSDFormatting                   string
 	KVMSnapQuiet                      string
@@ -1003,6 +1006,9 @@ func EN() *LocalizedStrings {
 		KVMSDUsage:                        "Used %s of %s (%s)",
 		KVMSDFormat:                       "Format SD card",
 		KVMSDFormatConfirm:                "Erase everything on the SD card and prepare it as backup storage (btrfs with snapshots)?",
+		KVMReboot:                         "Reboot KVM",
+		KVMRebootConfirm:                  "Reboot the KVM? Video, keyboard, mouse and drives are gone for about a minute. The target PC keeps running.",
+		KVMRebooting:                      "Rebooting… reconnect in about a minute.",
 		KVMSDFormatBlocked:                "Formatting isn't allowed: %s",
 		KVMSDFormatting:                   "Formatting: %s",
 		KVMSnapQuiet:                      "Snapshot after this many seconds without writes",
@@ -2143,6 +2149,9 @@ func ES() *LocalizedStrings {
 	locale.KVMSDUsage = "Usado %s de %s (%s)"
 	locale.KVMSDFormat = "Formatear tarjeta SD"
 	locale.KVMSDFormatConfirm = "¿Borrar todo en la tarjeta SD y prepararla como almacenamiento de copias (btrfs con instantáneas)?"
+	locale.KVMReboot = "Reiniciar KVM"
+	locale.KVMRebootConfirm = "¿Reiniciar el KVM? Vídeo, teclado, ratón y discos se pierden durante un minuto. El PC sigue funcionando."
+	locale.KVMRebooting = "Reiniciando… vuelve a conectar en un minuto."
 	locale.KVMSDFormatBlocked = "No se permite formatear: %s"
 	locale.KVMSDFormatting = "Formateando: %s"
 	locale.KVMSnapQuiet = "Instantánea tras estos segundos sin escrituras"
@@ -2685,6 +2694,9 @@ func UKProper() *LocalizedStrings {
 	locale.KVMSDUsage = "Зайнято %s з %s (%s)"
 	locale.KVMSDFormat = "Форматувати SD-карту"
 	locale.KVMSDFormatConfirm = "Стерти все на SD-карті й підготувати її як сховище резервних копій (btrfs зі знімками)?"
+	locale.KVMReboot = "Перезавантажити KVM"
+	locale.KVMRebootConfirm = "Перезавантажити KVM? Відео, клавіатура, миша й диски зникнуть приблизно на хвилину. Комп’ютер працюватиме далі."
+	locale.KVMRebooting = "Перезавантаження… підключіться знову за хвилину."
 	locale.KVMSDFormatBlocked = "Форматування заборонено: %s"
 	locale.KVMSDFormatting = "Форматування: %s"
 	locale.KVMSnapQuiet = "Знімок після стількох секунд без запису"

@@ -26,7 +26,7 @@ func newWrapLabel() *widget.Label {
 	return l
 }
 
-func kvmPowerPage(client *api.USBClient) (fyne.CanvasObject, func()) {
+func kvmPowerPage(client *api.USBClient, parent fyne.Window) (fyne.CanvasObject, func()) {
 	rows := container.NewVBox()
 	msg := newWrapLabel()
 	var render func(p *models.PowerSettings)
@@ -87,7 +87,25 @@ func kvmPowerPage(client *api.USBClient) (fyne.CanvasObject, func()) {
 			})
 		}()
 	}
-	return container.NewVBox(rows, msg), load
+	reboot := view.NewDialogCancelButton(i18n.Current.KVMReboot, func() {
+		view.ShowConfirmYesLeftDanger(i18n.Current.KVMReboot, i18n.Current.KVMRebootConfirm, func(ok bool) {
+			if !ok {
+				return
+			}
+			msg.SetText("…")
+			go func() {
+				err := client.RebootKVM()
+				fyne.Do(func() {
+					if err != nil {
+						msg.SetText(err.Error())
+					} else {
+						msg.SetText(i18n.Current.KVMRebooting)
+					}
+				})
+			}()
+		}, parent)
+	})
+	return container.NewVBox(rows, msg, view.NewDialogVSpace(8), container.NewHBox(reboot)), load
 }
 
 func kvmUpdatesPage(client *api.USBClient) (fyne.CanvasObject, func()) {

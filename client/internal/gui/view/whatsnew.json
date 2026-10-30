@@ -33,6 +33,19 @@
                 "es": "Teclado y ratón aparecen como un set real de Dell, Lenovo o HP, o un Logitech G510 con audio; selector en la cabecera HID.",
                 "uk": "Клавіатура й миша видно як справжній набір Dell, Lenovo чи HP або Logitech G510 зі звуком; вибір у заголовку картки HID."
               }
+            },
+            {
+              "glyph": "board",
+              "title": {
+                "en": "Reboot the KVM",
+                "es": "Reiniciar el KVM",
+                "uk": "Перезавантаження KVM"
+              },
+              "body": {
+                "en": "KVM settings → Power has a Reboot KVM button; the target PC keeps running.",
+                "es": "Ajustes del KVM → Energía tiene un botón Reiniciar KVM; el PC sigue funcionando.",
+                "uk": "Налаштування KVM → Живлення має кнопку «Перезавантажити KVM»; комп’ютер працює далі."
+              }
             }
           ]
         },
