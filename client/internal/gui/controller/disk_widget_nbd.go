@@ -21,7 +21,8 @@ func (dw *DiskWidget) getLocalIP() (string, error) {
 	if baseURL == "" {
 		return "", fmt.Errorf("unable to get the USB client's base URL")
 	}
-	host := strings.TrimPrefix(baseURL, "http://")
+	host := strings.TrimPrefix(baseURL, "https://")
+	host = strings.TrimPrefix(host, "http://")
 	if idx := strings.Index(host, ":"); idx != -1 {
 		host = host[:idx]
 	}
@@ -78,9 +79,14 @@ func (dw *DiskWidget) getDeviceIP() string {
 	return strings.TrimSpace(host)
 }
 
-// resolveNBDBindHost returns the address the NBD server should listen on.
-// Tailscale → 100.x.x.x interface; default → 127.0.0.1.
+// resolveNBDBindHost returns the address the NBD server should listen on:
+// the local IP that reaches the device, the one the mount request gives it
+// as the server (getLocalIP). Otherwise the Tailscale 100.x.x.x interface,
+// then 127.0.0.1. Only the device's IP may connect (SetAllowedIP).
 func (dw *DiskWidget) resolveNBDBindHost() string {
+	if ip, err := dw.getLocalIP(); err == nil && ip != "" {
+		return ip
+	}
 	ifaces, _ := net.Interfaces()
 	for _, iface := range ifaces {
 		name := strings.ToLower(iface.Name)
