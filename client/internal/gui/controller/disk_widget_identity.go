@@ -10,8 +10,9 @@ import (
 )
 
 // The monitor (EDID) and USB device the KVM shows the PC: pickers in the
-// Video and HID cards, only where the KVM has the API -- the EDID one only
-// where its HDMI chip can be written (NanoKVM, not the UE revision).
+// headers of the Video and HID cards (dashboardVideoHeaderPickers,
+// dashboardHIDHeaderPickers), only where the KVM has the API -- the EDID one
+// only where its HDMI chip can be written (NanoKVM, not the UE revision).
 
 const usbIdentityOwn = "USBridge"
 
@@ -41,8 +42,26 @@ func (dw *DiskWidget) loadIdentityOptions() {
 	})
 }
 
-// newDashboardEDIDRow is the monitor picker, nil where the KVM can't change it.
-func (dw *DiskWidget) newDashboardEDIDRow() fyne.CanvasObject {
+// refreshIdentityPickers puts the pickers into the card headers.
+func (dw *DiskWidget) refreshIdentityPickers(hasKeyboardOrMouse bool) {
+	if dw.dashboardVideoHeaderPickers != nil {
+		dw.dashboardVideoHeaderPickers.Objects = nil
+		if p := dw.newDashboardEDIDPicker(); p != nil {
+			dw.dashboardVideoHeaderPickers.Objects = []fyne.CanvasObject{p}
+		}
+		dw.dashboardVideoHeaderPickers.Refresh()
+	}
+	if dw.dashboardHIDHeaderPickers != nil {
+		dw.dashboardHIDHeaderPickers.Objects = nil
+		if hasKeyboardOrMouse {
+			dw.dashboardHIDHeaderPickers.Objects = dw.newDashboardUSBIdentityPickers()
+		}
+		dw.dashboardHIDHeaderPickers.Refresh()
+	}
+}
+
+// newDashboardEDIDPicker is the monitor picker, nil where the KVM can't change it.
+func (dw *DiskWidget) newDashboardEDIDPicker() fyne.CanvasObject {
 	s := dw.edidStatus
 	if s == nil || !s.Supported || len(s.Presets) == 0 {
 		return nil
@@ -78,11 +97,7 @@ func (dw *DiskWidget) newDashboardEDIDRow() fyne.CanvasObject {
 	})
 	picker.OnHover = dw.dashboardVideoHover
 	picker.SetDisabled(dw.controlsLocked())
-	name := "Monitor"
-	if s.PowerCycle {
-		name = "Monitor · power cycle the KVM"
-	}
-	return view.NewDeviceDashboardTealRow(view.DeviceDashboardVideoIconSVG, name, s.PowerCycle, picker)
+	return picker
 }
 
 func (dw *DiskWidget) applyEDID(id string) {
@@ -105,34 +120,38 @@ func (dw *DiskWidget) applyEDID(id string) {
 	}()
 }
 
-// newDashboardUSBIdentityRows are the USB device pickers: one for the
+// newDashboardUSBIdentityPickers are the USB device pickers: one for the
 // keyboard and mouse, one for when USB audio is in the gadget too (the KVM
 // is one USB device, one name covers everything in it).
-func (dw *DiskWidget) newDashboardUSBIdentityRows() []fyne.CanvasObject {
+func (dw *DiskWidget) newDashboardUSBIdentityPickers() []fyne.CanvasObject {
 	s := dw.usbIdentity
 	if s == nil || len(s.Identities) == 0 {
 		return nil
 	}
-	row := func(name string, audio bool, current string) fyne.CanvasObject {
-		labels := []string{usbIdentityOwn}
+	picker := func(audio bool, current string) fyne.CanvasObject {
+		prefix := ""
+		if audio {
+			prefix = "Audio: "
+		}
+		labels := []string{prefix + usbIdentityOwn}
 		ids := []string{""}
-		selected := usbIdentityOwn
+		selected := labels[0]
 		for _, id := range s.Identities {
 			if id.Audio != audio {
 				continue
 			}
-			labels = append(labels, id.Label)
+			labels = append(labels, prefix+id.Label)
 			ids = append(ids, id.ID)
 			if id.ID == current {
-				selected = id.Label
+				selected = prefix + id.Label
 			}
 		}
 		if len(labels) == 1 {
 			return nil
 		}
-		picker := view.NewDeviceDashboardModePicker(labels, selected, func(label string) {
+		p := view.NewDeviceDashboardModePicker(labels, selected, func(label string) {
 			for i, l := range labels {
-				if l == label {
+				if l == label && ids[i] != current {
 					kbm, aud := s.KBM, s.Audio
 					if audio {
 						aud = ids[i]
@@ -143,18 +162,18 @@ func (dw *DiskWidget) newDashboardUSBIdentityRows() []fyne.CanvasObject {
 				}
 			}
 		})
-		picker.OnHover = dw.dashboardHIDHover
-		picker.SetDisabled(dw.controlsLocked())
-		return view.NewDeviceDashboardTealRow(view.DeviceDashboardUSBIconSVG, name, current != "", picker)
+		p.OnHover = dw.dashboardHIDHover
+		p.SetDisabled(dw.controlsLocked())
+		return p
 	}
-	var rows []fyne.CanvasObject
-	if r := row("USB device", false, s.KBM); r != nil {
-		rows = append(rows, r)
+	var out []fyne.CanvasObject
+	if p := picker(false, s.KBM); p != nil {
+		out = append(out, p)
 	}
-	if r := row("USB device with audio", true, s.Audio); r != nil {
-		rows = append(rows, r)
+	if p := picker(true, s.Audio); p != nil {
+		out = append(out, p)
 	}
-	return rows
+	return out
 }
 
 func (dw *DiskWidget) applyUSBIdentity(kbm, audio string) {
@@ -175,4 +194,3 @@ func (dw *DiskWidget) applyUSBIdentity(kbm, audio string) {
 		})
 	}()
 }
-

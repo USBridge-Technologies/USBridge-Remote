@@ -123,18 +123,21 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	// interface) and crash the card's own headerRight != nil branch --
 	// this explicit interface variable is what keeps it a real nil on
 	// every platform where there is no button.
-	var hidHeaderRight fyne.CanvasObject
+	dw.dashboardHIDHeaderPickers = container.New(&view.DeviceRowControlsLayout{Gap: 6})
+	var hidHeaderRight fyne.CanvasObject = dw.dashboardHIDHeaderPickers
 	if dw.dashboardHIDConnectBtn != nil {
 		dw.dashboardHIDConnectBtn.OnHover = dw.dashboardHIDHover
-		hidHeaderRight = dw.dashboardHIDConnectBtn
+		hidHeaderRight = container.New(&view.DeviceRowControlsLayout{Gap: 8}, dw.dashboardHIDHeaderPickers, dw.dashboardHIDConnectBtn)
 	}
+	dw.dashboardVideoHeaderPickers = container.New(&view.DeviceRowControlsLayout{Gap: 6})
+	videoHeaderRight := container.New(&view.DeviceRowControlsLayout{Gap: 8}, dw.dashboardVideoHeaderPickers, dw.dashboardAddVirtualDisplayBtn)
 
 	dw.dashboardAudioGap = view.NewDeviceDashboardCardGap()
 	dw.dashboardAudioCard = view.NewDeviceDashboardCard(view.DeviceDashboardAudioIconSVG, "Audio Pipeline", "", nil, dw.dashboardAudio, audioBind, "audio", dw.refreshDashboardCardLayout)
 	narrowColumn := container.NewVBox(
 		view.NewDeviceDashboardCard(view.DeviceDashboardHIDIconSVG, "HID & Input Hub", "", hidHeaderRight, dw.dashboardHID, hidBind, "hid", dw.refreshDashboardCardLayout),
 		view.NewDeviceDashboardCardGap(),
-		view.NewDeviceDashboardCard(view.DeviceDashboardVideoIconSVG, "Video Pipe & EDID", "", dw.dashboardAddVirtualDisplayBtn, dw.dashboardVideo, videoBind, "video", dw.refreshDashboardCardLayout),
+		view.NewDeviceDashboardCard(view.DeviceDashboardVideoIconSVG, "Video Pipe & EDID", "", videoHeaderRight, dw.dashboardVideo, videoBind, "video", dw.refreshDashboardCardLayout),
 		dw.dashboardAudioGap,
 		dw.dashboardAudioCard,
 	)
@@ -555,12 +558,7 @@ func (dw *DiskWidget) refreshDashboard() {
 		))
 	}
 
-	if hidKeyboard != nil || hidMouse != nil {
-		hidRows = append(hidRows, dw.newDashboardUSBIdentityRows()...)
-	}
-	if r := dw.newDashboardEDIDRow(); r != nil {
-		videoRows = append(videoRows, r)
-	}
+	dw.refreshIdentityPickers(hidKeyboard != nil || hidMouse != nil)
 	setDashboardRows(dw.dashboardHID, hidRows, "No keyboard, mouse, gamepad, or tablet devices")
 	setDashboardRows(dw.dashboardVideo, videoRows, "No capture devices")
 	if view.IsMobile() && len(audioRows) == 0 {

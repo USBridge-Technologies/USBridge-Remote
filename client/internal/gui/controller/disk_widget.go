@@ -49,6 +49,9 @@ type DiskWidget struct {
 	// What the KVM shows the PC (disk_widget_identity.go); nil = no picker.
 	edidStatus  *models.EDIDStatus
 	usbIdentity *models.USBIdentityStatus
+	// Their pickers, in the Video and HID card headers.
+	dashboardVideoHeaderPickers *fyne.Container
+	dashboardHIDHeaderPickers   *fyne.Container
 	dashboardAudio       *fyne.Container
 	dashboardAudioCard   fyne.CanvasObject
 	dashboardAudioGap    fyne.CanvasObject
