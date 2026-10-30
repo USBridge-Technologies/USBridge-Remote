@@ -21,6 +21,8 @@ func RestoreVirtual(*VirtualState) error { return ErrUnsupported }
 
 func ParkVirtual(time.Duration) (bool, error) { return false, ErrUnsupported }
 
+func WatchAgent(string, int, string) error { return ErrUnsupported }
+
 // OthersOff reports ErrUnsupported off Windows.
 func OthersOff(st *VirtualState) (*VirtualState, error) { return st, ErrUnsupported }
 

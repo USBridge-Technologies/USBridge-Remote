@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 
 	"usbridge_agent/internal/displaypower"
 )
@@ -217,6 +218,24 @@ var runDisplayHelper = func(args ...string) (displaypower.HelperResult, error) {
 		return res, perr
 	}
 	return res, nil
+}
+
+// sessionDisplayHelperStart starts the display helper in the active console session
+// without waiting for it; set on Windows.
+var sessionDisplayHelperStart func(exe string, args []string) error
+
+// StartDisplayWatcher starts `vdisplay-helper watch` for state in the user's session:
+// it puts the displays back if this agent dies mid-session and stays down
+// (displaypower.WatchAgent). Only for the Windows service; elsewhere a no-op.
+func StartDisplayWatcher(state, service string) error {
+	if !useSunshineSessionBroker() || sessionDisplayHelperStart == nil {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return sessionDisplayHelperStart(exe, []string{displaypower.HelperArg, "watch", state, strconv.Itoa(os.Getpid()), service})
 }
 
 // RunDisplayHelper runs a displaypower helper command in the user's session (see

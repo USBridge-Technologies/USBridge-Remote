@@ -661,6 +661,67 @@ func (st *VirtualState) restoreExclusive() error {
 // RestoreVirtual switches the other monitors back on, hands the primary role back and
 // detaches the virtual monitor. st may be nil (nothing remembered, e.g. after a crash):
 // then it only detaches it. A no-op when it is not attached.
+// watchAgentGrace is how long WatchAgent leaves the agent to come back (the
+// service's recovery restarts it after 5 s) and undo the session itself.
+const watchAgentGrace = 20 * time.Second
+
+// WatchAgent is the agent's stand-in while a session has the virtual monitor up: it
+// waits for the agent process pid to exit and, when the session's state file is still
+// there watchAgentGrace later and the agent's service isn't running again, puts the
+// displays back itself (RestoreVirtual) and removes the file. Killed or crashed
+// mid-session, with nothing restarting it, the agent left the virtual monitor the
+// only, primary screen and the real ones dark until a reboot. A clean session end
+// removes the state file, so the watcher then has nothing to do.
+func WatchAgent(path string, pid int, service string) error {
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return fmt.Errorf("watch agent %d: %w", pid, err)
+	}
+	_, err = windows.WaitForSingleObject(h, windows.INFINITE)
+	windows.CloseHandle(h)
+	if err != nil {
+		return err
+	}
+	deadline := time.Now().Add(watchAgentGrace)
+	for time.Now().Before(deadline) {
+		if LoadState(path) == nil {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+	if LoadState(path) == nil || serviceRunning(service) {
+		// Back up: the agent undoes or keeps the session itself.
+		return nil
+	}
+	log.Printf("[vdisplay] the agent (pid %d) exited mid-session and didn't come back -- putting the displays back", pid)
+	if err := RestoreVirtual(LoadState(path)); err != nil {
+		return err
+	}
+	return saveState(path, nil)
+}
+
+func serviceRunning(name string) bool {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseServiceHandle(scm)
+	n, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return false
+	}
+	svc, err := windows.OpenService(scm, n, windows.SERVICE_QUERY_STATUS)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseServiceHandle(svc)
+	var st windows.SERVICE_STATUS
+	if err := windows.QueryServiceStatus(svc, &st); err != nil {
+		return false
+	}
+	return st.CurrentState == windows.SERVICE_RUNNING || st.CurrentState == windows.SERVICE_START_PENDING
+}
+
 // ParkVirtual detaches the virtual monitor a fresh driver install brings up: Windows
 // attaches a newly arrived monitor extended, though nothing streams it. Waits up to
 // timeout for it to show up (the driver starts it a moment after its install) and

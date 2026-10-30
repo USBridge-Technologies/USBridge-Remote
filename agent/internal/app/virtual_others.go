@@ -142,6 +142,7 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 	defer ticker.Stop()
 
 	var idleSince, lastOff, upAt, lastStrayCheck time.Time
+	watcher := false
 	// up: the spec the virtual monitor was brought up in, "" while it is down.
 	up := ""
 	if displaypower.LoadState(state) != nil {
@@ -170,6 +171,15 @@ func (a *App) virtualOthersWatchdog(ctx context.Context) {
 		primary, exclusive := a.VirtualDisplayPrimary(), a.cfg.VirtualDisplayExclusive
 		ok := run("up", "apply", state, spec, boolArg(primary), boolArg(exclusive))
 		if st := displaypower.LoadState(state); st != nil {
+			if !watcher {
+				// Puts the displays back should this process die mid-session and
+				// stay down; one per agent run, it waits for this process to exit.
+				if err := streamhost.StartDisplayWatcher(state, "USBridgeAgent"); err != nil {
+					log.Printf("[app] virtual monitor watcher: %v", err)
+				} else {
+					watcher = true
+				}
+			}
 			up = spec
 			lastOff, upAt = time.Now(), time.Now()
 			log.Printf("[app] session on the virtual monitor: %s %s up (primary=%v, others off=%v, ok=%v)", st.GDIName, spec, primary, exclusive, ok)

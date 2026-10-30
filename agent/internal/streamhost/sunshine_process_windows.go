@@ -47,6 +47,15 @@ func init() {
 	sessionDisplayHelperRun = func(exe string, args []string) ([]byte, error) {
 		return sessionlaunch.RunAndCaptureOutput(exe, args, filepath.Dir(exe), nil, 30*time.Second)
 	}
+	// Not in the stream host's kill-on-close job: it must outlive the agent.
+	sessionDisplayHelperStart = func(exe string, args []string) error {
+		h, err := sessionlaunch.LaunchInActiveSession(exe, args, filepath.Dir(exe), nil, nil, nil)
+		if err != nil {
+			return err
+		}
+		h.Close()
+		return nil
+	}
 }
 
 // sunshineSessionBrokerLaunchImpl launches exe inside the active console

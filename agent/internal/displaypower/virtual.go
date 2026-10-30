@@ -128,6 +128,7 @@ func saveState(path string, st *VirtualState) error {
 //	enable - MONITOR_ID 0|1               switch one monitor off or on (SetEnabled)
 //	vname -                               the virtual monitor's GDI/friendly name, attached or not
 //	park -                                detach the virtual monitor a driver install attached
+//	watch STATEFILE AGENT_PID SERVICE     restore STATEFILE once the agent died and stayed down
 //
 // The state file is rewritten after every change, so a crash in between never loses
 // what there is to undo. Returns the process exit code.
@@ -154,6 +155,19 @@ func runHelper(args []string) HelperResult {
 			return HelperResult{Error: err.Error()}
 		}
 		return HelperResult{Monitors: m}
+	case "watch":
+		// The agent's stand-in when it dies mid-session: see WatchAgent.
+		if len(args) < 4 {
+			return HelperResult{Error: "usage: watch STATEFILE AGENT_PID SERVICE"}
+		}
+		pid, err := strconv.Atoi(args[2])
+		if err != nil {
+			return HelperResult{Error: err.Error()}
+		}
+		if err := WatchAgent(path, pid, args[3]); err != nil {
+			return HelperResult{Error: err.Error()}
+		}
+		return HelperResult{}
 	case "park":
 		// After a driver install (the agent setup): see ParkVirtual.
 		parked, err := ParkVirtual(20 * time.Second)
