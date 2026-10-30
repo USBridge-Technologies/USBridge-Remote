@@ -401,11 +401,6 @@ jobs:
     uses: ./.github/workflows/client-snap.yml
     with:
       prerelease: ${{ inputs.prerelease }}
-      # Explicitly empty (snap from this run's AppImage artifact): left out, it
-      # took release-all-test's own dispatch input of the same name and looked
-      # for a release "<tag>" that doesn't exist (it is published as test-<tag>,
-      # after this job).
-      release_tag: ''
     secrets: inherit
 
   client-windows:
