@@ -30,6 +30,8 @@
 
 **All-in-one installer (Client + Agent, pick either or both during setup):** [Windows Setup (.exe)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-Windows-x86_64-Setup.exe) · [macOS disk image (.dmg)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-macOS-arm64.dmg)
 
+On Windows the Agent's virtual display driver (streaming with no monitor attached) is its own checkbox: ticked by default, unticked in a virtual machine without a real GPU, where the VM's own screen is streamed. Details in the [Agent docs](agent/docs/README.md#platform-notes-from-the-top-level-readme).
+
 All files are on the [latest release](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
 ### Client

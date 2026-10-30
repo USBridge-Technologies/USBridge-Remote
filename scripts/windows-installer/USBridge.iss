@@ -13,10 +13,12 @@
 ; elevating. The client needs no drivers -- a USB device that needs a WinUSB
 ; rebind is elevated for in the app itself.
 ;
-; The agent is its own setup, run silently with its defaults (virtual
-; display + USB drivers, the service, USBridge Streamer selected); it asks
-; for administrator rights itself, so that is the only UAC prompt, and only
-; when the agent is ticked. It keeps its own uninstaller and self-update.
+; The agent is its own setup, run silently with its defaults (USB driver,
+; the service, USBridge Streamer selected) and the virtual display driver
+; as ticked here: by default on with a real GPU, off on a virtual machine
+; (display_adapters.iss). It asks for administrator rights itself, so that
+; is the only UAC prompt, and only when the agent is ticked. It keeps its
+; own uninstaller and self-update.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -72,6 +74,10 @@ Name: "custom"; Description: "Custom"; Flags: iscustom
 [Components]
 Name: "client"; Description: "USBridge Client - connect to your computers"; Types: full custom
 Name: "agent"; Description: "USBridge Agent - let this computer be reached remotely (drivers + background service, asks for administrator rights)"; Types: full custom
+; One checkbox, two entries: ticked with a real GPU, unticked on a VM whose
+; only display adapters are virtual (see display_adapters.iss).
+Name: "agent\vdd"; Description: "Virtual display driver - stream without a monitor attached"; Types: full custom; Check: HasRealGpu
+Name: "agent\vddvm"; Description: "Virtual display driver - stream without a monitor attached (off on a virtual machine, whose own screen is streamed)"; Types: custom; Check: not HasRealGpu
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Components: client
@@ -96,13 +102,27 @@ Root: HKCU; Subkey: "Software\Classes\usbridge\shell\open\command"; ValueType: s
 [Run]
 ; shellexec: the agent setup needs administrator rights, and ShellExecute is
 ; what lets Windows show the UAC prompt for it from this unelevated setup.
-Filename: "{tmp}\USBridgeAgent-Setup.exe"; Parameters: "/SILENT /SUPPRESSMSGBOXES /NORESTART"; StatusMsg: "Installing USBridge Agent..."; Components: agent; Flags: shellexec waituntilterminated
+Filename: "{tmp}\USBridgeAgent-Setup.exe"; Parameters: "/SILENT /SUPPRESSMSGBOXES /NORESTART /MERGETASKS=""{code:AgentVddTasks}"""; StatusMsg: "Installing USBridge Agent..."; Components: agent; Flags: shellexec waituntilterminated
 Filename: "{app}\{#AppExe}"; WorkingDir: "{app}\bin"; Description: "Open {#AppName}"; Components: client; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM USBridge_Client.exe"; Flags: runhidden; RunOnceId: "KillClient"
 
 [Code]
+#include "..\..\agent\scripts\windows-installer\display_adapters.iss"
+
+// The agent setup's virtual display task as ticked here: "vdd" with a real
+// GPU, "vddvm" on a VM (USBridgeAgent.iss shows only one of them).
+function AgentVddTasks(Param: String): String;
+begin
+  if HasRealGpu then
+    Result := 'vdd'
+  else
+    Result := 'vddvm';
+  if not (WizardIsComponentSelected('agent\vdd') or WizardIsComponentSelected('agent\vddvm')) then
+    Result := '!' + Result;
+end;
+
 // Closes a running client so its files can be replaced on an upgrade.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
