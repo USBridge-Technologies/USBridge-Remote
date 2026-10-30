@@ -31,7 +31,6 @@ const (
 	dmPelsWidth        = 0x80000
 	dmPelsHeight       = 0x100000
 	dmDisplayFrequency = 0x400000
-	cdsUpdateRegistry  = 0x1
 )
 
 // DEVMODEW, display variant, 220 bytes.
@@ -119,7 +118,12 @@ func applyLayout(l []Placed) error {
 			}
 		}
 	}
-	return set("positions", paths, modes, sdcApply|sdcUseSuppliedDisplayConfig|sdcAllowChanges|sdcSaveToDatabase)
+	// Not saved to Windows' display database, like the attach and the mode: a
+	// session that never got to put them back (connection lost, agent killed,
+	// power cut) left the virtual monitor primary through a reboot too, the
+	// login screen on a monitor nobody can see (issue #23). Only the detach,
+	// the end state, is saved.
+	return set("positions", paths, modes, sdcApply|sdcUseSuppliedDisplayConfig|sdcAllowChanges)
 }
 
 // shiftedTo is l with target moved to the origin and everything else by the same
@@ -250,6 +254,7 @@ func displayModes(gdi string) []Mode {
 }
 
 // setMode changes an attached source's size and refresh rate, leaving its position.
+// Dynamically, not in the registry (see the positions above).
 func setMode(gdi string, m Mode) error {
 	name, err := windows.UTF16PtrFromString(gdi)
 	if err != nil {
@@ -258,7 +263,7 @@ func setMode(gdi string, m Mode) error {
 	dm := newDevMode()
 	dm.Fields = dmPelsWidth | dmPelsHeight | dmDisplayFrequency
 	dm.PelsWidth, dm.PelsHeight, dm.DisplayFrequency = uint32(m.Width), uint32(m.Height), uint32(m.Hz)
-	r, _, _ := procChangeDisplaySettingsExW.Call(uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(&dm)), 0, cdsUpdateRegistry, 0)
+	r, _, _ := procChangeDisplaySettingsExW.Call(uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(&dm)), 0, 0, 0)
 	if int32(r) != 0 {
 		return fmt.Errorf("ChangeDisplaySettingsExW(%s, %s): DISP_CHANGE %d", gdi, m, int32(r))
 	}
@@ -365,7 +370,7 @@ func attachVirtualTarget() error {
 			keep = append(keep, act[i])
 		}
 	}
-	if serr := set("attach (supplied)", append(keep, v), modes, sdcApply|sdcUseSuppliedDisplayConfig|sdcAllowChanges|sdcSaveToDatabase); serr != nil {
+	if serr := set("attach (supplied)", append(keep, v), modes, sdcApply|sdcUseSuppliedDisplayConfig|sdcAllowChanges); serr != nil {
 		return fmt.Errorf("%v; %v", err, serr)
 	}
 	log.Printf("[vdisplay] attached with the supplied display config (the topology-only attach failed: %v)", err)
