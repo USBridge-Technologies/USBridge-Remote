@@ -2,6 +2,61 @@
   "app": "client",
   "cards": [
     {
+      "version": "3.2.13",
+      "date": "October 2026",
+      "items": [
+        {
+          "kind": "hardware",
+          "points": [
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Pick the monitor",
+                "es": "Elige el monitor",
+                "uk": "Оберіть монітор"
+              },
+              "body": {
+                "en": "On a NanoKVM the target PC can see a real 1080p monitor (Dell, HP, BenQ) instead of the KVM; picker in the Video card header.",
+                "es": "En un NanoKVM el PC ve un monitor 1080p real (Dell, HP, BenQ) en lugar del KVM; selector en la cabecera de Vídeo.",
+                "uk": "На NanoKVM комп’ютер бачить справжній монітор 1080p (Dell, HP, BenQ) замість KVM; вибір у заголовку картки Відео."
+              }
+            },
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "Pick the USB device",
+                "es": "Elige el dispositivo USB",
+                "uk": "Оберіть USB-пристрій"
+              },
+              "body": {
+                "en": "Keyboard and mouse show up as a real Dell, Lenovo or HP set, or a Logitech G510 with audio; picker in the HID card header.",
+                "es": "Teclado y ratón aparecen como un set real de Dell, Lenovo o HP, o un Logitech G510 con audio; selector en la cabecera HID.",
+                "uk": "Клавіатура й миша видно як справжній набір Dell, Lenovo чи HP або Logitech G510 зі звуком; вибір у заголовку картки HID."
+              }
+            }
+          ]
+        },
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "board",
+              "title": {
+                "en": "Network drives connect again",
+                "es": "Las unidades de red vuelven a conectar",
+                "uk": "Мережеві диски знову підключаються"
+              },
+              "body": {
+                "en": "Mounting an image over the network no longer fails when the computer has several networks (LAN and Tailscale).",
+                "es": "Montar una imagen por red ya no falla cuando el equipo tiene varias redes (LAN y Tailscale).",
+                "uk": "Підключення образу мережею більше не зривається, коли в комп’ютера кілька мереж (LAN і Tailscale)."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "3.2.0",
       "date": "October 2026",
       "items": [

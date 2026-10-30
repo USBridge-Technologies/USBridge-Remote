@@ -99,7 +99,7 @@ func TestWhatsNewCatalogHasCards(t *testing.T) {
 	if len(cards) < 3 {
 		t.Fatalf("expected the shipped release history, got %d cards", len(cards))
 	}
-	if cards[0].Version != "3.2.0" || cards[0].Date != "October 2026" {
+	if cards[0].Version != "3.2.13" || cards[0].Date != "October 2026" {
 		t.Fatalf("newest card: %s %q", cards[0].Version, cards[0].Date)
 	}
 	for i := 1; i < len(cards); i++ {
@@ -191,7 +191,7 @@ func TestWhatsNewCatalogFingerprintJoinsVersions(t *testing.T) {
 		}
 		want += c.Version
 	}
-	if fp != want || !strings.HasPrefix(fp, "3.2.0\n") || !strings.HasSuffix(fp, "\n3.0.111\n3.0.45") {
+	if fp != want || !strings.HasPrefix(fp, "3.2.13\n") || !strings.HasSuffix(fp, "\n3.0.111\n3.0.45") {
 		t.Fatalf("got %q", fp)
 	}
 }

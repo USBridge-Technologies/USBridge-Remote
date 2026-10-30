@@ -57,7 +57,7 @@ permissions:
 jobs:
   build-macos:
     name: macOS (build, sign, notarize)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"

@@ -691,9 +691,13 @@ jobs:
           retention-days: 7
 
   client-macos:
-    runs-on: macos-14
+    # macos-14 images are retired (brownouts cancel the job from October
+    # 2026). The deployment target keeps the app running where the
+    # macos-14-built one did.
+    runs-on: macos-15
     timeout-minutes: 45
     env:
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
       USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"
       USBRIDGE_SKIP_NOTARIZE: "1"
     steps:
@@ -1035,7 +1039,7 @@ jobs:
     # their own jobs; this only lays them out side by side on one disk
     # image (copied with ditto, which keeps signatures and tickets intact).
     needs: [agent-macos, client-macos]
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
