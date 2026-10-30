@@ -13,7 +13,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1227,7 +1226,7 @@ func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
 		primary := s.app.VirtualDisplayPrimary() && up
 		for _, vd := range s.virtualDisplays {
 			vd.Primary = &primary
-			if runtime.GOOS == "windows" {
+			if displaypower.AgentVirtual {
 				// Its On switch: lit while its monitor is up for a session; off
 				// moves the stream to a real monitor (monitorSetEnabled).
 				on := up && s.app.SunshineOutputName() == vd.Path
@@ -1638,13 +1637,6 @@ func (s *Server) videoSetDevice(w http.ResponseWriter, r *http.Request) {
 		// streamed nothing). Switch it on and stream it under the name the stream
 		// host lists it by.
 		outputName = s.outputNameForMonitor(id)
-	}
-	// A vkms connector forced off by an earlier delete must be brought back
-	// before the stream host looks for it.
-	if strings.HasPrefix(outputName, "virtual:") || strings.Contains(outputName, "Virtual-") {
-		if err := vdisplay.Revive(); err != nil {
-			log.Printf("[api] video_set_device: reviving virtual display: %v", err)
-		}
 	}
 	log.Printf("[api] video_set_device device=%s", req.Device)
 	if err := s.app.SetSunshineOutputName(outputName); err != nil {

@@ -28,7 +28,7 @@ type Monitor struct {
 
 var (
 	// ErrUnsupported is returned off Windows.
-	ErrUnsupported = errors.New("turning monitors on and off is supported on Windows only")
+	ErrUnsupported = errors.New("turning monitors on and off is not supported on this desktop")
 	// ErrNotFound: no monitor with that ID.
 	ErrNotFound = errors.New("no such monitor")
 	// ErrLastDisplay: refusing to switch off the only active monitor.

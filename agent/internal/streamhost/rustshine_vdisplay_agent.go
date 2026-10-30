@@ -20,9 +20,9 @@ import (
 // sunshine.conf under a key the streamer doesn't know.
 const rustshineAgentVirtualKey = "usbridge_virtual_display"
 
-// agentVirtualDisplays: the agent attaches RustShine's virtual monitor itself (Windows;
-// elsewhere the streamer still does: vkms on Linux, CGVirtualDisplay on macOS).
-func agentVirtualDisplays() bool { return runtime.GOOS == "windows" }
+// agentVirtualDisplays: the agent attaches RustShine's virtual monitor itself (Windows:
+// MttVDD, Linux: vkms; on macOS the streamer still does, CGVirtualDisplay).
+func agentVirtualDisplays() bool { return displaypower.AgentVirtual }
 
 // virtualSpec is the selected virtual monitor's "WxH@HZ", or "".
 func (b *rustshineBackend) virtualSpec() string {
@@ -75,6 +75,23 @@ func (b *rustshineBackend) applyAgentVirtualDisplayLocked() {
 	}
 	if spec == "" {
 		name("")
+		return
+	}
+	if runtime.GOOS == "linux" {
+		// The vkms connector, named before it is up: the streamer captures it
+		// by card and connector once the agent brings it up for a session.
+		connector, card, err := displaypower.PlannedVirtual()
+		if err != nil {
+			log.Printf("[rustshine] virtual display %s: %v -- streaming the configured monitor", spec, err)
+			return
+		}
+		log.Printf("[rustshine] virtual display %s is %s %s (up for sessions only)", spec, card, connector)
+		if err := b.SetConfigKey("adapter_name", card); err != nil {
+			log.Printf("[rustshine] could not point adapter_name at the virtual display: %v", err)
+		}
+		if err := b.SetConfigKey("kms_connector", connector); err != nil {
+			log.Printf("[rustshine] could not point kms_connector at the virtual display: %v", err)
+		}
 		return
 	}
 	if !virtualDriverInstalled() {

@@ -5,10 +5,12 @@ package capture
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/kbinani/screenshot"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/display"
+	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/streamhost"
 )
 
@@ -90,8 +92,22 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 				}
 			}
 		}
+		// The compositor's view (KDE): which monitor is on and which is the
+		// primary one, for the client's On/Off and Main buttons. Keyed by the
+		// connector name without its card ("HDMI-A-1").
+		desktop := map[string]displaypower.Monitor{}
+		if monitors, err := displaypower.List(); err == nil {
+			for _, m := range monitors {
+				desktop[m.ID] = m
+			}
+		}
 		out := make([]api.VideoDeviceInfo, 0, len(connectors))
 		for _, c := range connectors {
+			if isVkmsConnectorName(c.Name) {
+				// The virtual monitor: the agent's, listed as its "virtual:" entry
+				// and up for sessions only (displaypower) -- never a monitor of its own.
+				continue
+			}
 			idx := c.Index
 			if realIdx, ok := byName[c.Name]; ok {
 				idx = realIdx
@@ -109,14 +125,21 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 					PixelFormat: "BGRA",
 				})
 			}
-			out = append(out, api.VideoDeviceInfo{
+			info := api.VideoDeviceInfo{
 				Path:           path,
 				Name:           c.Name,
 				Bus:            "drm",
 				Index:          idx,
 				Connected:      true,
 				SupportedModes: modes,
-			})
+			}
+			if _, conn, ok := strings.Cut(c.Name, "-"); ok {
+				if m, ok := desktop[conn]; ok {
+					on, primary := m.Active, m.Active && m.Primary
+					info.MonitorID, info.Enabled, info.MonitorPrimary = m.ID, &on, &primary
+				}
+			}
+			out = append(out, info)
 		}
 		return out
 	}
@@ -156,4 +179,11 @@ func linuxDisplayModes(index int) []api.VideoCaptureMode {
 		})
 	}
 	return modes
+}
+
+// isVkmsConnectorName reports whether a DRM connector ("card0-Virtual-1") is
+// vkms's.
+func isVkmsConnectorName(name string) bool {
+	_, conn, ok := strings.Cut(name, "-")
+	return ok && strings.HasPrefix(conn, "Virtual-")
 }

@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package displaypower
 
@@ -35,3 +35,7 @@ func prepareHelperThread() {}
 
 // PlannedVirtual reports ErrUnsupported off Windows.
 func PlannedVirtual() (gdi, friendly string, err error) { return "", "", ErrUnsupported }
+
+// AgentVirtual: the agent brings the virtual monitor up and down for sessions
+// itself (Windows, Linux); here the stream host does.
+const AgentVirtual = false

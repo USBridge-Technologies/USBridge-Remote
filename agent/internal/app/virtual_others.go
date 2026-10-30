@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 	"usbridge_agent/internal/streamhost"
 )
 
-// The virtual monitor on a Windows host is the agent's, for every stream host, and
+// The virtual monitor on a Windows or Linux host is the agent's, for every stream host, and
 // it exists for the length of a session only: it comes up when a session on it
 // starts (made the primary display unless turned off, and the only one with "only
 // the virtual monitor"), and once the session is over the other monitors come back,
@@ -88,7 +87,7 @@ func (a *App) virtualSpec() string {
 // agent's, up for a session only (its state file exists while it is); elsewhere, and
 // with a stream host that attaches its own, the stream host keeps it up.
 func (a *App) VirtualDisplayUp() bool {
-	if runtime.GOOS != "windows" || a.streamOwnsVirtualMonitor() {
+	if !displaypower.AgentVirtual || a.streamOwnsVirtualMonitor() {
 		return true
 	}
 	return displaypower.LoadState(a.virtualSessionStatePath()) != nil
@@ -148,9 +147,9 @@ func (a *App) ClientSessionStarting(timeout time.Duration) {
 }
 
 // virtualOthersWatchdog brings the virtual monitor up and down with the sessions on
-// it. Windows only; elsewhere it only answers the client's calls.
+// it. Windows and Linux; elsewhere it only answers the client's calls.
 func (a *App) virtualOthersWatchdog(ctx context.Context) {
-	if runtime.GOOS != "windows" {
+	if !displaypower.AgentVirtual {
 		for {
 			select {
 			case <-ctx.Done():

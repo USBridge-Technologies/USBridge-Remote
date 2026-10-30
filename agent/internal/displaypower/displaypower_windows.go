@@ -399,3 +399,7 @@ func prepareHelperThread() {
 	// Not closed: the thread stays on it until the helper exits.
 	procSetThreadDesktop.Call(h)
 }
+
+// AgentVirtual: the agent brings the virtual monitor up and down for sessions
+// itself (Windows, Linux); elsewhere the stream host does.
+const AgentVirtual = true

@@ -4643,10 +4643,10 @@ func (a *App) SetVirtualDisplayPrimary(primary bool) (live bool, err error) {
 		return false, fmt.Errorf("no stream backend")
 	}
 	live, err = a.stream.SetVirtualDisplayPrimary(primary)
-	if err != nil || runtime.GOOS != "windows" {
+	if err != nil || !displaypower.AgentVirtual {
 		return live, err
 	}
-	// On Windows the virtual monitor is the agent's, up for a session
+	// On Windows and Linux the virtual monitor is the agent's, up for a session
 	// (virtual_others.go): the choice applies to it right away.
 	state := a.virtualSessionStatePath()
 	if displaypower.LoadState(state) == nil {

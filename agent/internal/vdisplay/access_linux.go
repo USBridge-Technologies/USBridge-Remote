@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -221,6 +222,70 @@ func Revive() error {
 			continue
 		}
 		if e := writeConnectorStatus(f, "detect"); e != nil && firstErr == nil {
+			firstErr = e
+		}
+	}
+	return firstErr
+}
+
+// Prepare names the virtual monitor before it is up, so the stream host can be
+// pointed at it: it loads vkms when it is not loaded (its connector forced off
+// straight away, so no monitor shows up on the desktop) and returns the card
+// and connector, e.g. "/dev/dri/card0", "Virtual-1".
+func Prepare() (card, connector string, err error) {
+	if !AccessGranted() {
+		return "", "", fmt.Errorf("the virtual display permission is not granted -- grant it in the agent's Permissions")
+	}
+	_, statErr := os.Stat("/sys/module/vkms")
+	if err := load(); err != nil {
+		return "", "", err
+	}
+	if statErr != nil {
+		// Freshly loaded: connected -- off until a session needs it.
+		if err := Down(); err != nil {
+			log.Printf("[vdisplay] switching the new virtual monitor off: %v", err)
+		}
+	}
+	for i := 0; i < 20; i++ {
+		if card, connector, ok := vkmsConnector(); ok {
+			return card, connector, nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return "", "", fmt.Errorf("vkms is loaded but has no connector")
+}
+
+// vkmsConnector is the first vkms connector: "/dev/dri/cardN", "Virtual-M".
+func vkmsConnector() (card, connector string, ok bool) {
+	files := vkmsConnectorStatusFiles()
+	if len(files) == 0 {
+		return "", "", false
+	}
+	c, conn, ok := strings.Cut(filepath.Base(filepath.Dir(files[0])), "-")
+	if !ok {
+		return "", "", false
+	}
+	return "/dev/dri/" + c, conn, true
+}
+
+// Up brings the virtual monitor onto the desktop (Revive): vkms loaded, its
+// connector connected.
+func Up() error { return Revive() }
+
+// Down takes the virtual monitor off the desktop: every vkms connector forced
+// off. The module stays loaded -- the compositor holds it, and the next
+// session brings the same connector back. No-op without the grant.
+func Down() error {
+	if !AccessGranted() {
+		return nil
+	}
+	var firstErr error
+	for _, f := range vkmsConnectorStatusFiles() {
+		b, err := os.ReadFile(f)
+		if err == nil && strings.TrimSpace(string(b)) == "disconnected" {
+			continue
+		}
+		if e := writeConnectorStatus(f, "off"); e != nil && firstErr == nil {
 			firstErr = e
 		}
 	}

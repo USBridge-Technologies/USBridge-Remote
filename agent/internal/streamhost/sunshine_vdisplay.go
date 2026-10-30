@@ -221,14 +221,14 @@ var runDisplayHelper = func(args ...string) (displaypower.HelperResult, error) {
 }
 
 // sessionDisplayHelperStart starts the display helper in the active console session
-// without waiting for it; set on Windows.
+// without waiting for it; set on Windows and Linux.
 var sessionDisplayHelperStart func(exe string, args []string) error
 
 // StartDisplayWatcher starts `vdisplay-helper watch` for state in the user's session:
 // it puts the displays back if this agent dies mid-session and stays down
-// (displaypower.WatchAgent). Only for the Windows service; elsewhere a no-op.
+// (displaypower.WatchAgent). For the Windows service and on Linux; elsewhere a no-op.
 func StartDisplayWatcher(state, service string) error {
-	if !useSunshineSessionBroker() || sessionDisplayHelperStart == nil {
+	if (runtime.GOOS == "windows" && !useSunshineSessionBroker()) || sessionDisplayHelperStart == nil {
 		return nil
 	}
 	exe, err := os.Executable()
