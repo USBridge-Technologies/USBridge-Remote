@@ -211,13 +211,14 @@ func sessionMonitorDevices() []api.VideoDeviceInfo {
 		}
 		off := false
 		out = append(out, api.VideoDeviceInfo{
-			Path:      "monitor:" + m.ID,
-			Name:      monitorName(m) + " (off)",
-			Bus:       "dxgi",
-			Index:     len(out),
-			Connected: false,
-			MonitorID: m.ID,
-			Enabled:   &off,
+			Path:           "monitor:" + m.ID,
+			Name:           monitorName(m) + " (off)",
+			Bus:            "dxgi",
+			Index:          len(out),
+			Connected:      false,
+			MonitorID:      m.ID,
+			Enabled:        &off,
+			MonitorPrimary: &off,
 		})
 	}
 	return out
@@ -232,11 +233,18 @@ func withMonitorPower(out []api.VideoDeviceInfo, gdi []string) []api.VideoDevice
 		return out
 	}
 	listed := map[string]bool{}
+	virtual := map[int]bool{}
 	for i := range out {
 		if i >= len(gdi) || gdi[i] == "" {
 			continue
 		}
 		for _, m := range all {
+			if m.Active && m.Virtual && strings.EqualFold(m.GDIName, gdi[i]) {
+				// The virtual monitor, attached for a session: the stream host lists
+				// it as one of its outputs, but it is the API's "virtual:" entry.
+				virtual[i] = true
+				continue
+			}
 			if m.Active && strings.EqualFold(m.GDIName, gdi[i]) {
 				on, primary := true, m.Primary
 				out[i].MonitorID, out[i].Enabled, out[i].MonitorPrimary = m.ID, &on, &primary
@@ -250,6 +258,16 @@ func withMonitorPower(out []api.VideoDeviceInfo, gdi []string) []api.VideoDevice
 			}
 		}
 	}
+	if len(virtual) > 0 {
+		kept := out[:0]
+		for i, d := range out {
+			if !virtual[i] {
+				d.Index = len(kept)
+				kept = append(kept, d)
+			}
+		}
+		out = kept
+	}
 	for _, m := range all {
 		// The virtual monitor is the API's own "virtual:" entry, not a switched-off one.
 		if m.Active || m.Virtual || listed[m.ID] {
@@ -257,13 +275,14 @@ func withMonitorPower(out []api.VideoDeviceInfo, gdi []string) []api.VideoDevice
 		}
 		off := false
 		out = append(out, api.VideoDeviceInfo{
-			Path:      "monitor:" + m.ID,
-			Name:      monitorName(m) + " (off)",
-			Bus:       "dxgi",
-			Index:     len(out),
-			Connected: false,
-			MonitorID: m.ID,
-			Enabled:   &off,
+			Path:           "monitor:" + m.ID,
+			Name:           monitorName(m) + " (off)",
+			Bus:            "dxgi",
+			Index:          len(out),
+			Connected:      false,
+			MonitorID:      m.ID,
+			Enabled:        &off,
+			MonitorPrimary: &off, // its Main switches it on and makes it the primary display
 		})
 	}
 	return out

@@ -1327,6 +1327,19 @@ func (s *Server) monitorSetPrimary(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, "invalid_json", err)
 		return
 	}
+	// The user wants a real screen as the main one: a session on the virtual
+	// monitor would otherwise switch it back off and make the virtual one
+	// primary again within seconds. Saved, like the virtual display's own Main.
+	if s.app.VirtualDisplaySupported() {
+		if err := s.app.SetVirtualDisplayExclusive(false); err != nil {
+			log.Printf("[api] monitor primary: only the virtual monitor off: %v", err)
+		}
+		if s.app.VirtualDisplayPrimary() {
+			if _, err := s.app.SetVirtualDisplayPrimary(false); err != nil {
+				log.Printf("[api] monitor primary: the virtual monitor's Main off: %v", err)
+			}
+		}
+	}
 	err := displaypower.MakePrimaryInSession(req.MonitorID)
 	switch {
 	case errors.Is(err, displaypower.ErrUnsupported):

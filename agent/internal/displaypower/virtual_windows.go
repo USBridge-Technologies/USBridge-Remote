@@ -114,14 +114,24 @@ func MakePrimary(id string) error {
 		if m.ID != id {
 			continue
 		}
-		if !m.Active || m.GDIName == "" {
+		gdi := m.GDIName
+		if !m.Active {
+			// Main on a switched-off monitor: on first, then primary.
+			if err := attach(id); err != nil {
+				return err
+			}
+			if gdi, err = waitActiveGDIName(id); err != nil {
+				return err
+			}
+		}
+		if gdi == "" {
 			return ErrNotFound
 		}
 		l, err := layout()
 		if err != nil {
 			return err
 		}
-		next, ok := shiftedTo(l, m.GDIName)
+		next, ok := shiftedTo(l, gdi)
 		if !ok {
 			return ErrNotFound
 		}
@@ -131,6 +141,25 @@ func MakePrimary(id string) error {
 		return applyLayoutSave(next, true)
 	}
 	return ErrNotFound
+}
+
+// waitActiveGDIName is the GDI name monitor id has once attached; Windows takes a
+// moment to report it.
+func waitActiveGDIName(id string) (string, error) {
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if monitors, err := List(); err == nil {
+			for _, m := range monitors {
+				if m.ID == id && m.Active && m.GDIName != "" {
+					return m.GDIName, nil
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return "", ErrNotFound
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func applyLayoutSave(l []Placed, save bool) error {
