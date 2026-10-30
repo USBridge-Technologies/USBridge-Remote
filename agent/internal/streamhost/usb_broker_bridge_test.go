@@ -5,6 +5,7 @@ package streamhost
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -33,11 +34,15 @@ func TestStreamerHasUSBBridge(t *testing.T) {
 	if !streamerHasUSBBridge(bin, "usbridge-bridge", nil) {
 		t.Error("a patched punktfunk-host must report the bridge")
 	}
-	b := &punktfunkBackend{}
-	t.Setenv("PATH", t.TempDir())
-	usePunktfunkStage(t, bin)
-	if !b.RawHIDSupported() {
-		t.Error("RawHIDSupported should follow the probe")
+	if runtime.GOOS == "linux" {
+		// Punktfunk is bundled on Linux (and Windows) only: elsewhere it has no
+		// binary to ask (punktfunkBinaryPath).
+		b := &punktfunkBackend{}
+		t.Setenv("PATH", t.TempDir())
+		usePunktfunkStage(t, bin)
+		if !b.RawHIDSupported() {
+			t.Error("RawHIDSupported should follow the probe")
+		}
 	}
 
 	// Sunshine is asked with its own switch.
