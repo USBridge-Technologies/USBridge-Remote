@@ -19,7 +19,7 @@ import (
 )
 
 func TestEnsureSelfSigned_GeneratesAndCovers(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	ip := net.ParseIP("127.0.0.1")
 	if err := m.EnsureSelfSigned([]net.IP{ip}, []string{"usbridge-agent.local"}); err != nil {
 		t.Fatalf("EnsureSelfSigned: %v", err)
@@ -34,7 +34,7 @@ func TestEnsureSelfSigned_GeneratesAndCovers(t *testing.T) {
 }
 
 func TestEnsureSelfSigned_NoOpWhenAlreadyCovers(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	ip := net.ParseIP("127.0.0.1")
 	if err := m.EnsureSelfSigned([]net.IP{ip}, nil); err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestEnsureSelfSigned_NoOpWhenAlreadyCovers(t *testing.T) {
 }
 
 func TestEnsureSelfSigned_RegeneratesWhenIPMissing(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.EnsureSelfSigned([]net.IP{net.ParseIP("127.0.0.1")}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -67,12 +67,12 @@ func TestEnsureSelfSigned_RegeneratesWhenIPMissing(t *testing.T) {
 
 func TestLoadPersisted_RoundTripsSelfSignedAcrossInstances(t *testing.T) {
 	dir := t.TempDir()
-	m1 := NewManager(dir)
+	m1 := newTestManager(t, dir)
 	if err := m1.EnsureSelfSigned([]net.IP{net.ParseIP("127.0.0.1")}, nil); err != nil {
 		t.Fatal(err)
 	}
 
-	m2 := NewManager(dir)
+	m2 := newTestManager(t, dir)
 	m2.LoadPersisted()
 	if m2.selfLeaf == nil {
 		t.Fatal("LoadPersisted did not pick up the previously generated self-signed cert")
@@ -144,7 +144,7 @@ func installTestDeviceCert(t *testing.T, m *Manager, hostname string) {
 }
 
 func TestInstallDeviceCert_ThenGetCertificatePicksItBySNI(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.EnsureSelfSigned([]net.IP{net.ParseIP("127.0.0.1")}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestInstallDeviceCert_ThenGetCertificatePicksItBySNI(t *testing.T) {
 }
 
 func TestDeviceCertStatus_NeedsRefreshWhenNoneInstalled(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	hostname, needsRefresh := m.DeviceCertStatus()
 	if hostname != "" || !needsRefresh {
 		t.Errorf("DeviceCertStatus on a fresh Manager = (%q, %v), want (\"\", true)", hostname, needsRefresh)
@@ -176,7 +176,7 @@ func TestDeviceCertStatus_NeedsRefreshWhenNoneInstalled(t *testing.T) {
 }
 
 func TestDeviceCertStatus_NoRefreshWhenFresh(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	installTestDeviceCert(t, m, "abc123.device.usbridge.io")
 	hostname, needsRefresh := m.DeviceCertStatus()
 	if hostname != "abc123.device.usbridge.io" || needsRefresh {
@@ -185,14 +185,14 @@ func TestDeviceCertStatus_NoRefreshWhenFresh(t *testing.T) {
 }
 
 func TestGetCertificate_ErrorsWhenNothingInstalledYet(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if _, err := m.GetCertificate(&tls.ClientHelloInfo{}); err == nil {
 		t.Fatal("expected an error before EnsureSelfSigned/InstallDeviceCert has ever run")
 	}
 }
 
 func TestDeviceCSR_NamesHostnameInSAN(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	csrDER, err := m.DeviceCSR("abc123.device.usbridge.io")
 	if err != nil {
 		t.Fatalf("DeviceCSR: %v", err)
@@ -207,7 +207,7 @@ func TestDeviceCSR_NamesHostnameInSAN(t *testing.T) {
 }
 
 func TestDeviceCSR_ReusesTheSameKeyAcrossCalls(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	csr1DER, err := m.DeviceCSR("abc123.device.usbridge.io")
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ func TestDeviceCSR_ReusesTheSameKeyAcrossCalls(t *testing.T) {
 }
 
 func TestDeviceCSR_ByteIdenticalWhilePolling(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	a, err := m.DeviceCSR("abc123.device.usbridge.io")
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +262,7 @@ func TestDeviceCSR_ByteIdenticalWhilePolling(t *testing.T) {
 
 func TestDeviceCSR_KeySurvivesAcrossManagerInstances(t *testing.T) {
 	dir := t.TempDir()
-	m1 := NewManager(dir)
+	m1 := newTestManager(t, dir)
 	csr1DER, err := m1.DeviceCSR("abc123.device.usbridge.io")
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +276,7 @@ func TestDeviceCSR_KeySurvivesAcrossManagerInstances(t *testing.T) {
 	// restart) must sign with the SAME persisted key, not generate a new
 	// one -- otherwise a restart between DeviceCSR and the backend's
 	// response would orphan any in-flight cert request.
-	m2 := NewManager(dir)
+	m2 := newTestManager(t, dir)
 	csr2DER, err := m2.DeviceCSR("abc123.device.usbridge.io")
 	if err != nil {
 		t.Fatal(err)
@@ -294,7 +294,7 @@ func TestDeviceCSR_KeySurvivesAcrossManagerInstances(t *testing.T) {
 }
 
 func TestInstallDeviceCert_FailsBeforeDeviceCSREverRan(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	// Build a cert for some unrelated key, since there's no device key yet
 	// to build one for that would legitimately pair.
 	otherPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -316,7 +316,7 @@ func TestInstallDeviceCert_FailsBeforeDeviceCSREverRan(t *testing.T) {
 }
 
 func TestCertStatus_SurfacesAndClearsDeviceCertError(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if st := m.CertStatus(); st.LastError != "" {
 		t.Errorf("CertStatus.LastError on a fresh Manager = %q, want empty", st.LastError)
 	}
@@ -369,7 +369,7 @@ func TestLoadPersisted_DiscardsLegacyWildcardCertAndKey(t *testing.T) {
 	mustWrite(deviceKeyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
 	mustWrite(deviceHostFile, []byte(hostname))
 
-	m := NewManager(dir)
+	m := newTestManager(t, dir)
 	m.LoadPersisted()
 
 	if _, needsRefresh := m.DeviceCertStatus(); !needsRefresh {
@@ -395,10 +395,10 @@ func TestLoadPersisted_DiscardsLegacyWildcardCertAndKey(t *testing.T) {
 
 func TestLoadPersisted_KeepsOwnPerDeviceCert(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManager(dir)
+	m := newTestManager(t, dir)
 	installTestDeviceCert(t, m, "abc123.device.usbridge.io")
 
-	m2 := NewManager(dir)
+	m2 := newTestManager(t, dir)
 	m2.LoadPersisted()
 	if host, needsRefresh := m2.DeviceCertStatus(); host != "abc123.device.usbridge.io" || needsRefresh {
 		t.Fatalf("own per-device cert should survive a restart, got host=%q needsRefresh=%v", host, needsRefresh)
@@ -406,7 +406,7 @@ func TestLoadPersisted_KeepsOwnPerDeviceCert(t *testing.T) {
 }
 
 func TestInstallTailnetCert_GetCertificatePicksItBySNI(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	if err := m.EnsureSelfSigned([]net.IP{net.ParseIP("127.0.0.1")}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +442,7 @@ func TestInstallTailnetCert_GetCertificatePicksItBySNI(t *testing.T) {
 }
 
 func TestWithdrawRegisteredHostname_HidesInstalledCertName(t *testing.T) {
-	m := NewManager(t.TempDir())
+	m := newTestManager(t, t.TempDir())
 	installTestDeviceCert(t, m, "abc.device.usbridge.test")
 	if got := m.RegisteredHostname(); got != "abc.device.usbridge.test" {
 		t.Fatalf("RegisteredHostname = %q before withdraw", got)
@@ -455,4 +455,13 @@ func TestWithdrawRegisteredHostname_HidesInstalledCertName(t *testing.T) {
 	if got := m.RegisteredHostname(); got != "abc.device.usbridge.test" {
 		t.Errorf("RegisteredHostname = %q after re-register", got)
 	}
+}
+
+// newTestManager is NewManager(dir) that waits, before the test's dir is
+// removed, for the demand-stamp write a handshake starts in the background.
+func newTestManager(t *testing.T, dir string) *Manager {
+	t.Helper()
+	m := NewManager(dir)
+	t.Cleanup(m.bg.Wait)
+	return m
 }

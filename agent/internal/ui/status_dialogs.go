@@ -208,6 +208,14 @@ func (w *Window) showCertStatusDialog(parent fyne.Window) {
 		rows = append(rows, wrapDialogLabel(pending, 11, design.ColorAlert))
 	}
 
+	if st.TailnetHTTPSOff {
+		// Tailscale is signed in but its tailnet hands out no certificates:
+		// only an admin of the tailnet can turn that on (a node's own
+		// sign-in can't), so say how, with Tailscale's one-click page when
+		// it offered one.
+		rows, certFooter = w.appendTailnetHTTPSHelp(rows, st, parent, closeDialog)
+	}
+
 	body := container.New(&tightVBoxLayout{gap: 10}, rows...)
 	panel := newBrandedDialogPanelInsets(loc().CertificateTitle, statusDialogWidth, 20, 10, body, certFooter, closeDialog)
 	popup = showOverlayPopup(parent, overlayPopupSpec{Panel: panel})
@@ -511,4 +519,38 @@ func newDialogCopyRowLive(label, value string, labelW float32, getValue func() s
 	field := container.NewBorder(nil, nil, nil, container.NewCenter(copyBtn),
 		wrapDialogValueBox(wrapDialogLabel(val, 10, design.ColorAddress)))
 	return newDialogFormRow(label, labelW, field), val
+}
+
+// appendTailnetHTTPSHelp adds the "HTTPS certificates are off in your
+// tailnet" explanation and steps to the certificate dialog, and returns its
+// footer: "Enable HTTPS in Tailscale" (when Tailscale offered its page) and
+// "Check again".
+func (w *Window) appendTailnetHTTPSHelp(rows []fyne.CanvasObject, st tlshost.CertStatus, parent fyne.Window, closeDialog func()) ([]fyne.CanvasObject, fyne.CanvasObject) {
+	off := widget.NewLabel(loc().CertTailnetHTTPSOff)
+	off.Wrapping = fyne.TextWrapWord
+	steps := loc().CertTailnetManualSteps
+	if st.TailnetHTTPSEnableURL != "" {
+		steps = loc().CertTailnetEnableSteps
+	}
+	stepsLabel := widget.NewLabel(steps)
+	stepsLabel.Wrapping = fyne.TextWrapWord
+	rows = append(rows, wrapDialogLabel(off, 11, design.ColorAlert), wrapDialogLabel(stepsLabel, 11, design.ColorMutedOlive))
+
+	openURL := func(raw string) {
+		if parsed, err := url.Parse(raw); err == nil && w.app != nil {
+			_ = w.app.OpenURL(parsed)
+		}
+	}
+	enableURL := st.TailnetHTTPSEnableURL
+	if enableURL == "" {
+		enableURL = "https://login.tailscale.com/admin/dns"
+	}
+	enable := newDialogCTA(loc().CertTailnetEnable, func() { openURL(enableURL) })
+	again := newDialogCTA(loc().CertTailnetCheckAgain, func() {
+		if w.token != nil {
+			w.token.RetryDeviceCert()
+		}
+		closeDialog()
+	})
+	return rows, container.NewCenter(container.New(&tightHBoxLayout{gap: 8}, enable, again))
 }

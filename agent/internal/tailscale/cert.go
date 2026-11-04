@@ -52,3 +52,26 @@ func certDomainListed(domains []string, domain string) bool {
 	}
 	return false
 }
+
+// HTTPSEnableURL asks the control server how this tailnet turns HTTPS
+// certificates on -- the same query `tailscale serve` makes when they are
+// off. url is a login.tailscale.com page where an admin of the tailnet
+// enables them in one click; "" when the control server offers none (this
+// user can't enable it, or the server has no such flow), and the admin
+// console's DNS page is the way. text is Tailscale's own explanation.
+// Turning them on needs a person signed in to the admin console: a node's
+// own credentials can't.
+func (s *Service) HTTPSEnableURL(ctx context.Context) (url, text string, err error) {
+	lc, err := s.localClient()
+	if err != nil {
+		return "", "", err
+	}
+	info, err := lc.QueryFeature(ctx, "serve")
+	if err != nil {
+		return "", "", err
+	}
+	if info == nil || info.Complete {
+		return "", "", nil
+	}
+	return strings.TrimSpace(info.URL), strings.TrimSpace(info.Text), nil
+}

@@ -123,9 +123,17 @@ type Manager struct {
 	// dnsWithdrawn: see WithdrawRegisteredHostname.
 	dnsWithdrawn bool
 
+	// tailnetHTTPSOff/tailnetHTTPSURL: Tailscale is signed in but its
+	// tailnet has HTTPS certificates off (see SetTailnetHTTPSOff).
+	tailnetHTTPSOff bool
+	tailnetHTTPSURL string
+
 	lastDemand      time.Time
 	persistedDemand time.Time
 	demandC         chan struct{}
+	// bg tracks the demand-stamp writes noteDemandLocked starts off the
+	// handshake, so tests can wait for them before their dir is removed.
+	bg sync.WaitGroup
 }
 
 // NewManager returns a Manager persisting its certs under dir (created on
@@ -353,6 +361,18 @@ func (m *Manager) InstallTailnetCert(hostname string, certPEM, keyPEM []byte) er
 	return nil
 }
 
+// SetTailnetHTTPSOff records that the signed-in tailnet has HTTPS
+// certificates off (off), with the page its admin turns them on at (url, ""
+// if Tailscale offered none) -- what the certificate dialog explains.
+func (m *Manager) SetTailnetHTTPSOff(off bool, url string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !off {
+		url = ""
+	}
+	m.tailnetHTTPSOff, m.tailnetHTTPSURL = off, url
+}
+
 // ClearTailnetCert drops the tailnet cert (Tailscale signed out, or HTTPS
 // certificates turned off for the tailnet).
 func (m *Manager) ClearTailnetCert() {
@@ -418,6 +438,12 @@ type CertStatus struct {
 	// independent of Hostname/LetsEncrypt, which describe the
 	// device.usbridge.io name.
 	TailnetHostname string `json:"tailnetHostname,omitempty"`
+	// TailnetHTTPSOff: Tailscale is signed in, but HTTPS certificates are
+	// off for its tailnet, so there is no TailnetHostname cert.
+	// TailnetHTTPSEnableURL is the Tailscale page an admin turns them on
+	// at, "" when Tailscale offered none (then: admin console, DNS page).
+	TailnetHTTPSOff       bool   `json:"tailnetHttpsOff,omitempty"`
+	TailnetHTTPSEnableURL string `json:"tailnetHttpsEnableUrl,omitempty"`
 }
 
 // CertStatus reports what GetCertificate is currently serving -- cheap,
@@ -433,10 +459,15 @@ func (m *Manager) CertStatus() CertStatus {
 	if m.tailnetLeaf != nil && time.Now().Before(m.tailnetLeaf.NotAfter) {
 		tailnetHost = m.tailnetHostname
 	}
-	if m.device != nil && m.deviceLeaf != nil {
-		return CertStatus{Hostname: m.deviceHostname, LetsEncrypt: true, ExpiresAt: m.deviceLeaf.NotAfter, LastError: errMsg, TailnetHostname: tailnetHost}
+	httpsOff := m.tailnetHTTPSOff && tailnetHost == ""
+	httpsURL := ""
+	if httpsOff {
+		httpsURL = m.tailnetHTTPSURL
 	}
-	st := CertStatus{Hostname: m.deviceHostname, LastError: errMsg, TailnetHostname: tailnetHost}
+	if m.device != nil && m.deviceLeaf != nil {
+		return CertStatus{Hostname: m.deviceHostname, LetsEncrypt: true, ExpiresAt: m.deviceLeaf.NotAfter, LastError: errMsg, TailnetHostname: tailnetHost, TailnetHTTPSOff: httpsOff, TailnetHTTPSEnableURL: httpsURL}
+	}
+	st := CertStatus{Hostname: m.deviceHostname, LastError: errMsg, TailnetHostname: tailnetHost, TailnetHTTPSOff: httpsOff, TailnetHTTPSEnableURL: httpsURL}
 	if tailnetHost != "" {
 		st.ExpiresAt = m.tailnetLeaf.NotAfter
 	} else if m.selfLeaf != nil {
@@ -516,7 +547,9 @@ func (m *Manager) noteDemandLocked() {
 	if now.Sub(m.persistedDemand) >= time.Hour {
 		m.persistedDemand = now
 		dir, stamp := m.dir, strconv.FormatInt(now.Unix(), 10)
+		m.bg.Add(1)
 		go func() {
+			defer m.bg.Done()
 			if err := os.MkdirAll(dir, 0700); err == nil {
 				_ = os.WriteFile(filepath.Join(dir, deviceDemandFile), []byte(stamp), 0644)
 			}

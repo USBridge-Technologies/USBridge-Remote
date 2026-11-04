@@ -249,14 +249,20 @@ type LocalizedStrings struct {
 	CertRetry          string
 	CertSignInRequired string
 	CertSignInHint     string
-	SunshineStreaming  string
-	SunshineAdminPort  string
-	InvalidPortWide    string
-	InvalidPort        string
-	Host               string
-	Port               string
-	RestartsSunshine   string
-	SetsExternalIP     string
+	// Tailscale signed in, HTTPS certificates off for its tailnet.
+	CertTailnetHTTPSOff    string
+	CertTailnetEnableSteps string // one-click page offered by Tailscale
+	CertTailnetManualSteps string // no page offered: the admin console
+	CertTailnetEnable      string
+	CertTailnetCheckAgain  string
+	SunshineStreaming      string
+	SunshineAdminPort      string
+	InvalidPortWide        string
+	InvalidPort            string
+	Host                   string
+	Port                   string
+	RestartsSunshine       string
+	SetsExternalIP         string
 
 	// Tariffs
 	TariffsTitle               string
@@ -574,33 +580,38 @@ func EN() *LocalizedStrings {
 		PINPlaceholder:   "4-digit PIN from Moonlight",
 		NoPairedClients:  "No paired clients",
 
-		SunshineWebUI:      "Sunshine Web UI",
-		OpenInBrowser:      "Open in Browser",
-		Login:              "Login",
-		Password:           "Password",
-		URL:                "URL",
-		WebClient:          "Web Client",
-		WebClientHint:      "Open this link in a browser on any device to stream via USBridge-streamer's built-in WebRTC client — no Moonlight app needed. Uses the same pairing/master key as everything else in this agent.",
-		Certificate:        "Certificate",
-		CertSelfSigned:     "self-signed",
-		CertLetsEncrypt:    "Let's Encrypt",
-		CertificateTitle:   "HTTPS Certificate",
-		CertificateHint:    "This agent's HTTPS listener needs a certificate a browser will trust without a warning — that's the only way the browser-based Web Client (client/web, loaded from https://web.usbridge.io) is allowed to reach it at all; a self-signed certificate can't be used there, only clicked through manually on this device's own LAN address. Once this device registers with USBridge's backend, it gets a real Let's Encrypt-issued certificate for its own <label>.device.usbridge.io hostname, and the Web Client starts working automatically — no action needed here. Until then, or if registration ever fails, this falls back to a self-signed certificate: everything else (Sunshine, Moonlight, the native app) keeps working normally, only the browser-based Web Client is affected.",
-		CertHostnameLabel:  "Hostname",
-		CertExpiresLabel:   "Valid until",
-		CertPending:        "Registering with USBridge's backend for a trusted hostname — this can take a minute after first launch or a network change.",
-		CertErrorPrefix:    "Couldn't get a trusted certificate: ",
-		CertRetry:          "Retry",
-		CertSignInRequired: "sign in to get a free one",
-		CertSignInHint:     "Sign in to your USBridge account to get a free trusted certificate for this device. Without it the browser-based Web Client can't reach this device; everything else keeps working.",
-		SunshineStreaming:  "Sunshine Streaming",
-		SunshineAdminPort:  "Sunshine Admin Port",
-		InvalidPortWide:    "Invalid port (1–65534)",
-		InvalidPort:        "Invalid port (1–65535)",
-		Host:               "Host",
-		Port:               "Port",
-		RestartsSunshine:   "Restarts Sunshine to apply",
-		SetsExternalIP:     "Sets external_ip + port in sunshine.conf · restarts Sunshine",
+		SunshineWebUI:          "Sunshine Web UI",
+		OpenInBrowser:          "Open in Browser",
+		Login:                  "Login",
+		Password:               "Password",
+		URL:                    "URL",
+		WebClient:              "Web Client",
+		WebClientHint:          "Open this link in a browser on any device to stream via USBridge-streamer's built-in WebRTC client — no Moonlight app needed. Uses the same pairing/master key as everything else in this agent.",
+		Certificate:            "Certificate",
+		CertSelfSigned:         "self-signed",
+		CertLetsEncrypt:        "Let's Encrypt",
+		CertificateTitle:       "HTTPS Certificate",
+		CertificateHint:        "This agent's HTTPS listener needs a certificate a browser will trust without a warning — that's the only way the browser-based Web Client (client/web, loaded from https://web.usbridge.io) is allowed to reach it at all; a self-signed certificate can't be used there, only clicked through manually on this device's own LAN address. Once this device registers with USBridge's backend, it gets a real Let's Encrypt-issued certificate for its own <label>.device.usbridge.io hostname, and the Web Client starts working automatically — no action needed here. Until then, or if registration ever fails, this falls back to a self-signed certificate: everything else (Sunshine, Moonlight, the native app) keeps working normally, only the browser-based Web Client is affected.",
+		CertHostnameLabel:      "Hostname",
+		CertExpiresLabel:       "Valid until",
+		CertPending:            "Registering with USBridge's backend for a trusted hostname — this can take a minute after first launch or a network change.",
+		CertErrorPrefix:        "Couldn't get a trusted certificate: ",
+		CertRetry:              "Retry",
+		CertSignInRequired:     "sign in to get a free one",
+		CertSignInHint:         "Sign in to your USBridge account to get a free trusted certificate for this device. Without it the browser-based Web Client can't reach this device; everything else keeps working.",
+		CertTailnetHTTPSOff:    "Tailscale is signed in, but HTTPS certificates are turned off for this tailnet, so this device can't get a trusted certificate for its Tailscale name. With them on, browsers on your tailnet open the Web Client at <name>.ts.net with no warning, and this device no longer needs a usbridge.io name.",
+		CertTailnetEnableSteps: "Press \"Enable HTTPS in Tailscale\": a Tailscale page opens, sign in there as an admin of this tailnet and confirm. This device picks up its certificate within 5 minutes, or press \"Check again\". Note: certificate names (<name>.<tailnet>.ts.net) appear in public Certificate Transparency logs.",
+		CertTailnetManualSteps: "To turn them on, an admin of this tailnet: 1) opens login.tailscale.com/admin/dns in a browser; 2) checks that MagicDNS is enabled; 3) under \"HTTPS Certificates\" presses \"Enable HTTPS\" and confirms. This device picks up its certificate within 5 minutes, or press \"Check again\". Note: certificate names (<name>.<tailnet>.ts.net) appear in public Certificate Transparency logs.",
+		CertTailnetEnable:      "Enable HTTPS in Tailscale",
+		CertTailnetCheckAgain:  "Check again",
+		SunshineStreaming:      "Sunshine Streaming",
+		SunshineAdminPort:      "Sunshine Admin Port",
+		InvalidPortWide:        "Invalid port (1–65534)",
+		InvalidPort:            "Invalid port (1–65535)",
+		Host:                   "Host",
+		Port:                   "Port",
+		RestartsSunshine:       "Restarts Sunshine to apply",
+		SetsExternalIP:         "Sets external_ip + port in sunshine.conf · restarts Sunshine",
 
 		TariffsTitle:               "Tariffs & Licenses",
 		TariffSubtitle:             "Upgrade your USBridge agent for low-latency streaming, passthrough & mesh networks",
@@ -883,6 +894,11 @@ func ES() *LocalizedStrings {
 	locale.CertRetry = "Reintentar"
 	locale.CertSignInRequired = "inicia sesion para obtener uno gratis"
 	locale.CertSignInHint = "Inicia sesion en tu cuenta de USBridge para obtener un certificado de confianza gratuito para este dispositivo. Sin el, el Web Client del navegador no puede alcanzar este dispositivo; todo lo demas sigue funcionando."
+	locale.CertTailnetHTTPSOff = "Tailscale tiene la sesion iniciada, pero los certificados HTTPS estan desactivados en esta tailnet, asi que este dispositivo no puede obtener un certificado de confianza para su nombre de Tailscale. Con ellos activados, los navegadores de tu tailnet abren el Web Client en <nombre>.ts.net sin advertencias, y este dispositivo ya no necesita un nombre de usbridge.io."
+	locale.CertTailnetEnableSteps = "Pulsa \"Activar HTTPS en Tailscale\": se abre una pagina de Tailscale; inicia sesion ahi como administrador de esta tailnet y confirma. Este dispositivo obtiene su certificado en 5 minutos, o pulsa \"Comprobar de nuevo\". Nota: los nombres de los certificados (<nombre>.<tailnet>.ts.net) aparecen en los registros publicos de Certificate Transparency."
+	locale.CertTailnetManualSteps = "Para activarlos, un administrador de esta tailnet: 1) abre login.tailscale.com/admin/dns en un navegador; 2) comprueba que MagicDNS este activado; 3) en \"HTTPS Certificates\" pulsa \"Enable HTTPS\" y confirma. Este dispositivo obtiene su certificado en 5 minutos, o pulsa \"Comprobar de nuevo\". Nota: los nombres de los certificados (<nombre>.<tailnet>.ts.net) aparecen en los registros publicos de Certificate Transparency."
+	locale.CertTailnetEnable = "Activar HTTPS en Tailscale"
+	locale.CertTailnetCheckAgain = "Comprobar de nuevo"
 	locale.SunshineStreaming = "Sunshine Streaming"
 	locale.SunshineAdminPort = "Sunshine Admin Port"
 	locale.InvalidPortWide = "Puerto invalido (1–65534)"
@@ -1160,6 +1176,11 @@ func UK() *LocalizedStrings {
 	locale.CertRetry = "Повторити"
 	locale.CertSignInRequired = "увійдіть, щоб отримати безкоштовний"
 	locale.CertSignInHint = "Увійдіть в обліковий запис USBridge, щоб отримати безкоштовний довірений сертифікат для цього пристрою. Без нього Web Client у браузері не може достукатися до пристрою; усе інше працює як завжди."
+	locale.CertTailnetHTTPSOff = "Вхід у Tailscale виконано, але HTTPS-сертифікати в цій tailnet вимкнено, тож пристрій не може отримати довірений сертифікат для свого імені в Tailscale. Коли їх увімкнено, браузери у вашій tailnet відкривають Web Client за адресою <ім'я>.ts.net без попереджень, а пристрою більше не потрібне ім'я в usbridge.io."
+	locale.CertTailnetEnableSteps = "Натисніть «Увімкнути HTTPS у Tailscale»: відкриється сторінка Tailscale, увійдіть там як адміністратор цієї tailnet і підтвердьте. Пристрій отримає сертифікат протягом 5 хвилин, або натисніть «Перевірити ще раз». Зауважте: імена сертифікатів (<ім'я>.<tailnet>.ts.net) потрапляють у публічні журнали Certificate Transparency."
+	locale.CertTailnetManualSteps = "Щоб їх увімкнути, адміністратор цієї tailnet: 1) відкриває login.tailscale.com/admin/dns у браузері; 2) перевіряє, що MagicDNS увімкнено; 3) у розділі «HTTPS Certificates» натискає «Enable HTTPS» і підтверджує. Пристрій отримає сертифікат протягом 5 хвилин, або натисніть «Перевірити ще раз». Зауважте: імена сертифікатів (<ім'я>.<tailnet>.ts.net) потрапляють у публічні журнали Certificate Transparency."
+	locale.CertTailnetEnable = "Увімкнути HTTPS у Tailscale"
+	locale.CertTailnetCheckAgain = "Перевірити ще раз"
 	locale.SunshineStreaming = "Sunshine Streaming"
 	locale.SunshineAdminPort = "Sunshine Admin Port"
 	locale.InvalidPortWide = "Некоректний порт (1–65534)"
