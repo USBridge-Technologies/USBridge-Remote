@@ -92,6 +92,9 @@ type TokenBackend interface {
 	CheckVibepolloUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
+	CaptureModeChoices(kind string) []string
+	StreamCaptureMode(kind string) string
+	SetStreamCaptureMode(kind, mode string) error
 
 	// RelinquishEngine gracefully steps this instance down from owning the
 	// engine (see app.App.RelinquishEngine's doc comment) -- called by
@@ -287,6 +290,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/check-vibepollo-update", s.handleCheckVibepolloUpdateNow)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
 	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
+	mux.HandleFunc("POST /token/stream-capture-mode", s.handleStreamCaptureMode)
+	mux.HandleFunc("POST /token/set-stream-capture-mode", s.handleSetStreamCaptureMode)
 	mux.HandleFunc("GET /token/usb-driver-status", s.handleUSBPassthroughStatus)
 	mux.HandleFunc("POST /token/enable-usb-broker", s.handleEnableUSBBroker)
 	mux.HandleFunc("POST /token/install-usb-driver", s.handleInstallUSBDriver)
@@ -882,6 +887,33 @@ func (s *Server) handleSetStreamBackend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.token.SetStreamBackend(body.Kind); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+// handleStreamCaptureMode: one stream host card's capture pick and its choices.
+func (s *Server) handleStreamCaptureMode(w http.ResponseWriter, r *http.Request) {
+	var body streamCaptureBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, streamCaptureBody{
+		Kind:    body.Kind,
+		Mode:    s.token.StreamCaptureMode(body.Kind),
+		Choices: s.token.CaptureModeChoices(body.Kind),
+	})
+}
+
+func (s *Server) handleSetStreamCaptureMode(w http.ResponseWriter, r *http.Request) {
+	var body streamCaptureBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetStreamCaptureMode(body.Kind, body.Mode); err != nil {
 		writeError(w, err)
 		return
 	}

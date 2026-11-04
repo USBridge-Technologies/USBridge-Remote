@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -96,7 +97,15 @@ func (mw *MainWindow) runBenchmark(ctx context.Context, backends []string, monit
 	// The pin's streamer restart is left to the first run's backend switch
 	// (see BenchSetMonitor).
 	if monitor != "" {
-		if err := client.BenchSetMonitor(monitor); err != nil {
+		err := client.BenchSetMonitor(monitor)
+		if err != nil && strings.HasPrefix(monitor, "virtual:") {
+			// An agent from before the mode pick takes the plain "virtual"
+			// entry, in the mode its virtual display last ran.
+			logrus.Infof("📈 [Benchmark] host takes no virtual display mode (%v); pinning its virtual display as is", err)
+			monitor = "virtual"
+			err = client.BenchSetMonitor(monitor)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("monitor %s: %w", monitor, err)
 		}
 		logrus.Infof("📈 [Benchmark] capturing and playing on host monitor %s", monitor)

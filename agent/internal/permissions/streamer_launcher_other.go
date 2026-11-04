@@ -13,5 +13,8 @@ func (s *Service) StreamerLauncherVerify(bundleDir string) (string, error) {
 // SunshineLaunchReady is Linux-only, see streamer_launcher_linux.go.
 func (s *Service) SunshineLaunchReady() bool { return false }
 
+// VibepolloLaunchReady is Linux-only, see streamer_launcher_linux.go.
+func (s *Service) VibepolloLaunchReady() bool { return false }
+
 // HasFileCapability is Linux-only, see streamer_launcher_linux.go.
 func HasFileCapability(p string) bool { return false }

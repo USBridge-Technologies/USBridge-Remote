@@ -320,14 +320,11 @@ func activeVirtualMonitor() (monitors.Monitor, bool) {
 }
 
 // listedBenchBackends is every streamer that exists for this OS: Punktfunk
-// on Linux and Windows, Vibepollo on Windows only.
+// and Vibepollo on Linux and Windows.
 func listedBenchBackends() []string {
 	l := []string{"sunshine", "rustshine"}
 	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
-		l = append(l, "punktfunk")
-	}
-	if runtime.GOOS == "windows" {
-		l = append(l, "vibepollo")
+		l = append(l, "punktfunk", "vibepollo")
 	}
 	return l
 }

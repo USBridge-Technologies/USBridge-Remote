@@ -381,6 +381,9 @@ func NewVibepollo(exeDir, stateDir, logPath string) Backend {
 	return b
 }
 
+// IsVibepollo reports whether this is the Vibepollo flavour of the backend.
+func (b *sunshineBackend) IsVibepollo() bool { return b.vibepollo }
+
 // binaryPath returns the path to the sunshine binary, or "" if it can't be
 // found (not installed/bundled, or unsupported OS).
 func (b *sunshineBackend) binaryPath() string {
@@ -807,7 +810,12 @@ func (b *sunshineBackend) Start(adminPort int) error {
 	var launchArgs []string
 	if b.capExecPath != "" {
 		launchExe = b.capExecPath
-		launchArgs = append([]string{"--run-sunshine", "--"}, b.sunshineConfigArgs()...)
+		// Vibepollo's own root-owned tree, never Sunshine's.
+		runFlag := "--run-sunshine"
+		if b.vibepollo {
+			runFlag = "--run-vibepollo"
+		}
+		launchArgs = append([]string{runFlag, "--"}, b.sunshineConfigArgs()...)
 	} else {
 		launchExe = b.launchPath
 		launchArgs = b.sunshineConfigArgs()

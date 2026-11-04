@@ -387,6 +387,7 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *canvas.Tex
 					return
 				}
 				w.cfg = cfg
+				go w.recheckFirewall()
 				valLabel.Text = fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort)
 				valLabel.Refresh()
 				if needsWarnBadge(cfg.EffectiveListenHost()) {

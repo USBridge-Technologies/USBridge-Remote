@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"log"
-	"runtime"
 	"strings"
 
 	"usbridge_agent/internal/account"
@@ -122,7 +121,7 @@ func (a *App) BenchMonitors() ([]monitors.Monitor, error) {
 			list[i].Name = n
 		}
 	}
-	if runtime.GOOS == "windows" {
+	if a.BenchVirtualAvailable() {
 		// Sized by the mode it will run in (what was picked at connect), not a fixed one.
 		w, h := 1920, 1080
 		if m, err := displaypower.ParseMode(strings.TrimPrefix(a.BenchVirtualSpec(), "virtual:")); err == nil {
@@ -131,6 +130,28 @@ func (a *App) BenchMonitors() ([]monitors.Monitor, error) {
 		list = append(list, monitors.Monitor{ID: BenchVirtualID, Name: "Virtual display", Width: w, Height: h})
 	}
 	return list, nil
+}
+
+// benchBackend builds the backend of one benchmark streamer kind, for
+// questions asked of a streamer that isn't the active one.
+func (a *App) benchBackend(kind string) streamhost.Backend {
+	switch kind {
+	case "rustshine":
+		return streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath)
+	case "punktfunk":
+		return streamhost.NewPunktfunk(a.exeDir, a.cfg.StateDir, a.logPath)
+	case "vibepollo":
+		return streamhost.NewVibepollo(a.exeDir, a.cfg.StateDir, a.logPath)
+	default:
+		return streamhost.NewSunshine(a.exeDir, a.cfg.StateDir, a.logPath)
+	}
+}
+
+// BenchVirtualAvailable: the agent can bring a virtual monitor up on this host (it
+// does that itself for every streamer -- MttVDD on Windows, vkms on Linux,
+// CGVirtualDisplay on macOS), so the benchmark offers the virtual display.
+func (a *App) BenchVirtualAvailable() bool {
+	return streamhost.AgentVirtualDisplayAvailable()
 }
 
 // BenchMonitor is the monitor the benchmark is pinned to, "" for none.
@@ -153,6 +174,14 @@ func (a *App) BenchMonitor() string {
 // (~25 s for Sunshine) on each side of the benchmark, spent on a streamer
 // that was about to be restarted or replaced anyway.
 func (a *App) SetBenchMonitor(id string, deferRestart bool) error {
+	// "virtual:WxH@FPS": the virtual display in the mode the client picked.
+	spec := ""
+	if mode, ok := strings.CutPrefix(id, "virtual:"); ok {
+		if _, err := displaypower.ParseMode(mode); err != nil {
+			return fmt.Errorf("virtual display mode %q: %w", mode, err)
+		}
+		spec, id = id, BenchVirtualID
+	}
 	if id != "" && id != BenchVirtualID && isVirtualMonitor(id) {
 		id = BenchVirtualID
 	}
@@ -168,15 +197,20 @@ func (a *App) SetBenchMonitor(id string, deferRestart bool) error {
 
 	a.streamMu.Lock()
 	defer a.streamMu.Unlock()
-	if id == a.benchMonitor {
+	if id == a.benchMonitor && (spec == "" || spec == a.benchVirtualSpec) {
 		return nil
 	}
 	a.benchMonitor = id
 	if id == BenchVirtualID {
-		// Keep the mode the virtual monitor is in now, so it isn't rebuilt at the pin.
-		a.benchVirtualSpec = defaultBenchVirtualSpec
-		if cur := a.SunshineOutputName(); strings.HasPrefix(cur, "virtual:") {
-			a.benchVirtualSpec = cur
+		switch {
+		case spec != "":
+			a.benchVirtualSpec = spec
+		default:
+			// Keep the mode the virtual monitor is in now, so it isn't rebuilt at the pin.
+			a.benchVirtualSpec = defaultBenchVirtualSpec
+			if cur := a.SunshineOutputName(); strings.HasPrefix(cur, "virtual:") {
+				a.benchVirtualSpec = cur
+			}
 		}
 	}
 	if id == "" {
@@ -252,14 +286,7 @@ func (a *App) restoreBenchOutputs(deferRestart bool) error {
 	for kind, orig := range a.benchOrigOutput {
 		b := a.stream
 		if kind != a.streamKind || b == nil {
-			switch kind {
-			case "rustshine":
-				b = streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath)
-			case "punktfunk":
-				b = streamhost.NewPunktfunk(a.exeDir, a.cfg.StateDir, a.logPath)
-			default:
-				b = streamhost.NewSunshine(a.exeDir, a.cfg.StateDir, a.logPath)
-			}
+			b = a.benchBackend(kind)
 		}
 		if b.OutputName() == orig {
 			continue

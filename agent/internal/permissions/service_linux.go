@@ -569,8 +569,8 @@ func (s *Service) KMSCaptureGranted(capexecPath string) bool {
 	if capexecPath == streamerlaunch.InstallPath {
 		return s.StreamerLauncherInstalled()
 	}
-	if isSunshineTree(capexecPath) {
-		return s.sunshineKMSGranted(capexecPath)
+	if t, ok := kmsTreeOf(capexecPath); ok {
+		return s.treeKMSGranted(capexecPath, t)
 	}
 	out, err := exec.Command(findCapTool("getcap"), capexecPath).CombinedOutput()
 	if err != nil {
@@ -594,8 +594,8 @@ func (s *Service) RequestKMSCapture(capexecPath string) bool {
 	if capexecPath == streamerlaunch.InstallPath {
 		return s.InstallStreamerLauncher()
 	}
-	if isSunshineTree(capexecPath) {
-		return s.installSunshineKMS(capexecPath)
+	if t, ok := kmsTreeOf(capexecPath); ok {
+		return s.installTreeKMS(capexecPath, t)
 	}
 	if s.KMSCaptureGranted(capexecPath) {
 		return true

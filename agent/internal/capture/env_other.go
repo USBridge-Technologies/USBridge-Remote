@@ -28,3 +28,6 @@ func GetDisplayServer() string {
 func AutoCaptureMode() string {
 	return ""
 }
+
+// IsKDEWayland is Linux-only.
+func IsKDEWayland() bool { return false }

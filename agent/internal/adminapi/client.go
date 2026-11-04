@@ -470,6 +470,24 @@ func (c *Client) SetStreamBackend(kind string) error {
 	return c.do(http.MethodPost, "/token/set-stream-backend", map[string]string{"kind": kind}, nil)
 }
 
+func (c *Client) CaptureModeChoices(kind string) []string {
+	var out streamCaptureBody
+	if err := c.do(http.MethodPost, "/token/stream-capture-mode", streamCaptureBody{Kind: kind}, &out); err != nil {
+		return nil
+	}
+	return out.Choices
+}
+
+func (c *Client) StreamCaptureMode(kind string) string {
+	var out streamCaptureBody
+	_ = c.do(http.MethodPost, "/token/stream-capture-mode", streamCaptureBody{Kind: kind}, &out)
+	return out.Mode
+}
+
+func (c *Client) SetStreamCaptureMode(kind, mode string) error {
+	return c.do(http.MethodPost, "/token/set-stream-capture-mode", streamCaptureBody{Kind: kind, Mode: mode}, nil)
+}
+
 func (c *Client) SetRustShineWebRTCEnabled(enabled bool) error {
 	return c.do(http.MethodPost, "/token/set-rustshine-webrtc-enabled", map[string]bool{"enabled": enabled}, nil)
 }

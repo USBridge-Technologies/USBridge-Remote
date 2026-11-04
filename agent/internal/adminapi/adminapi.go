@@ -75,3 +75,10 @@ type adminCredentialsBody struct {
 	User string `json:"user"`
 	Pass string `json:"pass"`
 }
+
+// streamCaptureBody is the capture pick of one stream host's card.
+type streamCaptureBody struct {
+	Kind    string   `json:"kind"`
+	Mode    string   `json:"mode"`
+	Choices []string `json:"choices,omitempty"`
+}

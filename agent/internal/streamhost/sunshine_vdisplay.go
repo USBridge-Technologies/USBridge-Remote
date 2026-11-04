@@ -33,6 +33,9 @@ type sunshineVirtualDisplay struct {
 	Primary *bool `json:"primary,omitempty"`
 	// Exclusive: switch the other monitors off while it is attached.
 	Exclusive bool `json:"exclusive,omitempty"`
+	// LinuxAdapter: the DRM card adapter_name was pointed at for the vkms
+	// monitor (Linux), so it is cleared again when a physical one is picked.
+	LinuxAdapter string `json:"linux_adapter,omitempty"`
 }
 
 func (v sunshineVirtualDisplay) primary() bool { return v.Primary == nil || *v.Primary }
@@ -83,7 +86,14 @@ func (b *sunshineBackend) saveVirtualDisplay(v sunshineVirtualDisplay) error {
 
 // VirtualDisplaySupported: Windows with the MttVDD driver installed.
 func (b *sunshineBackend) VirtualDisplaySupported() bool {
-	return runtime.GOOS == "windows" && virtualDriverInstalled()
+	switch runtime.GOOS {
+	case "windows":
+		return virtualDriverInstalled()
+	case "linux":
+		// The agent's vkms monitor, captured by KMS connector name.
+		return agentVirtualDisplays()
+	}
+	return false
 }
 
 // VirtualDisplayPrimary reports the saved "make the virtual monitor the primary display"
@@ -143,6 +153,10 @@ func boolArg(v bool) string {
 // monitor itself is the agent's, up for a session only (app.virtualOthersWatchdog);
 // one an agent from before that left attached is taken off here.
 func (b *sunshineBackend) applyVirtualDisplayLocked() {
+	if runtime.GOOS == "linux" {
+		b.applyLinuxVirtualDisplayLocked()
+		return
+	}
 	if runtime.GOOS != "windows" {
 		return
 	}
@@ -167,6 +181,41 @@ func (b *sunshineBackend) applyVirtualDisplayLocked() {
 	if err := b.setConfigKey("output_name", res.State.FriendlyName); err != nil {
 		log.Printf("[sunshine] could not point output_name at the virtual display: %v", err)
 	}
+}
+
+// applyLinuxVirtualDisplayLocked points KMS capture at the agent's vkms
+// monitor (up for sessions only) when it is the selected output: output_name
+// takes the connector's name ("Virtual-1"), which Sunshine's and Vibepollo's
+// kmsgrab map to their monitor index, adapter_name its card.
+func (b *sunshineBackend) applyLinuxVirtualDisplayLocked() {
+	v := b.loadVirtualDisplay()
+	if v.Spec == "" {
+		if v.LinuxAdapter != "" {
+			if b.ConfigKey("adapter_name") == v.LinuxAdapter {
+				_ = b.setConfigKey("adapter_name", "")
+			}
+			v.LinuxAdapter = ""
+			_ = b.saveVirtualDisplay(v)
+		}
+		return
+	}
+	if !agentVirtualDisplays() {
+		return
+	}
+	connector, card, err := displaypower.PlannedVirtual()
+	if err != nil {
+		log.Printf("[sunshine] virtual display %s: %v -- streaming the configured monitor", v.Spec, err)
+		return
+	}
+	log.Printf("[sunshine] virtual display %s is %s %s (up for sessions only)", v.Spec, card, connector)
+	if err := b.setConfigKey("output_name", connector); err != nil {
+		log.Printf("[sunshine] could not point output_name at the virtual display: %v", err)
+	}
+	if err := b.setConfigKey("adapter_name", card); err != nil {
+		log.Printf("[sunshine] could not point adapter_name at the virtual display: %v", err)
+	}
+	v.LinuxAdapter = card
+	_ = b.saveVirtualDisplay(v)
 }
 
 // releaseVirtualDisplayLocked takes off a monitor an agent from before session-long

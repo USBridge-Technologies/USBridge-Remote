@@ -12,31 +12,42 @@ import (
 // Vibepollo (Nonary's Sunshine fork, with the USBridge changes from Streamers-Forks'
 // vibepollo/ directory: the USB broker bridge, web_bind_address, the client's cursor
 // setting) from Streamers-Forks' latest release, exactly like Sunshine: signed manifest,
-// SHA-256 per asset, unpacked beside the live dir and swapped in whole. Windows x64 only:
-// the Linux KMS launcher (streamerlaunch) runs a root-owned copy of Sunshine's tree and
-// has no Vibepollo equivalent.
+// SHA-256 per asset, unpacked beside the live dir and swapped in whole. Windows x64 (the
+// portable zip) and Linux x86_64 (the install tree built on Ubuntu 22.04 with its libraries
+// bundled, for any distro -- not only the Arch packages upstream publishes). On Linux KMS
+// capture goes through the launcher (streamerlaunch --run-vibepollo, a root-owned copy of
+// this tree made on the grant); KWin capture needs no grant.
 
 // VibepolloAssetName is this platform's Vibepollo asset, "" where the release has none.
 func VibepolloAssetName() string {
 	switch runtime.GOOS + "/" + runtime.GOARCH {
 	case "windows/amd64":
 		return "Vibepollo-Windows-x86_64-portable.zip"
+	case "linux/amd64":
+		return "Vibepollo-Linux-x86_64.tar.gz"
 	}
 	return ""
 }
 
-// VibepolloDir is where the staged Vibepollo lives (sunshine.exe, assets/, tools/). Not
+// VibepolloDir is where the staged Vibepollo lives (Windows: sunshine.exe, assets/, tools/;
+// Linux: usr/bin/vibepollo, usr/share/vibepollo, usr/lib). Not
 // <stateDir>/vibepollo: that name stays free for per-backend data.
 func VibepolloDir(stateDir string) string { return filepath.Join(stateDir, "vibepollo-host") }
 
 // VibepolloBinary is the staged Vibepollo's executable, "" off the supported platforms.
-// (Vibepollo's executable keeps the name sunshine.exe.)
+// (Vibepollo's executable keeps the name sunshine.exe on Windows.)
 func VibepolloBinary(stateDir string) string {
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		return filepath.Join(VibepolloDir(stateDir), "sunshine.exe")
+	case "linux":
+		return filepath.Join(VibepolloDir(stateDir), vibepolloLinuxBin)
 	}
 	return ""
 }
+
+// vibepolloLinuxBin is the executable inside the Linux tarball's install tree.
+const vibepolloLinuxBin = "usr/bin/vibepollo"
 
 // VibepolloStaged reports whether a staged Vibepollo is in place.
 func VibepolloStaged(stateDir string) bool {
@@ -113,11 +124,18 @@ func PrepareVibepollo(ctx context.Context, stateDir string, onProgress ProgressF
 		return nil, err
 	}
 	p := &PreparedVibepollo{stateDir: stateDir, nextDir: next, Version: m.Version}
-	// The portable zip holds everything under one top directory (cpack's package name).
-	err = extractZipTree(archive, next, zipTopDir(archive))
+	exe := "sunshine.exe"
+	if runtime.GOOS == "linux" {
+		// The install tree at the tarball's root, symlinks (usr/lib's .so links) kept.
+		exe = vibepolloLinuxBin
+		err = extractTarGzTree(archive, next)
+	} else {
+		// The portable zip holds everything under one top directory (cpack's package name).
+		err = extractZipTree(archive, next, zipTopDir(archive))
+	}
 	if err == nil {
-		if _, statErr := os.Stat(filepath.Join(next, "sunshine.exe")); statErr != nil {
-			err = fmt.Errorf("%s has no sunshine.exe", asset)
+		if _, statErr := os.Stat(filepath.Join(next, exe)); statErr != nil {
+			err = fmt.Errorf("%s has no %s", asset, exe)
 		}
 	}
 	if err == nil {

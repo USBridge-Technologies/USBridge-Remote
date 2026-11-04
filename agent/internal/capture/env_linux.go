@@ -4,6 +4,7 @@ package capture
 
 import (
 	"os"
+	"strings"
 )
 
 func GetLinuxEnv() string {
@@ -16,6 +17,17 @@ func GetLinuxEnv() string {
 		return "X11"
 	}
 	return "Unknown"
+}
+
+// IsKDEWayland: a live Plasma Wayland session in this process's environment,
+// where KWin's own screencast (Vibepollo's "kwin" capture) needs no prompt --
+// the streamer writes the .desktop grant KWin checks itself.
+func IsKDEWayland() bool {
+	if GetLinuxEnv() != "Wayland" {
+		return false
+	}
+	return os.Getenv("KDE_FULL_SESSION") == "true" ||
+		strings.Contains(strings.ToUpper(os.Getenv("XDG_CURRENT_DESKTOP")), "KDE")
 }
 
 func GetOSInfo() string {

@@ -24,6 +24,10 @@ const rustshineAgentVirtualKey = "usbridge_virtual_display"
 // MttVDD, Linux: vkms, macOS: a CGVirtualDisplay the agent process holds).
 func agentVirtualDisplays() bool { return displaypower.AgentVirtual }
 
+// AgentVirtualDisplayAvailable: the agent brings virtual monitors up itself here and
+// can (Windows: the MttVDD driver is installed), for any streamer.
+func AgentVirtualDisplayAvailable() bool { return agentVirtualDisplays() && virtualDriverInstalled() }
+
 // virtualSpec is the selected virtual monitor's "WxH@HZ", or "".
 func (b *rustshineBackend) virtualSpec() string {
 	if agentVirtualDisplays() {

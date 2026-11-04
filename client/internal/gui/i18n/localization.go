@@ -180,6 +180,9 @@ type LocalizedStrings struct {
 	BenchResolution                   string // label of the benchmark's resolution pick
 	BenchResolutionSaved              string // resolution pick entry: keep the saved resolution
 	BenchMonitorPrimary               string // suffix marking the host's primary monitor
+	BenchDisplay                      string // label of the benchmark's real/virtual display pick
+	BenchDisplayAsIs                  string // display pick entry: the host's monitor as is
+	BenchDisplayVirtual               string // display pick entry: the agent's virtual display
 	BenchNotInstalled                 string
 	BenchNeedOne                      string
 	BenchStart                        string
@@ -1045,6 +1048,9 @@ func EN() *LocalizedStrings {
 		BenchResolution:                   "Resolution",
 		BenchResolutionSaved:              "As in video settings",
 		BenchMonitorPrimary:               "primary",
+		BenchDisplay:                      "Display",
+		BenchDisplayAsIs:                  "As is (real monitor)",
+		BenchDisplayVirtual:               "Virtual display",
 		BenchNotInstalled:                 "not installed on the host",
 		BenchNeedOne:                      "Select at least one streamer.",
 		BenchStart:                        "Start",
@@ -2181,6 +2187,9 @@ func ES() *LocalizedStrings {
 	locale.BenchResolution = "Resolución"
 	locale.BenchResolutionSaved = "Como en los ajustes de vídeo"
 	locale.BenchMonitorPrimary = "principal"
+	locale.BenchDisplay = "Pantalla"
+	locale.BenchDisplayAsIs = "Tal cual (monitor real)"
+	locale.BenchDisplayVirtual = "Pantalla virtual"
 	locale.BenchNotInstalled = "no instalado en el host"
 	locale.BenchNeedOne = "Selecciona al menos un streamer."
 	locale.BenchStart = "Iniciar"
@@ -2731,6 +2740,9 @@ func UKProper() *LocalizedStrings {
 	locale.BenchResolution = "Роздільна здатність"
 	locale.BenchResolutionSaved = "Як у налаштуваннях відео"
 	locale.BenchMonitorPrimary = "основний"
+	locale.BenchDisplay = "Дисплей"
+	locale.BenchDisplayAsIs = "Як є (реальний монітор)"
+	locale.BenchDisplayVirtual = "Віртуальний дисплей"
 	locale.BenchNotInstalled = "не встановлено на хості"
 	locale.BenchNeedOne = "Виберіть хоча б один стрімер."
 	locale.BenchStart = "Почати"

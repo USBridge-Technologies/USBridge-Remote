@@ -183,15 +183,43 @@ func copyAndHash(src string) (path, sum string, err error) {
 	return out.Name(), hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// isSunshineTree reports whether p is a Sunshine install-tree root (the
-// KMS target sunshineBackend.CapExecPath returns), as opposed to
-// RustShine's streamerlaunch.InstallPath.
-func isSunshineTree(p string) bool {
-	st, err := os.Stat(filepath.Join(p, "usr", "bin", "sunshine"))
-	return err == nil && st.Mode().IsRegular()
+// kmsTree is a stream host the launcher runs from a root-owned copy of its
+// install tree: Sunshine (--run-sunshine) or Vibepollo (--run-vibepollo).
+type kmsTree struct {
+	name     string // for logs and errors
+	bin      string // the executable, relative to the tree root
+	dir      string // the root-owned copy the launcher execs
+	sourceID string // records which source build dir was installed from
+	tmp      string // install staging name under InstallDir
+	minProto int    // the oldest launcher that can run it
 }
 
-// sunshineIDCache memoizes fileSHA256 of a source usr/bin/sunshine by
+var (
+	sunshineKMSTree = kmsTree{"Sunshine", "usr/bin/sunshine", streamerlaunch.SunshineDir,
+		streamerlaunch.SunshineSourceID, ".sunshine", streamerlaunch.MinProtocol}
+	vibepolloKMSTree = kmsTree{"Vibepollo", "usr/bin/vibepollo", streamerlaunch.VibepolloDir,
+		streamerlaunch.VibepolloSourceID, ".vibepollo", streamerlaunch.VibepolloMinProtocol}
+)
+
+// kmsTreeOf reports which stream host's install-tree root p is (the KMS
+// target sunshineBackend.CapExecPath returns), as opposed to RustShine's
+// streamerlaunch.InstallPath.
+func kmsTreeOf(p string) (kmsTree, bool) {
+	for _, t := range []kmsTree{sunshineKMSTree, vibepolloKMSTree} {
+		if st, err := os.Stat(filepath.Join(p, t.bin)); err == nil && st.Mode().IsRegular() {
+			return t, true
+		}
+	}
+	return kmsTree{}, false
+}
+
+// isSunshineTree reports whether p is a Sunshine install-tree root.
+func isSunshineTree(p string) bool {
+	t, ok := kmsTreeOf(p)
+	return ok && t.dir == streamerlaunch.SunshineDir
+}
+
+// sunshineIDCache memoizes fileSHA256 of a source tree's executable by
 // (path, size, mtime) -- KMSCaptureGranted is polled by the UI and the
 // binary is ~25MB.
 var sunshineIDCache struct {
@@ -199,8 +227,10 @@ var sunshineIDCache struct {
 	sum string
 }
 
-func sunshineSourceID(srcRoot string) string {
-	bin := filepath.Join(srcRoot, "usr", "bin", "sunshine")
+func sunshineSourceID(srcRoot string) string { return treeSourceID(srcRoot, sunshineKMSTree) }
+
+func treeSourceID(srcRoot string, t kmsTree) string {
+	bin := filepath.Join(srcRoot, t.bin)
 	st, err := os.Stat(bin)
 	if err != nil {
 		return ""
@@ -236,18 +266,25 @@ func fileSHA256(p string) (string, error) {
 // currently bundled Sunshine -- after an agent update ships a newer
 // Sunshine, the previously installed one keeps KMS capture (and the remote
 // session) alive until the user refreshes the grant locally.
-func (s *Service) SunshineLaunchReady() bool {
-	return s.StreamerLauncherInstalled() && streamerlaunch.CheckTreeRootOwned(streamerlaunch.SunshineDir) == nil
+func (s *Service) SunshineLaunchReady() bool { return s.treeLaunchReady(sunshineKMSTree) }
+
+// VibepolloLaunchReady: the same for `--run-vibepollo` (a launcher new
+// enough to have it, and the root-owned Vibepollo tree).
+func (s *Service) VibepolloLaunchReady() bool { return s.treeLaunchReady(vibepolloKMSTree) }
+
+func (s *Service) treeLaunchReady(t kmsTree) bool {
+	return s.StreamerLauncherInstalled() && installedLauncherProtocol() >= t.minProto &&
+		streamerlaunch.CheckTreeRootOwned(t.dir) == nil
 }
 
-// sunshineTreeCurrent reports whether the installed root-owned tree was
-// installed from srcRoot's exact Sunshine build.
-func sunshineTreeCurrent(srcRoot string) bool {
-	b, err := os.ReadFile(streamerlaunch.SunshineSourceID)
+// treeCurrent reports whether the installed root-owned tree was installed
+// from srcRoot's exact build.
+func treeCurrent(srcRoot string, t kmsTree) bool {
+	b, err := os.ReadFile(t.sourceID)
 	if err != nil {
 		return false
 	}
-	id := sunshineSourceID(srcRoot)
+	id := treeSourceID(srcRoot, t)
 	return id != "" && strings.TrimSpace(string(b)) == id
 }
 
@@ -290,9 +327,13 @@ func buildTreeManifest(root string) (string, error) {
 // replacing SunshineDir. Run after the launcher install script, in the
 // same pkexec invocation.
 func buildSunshineTreeInstallScript(srcRoot, manifestPath, sourceID string) string {
+	return buildTreeInstallScript(srcRoot, manifestPath, sourceID, sunshineKMSTree)
+}
+
+func buildTreeInstallScript(srcRoot, manifestPath, sourceID string, t kmsTree) string {
 	q := shellQuoteUsername
-	tmp := streamerlaunch.InstallDir + "/.sunshine.tmp"
-	old := streamerlaunch.InstallDir + "/.sunshine.old"
+	tmp := streamerlaunch.InstallDir + "/" + t.tmp + ".tmp"
+	old := streamerlaunch.InstallDir + "/" + t.tmp + ".old"
 	return strings.Join([]string{
 		"rm -rf " + q(tmp) + " " + q(old),
 		"cp -a " + q(srcRoot) + " " + q(tmp),
@@ -305,25 +346,37 @@ func buildSunshineTreeInstallScript(srcRoot, manifestPath, sourceID string) stri
 		"(cd " + q(tmp) + " && find . \\( -type f -o -type l \\) | LC_ALL=C sort) > " + q(tmp+".list"),
 		"sed 's/^[0-9a-f]*  //' " + q(manifestPath) + " | LC_ALL=C sort | cmp -s - " + q(tmp+".list"),
 		"rm -f " + q(tmp+".list"),
-		"if [ -e " + q(streamerlaunch.SunshineDir) + " ]; then mv " + q(streamerlaunch.SunshineDir) + " " + q(old) + "; fi",
-		"mv " + q(tmp) + " " + q(streamerlaunch.SunshineDir),
+		"if [ -e " + q(t.dir) + " ]; then mv " + q(t.dir) + " " + q(old) + "; fi",
+		"mv " + q(tmp) + " " + q(t.dir),
 		"rm -rf " + q(old),
-		"echo " + q(sourceID) + " > " + q(streamerlaunch.SunshineSourceID),
-		"chmod 0644 " + q(streamerlaunch.SunshineSourceID),
+		"echo " + q(sourceID) + " > " + q(t.sourceID),
+		"chmod 0644 " + q(t.sourceID),
 	}, "\n")
 }
 
 // sunshineKMSGranted: launcher installed and the root-owned tree matches
 // srcRoot's bundled Sunshine.
 func (s *Service) sunshineKMSGranted(srcRoot string) bool {
-	return s.SunshineLaunchReady() && sunshineTreeCurrent(srcRoot)
+	return s.treeKMSGranted(srcRoot, sunshineKMSTree)
+}
+
+// treeKMSGranted: launcher installed (new enough for t) and the root-owned
+// tree matches srcRoot's build.
+func (s *Service) treeKMSGranted(srcRoot string, t kmsTree) bool {
+	return s.treeLaunchReady(t) && treeCurrent(srcRoot, t)
 }
 
 // installSunshineKMS is the one-time (per bundled Sunshine version) grant:
 // installs/refreshes the launcher and the root-owned Sunshine tree in a
 // single pkexec prompt.
 func (s *Service) installSunshineKMS(srcRoot string) bool {
-	if s.sunshineKMSGranted(srcRoot) {
+	return s.installTreeKMS(srcRoot, sunshineKMSTree)
+}
+
+// installTreeKMS installs/refreshes the launcher and t's root-owned tree in
+// a single pkexec prompt.
+func (s *Service) installTreeKMS(srcRoot string, t kmsTree) bool {
+	if s.treeKMSGranted(srcRoot, t) {
 		return true
 	}
 	src := bundledStreamerLauncher()
@@ -341,11 +394,11 @@ func (s *Service) installSunshineKMS(srcRoot string) bool {
 
 	manifest, err := buildTreeManifest(srcRoot)
 	if err != nil {
-		s.lastAccessErr = fmt.Sprintf("hash Sunshine tree: %v", err)
+		s.lastAccessErr = fmt.Sprintf("hash %s tree: %v", t.name, err)
 		log.Printf("[permissions] %s", s.lastAccessErr)
 		return false
 	}
-	mf, err := os.CreateTemp("", "usbridge-sunshine-manifest-*")
+	mf, err := os.CreateTemp("", "usbridge-"+strings.ToLower(t.name)+"-manifest-*")
 	if err != nil {
 		return false
 	}
@@ -357,14 +410,14 @@ func (s *Service) installSunshineKMS(srcRoot string) bool {
 	mf.Close()
 
 	script := buildStreamerLauncherInstallScript(staged, sum, findCapTool("setcap"), os.Getuid()) + "\n" +
-		buildSunshineTreeInstallScript(srcRoot, mf.Name(), sunshineSourceID(srcRoot))
+		buildTreeInstallScript(srcRoot, mf.Name(), treeSourceID(srcRoot, t), t)
 	out, err := exec.Command("pkexec", "/bin/sh", "-c", script).CombinedOutput()
-	log.Printf("[permissions] install sunshine KMS pkexec exit=%v output=%q", err, string(out))
+	log.Printf("[permissions] install %s KMS pkexec exit=%v output=%q", t.name, err, string(out))
 	if err != nil {
 		s.lastAccessErr = fmt.Sprintf("pkexec failed: %v (%s)", err, strings.TrimSpace(string(out)))
 		return false
 	}
-	return s.sunshineKMSGranted(srcRoot)
+	return s.treeKMSGranted(srcRoot, t)
 }
 
 // HasFileCapability reports whether p carries any file capability.

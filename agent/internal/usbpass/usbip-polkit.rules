@@ -1,0 +1,9 @@
+polkit.addRule(function(action, subject) {
+    if (action.id != "org.freedesktop.policykit.exec") return;
+    if (!subject.isInGroup("usbridge-usbip")) return;
+    var prog = action.lookup("program");
+    if (!/^\/(usr\/)?s?bin\/usbip$/.test(prog) &&
+        !/^\/usr\/lib\/linux-tools[^\/]*\/[^\/]+\/usbip$/.test(prog)) return;
+    var cmd = action.lookup("command_line") || "";
+    if (/^\S+ (--tcp-port \d+ )?(attach|detach|port)( |$)/.test(cmd)) return polkit.Result.YES;
+});

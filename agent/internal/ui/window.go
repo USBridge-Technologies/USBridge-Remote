@@ -128,6 +128,12 @@ type TokenProvider interface {
 	CheckSunshineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
+	// Linux capture pick on a stream host's card ("sunshine", "vibepollo"):
+	// the modes offered ("" = auto first, nil = no pick), the saved one, and
+	// a change (applied with a restart when that host is the active one).
+	CaptureModeChoices(kind string) []string
+	StreamCaptureMode(kind string) string
+	SetStreamCaptureMode(kind, mode string) error
 
 	// USB passthrough (see internal/usbpass) -- a separate closed-source
 	// component from RustShine, gated by its own one-time consent, never
@@ -625,6 +631,21 @@ func (w *Window) refreshClipboardToolUI() {
 // from this window's config (see permissions.FirewallPorts).
 func (w *Window) firewallPorts() (tcp, udp []int) {
 	return permissions.FirewallPorts(w.cfg.HTTPPort, w.cfg.TLSPort, w.cfg.UsbPassthroughPort, w.cfg.SunshinePort)
+}
+
+// recheckFirewall re-checks the Firewall row (Permissions) right after the
+// listen ports change: an active ufw/firewalld still has rules for the old
+// ones only (found live: HTTP moved 8080 -> 8081, the phone's connections
+// timed out with nothing in the agent's log), and the periodic status
+// refresh left the row hidden meanwhile. Nothing is opened here -- the row's
+// "Open ports" button does that, for w.firewallPorts() (the ports in use).
+// Off the UI thread: firewalld's check shells out.
+func (w *Window) recheckFirewall() {
+	if w.perms == nil || runtime.GOOS != "linux" {
+		return
+	}
+	blocking := w.perms.FirewallBlocking(w.firewallPorts())
+	fyne.Do(func() { w.refreshFirewallUI(blocking) })
 }
 
 // refreshFirewallUI shows the Firewall row only while blocking -- like

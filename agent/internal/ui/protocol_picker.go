@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"log"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -67,16 +68,88 @@ func protocolBadgeColors(key string) (fg color.Color, line color.Color) {
 	}
 }
 
-// USBridge Streamer leads: it is what the Windows installer selects.
+// USBridge Streamer leads: it is what the Windows installer selects. One card
+// for it: Pro is the same streamer with the paid features, so the card's badge
+// says the tier this machine runs (Free, Pro, Enterprise) and buying stays on
+// the Buy button and the card's info.
 var protocolOptions = []protocolOption{
 	{protocolFree, "USBridge Streamer", "Free", design.ColorTeal, design.ColorTeal, nil},
-	{protocolPro, "USBridge Streamer", "Pro", design.ColorProSoft, design.ColorProSoft, nil},
 	{protocolOpensource, "Sunshine", "Open Source", design.ColorWhite, design.ColorWhite, nil},
 }
 
+// protocolStreamerBadge is the USBridge Streamer card's badge for the tier
+// shown: Free, else the paid tier picked or applied.
+func protocolStreamerBadge(pick string) (string, color.Color) {
+	switch pick {
+	case protocolPro:
+		return "Pro", design.ColorProSoft
+	case protocolEnterprise:
+		return "Enterprise", design.ColorProSoft
+	}
+	return "Free", design.ColorTeal
+}
+
+// protocolCaptureKind is the stream host whose capture a card's dropdown
+// picks, "" for cards without one.
+func protocolCaptureKind(key string) string {
+	switch key {
+	case protocolOpensource:
+		return "sunshine"
+	case protocolVibepollo:
+		return "vibepollo"
+	}
+	return ""
+}
+
+// protocolCaptureLabel names a capture mode in the card's dropdown.
+func protocolCaptureLabel(mode string) string {
+	switch mode {
+	case "":
+		return "Capture: Auto"
+	case "kms":
+		return "Capture: KMS"
+	case "kwin":
+		return "Capture: KWin"
+	case "portal":
+		return "Capture: Portal"
+	case "x11":
+		return "Capture: X11"
+	}
+	return "Capture: " + mode
+}
+
+// newProtocolCaptureDropdown is a fork card's capture pick (Linux: Sunshine
+// and Vibepollo), nil where the host offers none.
+func (w *Window) newProtocolCaptureDropdown(key string) fyne.CanvasObject {
+	kind := protocolCaptureKind(key)
+	if kind == "" || w.token == nil {
+		return nil
+	}
+	choices := w.token.CaptureModeChoices(kind)
+	if len(choices) == 0 {
+		return nil
+	}
+	labels := make([]string, len(choices))
+	modes := map[string]string{}
+	for i, m := range choices {
+		labels[i] = protocolCaptureLabel(m)
+		modes[labels[i]] = m
+	}
+	token := w.token
+	return newDialogDropdown(labels, protocolCaptureLabel(token.StreamCaptureMode(kind)), func(label string) {
+		mode := modes[label]
+		go func() {
+			if err := token.SetStreamCaptureMode(kind, mode); err != nil {
+				log.Printf("[ui] %s capture mode %q: %v", kind, mode, err)
+			}
+		}()
+	})
+}
+
 func protocolPickerKey(key string) string {
-	if key == protocolEnterprise {
-		return protocolPro
+	// The one USBridge Streamer card stands for every tier.
+	if key == protocolEnterprise || key == protocolPro {
+		return protocolFree
 	}
 	return key
 }
@@ -275,6 +348,7 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 	}
 	w.protocolRows = make([]*protocolPickRow, 0, len(options))
 	tiles := make([]fyne.CanvasObject, 0, len(options))
+	dropdowns := make([]fyne.CanvasObject, 0, len(options))
 	for _, opt := range options {
 		opt := opt
 		row := newProtocolPickRow(opt, protocolPickerKey(opt.key) == protocolPickerKey(w.protocolPick), func() {
@@ -292,6 +366,25 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 		})
 		w.protocolRows = append(w.protocolRows, row)
 		tiles = append(tiles, row)
+		dropdowns = append(dropdowns, w.newProtocolCaptureDropdown(opt.key))
+	}
+	// A fork card's capture pick sits under it; the other cards keep the
+	// same height with an empty slot.
+	var slotH float32
+	for _, d := range dropdowns {
+		if d != nil && d.MinSize().Height > slotH {
+			slotH = d.MinSize().Height
+		}
+	}
+	if slotH > 0 {
+		for i, d := range dropdowns {
+			if d == nil {
+				gap := canvas.NewRectangle(color.Transparent)
+				gap.SetMinSize(fyne.NewSize(0, slotH))
+				d = gap
+			}
+			tiles[i] = container.New(&tightVBoxLayout{gap: 4}, tiles[i], d)
+		}
 	}
 
 	w.protocolChange = nil
@@ -375,7 +468,14 @@ func (w *Window) refreshProtocolPickerVisuals(busy bool) {
 		display := protocolPickerKey(w.protocolPick)
 		row.SetChecked(protocolPickerKey(row.key) == display)
 		row.SetLocked(protocolNeedsPurchase(row.key, st, acc) && protocolPickerKey(row.key) != display)
-		row.SetIncluded(protocolRowIncluded(w.protocolApplied, w.protocolPick, row.key))
+		row.SetIncluded(protocolRowIncluded(w.protocolApplied, w.protocolPick, row.key) && protocolPickerKey(row.key) != display)
+		if row.key == protocolFree {
+			shown := w.protocolApplied
+			if protocolPickerKey(w.protocolPick) == protocolFree {
+				shown = w.protocolPick
+			}
+			row.SetBadge(protocolStreamerBadge(shown))
+		}
 		row.SetPreview(protocolHoverHighlights(w.protocolHover, paid, row.key))
 		row.SetDisabled(busy)
 		w.syncProtocolRowUpdate(row, st, acc)
@@ -646,6 +746,15 @@ type protocolPickRow struct {
 	// version: the installed build's short tag ("v0.3.192"), shown under
 	// the badge; "" hides it.
 	version string
+}
+
+// SetBadge changes the card's badge (the USBridge Streamer card's tier).
+func (r *protocolPickRow) SetBadge(text string, clr color.Color) {
+	if r.badge == text && r.badgeClr == clr {
+		return
+	}
+	r.badge, r.badgeClr, r.badgeLine = text, clr, clr
+	r.Refresh()
 }
 
 // SetVersion shows the installed streamer's version on the card.
@@ -971,6 +1080,7 @@ func (r *protocolPickRowRenderer) MinSize() fyne.Size { return r.row.MinSize() }
 
 func (r *protocolPickRowRenderer) Refresh() {
 	accent := r.row.badgeClr
+	r.sub.Text = r.row.badge
 	var titleClr color.Color = design.ColorMutedOlive
 	subClr := accent
 	var radioStroke color.Color = design.ColorChromeOlive

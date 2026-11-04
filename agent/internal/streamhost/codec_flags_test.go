@@ -17,6 +17,7 @@ func TestCodecsFromFlags_PyroWave(t *testing.T) {
 		{0x01010101, true, []string{"h264", "h265", "av1", "pyrowave"}},
 		{scmH264 | scmHEVC, true, []string{"h264", "h265"}},
 		{scmH264 | scmUSBridgePyroWave, true, []string{"h264", "pyrowave"}},
+		{scmH264 | scmPyroWave, true, []string{"h264", "pyrowave"}},
 		{0x01010101, false, []string{"h264"}},
 	}
 	for _, c := range cases {

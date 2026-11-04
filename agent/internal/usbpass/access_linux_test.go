@@ -52,3 +52,11 @@ func TestPolkitRuleMatchesBrokerCommands(t *testing.T) {
 		}
 	}
 }
+
+// The rule file is installed verbatim by the Linux packages too, so the
+// group name in it can't follow AttachGroupName on its own.
+func TestPolkitRuleNamesAttachGroup(t *testing.T) {
+	if !strings.Contains(polkitRuleContent, `subject.isInGroup("`+AttachGroupName+`")`) {
+		t.Fatalf("usbip-polkit.rules does not check group %q", AttachGroupName)
+	}
+}

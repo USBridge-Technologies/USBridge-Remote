@@ -3,6 +3,7 @@
 package usbpass
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
@@ -32,16 +33,13 @@ const (
 // this machine that took a free loopback port (attach_local: a tablet or a
 // gamepad rebuilt from the stream). Without it in the pattern that attach
 // waited on a password dialog -- confirmed live.
-const polkitRuleContent = `polkit.addRule(function(action, subject) {
-    if (action.id != "org.freedesktop.policykit.exec") return;
-    if (!subject.isInGroup("` + AttachGroupName + `")) return;
-    var prog = action.lookup("program");
-    if (!/^\/(usr\/)?s?bin\/usbip$/.test(prog) &&
-        !/^\/usr\/lib\/linux-tools[^\/]*\/[^\/]+\/usbip$/.test(prog)) return;
-    var cmd = action.lookup("command_line") || "";
-    if (/^\S+ (--tcp-port \d+ )?(attach|detach|port)( |$)/.test(cmd)) return polkit.Result.YES;
-});
-`
+//
+// The rule lives in usbip-polkit.rules so the Linux packages install the
+// very same bytes from their postinst (agent/scripts/linux-usbip-hooks.sh):
+// AttachAccessGranted compares the installed file byte for byte.
+//
+//go:embed usbip-polkit.rules
+var polkitRuleContent string
 
 func shellQuote(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`)

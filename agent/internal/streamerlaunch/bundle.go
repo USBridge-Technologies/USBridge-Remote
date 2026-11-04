@@ -54,8 +54,12 @@ const ReleasePublicKeyB64 = "ixB/m3G9UgxUrhQd2rVRzTBDvA/x9NjT1yTmUbUQl+0="
 // one-time re-grant instead -- bump both only when the agent starts
 // depending on something an older installed launcher can't do.
 const (
-	Protocol    = 1
+	Protocol    = 2
 	MinProtocol = 1
+	// VibepolloMinProtocol is the first launcher with --run-vibepollo; only a
+	// Vibepollo KMS grant needs it, so Sunshine/RustShine grants made by a
+	// protocol-1 launcher stay valid.
+	VibepolloMinProtocol = 2
 )
 
 // InstallDir/InstallPath/AllowedUIDsPath are fixed, root-owned locations
@@ -79,6 +83,12 @@ const (
 	// installed from (SHA-256 of its usr/bin/sunshine), so the agent can
 	// tell when an agent update shipped a newer Sunshine.
 	SunshineSourceID = InstallDir + "/sunshine.sha256"
+	// VibepolloDir/VibepolloBin/VibepolloSourceID: the same for Vibepollo's
+	// Linux install tree (usr/bin/vibepollo, usr/lib, usr/share/vibepollo),
+	// which --run-vibepollo execs.
+	VibepolloDir      = InstallDir + "/vibepollo"
+	VibepolloBin      = VibepolloDir + "/usr/bin/vibepollo"
+	VibepolloSourceID = InstallDir + "/vibepollo.sha256"
 )
 
 // Bundle layout: BundleDirName lives next to the staged usbridge-streamer

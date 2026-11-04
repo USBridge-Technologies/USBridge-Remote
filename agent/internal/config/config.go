@@ -47,6 +47,11 @@ type Config struct {
 	// portal-based, no root), "portal" (explicit XDG desktop portal, no root),
 	// or "kms" (direct KMS capture, requires CAP_SYS_ADMIN on the sunshine binary).
 	SunshineCaptureMode string `yaml:"sunshine_capture_mode"`
+	// CaptureModes is the Linux capture pick per stream host ("sunshine",
+	// "vibepollo") made on its card: "kms", "kwin", "portal", "x11"; absent
+	// is auto (capture.AutoCaptureMode, KWin for Vibepollo on Plasma without
+	// its KMS grant).
+	CaptureModes map[string]string `yaml:"capture_modes,omitempty"`
 	// SunshineOutputName pins Sunshine's KMS/portal capture to a specific
 	// monitor: Sunshine's own connected-output index (stringified), or ""
 	// to let Sunshine auto-pick (its default, first-found output).

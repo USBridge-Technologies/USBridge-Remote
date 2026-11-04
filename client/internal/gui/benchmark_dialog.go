@@ -78,10 +78,48 @@ type benchMonitorChoice struct {
 	id    string
 }
 
-// benchMonitorChoices labels the host's monitors for the setup dialog and
-// picks the default: the primary monitor, else the first listed.
+// benchVirtualMonitorID is the agent's "virtual display" entry in the
+// benchmark's monitor list (agent internal/app/bench.go BenchVirtualID).
+const benchVirtualMonitorID = "virtual"
+
+// benchVirtualFPS is the virtual display's refresh for the benchmark: the
+// rate the virtual display is there for (see virtualOfferDefaultFPS).
+const benchVirtualFPS = 120
+
+// benchVirtualMonitor is the host's virtual display entry, if it lists one.
+func benchVirtualMonitor(mons []api.BenchMonitor) (api.BenchMonitor, bool) {
+	for _, m := range mons {
+		if m.ID == benchVirtualMonitorID {
+			return m, true
+		}
+	}
+	return api.BenchMonitor{}, false
+}
+
+// benchVirtualSpec is the "virtual:WxH@FPS" the benchmark pins every
+// streamer to: the picked resolution, else the size the agent reports for
+// its virtual display, else 1080p.
+func benchVirtualSpec(v api.BenchMonitor, width, height int) string {
+	if width <= 0 || height <= 0 {
+		width, height = v.Width, v.Height
+	}
+	if width <= 0 || height <= 0 {
+		width, height = 1920, 1080
+	}
+	return fmt.Sprintf("virtual:%dx%d@%d", width, height, benchVirtualFPS)
+}
+
+// benchMonitorChoices labels the host's real monitors for the setup
+// dialog's "as is" pick (the virtual display is its own choice) and picks
+// the default: the primary monitor, else the first listed.
 func benchMonitorChoices(mons []api.BenchMonitor) (choices []benchMonitorChoice, def int) {
-	for i, m := range mons {
+	real := make([]api.BenchMonitor, 0, len(mons))
+	for _, m := range mons {
+		if m.ID != benchVirtualMonitorID {
+			real = append(real, m)
+		}
+	}
+	for i, m := range real {
 		name := m.Name
 		short := strings.TrimPrefix(m.ID, `\\.\`)
 		if name == "" {
@@ -142,14 +180,35 @@ func (mw *MainWindow) showBenchmarkSetup(listed, available []string, mons []api.
 	// can't list its monitors (then nothing is pinned).
 	choices, defChoice := benchMonitorChoices(mons)
 	var monSel *view.HeaderDropdown
+	var monField fyne.CanvasObject
 	fields := []fyne.CanvasObject{}
+	// As on connect: the host's screen as is, or the agent's virtual display
+	// (every streamer streams it, the agent brings it up), in the picked
+	// resolution at 120 Hz.
+	virtualMon, hasVirtual := benchVirtualMonitor(mons)
+	var displaySel *view.HeaderDropdown
+	if hasVirtual {
+		displaySel = view.NewDialogPicker([]string{i18n.Current.BenchDisplayAsIs, i18n.Current.BenchDisplayVirtual},
+			i18n.Current.BenchDisplayAsIs, func(s string) {
+				if monField == nil {
+					return
+				}
+				if s == i18n.Current.BenchDisplayVirtual {
+					monField.Hide()
+				} else {
+					monField.Show()
+				}
+			})
+		fields = append(fields, view.NewDialogField(i18n.Current.BenchDisplay, displaySel))
+	}
 	if len(choices) > 0 {
 		var monLabels []string
 		for _, c := range choices {
 			monLabels = append(monLabels, c.label)
 		}
 		monSel = view.NewDialogPicker(monLabels, choices[defChoice].label, nil)
-		fields = append(fields, view.NewDialogField(i18n.Current.BenchMonitor, monSel))
+		monField = view.NewDialogField(i18n.Current.BenchMonitor, monSel)
+		fields = append(fields, monField)
 	}
 	codecSel := view.NewDialogPicker(benchCodecLabels(), benchCodecs[0].label(), nil)
 	fields = append(fields, view.NewDialogField(i18n.Current.BenchCodec, codecSel))
@@ -213,6 +272,13 @@ func (mw *MainWindow) showBenchmarkSetup(listed, available []string, mons []api.
 			for _, r := range benchResolutions {
 				if r.label() == resSel.Selected {
 					resWidth, resHeight = r.width, r.height
+				}
+			}
+			if displaySel != nil && displaySel.Selected == i18n.Current.BenchDisplayVirtual {
+				monitor = benchVirtualSpec(virtualMon, resWidth, resHeight)
+				if resWidth == 0 || resHeight == 0 {
+					// The stream at the virtual display's own size.
+					fmt.Sscanf(monitor, "virtual:%dx%d@", &resWidth, &resHeight)
 				}
 			}
 			mw.startBenchmark(picked, monitor, codec, resWidth, resHeight, window)

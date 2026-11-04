@@ -15,6 +15,7 @@
 //	usbridge-streamer-launch --verify <bundle-dir>
 //	usbridge-streamer-launch --run <bundle-dir> [--] [streamer args...]
 //	usbridge-streamer-launch --run-sunshine [--] [sunshine args...]
+//	usbridge-streamer-launch --run-vibepollo [--] [vibepollo args...]
 //
 // --verify prints "version=<release tag>" and "cap=<0|1>" (whether this
 // process actually received CAP_SYS_ADMIN from its file capability -- 0 on
@@ -69,12 +70,15 @@ func main() {
 			fail(exitVerify, "verify: %v", err)
 		}
 		fmt.Printf("version=%s\ncap=%s\n", v.Version, boolDigit(havePermitted(capSysAdmin)))
-	case "--run-sunshine":
+	case "--run-sunshine", "--run-vibepollo":
 		args := os.Args[2:]
 		if len(args) > 0 && args[0] == "--" {
 			args = args[1:]
 		}
-		runSunshine(args)
+		if os.Args[1] == "--run-vibepollo" {
+			runTree("vibepollo", streamerlaunch.VibepolloDir, streamerlaunch.VibepolloBin, args)
+		}
+		runTree("sunshine", streamerlaunch.SunshineDir, streamerlaunch.SunshineBin, args)
 	case "--run":
 		if len(os.Args) < 3 {
 			usage()
@@ -116,24 +120,24 @@ func run(bundleDir string, args []string) {
 	fail(exitExecFail, "exec %s (%s): %v", streamerlaunch.BinaryName, v.Version, err)
 }
 
-// runSunshine execs the root-owned Sunshine tree (streamerlaunch.SunshineDir)
-// -- never a caller-supplied path. The whole tree is re-checked as
-// root-owned on every launch, since its shared libraries run with the same
-// capability. cwd is the tree root: Sunshine (SUNSHINE_BUILD_APPIMAGE=ON)
-// finds its assets at ./usr/local/assets.
-func runSunshine(args []string) {
+// runTree execs a root-owned install tree (streamerlaunch.SunshineDir or
+// VibepolloDir) -- never a caller-supplied path. The whole tree is
+// re-checked as root-owned on every launch, since its shared libraries run
+// with the same capability. cwd is the tree root: Sunshine and Vibepollo
+// (SUNSHINE_BUILD_APPIMAGE=ON) find their assets relative to it.
+func runTree(name, dir, bin string, args []string) {
 	prepare()
-	if err := streamerlaunch.CheckTreeRootOwned(streamerlaunch.SunshineDir); err != nil {
-		fail(exitVerify, "sunshine tree: %v", err)
+	if err := streamerlaunch.CheckTreeRootOwned(dir); err != nil {
+		fail(exitVerify, "%s tree: %v", name, err)
 	}
-	if err := os.Chdir(streamerlaunch.SunshineDir); err != nil {
+	if err := os.Chdir(dir); err != nil {
 		fail(exitExecFail, "chdir: %v", err)
 	}
 	raiseAmbient()
-	argv := append([]string{streamerlaunch.SunshineBin}, args...)
+	argv := append([]string{bin}, args...)
 	env := streamerlaunch.SanitizedEnv(os.Environ(), true)
-	err := unix.Exec(streamerlaunch.SunshineBin, argv, env)
-	fail(exitExecFail, "exec %s: %v", streamerlaunch.SunshineBin, err)
+	err := unix.Exec(bin, argv, env)
+	fail(exitExecFail, "exec %s: %v", bin, err)
 }
 
 // prepare is the shared prologue of both run modes: PDEATHSIG, caller uid
@@ -236,7 +240,7 @@ func boolDigit(b bool) string {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: usbridge-streamer-launch --version | --verify <bundle-dir> | --run <bundle-dir> [--] [args...] | --run-sunshine [--] [args...]")
+	fmt.Fprintln(os.Stderr, "usage: usbridge-streamer-launch --version | --verify <bundle-dir> | --run <bundle-dir> [--] [args...] | --run-sunshine [--] [args...] | --run-vibepollo [--] [args...]")
 	os.Exit(exitUsage)
 }
 

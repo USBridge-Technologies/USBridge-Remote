@@ -202,3 +202,28 @@ func TestBenchMonitorAgentCalls(t *testing.T) {
 		t.Fatalf("video = %+v", v)
 	}
 }
+
+func TestBenchVirtualDisplayIsItsOwnChoice(t *testing.T) {
+	i18n.Init("en")
+	mons := []api.BenchMonitor{
+		{ID: `\\.\DISPLAY1`, Name: "GPD1001H", Width: 2560, Height: 1600, Primary: true},
+		{ID: benchVirtualMonitorID, Name: "Virtual display", Width: 2560, Height: 1440},
+	}
+	choices, def := benchMonitorChoices(mons)
+	if len(choices) != 1 || choices[0].id != `\\.\DISPLAY1` || def != 0 {
+		t.Fatalf("as-is choices = %+v (default %d), want the real monitor only", choices, def)
+	}
+	v, ok := benchVirtualMonitor(mons)
+	if !ok {
+		t.Fatal("virtual display entry not found")
+	}
+	if got := benchVirtualSpec(v, 1920, 1080); got != "virtual:1920x1080@120" {
+		t.Errorf("picked resolution: %s", got)
+	}
+	if got := benchVirtualSpec(v, 0, 0); got != "virtual:2560x1440@120" {
+		t.Errorf("saved resolution: %s", got)
+	}
+	if got := benchVirtualSpec(api.BenchMonitor{}, 0, 0); got != "virtual:1920x1080@120" {
+		t.Errorf("no size: %s", got)
+	}
+}

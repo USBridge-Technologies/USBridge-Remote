@@ -906,7 +906,13 @@ func (a *App) Run(headless, startHidden bool) error {
 			a.rustshineFetchFailed.Store(true)
 		}
 	}()
-	go func() { _ = a.server.ListenAndServe() }()
+	go func() {
+		// A taken port (another local server on 8080, say) used to leave the
+		// agent unreachable on the LAN with nothing in the log.
+		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("[app] ❌ http listener %s failed: %v -- the LAN API is down; change http_port in config.yaml or free the port", a.server.Addr, err)
+		}
+	}()
 	// Gated by the "Enable HTTPS" checkbox (see ui's HTTP Listen Address
 	// dialog, UpdateTLSAddr) -- on by default (TLSEnabledOK's nil-means-true
 	// convention), so this runs for every existing install unless a user
@@ -926,7 +932,11 @@ func (a *App) Run(headless, startHidden bool) error {
 		if err := a.tlsMgr.EnsureSelfSigned(selfSignedIPs, nil); err != nil {
 			log.Printf("[app] self-signed TLS cert unavailable: %v", err)
 		}
-		go func() { _ = a.tlsServer.ListenAndServeTLS("", "") }()
+		go func() {
+			if err := a.tlsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				log.Printf("[app] ❌ https listener %s failed: %v", a.tlsServer.Addr, err)
+			}
+		}()
 		a.startDeviceCertWatchdogOnce()
 	}
 	if a.usbBroker != nil {
@@ -1496,7 +1506,20 @@ func (a *App) syncCaptureModeTo(b streamhost.Backend) {
 	if b == nil {
 		return
 	}
+	if mode := a.cfg.CaptureModes[captureKindOf(b)]; mode != "" && runtime.GOOS == "linux" {
+		// Picked on the stream host's card.
+		if err := b.SetCaptureMode(mode); err != nil {
+			log.Printf("[app] failed to sync capture mode %q to backend: %v", mode, err)
+		}
+		return
+	}
 	if mode := capture.AutoCaptureMode(); mode != "" {
+		// Vibepollo without its KMS grant on Plasma Wayland: KWin's screencast,
+		// which asks nothing (a portal would ask on every start).
+		if v, ok := b.(interface{ IsVibepollo() bool }); ok && v.IsVibepollo() && mode == "kms" &&
+			capture.IsKDEWayland() && (a.perms == nil || !a.perms.VibepolloLaunchReady()) {
+			mode = "kwin"
+		}
 		if err := b.SetCaptureMode(mode); err != nil {
 			log.Printf("[app] failed to sync capture mode %q to backend: %v", mode, err)
 		}
@@ -1551,6 +1574,16 @@ func (a *App) syncCapExecTo(b streamhost.Backend, kind string) {
 	// still honors a legacy setcap directly on the streamer binary.
 	if kind == "rustshine" {
 		b.SetCapExecPath(a.rustshineLauncherPathFor(b))
+		return
+	}
+	// Vibepollo: through the launcher's --run-vibepollo, which execs its own
+	// root-owned tree (never Sunshine's), once that is installed.
+	if kind == "vibepollo" {
+		if a.captureModeOf(b) == "kms" && a.perms != nil && a.perms.VibepolloLaunchReady() {
+			b.SetCapExecPath(streamerlaunch.InstallPath)
+		} else {
+			b.SetCapExecPath("")
+		}
 		return
 	}
 	// Sunshine: launch through the launcher whenever the root-owned tree is
@@ -1617,6 +1650,90 @@ func (a *App) SetSunshineCaptureMode(mode string) error {
 	}
 	if err := a.RestartSunshine(); err != nil {
 		log.Printf("[app] failed to restart Sunshine after capture mode change: %v", err)
+	}
+	return nil
+}
+
+// captureKindOf is the stream host kind whose card picks b's capture mode:
+// "sunshine" or "vibepollo", "" for the others (their capture has no pick).
+func captureKindOf(b streamhost.Backend) string {
+	v, ok := b.(interface{ IsVibepollo() bool })
+	if !ok {
+		return ""
+	}
+	if v.IsVibepollo() {
+		return "vibepollo"
+	}
+	return "sunshine"
+}
+
+// CaptureModeChoices lists the capture modes kind's card offers ("" is
+// auto first); nil where there is nothing to pick (off Linux, Punktfunk,
+// RustShine).
+func (a *App) CaptureModeChoices(kind string) []string {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	switch kind {
+	case "sunshine":
+		return []string{"", "kms", "portal", "x11"}
+	case "vibepollo":
+		return []string{"", "kms", "kwin", "portal", "x11"}
+	}
+	return nil
+}
+
+// StreamCaptureMode is kind's capture pick, "" for auto.
+func (a *App) StreamCaptureMode(kind string) string {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
+	return a.cfg.CaptureModes[kind]
+}
+
+// SetStreamCaptureMode saves kind's capture pick ("" for auto) and, when kind
+// is the active stream host, applies it: the config key, the KMS launcher
+// (or not), and a restart when it runs.
+func (a *App) SetStreamCaptureMode(kind, mode string) error {
+	valid := false
+	for _, m := range a.CaptureModeChoices(kind) {
+		if m == mode {
+			valid = true
+		}
+	}
+	if !valid {
+		return fmt.Errorf("no capture mode %q for %s", mode, kind)
+	}
+	a.streamMu.Lock()
+	next := a.cfg
+	next.CaptureModes = map[string]string{}
+	for k, v := range a.cfg.CaptureModes {
+		next.CaptureModes[k] = v
+	}
+	if mode == "" {
+		delete(next.CaptureModes, kind)
+	} else {
+		next.CaptureModes[kind] = mode
+	}
+	if err := a.SaveConfig(next); err != nil {
+		a.streamMu.Unlock()
+		return err
+	}
+	active := a.stream != nil && a.streamKind == kind
+	if active {
+		if mode == "" {
+			// Back to auto: drop the pinned key so auto re-derives it.
+			_ = a.stream.SetCaptureMode("")
+		}
+		a.syncCaptureModeTo(a.stream)
+		a.syncCapExecTo(a.stream, kind)
+	}
+	running := active && a.stream.Running()
+	a.streamMu.Unlock()
+	log.Printf("[app] %s capture mode -> %q", kind, mode)
+	if running {
+		if err := a.RestartSunshine(); err != nil {
+			log.Printf("[app] restarting %s after the capture mode change: %v", kind, err)
+		}
 	}
 	return nil
 }
