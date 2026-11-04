@@ -46,64 +46,72 @@ type LocalizedStrings struct {
 
 	// Connections screen copy. Technical labels (LAN, TS, Token, QR, KVM,
 	// Agent, OS, USBridge, Firmware, master key, IP) stay in English.
-	ConnectionsHeaderSubtitle         string
-	ConnectionsHeaderSubtitleMobile   string
-	ViewModeGrid                      string
-	ViewModeList                      string
-	AddNewConnectTitle                string
-	AddConnectHintLine1               string
-	AddConnectHintLine2               string
-	ScanQR                            string
-	ScanQRShort                       string
-	PasteLink                         string
-	AddOverUSB                        string
-	AddOverUSBSearching               string
-	AddOverUSBDone                    string
-	AddressViaEthernet                string
-	AddressViaUSB                     string
-	AddressOtherChoices               string
-	AddOverUSBNotFound                string
-	AddOverUSBClaimed                 string
-	AddOverUSBWindowClosed            string
-	AddOverUSBBrowserHTTP             string
-	AddOverUSBForbidden               string
-	ManualEntry                       string
-	OrEnterManually                   string
-	AddConnectionSubtitle             string
-	AddVirtualDisplayTitle            string
-	AddVirtualDisplaySubtitle         string
-	DeleteVirtualDisplayConfirm       string
-	VirtualDisplayPrimary             string
-	VirtualDisplayPrimaryHint         string
-	VirtualDisplayPrimaryToggle       string
-	VirtualDisplayPrimaryFailed       string
-	MonitorPowerToggle                string
-	MonitorPowerFailed                string
-	MonitorPowerLastDisplay           string
-	VirtualDisplayExclusive           string
-	VirtualDisplayExclusiveHint       string
-	VirtualDisplayOfferTitle          string
-	VirtualDisplayOfferSubtitle       string
-	VirtualDisplayOfferCreate         string
-	VirtualDisplayOfferMode           string
-	VirtualDisplayOfferSkip           string
-	VirtualDisplayOfferAsIsSubtitle   string
-	VirtualDisplayOfferNote           string
-	HostAppOfferTitle                 string
-	HostAppOfferSubtitle              string
-	HostAppOfferApp                   string
-	HostAppOfferStart                 string
-	TailscaleRedirectHint             string
-	AutoRegistrationBadge             string
-	ConnectionBadgeUnknown            string
-	ConnectionBadgeUnknownShort       string
-	MenuPowerReset                    string
-	MenuInfo                          string
-	MenuCommunity                     string
-	MenuAccount                       string
-	MenuBenchmark                     string
-	MenuKVMSettings                   string
-	MenuClientSettings                string
+	ConnectionsHeaderSubtitle       string
+	ConnectionsHeaderSubtitleMobile string
+	ViewModeGrid                    string
+	ViewModeList                    string
+	AddNewConnectTitle              string
+	AddConnectHintLine1             string
+	AddConnectHintLine2             string
+	ScanQR                          string
+	ScanQRShort                     string
+	PasteLink                       string
+	AddOverUSB                      string
+	AddOverUSBSearching             string
+	AddOverUSBDone                  string
+	AddressViaEthernet              string
+	AddressViaUSB                   string
+	AddressOtherChoices             string
+	AddOverUSBNotFound              string
+	AddOverUSBClaimed               string
+	AddOverUSBWindowClosed          string
+	AddOverUSBBrowserHTTP           string
+	AddOverUSBForbidden             string
+	ManualEntry                     string
+	OrEnterManually                 string
+	AddConnectionSubtitle           string
+	AddVirtualDisplayTitle          string
+	AddVirtualDisplaySubtitle       string
+	DeleteVirtualDisplayConfirm     string
+	VirtualDisplayPrimary           string
+	VirtualDisplayPrimaryHint       string
+	VirtualDisplayPrimaryToggle     string
+	VirtualDisplayPrimaryFailed     string
+	MonitorPowerToggle              string
+	MonitorPowerFailed              string
+	MonitorPowerLastDisplay         string
+	VirtualDisplayExclusive         string
+	VirtualDisplayExclusiveHint     string
+	VirtualDisplayOfferTitle        string
+	VirtualDisplayOfferSubtitle     string
+	VirtualDisplayOfferCreate       string
+	VirtualDisplayOfferMode         string
+	VirtualDisplayOfferSkip         string
+	VirtualDisplayOfferAsIsSubtitle string
+	VirtualDisplayOfferNote         string
+	HostAppOfferTitle               string
+	HostAppOfferSubtitle            string
+	HostAppOfferApp                 string
+	HostAppOfferStart               string
+	TailscaleRedirectHint           string
+	AutoRegistrationBadge           string
+	ConnectionBadgeUnknown          string
+	ConnectionBadgeUnknownShort     string
+	MenuPowerReset                  string
+	MenuInfo                        string
+	MenuCommunity                   string
+	MenuAccount                     string
+	MenuBenchmark                   string
+	MenuKVMSettings                 string
+	MenuClientSettings              string
+	// Right click / long press on the Tailscale chip: Tailscale or the
+	// user's own Headscale.
+	TailscaleServerTitle              string
+	TailscaleServerTailscale          string
+	TailscaleServerHeadscale          string
+	TailscaleServerAddress            string
+	TailscaleServerHint               string
+	TailscaleServerNeedURL            string
 	KVMNetEthernet                    string
 	KVMNetWiFi                        string
 	KVMEventLog                       string
@@ -972,6 +980,12 @@ func EN() *LocalizedStrings {
 		MenuBenchmark:                     "Run benchmark",
 		MenuKVMSettings:                   "KVM settings",
 		MenuClientSettings:                "Client settings",
+		TailscaleServerTitle:              "Tailscale server",
+		TailscaleServerTailscale:          "Tailscale",
+		TailscaleServerHeadscale:          "My own Headscale",
+		TailscaleServerAddress:            "Server address",
+		TailscaleServerHint:               "Each server keeps its own sign-in: after switching, sign in once; switching back resumes the old login. Agents on your Headscale serve HTTPS with a self-signed certificate on their IP addresses.",
+		TailscaleServerNeedURL:            "Enter your Headscale's address.",
 		KVMNetEthernet:                    "Ethernet",
 		KVMNetWiFi:                        "Wi-Fi",
 		KVMEventLog:                       "Event log",
@@ -2121,6 +2135,12 @@ func ES() *LocalizedStrings {
 	locale.MenuBenchmark = "Ejecutar benchmark"
 	locale.MenuKVMSettings = "Ajustes del KVM"
 	locale.MenuClientSettings = "Ajustes del cliente"
+	locale.TailscaleServerTitle = "Servidor de Tailscale"
+	locale.TailscaleServerTailscale = "Tailscale"
+	locale.TailscaleServerHeadscale = "Mi propio Headscale"
+	locale.TailscaleServerAddress = "Direccion del servidor"
+	locale.TailscaleServerHint = "Cada servidor guarda su propio inicio de sesion: tras cambiar, inicia sesion una vez; al volver se recupera el anterior. Los agentes en tu Headscale sirven HTTPS con un certificado autofirmado en sus direcciones IP."
+	locale.TailscaleServerNeedURL = "Introduce la direccion de tu Headscale."
 	locale.ScrollSpeed = "Desplazamiento con dos dedos"
 	locale.KVMNetEthernet = "Ethernet"
 	locale.KVMNetWiFi = "Wi-Fi"
@@ -2674,6 +2694,12 @@ func UKProper() *LocalizedStrings {
 	locale.MenuBenchmark = "Запустити бенчмарк"
 	locale.MenuKVMSettings = "Налаштування KVM"
 	locale.MenuClientSettings = "Налаштування клієнта"
+	locale.TailscaleServerTitle = "Сервер Tailscale"
+	locale.TailscaleServerTailscale = "Tailscale"
+	locale.TailscaleServerHeadscale = "Власний Headscale"
+	locale.TailscaleServerAddress = "Адреса сервера"
+	locale.TailscaleServerHint = "Кожен сервер має власний вхід: після перемикання увійдіть один раз; повернення відновлює попередній. Агенти у вашому Headscale віддають HTTPS із самопідписаним сертифікатом на своїх IP-адресах."
+	locale.TailscaleServerNeedURL = "Введіть адресу вашого Headscale."
 	locale.ScrollSpeed = "Прокрутка двома пальцями"
 	locale.KVMNetEthernet = "Ethernet"
 	locale.KVMNetWiFi = "Wi-Fi"

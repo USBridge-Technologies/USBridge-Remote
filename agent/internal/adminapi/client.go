@@ -339,6 +339,12 @@ func (c *Client) UpdateTLSAddr(port int, enabled bool) (config.Config, error) {
 	return cfg, err
 }
 
+func (c *Client) SetTailscaleControlURL(url string) (config.Config, error) {
+	var cfg config.Config
+	err := c.do(http.MethodPost, "/token/tailscale-control-url", controlURLBody{URL: url}, &cfg)
+	return cfg, err
+}
+
 func (c *Client) UpdateSunshinePort(port int) (config.Config, error) {
 	var cfg config.Config
 	err := c.do(http.MethodPost, "/token/sunshine-port", sunshinePortBody{Port: port}, &cfg)

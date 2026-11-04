@@ -115,11 +115,13 @@ func withDeviceCertBackendURL(t *testing.T, url string) {
 func newTestAppWithTLS(t *testing.T) *App {
 	t.Helper()
 	dir := t.TempDir()
-	return &App{
+	a := &App{
 		cfgPath: filepath.Join(dir, "config.yaml"),
 		cfg:     config.Config{StateDir: dir, AccountToken: "test-account-token"},
 		tlsMgr:  tlshost.NewManager(dir),
 	}
+	t.Cleanup(a.tlsMgr.WaitBackground)
+	return a
 }
 
 func TestTickDeviceCert_RegistersIPAndInstallsCertOnFirstRun(t *testing.T) {

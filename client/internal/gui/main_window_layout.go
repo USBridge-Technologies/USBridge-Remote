@@ -547,6 +547,7 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 				mw.connectionManager.ToggleTailscale()
 			}
 		},
+		OnTailscaleServer: func() { mw.showTailscaleServerDialog() },
 		OnTransportChanged: func() {
 			if mw.videoWidget != nil {
 				mw.videoWidget.RestartStream("transport-changed")

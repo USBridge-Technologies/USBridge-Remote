@@ -37,9 +37,15 @@ type Config struct {
 	// GuestOwnTailscale: guests reach this computer over the owner's own
 	// Tailscale (the guest's Tailscale must see this node, e.g. a node the
 	// owner shared by hand) instead of the USBridge-run guest network.
-	GuestOwnTailscale bool   `yaml:"guest_own_tailscale,omitempty"`
-	NBDMountCommand   string `yaml:"nbd_mount_command"`
-	StateDir          string `yaml:"state_dir"`
+	GuestOwnTailscale bool `yaml:"guest_own_tailscale,omitempty"`
+	// TailscaleControlURL: the owner's own control server (a self-hosted
+	// Headscale) for this computer's Tailscale; "" = Tailscale's own.
+	// Headscale gives nodes no HTTPS certificates, and device.usbridge.io
+	// names are a scarce shared budget, so with one set the HTTPS listener
+	// keeps its self-signed cert (LAN and tailnet IPs).
+	TailscaleControlURL string `yaml:"tailscale_control_url,omitempty"`
+	NBDMountCommand     string `yaml:"nbd_mount_command"`
+	StateDir            string `yaml:"state_dir"`
 	// Moonlight/Sunshine protocol
 	MasterKey    string `yaml:"master_key"`
 	SunshinePort int    `yaml:"sunshine_port"`
@@ -428,4 +434,10 @@ func resolvePaths(cfg Config, cfgPath string) Config {
 
 func finalize(cfg Config, cfgPath string) (Config, error) {
 	return resolvePaths(cfg, cfgPath), nil
+}
+
+// OwnControlServer reports whether Tailscale registers with the owner's own
+// control server (TailscaleControlURL) instead of Tailscale's.
+func (c Config) OwnControlServer() bool {
+	return strings.TrimSpace(c.TailscaleControlURL) != ""
 }

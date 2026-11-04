@@ -561,6 +561,10 @@ func (m *Manager) noteDemandLocked() {
 	}
 }
 
+// WaitBackground waits for the demand-stamp writes handshakes started in
+// the background -- for tests, before their state dir is removed.
+func (m *Manager) WaitBackground() { m.bg.Wait() }
+
 // DeviceCertDemanded reports whether demand was noted within the window.
 func (m *Manager) DeviceCertDemanded(within time.Duration) bool {
 	m.mu.Lock()

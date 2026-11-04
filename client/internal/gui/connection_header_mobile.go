@@ -32,6 +32,7 @@ func newMobileConnectionHeader(actions connectionHeaderActions) (*fyne.Container
 		tailscaleAccessory = toggle
 	} else {
 		toggle := newTailscaleHeaderToggle(actions.OnToggleTailscale)
+		toggle.onSecondary = actions.OnTailscaleServer
 		toggle.scale = mobileConnectionHeaderScale
 		toggle.wholeChipTappable = true
 		handle.toggle = toggle

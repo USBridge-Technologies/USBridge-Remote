@@ -21,13 +21,16 @@ type tailscaleHeaderToggle struct {
 
 	onTapped func()
 	onPeople func()
-	on       bool
-	loading  bool
-	disabled bool
-	hovered  bool
+	// onSecondary: right click / long press -- the control server choice
+	// (Tailscale or the owner's own Headscale).
+	onSecondary func()
+	on          bool
+	loading     bool
+	disabled    bool
+	hovered     bool
 	peopleHover bool
-	ip       string
-	peers    int
+	ip          string
+	peers       int
 
 	peopleHitX float32
 	peopleHitW float32
@@ -108,7 +111,11 @@ func (t *tailscaleHeaderToggle) Tapped(e *fyne.PointEvent) {
 	t.onTapped()
 }
 
-func (t *tailscaleHeaderToggle) TappedSecondary(*fyne.PointEvent) {}
+func (t *tailscaleHeaderToggle) TappedSecondary(*fyne.PointEvent) {
+	if t.onSecondary != nil && !t.loading {
+		t.onSecondary()
+	}
+}
 
 func (t *tailscaleHeaderToggle) MouseIn(ev *desktop.MouseEvent) {
 	if ev != nil {

@@ -371,6 +371,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	view.RestoreNetGraphPreferences()
 	view.RestorePlayoutBufferPreference()
 	view.RestoreScrollSpeedPreference()
+	restoreTailscaleControlURL(a)
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService()

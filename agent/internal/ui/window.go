@@ -82,6 +82,9 @@ type TokenProvider interface {
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
 	UpdateTLSAddr(port int, enabled bool) (config.Config, error)
+	// SetTailscaleControlURL: the owner's own control server (Headscale),
+	// "" = Tailscale's own -- see app.App.SetTailscaleControlURL.
+	SetTailscaleControlURL(url string) (config.Config, error)
 	UpdateSunshinePort(port int) (config.Config, error)
 	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
 	SunshineStreamHost() string
@@ -1175,6 +1178,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		func() { w.toggleTailscaleAuth() },
 		func() { w.showTailscaleDetailsDialog(win) },
 	)
+	w.tsToggle.onSecondary = func() { w.showControlServerDialog(win) }
 	moonlightHeader := w.newMoonlightHeader(win)
 	w.loginAvatar = newLoginAvatarButton(func() { w.openAccount(win, w.loginAvatar) })
 	if w.token != nil {

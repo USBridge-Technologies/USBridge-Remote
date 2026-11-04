@@ -68,6 +68,9 @@ type TailscaleService struct {
 	controlURL string
 	authKey    string
 	hostname   string
+	// ownControl: the control server the user's own node was started with
+	// (OwnControlURL at the time), so a switch can tell it must restart.
+	ownControl string
 }
 
 func NewTailscaleService() *TailscaleService {
@@ -108,6 +111,22 @@ func (s *TailscaleService) Stop() error {
 		return server.Close()
 	}
 	return nil
+}
+
+// Reset closes the user's own node without signing it out, when its control
+// server changed (SetOwnControlURL): the next use starts a node on the new
+// one, and the old server's login stays in its own state directory.
+func (s *TailscaleService) Reset() {
+	s.mu.Lock()
+	server := s.server
+	if s.controlURL != "" || server == nil || s.ownControl == OwnControlURL() {
+		s.mu.Unlock()
+		return
+	}
+	s.server = nil
+	s.mu.Unlock()
+	logrus.Infof("🛰️ [Tailscale] control server changed, restarting the node")
+	_ = server.Close()
 }
 
 func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus, err error) {
@@ -507,10 +526,18 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 	}
 
 	appName, nodeName := "usbridge-client", "usbridge-client"
+	controlURL := s.controlURL
 	if s.controlURL != "" {
 		appName, nodeName = "usbridge-guest", s.hostname
 	}
 	stateDir := tailscaleStateDir(appName)
+	if s.controlURL == "" {
+		// The user's own node: Tailscale, or their own Headscale (each with
+		// its own identity, see ownControlStateSubdir).
+		controlURL = OwnControlURL()
+		s.ownControl = controlURL
+		stateDir = filepath.Join(filepath.Dir(stateDir), ownControlStateSubdir(controlURL))
+	}
 	if s.controlURL != "" {
 		// One-use key, ephemeral node: nothing to resume, and a stale identity
 		// from an earlier session would only get in the way of the new key.
@@ -524,7 +551,7 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 	s.server = &tsnet.Server{
 		Dir:        stateDir,
 		Hostname:   nodeName,
-		ControlURL: s.controlURL,
+		ControlURL: controlURL,
 		AuthKey:    s.authKey,
 		UserLogf:   s.handleUserLogf,
 		// Logf is required for tsnet's own internal diagnostics (netstack,

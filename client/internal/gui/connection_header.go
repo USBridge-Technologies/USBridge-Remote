@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"runtime"
 	"strings"
+	"time"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
@@ -15,6 +16,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
@@ -32,6 +34,10 @@ type connectionHeaderActions struct {
 	OnOpenHardwareAgent func()
 	OnOpenSoftwareAgent func()
 	OnToggleTailscale   func()
+	// OnTailscaleServer: right click / long press on the Tailscale chip --
+	// Tailscale or the user's own Headscale (a niche choice, so nothing on
+	// screen points at it).
+	OnTailscaleServer func()
 	// OnTransportChanged runs after the browser build's WebRTC/WebTransport
 	// switch flips (the pick is already stored): restart a live stream on
 	// the new transport.
@@ -268,6 +274,7 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 		tailscaleAccessory = newTransportHeaderToggle(actions.OnTransportChanged)
 	} else {
 		toggle := newTailscaleHeaderToggle(actions.OnToggleTailscale)
+		toggle.onSecondary = actions.OnTailscaleServer
 		handle.toggle = toggle
 		tailscaleAccessory = toggle
 	}
@@ -319,10 +326,15 @@ type tailscaleHeaderToggle struct {
 	widget.BaseWidget
 
 	onTapped func()
-	on       bool
-	loading  bool
-	disabled bool
-	hovered  bool
+	// onSecondary: right click (desktop) / long press (phone).
+	onSecondary func()
+	// touchDownAt: when the finger went down, to tell a long press from a
+	// slow tap on a phone (both arrive as TappedSecondary there).
+	touchDownAt time.Time
+	on          bool
+	loading     bool
+	disabled    bool
+	hovered     bool
 	// scale is 1 on desktop. The phone header sets ~1.1 so the chip
 	// grows with the rest of that bar (see newMobileConnectionHeader).
 	scale float32
@@ -423,13 +435,31 @@ func (t *tailscaleHeaderToggle) Tapped(e *fyne.PointEvent) {
 	t.onTapped()
 }
 
-// TappedSecondary: on a phone Fyne turns a tap whose up event the busy UI
-// goroutine reaches after 300ms into a secondary tap; it is a tap there.
+// tailscaleLongPress: held at least this long on a phone, a press opens the
+// control server choice instead of toggling.
+const tailscaleLongPress = 700 * time.Millisecond
+
+// TappedSecondary: right click on desktop opens the control server choice.
+// On a phone Fyne also turns a tap whose up event the busy UI goroutine
+// reaches after 300ms into a secondary tap, so there only a press actually
+// held (TouchDown..now) counts as a long press; anything else is a tap.
 func (t *tailscaleHeaderToggle) TappedSecondary(ev *fyne.PointEvent) {
 	if view.IsMobile() {
-		t.Tapped(ev)
+		held := !t.touchDownAt.IsZero() && time.Since(t.touchDownAt) >= tailscaleLongPress
+		t.touchDownAt = time.Time{}
+		if !held || t.onSecondary == nil {
+			t.Tapped(ev)
+			return
+		}
+	}
+	if t.onSecondary != nil && !t.loading {
+		t.onSecondary()
 	}
 }
+
+func (t *tailscaleHeaderToggle) TouchDown(*mobile.TouchEvent)   { t.touchDownAt = time.Now() }
+func (t *tailscaleHeaderToggle) TouchUp(*mobile.TouchEvent)     {}
+func (t *tailscaleHeaderToggle) TouchCancel(*mobile.TouchEvent) { t.touchDownAt = time.Time{} }
 
 func (t *tailscaleHeaderToggle) MouseIn(e *desktop.MouseEvent) {
 	if t.disabled || t.loading {

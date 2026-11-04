@@ -462,6 +462,6 @@ func TestWithdrawRegisteredHostname_HidesInstalledCertName(t *testing.T) {
 func newTestManager(t *testing.T, dir string) *Manager {
 	t.Helper()
 	m := NewManager(dir)
-	t.Cleanup(m.bg.Wait)
+	t.Cleanup(m.WaitBackground)
 	return m
 }

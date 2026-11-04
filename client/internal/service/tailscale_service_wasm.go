@@ -58,6 +58,9 @@ func (s *TailscaleService) Start(ctx context.Context) error { return errTailscal
 
 func (s *TailscaleService) Stop() error { return nil }
 
+// Reset: nothing to restart in a browser tab.
+func (s *TailscaleService) Reset() {}
+
 func (s *TailscaleService) Status(ctx context.Context) (*TailscaleStatus, error) {
 	return &TailscaleStatus{Running: false, LoggedIn: false}, nil
 }

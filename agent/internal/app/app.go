@@ -623,6 +623,11 @@ func New() (*App, error) {
 		ts:        tailscale.New(cfg.StateDir),
 		clipboard: clipboardMgr,
 	}
+	if u, err := tailscale.NormalizeControlURL(cfg.TailscaleControlURL); err != nil {
+		log.Printf("[app] tailscale_control_url %q ignored: %v", cfg.TailscaleControlURL, err)
+	} else {
+		instance.ts.SetControlURL(u)
+	}
 	// fyneApp is created lazily in Run(), only for a GUI-owning process — a
 	// --headless engine never touches Fyne at all, so it never needs a
 	// display connection (see Run).
@@ -3207,24 +3212,28 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 	if ip == "" {
 		return fmt.Errorf("no LAN interface up")
 	}
+	// The self-signed fallback covers every address this machine is reached
+	// at by IP: loopback, the LAN, and the tailnet (where a self-hosted
+	// Headscale leaves it as the only cert).
+	if err := a.tlsMgr.EnsureSelfSigned(a.selfSignedIPs(ip), nil); err != nil {
+		log.Printf("[app] device-cert: update self-signed TLS cert: %v", err)
+	}
+
+	// The owner's own Headscale: no trusted cert from it (Headscale issues
+	// none), and device.usbridge.io names come out of a 200-record zone
+	// shared by every install -- self-signed and IP addresses only.
+	if a.cfg.TailscaleEnabled && a.cfg.OwnControlServer() {
+		a.tickTailnetCert(ctx) // clears any tailnet cert state
+		a.releaseDeviceDNS(ctx, hwID, "own control server (Headscale): self-signed cert, IP addresses")
+		return nil
+	}
 
 	// On a tailnet with HTTPS certificates the browser gets its trusted
 	// cert from Tailscale, for the node's ts.net name: no record in
 	// usbridge.io's zone (200 records on the free Cloudflare plan -- one
 	// per install filled it). Everyone else keeps device.usbridge.io.
 	if a.tickTailnetCert(ctx) {
-		a.tlsMgr.WithdrawRegisteredHostname()
-		if !a.dnsReleased.Load() {
-			relCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			err := devicecert.ReleaseDNS(relCtx, hwID)
-			cancel()
-			if err != nil {
-				log.Printf("[app] device-cert: release device.usbridge.io record: %v", err)
-			} else {
-				a.dnsReleased.Store(true)
-				log.Printf("🌐 [app] device-cert: reached by tailnet name %s, device.usbridge.io record released", a.tlsMgr.TailnetHostname())
-			}
-		}
+		a.releaseDeviceDNS(ctx, hwID, "reached by tailnet name "+a.tlsMgr.TailnetHostname())
 		return nil
 	}
 	a.dnsReleased.Store(false)
@@ -3250,16 +3259,6 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 		return nil
 	}
 	a.tlsMgr.SetRegisteredHostname(hostname)
-
-	if a.tlsMgr != nil {
-		selfSignedIPs := []net.IP{net.ParseIP("127.0.0.1")}
-		if parsed := net.ParseIP(ip); parsed != nil {
-			selfSignedIPs = append(selfSignedIPs, parsed)
-		}
-		if err := a.tlsMgr.EnsureSelfSigned(selfSignedIPs, nil); err != nil {
-			log.Printf("[app] device-cert: update self-signed TLS cert: %v", err)
-		}
-	}
 
 	currentHostname, needsRefresh := a.tlsMgr.DeviceCertStatus()
 	if currentHostname == hostname && !needsRefresh {
@@ -3294,13 +3293,86 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 	return nil
 }
 
+// releaseDeviceDNS stops handing out this machine's device.usbridge.io name
+// and, once per process (until it is needed again), asks the backend to
+// delete its record -- why says what reaches the machine instead.
+func (a *App) releaseDeviceDNS(ctx context.Context, hwID, why string) {
+	a.tlsMgr.WithdrawRegisteredHostname()
+	if a.dnsReleased.Load() {
+		return
+	}
+	relCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	err := devicecert.ReleaseDNS(relCtx, hwID)
+	cancel()
+	if err != nil {
+		log.Printf("[app] device-cert: release device.usbridge.io record: %v", err)
+		return
+	}
+	a.dnsReleased.Store(true)
+	log.Printf("🌐 [app] device-cert: %s; device.usbridge.io record released", why)
+}
+
+// selfSignedIPs: loopback, the LAN address ip and, when up, this node's
+// tailnet address.
+func (a *App) selfSignedIPs(ip string) []net.IP {
+	ips := []net.IP{net.ParseIP("127.0.0.1")}
+	if parsed := net.ParseIP(ip); parsed != nil {
+		ips = append(ips, parsed)
+	}
+	if a.ts != nil && a.cfg.TailscaleEnabled {
+		if srv, err := a.ts.Server(); err == nil {
+			if ip4, _ := srv.TailscaleIPs(); ip4.IsValid() {
+				ips = append(ips, net.IP(ip4.AsSlice()))
+			}
+		}
+	}
+	return ips
+}
+
+// SetTailscaleControlURL points this computer's Tailscale at the owner's own
+// control server (a self-hosted Headscale; "" = Tailscale's own), saves it,
+// and restarts the node and its listeners on it at once. Each server keeps
+// its own login (see tailscale.controlStateSubdir): switching back resumes
+// the earlier one.
+func (a *App) SetTailscaleControlURL(raw string) (config.Config, error) {
+	u, err := tailscale.NormalizeControlURL(raw)
+	if err != nil {
+		return a.cfg, err
+	}
+	a.cfg.TailscaleControlURL = u
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		return a.cfg, err
+	}
+	if a.ts == nil || !a.ts.SetControlURL(u) {
+		return a.cfg, nil
+	}
+	a.tlsMgr.ClearTailnetCert()
+	a.tlsMgr.SetTailnetHTTPSOff(false, "")
+	a.dnsReleased.Store(false)
+	if a.cfg.TailscaleEnabled {
+		a.restartStreamProxy()
+		go a.startTailscaleHTTP(a.runCtx)
+		go a.startTailscaleHTTPS()
+	}
+	if a.cfg.TLSEnabledOK() {
+		go func() {
+			if err := a.tickDeviceCert(context.Background()); err != nil {
+				log.Printf("[app] device-cert: after control server switch: %v", err)
+			}
+		}()
+	}
+	return a.cfg, nil
+}
+
 // tickTailnetCert fetches (tsnet caches and renews it) the Tailscale cert
 // for this node's MagicDNS name and installs it. Reports whether a valid
 // tailnet cert is being served. A transient failure keeps a still-valid
 // cert; a tailnet without HTTPS certificates, or Tailscale off/signed out,
 // drops it.
 func (a *App) tickTailnetCert(ctx context.Context) bool {
-	if a.ts == nil || !a.cfg.TailscaleEnabled {
+	// Headscale issues no node certificates, so there's nothing to ask a
+	// self-hosted control server for (and no "enable HTTPS" to suggest).
+	if a.ts == nil || !a.cfg.TailscaleEnabled || a.cfg.OwnControlServer() {
 		a.tlsMgr.ClearTailnetCert()
 		a.tlsMgr.SetTailnetHTTPSOff(false, "")
 		return false
