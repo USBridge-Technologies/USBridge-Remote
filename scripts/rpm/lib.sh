@@ -74,13 +74,16 @@ rpm_glibc() {
     echo "libc.so.6(${v:+GLIBC_$v})(64bit)"
 }
 
-# rpm_build ROOT OUTDIR PKG VERSION REQUIRES RECOMMENDS SUMMARY DESCRIPTION
+# rpm_build ROOT OUTDIR PKG VERSION REQUIRES RECOMMENDS SUMMARY DESCRIPTION [HOOKS]
+# Optional HOOKS is a sh file defining usbridge_usbip_configure/
+# usbridge_usbip_remove (agent/scripts/linux-usbip-hooks.sh), run from
+# %post (install and upgrade) and %preun (erase only).
 # REQUIRES and RECOMMENDS are comma-separated; "libc" in REQUIRES becomes
 # rpm_glibc's minimum. Writes OUTDIR/PKG-VERSION-1.x86_64.rpm. Dependencies
 # are only these: the bundled libraries under /opt must not turn into
 # automatic Requires/Provides.
 rpm_build() {
-    local root="$1" outdir="$2" pkg="$3" version="$4" requires="$5" recommends="$6" summary="$7" description="$8"
+    local root="$1" outdir="$2" pkg="$3" version="$4" requires="$5" recommends="$6" summary="$7" description="$8" hooks="${9:-}"
     local top spec f
     requires="$(printf '%s' "$requires" | sed "s/^libc\(,\|$\)/$(rpm_glibc "$root")\1/")"
     top="$(mktemp -d)"
@@ -104,6 +107,16 @@ rpm_build() {
         echo "%install"
         echo "cp -a '$root/.' %{buildroot}/"
         echo
+        if [[ -n "$hooks" ]]; then
+            echo "%post"
+            cat "$hooks"
+            echo "usbridge_usbip_configure"
+            echo
+            echo "%preun"
+            cat "$hooks"
+            echo 'if [ "$1" -eq 0 ]; then usbridge_usbip_remove; fi'
+            echo
+        fi
         echo "%files"
         echo "%defattr(-,root,root,-)"
         (cd "$root" && find . -mindepth 1 \( -type f -o -type l \) -printf '/%P\n' | LC_ALL=C sort) | while read -r f; do

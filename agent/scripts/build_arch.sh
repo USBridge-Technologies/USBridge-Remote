@@ -34,7 +34,14 @@ mkdir -p "$ROOT$LIBDIR" "$ROOT/usr/bin" "$ROOT/usr/share/applications" "$ROOT/us
 install -m 0755 "$DIST_DIR/usbridge-agent" "$ROOT$LIBDIR/usbridge-agent"
 install -m 0755 "$DIST_DIR/usbridge-streamer-launch" "$ROOT$LIBDIR/usbridge-streamer-launch"
 ln -s "../lib/usbridge-agent/usbridge-agent" "$ROOT/usr/bin/usbridge-agent"
-arch_add_repo "$ROOT" usbridge-agent "$LIBDIR"
+# USB passthrough works out of the box: the polkit rule the postinst
+# installs (linux-usbip-hooks.sh), and the marker that counts installing
+# this package as consent to the closed usb-broker (config.
+# USBBrokerConsentGiven) -- so no "Enable USB Broker" click is needed.
+install -m 0644 "$REPO_ROOT/internal/usbpass/usbip-polkit.rules" "$ROOT$LIBDIR/usbip-polkit.rules"
+: > "$ROOT$LIBDIR/usb-broker-consent"
+chmod 0644 "$ROOT$LIBDIR/usb-broker-consent"
+arch_add_repo "$ROOT" usbridge-agent "$LIBDIR" "$SCRIPT_DIR/linux-usbip-hooks.sh"
 
 install -m 0644 "$REPO_ROOT/assets/icons/appicon-256.png" "$ROOT/usr/share/icons/hicolor/256x256/apps/usbridge-agent.png"
 cat > "$ROOT/usr/share/applications/usbridge-agent.desktop" <<'DESKTOP'
@@ -53,5 +60,6 @@ DESKTOP
 # link or load without bundling — checked with ldd on clean installs.
 arch_build "$ROOT" "$REPO_ROOT/dist" usbridge-agent "$VERSION" \
     "glibc gcc-libs libglvnd mesa libdrm vulkan-icd-loader libx11 libxcb libxrandr libxinerama libxi libxcursor libxxf86vm libxkbcommon wayland libpipewire libgpg-error" \
-    "polkit: in-app updates" \
+    "polkit: in-app updates
+usbip: USB passthrough (installed by the agent on first start otherwise)" \
     "USBridge Agent - remote access host"

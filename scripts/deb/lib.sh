@@ -18,9 +18,11 @@ DEB_PACKAGES="usbridge-agent usbridge-client"
 # deb_add_repo ROOT PKG LIBDIR: stages the keyring, the apt-upgrade helper
 # (LIBDIR/apt-upgrade, run as root through pkexec by the app's update
 # dialog) and the maintainer scripts. LIBDIR is the install path, e.g.
-# /usr/lib/usbridge-agent.
+# /usr/lib/usbridge-agent. Optional HOOKS is a sh file defining
+# usbridge_usbip_configure/usbridge_usbip_remove (agent/scripts/
+# linux-usbip-hooks.sh), inlined into postinst/prerm and run there.
 deb_add_repo() {
-    local root="$1" pkg="$2" libdir="$3"
+    local root="$1" pkg="$2" libdir="$3" hooks="${4:-}"
     mkdir -p "$root/DEBIAN" "$root$libdir"
     install -m 0644 "$DEB_LIB_DIR/usbridge-archive-keyring.gpg" "$root$libdir/archive-keyring.gpg"
 
@@ -78,6 +80,11 @@ if [ "\$1" = purge ]; then
     rm -f $DEB_LIST $DEB_KEYRING
 fi
 EOF
+    if [ -n "$hooks" ]; then
+        { cat "$hooks"; echo 'if [ "$1" = configure ]; then usbridge_usbip_configure; fi'; } >> "$root/DEBIAN/postinst"
+        { echo '#!/bin/sh'; echo 'set -e'; cat "$hooks"; echo 'if [ "$1" = remove ]; then usbridge_usbip_remove; fi'; } > "$root/DEBIAN/prerm"
+        chmod 0755 "$root/DEBIAN/prerm"
+    fi
     chmod 0755 "$root/DEBIAN/postinst" "$root/DEBIAN/postrm"
 }
 

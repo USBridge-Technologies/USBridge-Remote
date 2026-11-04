@@ -39,7 +39,7 @@ usbridge_usbip_configure() {
             install -m 0644 $USBRIDGE_LIBDIR/usbip-polkit.rules $USBRIDGE_USBIP_RULE 2>/dev/null || true
     fi
     if [ -d /etc/modules-load.d ] || mkdir -p /etc/modules-load.d 2>/dev/null; then
-        echo vhci-hcd > $USBRIDGE_VHCI_CONF 2>/dev/null || true
+        { echo vhci-hcd > $USBRIDGE_VHCI_CONF; } 2>/dev/null || true
     fi
     modprobe vhci-hcd >/dev/null 2>&1 || true
     return 0

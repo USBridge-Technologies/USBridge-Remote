@@ -943,6 +943,7 @@ func (a *App) Run(headless, startHidden bool) error {
 		if err := a.usbBroker.Start(); err != nil {
 			log.Printf("[usbpass] broker not started: %v", err)
 		}
+		a.autoSetupUSBPassthrough()
 	}
 	if a.clipboard != nil {
 		go a.clipboard.Run(ctx)
@@ -3301,11 +3302,12 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 func (a *App) tickTailnetCert(ctx context.Context) bool {
 	if a.ts == nil || !a.cfg.TailscaleEnabled {
 		a.tlsMgr.ClearTailnetCert()
+		a.tlsMgr.SetTailnetHTTPSOff(false, "")
 		return false
 	}
 	certCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
 	domain, certPEM, keyPEM, err := a.ts.CertPair(certCtx)
-	cancel()
 	if err == nil {
 		err = a.tlsMgr.InstallTailnetCert(domain, certPEM, keyPEM)
 	}
@@ -3316,10 +3318,20 @@ func (a *App) tickTailnetCert(ctx context.Context) bool {
 		}
 		if errors.Is(err, tailscale.ErrHTTPSCertsDisabled) {
 			a.tlsMgr.ClearTailnetCert()
+			// The certificate dialog's help: the Tailscale page an admin
+			// turns HTTPS on at (a node can't do it itself).
+			enableURL, _, qerr := a.ts.HTTPSEnableURL(certCtx)
+			if qerr != nil {
+				log.Printf("[app] device-cert: query Tailscale HTTPS enablement: %v", qerr)
+			}
+			a.tlsMgr.SetTailnetHTTPSOff(true, enableURL)
+		} else {
+			a.tlsMgr.SetTailnetHTTPSOff(false, "")
 		}
 		return a.tlsMgr.TailnetHostname() != ""
 	}
 	a.tailnetCertErr.Store("")
+	a.tlsMgr.SetTailnetHTTPSOff(false, "")
 	return true
 }
 

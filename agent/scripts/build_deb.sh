@@ -36,7 +36,14 @@ mkdir -p "$ROOT$LIBDIR" "$ROOT/usr/bin" "$ROOT/usr/share/applications" "$ROOT/us
 install -m 0755 "$DIST_DIR/usbridge-agent" "$ROOT$LIBDIR/usbridge-agent"
 install -m 0755 "$DIST_DIR/usbridge-streamer-launch" "$ROOT$LIBDIR/usbridge-streamer-launch"
 ln -s "../lib/usbridge-agent/usbridge-agent" "$ROOT/usr/bin/usbridge-agent"
-deb_add_repo "$ROOT" usbridge-agent "$LIBDIR"
+# USB passthrough works out of the box: the polkit rule the postinst
+# installs (linux-usbip-hooks.sh), and the marker that counts installing
+# this package as consent to the closed usb-broker (config.
+# USBBrokerConsentGiven) -- so no "Enable USB Broker" click is needed.
+install -m 0644 "$REPO_ROOT/internal/usbpass/usbip-polkit.rules" "$ROOT$LIBDIR/usbip-polkit.rules"
+: > "$ROOT$LIBDIR/usb-broker-consent"
+chmod 0644 "$ROOT$LIBDIR/usb-broker-consent"
+deb_add_repo "$ROOT" usbridge-agent "$LIBDIR" "$SCRIPT_DIR/linux-usbip-hooks.sh"
 
 install -m 0644 "$REPO_ROOT/assets/icons/appicon-256.png" "$ROOT/usr/share/icons/hicolor/256x256/apps/usbridge-agent.png"
 cat > "$ROOT/usr/share/applications/usbridge-agent.desktop" <<'EOF'
@@ -55,7 +62,7 @@ EOF
 # link or load without bundling — checked with ldd on clean installs.
 deb_build "$ROOT" "$OUT" usbridge-agent "$VERSION" \
     "libc6, libstdc++6, libgl1, libegl1, libgbm1, libdrm2, libvulkan1, libx11-6, libx11-xcb1, libxcb1, libxrandr2, libxinerama1, libxi6, libxcursor1, libxxf86vm1, libxkbcommon0, libwayland-client0, libpipewire-0.3-0t64 | libpipewire-0.3-0, libgpg-error0" \
-    "pkexec | policykit-1" net \
+    "pkexec | policykit-1, usbip | linux-tools-generic" net \
     "USBridge Agent - remote access host" \
     "Streams this computer's desktop to USBridge clients and shares its USB
 devices. Downloads the selected streamer (USBridge Streamer or Sunshine)

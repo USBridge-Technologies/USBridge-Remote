@@ -27,9 +27,12 @@ ARCH_PACKAGES="usbridge-agent usbridge-client"
 # helper (LIBDIR/pacman-upgrade, run as root through pkexec by the app's
 # update dialog) and the install script. LIBDIR is the install path, e.g.
 # /usr/lib/usbridge-agent; the other package's LIBDIR tells post_remove
-# whether it's still installed.
+# whether it's still installed. Optional HOOKS is a sh file defining
+# usbridge_usbip_configure/usbridge_usbip_remove (agent/scripts/
+# linux-usbip-hooks.sh), inlined into .INSTALL and run on install, upgrade
+# and removal.
 arch_add_repo() {
-    local root="$1" pkg="$2" libdir="$3" fpr others="" p
+    local root="$1" pkg="$2" libdir="$3" hooks="${4:-}" fpr others="" p configure="" remove=""
     mkdir -p "$root$libdir"
     install -m 0644 "$ARCH_KEYRING_SRC" "$root$libdir/archive-keyring.gpg"
     fpr="$(gnupg="$(mktemp -d)"; gpg --homedir "$gnupg" --batch --with-colons --show-keys "$ARCH_KEYRING_SRC" 2>/dev/null \
@@ -60,7 +63,14 @@ EOF
     chmod 0755 "$root$libdir/pacman-upgrade"
     polkit_add_policy "$root" "$libdir" pacman-upgrade
 
+    if [[ -n "$hooks" ]]; then
+        configure="    usbridge_usbip_configure"
+        remove="    usbridge_usbip_remove"
+    fi
+
     cat > "$root/.INSTALL" <<EOF
+${hooks:+$(cat "$hooks")}
+
 _keyrings=/usr/share/pacman/keyrings
 
 _add_key() {
@@ -72,6 +82,7 @@ _add_key() {
 
 post_install() {
     _add_key
+$configure
     if ! grep -q '^\[$ARCH_REPO\]' /etc/pacman.conf; then
         cat >> /etc/pacman.conf <<'CONF'
 
@@ -85,9 +96,11 @@ CONF
 
 post_upgrade() {
     _add_key
+$configure
 }
 
 post_remove() {
+$remove
     for d in$others; do
         [ -e "\$d" ] && return 0
     done

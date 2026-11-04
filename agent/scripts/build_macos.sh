@@ -102,6 +102,9 @@ echo -e "${GREEN}Building usbridge_agent for macOS${NC}"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+# Installing the app counts as consent to the closed usb-broker (see
+# config.USBBrokerConsentGiven), so USB passthrough needs no extra click.
+: > "$APP_RESOURCES/usb-broker-consent"
 
 export CGO_ENABLED=1
 

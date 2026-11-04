@@ -34,6 +34,13 @@ mkdir -p "$ROOT$LIBDIR" "$ROOT/usr/bin" "$ROOT/usr/share/applications" "$ROOT/us
 install -m 0755 "$DIST_DIR/usbridge-agent" "$ROOT$LIBDIR/usbridge-agent"
 install -m 0755 "$DIST_DIR/usbridge-streamer-launch" "$ROOT$LIBDIR/usbridge-streamer-launch"
 ln -s "../lib/usbridge-agent/usbridge-agent" "$ROOT/usr/bin/usbridge-agent"
+# USB passthrough works out of the box: the polkit rule the postinst
+# installs (linux-usbip-hooks.sh), and the marker that counts installing
+# this package as consent to the closed usb-broker (config.
+# USBBrokerConsentGiven) -- so no "Enable USB Broker" click is needed.
+install -m 0644 "$REPO_ROOT/internal/usbpass/usbip-polkit.rules" "$ROOT$LIBDIR/usbip-polkit.rules"
+: > "$ROOT$LIBDIR/usb-broker-consent"
+chmod 0644 "$ROOT$LIBDIR/usb-broker-consent"
 rpm_add_repo "$ROOT" "$LIBDIR"
 
 install -m 0644 "$REPO_ROOT/assets/icons/appicon-256.png" "$ROOT/usr/share/icons/hicolor/256x256/apps/usbridge-agent.png"
@@ -53,8 +60,9 @@ DESKTOP
 # link or load without bundling — checked with ldd on clean installs.
 rpm_build "$ROOT" "$REPO_ROOT/dist" usbridge-agent "$VERSION" \
     "libc, libstdc++.so.6()(64bit), libGL.so.1()(64bit), libEGL.so.1()(64bit), libgbm.so.1()(64bit), libdrm.so.2()(64bit), libvulkan.so.1()(64bit), libX11.so.6()(64bit), libX11-xcb.so.1()(64bit), libxcb.so.1()(64bit), libXrandr.so.2()(64bit), libXinerama.so.1()(64bit), libXi.so.6()(64bit), libXcursor.so.1()(64bit), libXxf86vm.so.1()(64bit), libxkbcommon.so.0()(64bit), libwayland-client.so.0()(64bit), libpipewire-0.3.so.0()(64bit), libgpg-error.so.0()(64bit)" \
-    "polkit" \
+    "polkit, usbip" \
     "USBridge Agent - remote access host" \
     "Streams this computer's desktop to USBridge clients and shares its USB
 devices. Downloads the selected streamer (USBridge Streamer or Sunshine)
-on first run and keeps it up to date."
+on first run and keeps it up to date." \
+    "$SCRIPT_DIR/linux-usbip-hooks.sh"

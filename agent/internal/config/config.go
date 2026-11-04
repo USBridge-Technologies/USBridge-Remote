@@ -288,12 +288,47 @@ func (c Config) RemoteWindowLockEnabled() bool {
 	return c.RemoteWindowLock != nil && *c.RemoteWindowLock
 }
 
-// USBBrokerConsentGiven is true only once the user has explicitly clicked
-// the USB status row's enable button (App.EnableUSBBroker). Omitted YAML
-// (nil) is false -- the closed usb-broker binary stays un-downloaded and
-// un-started until this flips, regardless of license tier.
+// USBBrokerConsentGiven is true once the user has opted into the closed
+// usb-broker: by the USB status row's enable button (App.EnableUSBBroker),
+// by the Windows installer's "USB passthrough driver" task (which seeds
+// usb_broker_consent: true), or by installing a Linux package / macOS app
+// that ships the installerUSBBrokerConsent marker -- so a fresh install
+// passes USB through without an extra click. An explicit
+// usb_broker_consent: false in config.yaml always wins over the marker.
 func (c Config) USBBrokerConsentGiven() bool {
-	return c.USBBrokerConsent != nil && *c.USBBrokerConsent
+	if c.USBBrokerConsent != nil {
+		return *c.USBBrokerConsent
+	}
+	return installerUSBBrokerConsent()
+}
+
+// usbBrokerConsentMarker is the empty file the Linux packages put next to
+// the agent binary (agent/scripts/build_{deb,rpm,arch}.sh) and the macOS
+// build puts in the app's Resources (build_macos.sh).
+const usbBrokerConsentMarker = "usb-broker-consent"
+
+func installerUSBBrokerConsent() bool {
+	if runtime.GOOS == "windows" {
+		// The installer writes usb_broker_consent itself (USBridgeAgent.iss).
+		return false
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	dir := filepath.Dir(exe)
+	for _, p := range []string{
+		filepath.Join(dir, usbBrokerConsentMarker),
+		filepath.Join(dir, "..", "Resources", usbBrokerConsentMarker),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func Load(path string) (Config, error) {
