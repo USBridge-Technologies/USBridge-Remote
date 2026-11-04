@@ -34,9 +34,12 @@ func TestRegisterIP_SendsHwIDAndIPReturnsHostname(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"hostname": "abc123.device.usbridge.io"})
 	})
 
-	hostname, err := RegisterIP(context.Background(), "hw-1", "192.168.1.50")
+	hostname, published, err := RegisterIP(context.Background(), "hw-1", "192.168.1.50", "")
 	if err != nil {
 		t.Fatalf("RegisterIP: %v", err)
+	}
+	if !published {
+		t.Error("a backend without the published field must read as published")
 	}
 	if hostname != "abc123.device.usbridge.io" {
 		t.Errorf("hostname = %q, want abc123.device.usbridge.io", hostname)
@@ -52,8 +55,43 @@ func TestRegisterIP_PropagatesBackendError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"refusing to publish non-private address"}`))
 	})
 
-	if _, err := RegisterIP(context.Background(), "hw-1", "8.8.8.8"); err == nil {
+	if _, _, err := RegisterIP(context.Background(), "hw-1", "8.8.8.8", ""); err == nil {
 		t.Fatal("expected an error when the backend rejects the IP, got nil")
+	}
+}
+
+func TestRegisterIP_SendsAccountTokenAndReadsPublished(t *testing.T) {
+	var gotAuth string
+	server(t, func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"hostname":"abc123.device.usbridge.io","published":false}`))
+	})
+	_, published, err := RegisterIP(context.Background(), "hw-1", "192.168.1.50", "tok")
+	if err != nil {
+		t.Fatalf("RegisterIP: %v", err)
+	}
+	if published {
+		t.Error("published = true, want false")
+	}
+	if gotAuth != "Bearer tok" {
+		t.Errorf("Authorization = %q, want Bearer tok", gotAuth)
+	}
+}
+
+func TestReleaseDNS_SendsRelease(t *testing.T) {
+	var got map[string]any
+	server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/device/dns" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"released":true}`))
+	})
+	if err := ReleaseDNS(context.Background(), "hw-1"); err != nil {
+		t.Fatalf("ReleaseDNS: %v", err)
+	}
+	if got["hw_id"] != "hw-1" || got["release"] != true {
+		t.Errorf("body = %+v", got)
 	}
 }
 

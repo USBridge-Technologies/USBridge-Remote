@@ -109,9 +109,23 @@ type Manager struct {
 	// up. registeredHostname is the name the backend points at this machine
 	// (known before any cert); a TLS handshake for it is the demand.
 	registeredHostname string
-	lastDemand         time.Time
-	persistedDemand    time.Time
-	demandC            chan struct{}
+
+	// tailnet/tailnetLeaf/tailnetHostname: the Tailscale-issued cert for
+	// this node's own MagicDNS name (<node>.<tailnet>.ts.net, see
+	// tailscale.Service.CertPair) -- what a browser on the same tailnet
+	// gets, with no record in usbridge.io's DNS zone (the free Cloudflare
+	// plan caps that zone at 200 records, and one per device filled it).
+	// Not persisted: tsnet keeps the pair in its own state dir.
+	tailnet         *tls.Certificate
+	tailnetLeaf     *x509.Certificate
+	tailnetHostname string
+
+	// dnsWithdrawn: see WithdrawRegisteredHostname.
+	dnsWithdrawn bool
+
+	lastDemand      time.Time
+	persistedDemand time.Time
+	demandC         chan struct{}
 }
 
 // NewManager returns a Manager persisting its certs under dir (created on
@@ -322,6 +336,45 @@ func (m *Manager) InstallDeviceCert(hostname, certPEM string) error {
 	return nil
 }
 
+// InstallTailnetCert installs the Tailscale-issued pair for hostname (see
+// the tailnet field doc comment). Idempotent: an unchanged pair is a no-op.
+func (m *Manager) InstallTailnetCert(hostname string, certPEM, keyPEM []byte) error {
+	cert, leaf, err := parseCertKeyPair(certPEM, keyPEM)
+	if err != nil {
+		return fmt.Errorf("tlshost: parse tailnet cert: %w", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.tailnetLeaf != nil && m.tailnetHostname == hostname && m.tailnetLeaf.Equal(leaf) {
+		return nil
+	}
+	m.tailnet, m.tailnetLeaf, m.tailnetHostname = cert, leaf, hostname
+	log.Printf("🔒 [tls] tailnet cert ready for %s (valid until %s)", hostname, leaf.NotAfter.Format(time.RFC3339))
+	return nil
+}
+
+// ClearTailnetCert drops the tailnet cert (Tailscale signed out, or HTTPS
+// certificates turned off for the tailnet).
+func (m *Manager) ClearTailnetCert() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.tailnet != nil {
+		log.Printf("🔒 [tls] tailnet cert for %s dropped", m.tailnetHostname)
+	}
+	m.tailnet, m.tailnetLeaf, m.tailnetHostname = nil, nil, ""
+}
+
+// TailnetHostname is the MagicDNS name a valid tailnet cert is installed
+// for, "" without one (or once it expired).
+func (m *Manager) TailnetHostname() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.tailnetLeaf == nil || time.Now().After(m.tailnetLeaf.NotAfter) {
+		return ""
+	}
+	return m.tailnetHostname
+}
+
 // DeviceCertStatus reports the hostname the current device cert (if any)
 // was installed for, and whether it's missing or expiring soon -- what the
 // background watchdog needs to decide if a FetchCert round trip is worth
@@ -360,6 +413,11 @@ type CertStatus struct {
 	// than leaving the user stuck on a stale self-signed fallback with no
 	// explanation of why the trusted hostname never showed up.
 	LastError string `json:"lastError,omitempty"`
+	// TailnetHostname is this node's <node>.<tailnet>.ts.net name while a
+	// Tailscale-issued cert for it is served (see InstallTailnetCert) --
+	// independent of Hostname/LetsEncrypt, which describe the
+	// device.usbridge.io name.
+	TailnetHostname string `json:"tailnetHostname,omitempty"`
 }
 
 // CertStatus reports what GetCertificate is currently serving -- cheap,
@@ -371,11 +429,17 @@ func (m *Manager) CertStatus() CertStatus {
 	if m.lastCertErr != nil {
 		errMsg = m.lastCertErr.Error()
 	}
-	if m.device != nil && m.deviceLeaf != nil {
-		return CertStatus{Hostname: m.deviceHostname, LetsEncrypt: true, ExpiresAt: m.deviceLeaf.NotAfter, LastError: errMsg}
+	tailnetHost := ""
+	if m.tailnetLeaf != nil && time.Now().Before(m.tailnetLeaf.NotAfter) {
+		tailnetHost = m.tailnetHostname
 	}
-	st := CertStatus{Hostname: m.deviceHostname, LastError: errMsg}
-	if m.selfLeaf != nil {
+	if m.device != nil && m.deviceLeaf != nil {
+		return CertStatus{Hostname: m.deviceHostname, LetsEncrypt: true, ExpiresAt: m.deviceLeaf.NotAfter, LastError: errMsg, TailnetHostname: tailnetHost}
+	}
+	st := CertStatus{Hostname: m.deviceHostname, LastError: errMsg, TailnetHostname: tailnetHost}
+	if tailnetHost != "" {
+		st.ExpiresAt = m.tailnetLeaf.NotAfter
+	} else if m.selfLeaf != nil {
 		st.ExpiresAt = m.selfLeaf.NotAfter
 	}
 	return st
@@ -394,6 +458,9 @@ func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 	if hello.ServerName != "" && m.device != nil && hostnamesEqual(hello.ServerName, m.deviceHostname) {
 		return m.device, nil
 	}
+	if hello.ServerName != "" && m.tailnet != nil && hostnamesEqual(hello.ServerName, m.tailnetHostname) {
+		return m.tailnet, nil
+	}
 	if m.self != nil {
 		return m.self, nil
 	}
@@ -406,6 +473,19 @@ func (m *Manager) SetRegisteredHostname(hostname string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.registeredHostname = hostname
+	m.dnsWithdrawn = false
+}
+
+// WithdrawRegisteredHostname records that the backend no longer points the
+// device.usbridge.io name at this machine (it is reached by its tailnet
+// name instead, or no account is signed in to own the name): until the next
+// SetRegisteredHostname, RegisteredHostname is "" even with a cert for that
+// name still on disk -- a link to a name that doesn't resolve helps nobody.
+func (m *Manager) WithdrawRegisteredHostname() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.registeredHostname = ""
+	m.dnsWithdrawn = true
 }
 
 // RegisteredHostname is the registered name, else the one the installed
@@ -413,7 +493,7 @@ func (m *Manager) SetRegisteredHostname(hostname string) {
 func (m *Manager) RegisteredHostname() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.registeredHostname != "" {
+	if m.registeredHostname != "" || m.dnsWithdrawn {
 		return m.registeredHostname
 	}
 	return m.deviceHostname

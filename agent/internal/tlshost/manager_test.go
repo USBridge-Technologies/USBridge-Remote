@@ -404,3 +404,55 @@ func TestLoadPersisted_KeepsOwnPerDeviceCert(t *testing.T) {
 		t.Fatalf("own per-device cert should survive a restart, got host=%q needsRefresh=%v", host, needsRefresh)
 	}
 }
+
+func TestInstallTailnetCert_GetCertificatePicksItBySNI(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.EnsureSelfSigned([]net.IP{net.ParseIP("127.0.0.1")}, nil); err != nil {
+		t.Fatal(err)
+	}
+	certPEM, keyPEM, err := generateSelfSignedCertificate(nil, []string{"pc.tail1234.ts.net"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.InstallTailnetCert("pc.tail1234.ts.net", certPEM, keyPEM); err != nil {
+		t.Fatalf("InstallTailnetCert: %v", err)
+	}
+	if got := m.TailnetHostname(); got != "pc.tail1234.ts.net" {
+		t.Errorf("TailnetHostname = %q", got)
+	}
+	got, err := m.GetCertificate(&tls.ClientHelloInfo{ServerName: "PC.tail1234.ts.net."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, _ := x509.ParseCertificate(got.Certificate[0])
+	if len(leaf.DNSNames) != 1 || leaf.DNSNames[0] != "pc.tail1234.ts.net" {
+		t.Errorf("SNI ts.net got cert for %v, want the tailnet cert", leaf.DNSNames)
+	}
+	other, _ := m.GetCertificate(&tls.ClientHelloInfo{ServerName: "other.example"})
+	if other == got {
+		t.Error("another SNI name must get the self-signed cert, not the tailnet one")
+	}
+	if st := m.CertStatus(); st.TailnetHostname != "pc.tail1234.ts.net" {
+		t.Errorf("CertStatus.TailnetHostname = %q", st.TailnetHostname)
+	}
+	m.ClearTailnetCert()
+	if m.TailnetHostname() != "" {
+		t.Error("TailnetHostname should be empty after ClearTailnetCert")
+	}
+}
+
+func TestWithdrawRegisteredHostname_HidesInstalledCertName(t *testing.T) {
+	m := NewManager(t.TempDir())
+	installTestDeviceCert(t, m, "abc.device.usbridge.test")
+	if got := m.RegisteredHostname(); got != "abc.device.usbridge.test" {
+		t.Fatalf("RegisteredHostname = %q before withdraw", got)
+	}
+	m.WithdrawRegisteredHostname()
+	if got := m.RegisteredHostname(); got != "" {
+		t.Errorf("RegisteredHostname = %q after withdraw, want empty", got)
+	}
+	m.SetRegisteredHostname("abc.device.usbridge.test")
+	if got := m.RegisteredHostname(); got != "abc.device.usbridge.test" {
+		t.Errorf("RegisteredHostname = %q after re-register", got)
+	}
+}

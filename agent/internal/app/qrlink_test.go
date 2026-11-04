@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildQRLinkIncludesHwID(t *testing.T) {
-	link := buildQRLink("192.168.1.50", "", "master-secret", "hw-123")
+	link := buildQRLink("192.168.1.50", "", "", "master-secret", "hw-123")
 	if link == "" {
 		t.Fatal("expected a non-empty link")
 	}
@@ -26,7 +26,7 @@ func TestBuildQRLinkIncludesHwID(t *testing.T) {
 }
 
 func TestBuildQRLinkOmitsHwIDWhenEmpty(t *testing.T) {
-	link := buildQRLink("192.168.1.50", "", "master-secret", "")
+	link := buildQRLink("192.168.1.50", "", "", "master-secret", "")
 	u, err := url.Parse(link)
 	if err != nil {
 		t.Fatalf("parse link: %v", err)

@@ -964,7 +964,16 @@ func (w *Window) refreshCertStatusUI(st tlshost.CertStatus, loggedIn bool) {
 		w.certRow.Hide()
 		return
 	}
-	if st.LetsEncrypt {
+	if st.TailnetHostname != "" {
+		// Trusted via Tailscale (browsers on the tailnet): see
+		// tlshost.Manager.InstallTailnetCert.
+		w.certWarn.Hide()
+		if w.certVal.Text != st.TailnetHostname || w.certVal.Color != design.ColorAddress {
+			w.certVal.Text = st.TailnetHostname
+			w.certVal.Color = design.ColorAddress
+			w.certVal.Refresh()
+		}
+	} else if st.LetsEncrypt {
 		w.certWarn.Hide()
 		if w.certVal.Text != st.Hostname || w.certVal.Color != design.ColorAddress {
 			w.certVal.Text = st.Hostname
@@ -3401,7 +3410,8 @@ func isActiveTailscalePeer(p tailscale.Peer) bool {
 	return false
 }
 
-func buildQuickConnectLink(internalHost, tailscaleHost string, masterKey, protocol, hwID string) string {
+// deviceHost: see app.buildQRLink -- the ts.net name a browser uses.
+func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, masterKey, protocol, hwID string) string {
 	masterKey = strings.TrimSpace(masterKey)
 	if masterKey == "" || masterKey == "unavailable" {
 		return ""
@@ -3416,6 +3426,9 @@ func buildQuickConnectLink(internalHost, tailscaleHost string, masterKey, protoc
 	}
 	if strings.TrimSpace(tailscaleHost) != "" {
 		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
+	}
+	if strings.TrimSpace(deviceHost) != "" {
+		values.Set("device_host", strings.TrimSpace(deviceHost))
 	}
 	values.Set("master_key", masterKey)
 	if strings.TrimSpace(protocol) != "" {

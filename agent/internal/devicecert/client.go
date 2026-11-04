@@ -61,15 +61,31 @@ func httpClient() *http.Client { return &http.Client{Timeout: httpTimeout} }
 // the hostname (<label>.device.usbridge.io) it should now answer to over
 // TLS. ip must be a private-use/link-local address (see
 // internal/netutil.PreferredIPv4) -- the backend refuses anything else.
-func RegisterIP(ctx context.Context, hwID, ip string) (hostname string, err error) {
+//
+// published is false when the backend kept no DNS record for the name: it
+// publishes one only for a name a USBridge account owns (accountToken, sent
+// when non-empty, claims it), since without an account there is no trusted
+// cert for it anyway and the zone's record budget is small. A backend that
+// predates this answers without the field: published.
+func RegisterIP(ctx context.Context, hwID, ip, accountToken string) (hostname string, published bool, err error) {
 	reqBody, _ := json.Marshal(map[string]string{"hw_id": hwID, "ip": ip})
 	var raw struct {
-		Hostname string `json:"hostname"`
+		Hostname  string `json:"hostname"`
+		Published *bool  `json:"published"`
 	}
-	if err := doJSON(ctx, http.MethodPost, "/v1/device/dns", reqBody, &raw); err != nil {
-		return "", err
+	if err := doJSONAuth(ctx, http.MethodPost, "/v1/device/dns", reqBody, accountToken, &raw); err != nil {
+		return "", false, err
 	}
-	return raw.Hostname, nil
+	return raw.Hostname, raw.Published == nil || *raw.Published, nil
+}
+
+// ReleaseDNS asks the backend to delete this machine's
+// <label>.device.usbridge.io record -- it is reached by its tailnet name
+// now (see tlshost.Manager.InstallTailnetCert), so the record would only
+// take a slot in the zone. A later RegisterIP brings it back.
+func ReleaseDNS(ctx context.Context, hwID string) error {
+	reqBody, _ := json.Marshal(map[string]any{"hw_id": hwID, "release": true})
+	return doJSON(ctx, http.MethodPost, "/v1/device/dns", reqBody, nil)
 }
 
 // Cert is the leaf certificate the backend signed for this device's own

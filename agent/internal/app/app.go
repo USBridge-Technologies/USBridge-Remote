@@ -98,6 +98,10 @@ type App struct {
 	tsProxy   *tailscale.StreamProxy
 	server    *http.Server
 	tsHTTP    *http.Server
+	// tsHTTPS serves the HTTPS listener on the tailnet too (TLSPort, same
+	// handler and certificate dispatch as tlsServer) -- what a browser on
+	// the tailnet reaches at https://<node>.<tailnet>.ts.net:<TLSPort>.
+	tsHTTPS   *http.Server
 	tlsServer *http.Server
 	tlsMgr    *tlshost.Manager
 	// runCtx is Run's own signal.NotifyContext, stashed here (rather than
@@ -110,15 +114,22 @@ type App struct {
 	// once at Run() startup if HTTPS starts enabled, or once from
 	// restartTLS if the user turns it on later; whichever happens first.
 	tlsWatchdogOnce sync.Once
-	handler         http.Handler
-	apiServer       *api.Server
-	guests          *guestauth.Manager
-	guestKick       func(shareID string) // ends a revoked guest's running stream
-	guestNodeState  guestNodeState       // the guest network node (guest_tailnet.go)
-	fyneApp         fyne.App
-	clipboard       *clipboard.Manager
-	usbBroker       *usbpass.Service
-	adminSrv        *adminapi.Server
+	// dnsReleased: this process already asked the backend to drop the
+	// device.usbridge.io record because the tailnet cert covers browsers
+	// (see tickDeviceCert). Reset once the tailnet cert goes away.
+	dnsReleased atomic.Bool
+	// tailnetCertErr: the last tailnet-cert failure logged, so a tailnet
+	// without HTTPS certificates logs once, not every heartbeat.
+	tailnetCertErr atomic.Value // string
+	handler        http.Handler
+	apiServer      *api.Server
+	guests         *guestauth.Manager
+	guestKick      func(shareID string) // ends a revoked guest's running stream
+	guestNodeState guestNodeState       // the guest network node (guest_tailnet.go)
+	fyneApp        fyne.App
+	clipboard      *clipboard.Manager
+	usbBroker      *usbpass.Service
+	adminSrv       *adminapi.Server
 
 	// clientLeft and clientStarting wake virtualOthersWatchdog when a client says
 	// its stream is over or about to start (the latter closed once handled).
@@ -708,6 +719,11 @@ func New() (*App, error) {
 	}
 	instance.tlsMgr = tlshost.NewManager(filepath.Join(cfg.StateDir, "web-tls"))
 	instance.tlsMgr.LoadPersisted()
+	instance.tsHTTPS = &http.Server{
+		Handler:           handler,
+		TLSConfig:         &tls.Config{GetCertificate: instance.tlsMgr.GetCertificate, MinVersion: tls.VersionTLS12},
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	instance.tlsServer = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.TLSPort),
 		Handler:           handler,
@@ -1270,6 +1286,7 @@ func (a *App) initTailscale(ctx context.Context) {
 	}
 	if a.cfg.TailscaleEnabled {
 		go a.startTailscaleHTTP(ctx)
+		go a.startTailscaleHTTPS()
 		// startSunshineTSNetForwarding is NOT started here: it binds the same
 		// fixed ports (Sunshine/rustshine's NvHTTP/RTSP/control/video/audio
 		// set) on the same tsnet.Server as StreamProxy (see restartStreamProxy,
@@ -1307,6 +1324,31 @@ func (a *App) startTailscaleHTTP(_ context.Context) {
 	}
 }
 
+// startTailscaleHTTPS serves the HTTPS listener on the tailnet as well, so a
+// browser on the tailnet reaches https://<node>.<tailnet>.ts.net:<TLSPort>
+// with the Tailscale-issued cert (tlshost.Manager.InstallTailnetCert).
+// Bound once at startup on the port configured then -- like
+// startTailscaleHTTP, a TLS port change applies here after a restart.
+func (a *App) startTailscaleHTTPS() {
+	if !a.cfg.TLSEnabledOK() || a.tsHTTPS == nil {
+		return
+	}
+	tsSrv, err := a.ts.Server()
+	if err != nil {
+		log.Printf("[app] tsnet server unavailable for https: %v", err)
+		return
+	}
+	ln, err := tsSrv.Listen("tcp", fmt.Sprintf(":%d", a.cfg.TLSPort))
+	if err != nil {
+		log.Printf("[app] tsnet https listen error: %v", err)
+		return
+	}
+	log.Printf("[app] tsnet https listening on :%d", a.cfg.TLSPort)
+	if err := a.tsHTTPS.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
+		log.Printf("[app] tsnet https server error: %v", err)
+	}
+}
+
 // handleShutdown is used by the GUI-owning path only: it waits for ctx to be
 // cancelled (e.g. the window's close intercept calling cancel), tears down
 // the engine, then quits the Fyne app loop so ShowAndRun's blocking call in
@@ -1326,6 +1368,11 @@ func (a *App) shutdownEngine() {
 	_ = a.server.Shutdown(context.Background())
 	if a.tsHTTP != nil && a.tsHTTP.Addr != "" {
 		_ = a.tsHTTP.Shutdown(context.Background())
+	}
+	if a.tsHTTPS != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = a.tsHTTPS.Shutdown(ctx)
+		cancel()
 	}
 	if a.tsProxy != nil {
 		a.tsProxy.Stop()
@@ -3043,12 +3090,46 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 		return fmt.Errorf("no LAN interface up")
 	}
 
+	// On a tailnet with HTTPS certificates the browser gets its trusted
+	// cert from Tailscale, for the node's ts.net name: no record in
+	// usbridge.io's zone (200 records on the free Cloudflare plan -- one
+	// per install filled it). Everyone else keeps device.usbridge.io.
+	if a.tickTailnetCert(ctx) {
+		a.tlsMgr.WithdrawRegisteredHostname()
+		if !a.dnsReleased.Load() {
+			relCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			err := devicecert.ReleaseDNS(relCtx, hwID)
+			cancel()
+			if err != nil {
+				log.Printf("[app] device-cert: release device.usbridge.io record: %v", err)
+			} else {
+				a.dnsReleased.Store(true)
+				log.Printf("🌐 [app] device-cert: reached by tailnet name %s, device.usbridge.io record released", a.tlsMgr.TailnetHostname())
+			}
+		}
+		return nil
+	}
+	a.dnsReleased.Store(false)
+
+	accountToken := strings.TrimSpace(a.cfg.AccountToken)
 	regCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	hostname, err := devicecert.RegisterIP(regCtx, hwID, ip)
+	hostname, published, err := devicecert.RegisterIP(regCtx, hwID, ip, accountToken)
 	cancel()
 	if err != nil {
 		log.Printf("[app] device-cert: register IP failed: %v", err)
+		if accountToken != "" {
+			// An account-side refusal (name owned by another account,
+			// weekly new-device limit) is something the user can act on.
+			a.tlsMgr.SetDeviceCertError(err)
+		}
 		return fmt.Errorf("register IP failed: %w", err)
+	}
+	if !published {
+		// No account owns the name, so the backend keeps no record for it
+		// (and would issue no cert): don't hand out a name that doesn't
+		// resolve.
+		a.tlsMgr.WithdrawRegisteredHostname()
+		return nil
 	}
 	a.tlsMgr.SetRegisteredHostname(hostname)
 
@@ -3080,7 +3161,7 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 	}
 
 	certCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	cert, err := devicecert.RequestCert(certCtx, hwID, csrDER, strings.TrimSpace(a.cfg.AccountToken))
+	cert, err := devicecert.RequestCert(certCtx, hwID, csrDER, accountToken)
 	cancel()
 	if err != nil {
 		log.Printf("[app] device-cert: request cert failed: %v", err)
@@ -3093,6 +3174,46 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 		return fmt.Errorf("install cert failed: %w", err)
 	}
 	return nil
+}
+
+// tickTailnetCert fetches (tsnet caches and renews it) the Tailscale cert
+// for this node's MagicDNS name and installs it. Reports whether a valid
+// tailnet cert is being served. A transient failure keeps a still-valid
+// cert; a tailnet without HTTPS certificates, or Tailscale off/signed out,
+// drops it.
+func (a *App) tickTailnetCert(ctx context.Context) bool {
+	if a.ts == nil || !a.cfg.TailscaleEnabled {
+		a.tlsMgr.ClearTailnetCert()
+		return false
+	}
+	certCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	domain, certPEM, keyPEM, err := a.ts.CertPair(certCtx)
+	cancel()
+	if err == nil {
+		err = a.tlsMgr.InstallTailnetCert(domain, certPEM, keyPEM)
+	}
+	if err != nil {
+		if msg := err.Error(); a.tailnetCertErr.Load() != msg {
+			a.tailnetCertErr.Store(msg)
+			log.Printf("[app] device-cert: no tailnet cert (%v) -- using device.usbridge.io", err)
+		}
+		if errors.Is(err, tailscale.ErrHTTPSCertsDisabled) {
+			a.tlsMgr.ClearTailnetCert()
+		}
+		return a.tlsMgr.TailnetHostname() != ""
+	}
+	a.tailnetCertErr.Store("")
+	return true
+}
+
+// TailnetHostname is this machine's <node>.<tailnet>.ts.net name while a
+// Tailscale-issued cert for it is served on the HTTPS listener, "" otherwise
+// -- the device_host a browser on the tailnet connects to.
+func (a *App) TailnetHostname() string {
+	if a.tlsMgr == nil || !a.cfg.TLSEnabledOK() {
+		return ""
+	}
+	return a.tlsMgr.TailnetHostname()
 }
 
 // RetryDeviceCert re-runs tickDeviceCert immediately, outside its normal
@@ -4199,7 +4320,7 @@ func (a *App) QRLink() (string, string) {
 	// free-tier entitlement token for it (see desktopLicense.ts's
 	// documented trust model), no new capability against this device.
 	hwID, _ := hwid.Get()
-	link := buildQRLink(netutil.WithAPIPort(internalHost, a.cfg.HTTPPort), netutil.WithAPIPort(tailscaleHost, a.cfg.HTTPPort), masterKey, hwID)
+	link := buildQRLink(netutil.WithAPIPort(internalHost, a.cfg.HTTPPort), netutil.WithAPIPort(tailscaleHost, a.cfg.HTTPPort), a.TailnetHostname(), masterKey, hwID)
 	return link, masterKey
 }
 
@@ -4267,7 +4388,10 @@ func (a *App) CertStatus() tlshost.CertStatus {
 	return a.tlsMgr.CertStatus()
 }
 
-func buildQRLink(internalHost, tailscaleHost, masterKey, hwID string) string {
+// deviceHost, when set, is the name a browser connects to over HTTPS (the
+// client's device_host, see its resolveDeepLinkHost): the tailnet name with
+// its Tailscale cert. internal_host stays a LAN address for native clients.
+func buildQRLink(internalHost, tailscaleHost, deviceHost, masterKey, hwID string) string {
 	if masterKey == "" {
 		return ""
 	}
@@ -4280,6 +4404,9 @@ func buildQRLink(internalHost, tailscaleHost, masterKey, hwID string) string {
 	}
 	if tailscaleHost != "" {
 		values.Set("tailscale_host", tailscaleHost)
+	}
+	if deviceHost != "" {
+		values.Set("device_host", deviceHost)
 	}
 	values.Set("master_key", masterKey)
 	if hwID != "" {

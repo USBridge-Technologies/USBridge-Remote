@@ -151,6 +151,20 @@ func (w *Window) showCertStatusDialog(parent fyne.Window) {
 
 	var certFooter fyne.CanvasObject = container.NewCenter()
 	switch {
+	case st.TailnetHostname != "":
+		// Tailscale-issued cert for the node's ts.net name: trusted by any
+		// browser on the same tailnet, no device.usbridge.io name needed.
+		labelW := dialogFormLabelWidth(loc().CertHostnameLabel, loc().CertExpiresLabel)
+		tailnetURL := fmt.Sprintf("https://%s:%d", st.TailnetHostname, w.cfg.TLSPort)
+		rows = append(rows,
+			newDialogCopyRow(loc().CertHostnameLabel, st.TailnetHostname, labelW, func() string { return st.TailnetHostname }, parent),
+			newDialogFormRow(loc().CertExpiresLabel, labelW, widget.NewLabel(st.ExpiresAt.Local().Format("2006-01-02"))),
+		)
+		certFooter = container.NewCenter(newDialogCTA(loc().OpenInBrowser, func() {
+			if parsed, err := url.Parse(tailnetURL); err == nil && w.app != nil {
+				_ = w.app.OpenURL(parsed)
+			}
+		}))
 	case st.LetsEncrypt:
 		labelW := dialogFormLabelWidth(loc().CertHostnameLabel, loc().CertExpiresLabel)
 		deviceURL := "https://" + st.Hostname
