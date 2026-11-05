@@ -286,6 +286,10 @@ type MainWindow struct {
 	// udpBufGrantBtn: Linux-only header button raising the kernel's UDP receive-buffer cap
 	// (see udpbuf_status.go); hidden once the cap fits whole video frames.
 	udpBufGrantBtn *view.HeaderActionButton
+	// snapPlugsBtn: header button in a snap, shown while snapMissingPlugs isn't empty
+	// (see snap_plugs_status.go).
+	snapPlugsBtn     *view.HeaderActionButton
+	snapMissingPlugs []string
 	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are that strip's own
 	// *passive* indicators (main_window_status_indicator_bar.go's
 	// "indicators" sub-group) -- bare newHeaderPassiveIndicator images, not

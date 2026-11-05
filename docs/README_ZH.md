@@ -63,6 +63,8 @@ irm https://www.usbridge.io/install.ps1 | iex
 ```sh
 # 从 Snap 商店安装客户端（Ubuntu，以及从 AUR 安装 snapd 的 Arch）
 sudo snap install usbridge-client
+# Microphone, MIDI, gamepads, webcam, USB, Wi-Fi tune, external drives
+for p in audio-record alsa joystick camera raw-usb network-manager network-observe hardware-observe removable-media; do sudo snap connect usbridge-client:$p; done
 ```
 
 <details>

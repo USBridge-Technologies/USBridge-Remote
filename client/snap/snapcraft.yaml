@@ -9,7 +9,9 @@
 # (internal/netutil/wifitune_nm_linux.go), the UDP buffer button shows the
 # command to run in a terminal with a copy button, and passing this computer's own USB devices through (usbip-host) reports
 # that pkexec isn't installed. Updates come from the Snap Store, never the
-# in-app updater (internal/update skips the check when $SNAP is set).
+# in-app updater (internal/update skips the check when $SNAP is set). Plugs
+# snapd doesn't connect by itself get a header button with the commands
+# (internal/netutil/snap_plugs_linux.go keeps that list).
 name: usbridge-client
 title: USBridge Client
 summary: Low-latency remote desktop, game streaming and IPKVM client
@@ -32,6 +34,11 @@ description: |
     sudo snap connect usbridge-client:camera         # webcam
     sudo snap connect usbridge-client:raw-usb        # USB device list
     sudo snap connect usbridge-client:network-manager # Wi-Fi tune for streaming
+    sudo snap connect usbridge-client:network-observe # network state
+    sudo snap connect usbridge-client:hardware-observe # hardware information
+    sudo snap connect usbridge-client:removable-media # ISO files on external drives
+
+  The app lists the ones still missing and copies the command for you.
 
   Passing this computer's own USB devices to the remote machine needs root
   and works from the .deb, Arch or RPM package, not from the snap.

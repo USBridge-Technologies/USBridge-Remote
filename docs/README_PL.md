@@ -63,6 +63,8 @@ irm https://www.usbridge.io/install.ps1 | iex
 ```sh
 # Klient z Snap Store (Ubuntu i Arch z snapd z AUR)
 sudo snap install usbridge-client
+# Microphone, MIDI, gamepads, webcam, USB, Wi-Fi tune, external drives
+for p in audio-record alsa joystick camera raw-usb network-manager network-observe hardware-observe removable-media; do sudo snap connect usbridge-client:$p; done
 ```
 
 <details>

@@ -646,6 +646,18 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		mw.udpBufGrantBtn.Hide()
 		mw.refreshUDPBufferUI()
 	}
+	if mw.snapPlugsBtn == nil {
+		mw.snapPlugsBtn = view.NewHeaderActionButton(mw.handleSnapPlugsTapped)
+		mw.snapPlugsBtn.ApplySpec(view.HeaderActionButtonSpec{
+			Fill:       design.ColorAccent,
+			Foreground: design.ColorBackground,
+			Icon:       assets.WarningTriangleIcon,
+			IconSize:   fyne.NewSize(12, 12),
+			Text:       i18n.Current.SnapConnectDevices,
+		})
+		mw.snapPlugsBtn.Hide()
+		mw.watchSnapPlugs()
+	}
 	// Control's own reuse of the connections screen's header accessories
 	// (see connection_header.go's newHeaderSettingsMenuButton) -- same
 	// Info/Community/Client settings/Account actions as createConnectionAddressBar
@@ -693,6 +705,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	rightGroup := fyne.CanvasObject(container.NewHBox(
 		mw.awdlGrantBtn,
 		mw.udpBufGrantBtn,
+		mw.snapPlugsBtn,
 		settingsBtn,
 		mw.mainExitBtn,
 	))

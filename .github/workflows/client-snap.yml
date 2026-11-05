@@ -91,6 +91,11 @@ jobs:
           snap connections usbridge-client
           out="$(usbridge-client -version 2>&1)" || { echo "$out"; exit 1; }
           echo "$out"
+          # The header button (internal/netutil/snap_plugs_linux.go) reads exit 1
+          # as "not connected". A sideloaded snap has camera disconnected.
+          rc=0
+          snap run --shell usbridge-client -c 'snapctl is-connected camera' || rc=$?
+          [ "$rc" = 1 ] || echo "::warning::snapctl is-connected camera exited $rc, expected 1"
 
       - name: Name it like the other Linux assets
         id: name
