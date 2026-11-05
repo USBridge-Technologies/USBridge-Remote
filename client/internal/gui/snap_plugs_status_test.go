@@ -9,8 +9,8 @@ import (
 	"usbridge-client/internal/netutil"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/test"
-	"fyne.io/fyne/v2/widget"
 )
 
 // The header button stays only while a plug is disconnected, and its notice lists
@@ -35,16 +35,21 @@ func TestSnapPlugsButtonAndNotice(t *testing.T) {
 	if overlay == nil {
 		t.Fatal("no notice opened")
 	}
-	var copyBtn *widget.Button
+	var copyBtn fyne.Tappable
 	var shownText strings.Builder
 	for _, o := range test.LaidOutObjects(overlay) {
 		switch v := o.(type) {
-		case *widget.Button:
-			if v.Text == i18n.Current.CopyCommand {
+		case interface {
+			fyne.Tappable
+			Text() string
+		}:
+			if v.Text() == i18n.Current.CopyCommand {
 				copyBtn = v
 			}
-		case *widget.RichText:
-			shownText.WriteString(v.String())
+		case *canvas.Text:
+			shownText.WriteString(v.Text + " ")
+		case *view.CommandField:
+			shownText.WriteString(v.Text)
 		}
 	}
 	for _, plug := range plugs {

@@ -32,8 +32,8 @@ func (mw *MainWindow) handleUDPBufferGrantTapped() {
 	}
 	if !netutil.UDPBufferAdjustable() {
 		cmd := netutil.UDPBufferCommand()
-		view.ShowInfoDialogWithAction(i18n.Current.UDPBufferGrantAccess, i18n.Current.UDPBufferRunCommand+"\n\n"+cmd,
-			i18n.Current.CopyCommand, func() {
+		view.ShowCommandDialog(i18n.Current.UDPBufferGrantAccess, i18n.Current.UDPBufferRunCommand, cmd,
+			i18n.Current.Close, i18n.Current.CopyCommand, func() {
 				if mw.app != nil {
 					mw.app.Clipboard().SetContent(cmd)
 				}

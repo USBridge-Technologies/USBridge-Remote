@@ -11,8 +11,8 @@ import (
 	"usbridge-client/internal/netutil"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/test"
-	"fyne.io/fyne/v2/widget"
 )
 
 // In a snap the UDP buffer button can't run pkexec: it opens a notice with the
@@ -33,16 +33,21 @@ func TestUDPBufferGrantInSnapShowsCopyableCommand(t *testing.T) {
 		t.Fatal("no notice opened")
 	}
 	cmd := netutil.UDPBufferCommand()
-	var copyBtn *widget.Button
+	var copyBtn fyne.Tappable
 	var shownText strings.Builder
 	for _, o := range test.LaidOutObjects(overlay) {
 		switch v := o.(type) {
-		case *widget.Button:
-			if v.Text == i18n.Current.CopyCommand {
+		case interface {
+			fyne.Tappable
+			Text() string
+		}:
+			if v.Text() == i18n.Current.CopyCommand {
 				copyBtn = v
 			}
-		case *widget.RichText:
-			shownText.WriteString(v.String())
+		case *canvas.Text:
+			shownText.WriteString(v.Text + " ")
+		case *view.CommandField:
+			shownText.WriteString(v.Text)
 		}
 	}
 	if !strings.Contains(shownText.String(), cmd) {

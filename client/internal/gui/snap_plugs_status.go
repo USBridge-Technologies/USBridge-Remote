@@ -36,8 +36,9 @@ func (mw *MainWindow) setSnapMissingPlugs(missing []string) {
 	}
 }
 
-// handleSnapPlugsTapped shows what is still disconnected, one command per line.
-// The button copies them as a single line (netutil.SnapConnectCommand).
+// handleSnapPlugsTapped shows what is still disconnected, one command per line,
+// so one of them can be copied alone. The button copies them all as a single line
+// (netutil.SnapConnectCommand).
 func (mw *MainWindow) handleSnapPlugsTapped() {
 	missing := mw.snapMissingPlugs
 	if len(missing) == 0 {
@@ -48,8 +49,8 @@ func (mw *MainWindow) handleSnapPlugsTapped() {
 		lines[i] = netutil.SnapConnectCommand([]string{plug})
 	}
 	cmd := netutil.SnapConnectCommand(missing)
-	view.ShowInfoDialogWithAction(i18n.Current.SnapConnectDevices, i18n.Current.SnapConnectRunCommand+"\n\n"+strings.Join(lines, "\n"),
-		i18n.Current.CopyCommand, func() {
+	view.ShowCommandDialog(i18n.Current.SnapConnectDevices, i18n.Current.SnapConnectRunCommand, strings.Join(lines, "\n"),
+		i18n.Current.Close, i18n.Current.CopyCommand, func() {
 			if mw.app != nil {
 				mw.app.Clipboard().SetContent(cmd)
 			}
