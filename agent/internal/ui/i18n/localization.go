@@ -37,6 +37,7 @@ type LocalizedStrings struct {
 	PermGranted          string
 	PermInfo             string
 	PunktfunkCaptureInfo string
+	MacScreenCaptureHelp string
 	PermDownload         string
 	AutostartInfo        string
 	// AutostartInfoBody is the Autostart info dialog's how-to; %s is one of
@@ -415,6 +416,7 @@ func EN() *LocalizedStrings {
 		PermGrant:            "Grant",
 		PermGranted:          "Granted",
 		PermInfo:             "Info",
+		MacScreenCaptureHelp: "If access is on but the agent still doesn't see it, macOS hasn't registered the grant.\n\nGo to System Settings > Privacy & Security > Screen & System Audio Recording. If the app is already listed there, remove it. Then click the plus button to add the app back manually and grant the permission again.",
 		PunktfunkCaptureInfo: "Punktfunk has no KMS capture. It takes the picture from the desktop compositor (KWin, GNOME, Sway, Hyprland or gamescope), so it needs a running Wayland session: it cannot stream the login screen or anything before login, and it does not work on X11.\n\nFrames still go to the encoder on the GPU with no CPU copies, but the compositor copies each frame once more on the GPU, which KMS capture does not need. What that costs on this machine has not been measured: the benchmark in the client compares it with the other streamers.",
 		PermDownload:         "Download",
 		AutostartInfo:        "Autostart",
@@ -727,6 +729,7 @@ func ES() *LocalizedStrings {
 	locale.PermGrant = "Conceder"
 	locale.PermGranted = "Concedido"
 	locale.PermInfo = "Info"
+	locale.MacScreenCaptureHelp = "Si el acceso está activado pero el agente no lo detecta, macOS no ha registrado el permiso.\n\nVe a Ajustes del Sistema > Privacidad y seguridad > Grabación de pantalla y audio del sistema. Si la aplicación ya aparece en la lista, elimínala. Después pulsa el botón más para volver a añadirla manualmente y concede el permiso de nuevo."
 	locale.PunktfunkCaptureInfo = "Punktfunk no tiene captura KMS. Toma la imagen del compositor del escritorio (KWin, GNOME, Sway, Hyprland o gamescope), así que necesita una sesión Wayland en marcha: no puede transmitir la pantalla de inicio de sesión ni nada anterior al inicio de sesión, y no funciona en X11.\n\nLos fotogramas siguen llegando al codificador en la GPU sin copias en la CPU, pero el compositor copia cada fotograma una vez más en la GPU, algo que la captura KMS no necesita. No se ha medido cuánto cuesta eso en este equipo: el benchmark del cliente lo compara con los otros streamers."
 	locale.PermDownload = "Descargar"
 	locale.AutostartInfo = "Inicio automatico"
@@ -1009,6 +1012,7 @@ func UK() *LocalizedStrings {
 	locale.PermGrant = "Надати"
 	locale.PermGranted = "Надано"
 	locale.PermInfo = "Інфо"
+	locale.MacScreenCaptureHelp = "Якщо доступ увімкнено, але агент його не бачить, macOS не зареєструвала дозвіл.\n\nВідкрийте Системні параметри > Приватність і безпека > Запис екрана й системного аудіо. Якщо застосунок уже є у списку, видаліть його. Потім натисніть кнопку з плюсом, додайте застосунок вручну й надайте дозвіл знову."
 	locale.PunktfunkCaptureInfo = "Punktfunk не має захоплення через KMS. Він бере зображення з композитора робочого столу (KWin, GNOME, Sway, Hyprland або gamescope), тому потребує запущеного сеансу Wayland: не може транслювати екран входу чи будь-що до входу в систему і не працює на X11.\n\nКадри, як і раніше, потрапляють до кодувальника на GPU без копіювань на CPU, але композитор ще раз копіює кожен кадр на GPU, чого захоплення через KMS не потребує. Скільки це коштує на цій машині, не виміряно: бенчмарк у клієнті порівнює його з іншими стримерами."
 	locale.PermDownload = "Завантажити"
 	locale.AutostartInfo = "Автозапуск"

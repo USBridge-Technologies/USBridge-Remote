@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"usbridge_agent/assets"
@@ -187,6 +188,7 @@ func (r *styledCheckRenderer) Destroy()                     {}
 type permStatusChip struct {
 	widget.BaseWidget
 	root      *fyne.Container
+	left      *fyne.Container
 	mark      *canvas.Image
 	labelT    *canvas.Text
 	btn       *iconActionButton
@@ -222,6 +224,7 @@ func newPermStatusChip(label string, onRequest func()) *permStatusChip {
 	labelT.TextSize = 11
 	c := &permStatusChip{mark: mark, labelT: labelT, baseLabel: label, onRequest: onRequest}
 	left := container.New(&tightHBoxLayout{gap: 8}, container.NewGridWrap(fyne.NewSize(12, 12), mark), labelT)
+	c.left = left
 	var right fyne.CanvasObject
 	if onRequest != nil {
 		c.btn = newIconActionButton(loc().PermGrant, nil, func() {
@@ -296,6 +299,16 @@ func (c *permStatusChip) SetInfo(label string, onInfo func()) {
 	}
 	c.infoLabel, c.onInfo = label, onInfo
 	c.refreshVisuals()
+}
+
+// AddHelp puts an ⓘ next to the label that stays there whether or not the
+// permission is granted, unlike SetInfo, which only replaces the granted
+// button. Call it once.
+func (c *permStatusChip) AddHelp(onHelp func()) {
+	if c == nil {
+		return
+	}
+	c.left.Add(newTinyGlyphButtonColored(theme.InfoIcon(), design.ColorNameMutedOlive, onHelp))
 }
 
 func (c *permStatusChip) SetChecked(on bool) {

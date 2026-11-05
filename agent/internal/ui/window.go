@@ -1274,6 +1274,11 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.screenCaptureInfo = func() {
 		showInfoDialog(loc().ScreenCapture, loc().PunktfunkCaptureInfo, win)
 	}
+	if runtime.GOOS == "darwin" {
+		w.screenCaptureCheck.AddHelp(func() {
+			showInfoDialog(loc().ScreenCapture, loc().MacScreenCaptureHelp, win)
+		})
+	}
 	permStatusRow := container.New(&tightVBoxLayout{gap: 2}, w.accessCheck, w.screenCaptureCheck)
 
 	// Autostart at Boot: installs the OS-native autostart mechanism (a
