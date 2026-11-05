@@ -43,8 +43,8 @@ func verifyWhatsNew(body, sigText []byte) error {
 }
 
 // FetchWhatsNew downloads and verifies the release notes JSON of the
-// selected channel's release ("latest" for stable, the newest test-*
-// prerelease for test) and caches it for offline launches. The caller
+// selected channel's release ("latest" for stable, the newest release
+// including pre-releases for test) and caches it for offline launches. The caller
 // parses the returned bytes.
 func FetchWhatsNew(ctx context.Context) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, whatsNewTimeout)

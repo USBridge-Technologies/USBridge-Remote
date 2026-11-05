@@ -13,12 +13,9 @@ type Channel string
 const (
 	// ChannelStable follows /releases/latest, the newest non-prerelease.
 	ChannelStable Channel = "stable"
-	// ChannelTest follows the newest "test-*" prerelease (release-all-test.yml).
+	// ChannelTest follows the newest release, pre-releases included.
 	ChannelTest Channel = "test"
 )
-
-// testTagPrefix is what release-all-test.yml prepends to its release tags.
-const testTagPrefix = "test-"
 
 var (
 	channelMu     sync.Mutex

@@ -90,9 +90,12 @@ func assetURL(tag, name string) string {
 	return fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s", repoOwner, repoName, tag, name)
 }
 
-// latestTestTag finds the newest "test-*" prerelease (the API lists newest
-// first). Only picks which release to read; the manifest signature is
-// still what gates trust.
+// latestTestTag finds the newest published release, pre-release or not
+// (the API lists newest first). A pre-release may carry any tag — the
+// release-all "prerelease" box keeps release-v<ver>, release-all-test.yml
+// prefixes test- — and a stable release newer than every pre-release is
+// what the Test channel should be on too. Only picks which release to
+// read; the manifest signature is still what gates trust.
 func latestTestTag(ctx context.Context, client *http.Client) (string, error) {
 	api := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=15", repoOwner, repoName)
 	body, err := fetchBytesMax(ctx, client, api, releaseListMaxBytes)
@@ -100,19 +103,18 @@ func latestTestTag(ctx context.Context, client *http.Client) (string, error) {
 		return "", fmt.Errorf("list releases: %w", err)
 	}
 	var releases []struct {
-		Tag        string `json:"tag_name"`
-		Prerelease bool   `json:"prerelease"`
-		Draft      bool   `json:"draft"`
+		Tag   string `json:"tag_name"`
+		Draft bool   `json:"draft"`
 	}
 	if err := json.Unmarshal(body, &releases); err != nil {
 		return "", fmt.Errorf("parse releases: %w", err)
 	}
 	for _, r := range releases {
-		if r.Prerelease && !r.Draft && strings.HasPrefix(r.Tag, testTagPrefix) {
+		if !r.Draft {
 			return r.Tag, nil
 		}
 	}
-	return "", fmt.Errorf("no test pre-release published")
+	return "", fmt.Errorf("no release published")
 }
 
 // fetchManifest downloads and signature-verifies this app's update
