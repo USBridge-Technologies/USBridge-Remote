@@ -403,6 +403,13 @@ jobs:
       prerelease: ${{ inputs.prerelease }}
     secrets: inherit
 
+  client-flatpak:
+    # Packs the Flatpak from client-linux's AppImage and checks that it starts.
+    # The release job publishes the repository. See client-flatpak.yml.
+    needs: client-linux
+    uses: ./.github/workflows/client-flatpak.yml
+    secrets: inherit
+
   client-windows:
     # Ubuntu's mingw-w64 apt package rejects -mthreads (which Go's cgo
     # toolchain passes unconditionally when cross-compiling runtime/cgo for
@@ -1092,6 +1099,7 @@ jobs:
       - bundle-macos
       - client-linux
       - client-snap
+      - client-flatpak
       - client-windows
       - client-android
       - client-android-market
@@ -1309,6 +1317,19 @@ jobs:
         run: |
           sudo apt-get install -y -qq createrepo-c
           scripts/rpm/publish_repo.sh "$TAG" out
+
+      - name: Publish the Flatpak repository
+        # An OSTree repository on the flatpak-repo branch, served by
+        # raw.githubusercontent.com (scripts/flatpak/publish_repo.sh). Never
+        # for a prerelease, like /releases/latest.
+        if: ${{ !inputs.prerelease }}
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          sudo apt-get install -y -qq flatpak ostree
+          scripts/flatpak/publish_repo.sh "$TAG" out/USBridgeClient-Linux-x86_64.flatpak
 
   # Deploys the browser/WASM web client -- see web-deploy.yml (also
   # independently dispatchable on its own, for testing this exact deploy

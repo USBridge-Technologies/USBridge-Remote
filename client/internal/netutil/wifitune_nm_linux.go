@@ -9,15 +9,19 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-// Inside a snap (client/snap/snapcraft.yaml) pkexec isn't reachable, so the
-// Wi-Fi tune goes through NetworkManager's D-Bus API instead, over the snap's
-// network-manager plug: power saving off (802-11-wireless.powersave = 2) on
+// Inside a snap (client/snap/snapcraft.yaml) or a Flatpak
+// (scripts/flatpak/build_bundle.sh) pkexec isn't reachable, so the Wi-Fi tune
+// goes through NetworkManager's D-Bus API instead, over the snap's
+// network-manager plug or the Flatpak's --system-talk-name: power saving off (802-11-wireless.powersave = 2) on
 // every active Wi-Fi connection, saved to the connection and reapplied to its
 // device. NetworkManager asks polkit itself, so the host's agent prompts when
 // the connection isn't the user's own. iwd's periodic scan and `iw` stay out
 // of reach from there.
 
 func inSnap() bool { return os.Getenv("SNAP") != "" }
+
+// inSandbox covers both packages that can't reach the host's pkexec.
+func inSandbox() bool { return inSnap() || os.Getenv("FLATPAK_ID") != "" }
 
 const (
 	nmDest = "org.freedesktop.NetworkManager"

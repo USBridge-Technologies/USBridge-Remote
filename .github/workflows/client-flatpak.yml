@@ -1,0 +1,106 @@
+name: client-flatpak
+
+# Packs the client Flatpak (scripts/flatpak/build_bundle.sh) from the Linux
+# AppImage's AppDir, installs it on the runner and checks that it starts, then
+# uploads it as the release-client-flatpak artifact. With publish set it also
+# replaces the Flatpak repository (the flatpak-repo branch, see
+# scripts/flatpak/publish_repo.sh).
+#
+# release-all.yml calls this after client-linux without publish: its release
+# job publishes the repository itself, for a real release only, next to dnf.
+# flatpak-only.yml calls it with publish. Dispatched by hand it takes the
+# AppImage from an existing GitHub Release instead, which is also the way to
+# point the repository at a pre-release that was promoted to latest afterwards.
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release whose client AppImage to pack (e.g. release-v3.2.7)"
+        required: true
+      publish:
+        description: "Also publish to the Flatpak repository"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the AppImage from this run
+        if: ${{ inputs.release_tag == '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: release-client-linux
+          path: appimage
+
+      - name: Get the AppImage from ${{ inputs.release_tag }}
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${{ inputs.release_tag }}" --pattern 'USBridgeClient-Linux-x86_64.AppImage' --dir appimage
+
+      - name: Unpack the AppDir
+        id: appdir
+        run: |
+          set -euo pipefail
+          img="$(ls appimage/*.AppImage | head -n1)"
+          chmod +x "$img"
+          (cd appimage && "../$img" --appimage-extract >/dev/null)
+          test -x appimage/squashfs-root/usr/bin/usbridge-client
+          tag="${{ inputs.release_tag }}"
+          ver="${tag#release-v}"
+          [ -n "$ver" ] || ver="$(tr -d ' \t\n\r' < client/VERSION)"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Install Flatpak and the runtime
+        # Ubuntu 24.04's AppArmor keeps bubblewrap from making its namespaces.
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq flatpak ostree
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub "org.freedesktop.Platform//$(sed -n 's/^RUNTIME_VERSION=//p' scripts/flatpak/build_bundle.sh)"
+
+      - name: Pack the Flatpak
+        id: name
+        run: |
+          set -euo pipefail
+          out="USBridgeClient-Linux-x86_64-${{ steps.appdir.outputs.version }}.flatpak"
+          scripts/flatpak/build_bundle.sh appimage/squashfs-root "${{ steps.appdir.outputs.version }}" "$out"
+          echo "file=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Install it and check that it starts
+        # -version exits before any window opens, but only once every bundled
+        # and runtime library has been loaded.
+        run: |
+          set -euo pipefail
+          flatpak install --user -y --noninteractive --bundle "${{ steps.name.outputs.file }}"
+          flatpak run --user io.usbridge.Client -version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-flatpak
+          path: ${{ steps.name.outputs.file }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish the Flatpak repository
+        if: ${{ inputs.publish }}
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/flatpak/publish_repo.sh "${{ steps.appdir.outputs.version }}" "${{ steps.name.outputs.file }}"

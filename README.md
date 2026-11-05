@@ -41,7 +41,7 @@ The Client is the control interface — installed on your workstation or laptop 
 | :--- | :--- | :--- | :--- |
 | **Windows** x86_64 | [Setup (.exe)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridge-Windows-x86_64-Setup.exe) | [Portable (.zip)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — |
 | **macOS** Apple Silicon | [Disk image (.dmg)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | — |
-| **Linux** x86_64 | [Debian / Ubuntu (.deb)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.deb) · [Fedora / RHEL (.rpm)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.rpm) · [Arch (.pkg.tar.zst)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.pkg.tar.zst) | [AppImage](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | [APT · DNF · pacman repository](#install-from-the-terminal) · [Snap Store](https://snapcraft.io/usbridge-client) |
+| **Linux** x86_64 | [Debian / Ubuntu (.deb)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.deb) · [Fedora / RHEL (.rpm)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.rpm) · [Arch (.pkg.tar.zst)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.pkg.tar.zst) | [AppImage](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | [APT · DNF · pacman · Flatpak repository](#install-from-the-terminal) · [Snap Store](https://snapcraft.io/usbridge-client) |
 | **Android** ARM64 | [APK (self-updating)](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Android-arm64-selfupdate.apk) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) |
 | **iOS / iPadOS** | — | — | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) |
 | **Web browser** | — | [Open web.usbridge.io](https://web.usbridge.io) | — |
@@ -68,6 +68,26 @@ sudo snap install usbridge-client
 # Microphone, MIDI, gamepads, webcam, USB, Wi-Fi tune, external drives
 for p in audio-record alsa joystick camera raw-usb network-manager network-observe hardware-observe removable-media; do sudo snap connect usbridge-client:$p; done
 ```
+
+```sh
+# Client from the signed USBridge Flatpak repository, any distribution
+flatpak install --user https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/scripts/flatpak/io.usbridge.Client.flatpakref
+flatpak run io.usbridge.Client
+```
+
+<details>
+<summary><b>Add the Flatpak repository by hand</b></summary>
+
+The repository is signed with the same key as the APT repository, and `flatpak update` brings new versions. The runtime comes from Flathub.
+
+```sh
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --user --if-not-exists usbridge https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/scripts/flatpak/usbridge.flatpakrepo
+flatpak install --user usbridge io.usbridge.Client
+```
+
+Passing this computer's own USB devices to the remote machine needs root and works from the `.deb`, `.rpm` or Arch package, not from the Flatpak.
+</details>
 
 <details>
 <summary><b>Add the APT repository by hand (Debian / Ubuntu)</b></summary>

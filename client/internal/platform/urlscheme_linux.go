@@ -42,6 +42,10 @@ func handlerDesktopFile(exe string) string {
 		"MimeType=x-scheme-handler/" + URLScheme + ";\n"
 }
 
+func inPackageSandbox() bool {
+	return os.Getenv("SNAP") != "" || os.Getenv("FLATPAK_ID") != ""
+}
+
 func defaultHandler() string {
 	out, err := exec.Command("xdg-mime", "query", "default", "x-scheme-handler/"+URLScheme).Output()
 	if err != nil {
@@ -54,8 +58,8 @@ func defaultHandler() string {
 // handler this app wrote earlier counts only while it points at the file that
 // is running now (an AppImage that was moved needs registering again).
 func IsURLSchemeRegistered() bool {
-	if os.Getenv("SNAP") != "" {
-		return true // the snap's own .desktop file declares the scheme (client/snap/gui)
+	if inPackageSandbox() {
+		return true // the package's own .desktop file declares the scheme (client/snap/gui, scripts/flatpak)
 	}
 	h := defaultHandler()
 	if h == "" || !strings.Contains(h, "usbridge") {
@@ -74,9 +78,10 @@ func IsURLSchemeRegistered() bool {
 
 // RegisterURLScheme makes usbridge:// links open this app for the current user.
 func RegisterURLScheme() error {
-	if os.Getenv("SNAP") != "" {
-		// A handler written from inside a snap would point at one
-		// revision's path, and $HOME there is the snap's own directory.
+	if inPackageSandbox() {
+		// A handler written from inside a snap or Flatpak would point at a
+		// path that only exists in there, and the host never reads the
+		// sandbox's own applications directory.
 		return nil
 	}
 	exe, err := launcherPath()

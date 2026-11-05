@@ -96,7 +96,7 @@ func powerSaveOff(iface string) bool {
 
 // WLANConnected reports whether any Wi-Fi interface is up.
 func WLANConnected() bool {
-	if inSnap() {
+	if inSandbox() {
 		return nmWLANConnected()
 	}
 	for _, iface := range wifiInterfaces() {
@@ -111,7 +111,7 @@ func WLANConnected() bool {
 // streaming tune to offer (applicable) and whether it is already in place
 // (done).
 func WiFiTuneStatus() (applicable, done bool) {
-	if inSnap() {
+	if inSandbox() {
 		return nmWiFiTuneStatus()
 	}
 	ifaces := wifiInterfaces()
@@ -163,10 +163,10 @@ if command -v iw >/dev/null 2>&1; then
 fi
 `
 
-// ApplyWiFiTune applies the tune above through one pkexec prompt (in a snap,
-// through NetworkManager, see wifitune_nm_linux.go).
+// ApplyWiFiTune applies the tune above through one pkexec prompt (in a snap or
+// Flatpak, through NetworkManager, see wifitune_nm_linux.go).
 func ApplyWiFiTune() error {
-	if inSnap() {
+	if inSandbox() {
 		return nmApplyWiFiTune()
 	}
 	if _, err := exec.LookPath("pkexec"); err != nil {

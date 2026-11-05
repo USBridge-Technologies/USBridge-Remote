@@ -1,0 +1,23 @@
+name: flatpak-only
+
+# Builds only the Linux client (client-linux.yml) and its Flatpak
+# (client-flatpak.yml) from the selected ref, and publishes the Flatpak
+# repository. No GitHub Release, no other platforms, no other repositories or
+# web deploy: for shipping a Flatpak fix without a full release-all.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  client-linux:
+    uses: ./.github/workflows/client-linux.yml
+
+  client-flatpak:
+    needs: client-linux
+    uses: ./.github/workflows/client-flatpak.yml
+    with:
+      publish: true
+    secrets: inherit

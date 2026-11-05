@@ -71,6 +71,11 @@ func check(ctx context.Context, currentVersion string, manual bool) (*Manifest, 
 		return nil, nil
 	}
 
+	if os.Getenv("FLATPAK_ID") != "" {
+		// Same for a Flatpak: `flatpak update` brings it, /app is read-only.
+		return nil, nil
+	}
+
 	log := logrus.WithField("component", "update")
 
 	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)

@@ -46,8 +46,8 @@ func UDPBufferOK() bool {
 }
 
 // UDPBufferAdjustable reports whether EnsureUDPBuffer can work here: it needs
-// pkexec, which a snap can't reach. There the user runs UDPBufferCommand.
-func UDPBufferAdjustable() bool { return !inSnap() }
+// pkexec, which a snap or Flatpak can't reach. There the user runs UDPBufferCommand.
+func UDPBufferAdjustable() bool { return !inSandbox() }
 
 // UDPBufferCommand is what EnsureUDPBuffer does, as one terminal command.
 func UDPBufferCommand() string {

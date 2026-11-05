@@ -1,0 +1,7 @@
+[Flatpak Repo]
+Title=USBridge
+Url=https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/flatpak-repo/
+Homepage=https://www.usbridge.io/client/
+Comment=USBridge Client
+DefaultBranch=stable
+GPGKey=mDMEas/9rhYJKwYBBAHaRw8BAQdAOaJsKSWWA7hRgaZeqVP41ExAIv7PDPO2jLk0CFdegJa0LVVTQnJpZGdlIEFQVCByZXBvc2l0b3J5IDxzdXBwb3J0QHVzYnJpZGdlLmlvPoiQBBMWCgA4FiEEf0O3u39E5Gs3MPqjnsaSzqW3iKwFAmrP/a4CGwMFCwkIBwIGFQoJCAsCBBYCAwECHgECF4AACgkQnsaSzqW3iKwwKAEAiMZM5VNj2vnG8QJyRz0hCFTElvssAhH9ExZNT4A0vykBAO1cW7sDN92PJkeungVSG965iBj/aBPrrvOJoBWUnlkM
