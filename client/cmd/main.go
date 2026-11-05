@@ -78,6 +78,12 @@ func main() {
 		}
 	}()
 
+	// Gatekeeper may run a quarantined bundle from a read-only copy; come
+	// back from the real one before anything else starts.
+	if update.LeaveTranslocation() {
+		os.Exit(0)
+	}
+
 	var (
 		configFile  = flag.String("config", "", "Path to the configuration file")
 		logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")

@@ -11,6 +11,7 @@ import (
 	"usbridge_agent/internal/logcap"
 	"usbridge_agent/internal/monitors"
 	"usbridge_agent/internal/ui"
+	"usbridge_agent/internal/update"
 )
 
 // version is injected at build time via -ldflags "-X main.version=...";
@@ -40,6 +41,12 @@ func main() {
 	// Whether the system OpenGL can run Fyne (see softgl_windows.go).
 	if len(os.Args) > 1 && os.Args[1] == glProbeArg {
 		os.Exit(runGLProbe())
+	}
+
+	// Gatekeeper may run a quarantined bundle from a read-only copy; come
+	// back from the real one before anything else starts.
+	if update.LeaveTranslocation() {
+		os.Exit(0)
 	}
 
 	headless := flag.Bool("headless", false, "run without a GUI (HTTP server, Sunshine, Tailscale only); a later normal launch attaches a GUI to this instance instead of starting a second one")
