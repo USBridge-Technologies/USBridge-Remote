@@ -4,6 +4,7 @@ package update
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,32 +52,13 @@ func apply(ctx context.Context, artifactPath, version string) error {
 		return fmt.Errorf("downloaded update failed Apple code signature verification (not applying): %w", err)
 	}
 
-	installedApp, err := currentAppBundlePath()
+	installedApp, err := installTarget()
 	if err != nil {
 		return err
 	}
-	installDir := filepath.Dir(installedApp)
-
-	stagedApp := filepath.Join(installDir, ".usbridge-update-staged.app")
-	os.RemoveAll(stagedApp)
-	if out, err := exec.CommandContext(ctx, "ditto", newApp, stagedApp).CombinedOutput(); err != nil {
-		os.RemoveAll(stagedApp)
-		return fmt.Errorf("ditto copy into %s (no write permission?): %w (%s)", installDir, err, strings.TrimSpace(string(out)))
+	if err := swapIn(ctx, newApp, installedApp); err != nil {
+		return err
 	}
-
-	backupApp := filepath.Join(installDir, ".usbridge-update-previous.app")
-	os.RemoveAll(backupApp)
-	if err := os.Rename(installedApp, backupApp); err != nil {
-		os.RemoveAll(stagedApp)
-		return fmt.Errorf("move aside current install: %w", err)
-	}
-	if err := os.Rename(stagedApp, installedApp); err != nil {
-		// Roll back so the app isn't left half-installed.
-		os.Rename(backupApp, installedApp)
-		os.RemoveAll(stagedApp)
-		return fmt.Errorf("install new version: %w", err)
-	}
-	os.RemoveAll(backupApp)
 
 	if BeforeRelaunch != nil {
 		BeforeRelaunch()
@@ -87,6 +69,105 @@ func apply(ctx context.Context, artifactPath, version string) error {
 
 	os.Exit(0)
 	return nil // unreachable
+}
+
+// installTarget is the bundle path the update replaces: the running bundle
+// when its folder is writable, else /Applications/<App>.app. The fallback
+// covers an app started straight from the mounted .dmg, or a translocated
+// one whose source couldn't be resolved — both read-only, so the update
+// moves the app into /Applications rather than failing.
+func installTarget() (string, error) {
+	installedApp, err := currentAppBundlePath()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(installedApp)
+	if !strings.Contains(installedApp, "/AppTranslocation/") && unix.Access(dir, unix.W_OK) == nil {
+		return installedApp, nil
+	}
+	return filepath.Join("/Applications", appBundleName), nil
+}
+
+// swapIn copies newApp next to target and renames it over target, keeping
+// the old bundle until the new one is in place. When this user can't write
+// there (a standard account, a bundle another admin installed), the same
+// steps run once more as root behind the system password prompt.
+func swapIn(ctx context.Context, newApp, target string) error {
+	dir := filepath.Dir(target)
+	staged := filepath.Join(dir, ".usbridge-update-staged.app")
+	backup := filepath.Join(dir, ".usbridge-update-previous.app")
+	if err := swapAsUser(ctx, newApp, target, staged, backup); err == nil {
+		return nil
+	} else if !isPermissionError(err) {
+		return err
+	}
+	apple := fmt.Sprintf("do shell script %s with administrator privileges",
+		appleScriptString(swapScript(newApp, target, staged, backup)))
+	if out, err := exec.CommandContext(ctx, "osascript", "-e", apple).CombinedOutput(); err != nil {
+		return fmt.Errorf("install into %s as administrator: %w (%s)", dir, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// swapScript is swapAsUser as a shell script, for the root run.
+func swapScript(newApp, target, staged, backup string) string {
+	return fmt.Sprintf("set -e; rm -rf %[2]s %[3]s; ditto %[1]s %[2]s; "+
+		"if [ -e %[4]s ]; then mv %[4]s %[3]s; fi; "+
+		"mv %[2]s %[4]s || { [ ! -e %[3]s ] || mv %[3]s %[4]s; exit 1; }; rm -rf %[3]s",
+		shellQuote(newApp), shellQuote(staged), shellQuote(backup), shellQuote(target))
+}
+
+func swapAsUser(ctx context.Context, newApp, target, staged, backup string) error {
+	os.RemoveAll(staged)
+	if out, err := exec.CommandContext(ctx, "ditto", newApp, staged).CombinedOutput(); err != nil {
+		os.RemoveAll(staged)
+		return &os.PathError{Op: "ditto", Path: staged, Err: dittoErr(out, err)}
+	}
+	os.RemoveAll(backup)
+	hadOld := true
+	if err := os.Rename(target, backup); err != nil {
+		if !os.IsNotExist(err) {
+			os.RemoveAll(staged)
+			return fmt.Errorf("move aside current install: %w", err)
+		}
+		hadOld = false
+	}
+	if err := os.Rename(staged, target); err != nil {
+		// Roll back so the app isn't left half-installed.
+		if hadOld {
+			os.Rename(backup, target)
+		}
+		os.RemoveAll(staged)
+		return fmt.Errorf("install new version: %w", err)
+	}
+	os.RemoveAll(backup)
+	return nil
+}
+
+// dittoErr keeps ditto's own message, mapping its permission and
+// read-only failures to the errno isPermissionError looks for.
+func dittoErr(out []byte, err error) error {
+	msg := strings.TrimSpace(string(out))
+	switch {
+	case strings.Contains(msg, "Permission denied"), strings.Contains(msg, "Operation not permitted"):
+		return fmt.Errorf("%w: %s", os.ErrPermission, msg)
+	case strings.Contains(msg, "Read-only file system"):
+		return fmt.Errorf("%w: %s", unix.EROFS, msg)
+	}
+	return fmt.Errorf("%w (%s)", err, msg)
+}
+
+func isPermissionError(err error) bool {
+	return errors.Is(err, os.ErrPermission) || errors.Is(err, unix.EACCES) ||
+		errors.Is(err, unix.EPERM) || errors.Is(err, unix.EROFS)
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func appleScriptString(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 // currentAppBundlePath walks up from the running binary's path
