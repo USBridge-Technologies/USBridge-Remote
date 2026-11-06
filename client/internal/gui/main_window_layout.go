@@ -1851,6 +1851,14 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.mobileClipboardBtn.Refresh()
 		}
+		if mw.mobileInputModeBtn != nil {
+			if videoStreaming {
+				mw.mobileInputModeBtn.Show()
+			} else {
+				mw.mobileInputModeBtn.Hide()
+			}
+			mw.mobileInputModeBtn.Refresh()
+		}
 		if mw.mobileFullscreenBtn != nil {
 			if videoStreaming {
 				mw.mobileFullscreenBtn.Show()
@@ -2312,7 +2320,8 @@ func (mw *MainWindow) showClipboardMenu() {
 // showKeyboardInputModeMenu picks how the physical keyboard reaches the
 // host: raw keys (host layout decides) or characters (local layout decides).
 func (mw *MainWindow) showKeyboardInputModeMenu() {
-	if mw.inputModeIcon == nil || mw.videoWidget == nil {
+	anchor := mw.inputModeAnchor()
+	if anchor == nil || mw.videoWidget == nil {
 		return
 	}
 	current := mw.videoWidget.GetKeyboardInputMode()
@@ -2342,7 +2351,29 @@ func (mw *MainWindow) showKeyboardInputModeMenu() {
 			OnTap: mw.showRemoteKeyboardLayoutMenu,
 		})
 	}
-	view.ShowStyledMenuTealAbove(mw.inputModeIcon, items)
+	showInputModeMenu(anchor, items)
+}
+
+// inputModeAnchor is the input mode icon of this client's Control footer.
+func (mw *MainWindow) inputModeAnchor() fyne.CanvasObject {
+	if useMobileControl() {
+		if mw.mobileInputModeToggle == nil {
+			return nil
+		}
+		return mw.mobileInputModeToggle
+	}
+	if mw.inputModeIcon == nil {
+		return nil
+	}
+	return mw.inputModeIcon
+}
+
+func showInputModeMenu(anchor fyne.CanvasObject, items []view.StyledMenuItem) {
+	if useMobileControl() {
+		view.ShowMobileStyledMenuAbove(anchor, items)
+		return
+	}
+	view.ShowStyledMenuTealAbove(anchor, items)
 }
 
 func (mw *MainWindow) remoteKeyboardLayoutName(setting string) string {
@@ -2358,7 +2389,8 @@ func (mw *MainWindow) remoteKeyboardLayoutName(setting string) string {
 
 // showRemoteKeyboardLayoutMenu picks the hardware KVM target's layout.
 func (mw *MainWindow) showRemoteKeyboardLayoutMenu() {
-	if mw.inputModeIcon == nil || mw.videoWidget == nil {
+	anchor := mw.inputModeAnchor()
+	if anchor == nil || mw.videoWidget == nil {
 		return
 	}
 	current := mw.videoWidget.RemoteKeyboardLayout()
@@ -2381,7 +2413,7 @@ func (mw *MainWindow) showRemoteKeyboardLayoutMenu() {
 			OnTap:    func() { set(id) },
 		})
 	}
-	view.ShowStyledMenuTealAbove(mw.inputModeIcon, items)
+	showInputModeMenu(anchor, items)
 }
 
 func (mw *MainWindow) showRNDISModeMenu() {

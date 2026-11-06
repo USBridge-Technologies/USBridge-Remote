@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"usbridge-client/internal/input"
 	"usbridge-client/internal/service"
 
 	"github.com/sirupsen/logrus"
@@ -122,6 +123,37 @@ func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
 		// target layout (auto: the IME's language), UTF-8 only for the rest.
 		for _, r := range text {
 			if !vw.sendRuneViaRemoteLayout(r) {
+				s := string(r)
+				vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(s) })
+			}
+		}
+		return
+	}
+	if vw.keyboardKeysMode.Load() {
+		// Keys mode: press the key each character sits on (Cyrillic on
+		// its ЙЦУКЕН position); the host's active layout decides what it
+		// types, like a USB keyboard. UTF-8 only for what has no key.
+		for _, r := range text {
+			if hid, hidMods := input.GetRuneKeyCodeWithModifiers(r); hid != 0 {
+				vk := hidKeyToVK(hid)
+				mods := widgetToMoonlightModifiers(hidMods)
+				vw.enqueueSend(func() {
+					mi.SendMoonlightKey(vk, service.LiKeyActionDown, mods)
+					mi.SendMoonlightKey(vk, service.LiKeyActionUp, mods)
+				})
+				continue
+			}
+			s := string(r)
+			vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(s) })
+		}
+		return
+	}
+	if vw.typesViaHostLayout() {
+		// Sunshine on Linux turns UTF-8 into an IBus Ctrl+Shift+U <hex>
+		// sequence most apps print as digits: switch the host layout and
+		// press each character's key instead, like desktop text mode.
+		for _, r := range text {
+			if !vw.sendRuneViaHostLayout(r) {
 				s := string(r)
 				vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(s) })
 			}

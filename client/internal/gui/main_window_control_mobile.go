@@ -90,6 +90,19 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 	mw.mobileClipboardBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), clip)
 	mw.mobileClipboardBtn.Hide()
 
+	// Keys / Characters for the soft keyboard, the same choice as the
+	// desktop Control footer's input mode icon.
+	inMode := newHeaderStatusBadgeButton(assets.KeyboardInputModeIcon, func() {
+		mw.showKeyboardInputModeMenu()
+	})
+	inMode.SetIconSize(fyne.NewSize(16, 16))
+	inMode.SetBadgeText("")
+	inMode.SetHoverStyle(design.ColorAlphaWhite07, btnSize/2)
+	inMode.SetHoverIcon(assets.KeyboardInputModeIconFooterHover)
+	mw.mobileInputModeToggle = inMode
+	mw.mobileInputModeBtn = container.NewGridWrap(fyne.NewSize(btnSize, btnSize), inMode)
+	mw.mobileInputModeBtn.Hide()
+
 	fs := newHeaderStatusBadgeButton(assets.FullscreenIconFooter, func() {
 		if mw.videoWidget != nil {
 			mw.videoWidget.ShowFullscreen()
@@ -149,6 +162,7 @@ func (mw *MainWindow) createMobileConnectedFooter(tabs fyne.CanvasObject) fyne.C
 		mw.mobileMonitorToggle,
 		mw.mobileVideoSettingsToggle,
 		mw.mobileClipboardToggle,
+		mw.mobileInputModeToggle,
 		mw.mobileFullscreenToggle,
 		mw.mobileMouseToggle,
 		mw.mobileKeyboardToggle,
@@ -498,6 +512,9 @@ func (mw *MainWindow) mobileControlRightActions() fyne.CanvasObject {
 	}
 	if mw.mobileKeyboardBtn != nil {
 		parts = append(parts, mw.mobileKeyboardBtn)
+	}
+	if mw.mobileInputModeBtn != nil {
+		parts = append(parts, mw.mobileInputModeBtn)
 	}
 	// Clipboard sits next to mouse/keyboard (HID cluster).
 	if mw.mobileClipboardBtn != nil {

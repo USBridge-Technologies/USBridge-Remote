@@ -78,6 +78,8 @@ type MainWindow struct {
 	mobileMonitorToggle       *headerStatusBadgeButton
 	mobileClipboardBtn        fyne.CanvasObject
 	mobileClipboardToggle     *headerStatusBadgeButton
+	mobileInputModeBtn        fyne.CanvasObject
+	mobileInputModeToggle     *headerStatusBadgeButton
 	mobileFooterGraphDivider  fyne.CanvasObject
 	mobileFooterHIDDivider    fyne.CanvasObject
 	mobileFooterActionsScroll *mobileFooterActionScroller
