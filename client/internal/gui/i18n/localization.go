@@ -721,6 +721,7 @@ type LocalizedStrings struct {
 	ClipboardEmpty              string // clipboard menu error: nothing to transfer
 	KeyboardInputKeys           string // keyboard input mode: raw keys, host layout decides
 	KeyboardInputText           string // keyboard input mode: characters typed with the client layout
+	KeyboardInputClipboard      string // keyboard input mode: text pasted through the host clipboard
 	RemoteKeyboardLayout        string // hardware KVM: the target's keyboard layout, "%s" = its name
 	RemoteKeyboardLayoutAuto    string // hardware KVM: target layout = this computer's
 	EnableVSync                 string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
@@ -1593,6 +1594,7 @@ func EN() *LocalizedStrings {
 		ClipboardEmpty:                       "Clipboard is empty",
 		KeyboardInputKeys:                    "Keys (Host Layout)",
 		KeyboardInputText:                    "Characters (Local Layout)",
+		KeyboardInputClipboard:               "Clipboard (Paste Text)",
 		RemoteKeyboardLayout:                 "Target layout: %s",
 		RemoteKeyboardLayoutAuto:             "Same as this computer",
 		EnableVSync:                          "VSync (Vertical Sync)",
@@ -1961,6 +1963,7 @@ func ES() *LocalizedStrings {
 	locale.ClipboardEmpty = "El portapapeles está vacío"
 	locale.KeyboardInputKeys = "Teclas (distribución del host)"
 	locale.KeyboardInputText = "Caracteres (distribución local)"
+	locale.KeyboardInputClipboard = "Portapapeles (pegar texto)"
 	locale.RemoteKeyboardLayout = "Distribución del equipo: %s"
 	locale.RemoteKeyboardLayoutAuto = "Igual que este equipo"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
@@ -2523,6 +2526,7 @@ func UKProper() *LocalizedStrings {
 	locale.ClipboardEmpty = "Буфер обміну порожній"
 	locale.KeyboardInputKeys = "Клавіші (розкладка хоста)"
 	locale.KeyboardInputText = "Символи (локальна розкладка)"
+	locale.KeyboardInputClipboard = "Буфер обміну (вставка тексту)"
 	locale.RemoteKeyboardLayout = "Розкладка цільового ПК: %s"
 	locale.RemoteKeyboardLayoutAuto = "Як на цьому комп'ютері"
 	locale.DeepLinkServerAddress = "Адреса сервера:"

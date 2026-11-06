@@ -258,6 +258,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/tailscale/register", sec.LimitPolling(s.tailscaleRegister))
 	mux.HandleFunc("/api/keyboard", sec.LimitRealtime(s.keyboard))
 	mux.HandleFunc("/api/keyboard/layout", sec.LimitRealtime(s.keyboardLayout))
+	mux.HandleFunc("/api/keyboard/text_mode", sec.LimitRealtime(s.keyboardTextMode))
 	mux.HandleFunc("/api/mouse", sec.LimitRealtime(s.mouse))
 	mux.HandleFunc("/api/mouse/ws", sec.LimitRealtime(s.mouseWS))
 	mux.HandleFunc("/api/clipboard/ws", sec.LimitRealtime(s.clipboardWS))

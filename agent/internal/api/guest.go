@@ -48,10 +48,11 @@ var routeCaps = map[string]guestauth.Cap{
 	// the role (view only for a Viewer) on the stream host, or refuses.
 	"/api/guest/moonlight-pair": guestauth.CapView,
 
-	"/api/keyboard":        guestauth.CapInput,
-	"/api/keyboard/layout": guestauth.CapInput,
-	"/api/mouse":           guestauth.CapInput,
-	"/api/mouse/ws":        guestauth.CapInput,
+	"/api/keyboard":           guestauth.CapInput,
+	"/api/keyboard/layout":    guestauth.CapInput,
+	"/api/keyboard/text_mode": guestauth.CapInput,
+	"/api/mouse":              guestauth.CapInput,
+	"/api/mouse/ws":           guestauth.CapInput,
 
 	"/api/clipboard/ws": guestauth.CapClipboard,
 

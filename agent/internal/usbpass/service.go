@@ -121,6 +121,8 @@ type Service struct {
 	// lastExit is the broker's own reason for its last crash (last
 	// broker.log line), shown in the agent UI; cleared once it answers.
 	lastExit string
+	// textMode is the keyboard text mode a client picked (text_mode.go).
+	textMode string
 }
 
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -343,6 +345,7 @@ func (s *Service) Start() error {
 	s.cmd = cmd
 	s.exe = exe
 	startedAt := time.Now()
+	go s.reapplyTextMode()
 	logPath := filepath.Join(cmd.Dir, "broker.log")
 	// cmd.Wait()'s result used to be discarded outright, which meant a
 	// broker that exits immediately after a successful fork (e.g. the

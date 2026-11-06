@@ -2343,6 +2343,14 @@ func (mw *MainWindow) showKeyboardInputModeMenu() {
 			OnTap:    func() { set(controller.KeyboardInputModeText) },
 		},
 	}
+	if !mw.videoWidget.IsHardwareKVM() {
+		// Pasted by the agent's USB broker: a KVM target has no clipboard.
+		items = append(items, view.StyledMenuItem{
+			Label:    i18n.Current.KeyboardInputClipboard,
+			Selected: current == controller.KeyboardInputModeClipboard,
+			OnTap:    func() { set(controller.KeyboardInputModeClipboard) },
+		})
+	}
 	if mw.videoWidget.TypesAsUSBKeyboard() {
 		// Characters are typed by pressing keys on the target, so they
 		// depend on its layout (paste uses it in both modes).

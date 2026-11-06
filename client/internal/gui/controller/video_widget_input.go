@@ -247,29 +247,60 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 //     physical position; the HOST's active layout decides the character,
 //     like a USB keyboard plugged into it. Needed for games, hotkeys and
 //     anything reading key state rather than text.
+//   - KeyboardInputModeClipboard ("Clipboard"): as Characters on this side;
+//     the agent's USB broker pastes the text through the host clipboard
+//     instead of typing it, so no layout is involved and emoji or any
+//     script get through.
 const (
-	KeyboardInputModeText = "text"
-	KeyboardInputModeKeys = "keys"
+	KeyboardInputModeText      = "text"
+	KeyboardInputModeKeys      = "keys"
+	KeyboardInputModeClipboard = "clipboard"
 )
 
-// SetKeyboardInputMode switches between KeyboardInputModeText and
-// KeyboardInputModeKeys. Keys held across the switch would otherwise be
-// released through the other path (or not at all), so they are released
-// first.
+// SetKeyboardInputMode switches between KeyboardInputModeText,
+// KeyboardInputModeKeys and KeyboardInputModeClipboard. Keys held across a
+// switch between keys and text would otherwise be released through the
+// other path (or not at all), so they are released first. The host side of
+// the text (clipboard or key presses) goes to the agent.
 func (vw *VideoWidget) SetKeyboardInputMode(mode string) {
 	keys := mode == KeyboardInputModeKeys
 	if vw.keyboardKeysMode.Swap(keys) != keys {
-		logrus.Infof("⌨️ [INPUT] keyboard input mode -> %s", mode)
 		vw.releaseAllMoonlightKeys()
 	}
+	vw.keyboardClipboardMode.Store(mode == KeyboardInputModeClipboard)
+	logrus.Infof("⌨️ [INPUT] keyboard input mode -> %s", mode)
+	vw.pushHostTextMode()
 }
 
 // GetKeyboardInputMode returns the current keyboard input mode.
 func (vw *VideoWidget) GetKeyboardInputMode() string {
-	if vw.keyboardKeysMode.Load() {
+	switch {
+	case vw.keyboardKeysMode.Load():
 		return KeyboardInputModeKeys
+	case vw.keyboardClipboardMode.Load():
+		return KeyboardInputModeClipboard
+	default:
+		return KeyboardInputModeText
 	}
-	return KeyboardInputModeText
+}
+
+// pushHostTextMode tells the connected agent whether its broker pastes text
+// (Clipboard) or types it (the other modes). Off the UI goroutine; a hardware
+// KVM or an older agent just doesn't know the endpoint.
+func (vw *VideoWidget) pushHostTextMode() {
+	client := vw.usbClient
+	if client == nil || vw.IsHardwareKVM() {
+		return
+	}
+	mode := "keys"
+	if vw.keyboardClipboardMode.Load() {
+		mode = "clipboard"
+	}
+	go func() {
+		if err := client.SetHostTextMode(mode); err != nil {
+			logrus.Debugf("⌨️ [INPUT] host text mode %s: %v", mode, err)
+		}
+	}()
 }
 
 // keysModeActive reports whether physical keystrokes go as raw keys. Only on

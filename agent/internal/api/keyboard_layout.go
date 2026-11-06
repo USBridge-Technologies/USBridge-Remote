@@ -40,3 +40,28 @@ func (s *Server) keyboardLayout(w http.ResponseWriter, r *http.Request) {
 		s.ok(w, "keyboard_layout", map[string]string{"layout": layout})
 	}
 }
+
+// keyboardTextMode is GET/POST /api/keyboard/text_mode: how the streamers'
+// text reaches this host, typed on the USB broker's keyboard. POST
+// {"mode":"keys"} types it as key presses (switching the layout a
+// character needs), {"mode":"clipboard"} pastes it through the clipboard.
+func (s *Server) keyboardTextMode(w http.ResponseWriter, r *http.Request) {
+	if s.usb == nil {
+		s.fail(w, http.StatusNotImplemented, "text_mode_unavailable", errors.New("no USB broker"))
+		return
+	}
+	if r.Method == http.MethodPost {
+		var req struct {
+			Mode string `json:"mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.fail(w, http.StatusBadRequest, "invalid_json", err)
+			return
+		}
+		if err := s.usb.SetTextMode(req.Mode); err != nil {
+			s.fail(w, http.StatusServiceUnavailable, "text_mode_failed", err)
+			return
+		}
+	}
+	s.ok(w, "text_mode", map[string]string{"mode": s.usb.TextMode()})
+}

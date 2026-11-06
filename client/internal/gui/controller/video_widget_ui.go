@@ -1406,6 +1406,8 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
 		vw.PrefetchCaptureModesAsync()
 		go vw.refreshAgentProtocol()
+		// The agent forgets the text mode when its broker restarts.
+		vw.pushHostTextMode()
 	} else {
 		vw.SetAgentProtocol("")
 		clearCaptureModesCache()
