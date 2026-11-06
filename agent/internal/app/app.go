@@ -121,6 +121,9 @@ type App struct {
 	// tailnetCertErr: the last tailnet-cert failure logged, so a tailnet
 	// without HTTPS certificates logs once, not every heartbeat.
 	tailnetCertErr atomic.Value // string
+	// tailnetStarting: the last tailnet-cert check found Tailscale still
+	// starting (see tailnetStartGrace).
+	tailnetStarting atomic.Bool
 	handler        http.Handler
 	apiServer      *api.Server
 	guests         *guestauth.Manager
@@ -3132,6 +3135,14 @@ const deviceCertPendingRetry = time.Minute
 // routing table for IP address / interface changes.
 const deviceCertPollInterval = 3 * time.Second
 
+// tailnetStartGrace: how long after the agent starts device-cert waits for
+// a Tailscale that is still starting before falling back to
+// device.usbridge.io anyway (a node that never comes up).
+const tailnetStartGrace = 2 * time.Minute
+
+// errTailnetStarting: tickDeviceCert is waiting for Tailscale to come up.
+var errTailnetStarting = errors.New("waiting for Tailscale to start")
+
 // deviceCertDemandWindow: a device cert is requested (or renewed) only if a
 // browser reached this machine's name within this window -- see
 // tlshost.Manager's registeredHostname doc comment for why.
@@ -3160,6 +3171,11 @@ const deviceCertDemandWindow = 30 * 24 * time.Hour
 // over its limit. See usbridge-entitlement-backend's 2026-10-04 incident
 // writeup. Fixed by making the fallback case identical to the success case.
 func deviceCertTickOutcome(err error, ip string, now time.Time) (registeredIP string, registerTime time.Time) {
+	if errors.Is(err, errTailnetStarting) {
+		// Nothing decided yet: the next poll (deviceCertPollInterval) asks
+		// Tailscale again.
+		return "", time.Time{}
+	}
 	if errors.Is(err, devicecert.ErrPending) {
 		// Registered fine, cert just not issued yet: poll again in
 		// ~deviceCertPendingRetry instead of waiting a full
@@ -3267,6 +3283,14 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 	if a.tickTailnetCert(ctx) {
 		a.releaseDeviceDNS(ctx, hwID, "reached by tailnet name "+a.tlsMgr.TailnetHostname())
 		return nil
+	}
+	if a.tailnetStarting.Load() {
+		// Tailscale is still coming up right after the agent started: wait
+		// for its answer rather than falling back to device.usbridge.io for
+		// a tailnet that does hand out certs (confirmed live: the fallback
+		// then failed on the shared zone's record quota, and the tailnet
+		// cert came back only at the next 5-minute heartbeat).
+		return errTailnetStarting
 	}
 	a.dnsReleased.Store(false)
 
@@ -3414,6 +3438,11 @@ func (a *App) tickTailnetCert(ctx context.Context) bool {
 	domain, certPEM, keyPEM, err := a.ts.CertPair(certCtx)
 	if err == nil {
 		err = a.tlsMgr.InstallTailnetCert(domain, certPEM, keyPEM)
+	}
+	starting := errors.Is(err, tailscale.ErrStarting) && time.Since(a.state.startedAt) < tailnetStartGrace
+	a.tailnetStarting.Store(starting)
+	if starting {
+		return a.tlsMgr.TailnetHostname() != ""
 	}
 	if err != nil {
 		if msg := err.Error(); a.tailnetCertErr.Load() != msg {

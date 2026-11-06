@@ -12,6 +12,10 @@ import (
 // control server without them (Headscale).
 var ErrHTTPSCertsDisabled = errors.New("tailscale: HTTPS certificates are not enabled for this tailnet")
 
+// ErrStarting: the node is still coming up (NoState/Starting) -- a moment
+// after the agent starts. Not an answer yet about the tailnet's cert.
+var ErrStarting = errors.New("tailscale: still starting")
+
 // CertPair returns a browser-trusted certificate for this node's own
 // MagicDNS name (<node>.<tailnet>.ts.net), issued through the tailnet's
 // control server -- no record in any zone of ours. tsnet keeps the pair in
@@ -26,6 +30,9 @@ func (s *Service) CertPair(ctx context.Context) (domain string, certPEM, keyPEM 
 	st, err := lc.StatusWithoutPeers(ctx)
 	if err != nil {
 		return "", nil, nil, err
+	}
+	if st.BackendState == "NoState" || st.BackendState == "Starting" {
+		return "", nil, nil, fmt.Errorf("%w (%s)", ErrStarting, st.BackendState)
 	}
 	if st.BackendState != "Running" || st.Self == nil {
 		return "", nil, nil, fmt.Errorf("tailscale: not running (%s)", st.BackendState)

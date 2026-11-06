@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -332,6 +333,13 @@ func TestDeviceCertTickOutcome(t *testing.T) {
 		gotIP, gotTime := deviceCertTickOutcome(nil, ip, now)
 		if gotIP != ip || !gotTime.Equal(now) {
 			t.Errorf("deviceCertTickOutcome(nil, ...) = (%q, %v), want (%q, %v)", gotIP, gotTime, ip, now)
+		}
+	})
+
+	t.Run("waiting for Tailscale retries at the next poll", func(t *testing.T) {
+		gotIP, gotTime := deviceCertTickOutcome(fmt.Errorf("x: %w", errTailnetStarting), ip, now)
+		if gotIP != "" || !gotTime.IsZero() {
+			t.Errorf("= (%q, %v), want (\"\", zero): the watchdog must tick again at once", gotIP, gotTime)
 		}
 	})
 
