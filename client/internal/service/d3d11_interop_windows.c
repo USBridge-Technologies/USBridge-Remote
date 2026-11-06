@@ -553,6 +553,9 @@ static DXGI_FORMAT g_dx_stage_fmt = DXGI_FORMAT_UNKNOWN;
 AVFrame *d3dx_download(AVFrame *frame) {
     if (!g_dx_hwdev || frame->format != AV_PIX_FMT_D3D11 || !frame->hw_frames_ctx) return NULL;
     AVHWFramesContext *fc = (AVHWFramesContext *)frame->hw_frames_ctx->data;
+    // Frames from another D3D11 device (the plain D3D11VA tier) cannot be
+    // copied with this one; the caller falls back to av_hwframe_transfer_data.
+    if (((AVD3D11VADeviceContext *)fc->device_ctx->hwctx)->device != (ID3D11Device *)g_dx_dev) return NULL;
     DXGI_FORMAT fmt;
     if (fc->sw_format == AV_PIX_FMT_NV12) fmt = DXGI_FORMAT_NV12;
     else if (fc->sw_format == AV_PIX_FMT_P010) fmt = DXGI_FORMAT_P010;

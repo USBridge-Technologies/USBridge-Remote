@@ -88,6 +88,15 @@ extern int vk_video_try_submit_vkframe(void *vk_image, int vk_format, int vk_lay
 extern void vk_video_note_timing(uint64_t net_us, uint64_t dec_us);
 static uint64_t g_vl_net_us = 0;
 static double   g_vl_send_ms = 0;
+// Active overlay backend: 0 Vulkan, 1 D3D11, 2 GDI, -1 none.
+extern int vk_video_backend(void);
+// D3D11 backend of the same overlay (dx_present_windows.c): takes a D3D11VA
+// frame decoded on the shared D3D11 device (an AVFrame ref it then owns).
+extern int vk_video_try_submit_d3d11(void *frame);
+// GDI backend of the overlay: wants BGRA.
+extern int vk_video_wants_bgra(void);
+// Shared D3D11 device wrapped for ffmpeg (dx_present_windows.c).
+extern AVBufferRef *win_dx_hwdev_ref(void);
 // GDI fallback (gl_video_impl_windows.c) — BGRA format.
 extern int gl_video_is_active(void);
 extern int gl_video_try_submit(uint8_t *bgra, int width, int height, int stride);
@@ -558,8 +567,10 @@ static void win_av_init(void) {
     // Probe D3D11VA on a throwaway context first so a failure here never
     // touches g_avctx -- same reason the old by-name lookup used a `test`
     // context before committing to it.
-    AVBufferRef *hw_ctx = NULL;
-    int hwErr = av_hwdevice_ctx_create(&hw_ctx, AV_HWDEVICE_TYPE_D3D11VA, NULL, NULL, 0);
+    // Decode on the shared D3D11 device when there is one: the D3D11
+    // presentation backend then samples the frames without a CPU copy.
+    AVBufferRef *hw_ctx = win_dx_hwdev_ref();
+    int hwErr = hw_ctx ? 0 : av_hwdevice_ctx_create(&hw_ctx, AV_HWDEVICE_TYPE_D3D11VA, NULL, NULL, 0);
     if (hwErr != 0) {
         char errbuf[AV_ERROR_MAX_STRING_SIZE] = {0};
         av_strerror(hwErr, errbuf, sizeof(errbuf));
@@ -684,9 +695,10 @@ static DWORD WINAPI win_readback_thread(LPVOID arg) {
         AVFrame *sw = NULL;
         int got = 0;
         if (frame->format == AV_PIX_FMT_D3D11) {
-            sw = d3dx_download(frame);
+            sw = d3dx_download(frame); // NULL for frames not on the interop device
             got = sw != NULL;
-        } else {
+        }
+        if (!got) {
             sw = av_frame_alloc();
             got = sw && av_hwframe_transfer_data(sw, frame, 0) == 0;
         }
@@ -873,17 +885,32 @@ static void win_deliver_frame_vulkan(AVFrame *frame) {
 }
 
 static void win_deliver_frame(AVFrame *frame) {
-    if (frame->format == AV_PIX_FMT_VULKAN) {
+    // The zero-copy paths hand VkImages to the Vulkan backend; when the
+    // overlay came up on D3D11/GDI instead (Vulkan presentation failed while
+    // Vulkan/interop decode works) the frames take the CPU path below.
+    int vk_backend = vk_video_backend() <= 0; // -1: no overlay yet
+    if (frame->format == AV_PIX_FMT_VULKAN && vk_backend) {
         win_deliver_frame_vulkan(frame);
         return;
     }
-    if (frame->format == AV_PIX_FMT_D3D11 && g_using_d3dx_decode) {
+    if (frame->format == AV_PIX_FMT_D3D11 && g_using_d3dx_decode && vk_backend) {
         win_deliver_frame_d3dx(frame);
         return;
     }
     double t_start = win_mono_ms();
-    AVFrame *sw = NULL;
+    // D3D11 presentation backend: the frame stays on the GPU.
     if (frame->format == AV_PIX_FMT_D3D11) {
+        AVFrame *ref = av_frame_clone(frame);
+        if (ref && vk_video_try_submit_d3d11(ref)) {
+            win_frame_notify(frame);
+            if (++g_av_frame_cnt == 1) goVTLog((char*)"libavcodec/win: first video frame decoded (D3D11VA -> D3D11 renderer)");
+            g_last_decode_ms = win_mono_ms() - t_start;
+            return;
+        }
+        av_frame_free(&ref);
+    }
+    AVFrame *sw = NULL;
+    if (frame->hw_frames_ctx) { // D3D11, or Vulkan on a non-Vulkan overlay
         sw = av_frame_alloc();
         if (av_hwframe_transfer_data(sw, frame, 0) < 0) { av_frame_free(&sw); return; }
         sw->width = frame->width; sw->height = frame->height;
@@ -892,7 +919,7 @@ static void win_deliver_frame(AVFrame *frame) {
     double t_readback = win_mono_ms();
     int w = frame->width, h = frame->height;
     // Vulkan and Fyne canvas both want RGBA; only GDI fallback needs BGRA.
-    enum AVPixelFormat dst_fmt = (!vk_video_is_active() && gl_video_is_active())
+    enum AVPixelFormat dst_fmt = ((!vk_video_is_active() && gl_video_is_active()) || vk_video_wants_bgra())
                                  ? AV_PIX_FMT_BGRA : AV_PIX_FMT_RGBA;
     if (!g_sws || w != g_av_w || h != g_av_h || dst_fmt != g_av_dst_fmt) {
         if (g_sws) sws_freeContext(g_sws);

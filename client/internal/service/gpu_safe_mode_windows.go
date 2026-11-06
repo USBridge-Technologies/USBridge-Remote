@@ -8,6 +8,7 @@ extern int  win_gpu_safe_mode(void);
 extern int  vk_video_is_gpu_stuck(void);
 extern void vk_video_mark_gpu_stuck(void);
 extern int  d3dx_unblock(void);
+extern int  vk_video_backend(void);
 */
 import "C"
 
@@ -28,18 +29,26 @@ import (
 //	0  normal: D3D11VA decode -> Vulkan zero-copy interop -> Vulkan overlay
 //	1  no D3D11VA->Vulkan interop: Vulkan Video decode, or D3D11VA with a CPU
 //	   copy, still shown by the Vulkan overlay
-//	2  no Vulkan: D3D11VA/software decode, GDI overlay -- slowest, but needs
-//	   nothing beyond a basic display driver (VMs, old iGPUs)
+//	2  no Vulkan: D3D11VA decode sampled by the D3D11 overlay backend
+//	   (dx_present_windows.c), software decode uploaded to it otherwise
+//	3  no GPU presentation: GDI blit of CPU frames -- slowest, but needs
+//	   nothing beyond a basic display driver
+//
+// Each overlay also falls down this list by itself when a backend fails to
+// start (no Vulkan driver in a VM, no D3D11 device), without a level.
 //
 // Sources, highest wins:
-//   - USBRIDGE_RENDERER=gdi (2) or =vulkan-nointerop (1), for testing/support.
+//   - USBRIDGE_RENDERER=gdi (3), =d3d11 (2) or =vulkan-nointerop (1), for
+//     testing/support.
 //   - A GPU stall remembered from an earlier run of this same client
 //     version (gpu_safe_mode.json); a new version tries the full pipeline
 //     again, so a fix or driver update is not masked forever.
-//   - A stall detected right now (HandleGPUStuck): this process goes to 2,
-//     since the stuck VkDevice is shared by decode and presentation and cannot
-//     be recreated; the remembered level is 1 if the D3D11 interop was in
-//     use (the next run then still gets Vulkan, minus the interop), else 2.
+//   - A stall detected right now (HandleGPUStuck): a Vulkan stall puts this
+//     process on 2, since the stuck VkDevice is shared by decode and
+//     presentation and cannot be recreated; the remembered level is 1 if the
+//     D3D11 interop was in use (the next run then still gets Vulkan, minus
+//     the interop), else 2. A D3D11 stall puts this process, and the next
+//     run, on 3.
 //
 // None of this touches the per-frame path: on hardware that works, the
 // pipeline is exactly what it was.
@@ -72,8 +81,11 @@ func InitGPUSafeMode(appName, version string) {
 
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("USBRIDGE_RENDERER"))) {
 	case "gdi":
+		C.win_gpu_safe_mode_raise(3)
+		logrus.Warn("🛟 [GPU safe mode] USBRIDGE_RENDERER=gdi -- level 3 (GDI overlay)")
+	case "d3d11":
 		C.win_gpu_safe_mode_raise(2)
-		logrus.Warn("🛟 [GPU safe mode] USBRIDGE_RENDERER=gdi -- level 2 (no Vulkan, GDI overlay)")
+		logrus.Warn("🛟 [GPU safe mode] USBRIDGE_RENDERER=d3d11 -- level 2 (no Vulkan, D3D11 overlay)")
 	case "vulkan-nointerop":
 		C.win_gpu_safe_mode_raise(1)
 		logrus.Warn("🛟 [GPU safe mode] USBRIDGE_RENDERER=vulkan-nointerop -- level 1 (no D3D11->Vulkan interop)")
@@ -108,25 +120,48 @@ func GPUSafeModeLevel() int { return int(C.win_gpu_safe_mode()) }
 // stopped completing work (vk_video_impl_windows.c, g_gpu_stuck).
 func VKVideoIsGPUStuck() bool { return C.vk_video_is_gpu_stuck() != 0 }
 
-// HandleGPUStuck switches this process to GDI and remembers the stall for
-// the next run. Returns false if it was already handled. The caller restarts
-// the stream so the decoder and overlay are picked again.
+// Overlay presentation backends (vk_video_impl_windows.c, VK_BACKEND_*).
+const (
+	overlayBackendVulkan = 0
+	overlayBackendD3D11  = 1
+	overlayBackendGDI    = 2
+)
+
+// VKVideoBackend names the active overlay's presentation backend ("" when
+// no overlay is up).
+func VKVideoBackend() string {
+	switch C.vk_video_backend() {
+	case overlayBackendVulkan:
+		return "Vulkan"
+	case overlayBackendD3D11:
+		return "D3D11"
+	case overlayBackendGDI:
+		return "GDI"
+	}
+	return ""
+}
+
+// HandleGPUStuck moves this process off the renderer that stalled (Vulkan
+// -> D3D11, D3D11 -> GDI) and remembers it for the next run. Returns false
+// if it was already handled. The caller restarts the stream so the decoder
+// and overlay are picked again.
 func HandleGPUStuck() bool {
 	gpuSafeModeMu.Lock()
 	defer gpuSafeModeMu.Unlock()
-	if GPUSafeModeLevel() >= 2 {
-		return false
-	}
-	interop := usingD3DXDecode()
-	gpu, _ := VKVideoGetGPUName()
-	C.win_gpu_safe_mode_raise(2)
-
-	remember, reason := 2, "Vulkan renderer stalled"
-	if interop {
+	d3d11 := C.vk_video_backend() == overlayBackendD3D11
+	level, remember, reason, next := 2, 2, "Vulkan renderer stalled", "D3D11"
+	if d3d11 {
+		level, remember, reason, next = 3, 3, "D3D11 renderer stalled", "GDI"
+	} else if usingD3DXDecode() {
 		remember, reason = 1, "Vulkan renderer stalled on the D3D11VA->Vulkan interop"
 	}
-	logrus.Errorf("🛟 [GPU safe mode] %s (gpu=%q) -- this session continues on GDI; next start uses level %d",
-		reason, gpu, remember)
+	if GPUSafeModeLevel() >= level {
+		return false
+	}
+	gpu, _ := VKVideoGetGPUName()
+	C.win_gpu_safe_mode_raise(C.int(level))
+	logrus.Errorf("🛟 [GPU safe mode] %s (gpu=%q) -- this session continues on %s; next start uses level %d",
+		reason, gpu, next, remember)
 
 	if gpuSafeModePath == "" {
 		return true
@@ -149,7 +184,8 @@ func HandleGPUStuck() bool {
 
 var gpuStallWatchdogOnce sync.Once
 
-// StartGPUStallWatchdog watches the Vulkan render thread from its own
+// StartGPUStallWatchdog watches the overlay's render thread (Vulkan or
+// D3D11) from its own
 // goroutine. A render thread parked for 5s in acquire/fence-wait/submit/
 // present means the driver is blocking there rather than honouring the
 // timeouts (seen on an Intel UHD with a GPU wait that never got its
@@ -165,9 +201,10 @@ func StartGPUStallWatchdog() {
 		go func() {
 			var lastHB int64 = -1
 			since := time.Now()
-			released := false
+			released := map[C.int]bool{} // per backend: each is given up once
 			for range time.Tick(time.Second) {
-				if released || !VKVideoIsActive() {
+				backend := C.vk_video_backend()
+				if backend < 0 || backend == overlayBackendGDI || released[backend] {
 					lastHB = -1
 					continue
 				}
@@ -185,8 +222,10 @@ func StartGPUStallWatchdog() {
 						time.Since(since).Round(time.Second), stage)
 					C.vk_video_mark_gpu_stuck()
 				}
-				C.d3dx_unblock()
-				released = true
+				if backend == overlayBackendVulkan {
+					C.d3dx_unblock()
+				}
+				released[backend] = true
 			}
 		}()
 	})

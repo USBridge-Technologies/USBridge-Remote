@@ -47,6 +47,23 @@ static float display_aspect(int fw, int fh) {
 
 extern void goVKLog(char *msg, int level);
 
+// D3D11 presenter (dx_present_windows.c): the backend used when Vulkan is
+// off or fails -- see vk_alt_render_thread.
+extern int  dxp_init(HWND hwnd, int w, int h);
+extern void dxp_destroy(int leak);
+extern const char *dxp_adapter_name(void);
+extern int  dxp_is_warp(void);
+extern void dxp_frame_free(void *frame);
+extern int  dxp_accepts_d3d11(const void *frame);
+extern int  dxp_upload_d3d11(void *frame);
+extern int  dxp_upload_rgba(const uint8_t *px, int w, int h, int stride);
+extern int  dxp_set_hud(const uint8_t *px, int w, int h);
+extern int  dxp_set_aivision(const uint8_t *px, int w, int h);
+extern int  dxp_source_kind(void);
+extern void dxp_source_size(int *w, int *h);
+extern int  dxp_window_changed(void);
+extern int  dxp_render(int vsync, float aspect, int hud_pct, int dest[6]);
+
 // win_vk_hwdev_get (moonlight_cgo_windows.go) — lazily creates (or returns
 // already-created) the shared ffmpeg-owned Vulkan hwaccel device used for
 // decode, and hands back its raw VkInstance/VkPhysicalDevice/VkDevice plus a
@@ -718,6 +735,29 @@ static volatile atomic_int g_device_lost = 0;
 // (gpu_safe_mode_windows.go) restarts the stream on GDI and remembers it.
 static volatile atomic_int g_gpu_stuck = 0;
 static int g_stall_strikes = 0; // render thread only
+
+// ─── presentation backend ────────────────────────────────────────────────────
+// The overlay window, its input queues, menu holes and standalone fullscreen
+// are the same for every backend; only what draws into the window differs.
+//   VULKAN  the normal renderer (everything below).
+//   D3D11   dx_present_windows.c: GPU safe mode 2, or Vulkan failed to start
+//           (VMs, old iGPUs, broken Vulkan drivers). D3D11VA frames decoded
+//           on the shared D3D11 device are sampled on the GPU; anything else
+//           arrives as RGBA from the CPU path.
+//   GDI     StretchDIBits of the CPU path's BGRA frame: GPU safe mode 3, or
+//           no D3D11 either. Slow at 4K, but needs only a display driver.
+// Picked per vk_video_create/_standalone call (vk_create_with_fallback).
+#define VK_BACKEND_VULKAN 0
+#define VK_BACKEND_D3D11  1
+#define VK_BACKEND_GDI    2
+static int g_backend = VK_BACKEND_VULKAN;
+// D3D11's g_gpu_stuck: its device was removed, or Present never returned
+// (the Go stall watchdog). Latched for the process; D3D11 is not used again.
+static volatile atomic_int g_dx_stuck = 0;
+static int g_render_thread_hung = 0; // cleanup's join timed out
+// Pending D3D11VA frame (AVFrame ref) for the D3D11 backend, under g_cs.
+static void *g_dxf_frame = NULL;
+static volatile int g_dxf_ready = 0;
 static void vk_note_stall(void) {
     if (++g_stall_strikes >= 3 && !atomic_exchange(&g_gpu_stuck, 1)) {
         goVKLog("GPU stopped completing work (3 timeouts in a row) -- halting render thread", 2);
@@ -3860,6 +3900,50 @@ static void vk_apply_visibility(void) {
     PostMessageW(hw, want ? WM_USER+1 : WM_USER+2, 0, 0);
 }
 
+// vk_follow_parent: overlay visibility and position follow the Fyne window.
+static void vk_follow_parent(POINT *last_parent_pt) {
+    if (g_parent_hwnd && g_child_hwnd) {
+        // Visibility (minimised / Go-requested hide) is decided in one place,
+        // shared with vk_video_set_hidden. NOT hidden just because another app
+        // is foreground any more -- the overlay is owned by the Fyne window, so
+        // it already sits behind whatever covers that window.
+        vk_apply_visibility();
+
+        if (atomic_load(&g_vis_applied) == 0) {
+            // Track parent window movement (the owner relation keeps Z-order stable).
+            POINT origin = {0, 0};
+            ClientToScreen(g_parent_hwnd, &origin);
+            if (origin.x != (*last_parent_pt).x || origin.y != (*last_parent_pt).y) {
+                *last_parent_pt = origin;
+                int cx = atomic_load(&g_dst_x);
+                int cy = atomic_load(&g_dst_y);
+                int cw = atomic_load(&g_dst_w);
+                int ch = atomic_load(&g_dst_h);
+                if (cw > 0 && ch > 0) {
+                    POINT pt = {cx, cy};
+                    ClientToScreen(g_parent_hwnd, &pt);
+                    SetWindowPos(g_child_hwnd, NULL, pt.x, pt.y, cw, ch,
+                                 SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | SWP_NOZORDER);
+                }
+            }
+        }
+    }
+}
+
+static void vk_hb_log(double *hb_log_t) {
+    // Periodic render-thread heartbeat visible in the log even if Go goroutines freeze.
+    double hb_now = mono_sec();
+    if (hb_now - *hb_log_t >= 5.0) {
+        char hbm[128];
+        snprintf(hbm, sizeof(hbm),
+            "render thread alive hb=%lld rendered=%lld submitted=%lld stage=%d hidden=%d",
+            (long long)g_render_hb, (long long)g_rendered, (long long)g_submitted,
+            g_render_stage, (int)atomic_load(&g_hidden));
+        goVKLog(hbm, 0);
+        *hb_log_t = hb_now;
+    }
+}
+
 // ─── render thread ────────────────────────────────────────────────────────────
 
 static DWORD WINAPI vk_render_thread(LPVOID unused) {
@@ -3889,44 +3973,8 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             continue;
         }
 
-        if (g_parent_hwnd && g_child_hwnd) {
-            // Visibility (minimised / Go-requested hide) is decided in one place,
-            // shared with vk_video_set_hidden. NOT hidden just because another app
-            // is foreground any more -- the overlay is owned by the Fyne window, so
-            // it already sits behind whatever covers that window.
-            vk_apply_visibility();
-
-            if (atomic_load(&g_vis_applied) == 0) {
-                // Track parent window movement (the owner relation keeps Z-order stable).
-                POINT origin = {0, 0};
-                ClientToScreen(g_parent_hwnd, &origin);
-                if (origin.x != last_parent_pt.x || origin.y != last_parent_pt.y) {
-                    last_parent_pt = origin;
-                    int cx = atomic_load(&g_dst_x);
-                    int cy = atomic_load(&g_dst_y);
-                    int cw = atomic_load(&g_dst_w);
-                    int ch = atomic_load(&g_dst_h);
-                    if (cw > 0 && ch > 0) {
-                        POINT pt = {cx, cy};
-                        ClientToScreen(g_parent_hwnd, &pt);
-                        SetWindowPos(g_child_hwnd, NULL, pt.x, pt.y, cw, ch,
-                                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | SWP_NOZORDER);
-                    }
-                }
-            }
-        }
-
-        // Periodic render-thread heartbeat visible in the log even if Go goroutines freeze.
-        double hb_now = mono_sec();
-        if (hb_now - hb_log_t >= 5.0) {
-            char hbm[128];
-            snprintf(hbm, sizeof(hbm),
-                "render thread alive hb=%lld rendered=%lld submitted=%lld stage=%d hidden=%d",
-                (long long)g_render_hb, (long long)g_rendered, (long long)g_submitted,
-                g_render_stage, (int)atomic_load(&g_hidden));
-            goVKLog(hbm, 0);
-            hb_log_t = hb_now;
-        }
+        vk_follow_parent(&last_parent_pt);
+        vk_hb_log(&hb_log_t);
 
         int rf;
         int fw = 0, fh = 0;
@@ -4088,6 +4136,199 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
     return 0;
 }
 
+// ─── D3D11 / GDI render thread ───────────────────────────────────────────────
+// Same frame slots, window tracking and stats as vk_render_thread, without
+// any Vulkan: draws through dx_present_windows.c (D3D11) or StretchDIBits
+// (GDI). Frame smoothing, FSR and HDR output are Vulkan-only.
+
+static void vk_alt_note_frame(int fw, int fh) {
+    g_rendered++;
+    g_fps_n++;
+    g_stat_rendered  = g_rendered;
+    g_stat_submitted = g_submitted;
+    double now = mono_sec();
+    if (g_rendered == 1) {
+        g_stat_first = 1; g_stat_fw = fw; g_stat_fh = fh;
+        g_fps_t0 = now; g_fps_n = 0;
+    }
+    if (now - g_fps_t0 >= 5.0 && g_fps_n > 0) {
+        g_stat_fps       = (float)((double)g_fps_n / (now - g_fps_t0));
+        g_stat_fps_ready = 1;
+        g_fps_t0 = now; g_fps_n = 0;
+    }
+    if (g_last_blit_ts > 0.0) {
+        float gap = (float)((now - g_last_blit_ts) * 1000.0);
+        if (gap > g_stat_max_gap_ms) g_stat_max_gap_ms = gap;
+    }
+    g_last_blit_ts = now;
+}
+
+// vk_gdi_paint: BGRA frame letterboxed into the overlay window.
+static void vk_gdi_paint(HWND hw, HDC hdc, const uint8_t *px, int fw, int fh, int fs) {
+    RECT rc;
+    if (!GetClientRect(hw, &rc)) return;
+    int sw = rc.right, sh = rc.bottom;
+    if (sw <= 0 || sh <= 0) return;
+    float fa = display_aspect(fw, fh);
+    float wa = (float)sw / (float)sh;
+    int dx = 0, dy = 0, dw = sw, dh = sh;
+    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
+    else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+    vk_store_video_dest(dx, dy, dw, dh, sw, sh);
+
+    HBRUSH blk = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    if (dy > 0) {
+        RECT t = { 0, 0, sw, dy };             FillRect(hdc, &t, blk);
+        RECT b = { 0, dy + dh, sw, sh };       FillRect(hdc, &b, blk);
+    }
+    if (dx > 0) {
+        RECT l = { 0, dy, dx, dy + dh };       FillRect(hdc, &l, blk);
+        RECT r = { dx + dw, dy, sw, dy + dh }; FillRect(hdc, &r, blk);
+    }
+    BITMAPINFO bmi;
+    memset(&bmi, 0, sizeof(bmi));
+    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth       = fs / 4;
+    bmi.bmiHeader.biHeight      = -fh; // top-down
+    bmi.bmiHeader.biPlanes      = 1;
+    bmi.bmiHeader.biBitCount    = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    // HALFTONE averages when shrinking (readable text) but costs a lot more
+    // CPU; past 2x it is the difference between a usable and a stuttering
+    // picture on the machines that end up here.
+    int shrink = fw > 2 * dw || fh > 2 * dh;
+    SetStretchBltMode(hdc, shrink ? COLORONCOLOR : HALFTONE);
+    SetBrushOrgEx(hdc, 0, 0, NULL);
+    StretchDIBits(hdc, dx, dy, dw, dh, 0, 0, fw, fh, px, &bmi, DIB_RGB_COLORS, SRCCOPY);
+    GdiFlush();
+}
+
+static DWORD WINAPI vk_alt_render_thread(LPVOID unused) {
+    (void)unused;
+    double hb_log_t = mono_sec();
+    POINT last_parent_pt = { -1, -1 };
+    const int gdi = g_backend == VK_BACKEND_GDI;
+    HWND hw = g_child_hwnd; // cleanup clears g_child_hwnd before joining
+    HDC hdc = gdi ? GetDC(hw) : NULL;
+    // GDI keeps the last frame to repaint after a resize or expose.
+    uint8_t *last = NULL;
+    int last_w = 0, last_h = 0, last_s = 0;
+    RECT last_rc = { 0, 0, 0, 0 };
+    double last_paint = 0.0;
+    // HUD / AI Vision copies (D3D11 only; GDI frames have them burned in).
+    static uint8_t hud_px[VK_HUD_W * VK_HUD_H * 4];
+    int hud_on = 0;
+    uint8_t *aiv_px = NULL;
+    size_t aiv_cap = 0;
+    int aiv_on = 0;
+
+    while (atomic_load(&g_active)) {
+        g_render_stage = 0;
+        WaitForSingleObject(g_event, 8);
+        g_render_hb++;
+        if (!atomic_load(&g_active)) break;
+        if (atomic_load(&g_dx_stuck)) continue;
+        vk_follow_parent(&last_parent_pt);
+        vk_hb_log(&hb_log_t);
+
+        void *dxframe = NULL;
+        uint8_t *tmp = NULL;
+        int fw = 0, fh = 0, fs = 0;
+        int hud_change = 0, aiv_change = 0, aiv_w = 0, aiv_h = 0;
+        EnterCriticalSection(&g_cs);
+        if (g_dxf_ready && g_dxf_frame) {
+            dxframe = g_dxf_frame;
+            g_dxf_frame = NULL;
+            g_dxf_ready = 0;
+            g_ready = 0; // a stale CPU frame must not follow it
+        } else if (g_ready && g_buf) {
+            fw = g_fw; fh = g_fh; fs = g_fs;
+            size_t sz = (size_t)fh * (size_t)fs;
+            tmp = (uint8_t *)malloc(sz);
+            if (tmp) memcpy(tmp, g_buf, sz);
+            g_ready = 0;
+        }
+        if (!gdi) {
+            if (g_hud_active != hud_on || (g_hud_active && g_hud_dirty)) {
+                hud_change = 1;
+                hud_on = g_hud_active;
+                if (hud_on) memcpy(hud_px, g_hud_pixels, sizeof(hud_px));
+                g_hud_dirty = 0;
+            }
+            if (g_aivision_active != aiv_on || (g_aivision_active && g_aivision_dirty)) {
+                aiv_change = 1;
+                aiv_on = g_aivision_active;
+                if (aiv_on && g_aivision_pixels) {
+                    aiv_w = g_aivision_pending_w; aiv_h = g_aivision_pending_h;
+                    size_t sz = (size_t)aiv_w * (size_t)aiv_h * 4;
+                    if (aiv_cap < sz) {
+                        uint8_t *n = (uint8_t *)realloc(aiv_px, sz);
+                        if (n) { aiv_px = n; aiv_cap = sz; }
+                    }
+                    if (aiv_cap >= sz) memcpy(aiv_px, g_aivision_pixels, sz);
+                    else aiv_on = 0;
+                }
+                g_aivision_dirty = 0;
+            }
+        }
+        LeaveCriticalSection(&g_cs);
+        int newframe = dxframe != NULL || tmp != NULL;
+
+        if (gdi) {
+            if (tmp) {
+                free(last);
+                last = tmp; last_w = fw; last_h = fh; last_s = fs;
+                tmp = NULL;
+            }
+            RECT rc = { 0, 0, 0, 0 };
+            GetClientRect(hw, &rc);
+            int resized = rc.right != last_rc.right || rc.bottom != last_rc.bottom;
+            double now = mono_sec();
+            if (!last || !hdc || (!newframe && !resized && now - last_paint < 0.25)) continue;
+            last_rc = rc;
+            last_paint = now;
+            g_render_stage = 6;
+            vk_gdi_paint(hw, hdc, last, last_w, last_h, last_s);
+            g_has_frame = 1;
+            if (newframe) vk_alt_note_frame(last_w, last_h);
+            continue;
+        }
+
+        // D3D11
+        g_render_stage = 2;
+        if (dxframe) {
+            dxp_upload_d3d11(dxframe);
+            dxp_frame_free(dxframe); // the copy is queued; the decoder may reuse the surface
+        } else if (tmp) {
+            dxp_upload_rgba(tmp, fw, fh, fs);
+            free(tmp);
+        }
+        if (hud_change) dxp_set_hud(hud_on ? hud_px : NULL, VK_HUD_W, VK_HUD_H);
+        if (aiv_change) dxp_set_aivision(aiv_on ? aiv_px : NULL, aiv_w, aiv_h);
+        if (!newframe && !hud_change && !aiv_change && !dxp_window_changed()) continue;
+
+        int sw = 0, sh = 0;
+        dxp_source_size(&sw, &sh);
+        int dest[6];
+        g_render_stage = 6;
+        int r = dxp_render(atomic_load(&g_vsync), display_aspect(sw, sh), atomic_load(&g_hud_scale_pct), dest);
+        g_render_stage = 0;
+        if (r < 0) {
+            if (!atomic_exchange(&g_dx_stuck, 1))
+                goVKLog("d3d11: device lost -- giving up on the D3D11 renderer", 2);
+            continue;
+        }
+        if (r == 0) continue;
+        vk_store_video_dest(dest[0], dest[1], dest[2], dest[3], dest[4], dest[5]);
+        g_has_frame = 1;
+        if (newframe) vk_alt_note_frame(sw, sh);
+    }
+    free(last);
+    free(aiv_px);
+    if (hdc) ReleaseDC(hw, hdc);
+    return 0;
+}
+
 // ─── Public C API ─────────────────────────────────────────────────────────────
 
 int vk_video_is_active(void) { return atomic_load(&g_active); }
@@ -4147,7 +4388,7 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
 int vk_video_try_submit_vkframe(void *vk_image, int vk_format, int vk_layout, int width, int height,
                                  int narrow_range, void *wait_sem, uint64_t wait_value, int external,
                                  void *release_ctx, void (*release_fn)(void *)) {
-    if (!atomic_load(&g_active) || !g_cs_init) return 0;
+    if (!atomic_load(&g_active) || !g_cs_init || g_backend != VK_BACKEND_VULKAN) return 0;
     EnterCriticalSection(&g_cs);
     if (!atomic_load(&g_active)) {
         LeaveCriticalSection(&g_cs);
@@ -4181,6 +4422,29 @@ int vk_video_try_submit_vkframe(void *vk_image, int vk_format, int vk_layout, in
 
 // vk_video_hdr_display_available: the current swapchain's surface offers
 // HDR10 (Windows HDR is on for the display the video is on). Any thread.
+// vk_video_try_submit_d3d11: D3D11 backend only -- a D3D11VA frame (an
+// AVFrame reference the renderer then owns) decoded on the shared D3D11
+// device. 0 if this backend is not active or cannot sample the frame: the
+// caller keeps the frame and uses the CPU path.
+int vk_video_try_submit_d3d11(void *frame) {
+    if (!atomic_load(&g_active) || !g_cs_init || g_backend != VK_BACKEND_D3D11) return 0;
+    if (atomic_load(&g_dx_stuck) || !dxp_accepts_d3d11(frame)) return 0;
+    EnterCriticalSection(&g_cs);
+    if (!atomic_load(&g_active)) { LeaveCriticalSection(&g_cs); return 0; }
+    if (g_dxf_frame) dxp_frame_free(g_dxf_frame); // drop-on-full, like the other slots
+    g_dxf_frame = frame;
+    g_dxf_ready = 1;
+    g_submitted++;
+    LeaveCriticalSection(&g_cs);
+    SetEvent(g_event);
+    return 1;
+}
+
+// vk_video_backend: VK_BACKEND_* of the active overlay, -1 when none.
+int vk_video_backend(void) { return atomic_load(&g_active) ? g_backend : -1; }
+// vk_video_wants_bgra: the GDI backend blits BGRA as is.
+int vk_video_wants_bgra(void) { return atomic_load(&g_active) && g_backend == VK_BACKEND_GDI; }
+
 int vk_video_hdr_display_available(void) {
     return atomic_load(&g_hdr_display_avail);
 }
@@ -4295,6 +4559,25 @@ void vk_video_update_frame(int x, int y, int w, int h) {
     }
 }
 
+// vk_wait_pumping waits for h while delivering messages other threads SEND
+// to this one. The caller is usually the Fyne/GLFW thread, which owns the
+// overlay's owner window: creating or destroying the owned overlay on its
+// own thread can SendMessage to the owner (activation moving off a closing
+// standalone fullscreen window, seen on an Intel UHD), and a plain wait here
+// deadlocked that until the timeout -- the overlay then failed to come back
+// after leaving fullscreen. Posted messages stay queued for GLFW's own loop.
+static DWORD vk_wait_pumping(HANDLE h, DWORD ms) {
+    DWORD start = GetTickCount();
+    for (;;) {
+        DWORD spent = GetTickCount() - start;
+        if (spent >= ms) return WAIT_TIMEOUT;
+        DWORD r = MsgWaitForMultipleObjects(1, &h, FALSE, ms - spent, QS_SENDMESSAGE);
+        if (r != WAIT_OBJECT_0 + 1) return r;
+        MSG m;
+        PeekMessageW(&m, NULL, 0, 0, PM_NOREMOVE | PM_QS_SENDMESSAGE); // runs the sent messages
+    }
+}
+
 static void vk_full_cleanup(void) {
     atomic_store(&g_active, 0);
 
@@ -4308,8 +4591,20 @@ static void vk_full_cleanup(void) {
         g_child_hwnd = NULL;
     }
 
-    if (g_thread)  { SetEvent(g_event); WaitForSingleObject(g_thread, 3000); CloseHandle(g_thread); g_thread = NULL; }
+    g_render_thread_hung = 0;
+    if (g_thread)  {
+        SetEvent(g_event);
+        if (WaitForSingleObject(g_thread, 3000) == WAIT_TIMEOUT) g_render_thread_hung = 1;
+        CloseHandle(g_thread); g_thread = NULL;
+    }
     if (g_event)   { CloseHandle(g_event); g_event = NULL; }
+
+    if (g_backend == VK_BACKEND_D3D11) {
+        // A render thread still inside Present, or a removed device: leak.
+        dxp_destroy(g_render_thread_hung || atomic_load(&g_dx_stuck));
+        if (g_dxf_frame) { dxp_frame_free(g_dxf_frame); g_dxf_frame = NULL; }
+        g_dxf_ready = 0;
+    }
 
     if (g_dev && atomic_load(&g_gpu_stuck)) {
         // Work that will never retire still references these objects:
@@ -4438,9 +4733,10 @@ static void vk_full_cleanup(void) {
     g_pdev = VK_NULL_HANDLE;
     g_ext_device = 0;
     g_frame_mode = VK_FRAME_MODE_RGBA;
+    g_backend = VK_BACKEND_VULKAN;
 
     // Overlay HWND was already posted WM_CLOSE at the start of cleanup.
-    if (g_hwnd_thread) { WaitForSingleObject(g_hwnd_thread, 3000); CloseHandle(g_hwnd_thread); g_hwnd_thread = NULL; }
+    if (g_hwnd_thread) { vk_wait_pumping(g_hwnd_thread, 3000); CloseHandle(g_hwnd_thread); g_hwnd_thread = NULL; }
     if (g_hwnd_ready)  { CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL; }
     if (g_cs_init) {
         EnterCriticalSection(&g_cs);
@@ -4475,7 +4771,10 @@ static void vk_full_cleanup(void) {
 // Shared by vk_video_create (overlay) and vk_video_create_standalone (fullscreen).
 // g_parent_hwnd, g_standalone, g_hwnd_args must be set before calling.
 
+static int g_window_failed = 0; // the last vk_video_init_common could not create the window
+
 static int vk_video_init_common(int x, int y, int w, int h) {
+    g_window_failed = 0;
     // Register overlay window class once.
     if (!g_wndcls) {
         WNDCLASSEXW wc = { sizeof(wc) };
@@ -4496,13 +4795,20 @@ static int vk_video_init_common(int x, int y, int w, int h) {
         CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL;
         goVKLog("vk_video: CreateThread(hwnd) failed", 2); return 0;
     }
-    if (WaitForSingleObject(g_hwnd_ready, 5000) != WAIT_OBJECT_0 || !g_child_hwnd) {
+    if (vk_wait_pumping(g_hwnd_ready, 5000) != WAIT_OBJECT_0 || !g_child_hwnd) {
         goVKLog("vk_video: overlay window creation failed/timeout", 2);
+        g_window_failed = 1;
         CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL;
         if (g_hwnd_thread) { WaitForSingleObject(g_hwnd_thread, 1000); CloseHandle(g_hwnd_thread); g_hwnd_thread = NULL; }
         return 0;
     }
     CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL;
+
+    if (g_backend == VK_BACKEND_D3D11) {
+        if (!dxp_init(g_child_hwnd, w, h)) goto fail;
+        goto threads;
+    }
+    if (g_backend == VK_BACKEND_GDI) goto threads;
 
     // Vulkan init. Prefer adopting the shared ffmpeg-owned Vulkan hwaccel
     // device (win_vk_hwdev_get, moonlight_cgo_windows.go) so decode and
@@ -4593,6 +4899,7 @@ static int vk_video_init_common(int x, int y, int w, int h) {
         if (vkCreateFence(g_dev, &fci, NULL, &g_fence)        != VK_SUCCESS) goto fail;
     }
 
+threads:
     atomic_store(&g_dst_x, x);
     atomic_store(&g_dst_y, y);
     atomic_store(&g_dst_w, w);
@@ -4612,7 +4919,8 @@ static int vk_video_init_common(int x, int y, int w, int h) {
     g_stat_max_gap_ms = 0; g_last_blit_ts = 0;
     atomic_store(&g_active, 1);
 
-    g_thread = CreateThread(NULL, 0, vk_render_thread, NULL, 0, NULL);
+    g_thread = CreateThread(NULL, 0, g_backend == VK_BACKEND_VULKAN ? vk_render_thread : vk_alt_render_thread,
+                            NULL, 0, NULL);
     if (!g_thread) { atomic_store(&g_active, 0); goto fail; }
     return 1;
 
@@ -4626,27 +4934,83 @@ fail:
 // Returns 1 on success, 0 if Vulkan is unavailable (caller falls back to GDI).
 extern int win_gpu_safe_mode(void);
 
-// vk_video_unavailable: Vulkan presentation is off for this process -- GPU
-// safe mode 2 (USBRIDGE_RENDERER=gdi, or a remembered/just-detected stall),
-// or this device already got stuck. Callers fall back to GDI.
-static int vk_video_unavailable(void) {
-    if (atomic_load(&g_gpu_stuck)) { goVKLog("vk_video: GPU stuck earlier in this process -- not using Vulkan", 1); return 1; }
-    if (win_gpu_safe_mode() >= 2) { goVKLog("vk_video: GPU safe mode -- Vulkan presentation off", 1); return 1; }
+static const char *vk_backend_name(int b) {
+    return b == VK_BACKEND_D3D11 ? "D3D11" : b == VK_BACKEND_GDI ? "GDI" : "Vulkan";
+}
+
+// vk_init_with_fallback brings the overlay window up with the best backend
+// this process may use, falling back down the list when one fails to start:
+//   Vulkan  unless GPU safe mode >= 2 or the Vulkan device got stuck
+//   D3D11   unless GPU safe mode >= 3 or the D3D11 device got stuck
+//   GDI     always
+// g_parent_hwnd/g_standalone/g_hwnd_args are set by the caller; a failed
+// attempt's cleanup clears them, so they are restored before each one.
+static int vk_init_with_fallback(int x, int y, int w, int h) {
+    HWND parent = g_parent_hwnd;
+    int standalone = g_standalone;
+    VkWndArgs args = g_hwnd_args;
+    int level = win_gpu_safe_mode();
+    for (int b = VK_BACKEND_VULKAN; b <= VK_BACKEND_GDI; b++) {
+        if (b == VK_BACKEND_VULKAN) {
+            if (atomic_load(&g_gpu_stuck)) { goVKLog("vk_video: Vulkan got stuck earlier in this process -- not using it", 1); continue; }
+            if (level >= 2) { goVKLog("vk_video: GPU safe mode -- Vulkan presentation off", 1); continue; }
+        }
+        if (b == VK_BACKEND_D3D11) {
+            if (atomic_load(&g_dx_stuck)) { goVKLog("vk_video: D3D11 got stuck earlier in this process -- not using it", 1); continue; }
+            if (level >= 3) { goVKLog("vk_video: GPU safe mode -- D3D11 presentation off", 1); continue; }
+        }
+        g_parent_hwnd = parent;
+        g_standalone = standalone;
+        g_hwnd_args = args;
+        g_backend = b;
+        if (vk_video_init_common(x, y, w, h)) {
+            if (b != VK_BACKEND_VULKAN) {
+                char m[200];
+                snprintf(m, sizeof(m), "vk_video: presenting with %s%s%s", vk_backend_name(b),
+                         b == VK_BACKEND_D3D11 ? " on " : "", b == VK_BACKEND_D3D11 ? dxp_adapter_name() : "");
+                goVKLog(m, 1);
+            }
+            return 1;
+        }
+        if (g_window_failed) break; // every backend needs that window
+        char m[96];
+        snprintf(m, sizeof(m), "vk_video: %s renderer failed to start -- trying the next one", vk_backend_name(b));
+        goVKLog(m, 1);
+    }
+    g_backend = VK_BACKEND_VULKAN;
     return 0;
 }
 
-int vk_video_is_gpu_stuck(void) { return atomic_load(&g_gpu_stuck); }
+static void vk_active_gpu_name(char *out, int n) {
+    out[0] = '\0';
+    if (g_backend == VK_BACKEND_D3D11) { snprintf(out, n, "%s (D3D11)", dxp_adapter_name()); return; }
+    if (g_backend == VK_BACKEND_GDI) { snprintf(out, n, "GDI"); return; }
+    if (g_pdev == VK_NULL_HANDLE) return;
+    VkPhysicalDeviceProperties pr;
+    vkGetPhysicalDeviceProperties(g_pdev, &pr);
+    snprintf(out, n, "%s", pr.deviceName);
+}
+
+// vk_video_is_gpu_stuck: the active backend's device stopped working.
+int vk_video_is_gpu_stuck(void) {
+    if (atomic_load(&g_active) && g_backend != VK_BACKEND_VULKAN) return atomic_load(&g_dx_stuck);
+    return atomic_load(&g_gpu_stuck);
+}
 // vk_video_mark_gpu_stuck: the Go stall watchdog saw the render thread sit in
-// acquire/fence-wait/submit for seconds -- a driver that blocks there instead
-// of honouring the timeouts never reaches vk_note_stall. Same latch.
+// acquire/fence-wait/submit/present for seconds -- a driver that blocks there
+// instead of honouring the timeouts never reaches vk_note_stall. Same latch.
 void vk_video_mark_gpu_stuck(void) {
+    if (atomic_load(&g_active) && g_backend == VK_BACKEND_D3D11) {
+        if (!atomic_exchange(&g_dx_stuck, 1))
+            goVKLog("d3d11: render thread blocked inside the driver -- treating the device as stuck", 2);
+        return;
+    }
     if (!atomic_exchange(&g_gpu_stuck, 1))
         goVKLog("render thread blocked inside the driver -- treating the GPU as stuck", 2);
 }
 
 int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync) {
     if (atomic_load(&g_active)) vk_full_cleanup();
-    if (vk_video_unavailable()) return 0;
 
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!parent) { goVKLog("vk_video_create: parent HWND is null", 2); return 0; }
@@ -4660,13 +5024,12 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
     g_hwnd_args.parent = parent; g_hwnd_args.x = x; g_hwnd_args.y = y;
     g_hwnd_args.w = w; g_hwnd_args.h = h; g_hwnd_args.standalone = 0;
 
-    if (!vk_video_init_common(x, y, w, h)) return 0;
+    if (!vk_init_with_fallback(x, y, w, h)) return 0;
 
     {
-        char m[256];
-        VkPhysicalDeviceProperties pr;
-        vkGetPhysicalDeviceProperties(g_pdev, &pr);
-        snprintf(m, sizeof(m), "Vulkan overlay created — GPU=%s rect=(%d,%d,%dx%d)", pr.deviceName, x, y, w, h);
+        char m[256], gpu[160];
+        vk_active_gpu_name(gpu, sizeof(gpu));
+        snprintf(m, sizeof(m), "%s overlay created — GPU=%s rect=(%d,%d,%dx%d)", vk_backend_name(g_backend), gpu, x, y, w, h);
         goVKLog(m, 0);
     }
     return 1;
@@ -4702,7 +5065,6 @@ static void vk_monitor_rect_near_hwnd(HWND hint, int *x, int *y, int *w, int *h)
 // Returns 1 on success, 0 on failure.
 int vk_video_create_standalone(uintptr_t hint_hwnd, int vsync) {
     if (atomic_load(&g_active)) vk_full_cleanup();
-    if (vk_video_unavailable()) return 0;
 
     atomic_store(&g_vsync, vsync ? 1 : 0);
     int x = 0, y = 0, sw = 0, sh = 0;
@@ -4716,14 +5078,13 @@ int vk_video_create_standalone(uintptr_t hint_hwnd, int vsync) {
     g_hwnd_args.h = sh;
     g_hwnd_args.standalone = 1;
 
-    if (!vk_video_init_common(x, y, sw, sh)) return 0;
+    if (!vk_init_with_fallback(x, y, sw, sh)) return 0;
 
     {
-        char m[256];
-        VkPhysicalDeviceProperties pr;
-        vkGetPhysicalDeviceProperties(g_pdev, &pr);
-        snprintf(m, sizeof(m), "Vulkan standalone fullscreen created — GPU=%s origin=(%d,%d) %dx%d hint_hwnd=%p",
-                 pr.deviceName, x, y, sw, sh, (void *)hint_hwnd);
+        char m[256], gpu[160];
+        vk_active_gpu_name(gpu, sizeof(gpu));
+        snprintf(m, sizeof(m), "%s standalone fullscreen created — GPU=%s origin=(%d,%d) %dx%d hint_hwnd=%p",
+                 vk_backend_name(g_backend), gpu, x, y, sw, sh, (void *)hint_hwnd);
         goVKLog(m, 0);
     }
     return 1;
@@ -4732,7 +5093,7 @@ int vk_video_create_standalone(uintptr_t hint_hwnd, int vsync) {
 void vk_video_destroy(void) {
     if (!atomic_load(&g_active)) return;
     char m[192];
-    snprintf(m, sizeof(m), "Vulkan renderer destroyed — rendered=%lld submitted=%lld", g_rendered, g_submitted);
+    snprintf(m, sizeof(m), "%s renderer destroyed — rendered=%lld submitted=%lld", vk_backend_name(g_backend), g_rendered, g_submitted);
     vk_full_cleanup();
     goVKLog(m, 0);
 }
@@ -4781,11 +5142,7 @@ void vk_video_get_diag(long long *hb, int *stage) {
 // same convention as the other Net Graph stat getters.
 void vk_video_get_gpu_name(char *out, int out_len) {
     if (!out || out_len <= 0) return;
-    out[0] = '\0';
-    if (g_pdev == VK_NULL_HANDLE) return;
-    VkPhysicalDeviceProperties pr;
-    vkGetPhysicalDeviceProperties(g_pdev, &pr);
-    snprintf(out, out_len, "%s", pr.deviceName);
+    vk_active_gpu_name(out, out_len);
 }
 
 // vk_video_set_concealment_enabled toggles frame smoothing (see the "frame
