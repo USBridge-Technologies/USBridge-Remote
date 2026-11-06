@@ -319,8 +319,14 @@ chmod +x "$OUTPUT_APPIMAGE"
 # this made the check fail nondeterministically even on a binary that DOES
 # contain the version string. Capturing strings' output into a variable
 # first removes the pipe (and the SIGPIPE race) entirely.
-BINARY_STRINGS="$(strings "$APPDIR/usr/bin/$EXE_NAME")"
-if ! grep -qx "$VERSION" <<<"$BINARY_STRINGS"; then
+#
+# Read the stamp from the binary's Go build info (`go version -m` lists the
+# -ldflags it was built with) rather than looking for "$VERSION" as a line
+# of `strings` output: the linker packs string literals back to back, so
+# whether the version comes out as a line of its own depends on what lands
+# next to it (3.2.25 came out as " # TYPE # HELP 3.2.25" and failed).
+BUILD_INFO="$(go version -m "$APPDIR/usr/bin/$EXE_NAME" 2>/dev/null || true)"
+if ! grep -qF -- "-X main.version=$VERSION" <<<"$BUILD_INFO"; then
     echo -e "${RED}❌ $APPDIR/usr/bin/$EXE_NAME does not contain version string '$VERSION' -- packaging picked up a stale binary${NC}"
     exit 1
 fi
