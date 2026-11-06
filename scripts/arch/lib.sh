@@ -47,16 +47,29 @@ arch_add_repo() {
 # Upgrades the installed USBridge packages from the USBridge pacman
 # repository only. Run as root through pkexec by the app's update dialog.
 # A config holding just [$ARCH_REPO] refreshes only its database, so this
-# never leaves the rest of the system partially upgraded.
+# never leaves the rest of the system partially upgraded. An optional
+# release tag argument (release-v<version> or test-<version>) reads that
+# release's own signed database instead (the app's Test update channel).
 set -eu
+server=$ARCH_REPO_URL
+if [ \$# -gt 0 ]; then
+    case "\$1" in
+        release-v[0-9]*|test-[0-9]*) ;;
+        *) echo "unexpected release tag" >&2; exit 2 ;;
+    esac
+    case "\$1" in
+        *[!A-Za-z0-9._-]*) echo "unexpected release tag" >&2; exit 2 ;;
+    esac
+    server=${ARCH_REPO_URL%/releases/*}/releases/download/\$1
+fi
 conf="\$(mktemp)"
 trap 'rm -f "\$conf"' EXIT
-cat > "\$conf" <<'CONF'
+cat > "\$conf" <<CONF
 [options]
 Architecture = auto
 [$ARCH_REPO]
 SigLevel = Required
-Server = $ARCH_REPO_URL
+Server = \$server
 CONF
 pacman --config "\$conf" -Sy --noconfirm --needed \$(pacman -Qq $ARCH_PACKAGES 2>/dev/null)
 EOF

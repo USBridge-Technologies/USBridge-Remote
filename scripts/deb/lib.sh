@@ -30,14 +30,14 @@ deb_add_repo() {
 #!/bin/sh
 # Upgrades the installed USBridge packages from the USBridge APT repository
 # only. Run as root through pkexec by the app's update dialog. An optional
-# argument test-<version> reads that pre-release's own repository instead
-# (the app's Test update channel).
+# release tag argument (release-v<version> or test-<version>) reads that
+# release's own repository instead (the app's Test update channel).
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 list=$DEB_LIST
 if [ \$# -gt 0 ]; then
     case "\$1" in
-        test-[0-9]*) ;;
+        release-v[0-9]*|test-[0-9]*) ;;
         *) echo "unexpected release tag" >&2; exit 2 ;;
     esac
     case "\$1" in

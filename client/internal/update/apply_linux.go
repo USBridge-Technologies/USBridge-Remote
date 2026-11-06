@@ -152,10 +152,11 @@ func pkgApply(ctx context.Context, version, tag string) (bool, error) {
 	}
 	helper := filepath.Join(pkgInstallDir, tool+"-upgrade")
 	args := []string{helper}
-	if GetChannel() == ChannelTest {
-		// Only the apt helper can read a release's own repository; pacman
-		// and dnf only follow the stable one.
-		if tool != "apt" || tag == "" {
+	if GetChannel() == ChannelTest && tag != "" {
+		// The apt and pacman helpers read that release's own signed
+		// repository (every release, pre-release or not, carries one); dnf's
+		// repodata exists only for the stable release.
+		if tool == "dnf" {
 			return true, fmt.Errorf("the test channel can't update a %s install: use the AppImage or the portable build", tool)
 		}
 		args = append(args, tag)
