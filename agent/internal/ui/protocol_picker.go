@@ -368,8 +368,8 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 		tiles = append(tiles, row)
 		dropdowns = append(dropdowns, w.newProtocolCaptureDropdown(opt.key))
 	}
-	// A fork card's capture pick sits under it; the other cards keep the
-	// same height with an empty slot.
+	// A fork card's capture pick sits inside it, under the header; the
+	// other cards keep the same height with an empty strip.
 	var slotH float32
 	for _, d := range dropdowns {
 		if d != nil && d.MinSize().Height > slotH {
@@ -378,12 +378,7 @@ func (w *Window) newProtocolPanel(parent fyne.Window) fyne.CanvasObject {
 	}
 	if slotH > 0 {
 		for i, d := range dropdowns {
-			if d == nil {
-				gap := canvas.NewRectangle(color.Transparent)
-				gap.SetMinSize(fyne.NewSize(0, slotH))
-				d = gap
-			}
-			tiles[i] = container.New(&tightVBoxLayout{gap: 4}, tiles[i], d)
+			w.protocolRows[i].SetFooter(d, slotH)
 		}
 	}
 
@@ -746,6 +741,25 @@ type protocolPickRow struct {
 	// version: the installed build's short tag ("v0.3.192"), shown under
 	// the badge; "" hides it.
 	version string
+	// footer: a control laid out inside the card under its header (a fork
+	// card's capture pick), nil for none. footerH is the strip kept at the
+	// bottom for it; every card gets the same one so the row stays even.
+	footer  fyne.CanvasObject
+	footerH float32
+}
+
+// protocolCardHeaderH is the height of a card's header (radio, title,
+// badge, icons); a footer strip goes below it.
+const protocolCardHeaderH float32 = 64
+
+// protocolCardFooterPad is the inset around a card's footer control.
+const protocolCardFooterPad float32 = 8
+
+// SetFooter puts obj inside the card under its header and reserves h for
+// it (h > 0 with a nil obj keeps cards without one as tall as the rest).
+func (r *protocolPickRow) SetFooter(obj fyne.CanvasObject, h float32) {
+	r.footer, r.footerH = obj, h
+	r.Refresh()
 }
 
 // SetBadge changes the card's badge (the USBridge Streamer card's tier).
@@ -904,7 +918,11 @@ func (r *protocolPickRow) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (r *protocolPickRow) MinSize() fyne.Size {
-	return fyne.NewSize(120, 64)
+	h := protocolCardHeaderH
+	if r.footerH > 0 {
+		h += r.footerH + protocolCardFooterPad
+	}
+	return fyne.NewSize(120, h)
 }
 
 func (r *protocolPickRow) Tapped(e *fyne.PointEvent) {
@@ -990,6 +1008,16 @@ func (r *protocolPickRowRenderer) Layout(size fyne.Size) {
 	r.bg.Resize(size)
 	r.border.Move(fyne.NewPos(0, 0))
 	r.border.Resize(size)
+
+	// The header keeps its own height; a footer fills the strip below it.
+	full := size
+	if r.row.footerH > 0 {
+		size.Height = protocolCardHeaderH
+		if f := r.row.footer; f != nil {
+			f.Move(fyne.NewPos(protocolCardFooterPad, protocolCardHeaderH))
+			f.Resize(fyne.NewSize(full.Width-2*protocolCardFooterPad, r.row.footerH))
+		}
+	}
 
 	const padL float32 = 8
 	const radioSide float32 = 14
@@ -1139,8 +1167,14 @@ func (r *protocolPickRowRenderer) Refresh() {
 	r.Layout(r.row.Size())
 }
 
-func (r *protocolPickRowRenderer) Objects() []fyne.CanvasObject { return r.objects }
-func (r *protocolPickRowRenderer) Destroy()                     {}
+func (r *protocolPickRowRenderer) Objects() []fyne.CanvasObject {
+	if r.row.footer == nil {
+		return r.objects
+	}
+	// Last, so the footer control sits above the card and takes its taps.
+	return append(append([]fyne.CanvasObject(nil), r.objects...), r.row.footer)
+}
+func (r *protocolPickRowRenderer) Destroy() {}
 
 type equalHBoxLayout struct {
 	gap float32
