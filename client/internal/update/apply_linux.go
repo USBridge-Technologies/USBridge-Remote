@@ -112,7 +112,6 @@ const pkgInstallDir = "/opt/usbridge-client"
 
 func init() {
 	packageManagedApply = pkgApply
-	installIsPackageManaged = func() bool { _, ok := packageManagedExe(); return ok }
 }
 
 // packageManagedExe returns this binary's resolved path and whether it sits

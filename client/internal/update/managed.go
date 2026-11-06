@@ -8,8 +8,3 @@ import "context"
 // handled=false means this install isn't package-managed and the normal
 // download path runs.
 var packageManagedApply func(ctx context.Context, version, tag string) (handled bool, err error)
-
-// installIsPackageManaged reports whether a system package manager owns this
-// install (nil off Linux). Such an install can't be re-flashed with the same
-// version, so the test channel doesn't offer a same-version rebuild for it.
-var installIsPackageManaged func() bool

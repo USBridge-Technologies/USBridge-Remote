@@ -44,7 +44,7 @@ func platformKey() string {
 // do" and continue startup normally; this never blocks longer than
 // checkTimeout.
 func Check(ctx context.Context, currentVersion string) *Manifest {
-	m, err := check(ctx, currentVersion, false)
+	m, err := check(ctx, currentVersion)
 	if err != nil {
 		logrus.WithField("component", "update").WithError(err).Debug("update check skipped (offline, GitHub unreachable, or no signed manifest yet)")
 		return nil
@@ -53,14 +53,13 @@ func Check(ctx context.Context, currentVersion string) *Manifest {
 }
 
 // CheckNow is the user-initiated check behind the version dialog. Unlike
-// Check it reports failures, and on the test channel it also offers a
-// rebuild of the same version (test builds often keep VERSION). A nil
-// manifest with a nil error means up to date.
+// Check it reports failures. A nil manifest with a nil error means up to
+// date.
 func CheckNow(ctx context.Context, currentVersion string) (*Manifest, error) {
-	return check(ctx, currentVersion, true)
+	return check(ctx, currentVersion)
 }
 
-func check(ctx context.Context, currentVersion string, manual bool) (*Manifest, error) {
+func check(ctx context.Context, currentVersion string) (*Manifest, error) {
 	if runtime.GOOS == "ios" {
 		// Apple's App Store is the only sanctioned update path on iOS.
 		return nil, nil
@@ -88,9 +87,7 @@ func check(ctx context.Context, currentVersion string, manual bool) (*Manifest, 
 	}
 
 	newer := isNewerVersion(manifest.Version, currentVersion)
-	sameOnTest := manual && GetChannel() == ChannelTest && !isNewerVersion(currentVersion, manifest.Version) &&
-		(installIsPackageManaged == nil || !installIsPackageManaged())
-	if !newer && !sameOnTest {
+	if !newer {
 		log.WithFields(logrus.Fields{
 			"current": currentVersion,
 			"latest":  manifest.Version,

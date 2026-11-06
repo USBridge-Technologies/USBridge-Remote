@@ -114,7 +114,6 @@ const pkgInstallDir = "/usr/lib/usbridge-agent"
 
 func init() {
 	packageManagedApply = pkgApply
-	installIsPackageManaged = func() bool { _, ok := packageManagedExe(); return ok }
 }
 
 // packageManagedExe returns this binary's resolved path and whether it sits
