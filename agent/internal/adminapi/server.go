@@ -287,6 +287,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/clear-license", s.handleClearLicense)
 	mux.HandleFunc("POST /token/download-rustshine", s.handleDownloadRustShine)
 	mux.HandleFunc("POST /token/check-rustshine-update", s.handleCheckRustShineUpdateNow)
+	s.registerAgentUpdate(mux)
 	mux.HandleFunc("POST /token/check-punktfunk-update", s.handleCheckPunktfunkUpdateNow)
 	mux.HandleFunc("POST /token/check-sunshine-update", s.handleCheckSunshineUpdateNow)
 	mux.HandleFunc("POST /token/check-vibepollo-update", s.handleCheckVibepolloUpdateNow)

@@ -2,8 +2,11 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
+	"usbridge_agent/internal/adminapi"
 	"usbridge_agent/internal/update"
 
 	"fyne.io/fyne/v2"
@@ -91,6 +94,102 @@ func (w *Window) installUpdatesBackend(parent fyne.Window) {
 			})
 		},
 	}
+}
+
+// remoteAgentUpdater is the engine's self-update, reached through the
+// admin API (adminapi/agent_update.go) by a GUI that only attached to it.
+type remoteAgentUpdater interface {
+	AgentUpdateChannel() (bool, error)
+	SetAgentUpdateChannel(test bool) error
+	CheckAgentUpdate() (string, error)
+	InstallAgentUpdate() error
+	AgentUpdateStatus() (adminapi.AgentUpdateStatus, error)
+}
+
+// installRemoteUpdatesBackend wires the same dialog to the engine this GUI
+// attached to (a Windows service, a headless systemd/launchd instance):
+// that process checks, follows the channel and applies, and this one
+// relaunches itself onto the new build once the engine has gone down for
+// the swap (relaunchAfterEngineUpdate).
+func (w *Window) installRemoteUpdatesBackend(parent fyne.Window, r remoteAgentUpdater) {
+	test, err := r.AgentUpdateChannel()
+	if err != nil {
+		// An engine from before these endpoints existed: nothing to drive.
+		logrus.WithField("component", "update").WithError(err).Info("engine has no update API -- updates stay hidden")
+		return
+	}
+	var pendingVersion string
+	updatesBackend = &updatesBackendFuncs{
+		testChannel: func() bool { return test },
+		setTestChannel: func(t bool) {
+			if err := r.SetAgentUpdateChannel(t); err != nil {
+				logrus.WithField("component", "update").WithError(err).Warn("could not switch the engine's update channel")
+				return
+			}
+			test = t
+			if t {
+				update.SetChannel(update.ChannelTest) // this GUI's release notes follow along
+			} else {
+				update.SetChannel(update.ChannelStable)
+			}
+			startWhatsNewSync()
+		},
+		check: func() (string, error) {
+			v, err := r.CheckAgentUpdate()
+			pendingVersion = v
+			return v, err
+		},
+		install: func() {
+			version := pendingVersion
+			if version == "" {
+				return
+			}
+			fyne.Do(func() {
+				progress := showUpdateProgressDialog(parent, version)
+				go func() {
+					if err := w.followRemoteAgentUpdate(r, progress); err != nil {
+						progress.Close()
+						logrus.WithField("component", "update").WithError(err).Error("engine update failed")
+						showErrorDialog(err, parent)
+						return
+					}
+					relaunchAfterEngineUpdate(r)
+				}()
+			})
+		},
+	}
+}
+
+// followRemoteAgentUpdate starts the engine's install and mirrors its
+// download progress until the engine is about to swap files (or already
+// went down to do it).
+func (w *Window) followRemoteAgentUpdate(r remoteAgentUpdater, progress *updateProgress) error {
+	if err := r.InstallAgentUpdate(); err != nil {
+		return err
+	}
+	unreachable := 0
+	for deadline := time.Now().Add(15 * time.Minute); time.Now().Before(deadline); {
+		time.Sleep(500 * time.Millisecond)
+		st, err := r.AgentUpdateStatus()
+		if err != nil {
+			if unreachable++; unreachable >= 4 {
+				return nil // the engine exited for the swap
+			}
+			continue
+		}
+		unreachable = 0
+		progress.Update(st.Done, st.Total)
+		if st.Error != "" {
+			return errors.New(st.Error)
+		}
+		if st.Applying {
+			return nil
+		}
+		if !st.Active {
+			return errors.New("the update stopped without a result")
+		}
+	}
+	return errors.New("the update did not finish in 15 minutes")
 }
 
 // showUpdatesDialog lets the user pick Release or Test builds and update on

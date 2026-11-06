@@ -1963,6 +1963,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 	if w.ownsEngine {
 		w.installUpdatesBackend(win)
 		go w.promptForUpdate(win)
+	} else if r, ok := w.token.(remoteAgentUpdater); ok {
+		w.installRemoteUpdatesBackend(win, r)
 	}
 
 	// startHidden (the --tray launch mode) only actually starts hidden when

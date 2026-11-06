@@ -36,6 +36,21 @@ function Wait-ForParentExit {
     } catch {
         # Already gone, or never existed - either way, proceed.
     }
+    # Other copies of the same exe keep it locked too: the agent window of a
+    # user session attached to this service closes itself for the update
+    # (and reopens afterwards); give it a moment, then close what is left.
+    $target = Join-Path $InstallDir $ExeName
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline) {
+        $others = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID -and $_.Path -eq $target })
+        if ($others.Count -eq 0) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    $others = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID -and $_.Path -eq $target })
+    foreach ($p in $others) {
+        Write-Log "stopping pid $($p.Id), it still runs $target"
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    }
     # Give the OS a moment to release file locks on the just-exited
     # process's DLLs/exe even after Wait-Process returns.
     Start-Sleep -Milliseconds 750

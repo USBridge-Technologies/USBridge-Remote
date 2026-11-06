@@ -287,6 +287,7 @@ type StartOptions struct {
 // genuinely free, or the existing holder turned out to be unresponsive to
 // both the graceful ask and a dial retry).
 func Start(opts StartOptions, version string) error {
+	adminapi.AgentVersion = version
 	// One GUI per state dir: a second normal/tray launch asks the running
 	// one to come forward and exits, instead of piling up windows and tray
 	// icons (see acquireGUILock).
