@@ -1,6 +1,12 @@
-// Package benchvideo plays the streamer benchmark's test content on the
-// host: a native 60fps 1080p clip (a 30s cut of Blender's "Big Buck Bunny",
-// CC-BY) fullscreen and looping, played as-is with no filter chain.
+// Package benchvideo shows the streamer benchmark's test content on the
+// host. By default that is the agent's own renderer (internal/benchrender):
+// a light animation at 120fps (or the stream's rate, if higher), the same on
+// every OS and with no player to install -- a clean Windows has none of the
+// ones below.
+//
+// An installed player is the fallback (and USBRIDGE_BENCH_VIDEO=<file> asks
+// for one): a native 60fps 1080p clip (a 30s cut of Blender's "Big Buck
+// Bunny", CC-BY) fullscreen and looping, played as-is with no filter chain.
 //
 // This used to be the (24fps) Sintel trailer with an ffmpeg filter chain
 // bolted on: an fps=60 conversion plus a small white marker square overlaid
@@ -37,6 +43,7 @@ import (
 	"sync"
 	"time"
 
+	"usbridge_agent/internal/benchrender"
 	"usbridge_agent/internal/monitors"
 )
 
@@ -117,9 +124,12 @@ func (p *Player) Status() Info {
 	info := p.info
 	info.Playing = p.proc != nil
 	if info.Player == "" {
-		info.Player, _ = findPlayer()
+		info.Player = BuiltinPlayer
+		if os.Getenv("USBRIDGE_BENCH_VIDEO") != "" {
+			info.Player, _ = findPlayer()
+		}
 	}
-	if info.ContentPath == "" {
+	if info.ContentPath == "" && os.Getenv("USBRIDGE_BENCH_VIDEO") != "" {
 		if path, ok := p.cachedContent(); ok {
 			info.ContentPath = path
 		}
@@ -127,9 +137,23 @@ func (p *Player) Status() Info {
 	return info
 }
 
-// Prepare makes sure the trailer is cached locally, downloading it once.
-// USBRIDGE_BENCH_VIDEO points at a local file to use instead.
+// Prepare readies the benchmark content ahead of the timed runs. The
+// built-in renderer needs nothing; USBRIDGE_BENCH_VIDEO names a local clip,
+// which has to exist.
 func (p *Player) Prepare(ctx context.Context) (string, error) {
+	if path := os.Getenv("USBRIDGE_BENCH_VIDEO"); path != "" {
+		if _, err := os.Stat(path); err != nil {
+			return "", fmt.Errorf("USBRIDGE_BENCH_VIDEO: %w", err)
+		}
+		return path, nil
+	}
+	return "", nil
+}
+
+// download makes sure the clip an installed player falls back to is cached
+// locally, downloading it once. USBRIDGE_BENCH_VIDEO points at a local file
+// to use instead.
+func (p *Player) download(ctx context.Context) (string, error) {
 	if path := os.Getenv("USBRIDGE_BENCH_VIDEO"); path != "" {
 		if _, err := os.Stat(path); err != nil {
 			return "", fmt.Errorf("USBRIDGE_BENCH_VIDEO: %w", err)
@@ -192,20 +216,63 @@ func (p *Player) cachedContent() (string, bool) {
 	return "", false
 }
 
-// Start (re)starts the content from its first frame, fullscreen on target
-// (nil: the player's default monitor). If the trailer can't be fetched it
-// falls back to ffplay's built-in testsrc2 pattern (still full-motion
-// 60fps), which only ffplay can generate.
+// Start (re)starts the test content from its first frame, fullscreen on
+// target (nil: the primary monitor).
+//
+// The content is the agent's own renderer (internal/benchrender) -- the
+// same light animation at the same rate on Windows, Linux and macOS, with
+// nothing to install. USBRIDGE_BENCH_VIDEO=<file> plays that file with an
+// installed player instead; an installed player (with the downloaded clip)
+// is also the fallback if the renderer can't open its window.
 //
 // output, when set, is the start of the name of a compositor output the
-// player's window must be moved to: a streamer that shows a virtual display
-// of its own (Punktfunk's "Virtual-punktfunk*") never sees a video that
-// opened on the physical monitor, and the client would measure an empty
-// desktop. Failing to get it there fails the start for the same reason.
+// window must be moved to: a streamer that shows a virtual display of its
+// own (Punktfunk's "Virtual-punktfunk*") never sees content that opened on
+// the physical monitor, and the client would measure an empty desktop.
+// Failing to get it there fails the start for the same reason.
 func (p *Player) Start(ctx context.Context, target *monitors.Monitor, output string) (Info, error) {
 	p.Stop()
+	p.mu.Lock()
+	fps := p.fps
+	p.mu.Unlock()
 
-	content, prepErr := p.Prepare(ctx)
+	if os.Getenv("USBRIDGE_BENCH_VIDEO") == "" {
+		info, err := p.startBuiltin(target, output, fps)
+		if err == nil {
+			return info, nil
+		}
+		log.Printf("[bench] built-in renderer: %v -- trying an installed video player", err)
+		if _, path := findPlayer(); path == "" {
+			return Info{}, fmt.Errorf("built-in renderer: %w", err)
+		}
+	}
+	return p.startPlayer(ctx, target, output, fps)
+}
+
+// BuiltinPlayer is Info.Player for the agent's own renderer.
+const BuiltinPlayer = "built-in"
+
+func (p *Player) startBuiltin(target *monitors.Monitor, output string, fps int) (Info, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return Info{}, err
+	}
+	rate := max(fps, benchrender.DefaultFPS)
+	var rect *benchrender.Rect
+	if target != nil {
+		rect = &benchrender.Rect{X: target.X, Y: target.Y, W: target.Width, H: target.Height}
+	}
+	proc, err := launch(exe, benchrender.Args(rate, rect))
+	if err != nil {
+		return Info{}, err
+	}
+	return p.adopt(proc, BuiltinPlayer, fmt.Sprintf("moving boxes %dfps", rate), "", target, output)
+}
+
+// startPlayer plays the clip (or, without it, ffplay's generated pattern)
+// with an installed player.
+func (p *Player) startPlayer(ctx context.Context, target *monitors.Monitor, output string, fps int) (Info, error) {
+	content, prepErr := p.download(ctx)
 	if prepErr != nil {
 		log.Printf("[bench] %v -- falling back to a generated test pattern", prepErr)
 	}
@@ -213,9 +280,6 @@ func (p *Player) Start(ctx context.Context, target *monitors.Monitor, output str
 	if player == "" {
 		return Info{}, errors.New("no video player on the host: install ffmpeg (ffplay), mpv or VLC")
 	}
-	p.mu.Lock()
-	fps := p.fps
-	p.mu.Unlock()
 	if fps > 60 && player == "ffplay" {
 		content = ""
 		log.Printf("[bench] streamers run at %d fps: the 60fps clip would cap them, playing a generated %dfps pattern", fps, fps)
@@ -240,7 +304,12 @@ func (p *Player) Start(ctx context.Context, target *monitors.Monitor, output str
 	if err != nil {
 		return Info{}, fmt.Errorf("start %s: %w", player, err)
 	}
+	return p.adopt(proc, player, label, content, target, output)
+}
 
+// adopt waits out a started process's first moments, puts its window where
+// it belongs and makes it the running one.
+func (p *Player) adopt(proc process, player, label, content string, target *monitors.Monitor, output string) (Info, error) {
 	exited := make(chan error, 1)
 	go func() { exited <- proc.Wait() }()
 	// A player that can't open a display exits right away; report that

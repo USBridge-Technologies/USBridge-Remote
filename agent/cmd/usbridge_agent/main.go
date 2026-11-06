@@ -7,6 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"usbridge_agent/internal/app"
+	"usbridge_agent/internal/benchrender"
 	"usbridge_agent/internal/displaypower"
 	"usbridge_agent/internal/logcap"
 	"usbridge_agent/internal/monitors"
@@ -36,6 +37,11 @@ func main() {
 	// Lists the monitors the user's session sees; the service can't (Session 0).
 	if len(os.Args) > 1 && os.Args[1] == monitors.HelperArg {
 		os.Exit(monitors.RunHelper())
+	}
+
+	// The streamer benchmark's test content (benchvideo starts it in the user's session).
+	if len(os.Args) > 1 && os.Args[1] == benchrender.HelperArg {
+		os.Exit(benchrender.Run(os.Args[2:]))
 	}
 
 	// Whether the system OpenGL can run Fyne (see softgl_windows.go).
