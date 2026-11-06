@@ -126,6 +126,9 @@ type Manager struct {
 	// tailnetHTTPSOff/tailnetHTTPSURL: Tailscale is signed in but its
 	// tailnet has HTTPS certificates off (see SetTailnetHTTPSOff).
 	tailnetHTTPSOff bool
+	// deviceNamesOff: the agent hands out no device.usbridge.io name at all
+	// (see SetDeviceNamesOff).
+	deviceNamesOff  bool
 	tailnetHTTPSURL string
 
 	lastDemand      time.Time
@@ -364,6 +367,14 @@ func (m *Manager) InstallTailnetCert(hostname string, certPEM, keyPEM []byte) er
 // SetTailnetHTTPSOff records that the signed-in tailnet has HTTPS
 // certificates off (off), with the page its admin turns them on at (url, ""
 // if Tailscale offered none) -- what the certificate dialog explains.
+// SetDeviceNamesOff records that device.usbridge.io names are off (see
+// CertStatus.DeviceNamesOff).
+func (m *Manager) SetDeviceNamesOff(off bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deviceNamesOff = off
+}
+
 func (m *Manager) SetTailnetHTTPSOff(off bool, url string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -444,6 +455,9 @@ type CertStatus struct {
 	// at, "" when Tailscale offered none (then: admin console, DNS page).
 	TailnetHTTPSOff       bool   `json:"tailnetHttpsOff,omitempty"`
 	TailnetHTTPSEnableURL string `json:"tailnetHttpsEnableUrl,omitempty"`
+	// DeviceNamesOff: no device.usbridge.io names are handed out right now,
+	// so signing in brings no trusted cert -- the UI doesn't suggest it.
+	DeviceNamesOff bool `json:"deviceNamesOff,omitempty"`
 }
 
 // CertStatus reports what GetCertificate is currently serving -- cheap,
@@ -464,10 +478,12 @@ func (m *Manager) CertStatus() CertStatus {
 	if httpsOff {
 		httpsURL = m.tailnetHTTPSURL
 	}
-	if m.device != nil && m.deviceLeaf != nil {
-		return CertStatus{Hostname: m.deviceHostname, LetsEncrypt: true, ExpiresAt: m.deviceLeaf.NotAfter, LastError: errMsg, TailnetHostname: tailnetHost, TailnetHTTPSOff: httpsOff, TailnetHTTPSEnableURL: httpsURL}
+	// An old device cert isn't shown while the names are off: its name no
+	// longer resolves.
+	if m.device != nil && m.deviceLeaf != nil && !m.deviceNamesOff {
+		return CertStatus{Hostname: m.deviceHostname, LetsEncrypt: true, ExpiresAt: m.deviceLeaf.NotAfter, LastError: errMsg, TailnetHostname: tailnetHost, TailnetHTTPSOff: httpsOff, TailnetHTTPSEnableURL: httpsURL, DeviceNamesOff: m.deviceNamesOff}
 	}
-	st := CertStatus{Hostname: m.deviceHostname, LastError: errMsg, TailnetHostname: tailnetHost, TailnetHTTPSOff: httpsOff, TailnetHTTPSEnableURL: httpsURL}
+	st := CertStatus{Hostname: m.deviceHostname, LastError: errMsg, TailnetHostname: tailnetHost, TailnetHTTPSOff: httpsOff, TailnetHTTPSEnableURL: httpsURL, DeviceNamesOff: m.deviceNamesOff}
 	if tailnetHost != "" {
 		st.ExpiresAt = m.tailnetLeaf.NotAfter
 	} else if m.selfLeaf != nil {

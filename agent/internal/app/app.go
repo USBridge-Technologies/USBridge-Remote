@@ -124,15 +124,15 @@ type App struct {
 	// tailnetStarting: the last tailnet-cert check found Tailscale still
 	// starting (see tailnetStartGrace).
 	tailnetStarting atomic.Bool
-	handler        http.Handler
-	apiServer      *api.Server
-	guests         *guestauth.Manager
-	guestKick      func(shareID string) // ends a revoked guest's running stream
-	guestNodeState guestNodeState       // the guest network node (guest_tailnet.go)
-	fyneApp        fyne.App
-	clipboard      *clipboard.Manager
-	usbBroker      *usbpass.Service
-	adminSrv       *adminapi.Server
+	handler         http.Handler
+	apiServer       *api.Server
+	guests          *guestauth.Manager
+	guestKick       func(shareID string) // ends a revoked guest's running stream
+	guestNodeState  guestNodeState       // the guest network node (guest_tailnet.go)
+	fyneApp         fyne.App
+	clipboard       *clipboard.Manager
+	usbBroker       *usbpass.Service
+	adminSrv        *adminapi.Server
 
 	// clientLeft and clientStarting wake virtualOthersWatchdog when a client says
 	// its stream is over or about to start (the latter closed once handled).
@@ -3135,6 +3135,13 @@ const deviceCertPendingRetry = time.Minute
 // routing table for IP address / interface changes.
 const deviceCertPollInterval = 3 * time.Second
 
+// deviceDNSEnabled: hand out <label>.device.usbridge.io names (a record in
+// usbridge.io's Cloudflare zone plus a Let's Encrypt cert per machine). Off
+// for now: the free plan's zone holds 200 records and is full ("Record
+// quota exceeded"); the names come back on another DNS provider. Until
+// then a machine is trusted only by its Tailscale name. A var for tests.
+var deviceDNSEnabled = false
+
 // tailnetStartGrace: how long after the agent starts device-cert waits for
 // a Tailscale that is still starting before falling back to
 // device.usbridge.io anyway (a node that never comes up).
@@ -3292,6 +3299,15 @@ func (a *App) tickDeviceCert(ctx context.Context) error {
 		// cert came back only at the next 5-minute heartbeat).
 		return errTailnetStarting
 	}
+	if !deviceDNSEnabled {
+		// device.usbridge.io is off for now (see deviceDNSEnabled):
+		// self-signed for everyone off a tailnet with HTTPS certificates,
+		// and this machine's old record, if any, goes back to the zone.
+		a.tlsMgr.SetDeviceNamesOff(true)
+		a.releaseDeviceDNS(ctx, hwID, "device.usbridge.io names are off")
+		return nil
+	}
+	a.tlsMgr.SetDeviceNamesOff(false)
 	a.dnsReleased.Store(false)
 
 	accountToken := strings.TrimSpace(a.cfg.AccountToken)

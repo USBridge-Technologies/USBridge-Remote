@@ -1004,7 +1004,7 @@ func (w *Window) refreshCertStatusUI(st tlshost.CertStatus, loggedIn bool) {
 			w.certVal.Color = design.ColorAddress
 			w.certVal.Refresh()
 		}
-	} else if !loggedIn {
+	} else if !loggedIn && !st.DeviceNamesOff {
 		w.certWarn.Hide()
 		if w.certVal.Text != loc().CertSignInRequired || w.certVal.Color != design.ColorAlert {
 			w.certVal.Text = loc().CertSignInRequired

@@ -114,6 +114,11 @@ func withDeviceCertBackendURL(t *testing.T, url string) {
 // newTestAppWithTLS is newTestApp (app_test.go) plus a real tlshost.Manager
 // backed by a scratch temp dir, for tickDeviceCert's own tests.
 func newTestAppWithTLS(t *testing.T) *App {
+	// These tests cover the device.usbridge.io path, off in production for
+	// now (deviceDNSEnabled).
+	prev := deviceDNSEnabled
+	deviceDNSEnabled = true
+	t.Cleanup(func() { deviceDNSEnabled = prev })
 	t.Helper()
 	dir := t.TempDir()
 	a := &App{
@@ -378,4 +383,43 @@ func TestDeviceCertTickOutcome(t *testing.T) {
 			t.Errorf("registerTime = %v, want %v", gotTime, now)
 		}
 	})
+}
+
+// With device.usbridge.io off, a machine off a tailnet registers no name and
+// requests no cert: it only gives its record back.
+func TestTickDeviceCert_DeviceNamesOff(t *testing.T) {
+	if netutil.PreferredIPv4() == "" {
+		t.Skip("no LAN interface available in this sandbox to derive a preferred IPv4 from")
+	}
+	var registers, releases, certs int
+	withDeviceCertBackendURL(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/device/dns":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["release"] == true {
+				releases++
+			} else {
+				registers++
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"hostname": "abc123.device.usbridge.test", "released": true})
+		case "/v1/device/cert":
+			certs++
+		}
+	})).URL)
+
+	a := newTestAppWithTLS(t)
+	deviceDNSEnabled = false
+	a.tlsMgr.NoteDeviceCertDemand()
+	for i := 0; i < 2; i++ {
+		if err := a.tickDeviceCert(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if registers != 0 || certs != 0 || releases != 1 {
+		t.Fatalf("registers=%d certs=%d releases=%d, want 0, 0, 1", registers, certs, releases)
+	}
+	if !a.tlsMgr.CertStatus().DeviceNamesOff {
+		t.Fatal("CertStatus.DeviceNamesOff not set: the UI would still say to sign in")
+	}
 }
