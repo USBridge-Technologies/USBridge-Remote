@@ -81,8 +81,10 @@ func assetURL(tag, name string) string {
 	return fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s", repoOwner, repoName, tag, name)
 }
 
-// latestTestTag finds the newest published release, pre-release or not
-// (the API lists newest first). A pre-release may carry any tag — the
+// latestTestTag finds the newest published release, pre-release or not --
+// by the version in its tag, not the API's order: GitHub doesn't list newest
+// first (release-v3.2.19 came before 3.2.20 and 3.2.21, and the Test channel
+// then said "no updates"). A pre-release may carry any tag — the
 // release-all "prerelease" box keeps release-v<ver>, release-all-test.yml
 // prefixes test- — and a stable release newer than every pre-release is
 // what the Test channel should be on too. Only picks which release to
@@ -100,12 +102,57 @@ func latestTestTag(ctx context.Context, client *http.Client) (string, error) {
 	if err := json.Unmarshal(body, &releases); err != nil {
 		return "", fmt.Errorf("parse releases: %w", err)
 	}
+	var tags []string
 	for _, r := range releases {
 		if !r.Draft {
-			return r.Tag, nil
+			tags = append(tags, r.Tag)
 		}
 	}
+	return newestReleaseTag(tags)
+}
+
+// newestReleaseTag picks the tag with the highest version (release-v3.2.21,
+// test-3.2.21-...). Tags without one count only when no tag has one: then
+// the API's first.
+func newestReleaseTag(tags []string) (string, error) {
+	best, bestVer := "", ""
+	for _, t := range tags {
+		v := tagVersion(t)
+		if v == "" {
+			continue
+		}
+		if best == "" || isNewerVersion(v, bestVer) {
+			best, bestVer = t, v
+		}
+	}
+	if best != "" {
+		return best, nil
+	}
+	if len(tags) > 0 {
+		return tags[0], nil
+	}
 	return "", fmt.Errorf("no release published")
+}
+
+// tagVersion is the first dotted number in tag ("release-v3.2.21" ->
+// "3.2.21"), "" when there is none.
+func tagVersion(tag string) string {
+	start := -1
+	for i := 0; i <= len(tag); i++ {
+		digit := i < len(tag) && tag[i] >= '0' && tag[i] <= '9'
+		dot := i < len(tag) && tag[i] == '.' && start >= 0
+		if start < 0 && digit {
+			start = i
+		}
+		if start >= 0 && !digit && !dot {
+			v := strings.TrimRight(tag[start:i], ".")
+			if strings.Contains(v, ".") {
+				return v
+			}
+			start = -1
+		}
+	}
+	return ""
 }
 
 // fetchManifest downloads and signature-verifies this app's update
