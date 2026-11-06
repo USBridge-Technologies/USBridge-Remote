@@ -383,7 +383,7 @@ else
 fi
 
 # 6. Info.plist (written after bundling so icons/plist don't interfere with lib walk)
-cat > "$APP_CONTENTS_DIR/Info.plist" << 'PLIST'
+cat > "$APP_CONTENTS_DIR/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
