@@ -398,35 +398,12 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 // isCharacterScanCode) precisely so this is the only thing that sends
 // printable text, avoiding a double send of the same keystroke.
 //
-// Prefer a raw HID keycode + Shift bit (via GetRuneKeyCodeWithModifiers)
-// over Moonlight's UTF8-text control channel whenever the resolved rune maps
-// onto a normal key position -- which covers essentially all ASCII, plus
-// Cyrillic folded onto its ЙЦУКЕН/QWERTY physical position. Falls back to
-// SendMoonlightUtf8Text only for runes with no such mapping (other
-// non-Latin scripts, emoji, ...).
-//
-// This isn't just a style preference: confirmed live against real Sunshine
-// (itsme228/Sunshine fork, i.e. stock LizardByte Sunshine here) on Linux,
-// its Unicode-text injection (platform/linux/input/inputtino_keyboard.cpp,
-// unicode()) works by holding Shift and "typing" a Ctrl+Shift+U <hex digits>
-// sequence -- the standard IBus/GTK Unicode-entry convention. That sequence
-// only actually composes into the target character inside apps that
-// implement it; anywhere else (most non-GTK apps, games, terminals) the
-// keystrokes land literally, WITH SHIFT HELD, for every character in the
-// whole run. E.g. digit '1' is U+0031, hex "31" -- typed as Shift+3 Shift+1
-// on a US layout, i.e. "#!" instead of "1". A raw keycode+Shift press avoids
-// that fragile IME dependency entirely and is understood by every Moonlight
-// host (Sunshine, RustShine, GeForce Experience...) the same way, so use it
-// whenever available -- EXCEPT on a Windows agent, where Sunshine's unicode()
-// uses SendInput+KEYEVENTF_UNICODE (a low-level OS facility, not dependent on
-// IME/app support, same reliability class as this VK+Shift path) -- so there's
-// nothing broken to work around, and UTF8 text stays the original, simpler
-// send for that target. See platform/linux/input/inputtino_keyboard.cpp's
-// unicode() (Linux, the IBus hack above) vs. platform/windows/input.cpp's
-// unicode() (Windows, SendInput) vs. platform/macos/input.cpp's unicode()
-// (macOS -- now also CGEventKeyboardSetUnicodeString, itself just as
-// reliable, but the client-side route below is still used there too since
-// it doesn't depend on the agent shipping that fix).
+// Every character goes as Moonlight UTF-8 text, the same for every host:
+// typing it with the right layout is the host's side. Under the USBridge
+// agent every streamer hands its keyboard to the USB broker, which types
+// text the way RustShine does (on a KDE host it switches the layout the
+// character needs and presses its key). A raw key press instead would
+// leave the character to whatever layout the host has on.
 func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
 	mi := vw.moonlightInput()
 	if mi == nil {
@@ -458,9 +435,6 @@ func (vw *VideoWidget) sendRune(r rune, dedupe bool) {
 	if mi == nil {
 		return
 	}
-	if vw.typesViaHostLayout() && vw.sendRuneViaHostLayout(r) {
-		return
-	}
 	if vw.TypesAsUSBKeyboard() {
 		if dedupe && vw.currentHIDModifiers()&(1|4|8) != 0 {
 			// Ctrl/Alt/Super held (AltGr is Ctrl+Alt on Windows, Alt on
@@ -480,15 +454,6 @@ func (vw *VideoWidget) sendRune(r rune, dedupe bool) {
 			vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(string(r)) })
 		}
 		return
-	}
-	if !vw.isWindowsAgent() {
-		if hidCode, hidMods := input.GetRuneKeyCodeWithModifiers(r); hidCode != 0 {
-			vk := hidKeyToVK(hidCode)
-			mods := widgetToMoonlightModifiers(hidMods)
-			vw.enqueueSend(func() { mi.SendMoonlightKey(vk, service.LiKeyActionDown, mods) })
-			vw.enqueueSend(func() { mi.SendMoonlightKey(vk, service.LiKeyActionUp, mods) })
-			return
-		}
 	}
 	vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(string(r)) })
 }
@@ -1659,7 +1624,6 @@ func (vw *VideoWidget) SetAgentProtocol(protocol string) {
 		return
 	}
 	vw.agentProtocol = p
-	vw.resetHostLayout()
 	vw.updateInStreamContentRect()
 	logrus.Infof("[ABS] agent protocol=%q stream-space mouse=%v", p, vw.hostMapsMouseInStreamSpace())
 	// MCP's ui.parse/screen.get_image/click_at must share the host's space.

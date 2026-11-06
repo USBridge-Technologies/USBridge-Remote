@@ -143,7 +143,6 @@ type VideoWidget struct {
 	hostDesktopW               float32         // native host monitor width (capture modes[0] / max)
 	hostDesktopH               float32         // native host monitor height
 	agentProtocol              string          // agent tariff: opensource (Sunshine) or rustshine free/pro/enterprise
-	hostLayout                 hostLayoutState // host keyboard layout the text path last set (video_widget_host_layout.go)
 	hotkeyActions              HotkeyActions   // Ctrl+Alt+Shift hotkeys needing the main window (video_widget_hotkeys.go)
 	hotkeysHeld                map[int16]bool  // hotkey keys whose KeyDown was consumed, so their KeyUp is too
 	hostCursorShown            bool            // whether the host is drawing its cursor this session, as far as this client told it

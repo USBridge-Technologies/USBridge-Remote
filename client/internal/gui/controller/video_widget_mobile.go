@@ -148,18 +148,6 @@ func (vw *VideoWidget) handleNativeIMEText(deleteCount int, text string) {
 		}
 		return
 	}
-	if vw.typesViaHostLayout() {
-		// Sunshine on Linux turns UTF-8 into an IBus Ctrl+Shift+U <hex>
-		// sequence most apps print as digits: switch the host layout and
-		// press each character's key instead, like desktop text mode.
-		for _, r := range text {
-			if !vw.sendRuneViaHostLayout(r) {
-				s := string(r)
-				vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(s) })
-			}
-		}
-		return
-	}
 	t := text
 	vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(t) })
 }
