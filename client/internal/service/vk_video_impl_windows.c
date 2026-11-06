@@ -481,7 +481,9 @@ static VkResult vkq_submit(VkQueue q, uint32_t n, const VkSubmitInfo *si, VkFenc
     vk_video_queue_unlock();
     return r;
 }
+static volatile atomic_int g_gpu_stuck;
 static VkResult vkq_device_wait_idle(VkDevice d) {
+    if (atomic_load(&g_gpu_stuck)) return VK_TIMEOUT; // would never return
     vk_video_queue_lock();
     VkResult r = vkDeviceWaitIdle(d);
     vk_video_queue_unlock();
@@ -705,6 +707,22 @@ static volatile atomic_int g_active;
 // into streaming" bug, not the separate goVTFrame nil-pointer race fixed
 // alongside this.
 static volatile atomic_int g_device_lost = 0;
+// g_gpu_stuck: latched (for the process) when the GPU stops retiring our
+// work without reporting VK_ERROR_DEVICE_LOST -- 3 consecutive fence-wait /
+// acquire timeouts with no fence completing in between (>= ~6s with no
+// frame). Seen on an Intel HD Graphics 520 whose driver never saw the shared
+// D3D11 fence (d3d11_interop_windows.c): the submit waiting for it never ran,
+// every swapchain image stayed held, and the app froze until killed. Like
+// g_device_lost, the render thread then stops calling into the device, and
+// cleanup skips vkDeviceWaitIdle (it would never return). Go
+// (gpu_safe_mode_windows.go) restarts the stream on GDI and remembers it.
+static volatile atomic_int g_gpu_stuck = 0;
+static int g_stall_strikes = 0; // render thread only
+static void vk_note_stall(void) {
+    if (++g_stall_strikes >= 3 && !atomic_exchange(&g_gpu_stuck, 1)) {
+        goVKLog("GPU stopped completing work (3 timeouts in a row) -- halting render thread", 2);
+    }
+}
 // Set to 1 by vk_video_set_hidden to hide overlay (e.g. while a Fyne menu is open).
 static volatile atomic_int g_hidden;
 // Set from vk_video_create/vk_video_create_standalone's vsync argument, read by
@@ -2376,6 +2394,7 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     }
     if (res == VK_TIMEOUT) {
         goVKLog("AcquireNextImage TIMEOUT 3s — possible DWM/driver deadlock", 2);
+        vk_note_stall();
         g_render_stage = 1; return 0;
     }
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -2395,10 +2414,13 @@ static int vk_render_frame_vkimage(VkImage img, VkFormat fmt, VkImageLayout src_
     vkst_add(VKST_FENCE, dt);
     vk_check_device_lost(fence_res);
     if (fence_res == VK_TIMEOUT) {
+        // Not vkResetFences: the fence still guards pending work, and
+        // resetting it would let that late signal pass for the next submit.
         goVKLog("WaitForFences TIMEOUT 2s — GPU hang?", 2);
-        vkResetFences(g_dev, 1, &g_fence);
+        vk_note_stall();
         g_render_stage = 1; return 0;
     }
+    if (fence_res == VK_SUCCESS) g_stall_strikes = 0;
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW WaitForFences %.0f ms", dt * 1000.0);
         goVKLog(_dbg, 1);
@@ -2730,6 +2752,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     }
     if (res == VK_TIMEOUT) {
         goVKLog("AcquireNextImage TIMEOUT 3s — possible DWM/driver deadlock", 2);
+        vk_note_stall();
         g_render_stage = 1; return 0;
     }
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -2757,10 +2780,13 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     dt = mono_sec() - t0;
     vk_check_device_lost(fence_res);
     if (fence_res == VK_TIMEOUT) {
+        // Not vkResetFences: the fence still guards pending work, and
+        // resetting it would let that late signal pass for the next submit.
         goVKLog("WaitForFences TIMEOUT 2s — GPU hang?", 2);
-        vkResetFences(g_dev, 1, &g_fence);
+        vk_note_stall();
         g_render_stage = 1; return 0;
     }
+    if (fence_res == VK_SUCCESS) g_stall_strikes = 0;
     if (dt > 0.1) {
         snprintf(_dbg, sizeof(_dbg), "SLOW WaitForFences %.0f ms", dt * 1000.0);
         goVKLog(_dbg, 1);
@@ -3646,9 +3672,10 @@ static int vk_render_frame_conceal(void) {
     VkResult conceal_fence_res = vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL);
     vk_check_device_lost(conceal_fence_res);
     if (conceal_fence_res == VK_TIMEOUT) {
-        vkResetFences(g_dev, 1, &g_fence);
+        vk_note_stall(); // and no vkResetFences: see vk_render_frame
         return 0;
     }
+    if (conceal_fence_res == VK_SUCCESS) g_stall_strikes = 0;
     vkResetFences(g_dev, 1, &g_fence);
 
     // DEBUG: the fence wait above just proved the PREVIOUS submission (the
@@ -3851,7 +3878,7 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
         last_rendered = 0;
         g_render_hb++;      // advance heartbeat each iteration (visible to Go watchdog)
         if (!atomic_load(&g_active)) break;
-        if (atomic_load(&g_device_lost)) {
+        if (atomic_load(&g_device_lost) || atomic_load(&g_gpu_stuck)) {
             // Unrecoverable without destroying and recreating the whole
             // VkDevice, which nothing here does -- idle instead of calling
             // any more Vulkan functions on it (see g_device_lost's doc
@@ -4284,6 +4311,14 @@ static void vk_full_cleanup(void) {
     if (g_thread)  { SetEvent(g_event); WaitForSingleObject(g_thread, 3000); CloseHandle(g_thread); g_thread = NULL; }
     if (g_event)   { CloseHandle(g_event); g_event = NULL; }
 
+    if (g_dev && atomic_load(&g_gpu_stuck)) {
+        // Work that will never retire still references these objects:
+        // destroying them is undefined behaviour and vkDeviceWaitIdle would
+        // never return. Leak them -- the device is not used again in this
+        // process (vk_video_create refuses once g_gpu_stuck is set).
+        goVKLog("vk_video: GPU stuck -- leaking Vulkan objects instead of destroying them", 1);
+        g_dev = VK_NULL_HANDLE;
+    }
     if (g_dev) {
         vkq_device_wait_idle(g_dev);
         if (g_stage_ptr && g_stage_mem) { vkUnmapMemory(g_dev, g_stage_mem); g_stage_ptr = NULL; }
@@ -4398,7 +4433,7 @@ static void vk_full_cleanup(void) {
         if (!g_ext_device) vkDestroyDevice(g_dev, NULL);
         g_dev = VK_NULL_HANDLE;
     }
-    if (g_inst && !g_ext_device) vkDestroyInstance(g_inst, NULL);
+    if (g_inst && !g_ext_device && !atomic_load(&g_gpu_stuck)) vkDestroyInstance(g_inst, NULL);
     g_inst = VK_NULL_HANDLE;
     g_pdev = VK_NULL_HANDLE;
     g_ext_device = 0;
@@ -4589,8 +4624,29 @@ fail:
 // vk_video_create — initialise Vulkan renderer as a child overlay over a Fyne window.
 // vsync: see the present-mode preference comment in vk_create_swapchain.
 // Returns 1 on success, 0 if Vulkan is unavailable (caller falls back to GDI).
+extern int win_gpu_safe_mode(void);
+
+// vk_video_unavailable: Vulkan presentation is off for this process -- GPU
+// safe mode 2 (USBRIDGE_RENDERER=gdi, or a remembered/just-detected stall),
+// or this device already got stuck. Callers fall back to GDI.
+static int vk_video_unavailable(void) {
+    if (atomic_load(&g_gpu_stuck)) { goVKLog("vk_video: GPU stuck earlier in this process -- not using Vulkan", 1); return 1; }
+    if (win_gpu_safe_mode() >= 2) { goVKLog("vk_video: GPU safe mode -- Vulkan presentation off", 1); return 1; }
+    return 0;
+}
+
+int vk_video_is_gpu_stuck(void) { return atomic_load(&g_gpu_stuck); }
+// vk_video_mark_gpu_stuck: the Go stall watchdog saw the render thread sit in
+// acquire/fence-wait/submit for seconds -- a driver that blocks there instead
+// of honouring the timeouts never reaches vk_note_stall. Same latch.
+void vk_video_mark_gpu_stuck(void) {
+    if (!atomic_exchange(&g_gpu_stuck, 1))
+        goVKLog("render thread blocked inside the driver -- treating the GPU as stuck", 2);
+}
+
 int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync) {
     if (atomic_load(&g_active)) vk_full_cleanup();
+    if (vk_video_unavailable()) return 0;
 
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!parent) { goVKLog("vk_video_create: parent HWND is null", 2); return 0; }
@@ -4646,6 +4702,7 @@ static void vk_monitor_rect_near_hwnd(HWND hint, int *x, int *y, int *w, int *h)
 // Returns 1 on success, 0 on failure.
 int vk_video_create_standalone(uintptr_t hint_hwnd, int vsync) {
     if (atomic_load(&g_active)) vk_full_cleanup();
+    if (vk_video_unavailable()) return 0;
 
     atomic_store(&g_vsync, vsync ? 1 : 0);
     int x = 0, y = 0, sw = 0, sh = 0;

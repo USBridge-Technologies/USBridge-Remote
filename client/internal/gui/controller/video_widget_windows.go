@@ -520,6 +520,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			if vw.parentWindow != nil {
 				startFyneWatchdog(fyne.CurrentApp())
 			}
+			service.StartGPUStallWatchdog()
 			// Forward mouse events from the Vulkan overlay window to TouchpadWrapper.
 			// The overlay (without WS_EX_TRANSPARENT) captures all pointer events so
 			// they never reach Fyne's GLFW window — we re-dispatch them manually via
@@ -661,6 +662,16 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	}
 
 	if service.VKVideoIsActive() {
+		// The renderer gave up on a GPU that stopped completing work: switch
+		// this session to GDI (and remember it) and restart the stream so the
+		// decoder and overlay are picked again. See gpu_safe_mode_windows.go.
+		if service.VKVideoIsGPUStuck() {
+			if service.HandleGPUStuck() {
+				go vw.forceReconnectStuckStream("gpu-stuck")
+			}
+			return
+		}
+
 		st := service.VKVideoGetStats()
 
 		// Watchdog 1: render-thread heartbeat stuck (thread blocked in Vulkan call).

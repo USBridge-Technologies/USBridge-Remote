@@ -18,6 +18,7 @@ import (
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/logcap"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
 	"usbridge-client/internal/update"
 	"usbridge-client/internal/usbpass"
 
@@ -126,6 +127,7 @@ func main() {
 	}()
 
 	logrus.Infof("Starting %s version %s", appName, version)
+	service.InitGPUSafeMode(appName, version)
 
 	i18n.Init("en")
 

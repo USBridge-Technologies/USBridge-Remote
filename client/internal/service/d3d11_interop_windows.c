@@ -57,6 +57,7 @@ extern void goVTLog(char *msg);
 extern AVBufferRef *win_vk_hwdev_ctx_ref(void);
 extern void vk_video_forget_image(void *vk_image);
 extern int vk_video_hdr_display_available(void);
+extern int win_gpu_safe_mode(void);
 
 #define D3DX_RING 4
 
@@ -115,12 +116,57 @@ static uint32_t dx_mem_type(uint32_t bits) {
     return UINT32_MAX;
 }
 
+// dx_fence_self_test checks, once at setup, that a value signalled on the
+// shared ID3D11Fence becomes visible through the Vulkan semaphore imported
+// from it. The renderer's queue submit waits for that semaphore on the GPU;
+// if the driver never sees D3D11's signals, that submit never completes, all
+// swapchain images stay held, and the stream (and with it the app, on the same
+// iGPU) freezes for good. Seen on an Intel HD Graphics 520 (2026-11-05/06
+// app_freeze.log): first frame presented, then "WaitForFences TIMEOUT" and
+// endless "AcquireNextImage TIMEOUT". A host-side wait here is safe either
+// way: a timeout costs at most ~0.5s once and nothing is left queued on the
+// GPU, and the caller then skips this tier (Vulkan Video, or D3D11VA with a
+// CPU copy). Cost on a working driver: one fence round trip, ~0.1ms, once
+// per process. USBRIDGE_D3DX_FAKE_BROKEN_FENCE=1 forces the failure (testing).
+static int dx_fence_self_test(const char **fail) {
+    PFN_vkWaitSemaphores waitSems = (PFN_vkWaitSemaphores)vkGetDeviceProcAddr(g_dx_vkdev, "vkWaitSemaphores");
+    if (!waitSems) waitSems = (PFN_vkWaitSemaphores)vkGetDeviceProcAddr(g_dx_vkdev, "vkWaitSemaphoresKHR");
+    if (!waitSems) { *fail = "no vkWaitSemaphores"; return 0; }
+
+    UINT64 v = ++g_dx_fence_val;
+    ID3D11DeviceContext4_Signal(g_dx_ctx, g_dx_fence, v);
+    ID3D11DeviceContext4_Flush(g_dx_ctx);
+
+    // D3D11 side first, so a slow D3D11 is not mistaken for a broken import.
+    HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
+    int d3d_done = ev && ID3D11Fence_SetEventOnCompletion(g_dx_fence, v, ev) == S_OK &&
+                   WaitForSingleObject(ev, 1000) == WAIT_OBJECT_0;
+    if (ev) CloseHandle(ev);
+    if (!d3d_done) { *fail = "self-test: D3D11 fence did not complete within 1s"; return 0; }
+
+    VkSemaphoreWaitInfo wi = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+    wi.semaphoreCount = 1;
+    wi.pSemaphores = &g_dx_vksem;
+    wi.pValues = &v;
+    VkResult r = waitSems(g_dx_vkdev, &wi, 500000000ULL);
+    const char *fake = getenv("USBRIDGE_D3DX_FAKE_BROKEN_FENCE");
+    if (fake && *fake && strcmp(fake, "0") != 0) r = VK_TIMEOUT;
+    if (r != VK_SUCCESS) {
+        static char buf[112];
+        snprintf(buf, sizeof(buf), "self-test: Vulkan does not see the shared D3D11 fence (res=%d)", (int)r);
+        *fail = buf;
+        return 0;
+    }
+    return 1;
+}
+
 // d3dx_device_ref returns a new reference to a D3D11VA hwdevice on the same
 // GPU as the shared Vulkan device, with the shared fence imported into
 // Vulkan -- or NULL if any piece is missing (no D3D11.4 fences, no external
 // memory/semaphore support, no LUID match...), in which case the caller
 // falls back to Vulkan Video decode.
 AVBufferRef *d3dx_device_ref(void) {
+    if (win_gpu_safe_mode() >= 1) return NULL; // checked before the cache: safe mode can rise mid-process
     if (!g_dx_cs_init) { InitializeCriticalSection(&g_dx_cs); g_dx_cs_init = 1; }
     EnterCriticalSection(&g_dx_cs);
     if (g_dx_tried) {
@@ -187,6 +233,7 @@ AVBufferRef *d3dx_device_ref(void) {
     isi.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D11_FENCE_BIT;
     isi.handle = fh;
     if (importSem(g_dx_vkdev, &isi) != VK_SUCCESS) { fail = "import ID3D11Fence into Vulkan"; goto out; }
+    if (!dx_fence_self_test(&fail)) goto out;
 
     AVBufferRef *hw = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
     if (!hw) { fail = "av_hwdevice_ctx_alloc(D3D11VA)"; goto out; }
@@ -221,6 +268,43 @@ out:
     AVBufferRef *r = g_dx_hwdev ? av_buffer_ref(g_dx_hwdev) : NULL;
     LeaveCriticalSection(&g_dx_cs);
     return r;
+}
+
+// d3dx_unblock releases GPU work stuck waiting for the shared fence: it
+// signals the imported Vulkan semaphore from the host, far past any value
+// D3D11 will reach, so a queue submit waiting for a signal the driver never
+// delivers (dx_fence_self_test's failure, seen live on an Intel HD
+// Graphics 520) can run and retire. On an Intel UHD (12650H) such a stuck wait
+// blocked the render thread inside vkWaitForFences past its timeout and froze
+// Fyne's GL main loop with it, so this is called from a watchdog goroutine,
+// not from either of those. The interop is not used again in this process
+// afterwards (GPU safe mode). Returns the VkResult, or -1 if there is nothing
+// to signal.
+int d3dx_unblock(void) {
+    if (!g_dx_vksem || !g_dx_vkdev) return -1;
+    // D3D11 side first: on that Intel UHD the Vulkan driver call below
+    // blocked behind the stuck vkWaitForFences, while the D3D11 device (a
+    // separate driver, decode kept running) still answered. Signalling the
+    // fence itself to a value past any wait releases the waiting submit
+    // whenever the import works at all.
+    if (g_dx_ctx && g_dx_fence && g_dx_avctx) {
+        g_dx_avctx->lock(g_dx_avctx->lock_ctx);
+        ID3D11DeviceContext4_Signal(g_dx_ctx, g_dx_fence, 1ULL << 62);
+        ID3D11DeviceContext4_Flush(g_dx_ctx);
+        g_dx_avctx->unlock(g_dx_avctx->lock_ctx);
+        dx_log("libavcodec/win: D3D11VA->Vulkan interop: signalled the shared fence from D3D11 to release stuck GPU work");
+    }
+    PFN_vkSignalSemaphore sig = (PFN_vkSignalSemaphore)vkGetDeviceProcAddr(g_dx_vkdev, "vkSignalSemaphore");
+    if (!sig) sig = (PFN_vkSignalSemaphore)vkGetDeviceProcAddr(g_dx_vkdev, "vkSignalSemaphoreKHR");
+    if (!sig) return -1;
+    VkSemaphoreSignalInfo si = { VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO };
+    si.semaphore = g_dx_vksem;
+    si.value = 1ULL << 62;
+    VkResult r = sig(g_dx_vkdev, &si);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "libavcodec/win: D3D11VA->Vulkan interop: host-signalled the shared semaphore to release stuck GPU work (res=%d)", (int)r);
+    dx_log(msg);
+    return (int)r;
 }
 
 static int dx_ring_busy(DxRing *r) {
@@ -440,6 +524,16 @@ int d3dx_deliver(AVFrame *frame, void **out_img, int *out_vkfmt, void **out_sem,
     *out_vkfmt = (int)ring->vkfmt;
     *out_sem = (void *)g_dx_vksem;
     *out_val = v;
+    // USBRIDGE_D3DX_FAKE_STALL=N (testing): from frame N on, hand out a wait
+    // value D3D11 never reaches -- the same never-satisfied GPU wait as a
+    // driver that does not see the shared fence (see dx_fence_self_test), to
+    // exercise the renderer's stall detection and the GDI fallback.
+    static long long fake_stall_at = -1, delivered = 0;
+    if (fake_stall_at < 0) {
+        const char *e = getenv("USBRIDGE_D3DX_FAKE_STALL");
+        fake_stall_at = (e && atoll(e) > 0) ? atoll(e) : 0;
+    }
+    if (fake_stall_at > 0 && ++delivered >= fake_stall_at) *out_val = v + (1ULL << 40);
     *out_release_ctx = slot;
     return 1;
 }

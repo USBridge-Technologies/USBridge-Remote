@@ -43,6 +43,22 @@ static int              g_vk_cs_init     = 0;
 static int              g_vk_hwdev_tried = 0;
 static int              g_vk_hwdev_ok    = 0;
 
+// GPU safe mode, process-wide (see gpu_safe_mode_windows.go):
+//   0 normal
+//   1 no D3D11VA->Vulkan interop (d3dx_device_ref answers NULL)
+//   2 no Vulkan at all: the shared hwaccel device is not offered for decode
+//     or presentation, so decode takes plain D3D11VA/software and the overlay
+//     falls back to GDI.
+// Raised (never lowered) at startup from USBRIDGE_RENDERER or a remembered
+// GPU stall, or mid-session when the renderer reports the GPU stuck.
+static volatile LONG g_gpu_safe_mode = 0;
+void win_gpu_safe_mode_raise(int level) {
+    LONG cur;
+    while ((cur = g_gpu_safe_mode) < level &&
+           InterlockedCompareExchange(&g_gpu_safe_mode, level, cur) != cur) {}
+}
+int win_gpu_safe_mode(void) { return (int)g_gpu_safe_mode; }
+
 // win_vk_hwdev_ensure lazily creates the shared Vulkan hwaccel device on
 // first use (from whichever caller — vk_video_impl_windows.c's overlay init
 // or win_av_init's decode probe — runs first) and is idempotent afterwards.
@@ -106,6 +122,7 @@ static int win_vk_hwdev_ensure(void) {
 // the returned ref and must av_buffer_unref it (or transfer ownership, e.g.
 // to an AVCodecContext.hw_device_ctx).
 AVBufferRef *win_vk_hwdev_ctx_ref(void) {
+    if (win_gpu_safe_mode() >= 2) return NULL;
     if (!win_vk_hwdev_ensure()) return NULL;
     return av_buffer_ref(g_vk_hw_ctx);
 }
@@ -115,6 +132,7 @@ AVBufferRef *win_vk_hwdev_ctx_ref(void) {
 // for its own swapchain/presentation setup without this file needing to
 // know anything about Win32 window/swapchain plumbing.
 int win_vk_hwdev_get(void **out_inst, void **out_phys, void **out_dev, uint32_t *out_gfx_qf) {
+    if (win_gpu_safe_mode() >= 2) return 0;
     if (!win_vk_hwdev_ensure()) return 0;
     AVHWDeviceContext     *hwctx = (AVHWDeviceContext*)g_vk_hw_ctx->data;
     AVVulkanDeviceContext *vkctx = (AVVulkanDeviceContext*)hwctx->hwctx;

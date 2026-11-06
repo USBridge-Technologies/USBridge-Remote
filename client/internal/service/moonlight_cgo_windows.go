@@ -67,6 +67,7 @@ extern volatile double g_last_decode_ms;
 // Vulkan (vk_video_impl_windows.c) — preferred, RGBA format.
 extern int vk_video_is_active(void);
 extern int vk_video_is_device_lost(void);
+extern int vk_video_is_gpu_stuck(void);
 extern void vk_video_mark_device_lost(void);
 extern int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride);
 // Zero-copy path: hand a decoded AVVkFrame's VkImage straight to the renderer
@@ -351,6 +352,7 @@ static AVBufferRef       *g_hw_dev_ctx  = NULL;
 static enum AVPixelFormat g_hw_pix_fmt  = AV_PIX_FMT_NONE;
 static int                g_using_vulkan_decode = 0; // set once the Vulkan zero-copy tier is committed for this session
 static int                g_using_d3dx_decode   = 0; // D3D11VA decode copied into Vulkan (d3d11_interop_windows.c)
+static int win_using_d3dx_decode(void) { return g_using_d3dx_decode; }
 static int                g_using_pyrowave      = 0; // VIDEO_FORMAT_PYROWAVE: pyrowave_decode_windows.c, no libavcodec
 static enum AVPixelFormat g_av_dst_fmt  = AV_PIX_FMT_NONE;
 static int                g_av_w        = 0;
@@ -1174,6 +1176,12 @@ static int win_decode_send(PDECODE_UNIT du) {
     // DR_NEED_IDR): the problem is local/GPU-side, not a network loss the
     // host can fix by resending an IDR frame.
     if (vk_video_is_device_lost()) return DR_OK;
+    // Same once the renderer has given up on a GPU that stopped completing
+    // work (g_gpu_stuck): decode on that device would only queue more work
+    // behind it. The stream is restarted on GDI with a decoder that does not
+    // use the Vulkan device (gpu_safe_mode_windows.go), so only skip while
+    // this decoder still does.
+    if (vk_video_is_gpu_stuck() && (g_using_vulkan_decode || g_using_d3dx_decode)) return DR_OK;
 
     if (g_using_pyrowave) return win_pyrowave_send(du);
 
@@ -1578,6 +1586,10 @@ var liStartConnectionActive atomic.Bool
 // negotiated format yet". See moonlight_cgo_wrapper.go's identical pattern
 // used on macOS/Linux.
 var negotiatedVideoFormat atomic.Int32
+
+// usingD3DXDecode: the current stream decodes through the D3D11VA->Vulkan
+// interop (see HandleGPUStuck).
+func usingD3DXDecode() bool { return C.win_using_d3dx_decode() != 0 }
 
 func init() {
 	negotiatedVideoFormat.Store(-1)
