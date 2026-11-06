@@ -1512,6 +1512,7 @@ func (a *App) syncCaptureModeTo(b streamhost.Backend) {
 	if b == nil {
 		return
 	}
+	a.ensureForkKMS(b)
 	if mode := a.cfg.CaptureModes[captureKindOf(b)]; mode != "" && runtime.GOOS == "linux" {
 		// Picked on the stream host's card.
 		if err := b.SetCaptureMode(mode); err != nil {
@@ -1537,6 +1538,23 @@ func (a *App) syncCaptureModeTo(b streamhost.Backend) {
 	mode := a.cfg.SunshineCaptureMode
 	if err := b.SetCaptureMode(mode); err != nil {
 		log.Printf("[app] failed to sync capture mode %q to backend: %v", mode, err)
+	}
+}
+
+// ensureForkKMS puts a Sunshine/Vibepollo build that changed since the
+// root-owned tree was made (an update, or the first switch to that fork) in
+// that tree without a password, once screen capture was granted (see
+// permissions.EnsureTreeKMS: only a signed Streamers-Forks release goes in).
+// A no-op when the tree is current, for RustShine and off Linux.
+func (a *App) ensureForkKMS(b streamhost.Backend) {
+	if runtime.GOOS != "linux" || a.perms == nil {
+		return
+	}
+	if _, ok := b.(interface{ IsVibepollo() bool }); !ok {
+		return
+	}
+	if target := b.CapExecPath(); target != "" {
+		a.perms.EnsureTreeKMS(target)
 	}
 }
 
@@ -1573,6 +1591,9 @@ func (a *App) syncSunshineCapExecFor(kind string) {
 func (a *App) syncCapExecTo(b streamhost.Backend, kind string) {
 	if b == nil {
 		return
+	}
+	if kind == "sunshine" || kind == "vibepollo" {
+		a.ensureForkKMS(b)
 	}
 	// RustShine goes through the root-owned usbridge-streamer-launch
 	// instead (see kmsCaptureTarget), and only once that launcher itself

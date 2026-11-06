@@ -570,7 +570,9 @@ func (s *Service) KMSCaptureGranted(capexecPath string) bool {
 		return s.StreamerLauncherInstalled()
 	}
 	if t, ok := kmsTreeOf(capexecPath); ok {
-		return s.treeKMSGranted(capexecPath, t)
+		// Granted once, a signed tree is refreshed without asking
+		// (EnsureTreeKMS runs before every start): nothing to grant.
+		return s.treeKMSGranted(capexecPath, t) || s.treeAutoGranted(capexecPath, t)
 	}
 	out, err := exec.Command(findCapTool("getcap"), capexecPath).CombinedOutput()
 	if err != nil {

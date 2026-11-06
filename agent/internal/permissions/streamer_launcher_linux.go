@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"usbridge_agent/internal/streamerlaunch"
 )
@@ -127,7 +128,7 @@ func buildStreamerLauncherInstallScript(src, wantSHA256, setcap string, uid int)
 // of the bundled launcher at streamerlaunch.InstallPath. After this,
 // RustShine updates never need another grant.
 func (s *Service) InstallStreamerLauncher() bool {
-	if s.StreamerLauncherInstalled() && installedLauncherProtocol() >= streamerlaunch.Protocol {
+	if s.StreamerLauncherInstalled() && installedLauncherProtocol() >= streamerlaunch.Protocol && forkRuleInstalled() {
 		return true
 	}
 	src := bundledStreamerLauncher()
@@ -146,7 +147,15 @@ func (s *Service) InstallStreamerLauncher() bool {
 	}
 	defer os.Remove(staged)
 
-	script := buildStreamerLauncherInstallScript(staged, sum, findCapTool("setcap"), os.Getuid())
+	rule, err := stageForkRule()
+	if err != nil {
+		s.lastAccessErr = fmt.Sprintf("stage polkit rule: %v", err)
+		return false
+	}
+	defer os.Remove(rule)
+
+	script := buildStreamerLauncherInstallScript(staged, sum, findCapTool("setcap"), os.Getuid()) + "\n" +
+		buildForkRuleInstallScript(rule)
 	out, err := exec.Command("pkexec", "/bin/sh", "-c", script).CombinedOutput()
 	log.Printf("[permissions] install streamer launcher pkexec exit=%v output=%q", err, string(out))
 	if err != nil {
@@ -192,13 +201,14 @@ type kmsTree struct {
 	sourceID string // records which source build dir was installed from
 	tmp      string // install staging name under InstallDir
 	minProto int    // the oldest launcher that can run it
+	fork     string // streamerlaunch.ForkTrees key (--install-tree)
 }
 
 var (
 	sunshineKMSTree = kmsTree{"Sunshine", "usr/bin/sunshine", streamerlaunch.SunshineDir,
-		streamerlaunch.SunshineSourceID, ".sunshine", streamerlaunch.MinProtocol}
+		streamerlaunch.SunshineSourceID, ".sunshine", streamerlaunch.MinProtocol, "sunshine"}
 	vibepolloKMSTree = kmsTree{"Vibepollo", "usr/bin/vibepollo", streamerlaunch.VibepolloDir,
-		streamerlaunch.VibepolloSourceID, ".vibepollo", streamerlaunch.VibepolloMinProtocol}
+		streamerlaunch.VibepolloSourceID, ".vibepollo", streamerlaunch.VibepolloMinProtocol, "vibepollo"}
 )
 
 // kmsTreeOf reports which stream host's install-tree root p is (the KMS
@@ -373,10 +383,15 @@ func (s *Service) installSunshineKMS(srcRoot string) bool {
 	return s.installTreeKMS(srcRoot, sunshineKMSTree)
 }
 
-// installTreeKMS installs/refreshes the launcher and t's root-owned tree in
-// a single pkexec prompt.
+// installTreeKMS is the screen-capture grant for a Sunshine/Vibepollo tree:
+// one pkexec prompt that installs the launcher and the polkit rule for
+// --install-tree, then -- when srcRoot came with its signed release -- the
+// tree itself goes in through --install-tree (no second prompt), and the
+// other fork's tree too if it is downloaded. Only a tree without a signed
+// release (an older agent's bundled Sunshine) is copied in by that one
+// prompt's script instead.
 func (s *Service) installTreeKMS(srcRoot string, t kmsTree) bool {
-	if s.treeKMSGranted(srcRoot, t) {
+	if s.treeKMSGranted(srcRoot, t) && forkAutoReady() {
 		return true
 	}
 	src := bundledStreamerLauncher()
@@ -391,33 +406,213 @@ func (s *Service) installTreeKMS(srcRoot string, t kmsTree) bool {
 		return false
 	}
 	defer os.Remove(staged)
-
-	manifest, err := buildTreeManifest(srcRoot)
+	rule, err := stageForkRule()
 	if err != nil {
-		s.lastAccessErr = fmt.Sprintf("hash %s tree: %v", t.name, err)
-		log.Printf("[permissions] %s", s.lastAccessErr)
+		s.lastAccessErr = fmt.Sprintf("stage polkit rule: %v", err)
 		return false
 	}
-	mf, err := os.CreateTemp("", "usbridge-"+strings.ToLower(t.name)+"-manifest-*")
-	if err != nil {
-		return false
-	}
-	defer os.Remove(mf.Name())
-	if _, err := mf.WriteString(manifest); err != nil {
-		mf.Close()
-		return false
-	}
-	mf.Close()
+	defer os.Remove(rule)
 
 	script := buildStreamerLauncherInstallScript(staged, sum, findCapTool("setcap"), os.Getuid()) + "\n" +
-		buildTreeInstallScript(srcRoot, mf.Name(), treeSourceID(srcRoot, t), t)
+		buildForkRuleInstallScript(rule)
+	signed := hasSignedRelease(srcRoot, t)
+	if !signed {
+		manifest, err := buildTreeManifest(srcRoot)
+		if err != nil {
+			s.lastAccessErr = fmt.Sprintf("hash %s tree: %v", t.name, err)
+			log.Printf("[permissions] %s", s.lastAccessErr)
+			return false
+		}
+		mf, err := os.CreateTemp("", "usbridge-"+strings.ToLower(t.name)+"-manifest-*")
+		if err != nil {
+			return false
+		}
+		defer os.Remove(mf.Name())
+		if _, err := mf.WriteString(manifest); err != nil {
+			mf.Close()
+			return false
+		}
+		mf.Close()
+		script += "\n" + buildTreeInstallScript(srcRoot, mf.Name(), treeSourceID(srcRoot, t), t)
+	}
 	out, err := exec.Command("pkexec", "/bin/sh", "-c", script).CombinedOutput()
 	log.Printf("[permissions] install %s KMS pkexec exit=%v output=%q", t.name, err, string(out))
 	if err != nil {
 		s.lastAccessErr = fmt.Sprintf("pkexec failed: %v (%s)", err, strings.TrimSpace(string(out)))
 		return false
 	}
+	if signed {
+		if err := installTreeFromRelease(srcRoot, t); err != nil {
+			s.lastAccessErr = err.Error()
+			return false
+		}
+	}
+	s.refreshOtherForkTrees(srcRoot, t)
 	return s.treeKMSGranted(srcRoot, t)
+}
+
+// refreshOtherForkTrees brings the other fork's root-owned tree up to date
+// right after a grant, when that fork is downloaded beside srcRoot (both
+// live in the agent's state dir), so a later switch starts with KMS at once.
+func (s *Service) refreshOtherForkTrees(srcRoot string, done kmsTree) {
+	stateDir := filepath.Dir(srcRoot)
+	for _, t := range []kmsTree{sunshineKMSTree, vibepolloKMSTree} {
+		if t.dir == done.dir {
+			continue
+		}
+		other := filepath.Join(stateDir, t.fork+"-host")
+		if hasSignedRelease(other, t) && !s.treeKMSGranted(other, t) {
+			if err := installTreeFromRelease(other, t); err != nil {
+				log.Printf("[permissions] %v", err)
+			}
+		}
+	}
+}
+
+// --- passwordless refresh from a signed release (launcher --install-tree) ---
+
+// releaseDirOf is forkrelease.ReleaseDir: the signed release kept beside a
+// downloaded tree.
+func releaseDirOf(srcRoot string) string { return srcRoot + ".release" }
+
+// hasSignedRelease: srcRoot came with the signed release --install-tree
+// needs (a download by this agent version or later).
+func hasSignedRelease(srcRoot string, t kmsTree) bool {
+	ft, ok := streamerlaunch.ForkTrees[t.fork]
+	if !ok {
+		return false
+	}
+	dir := releaseDirOf(srcRoot)
+	for _, n := range []string{"manifest.json", "manifest.json.sig", ft.Asset} {
+		if st, err := os.Stat(filepath.Join(dir, n)); err != nil || !st.Mode().IsRegular() {
+			return false
+		}
+	}
+	return true
+}
+
+// forkRuleInstalled: the polkit rule for --install-tree is in place, as is.
+func forkRuleInstalled() bool {
+	b, err := os.ReadFile(streamerlaunch.ForkPolkitRulePath)
+	return err == nil && string(b) == streamerlaunch.ForkPolkitRule
+}
+
+// forkAutoReady: an installed launcher with --install-tree and its polkit
+// rule -- trees refresh without a password from here on.
+func forkAutoReady() bool {
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		return false
+	}
+	return installedLauncherProtocol() >= streamerlaunch.ForkInstallProtocol && forkRuleInstalled()
+}
+
+func stageForkRule() (string, error) {
+	f, err := os.CreateTemp("", "usbridge-streamer-*.rules")
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.WriteString(streamerlaunch.ForkPolkitRule); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	if err := os.Chmod(f.Name(), 0o644); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// buildForkRuleInstallScript installs the --install-tree polkit rule; run in
+// the same pkexec invocation as the launcher install. The staged rule is
+// copied root-owned first and only then compared, like the launcher.
+func buildForkRuleInstallScript(tmpRule string) string {
+	q := shellQuoteUsername
+	tmp := streamerlaunch.ForkPolkitRulePath + ".tmp"
+	want := sha256.Sum256([]byte(streamerlaunch.ForkPolkitRule))
+	return strings.Join([]string{
+		"install -d -m 0755 /etc/polkit-1/rules.d",
+		"install -o root -g root -m 0644 " + q(tmpRule) + " " + q(tmp),
+		"echo " + q(hex.EncodeToString(want[:])+"  "+tmp) + " | sha256sum -c --status",
+		"mv -f " + q(tmp) + " " + q(streamerlaunch.ForkPolkitRulePath),
+	}, "\n")
+}
+
+// installTreeFromRelease runs `pkexec <launcher> --install-tree` for
+// srcRoot's signed release: no password (the polkit rule), root-side
+// signature check (streamerlaunch.InstallForkTree).
+func installTreeFromRelease(srcRoot string, t kmsTree) error {
+	dir, err := filepath.Abs(releaseDirOf(srcRoot))
+	if err != nil {
+		return err
+	}
+	if strings.ContainsAny(dir, " \t\n") {
+		return fmt.Errorf("%s: a path with spaces can't go through the polkit rule", dir)
+	}
+	out, err := exec.Command("pkexec", streamerlaunch.InstallPath, "--install-tree", t.fork, dir).CombinedOutput()
+	log.Printf("[permissions] %s tree from signed release: exit=%v output=%q", t.name, err, strings.TrimSpace(string(out)))
+	if err != nil {
+		return fmt.Errorf("install %s tree: %v (%s)", t.name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// refreshFailed remembers the build a passwordless refresh last failed for,
+// so a broken release isn't retried (one pkexec each) on every start.
+var refreshFailed struct {
+	sync.Mutex
+	ids map[string]bool
+}
+
+// treeAutoGranted: target's tree isn't in place yet, but EnsureTreeKMS will
+// put it there without a password (and hasn't failed for this build).
+func (s *Service) treeAutoGranted(target string, t kmsTree) bool {
+	if !s.StreamerLauncherInstalled() || !forkAutoReady() || !hasSignedRelease(target, t) {
+		return false
+	}
+	refreshFailed.Lock()
+	defer refreshFailed.Unlock()
+	return !refreshFailed.ids[t.fork+"|"+treeSourceID(target, t)]
+}
+
+// EnsureTreeKMS brings the root-owned tree for target (a Sunshine/Vibepollo
+// tree root, as KMSCaptureGranted takes it) up to date without a password
+// when it can: once granted (forkAutoReady) and the tree came with its
+// signed release. True when the root-owned tree now matches target.
+// Anything else (RustShine, no grant yet, a bundled unsigned tree) is a
+// no-op returning whether it already matches.
+func (s *Service) EnsureTreeKMS(target string) bool {
+	t, ok := kmsTreeOf(target)
+	if !ok {
+		return false
+	}
+	if s.treeKMSGranted(target, t) {
+		return true
+	}
+	if !s.StreamerLauncherInstalled() || !forkAutoReady() || !hasSignedRelease(target, t) {
+		return false
+	}
+	id := t.fork + "|" + treeSourceID(target, t)
+	refreshFailed.Lock()
+	failed := refreshFailed.ids[id]
+	refreshFailed.Unlock()
+	if failed {
+		return false
+	}
+	if err := installTreeFromRelease(target, t); err != nil || !s.treeKMSGranted(target, t) {
+		refreshFailed.Lock()
+		if refreshFailed.ids == nil {
+			refreshFailed.ids = map[string]bool{}
+		}
+		refreshFailed.ids[id] = true
+		refreshFailed.Unlock()
+		return false
+	}
+	return true
 }
 
 // HasFileCapability reports whether p carries any file capability.

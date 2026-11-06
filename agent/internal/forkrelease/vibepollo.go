@@ -87,9 +87,10 @@ func LatestVibepolloVersion(ctx context.Context) (string, error) {
 
 // PreparedVibepollo is a downloaded, verified Vibepollo not yet put in place.
 type PreparedVibepollo struct {
-	stateDir string
-	nextDir  string
-	Version  string
+	stateDir   string
+	nextDir    string
+	releaseDir string // the signed release kept for the launcher, "" off Linux
+	Version    string
 }
 
 // PrepareVibepollo downloads the latest Vibepollo for this platform, verifies the manifest
@@ -100,7 +101,7 @@ func PrepareVibepollo(ctx context.Context, stateDir string, onProgress ProgressF
 	if asset == "" {
 		return nil, fmt.Errorf("no Vibepollo build for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	m, _, err := fetchManifest(ctx)
+	m, sm, err := fetchManifest(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +142,13 @@ func PrepareVibepollo(ctx context.Context, stateDir string, onProgress ProgressF
 	if err == nil {
 		err = os.WriteFile(filepath.Join(next, "VERSION"), []byte(m.Version+"\n"), 0o644)
 	}
+	if err == nil && keepsSignedRelease() {
+		p.releaseDir = ReleaseDir(live) + ".next"
+		err = stageSignedRelease(p.releaseDir, sm, asset, archive)
+	}
 	if err != nil {
 		_ = os.RemoveAll(next)
+		discardSignedRelease(p.releaseDir)
 		return nil, err
 	}
 	return p, nil
@@ -171,8 +177,12 @@ func (p *PreparedVibepollo) Commit() error {
 		return fmt.Errorf("put the new Vibepollo in place: %w", err)
 	}
 	_ = os.RemoveAll(old)
+	commitSignedRelease(p.releaseDir, live)
 	return nil
 }
 
 // Discard drops a prepared build that won't be committed.
-func (p *PreparedVibepollo) Discard() { _ = os.RemoveAll(p.nextDir) }
+func (p *PreparedVibepollo) Discard() {
+	_ = os.RemoveAll(p.nextDir)
+	discardSignedRelease(p.releaseDir)
+}

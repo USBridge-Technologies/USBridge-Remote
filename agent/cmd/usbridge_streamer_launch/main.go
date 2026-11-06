@@ -16,6 +16,7 @@
 //	usbridge-streamer-launch --run <bundle-dir> [--] [streamer args...]
 //	usbridge-streamer-launch --run-sunshine [--] [sunshine args...]
 //	usbridge-streamer-launch --run-vibepollo [--] [vibepollo args...]
+//	pkexec usbridge-streamer-launch --install-tree sunshine|vibepollo <release-dir>
 //
 // --verify prints "version=<release tag>" and "cap=<0|1>" (whether this
 // process actually received CAP_SYS_ADMIN from its file capability -- 0 on
@@ -23,6 +24,9 @@
 // verifies. --run verifies, then execs the verified bytes from a sealed
 // memfd with CAP_SYS_ADMIN raised into the ambient set. --run-sunshine
 // execs the root-owned Sunshine tree the same way (see runSunshine).
+// --install-tree runs as root (pkexec, passwordless through
+// streamerlaunch.ForkPolkitRule) and refreshes that root-owned tree from a
+// signed Streamers-Forks release only (streamerlaunch.InstallForkTree).
 package main
 
 import (
@@ -79,6 +83,11 @@ func main() {
 			runTree("vibepollo", streamerlaunch.VibepolloDir, streamerlaunch.VibepolloBin, args)
 		}
 		runTree("sunshine", streamerlaunch.SunshineDir, streamerlaunch.SunshineBin, args)
+	case "--install-tree":
+		if len(os.Args) != 4 {
+			usage()
+		}
+		installTree(os.Args[2], os.Args[3])
 	case "--run":
 		if len(os.Args) < 3 {
 			usage()
@@ -138,6 +147,24 @@ func runTree(name, dir, bin string, args []string) {
 	env := streamerlaunch.SanitizedEnv(os.Environ(), true)
 	err := unix.Exec(bin, argv, env)
 	fail(exitExecFail, "exec %s: %v", bin, err)
+}
+
+// installTree is --install-tree: the caller is pkexec's PKEXEC_UID (pkexec
+// always sets it; a root caller without pkexec has no use for this).
+func installTree(name, releaseDir string) {
+	t, ok := streamerlaunch.ForkTrees[name]
+	if !ok {
+		fail(exitUsage, "unknown tree %q", name)
+	}
+	uid, err := strconv.Atoi(os.Getenv("PKEXEC_UID"))
+	if err != nil {
+		fail(exitDenied, "--install-tree runs through pkexec only (no PKEXEC_UID)")
+	}
+	version, err := streamerlaunch.InstallForkTree(t, releaseDir, uid)
+	if err != nil {
+		fail(exitVerify, "install %s: %v", name, err)
+	}
+	fmt.Printf("version=%s\n", version)
 }
 
 // prepare is the shared prologue of both run modes: PDEATHSIG, caller uid
@@ -240,7 +267,7 @@ func boolDigit(b bool) string {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: usbridge-streamer-launch --version | --verify <bundle-dir> | --run <bundle-dir> [--] [args...] | --run-sunshine [--] [args...] | --run-vibepollo [--] [args...]")
+	fmt.Fprintln(os.Stderr, "usage: usbridge-streamer-launch --version | --verify <bundle-dir> | --run <bundle-dir> [--] [args...] | --run-sunshine [--] [args...] | --run-vibepollo [--] [args...] | --install-tree sunshine|vibepollo <release-dir>")
 	os.Exit(exitUsage)
 }
 

@@ -95,9 +95,10 @@ func LatestSunshineVersion(ctx context.Context) (string, error) {
 
 // PreparedSunshine is a downloaded, verified Sunshine not yet put in place.
 type PreparedSunshine struct {
-	stateDir string
-	nextDir  string
-	Version  string
+	stateDir   string
+	nextDir    string
+	releaseDir string // the signed release kept for the launcher, "" off Linux
+	Version    string
 }
 
 // PrepareSunshine downloads the latest Sunshine for this platform, verifies
@@ -108,7 +109,7 @@ func PrepareSunshine(ctx context.Context, stateDir string, onProgress ProgressFu
 	if asset == "" {
 		return nil, fmt.Errorf("no Sunshine build for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	m, _, err := fetchManifest(ctx)
+	m, sm, err := fetchManifest(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +150,13 @@ func PrepareSunshine(ctx context.Context, stateDir string, onProgress ProgressFu
 	if err == nil {
 		err = os.WriteFile(filepath.Join(next, "VERSION"), []byte(m.Version+"\n"), 0o644)
 	}
+	if err == nil && keepsSignedRelease() {
+		p.releaseDir = ReleaseDir(live) + ".next"
+		err = stageSignedRelease(p.releaseDir, sm, asset, archive)
+	}
 	if err != nil {
 		_ = os.RemoveAll(next)
+		discardSignedRelease(p.releaseDir)
 		return nil, err
 	}
 	return p, nil
@@ -185,6 +191,7 @@ func (p *PreparedSunshine) Commit() error {
 		return fmt.Errorf("put the new Sunshine in place: %w", err)
 	}
 	_ = os.RemoveAll(old)
+	commitSignedRelease(p.releaseDir, live)
 	return nil
 }
 
@@ -215,7 +222,10 @@ func copyTree(src, dst string) error {
 }
 
 // Discard drops a prepared build that won't be committed.
-func (p *PreparedSunshine) Discard() { _ = os.RemoveAll(p.nextDir) }
+func (p *PreparedSunshine) Discard() {
+	_ = os.RemoveAll(p.nextDir)
+	discardSignedRelease(p.releaseDir)
+}
 
 // safeRelPath turns an archive member name into a path under the extraction
 // root, or false for anything that would land outside it.

@@ -101,27 +101,32 @@ func PunktfunkStagedVersion(stateDir string) string {
 	return strings.TrimSpace(string(b))
 }
 
+// signedManifest is a verified manifest's exact bytes and signature, kept
+// beside a Linux KMS tree for the launcher's own root-side check (see
+// stageSignedRelease).
+type signedManifest struct{ body, sig []byte }
+
 // fetchManifest downloads and verifies the latest release's signed manifest.
-func fetchManifest(ctx context.Context) (*manifest, []byte, error) {
+func fetchManifest(ctx context.Context) (*manifest, signedManifest, error) {
 	body, err := fetch(ctx, baseURL+manifestName)
 	if err != nil {
-		return nil, nil, fmt.Errorf("fetch %s: %w", manifestName, err)
+		return nil, signedManifest{}, fmt.Errorf("fetch %s: %w", manifestName, err)
 	}
 	sig, err := fetch(ctx, baseURL+manifestName+".sig")
 	if err != nil {
-		return nil, nil, fmt.Errorf("fetch %s.sig: %w", manifestName, err)
+		return nil, signedManifest{}, fmt.Errorf("fetch %s.sig: %w", manifestName, err)
 	}
 	if err := update.VerifySignature(body, sig); err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", manifestName, err)
+		return nil, signedManifest{}, fmt.Errorf("%s: %w", manifestName, err)
 	}
 	var m manifest
 	if err := json.Unmarshal(body, &m); err != nil {
-		return nil, nil, fmt.Errorf("parse %s: %w", manifestName, err)
+		return nil, signedManifest{}, fmt.Errorf("parse %s: %w", manifestName, err)
 	}
 	if m.App != manifestApp {
-		return nil, nil, fmt.Errorf("%s is for app %q, expected %q", manifestName, m.App, manifestApp)
+		return nil, signedManifest{}, fmt.Errorf("%s is for app %q, expected %q", manifestName, m.App, manifestApp)
 	}
-	return &m, body, nil
+	return &m, signedManifest{body, sig}, nil
 }
 
 // LatestPunktfunkVersion asks the latest release which punktfunk-host

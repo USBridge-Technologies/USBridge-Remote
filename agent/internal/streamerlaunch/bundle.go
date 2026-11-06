@@ -54,7 +54,8 @@ const ReleasePublicKeyB64 = "ixB/m3G9UgxUrhQd2rVRzTBDvA/x9NjT1yTmUbUQl+0="
 // one-time re-grant instead -- bump both only when the agent starts
 // depending on something an older installed launcher can't do.
 const (
-	Protocol    = 2
+	// Protocol 3 adds --install-tree (see forktree.go).
+	Protocol    = 3
 	MinProtocol = 1
 	// VibepolloMinProtocol is the first launcher with --run-vibepollo; only a
 	// Vibepollo KMS grant needs it, so Sunshine/RustShine grants made by a
