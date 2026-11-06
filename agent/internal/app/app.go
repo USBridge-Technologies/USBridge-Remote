@@ -472,14 +472,25 @@ type thinClientToken struct {
 	perms *permissions.Service
 }
 
+// KMSCaptureGranted checks the KMS grant locally -- except for a streamer
+// with no KMS target at all (Punktfunk captures through the compositor):
+// only the engine knows whether that capture works, so it is asked.
+// Checking an empty path locally always said "not granted", and the chip
+// then offered a Grant that did nothing.
 func (t *thinClientToken) KMSCaptureGranted() bool {
-	return t.perms.KMSCaptureGranted(t.Client.KMSCaptureTargetPath())
+	path := t.Client.KMSCaptureTargetPath()
+	if path == "" {
+		return t.Client.KMSCaptureGranted()
+	}
+	return t.perms.KMSCaptureGranted(path)
 }
 
 func (t *thinClientToken) RequestKMSCapture() bool {
 	path := t.Client.KMSCaptureTargetPath()
 	if path == "" {
-		return false
+		// Compositor capture (see KMSCaptureGranted): the engine's own
+		// request, no pkexec involved.
+		return t.Client.RequestKMSCapture()
 	}
 	if !t.perms.RequestKMSCapture(path) {
 		return false
