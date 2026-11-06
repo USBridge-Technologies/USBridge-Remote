@@ -12,6 +12,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"strings"
+	"usbridge-client/internal/logredact"
 
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/gui/graphics"
@@ -186,6 +187,8 @@ func setupAndroidLogging(level string) {
 		logLevel = logrus.InfoLevel
 	}
 	logrus.SetLevel(logLevel)
+	// Mask tokens, pairing secrets and login links before anything is written.
+	logredact.Install()
 
 	// Configure the log format
 	logrus.SetFormatter(&logrus.TextFormatter{

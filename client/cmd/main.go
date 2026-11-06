@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+	"usbridge-client/internal/logredact"
 
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/gui/i18n"
@@ -221,6 +222,8 @@ func setupLogging(level string) {
 		logLevel = logrus.InfoLevel
 	}
 	logrus.SetLevel(logLevel)
+	// Mask tokens, pairing secrets and login links before anything is written.
+	logredact.Install()
 
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp:   true,
