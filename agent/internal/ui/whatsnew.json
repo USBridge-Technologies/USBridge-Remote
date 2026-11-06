@@ -2,6 +2,82 @@
   "app": "agent",
   "cards": [
     {
+      "version": "3.2.19",
+      "date": "November 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "usb",
+              "title": {
+                "en": "USB passthrough out of the box",
+                "es": "USB passthrough sin pasos extra",
+                "uk": "Прокидання USB одразу"
+              },
+              "body": {
+                "en": "The Linux packages and the Mac app turn on the USB broker and set up usbip at install; no Enable button.",
+                "es": "Los paquetes de Linux y la app de Mac activan el USB broker y preparan usbip al instalar; sin botón Activar.",
+                "uk": "Пакети Linux і застосунок для Mac вмикають USB broker і налаштовують usbip під час встановлення; кнопка «Увімкнути» не потрібна."
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Tailscale certificate",
+                "es": "Certificado de Tailscale",
+                "uk": "Сертифікат Tailscale"
+              },
+              "body": {
+                "en": "With HTTPS certificates on in the tailnet the agent serves a trusted certificate for its ts.net name; the certificate dialog shows how to turn them on.",
+                "es": "Con certificados HTTPS activos en la tailnet, el agente usa un certificado de confianza para su nombre ts.net; el diálogo del certificado explica cómo activarlos.",
+                "uk": "Коли в tailnet увімкнено HTTPS-сертифікати, агент видає довірений сертифікат для свого імені ts.net; вікно сертифіката пояснює, як їх увімкнути."
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Your own Headscale",
+                "es": "Tu propio Headscale",
+                "uk": "Власний Headscale"
+              },
+              "body": {
+                "en": "Right-click the Tailscale chip in the header to use a self-hosted Headscale instead of Tailscale's servers.",
+                "es": "Clic derecho en el chip de Tailscale de la cabecera para usar un Headscale propio en lugar de los servidores de Tailscale.",
+                "uk": "Клацніть правою кнопкою на значку Tailscale у заголовку, щоб використати власний Headscale замість серверів Tailscale."
+              }
+            },
+            {
+              "glyph": "display",
+              "title": {
+                "en": "Vibepollo on Linux",
+                "es": "Vibepollo en Linux",
+                "uk": "Vibepollo на Linux"
+              },
+              "body": {
+                "en": "Vibepollo runs on any Linux with KMS, benchmarks can use a virtual display, and the capture pick sits inside the streamer card.",
+                "es": "Vibepollo funciona en cualquier Linux con KMS, la prueba de rendimiento puede usar una pantalla virtual y la captura se elige dentro de la tarjeta del streamer.",
+                "uk": "Vibepollo працює на будь-якому Linux із KMS, тест швидкодії може йти на віртуальному дисплеї, а вибір захоплення тепер усередині картки стрімера."
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Updates that finish",
+                "es": "Actualizaciones que terminan",
+                "uk": "Оновлення, що доходять до кінця"
+              },
+              "body": {
+                "en": "On a Mac the update installs into Applications even if macOS ran the app from a read-only copy; on Windows a failed update rolls back and the app starts again.",
+                "es": "En Mac la actualización se instala en Aplicaciones aunque macOS abriera la app desde una copia de solo lectura; en Windows un fallo se revierte y la app vuelve a abrirse.",
+                "uk": "На Mac оновлення ставиться в «Програми», навіть якщо macOS запустила застосунок із копії лише для читання; у Windows невдале оновлення відкочується, і застосунок запускається знову."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "3.2.0",
       "date": "October 2026",
       "items": [

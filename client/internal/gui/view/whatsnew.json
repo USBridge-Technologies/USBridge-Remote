@@ -2,6 +2,69 @@
   "app": "client",
   "cards": [
     {
+      "version": "3.2.19",
+      "date": "November 2026",
+      "items": [
+        {
+          "kind": "free",
+          "points": [
+            {
+              "glyph": "metrics",
+              "title": {
+                "en": "Benchmark on a virtual display",
+                "es": "Prueba en pantalla virtual",
+                "uk": "Тест на віртуальному дисплеї"
+              },
+              "body": {
+                "en": "The benchmark asks for the real monitor or a virtual display at the picked resolution and 120 Hz, as on connect.",
+                "es": "La prueba de rendimiento pregunta si usar el monitor real o una pantalla virtual con la resolución elegida a 120 Hz, como al conectar.",
+                "uk": "Тест швидкодії питає, чи брати справжній монітор, чи віртуальний дисплей у вибраній роздільності на 120 Гц, як під час підключення."
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Your own Headscale",
+                "es": "Tu propio Headscale",
+                "uk": "Власний Headscale"
+              },
+              "body": {
+                "en": "Right-click or long-press the Tailscale chip in the header to use a self-hosted Headscale instead of Tailscale's servers.",
+                "es": "Clic derecho o pulsación larga en el chip de Tailscale de la cabecera para usar un Headscale propio en lugar de los servidores de Tailscale.",
+                "uk": "Клацніть правою кнопкою або затисніть значок Tailscale у заголовку, щоб використати власний Headscale замість серверів Tailscale."
+              }
+            },
+            {
+              "glyph": "board",
+              "title": {
+                "en": "Flatpak and Snap",
+                "es": "Flatpak y Snap",
+                "uk": "Flatpak і Snap"
+              },
+              "body": {
+                "en": "Linux gets a signed Flatpak repository; in the Snap a header button lists the commands for the interfaces still off.",
+                "es": "Linux tiene un repositorio Flatpak firmado; en el Snap un botón de la cabecera muestra los comandos para las interfaces aún desactivadas.",
+                "uk": "Для Linux є підписаний репозиторій Flatpak; у Snap кнопка в заголовку показує команди для ще не підключених інтерфейсів."
+              }
+            },
+            {
+              "glyph": "cloud",
+              "title": {
+                "en": "Updates that finish",
+                "es": "Actualizaciones que terminan",
+                "uk": "Оновлення, що доходять до кінця"
+              },
+              "body": {
+                "en": "On a Mac the update installs into Applications even if macOS ran the app from a read-only copy; on Windows a failed update rolls back and the app starts again.",
+                "es": "En Mac la actualización se instala en Aplicaciones aunque macOS abriera la app desde una copia de solo lectura; en Windows un fallo se revierte y la app vuelve a abrirse.",
+                "uk": "На Mac оновлення ставиться в «Програми», навіть якщо macOS запустила застосунок із копії лише для читання; у Windows невдале оновлення відкочується, і застосунок запускається знову."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "3.2.15",
       "date": "October 2026",
       "items": [
