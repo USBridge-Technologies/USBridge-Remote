@@ -492,9 +492,10 @@ func (w *Window) refreshProtocolPickerVisuals(busy bool) {
 // whose streamer is installed: the RustShine tiers once RustShine is staged
 // (one build for all of them; checked through the entitlement backend), and
 // Punktfunk once the agent downloaded it (checked against Streamers-Forks on
-// GitHub), and Sunshine where the agent downloads it too (Windows, Linux
-// x86_64, Apple Silicon); elsewhere it ships inside the agent and updates
-// with it.
+// GitHub), and Sunshine and Vibepollo wherever the agent downloads them
+// (Sunshine: Windows, Linux x86_64, Apple Silicon; Vibepollo: Windows x64,
+// Linux x86_64) -- also before the first download, which the tap then does.
+// Elsewhere Sunshine ships inside the agent and updates with it.
 func (w *Window) syncProtocolRowUpdate(row *protocolPickRow, st entitlement.Status, acc account.Status) {
 	switch row.key {
 	case protocolFree, protocolPro, protocolEnterprise:
@@ -509,7 +510,7 @@ func (w *Window) syncProtocolRowUpdate(row *protocolPickRow, st entitlement.Stat
 		row.SetUpdate(st.PunktfunkStaged, st.PunktfunkUpdateInProgress || w.punktfunkUpdateChecking, w.beginPunktfunkUpdateCheck)
 		row.SetVersion(shortStreamerVersion(st.PunktfunkVersion))
 	case protocolVibepollo:
-		row.SetUpdate(st.VibepolloStaged, st.VibepolloUpdateInProgress || w.vibepolloUpdateChecking, w.beginVibepolloUpdateCheck)
+		row.SetUpdate(st.VibepolloAvailable, st.VibepolloUpdateInProgress || w.vibepolloUpdateChecking, w.beginVibepolloUpdateCheck)
 		row.SetVersion(shortStreamerVersion(st.VibepolloVersion))
 	case protocolOpensource:
 		row.SetUpdate(st.SunshineUpdatable, st.SunshineUpdateInProgress || w.sunshineUpdateChecking, w.beginSunshineUpdateCheck)
