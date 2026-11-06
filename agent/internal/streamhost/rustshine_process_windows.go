@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 
 	"usbridge_agent/internal/sessionlaunch"
+	"usbridge_agent/internal/usbpass"
 )
 
 // init wires rustshine_backend.go's platform hooks: on Windows, Start()
@@ -42,7 +43,12 @@ func init() {
 // directly with no extraEnv at all, silently getting the same
 // virtualized/wrong resolution list Start() itself used to before this env
 // override existed -- confirmed live).
-var gamestreamServerCompatEnv = map[string]string{"__COMPAT_LAYER": "HIGHDPIAWARE"}
+var gamestreamServerCompatEnv = map[string]string{
+	"__COMPAT_LAYER": "HIGHDPIAWARE",
+	// The keyboard is the USB broker's, as for the forks (rust-shine
+	// enet_input::broker_keyboard).
+	usbBrokerEnv: usbpass.DefaultControlAddr,
+}
 
 // sessionBrokerLaunchImpl launches exe inside the active console session
 // via internal/sessionlaunch. Always passes __COMPAT_LAYER=HIGHDPIAWARE:

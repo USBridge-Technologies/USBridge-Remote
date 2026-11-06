@@ -791,6 +791,9 @@ func (b *rustshineBackend) Start(adminPort int) error {
 			cmd = exec.Command(launchPath, args...)
 		}
 		configureRustshineProcess(cmd)
+		// The keyboard is the USB broker's, as for the forks (rust-shine
+		// enet_input::broker_keyboard).
+		cmd.Env = append(os.Environ(), usbBrokerEnviron())
 		if launchDir != "" && launchDir != "." {
 			cmd.Dir = launchDir
 		}
