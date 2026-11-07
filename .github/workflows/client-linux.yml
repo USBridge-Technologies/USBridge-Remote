@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev xorg-dev libxkbcommon-dev libpulse-dev \
+            libgl1-mesa-dev libegl-dev xorg-dev libxkbcommon-dev libwayland-dev libpulse-dev \
             libva-dev libva-drm2 libvdpau-dev libdrm-dev libx264-dev \
             nasm meson ninja-build ocl-icd-libopencl1 \
             libopus-dev libssl-dev libusb-1.0-0-dev pkg-config cmake libvulkan-dev \

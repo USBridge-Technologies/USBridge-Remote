@@ -57,7 +57,7 @@ func (w *Window) observeContentResize(size, minSize fyne.Size) {
 			fyne.Do(func() {
 				w.resizeGuardPending = false
 				if w.guiWin != nil {
-					w.guiWin.Resize(restoreTo)
+					w.guiWin.Resize(fitWindowSizeToScreen(w.guiWin, restoreTo))
 				}
 			})
 		})

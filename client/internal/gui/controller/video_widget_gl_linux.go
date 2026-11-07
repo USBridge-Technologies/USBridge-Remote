@@ -60,18 +60,16 @@ func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullsc
 		return
 	}
 	nw.RunNative(func(ctx any) {
-		var xwin uintptr
+		var xwin, wlSurface uintptr
 		switch c := ctx.(type) {
 		case *driver.X11WindowContext:
 			xwin = c.WindowHandle
 		case driver.X11WindowContext:
 			xwin = c.WindowHandle
 		case *driver.WaylandWindowContext:
-			logrus.Info("[VK/Linux] Wayland detected — Vulkan/Xlib overlay not supported, using Fyne canvas")
-			return
+			wlSurface = c.WaylandSurface
 		case driver.WaylandWindowContext:
-			logrus.Info("[VK/Linux] Wayland detected — Vulkan/Xlib overlay not supported, using Fyne canvas")
-			return
+			wlSurface = c.WaylandSurface
 		default:
 			logrus.Warnf("[VK/Linux] unexpected native context type %T — skipped", ctx)
 			return
@@ -94,18 +92,20 @@ func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullsc
 				logrus.Warn("[VK/Linux] videoCanvas has zero size — skipped")
 				return
 			}
-			if window.Canvas() != nil {
-				scale = window.Canvas().Scale()
-			}
+			scale = overlayPixelScale(window.Canvas())
 			px = int(x * scale)
 			py = int(y * scale)
 			pw = int(w * scale)
 			ph = int(h * scale)
 		} else {
-			if window.Canvas() != nil {
-				scale = window.Canvas().Scale()
-			}
+			scale = overlayPixelScale(window.Canvas())
 		}
+
+		if wlSurface != 0 {
+			vw.startWaylandVideo(window, wlSurface, px, py, pw, ph)
+			return
+		}
+		vkOnWayland = false
 
 		// Try Vulkan first; fall back to GLX if unavailable.
 		service.VKVideoResetLastFrame()
@@ -121,26 +121,100 @@ func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullsc
 			vw.startVKMouseForwarding(scale)
 		} else {
 			logrus.Warn("[VK/Linux] Vulkan init failed — trying GLX fallback")
-			view.OnOverlayShow = nil
-			view.OnOverlayHide = nil
 			if !service.GLVideoCreate(xwin, px, py, pw, ph, vw.enableVSync) {
+				view.OnOverlayShow = nil
+				view.OnOverlayHide = nil
 				logrus.Warn("[GLX/Linux] GLX overlay also failed — using Fyne canvas")
 				return
 			}
 			logrus.Infof("[GLX/Linux] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)",
 				fullscreen, px, py, pw, ph)
+			glOcclusion.reset()
+			vw.syncVKOcclusion()
 		}
 
-		if vw.videoCanvas != nil {
-			vw.videoCanvas.Image = nil
-			vw.videoCanvas.Translucency = 0
-			vw.videoCanvas.Refresh()
-		}
-		if cb := vw.onNativeReady; cb != nil {
-			vw.onNativeReady = nil
-			cb()
-		}
+		vw.nativeVideoReady()
 	})
+}
+
+// nativeVideoReady hands the picture over from the Fyne canvas to the
+// native overlay.
+func (vw *VideoWidget) nativeVideoReady() {
+	if vw.videoCanvas != nil {
+		vw.videoCanvas.Image = nil
+		vw.videoCanvas.Translucency = 0
+		vw.videoCanvas.Refresh()
+	}
+	if cb := vw.onNativeReady; cb != nil {
+		vw.onNativeReady = nil
+		cb()
+	}
+}
+
+// vkOnWayland: the overlay (Vulkan or its EGL fallback) is a wl_subsurface
+// (native Wayland) rather than an X11 child window. Pointer events then reach Fyne directly -- the
+// subsurface has an empty input region -- so nothing is forwarded.
+var vkOnWayland bool
+
+// vkWaylandScale is the pixels-per-logical-unit factor last given to the
+// Wayland overlay.
+var vkWaylandScale float32
+
+// startWaylandVideo creates the Vulkan overlay on a subsurface of the
+// window's wl_surface, falling back to EGL/GL on the same kind of subsurface
+// (the Wayland counterpart of the X11 GLX fallback).
+func (vw *VideoWidget) startWaylandVideo(window fyne.Window, surface uintptr, px, py, pw, ph int) {
+	display := waylandDisplay()
+	ls := overlayLogicalScale(window.Canvas())
+	vkOnWayland = true
+	vkWaylandScale = ls
+	service.VKVideoResetLastFrame()
+	if display != 0 && service.VKVideoCreateWayland(display, surface, px, py, pw, ph, ls) {
+		logrus.Infof("[VK/Wayland] overlay active rect=(%d,%d,%dx%d) scale=%.2f", px, py, pw, ph, ls)
+		vkOcclusion.reset()
+		vw.syncVKOcclusion()
+		vw.nativeVideoReady()
+		return
+	}
+	logrus.Warn("[VK/Wayland] Vulkan subsurface failed — trying EGL fallback")
+	if display == 0 || !service.GLVideoCreateWayland(display, surface, px, py, pw, ph, ls, vw.enableVSync) {
+		view.OnOverlayShow = nil
+		view.OnOverlayHide = nil
+		vkOnWayland = false
+		logrus.Warn("[GL/Wayland] EGL overlay also failed — using Fyne canvas")
+		return
+	}
+	logrus.Infof("[GL/Wayland] overlay active rect=(%d,%d,%dx%d) scale=%.2f", px, py, pw, ph, ls)
+	glOcclusion.reset()
+	vw.syncVKOcclusion()
+	vw.nativeVideoReady()
+}
+
+// overlayPixelScale converts Fyne dp to the overlay's buffer pixels. On X11
+// that is the canvas scale; on Wayland the canvas scale stays at the user's
+// setting and the output scale lives in the framebuffer (texture) scale,
+// which PixelCoordinateForPosition includes.
+func overlayPixelScale(c fyne.Canvas) float32 {
+	if c == nil {
+		return 1
+	}
+	if !vkOnWaylandPlatform() {
+		return c.Scale()
+	}
+	const probe = 1000
+	px, _ := c.PixelCoordinateForPosition(fyne.NewPos(probe, 0))
+	if px <= 0 {
+		return c.Scale()
+	}
+	return float32(px) / probe
+}
+
+// overlayLogicalScale is buffer pixels per Wayland logical unit.
+func overlayLogicalScale(c fyne.Canvas) float32 {
+	if c == nil || c.Scale() <= 0 {
+		return 1
+	}
+	return overlayPixelScale(c) / c.Scale()
 }
 
 func (vw *VideoWidget) stopMetalVideo() {
@@ -150,6 +224,7 @@ func (vw *VideoWidget) stopMetalVideo() {
 	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
+	vkOnWayland = false
 }
 
 func (vw *VideoWidget) updateMetalVideoFrame() {
@@ -173,9 +248,20 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		if w <= 0 || h <= 0 {
 			return
 		}
+		win := vkFullscreenWindow
+		if win == nil {
+			win = vw.parentWindow
+		}
 		scale := float32(1)
-		if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
-			scale = vw.parentWindow.Canvas().Scale()
+		if win != nil && win.Canvas() != nil {
+			scale = overlayPixelScale(win.Canvas())
+			if vkOnWayland {
+				if ls := overlayLogicalScale(win.Canvas()); ls != vkWaylandScale {
+					vkWaylandScale = ls
+					service.VKVideoSetWaylandScale(ls)
+					service.VKVideoResetLastFrame()
+				}
+			}
 		}
 		service.VKVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
 		vw.syncVKOcclusion()
@@ -204,11 +290,22 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		if w <= 0 || h <= 0 {
 			return
 		}
+		win := vkFullscreenWindow
+		if win == nil {
+			win = vw.parentWindow
+		}
 		scale := float32(1)
-		if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
-			scale = vw.parentWindow.Canvas().Scale()
+		if win != nil && win.Canvas() != nil {
+			scale = overlayPixelScale(win.Canvas())
+			if vkOnWayland {
+				if ls := overlayLogicalScale(win.Canvas()); ls != vkWaylandScale {
+					vkWaylandScale = ls
+					service.GLVideoSetWaylandScale(ls)
+				}
+			}
 		}
 		service.GLVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
+		vw.syncVKOcclusion()
 	}
 }
 
@@ -218,14 +315,26 @@ var vkOcclusion = overlayOcclusion[[4]int]{
 	setHoles:  service.VKVideoSetHoles,
 }
 
+// glOcclusion is the same for the GL fallback overlay.
+var glOcclusion = overlayOcclusion[[4]int]{
+	setHidden: service.GLVideoSetHidden,
+	setHoles:  service.GLVideoSetHoles,
+}
+
 func (vw *VideoWidget) scheduleVKOcclusionSync() {
 	scheduleOcclusionSync(vw.syncVKOcclusion)
 }
 
-// syncVKOcclusion cuts open menus out of the Vulkan child window's X11
-// shape (see overlayOcclusion). Fyne main goroutine only.
+// syncVKOcclusion cuts open menus out of the native video overlay -- the
+// Vulkan renderer or its GL fallback; an X11 shape, or transparent pixels on
+// Wayland (see overlayOcclusion). Fyne main goroutine only.
 func (vw *VideoWidget) syncVKOcclusion() {
-	if !service.VKVideoIsActive() {
+	occ := &vkOcclusion
+	switch {
+	case service.VKVideoIsActive():
+	case service.GLVideoIsActive():
+		occ = &glOcclusion
+	default:
 		return
 	}
 	win := vkFullscreenWindow
@@ -236,9 +345,9 @@ func (vw *VideoWidget) syncVKOcclusion() {
 	if win != nil {
 		c = win.Canvas()
 	}
-	_, changed := vkOcclusion.sync(c, func(rects []view.OverlayRect) [][4]int {
+	_, changed := occ.sync(c, func(rects []view.OverlayRect) [][4]int {
 		vx, vy, vwid, vh := vw.videoCanvasFrame()
-		scale := c.Scale()
+		scale := overlayPixelScale(c)
 		var holes [][4]int
 		for _, r := range rects {
 			if x, y, w, h, ok := overlayHolePx(r, -vx, -vy, scale, 0, 0, int(vwid*scale)+1, int(vh*scale)+1); ok {
@@ -338,6 +447,9 @@ var (
 
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
+	if vkOnWayland {
+		return // events reach Fyne directly through the subsurface
+	}
 	quit := make(chan struct{})
 	vkMouseQuit = quit
 	logrus.Info("[VK/Linux] mouse forwarding started")

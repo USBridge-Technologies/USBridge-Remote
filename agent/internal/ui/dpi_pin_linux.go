@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
-	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/go-gl/glfw/v3.4/glfw"
 	"github.com/sirupsen/logrus"
 )
 
@@ -15,6 +15,11 @@ import (
 // because that is Fyne's own fallback and, under KDE + XWayland, the output
 // whose scale X11 clients are rendered at.
 func (w *Window) pinLinuxDPIScale() {
+	if glfw.GetPlatform() == glfw.PlatformWayland {
+		// Native Wayland: the compositor's (fractional) output scale reaches
+		// Fyne as content scale; there is no X11 DPI guess to pin.
+		return
+	}
 	a := w.app
 	// Let the initial show / placement moves settle first.
 	time.AfterFunc(500*time.Millisecond, func() {

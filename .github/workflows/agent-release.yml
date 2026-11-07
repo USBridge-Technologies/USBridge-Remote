@@ -89,7 +89,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev xorg-dev libxkbcommon-dev \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev \
             libminiupnpc-dev libva2 libva-drm2 libvdpau1 \
             libpulse0 libopus0 libcap2 libdrm2 libevdev2 \
             libxtst6 libxrandr2 libxfixes3 libnuma1 libcurl4 \

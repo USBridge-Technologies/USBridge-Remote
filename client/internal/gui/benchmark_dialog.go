@@ -1,18 +1,19 @@
 package gui
 
 import (
-	"bytes"
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"image/color"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
-	"math"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -51,6 +52,16 @@ var (
 )
 
 // showBenchmarkDialog asks which streamers to compare and for how long.
+// benchUIDo hands work from the benchmark's goroutines to the Fyne
+// goroutine. Tests swap it for a version serialized with their own UI
+// checks: Fyne's test driver runs fyne.Do inline on the calling goroutine,
+// so a test reading the overlays raced the dialog being built.
+var benchUIDo = fyne.Do
+
+// benchmarkGoroutines tracks the dialog's background goroutines so tests can
+// wait for them before the next test's app/window replaces theirs.
+var benchmarkGoroutines sync.WaitGroup
+
 func (mw *MainWindow) showBenchmarkDialog() {
 	if mw.usbClient == nil || mw.videoWidget == nil {
 		return
@@ -59,9 +70,11 @@ func (mw *MainWindow) showBenchmarkDialog() {
 		return
 	}
 	client := mw.usbClient
+	benchmarkGoroutines.Add(1)
 	go func() {
+		defer benchmarkGoroutines.Done()
 		status, err := client.BenchStatus()
-		fyne.Do(func() {
+		benchUIDo(func() {
 			if err != nil {
 				benchmarkBusy.Store(false)
 				view.ShowErrorDialog(fmt.Errorf("%s: %v", i18n.Current.BenchFailed, err), mw.window)
@@ -430,27 +443,29 @@ func (mw *MainWindow) startBenchmark(backends []string, monitor, codec string, w
 	// benchmark turns on anyway, and a Control-footer spinner like Devices'
 	// "connecting device" chip.
 	ctx, cancel := context.WithCancel(context.Background())
-	fyne.Do(func() { mw.setBenchmarkFooterBusy(true, i18n.Current.BenchFooterBusy) })
+	benchUIDo(func() { mw.setBenchmarkFooterBusy(true, i18n.Current.BenchFooterBusy) })
 
+	benchmarkGoroutines.Add(1)
 	go func() {
+		defer benchmarkGoroutines.Done()
 		res, err := benchmarkRunFn(mw, ctx, backends, monitor, codec, width, height, window, func(text string, f float64) {
 			service.SetNetGraphBanner(fmt.Sprintf("%s  %.0f%%", text, math.Min(math.Max(f, 0), 1)*100))
 			hint := strings.TrimSpace(text)
 			if hint == "" {
 				hint = i18n.Current.BenchFooterBusy
 			}
-			fyne.Do(func() { mw.setBenchmarkFooterBusy(true, hint) })
+			benchUIDo(func() { mw.setBenchmarkFooterBusy(true, hint) })
 		})
 		service.SetNetGraphBanner("")
 		benchmarkBusy.Store(false)
-		fyne.Do(func() { mw.setBenchmarkFooterBusy(false, "") })
+		benchUIDo(func() { mw.setBenchmarkFooterBusy(false, "") })
 		cancelled := ctx.Err() != nil
 		cancel()
 		if cancelled {
 			return
 		}
 		if err != nil {
-			fyne.Do(func() { view.ShowErrorDialog(fmt.Errorf("%s: %v", i18n.Current.BenchFailed, err), mw.window) })
+			benchUIDo(func() { view.ShowErrorDialog(fmt.Errorf("%s: %v", i18n.Current.BenchFailed, err), mw.window) })
 			return
 		}
 		dir, err := saveBenchmarkResultFn(res)
@@ -473,7 +488,7 @@ func (mw *MainWindow) startBenchmark(backends []string, monitor, codec string, w
 				m.Backend, m.SwitchMs, m.StartupMs, m.AvgFPS, m.Low1FPS, renderPart, m.StallCount, m.StallLoss, m.StallHost, m.StallNetwork,
 				m.HostLatencyAvg, m.HostLatencyP95, m.NetJitterP95, m.RTTAvg, m.PacketLossPct, m.RecoveryAvgMs, m.RecoveredByIDR, m.RecoveredByRFI)
 		}
-		fyne.Do(func() { mw.showBenchmarkResults(res, dir) })
+		benchUIDo(func() { mw.showBenchmarkResults(res, dir) })
 	}()
 }
 
@@ -1135,7 +1150,7 @@ func (mw *MainWindow) downloadBenchmarkResults(res *benchmarkResult) {
 		go func() {
 			path, err := nativeSaveFile(parent, title, name, zipSaveFilter)
 			if err != nil {
-				fyne.Do(func() { mw.fyneSaveBenchmarkZip(res, name) })
+				benchUIDo(func() { mw.fyneSaveBenchmarkZip(res, name) })
 				return
 			}
 			if path == "" {
@@ -1160,7 +1175,7 @@ func (mw *MainWindow) shareBenchmarkResults(res *benchmarkResult) {
 func (mw *MainWindow) exportBenchmarkZip(res *benchmarkResult, name string, share bool) {
 	go func() {
 		fail := func(err error) {
-			fyne.Do(func() {
+			benchUIDo(func() {
 				view.ShowErrorDialog(fmt.Errorf(i18n.Current.BenchSaveResultsFailed, err), mw.window)
 			})
 		}
@@ -1185,7 +1200,7 @@ func (mw *MainWindow) exportBenchmarkZip(res *benchmarkResult, name string, shar
 			fail(err)
 			return
 		}
-		fyne.Do(func() {
+		benchUIDo(func() {
 			view.ShowInfoDialog(i18n.Current.BenchResultsTitle, fmt.Sprintf(i18n.Current.BenchSaveResultsDone, where), mw.window)
 		})
 	}()
@@ -1213,7 +1228,7 @@ func (mw *MainWindow) fyneSaveBenchmarkZip(res *benchmarkResult, name string) {
 func (mw *MainWindow) saveBenchmarkZipFile(res *benchmarkResult, path string) {
 	f, err := os.Create(path)
 	if err != nil {
-		fyne.Do(func() {
+		benchUIDo(func() {
 			view.ShowErrorDialog(fmt.Errorf(i18n.Current.BenchSaveResultsFailed, err), mw.window)
 		})
 		return
@@ -1222,7 +1237,7 @@ func (mw *MainWindow) saveBenchmarkZipFile(res *benchmarkResult, path string) {
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
-	fyne.Do(func() {
+	benchUIDo(func() {
 		if werr != nil {
 			view.ShowErrorDialog(fmt.Errorf(i18n.Current.BenchSaveResultsFailed, werr), mw.window)
 			return

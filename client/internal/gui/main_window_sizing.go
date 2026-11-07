@@ -50,6 +50,19 @@ func clampWindowSizeToAvailableArea(size fyne.Size, maxSize fyne.Size) fyne.Size
 	return size
 }
 
+// fitWindowSizeToScreen keeps a restored / configured size inside the
+// screen it opens on.
+func (mw *MainWindow) fitWindowSizeToScreen(size fyne.Size) fyne.Size {
+	if mw.window == nil {
+		return size
+	}
+	area := availableWindowArea(mw.window.Canvas())
+	if area.Width <= 0 || area.Height <= 0 {
+		return size
+	}
+	return clampWindowSizeToAvailableArea(size, area)
+}
+
 func expandWindowSizeToPreferredArea(size fyne.Size, preferred fyne.Size) fyne.Size {
 	if preferred.Width > size.Width {
 		size.Width = preferred.Width
@@ -82,7 +95,7 @@ func (mw *MainWindow) applyInitialWindowSize() {
 		width, height = lw, lh
 	}
 
-	mw.window.Resize(windowSizeToLogical(width, height, contentMin))
+	mw.window.Resize(mw.fitWindowSizeToScreen(windowSizeToLogical(width, height, contentMin)))
 	if !mw.hasRestorableWindowFrame() {
 		mw.window.CenterOnScreen()
 	}
@@ -105,7 +118,7 @@ func (mw *MainWindow) applyDesktopWindowGeometry() {
 		contentMin = content.MinSize()
 	}
 	if lw, lh, ok := mw.savedLogicalWindowSize(); ok {
-		mw.window.Resize(windowSizeToLogical(lw, lh, contentMin))
+		mw.window.Resize(mw.fitWindowSizeToScreen(windowSizeToLogical(lw, lh, contentMin)))
 	}
 	mw.window.SetFixedSize(false)
 	nativeUnlockWindowSize(mw.window)

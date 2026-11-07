@@ -837,6 +837,18 @@ func goNetGraphOverlay(rgba *C.uint8_t, width, height, stride C.int) {
 	ApplyNetGraphOverlay(buf, w, h, s, false) // Linux's deliver_frame always converts to RGBA
 }
 
+// goCPUOverlayWanted reports whether a CPU-burnt overlay (Net Graph HUD,
+// AI Vision boxes) is on: the GL renderer's NV12 shader path cannot show
+// those, so the Linux decoder keeps GL on the RGBA path while it is.
+//
+//export goCPUOverlayWanted
+func goCPUOverlayWanted() C.int {
+	if netGraphEnabled.Load() || aiVisionEnabled.Load() {
+		return 1
+	}
+	return 0
+}
+
 // goAIVisionShouldSample is a cheap (atomics + time comparisons, no pixel
 // access) pre-check called every frame from vt_callback's Metal fast-path
 // branch in moonlight_cgo_apple.go: it lets the C side skip the BGRA→RGBA

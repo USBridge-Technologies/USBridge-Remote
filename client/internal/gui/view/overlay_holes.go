@@ -7,6 +7,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/widget"
 )
 
 // OverlayRect is a canvas-absolute rectangle in Fyne units; R is its
@@ -47,6 +48,11 @@ func overlayRectsFor(o fyne.CanvasObject) ([]OverlayRect, bool) {
 	content := overlayContent(o)
 	if content == nil {
 		return nil, false
+	}
+	// Fyne 2.8+: the stack holds an OverlayContainer around the PopUp; the
+	// shape that matters is the PopUp's own content.
+	if p, isPopUp := content.(*widget.PopUp); isPopUp && p.Content != nil {
+		o, content = p, p.Content
 	}
 	// NewOverlayPopup: the PopUp's content is a full-window dim + panel
 	// (+ footer); only the panel and footer are opaque UI.

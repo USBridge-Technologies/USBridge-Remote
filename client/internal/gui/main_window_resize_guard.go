@@ -121,7 +121,7 @@ func (mw *MainWindow) observeContentResize(size, minSize fyne.Size) {
 			fyne.Do(func() {
 				mw.resizeGuardPending = false
 				if mw.window != nil {
-					mw.window.Resize(restoreTo)
+					mw.window.Resize(mw.fitWindowSizeToScreen(restoreTo))
 				}
 			})
 		})

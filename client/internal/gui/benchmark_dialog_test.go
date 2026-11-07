@@ -60,6 +60,7 @@ func newBenchTestWindow(t *testing.T, run benchRunStub) (*MainWindow, fyne.Windo
 	}
 	saveBenchmarkResultFn = func(*benchmarkResult) (string, error) { return "/tmp/bench", nil }
 	t.Cleanup(func() {
+		benchmarkGoroutines.Wait() // before the next test's app replaces this one
 		benchmarkRunFn, saveBenchmarkResultFn = prevRun, prevSave
 		benchmarkBusy.Store(false)
 		service.SetNetGraphBanner("")
@@ -72,7 +73,7 @@ func newBenchTestWindow(t *testing.T, run benchRunStub) (*MainWindow, fyne.Windo
 
 func overlayCount(w fyne.Window) int {
 	n := 0
-	fyne.DoAndWait(func() { n = len(w.Canvas().Overlays().List()) })
+	benchTestUI.Do(func() { n = len(w.Canvas().Overlays().List()) })
 	return n
 }
 
@@ -90,7 +91,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 // findInOverlays returns the first object in the open overlays that match accepts.
 func findInOverlays(w fyne.Window, match func(fyne.CanvasObject) bool) fyne.CanvasObject {
 	var found fyne.CanvasObject
-	fyne.DoAndWait(func() {
+	benchTestUI.Do(func() {
 		for _, o := range w.Canvas().Overlays().List() {
 			for _, c := range test.LaidOutObjects(o) {
 				if match(c) {
@@ -129,7 +130,7 @@ func tap(o fyne.CanvasObject) {
 	if !ok {
 		return
 	}
-	fyne.DoAndWait(func() { test.Tap(t) })
+	benchTestUI.Do(func() { test.Tap(t) })
 }
 
 func sampleBenchResult() *benchmarkResult {
@@ -280,14 +281,14 @@ func TestBenchmarkRunError_ShowsErrorAndResets(t *testing.T) {
 // the scroll to one line -- only "Saved to …" was visible.
 func TestBenchmarkResults_BodyFillsPanel(t *testing.T) {
 	mw, w := newBenchTestWindow(t, nil)
-	fyne.DoAndWait(func() { mw.showBenchmarkResults(sampleBenchResult(), "/tmp/bench") })
+	benchTestUI.Do(func() { mw.showBenchmarkResults(sampleBenchResult(), "/tmp/bench") })
 
 	o := findInOverlays(w, func(o fyne.CanvasObject) bool { _, ok := o.(*container.Scroll); return ok })
 	if o == nil {
 		t.Fatal("no scroll in the results dialog")
 	}
 	var h float32
-	fyne.DoAndWait(func() { h = o.Size().Height })
+	benchTestUI.Do(func() { h = o.Size().Height })
 	if h < 400 {
 		t.Fatalf("results scroll is %.0fpx tall in a 900px window, want most of it", h)
 	}
@@ -298,7 +299,7 @@ func TestBenchmarkResults_BodyFillsPanel(t *testing.T) {
 
 func TestBenchmarkResults_CompactLayout(t *testing.T) {
 	mw, w := newBenchTestWindow(t, nil)
-	fyne.DoAndWait(func() {
+	benchTestUI.Do(func() {
 		w.Resize(fyne.NewSize(390, 780))
 		mw.showBenchmarkResults(sampleBenchResult(), `C:\Users\bogom\AppData\Roaming\USBridge`)
 	})

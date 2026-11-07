@@ -133,7 +133,7 @@ func (w *Window) applySavedWindowPlacement() bool {
 	if !ok {
 		return false
 	}
-	w.guiWin.Resize(fyne.NewSize(float32(width), float32(height)))
+	w.guiWin.Resize(fitWindowSizeToScreen(w.guiWin, fyne.NewSize(float32(width), float32(height))))
 	return true
 }
 

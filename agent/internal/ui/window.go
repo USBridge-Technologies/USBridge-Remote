@@ -1159,7 +1159,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	if lw, lh, ok := w.savedLogicalWindowSize(); ok {
 		startSize = fyne.NewSize(float32(lw), float32(lh))
 	}
-	win.Resize(startSize)
+	win.Resize(fitWindowSizeToScreen(win, startSize))
 	if !w.canRestoreWindowPlacement() {
 		win.CenterOnScreen()
 	}

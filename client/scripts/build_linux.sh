@@ -10,6 +10,7 @@
 # scanner reads /dev/videoN directly via V4L2 (v4l2camera_impl_linux.c).
 #
 # Build deps (install before running this script):
+#   GUI (GLFW 3.4, X11 + Wayland): xorg-dev libxkbcommon-dev libwayland-dev libegl-dev
 #   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
 #   Zero-copy VAAPI/QSV->Vulkan render path (vk_video_impl_linux.c's
 #   dma-buf import): libva-dev libva-drm2 or equivalent -- if missing, the

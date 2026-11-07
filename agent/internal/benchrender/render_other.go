@@ -4,11 +4,12 @@ package benchrender
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"time"
 
 	"github.com/go-gl/gl/v2.1/gl"
-	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/go-gl/glfw/v3.4/glfw"
 )
 
 // GLFW wants its calls on the main thread (macOS insists).
@@ -39,6 +40,12 @@ func pickMonitor(r *Rect) *glfw.Monitor {
 }
 
 func run(o options) error {
+	// GLFW 3.4 would pick native Wayland when it can; the benchmark window
+	// stays on X11 / XWayland as before (monitor placement by rect, and the
+	// capture side was tuned against it) whenever an X server is there.
+	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") != "" {
+		glfw.InitHint(glfw.PlatformHint, int(glfw.PlatformX11))
+	}
 	if err := glfw.Init(); err != nil {
 		return fmt.Errorf("glfw: %w", err)
 	}

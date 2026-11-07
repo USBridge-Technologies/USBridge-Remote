@@ -834,7 +834,31 @@ func (r *deviceDashboardWrapTextRenderer) Objects() []fyne.CanvasObject {
 
 func (r *deviceDashboardWrapTextRenderer) Destroy() {}
 
+// dashboardWrapCache memoizes wrapDashboardName: it measures every prefix
+// of the name, and both MinSize and Layout ask on every layout pass -- a
+// window resize re-ran it for each card many times per frame. Fyne
+// goroutine only.
+var dashboardWrapCache = map[dashboardWrapKey][]string{}
+
+type dashboardWrapKey struct {
+	text            string
+	textSize, width float32
+}
+
 func wrapDashboardName(text string, textSize, width float32) []string {
+	key := dashboardWrapKey{text, textSize, width}
+	if lines, ok := dashboardWrapCache[key]; ok {
+		return lines
+	}
+	lines := wrapDashboardNameUncached(text, textSize, width)
+	if len(dashboardWrapCache) > 4096 {
+		clear(dashboardWrapCache)
+	}
+	dashboardWrapCache[key] = lines
+	return lines
+}
+
+func wrapDashboardNameUncached(text string, textSize, width float32) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return []string{""}

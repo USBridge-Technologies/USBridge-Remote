@@ -3,7 +3,7 @@
 package controller
 
 /*
-#cgo LDFLAGS: -lX11 -ldl
+#cgo LDFLAGS: -lX11 -ldl -lwayland-client
 
 #include "mouse_capture_linux.h"
 */
@@ -27,6 +27,28 @@ import (
 type linuxMouseCaptureEngine struct {
 	miProvider func() service.MoonlightInputSender
 	running    atomic.Bool
+	wayland    bool // started through the Wayland path (set on the main thread in Start)
+}
+
+// startWayland locks the pointer through the compositor's pointer-
+// constraints / relative-pointer protocols (mouse_capture_wl_linux.c).
+func (e *linuxMouseCaptureEngine) startWayland(surface uintptr) error {
+	display := waylandDisplay()
+	if display == 0 {
+		return fmt.Errorf("no Wayland display")
+	}
+	activeLinuxMouseCaptureMu.Lock()
+	activeLinuxMouseCapture = e
+	activeLinuxMouseCaptureMu.Unlock()
+	if C.usbridge_mouse_capture_wl_start(C.uintptr_t(display), C.uintptr_t(surface)) == 0 {
+		activeLinuxMouseCaptureMu.Lock()
+		if activeLinuxMouseCapture == e {
+			activeLinuxMouseCapture = nil
+		}
+		activeLinuxMouseCaptureMu.Unlock()
+		return fmt.Errorf("the Wayland compositor does not offer pointer lock (zwp_pointer_constraints_v1 / zwp_relative_pointer_v1)")
+	}
+	return nil
 }
 
 func newPlatformMouseCaptureEngine(miProvider func() service.MoonlightInputSender) mouseCaptureEngine {
@@ -59,24 +81,26 @@ func (e *linuxMouseCaptureEngine) Start(window fyne.Window) error {
 
 	started := make(chan error, 1)
 	nw.RunNative(func(ctx any) {
-		var xwin uintptr
+		var xwin, wlSurface uintptr
 		switch c := ctx.(type) {
 		case *driver.X11WindowContext:
 			xwin = c.WindowHandle
 		case driver.X11WindowContext:
 			xwin = c.WindowHandle
-		case *driver.WaylandWindowContext, driver.WaylandWindowContext:
-			// Same fallback as the VK/GL overlay (video_widget_gl_linux.go):
-			// there is no Xlib window handle to grab/warp on Wayland, and
-			// raw pointer capture needs the compositor's own zwp_pointer_
-			// constraints/zwp_relative_pointer protocols instead, which
-			// isn't implemented here yet.
-			started <- fmt.Errorf("Capture mode is not yet supported under Wayland")
-			return
+		case *driver.WaylandWindowContext:
+			wlSurface = c.WaylandSurface
+		case driver.WaylandWindowContext:
+			wlSurface = c.WaylandSurface
 		default:
 			started <- fmt.Errorf("unexpected native context type %T", ctx)
 			return
 		}
+		if wlSurface != 0 {
+			e.wayland = true
+			started <- e.startWayland(wlSurface)
+			return
+		}
+		e.wayland = false
 		if xwin == 0 {
 			started <- fmt.Errorf("X11 window handle is nil")
 			return
@@ -109,7 +133,11 @@ func (e *linuxMouseCaptureEngine) Stop() error {
 	if !e.running.CompareAndSwap(true, false) {
 		return nil
 	}
-	C.usbridge_mouse_capture_stop()
+	if e.wayland {
+		C.usbridge_mouse_capture_wl_stop()
+	} else {
+		C.usbridge_mouse_capture_stop()
+	}
 	activeLinuxMouseCaptureMu.Lock()
 	if activeLinuxMouseCapture == e {
 		activeLinuxMouseCapture = nil

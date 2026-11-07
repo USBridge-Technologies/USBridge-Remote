@@ -485,7 +485,8 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 	case !offer.preferVirtual:
 		// Not Windows: the screen as is is the default, the virtual display
 		// the alternative.
-		title, subtitle = i18n.Current.HostAppOfferTitle, i18n.Current.VirtualDisplayOfferAsIsSubtitle
+		title = i18n.Current.HostAppOfferTitle
+		subtitle = fmt.Sprintf(i18n.Current.VirtualDisplayOfferAsIsSubtitle, fps, width, height)
 		asIsBtn := newVirtualDisplayAddButton(skipBtn.onTapped)
 		asIsBtn.labelText = i18n.Current.VirtualDisplayOfferSkip
 		createBtn.fillColor, createBtn.textColor = mutedFill, mutedText

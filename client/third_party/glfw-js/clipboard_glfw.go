@@ -2,7 +2,7 @@
 
 package glfw
 
-import "github.com/go-gl/glfw/v3.3/glfw"
+import "github.com/go-gl/glfw/v3.4/glfw"
 
 // GetClipboardString returns the contents of the system clipboard, if it contains or is convertible to a UTF-8 encoded string.
 //

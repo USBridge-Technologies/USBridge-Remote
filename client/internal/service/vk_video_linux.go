@@ -3,7 +3,7 @@
 package service
 
 /*
-#cgo LDFLAGS: -lvulkan -lX11 -lXext
+#cgo LDFLAGS: -lvulkan -lX11 -lXext -lwayland-client
 
 #include <stdint.h>
 
@@ -11,6 +11,8 @@ package service
 extern int  vk_video_is_active(void);
 extern int  vk_video_try_submit(uint8_t *rgba, int width, int height, int stride);
 extern int  vk_video_create(uintptr_t parent_xwin, int x, int y, int w, int h);
+extern int  vk_video_create_wayland(uintptr_t display, uintptr_t parent_surface, int x, int y, int w, int h, float scale);
+extern void vk_video_set_wl_scale(float scale);
 extern void vk_video_update_frame(int x, int y, int w, int h);
 extern void vk_video_destroy(void);
 extern void vk_video_get_stats(long long *rendered, long long *submitted,
@@ -64,6 +66,20 @@ func VKVideoTrySubmit(rgba []byte, width, height, stride int) bool {
 
 func VKVideoCreate(xwin uintptr, x, y, w, h int) bool {
 	return C.vk_video_create(C.uintptr_t(xwin), C.int(x), C.int(y), C.int(w), C.int(h)) != 0
+}
+
+// VKVideoCreateWayland hosts the overlay in a wl_subsurface of the window's
+// wl_surface (native Wayland). x,y,w,h are buffer pixels as for
+// VKVideoCreate; scale is buffer pixels per logical (surface) unit.
+func VKVideoCreateWayland(display, surface uintptr, x, y, w, h int, scale float32) bool {
+	return C.vk_video_create_wayland(C.uintptr_t(display), C.uintptr_t(surface),
+		C.int(x), C.int(y), C.int(w), C.int(h), C.float(scale)) != 0
+}
+
+// VKVideoSetWaylandScale updates the pixels-per-logical-unit factor (window
+// moved to an output with another scale).
+func VKVideoSetWaylandScale(scale float32) {
+	C.vk_video_set_wl_scale(C.float(scale))
 }
 
 var vkOverlayLastX, vkOverlayLastY, vkOverlayLastW, vkOverlayLastH int

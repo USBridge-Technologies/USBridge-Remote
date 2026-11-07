@@ -50,6 +50,10 @@ extern void goAIVisionSample(uint8_t *rgba, int width, int height, int stride);
 // GL overlay fast path (defined in gl_video_impl_linux.c).
 extern int gl_video_is_active(void);
 extern int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride);
+extern int gl_video_try_submit_nv12(const uint8_t *y, int y_stride, const uint8_t *uv, int uv_stride, int w, int h);
+extern int gl_video_nv12_usable(void);
+extern void gl_video_set_nv12_bt709(int bt709);
+extern int goCPUOverlayWanted(void);
 
 // Vulkan overlay fast path (defined in vk_video_impl_linux.c).
 extern int vk_video_is_active(void);
@@ -612,7 +616,12 @@ static int try_deliver_zerocopy(AVFrame *frame) {
 // plus its per-pixel R/B swizzle and several full-frame RGBA copies.
 // Returns 1 if the frame was handled.
 static int try_deliver_nv12(AVFrame *frame) {
-    if (!vk_video_is_active() || !vk_video_nv12_supported()) return 0;
+    int to_vk = vk_video_is_active() && vk_video_nv12_supported();
+    // The GL fallback converts NV12 in a shader too -- unless a CPU overlay
+    // (Net Graph / AI Vision boxes) has to be burnt into RGBA pixels, which
+    // only the RGBA path below does for GL.
+    int to_gl = !to_vk && gl_video_nv12_usable() && !goCPUOverlayWanted();
+    if (!to_vk && !to_gl) return 0;
 
     AVFrame *src = frame;
     AVFrame *dl = NULL;
@@ -651,15 +660,19 @@ static int try_deliver_nv12(AVFrame *frame) {
 
     if (goAIVisionShouldSample()) sample_frame_for_ai_vision(src);
 
-    int ok = vk_video_try_submit_nv12(src->data[0], src->linesize[0],
-                                      src->data[1], src->linesize[1],
-                                      frame->width, frame->height);
+    int ok = to_vk ? vk_video_try_submit_nv12(src->data[0], src->linesize[0],
+                                              src->data[1], src->linesize[1],
+                                              frame->width, frame->height)
+                   : gl_video_try_submit_nv12(src->data[0], src->linesize[0],
+                                              src->data[1], src->linesize[1],
+                                              frame->width, frame->height);
     if (dl) av_frame_free(&dl);
     if (!ok) return 0;
     if (++g_av_nv12_frame_cnt == 1) {
         char msg[128];
-        snprintf(msg, sizeof(msg), "libavcodec: first NV12 frame -> Vulkan GPU YCbCr (%s, %dx%d)",
-                 frame->hw_frames_ctx ? "hw download" : "sw decode", frame->width, frame->height);
+        snprintf(msg, sizeof(msg), "libavcodec: first NV12 frame -> %s GPU YCbCr (%s, %dx%d)",
+                 to_vk ? "Vulkan" : "GL", frame->hw_frames_ctx ? "hw download" : "sw decode",
+                 frame->width, frame->height);
         goVTLog(msg);
     }
     goVTFrame(NULL, frame->width, frame->height, 0);
@@ -748,6 +761,7 @@ void platform_set_video_format(int videoFormat) {
     g_video_format = videoFormat ? videoFormat : 0x0001;
     // PyroWave hosts convert to BT.709; the H.26x/AV1 paths render as BT.601.
     vk_video_set_nv12_bt709((g_video_format & VIDEO_FORMAT_MASK_PYROWAVE) != 0);
+    gl_video_set_nv12_bt709((g_video_format & VIDEO_FORMAT_MASK_PYROWAVE) != 0);
 }
 
 // pyrowave_submit hands one PyroWave access unit to the decode thread

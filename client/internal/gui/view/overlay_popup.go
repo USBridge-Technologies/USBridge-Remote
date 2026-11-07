@@ -394,6 +394,29 @@ func (c *overlayTapCatcher) TappedSecondary(ev *fyne.PointEvent) {
 
 var _ fyne.Tappable = (*overlayTapCatcher)(nil)
 
+// overlayIsPopup reports whether overlay o is popup: since Fyne 2.8 the
+// stack holds the OverlayContainer wrapping a PopUp, not the PopUp itself.
+func overlayIsPopup(o fyne.CanvasObject, popup *widget.PopUp) bool {
+	if o == nil || popup == nil {
+		return false
+	}
+	if p, ok := o.(*widget.PopUp); ok {
+		return p == popup
+	}
+	p, ok := overlayContent(o).(*widget.PopUp)
+	return ok && p == popup
+}
+
+// OverlayPopUp returns the PopUp an overlay-stack entry shows (itself, or
+// the one inside Fyne 2.8's OverlayContainer).
+func OverlayPopUp(o fyne.CanvasObject) (*widget.PopUp, bool) {
+	if p, ok := o.(*widget.PopUp); ok {
+		return p, true
+	}
+	p, ok := overlayContent(o).(*widget.PopUp)
+	return p, ok && p != nil
+}
+
 // HideOverlayPopup hides popup without taking the overlays above it down with
 // it: Fyne's OverlayStack.Remove drops every overlay above the removed one, so
 // a toast closing under a dialog opened after it (the virtual display offer
@@ -410,7 +433,7 @@ func HideOverlayPopup(popup *widget.PopUp) {
 	var above []fyne.CanvasObject
 	list := overlays.List()
 	for i, o := range list {
-		if o == popup {
+		if overlayIsPopup(o, popup) {
 			// Copied: Remove clears the stack's backing array.
 			above = append(above, list[i+1:]...)
 			break

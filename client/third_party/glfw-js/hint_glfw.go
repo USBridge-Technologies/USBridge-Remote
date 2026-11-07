@@ -2,7 +2,7 @@
 
 package glfw
 
-import "github.com/go-gl/glfw/v3.3/glfw"
+import "github.com/go-gl/glfw/v3.4/glfw"
 
 type Hint int
 

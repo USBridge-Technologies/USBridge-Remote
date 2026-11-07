@@ -1,8 +1,12 @@
-// vk_video_impl_linux.c — Vulkan overlay video renderer for Linux (X11 / XWayland).
+// vk_video_impl_linux.c — Vulkan overlay video renderer for Linux (X11 / XWayland
+// and native Wayland).
 //
 // Architecture:
-//   • Child X11 Window created directly over the parent Fyne/GLFW window.
-//   • VkXlibSurfaceKHR on the child window.
+//   • X11: child X11 Window created directly over the parent Fyne/GLFW window,
+//     VkXlibSurfaceKHR on it.
+//   • Wayland: a desync wl_subsurface of the Fyne window (vk_video_wl_linux.c),
+//     VkWaylandSurfaceKHR on it. Menu holes are drawn transparent into the
+//     swapchain image (premultiplied alpha) instead of an X11 shape.
 //   • VkSwapchainKHR with IMMEDIATE (or MAILBOX/FIFO fallback) present mode.
 //   • Render thread: staging buffer → VkImage (sampled texture) → blit to swapchain.
 //   • Frame queue: capacity 1, drop-on-full (always-latest semantics).
@@ -17,9 +21,12 @@
 #if defined(__linux__) && !defined(__ANDROID__)
 
 #define VK_USE_PLATFORM_XLIB_KHR
+#define VK_USE_PLATFORM_WAYLAND_KHR
 #include <vulkan/vulkan.h>
 #include "pyrowave.h"
 #include <vulkan/vulkan_xlib.h>
+#include <vulkan/vulkan_wayland.h>
+#include "vk_video_wl_linux.h"
 #include <X11/Xlib.h>
 #include <X11/extensions/shape.h>
 #include <pthread.h>
@@ -29,6 +36,7 @@
 #include <stdio.h>
 #include <stdatomic.h>
 #include <time.h>
+#include <math.h>
 #include <unistd.h>
 
 #include "shader_arrays.h" // g_ycbcr_crop_vert_spv / g_ycbcr_frag_spv (zero-copy dma-buf path)
@@ -65,6 +73,12 @@ static void pipe_drain(int fd) {
 
 static Display *g_dpy        = NULL;
 static Window   g_win        = 0;
+// Native Wayland host (vk_video_wl_linux.c) instead of the X11 child window.
+static int      g_is_wl      = 0;
+// Wayland: holes go into the picture as alpha 0 (set when the swapchain got
+// premultiplied composite alpha).
+static int      g_wl_alpha   = 0;
+static volatile float g_wl_scale = 1.0f; // buffer pixels per logical unit
 static Window   g_parent_win = 0;
 
 // Desired overlay rect — updated atomically; render thread uses for swapchain recreation.
@@ -259,8 +273,11 @@ static uint32_t vk_find_mem(VkPhysicalDeviceMemoryProperties *mp,
 // ─── Vulkan init helpers ──────────────────────────────────────────────────────
 
 static int vk_create_instance(void) {
+    // Test knob: exercise the GL/EGL fallback on a machine with Vulkan.
+    if (getenv("USBRIDGE_VK_DISABLE")) { goVKLog("Vulkan disabled by USBRIDGE_VK_DISABLE", 1); return 0; }
     g_inst_exts_keep[0] = VK_KHR_SURFACE_EXTENSION_NAME;
-    g_inst_exts_keep[1] = VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
+    g_inst_exts_keep[1] = g_is_wl ? VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME
+                                  : VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
     // apiVersion 1.3: the zero-copy dma-buf render path needs
     // VkSamplerYcbcrConversion and dynamic rendering (vkCmdBeginRendering),
     // both core since 1.3 -- requesting a plain 1.0 instance (the previous
@@ -493,6 +510,14 @@ static int vk_create_swapchain(int w, int h) {
     sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     sci.preTransform     = caps.currentTransform;
     sci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    g_wl_alpha = 0;
+    if (g_is_wl && (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)) {
+        // Every pixel is drawn with alpha 1 except menu holes (alpha 0);
+        // the opaque region (vk_wl_set_holes) keeps the compositor from
+        // blending anything else.
+        sci.compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+        g_wl_alpha = 1;
+    }
     sci.presentMode      = pm;
     sci.clipped          = VK_TRUE;
 
@@ -994,6 +1019,53 @@ static void vk_dmabuf_release_prev(void) {
 #define VKOV_UNLOCK()   pthread_mutex_unlock(&g_hud_mu)
 #include "vk_overlay_common.h"
 
+// ─── Wayland menu holes ───────────────────────────────────────────────────────
+// X11 cuts menus out of the child window's shape; a Wayland subsurface has no
+// shape, so the holes are cleared to transparent black in the swapchain image
+// (premultiplied alpha). Swapchain pixels; written by the CGO thread
+// (vk_video_set_holes), read by the render thread.
+#define VK_WL_MAX_HOLES 1024
+static pthread_mutex_t g_wlh_mu = PTHREAD_MUTEX_INITIALIZER;
+static VkClearRect     g_wlh[VK_WL_MAX_HOLES];
+static int             g_wlh_n = 0;
+
+static int vk_wl_holes_drawable(void) { return g_is_wl && g_wl_alpha && g_ycbcr_supported; }
+
+// Records the hole clears; must be called inside dynamic rendering on the
+// swapchain image.
+static void vk_wl_record_holes(VkCommandBuffer cb) {
+    if (!vk_wl_holes_drawable()) return;
+    static VkClearRect rects[VK_WL_MAX_HOLES]; // render thread only
+    int n = 0;
+    pthread_mutex_lock(&g_wlh_mu);
+    int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
+    for (int i = 0; i < g_wlh_n; i++) {
+        // vkCmdClearAttachments rects must lie inside the render area.
+        int x0 = g_wlh[i].rect.offset.x, y0 = g_wlh[i].rect.offset.y;
+        int x1 = x0 + (int)g_wlh[i].rect.extent.width, y1 = y0 + (int)g_wlh[i].rect.extent.height;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > sw) x1 = sw;
+        if (y1 > sh) y1 = sh;
+        if (x1 <= x0 || y1 <= y0) continue;
+        rects[n].rect = (VkRect2D){ {x0, y0}, {(uint32_t)(x1 - x0), (uint32_t)(y1 - y0)} };
+        rects[n].baseArrayLayer = 0;
+        rects[n].layerCount = 1;
+        n++;
+    }
+    pthread_mutex_unlock(&g_wlh_mu);
+    if (n == 0) return;
+    VkClearAttachment ca = { VK_IMAGE_ASPECT_COLOR_BIT, 0, { .color = {{0, 0, 0, 0}} } };
+    vkCmdClearAttachments(cb, 1, &ca, (uint32_t)n, rects);
+}
+
+static int vk_wl_has_holes(void) {
+    pthread_mutex_lock(&g_wlh_mu);
+    int n = g_wlh_n;
+    pthread_mutex_unlock(&g_wlh_mu);
+    return n > 0;
+}
+
 // vk_render_frame_dmabuf — zero-copy counterpart to vk_render_frame: imports
 // the caller's dma-buf as a VkImage and samples it directly into the
 // swapchain instead of blitting an uploaded RGBA staging texture. Takes
@@ -1233,6 +1305,7 @@ static int vk_render_frame_dmabuf(DmabufFrame *f) {
     vk_aivision_record_draw(g_cmdbuf, f->vis_w, f->vis_h);
     if (draw_hud) vk_hud_record_draw(g_cmdbuf, f->vis_w, f->vis_h);
 
+    vk_wl_record_holes(g_cmdbuf);
     vkCmdEndRendering(g_cmdbuf);
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
@@ -1550,6 +1623,7 @@ static int vk_render_frame_nv12(const Nv12Buf *fb) {
     vkCmdDraw(g_cmdbuf, 3, 1, 0, 0);
     vk_aivision_record_draw(g_cmdbuf, fw, fh);
     if (draw_hud) vk_hud_record_draw(g_cmdbuf, fw, fh);
+    vk_wl_record_holes(g_cmdbuf);
     vkCmdEndRendering(g_cmdbuf);
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
@@ -1875,6 +1949,7 @@ static int vk_render_frame_pyrowave(const uint8_t *au, size_t aulen) {
     vkCmdDraw(g_cmdbuf, 3, 1, 0, 0);
     vk_aivision_record_draw(g_cmdbuf, fw, fh);
     if (draw_hud) vk_hud_record_draw(g_cmdbuf, fw, fh);
+    vk_wl_record_holes(g_cmdbuf);
     vkCmdEndRendering(g_cmdbuf);
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
@@ -2148,10 +2223,35 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &blt, VK_FILTER_LINEAR);
 
-    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        VK_ACCESS_TRANSFER_WRITE_BIT, 0,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    if (vk_wl_holes_drawable() && vk_wl_has_holes()) {
+        // Wayland menu holes need a (tiny) rendering pass over the blit.
+        vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        VkRenderingAttachmentInfo holeAtt = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+        holeAtt.imageView   = g_swap_views[img_idx];
+        holeAtt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        holeAtt.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
+        holeAtt.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingInfo holeRI = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+        holeRI.renderArea = (VkRect2D){ {0,0}, g_swap_ext };
+        holeRI.layerCount = 1;
+        holeRI.colorAttachmentCount = 1;
+        holeRI.pColorAttachments = &holeAtt;
+        vkCmdBeginRendering(g_cmdbuf, &holeRI);
+        vk_wl_record_holes(g_cmdbuf);
+        vkCmdEndRendering(g_cmdbuf);
+        vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    } else {
+        vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            VK_ACCESS_TRANSFER_WRITE_BIT, 0,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    }
 
     vkEndCommandBuffer(g_cmdbuf);
 
@@ -2264,6 +2364,16 @@ static void *vk_render_thread(void *unused) {
         pthread_mutex_unlock(&g_mu);
         if (!tmp && !have_dmabuf && !have_nv12 && !have_pw) continue;
 
+        // A Wayland surface takes whatever size the buffers have, so the
+        // swapchain never reports OUT_OF_DATE on a resize: follow the rect.
+        if (g_is_wl) {
+            int ww = atomic_load(&g_dst_w), wh = atomic_load(&g_dst_h);
+            if (ww > 0 && wh > 0 && ((uint32_t)ww != g_swap_ext.width || (uint32_t)wh != g_swap_ext.height)) {
+                g_render_stage = 7;
+                vk_recreate_swapchain();
+            }
+        }
+
         g_render_stage = 1;
         int rf;
         if (have_pw) {
@@ -2353,6 +2463,14 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
 static int g_hole_count, g_shape_w, g_shape_h;
 static void vk_apply_holes(void);
 
+// Wayland: hidden by request, or while menus are open on a swapchain that
+// cannot draw holes (no premultiplied alpha / no dynamic rendering).
+static void vk_wl_apply_visibility(void) {
+    int hide = atomic_load(&g_hidden) || (g_hole_count > 0 && !vk_wl_holes_drawable());
+    vk_wl_set_hidden(hide);
+    g_win_visible = !hide;
+}
+
 // vk_video_update_frame — reposition the X11 child window and apply hide/show.
 // Called from CGO thread only; safe to call X11 here.
 void vk_video_update_frame(int x, int y, int w, int h) {
@@ -2363,6 +2481,17 @@ void vk_video_update_frame(int x, int y, int w, int h) {
     atomic_store(&g_dst_y, y);
     atomic_store(&g_dst_w, w);
     atomic_store(&g_dst_h, h);
+
+    if (g_is_wl) {
+        if (w > 0 && h > 0) {
+            float sc = g_wl_scale > 0 ? g_wl_scale : 1.0f;
+            vk_wl_set_rect((int)lroundf(x / sc), (int)lroundf(y / sc),
+                           (int)lroundf(w / sc), (int)lroundf(h / sc));
+            if (g_hole_count > 0 && (w != g_shape_w || h != g_shape_h)) vk_apply_holes();
+        }
+        vk_wl_apply_visibility();
+        return;
+    }
 
     if (g_dpy && g_win && w > 0 && h > 0) {
         XMoveResizeWindow(g_dpy, g_win, x, y, (unsigned)w, (unsigned)h);
@@ -2394,6 +2523,27 @@ static int g_shape_w = 0, g_shape_h = 0;
 static int g_shape_ok = -1; // -1 unknown, 0 no SHAPE extension, 1 available
 
 static void vk_apply_holes(void) {
+    if (g_is_wl) {
+        int w = atomic_load(&g_dst_w), h = atomic_load(&g_dst_h);
+        int n = (w > 0 && h > 0) ? g_hole_count : 0;
+        static int xywh[VK_MAX_HOLES * 4];
+        pthread_mutex_lock(&g_wlh_mu);
+        for (int i = 0; i < n; i++) {
+            g_wlh[i].rect = (VkRect2D){ {g_holes[i].x, g_holes[i].y},
+                                        {g_holes[i].width, g_holes[i].height} };
+            xywh[i*4] = g_holes[i].x; xywh[i*4+1] = g_holes[i].y;
+            xywh[i*4+2] = g_holes[i].width; xywh[i*4+3] = g_holes[i].height;
+        }
+        g_wlh_n = n;
+        pthread_mutex_unlock(&g_wlh_mu);
+        vk_wl_set_holes(xywh, n, g_wl_scale);
+        g_shape_w = n ? w : 0; g_shape_h = n ? h : 0;
+        vk_wl_apply_visibility();
+        // The render thread only redraws on a new frame; a paused stream
+        // would keep showing video over a freshly opened menu.
+        if (g_pipe_w >= 0) pipe_wake(g_pipe_w, 1);
+        return;
+    }
     if (!g_dpy || !g_win) return;
     if (g_shape_ok < 0) {
         int ev, er;
@@ -2439,6 +2589,7 @@ void vk_video_set_holes(const int *xywh, int n) {
 // Called from CGO thread — safe to call X11 immediately.
 void vk_video_set_hidden(int hidden) {
     atomic_store(&g_hidden, hidden ? 1 : 0);
+    if (g_is_wl) { vk_wl_apply_visibility(); return; }
     if (!g_dpy || !g_win) return;
     if (hidden && g_win_visible) {
         XUnmapWindow(g_dpy, g_win);
@@ -2505,6 +2656,9 @@ static void vk_full_cleanup(void) {
     g_pdev = VK_NULL_HANDLE;
 
     if (g_win && g_dpy)  { XDestroyWindow(g_dpy, g_win); g_win = 0; }
+    if (g_is_wl) vk_wl_destroy(); // after vkDestroySurfaceKHR above
+    g_is_wl = 0; g_wl_alpha = 0;
+    pthread_mutex_lock(&g_wlh_mu); g_wlh_n = 0; pthread_mutex_unlock(&g_wlh_mu);
     g_hole_count = 0; g_shape_w = g_shape_h = 0; g_shape_ok = -1;
     if (g_dpy)           { XCloseDisplay(g_dpy);          g_dpy = NULL; }
     g_parent_win = 0;
@@ -2560,8 +2714,65 @@ int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
     return 0;
 }
 
+static int vk_video_create_common(int x, int y, int w, int h);
+
+// vk_video_create_wayland — native-Wayland counterpart of vk_video_create:
+// display/parent are GLFW's wl_display and the Fyne window's wl_surface;
+// x,y,w,h are buffer pixels like on X11, scale = pixels per logical unit.
+int vk_video_create_wayland(uintptr_t display, uintptr_t parent_surface,
+                            int x, int y, int w, int h, float scale) {
+    if (atomic_load(&g_active)) vk_full_cleanup();
+    if (scale <= 0) scale = 1;
+    g_wl_scale = scale;
+    g_is_wl = 1;
+    int cw = w > 0 ? w : 1, ch = h > 0 ? h : 1;
+    if (!vk_wl_create((void *)display, (void *)parent_surface,
+                      (int)lroundf(x / scale), (int)lroundf(y / scale),
+                      (int)lroundf(cw / scale), (int)lroundf(ch / scale))) {
+        g_is_wl = 0;
+        return 0;
+    }
+    g_win_visible = 1;
+
+    if (!vk_create_instance())  { goVKLog("vk_video_create_wayland: vkCreateInstance failed", 2); goto fail; }
+    if (!vk_select_device())    { goVKLog("vk_video_create_wayland: no suitable GPU", 2);          goto fail; }
+    if (!vk_create_device())    { goVKLog("vk_video_create_wayland: vkCreateDevice failed", 2);    goto fail; }
+    {
+        VkWaylandSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR };
+        sci.display = vk_wl_display();
+        sci.surface = vk_wl_surface();
+        if (vkCreateWaylandSurfaceKHR(g_inst, &sci, NULL, &g_surf) != VK_SUCCESS) {
+            goVKLog("vk_video_create_wayland: vkCreateWaylandSurfaceKHR failed", 2); goto fail;
+        }
+        VkBool32 present_ok = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(g_pdev, g_qfam, g_surf, &present_ok);
+        if (!present_ok) { goVKLog("vk_video_create_wayland: queue cannot present to Wayland", 2); goto fail; }
+    }
+    if (!vk_create_swapchain(cw, ch)) {
+        goVKLog("vk_video_create_wayland: swapchain creation failed", 2); goto fail;
+    }
+    {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "Wayland subsurface: scale %.2f, menu holes %s", scale,
+                 vk_wl_holes_drawable() ? "drawn transparent" : "hide the video");
+        goVKLog(msg, 0);
+    }
+    if (!vk_video_create_common(x, y, w, h)) goto fail;
+    return 1;
+
+fail:
+    vk_full_cleanup();
+    return 0;
+}
+
+// vk_video_set_wl_scale — the window moved to an output with another scale.
+void vk_video_set_wl_scale(float scale) {
+    if (scale > 0) g_wl_scale = scale;
+}
+
 int vk_video_create(uintptr_t parent_xwin, int x, int y, int w, int h) {
     if (atomic_load(&g_active)) vk_full_cleanup();
+    g_is_wl = 0;
 
     if (!parent_xwin) { goVKLog("vk_video_create: parent XID is 0", 2); return 0; }
     g_parent_win = (Window)parent_xwin;
@@ -2611,7 +2822,18 @@ int vk_video_create(uintptr_t parent_xwin, int x, int y, int w, int h) {
     if (!vk_create_swapchain(cw, ch)) {
         goVKLog("vk_video_create: swapchain creation failed", 2); goto fail;
     }
+    if (!vk_video_create_common(x, y, w, h)) goto fail;
+    return 1;
 
+fail:
+    vk_full_cleanup();
+    return 0;
+}
+
+// Command buffers, sync objects and the render thread -- shared by the X11
+// and Wayland hosts once g_surf / the swapchain exist. 0 on failure (the
+// caller cleans up).
+static int vk_video_create_common(int x, int y, int w, int h) {
     {
         VkCommandPoolCreateInfo cpci = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
         cpci.queueFamilyIndex = g_qfam;
@@ -2660,14 +2882,13 @@ int vk_video_create(uintptr_t parent_xwin, int x, int y, int w, int h) {
         VkPhysicalDeviceProperties pr;
         vkGetPhysicalDeviceProperties(g_pdev, &pr);
         snprintf(msg, sizeof(msg),
-                 "Vulkan/Linux renderer ready — GPU=%s rect=(%d,%d,%dx%d)",
-                 pr.deviceName, x, y, w, h);
+                 "Vulkan/Linux renderer ready (%s) — GPU=%s rect=(%d,%d,%dx%d)",
+                 g_is_wl ? "Wayland" : "X11", pr.deviceName, x, y, w, h);
         goVKLog(msg, 0);
     }
     return 1;
 
 fail:
-    vk_full_cleanup();
     return 0;
 }
 

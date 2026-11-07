@@ -66,7 +66,8 @@ fi
 # agent: Fyne GUI (go-gl/glfw) needs GL + X11 + XKB headers. See
 # .github/workflows/agent-build.yml "Install Linux build deps (Fyne/X11)".
 AGENT_PKGS=(
-    libgl1-mesa-dev xorg-dev libxkbcommon-dev
+    # libwayland-dev: GLFW 3.4 (Fyne 2.8) builds the native Wayland backend too.
+    libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev
     # Sunshine runtime shared libs, needed so linuxdeploy can resolve them
     # while bundling the AppImage. See agent-release.yml / release-all.yml.
     libminiupnpc-dev libva2 libva-drm2 libvdpau1
@@ -82,7 +83,9 @@ AGENT_PKGS=(
 # client: Fyne GUI + Moonlight HW decode/core libs. See release-all.yml
 # "Install Linux build deps" (client job) and client/scripts/build_linux.sh.
 CLIENT_PKGS=(
-    libgl1-mesa-dev xorg-dev libxkbcommon-dev
+    # libwayland-dev: GLFW 3.4 (Fyne 2.8) builds X11 and native Wayland into
+    # one binary; the Vulkan video subsurface and Wayland pointer lock too.
+    libgl1-mesa-dev libegl-dev xorg-dev libxkbcommon-dev libwayland-dev
     libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
     libopus-dev libssl-dev libvulkan-dev
 )

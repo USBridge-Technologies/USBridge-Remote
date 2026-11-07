@@ -390,8 +390,8 @@ var pkgManagers = []pkgManager{
 			// the existing cached index already had a perfectly installable
 			// xclip in it. --no-install-recommends keeps this to just the
 			// requested packages and their real deps (for xclip: libc6,
-			// libx11-6 -- already present on this project's own
-			// XWayland-forced GUI, see forceXWaylandForGUI) -- no extra
+			// libx11-6 -- already present for GLFW's X11 backend, which
+			// the agent links either way) -- no extra
 			// desktop/display-server packages get pulled in either way.
 			return "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " + list + " || " +
 				"(DEBIAN_FRONTEND=noninteractive apt-get update -qq; " +

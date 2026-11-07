@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
-	fyneapp "fyne.io/fyne/v2/app"
 
 	"usbridge_agent/assets"
 	"usbridge_agent/internal/account"
@@ -439,9 +438,7 @@ func runThinClientGUI(client *adminapi.Client, startHidden bool) error {
 		return fmt.Errorf("fetch config from running instance: %w", err)
 	}
 
-	restoreXWayland := forceXWaylandForGUI()
-	fyneApp := fyneapp.NewWithID("io.usbridge.agent")
-	restoreXWayland()
+	fyneApp := newFyneApp()
 	ui.ApplySavedUIScale(fyneApp)
 	fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	fyneApp.SetIcon(assets.AppIcon)
@@ -977,9 +974,7 @@ func (a *App) Run(headless, startHidden bool) error {
 		return nil
 	}
 
-	restoreXWayland := forceXWaylandForGUI()
-	a.fyneApp = fyneapp.NewWithID("io.usbridge.agent")
-	restoreXWayland()
+	a.fyneApp = newFyneApp()
 	ui.ApplySavedUIScale(a.fyneApp)
 	a.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	a.fyneApp.SetIcon(assets.AppIcon)

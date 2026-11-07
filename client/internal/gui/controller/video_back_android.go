@@ -25,6 +25,8 @@ import "C"
 import (
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
+
+	"usbridge-client/internal/gui/view"
 )
 
 func init() {
@@ -67,6 +69,12 @@ func handleAndroidSystemBack() bool {
 			logrus.Info("⬅️ System Back: dismissing Fyne overlay")
 			overlay := top
 			fyne.Do(func() {
+				// Fyne 2.8 stacks an OverlayContainer around each PopUp;
+				// hiding the container alone leaves it on the stack.
+				if p, ok := view.OverlayPopUp(overlay); ok {
+					p.Hide()
+					return
+				}
 				overlay.Hide()
 			})
 			return true

@@ -20,12 +20,11 @@ import (
 var version = "dev"
 
 func main() {
-	// The XWayland steering previously lived here as a process-wide
-	// os.Unsetenv("WAYLAND_DISPLAY") that ran unconditionally, before even
-	// --headless was parsed. It's now internal/app.forceXWaylandForGUI,
-	// scoped tightly around the one Fyne app constructor call that actually
-	// needs it -- see that file's doc comment for why the process-wide
-	// version broke clipboard sync, capture, and autostart on Linux.
+	// The GUI runs as a native Wayland client where there is one (Fyne 2.8 /
+	// GLFW 3.4). The old XWayland steering -- clearing WAYLAND_DISPLAY around
+	// GLFW init for a GLFW 3.3 content-scale bug -- is gone: never clear
+	// WAYLAND_DISPLAY process-wide, clipboard sync, capture and autostart
+	// read it later.
 
 	// A short-lived copy of the agent the service runs in the user's session to attach or
 	// restore the virtual monitor (displaypower.RunHelper); it logs to its output only.
