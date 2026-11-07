@@ -344,6 +344,10 @@ extern AVBufferRef *d3dx_device_ref(void);
 extern int d3dx_deliver(AVFrame *frame, void **out_img, int *out_vkfmt, void **out_sem, uint64_t *out_val, void **out_release_ctx);
 extern void d3dx_release_slot(void *ctx);
 extern AVFrame *d3dx_download(AVFrame *frame);
+extern void win_gpu_safe_mode_raise(int level);
+extern int  win_gpu_safe_mode(void);
+extern int  vk_video_backend(void);
+extern void goGPUSafeModeDecoderRejected(int level, char *reason);
 // PyroWave GPU decode (pyrowave_decode_windows.c).
 extern int pyrowave_win_decode(const uint8_t *au, size_t len, void **out_img, int *out_vkfmt, void **out_sem,
                                uint64_t *out_val, int *out_w, int *out_h, int *out_narrow, void **out_slot);
@@ -362,6 +366,18 @@ static enum AVPixelFormat g_hw_pix_fmt  = AV_PIX_FMT_NONE;
 static int                g_using_vulkan_decode = 0; // set once the Vulkan zero-copy tier is committed for this session
 static int                g_using_d3dx_decode   = 0; // D3D11VA decode copied into Vulkan (d3d11_interop_windows.c)
 static int win_using_d3dx_decode(void) { return g_using_d3dx_decode; }
+// Decoder tiers win_av_init tries, in order. g_dec_tier is the one in use
+// this session; g_dec_tier_floor (process lifetime) is the first tier still
+// allowed: a hardware decoder that opens fine but then rejects every frame
+// it is given (dr_submit's demotion below) raises it past itself, so the
+// next IDR -- and every later session in this process -- goes to the next
+// tier. Seen on an Intel HD Graphics 520 (2026-11-06, 3.2.27): ffmpeg's
+// Vulkan Video decoder opened, then failed every IDR with AVERROR_INVALIDDATA
+// (in=0 out=0), so no frame ever reached the screen and the client
+// reconnected forever.
+enum { DEC_TIER_D3DX = 0, DEC_TIER_VULKAN, DEC_TIER_D3D11VA, DEC_TIER_SW };
+static int g_dec_tier = DEC_TIER_SW;
+static volatile LONG g_dec_tier_floor = DEC_TIER_D3DX;
 static int                g_using_pyrowave      = 0; // VIDEO_FORMAT_PYROWAVE: pyrowave_decode_windows.c, no libavcodec
 static enum AVPixelFormat g_av_dst_fmt  = AV_PIX_FMT_NONE;
 static int                g_av_w        = 0;
@@ -429,6 +445,19 @@ static void win_av_log_callback(void *avcl, int level, const char *fmt, va_list 
         if (strstr(buf, "DEVICE_LOST")) {
             vk_video_mark_device_lost();
         }
+        // ffmpeg's own reason for a failing decoder otherwise only reaches
+        // stderr, which a release build has nowhere: copy the first few
+        // errors into app.log.
+        static volatile LONG logged = 0;
+        if (InterlockedIncrement(&logged) <= 40) {
+            char msg[560];
+            const AVClass *avc = avcl ? *(const AVClass **)avcl : NULL;
+            const char *cls = avc ? avc->class_name : NULL;
+            size_t n = strlen(buf);
+            while (n > 0 && (buf[n-1] == '\n' || buf[n-1] == '\r')) buf[--n] = 0;
+            snprintf(msg, sizeof(msg), "libavcodec/win: ffmpeg %s: %s", cls ? cls : "-", buf);
+            goVTLog(msg);
+        }
     }
     av_log_default_callback(avcl, level, fmt, vl);
 }
@@ -483,7 +512,7 @@ static void win_av_init(void) {
     // reference. USBRIDGE_DECODER=vulkan skips it.
     {
         const char *dec_env = getenv("USBRIDGE_DECODER");
-        AVBufferRef *dx_ref = (dec_env && _stricmp(dec_env, "vulkan") == 0) ? NULL : d3dx_device_ref();
+        AVBufferRef *dx_ref = ((dec_env && _stricmp(dec_env, "vulkan") == 0) || g_dec_tier_floor > DEC_TIER_D3DX) ? NULL : d3dx_device_ref();
         if (dx_ref) {
             g_hw_pix_fmt = AV_PIX_FMT_D3D11;
             g_avctx = avcodec_alloc_context3(codec);
@@ -492,6 +521,7 @@ static void win_av_init(void) {
             g_avctx->get_format = win_get_hw_format;
             if (avcodec_open2(g_avctx, codec, NULL) == 0) {
                 g_using_d3dx_decode = 1;
+                g_dec_tier = DEC_TIER_D3DX;
                 char msg[160];
                 snprintf(msg, sizeof(msg), "libavcodec/win: using %s (hardware D3D11VA -> Vulkan zero-copy interop, %dx%d@%d)",
                          codec_label, g_stream_w, g_stream_h, g_stream_fps);
@@ -522,6 +552,8 @@ static void win_av_init(void) {
     // internally, before/regardless of anything this process does afterward.
     if (sw_id != AV_CODEC_ID_AV1 && getenv("USBRIDGE_DISABLE_VK_DECODE")) {
         goVTLog((char*)"libavcodec/win: USBRIDGE_DISABLE_VK_DECODE set -- skipping Vulkan Video Decode tier");
+    } else if (g_dec_tier_floor > DEC_TIER_VULKAN) {
+        // demoted: this GPU's Vulkan decoder rejected every frame earlier
     } else if (sw_id == AV_CODEC_ID_H264 || sw_id == AV_CODEC_ID_HEVC) {
         AVBufferRef *vk_ref = win_vk_hwdev_ctx_ref();
         if (vk_ref) {
@@ -544,6 +576,7 @@ static void win_av_init(void) {
                 g_avctx->get_format = win_get_hw_format;
                 if (avcodec_open2(g_avctx, codec, NULL) == 0) {
                     g_using_vulkan_decode = 1;
+                    g_dec_tier = DEC_TIER_VULKAN;
                     char msg[160];
                     snprintf(msg, sizeof(msg), "libavcodec/win: using %s (hardware Vulkan Video Decode, zero-copy, %d decode thread%s, %dx%d@%d)",
                              codec_label, threads, threads > 1 ? "s" : "", g_stream_w, g_stream_h, g_stream_fps);
@@ -569,9 +602,18 @@ static void win_av_init(void) {
     // context before committing to it.
     // Decode on the shared D3D11 device when there is one: the D3D11
     // presentation backend then samples the frames without a CPU copy.
-    AVBufferRef *hw_ctx = win_dx_hwdev_ref();
-    int hwErr = hw_ctx ? 0 : av_hwdevice_ctx_create(&hw_ctx, AV_HWDEVICE_TYPE_D3D11VA, NULL, NULL, 0);
-    if (hwErr != 0) {
+    AVBufferRef *hw_ctx = NULL;
+    int hwErr = 0;
+    if (g_dec_tier_floor > DEC_TIER_D3D11VA) {
+        hwErr = AVERROR(ENOSYS);
+        goVTLog((char*)"libavcodec/win: D3D11VA rejected every frame earlier in this process -- using software");
+    } else {
+        hw_ctx = win_dx_hwdev_ref();
+        hwErr = hw_ctx ? 0 : av_hwdevice_ctx_create(&hw_ctx, AV_HWDEVICE_TYPE_D3D11VA, NULL, NULL, 0);
+    }
+    if (hwErr != 0 && g_dec_tier_floor > DEC_TIER_D3D11VA) {
+        // logged above
+    } else if (hwErr != 0) {
         char errbuf[AV_ERROR_MAX_STRING_SIZE] = {0};
         av_strerror(hwErr, errbuf, sizeof(errbuf));
         char msg[192];
@@ -606,6 +648,7 @@ static void win_av_init(void) {
         goVTLog(msg);
     }
 
+    g_dec_tier = g_hw_dev_ctx ? DEC_TIER_D3D11VA : DEC_TIER_SW;
     g_avctx = avcodec_alloc_context3(codec);
     g_avctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
     if (g_hw_dev_ctx) {
@@ -1243,8 +1286,18 @@ static int win_decode_send(PDECODE_UNIT du) {
     // there (as this used to, treating EAGAIN as success) silently breaks
     // the reference chain with no IDR request. Drain output and retry.
     int ret;
+    // USBRIDGE_FAKE_DECODE_REJECT=d3dx|vulkan|d3d11va (testing): that tier's
+    // decoder rejects every packet with AVERROR_INVALIDDATA, like the HD 520's
+    // Vulkan decoder did, to exercise the demotion below.
+    static int fake_reject = -2;
+    if (fake_reject == -2) {
+        const char *e = getenv("USBRIDGE_FAKE_DECODE_REJECT");
+        fake_reject = !e ? -1 : !_stricmp(e, "d3dx") ? DEC_TIER_D3DX : !_stricmp(e, "vulkan") ? DEC_TIER_VULKAN
+                    : !_stricmp(e, "d3d11va") ? DEC_TIER_D3D11VA : -1;
+    }
     for (int tries = 0;; tries++) {
         dec_stage(DEC_STAGE_SEND);
+        if (fake_reject >= 0 && fake_reject == g_dec_tier) { ret = AVERROR_INVALIDDATA; break; }
         ret = avcodec_send_packet(ctx, pkt);
         if (ret != AVERROR(EAGAIN) || tries >= 100) break;
         g_dec_eagain++;
@@ -1262,6 +1315,39 @@ static int win_decode_send(PDECODE_UNIT du) {
     if (ret < 0) {
         g_dec_send_err++;
         g_dec_last_send_err = ret;
+        // A hardware decoder that has not produced a single frame and has
+        // now rejected two IDRs is not going to: drop it and let the next
+        // IDR open the next tier (see g_dec_tier_floor). Only before the
+        // first frame, so nothing downstream still holds frames from it.
+        if (g_dec_out == 0 && g_dec_send_err >= 2 && g_dec_tier != DEC_TIER_SW) {
+            static const char *names[] = { "D3D11VA->Vulkan interop", "Vulkan Video Decode", "D3D11VA", "software" };
+            char errbuf[AV_ERROR_MAX_STRING_SIZE] = {0};
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            char msg[256];
+            snprintf(msg, sizeof(msg), "libavcodec/win: %s decoder rejected %u frames without producing one (last %d: %s) -- switching to the next decoder for the rest of this process",
+                     names[g_dec_tier], g_dec_send_err, ret, errbuf);
+            goVTLog(msg);
+            if (g_dec_tier_floor <= g_dec_tier) InterlockedExchange(&g_dec_tier_floor, g_dec_tier + 1);
+            // Without the Vulkan decoder (and the D3D11->Vulkan interop,
+            // skipped or failed before it), a Vulkan overlay could only show
+            // D3D11VA frames through a CPU readback (25-35ms a 1080p frame on
+            // an Intel UHD, queue overflows). The D3D11 renderer samples them
+            // on the GPU, so move to GPU safe mode 2 while the overlay is not
+            // up yet (it is created on the first frame) and remember it.
+            if (g_dec_tier == DEC_TIER_VULKAN && win_gpu_safe_mode() < 2 && vk_video_backend() < 0) {
+                win_gpu_safe_mode_raise(2);
+                goGPUSafeModeDecoderRejected(2, (char *)"Vulkan Video decoder rejected every frame");
+            }
+            EnterCriticalSection(&g_av_cs);
+            if (g_avctx) avcodec_free_context(&g_avctx);
+            if (g_hw_dev_ctx) av_buffer_unref(&g_hw_dev_ctx);
+            g_hw_pix_fmt = AV_PIX_FMT_NONE;
+            g_using_vulkan_decode = 0;
+            g_using_d3dx_decode = 0;
+            g_dec_tier = DEC_TIER_SW;
+            g_dec_send_err = 0;
+            LeaveCriticalSection(&g_av_cs);
+        }
         return DR_NEED_IDR;
     }
     return DR_OK;

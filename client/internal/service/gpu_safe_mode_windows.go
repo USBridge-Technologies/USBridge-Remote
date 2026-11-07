@@ -163,11 +163,31 @@ func HandleGPUStuck() bool {
 	logrus.Errorf("🛟 [GPU safe mode] %s (gpu=%q) -- this session continues on %s; next start uses level %d",
 		reason, gpu, next, remember)
 
+	saveGPUSafeModeLocked(remember, gpu, reason)
+	return true
+}
+
+// goGPUSafeModeDecoderRejected: the decoder in moonlight_cgo_windows.go
+// dropped a hardware tier that rejected every frame and raised this
+// process to level; remember it for the next start of this version.
+//
+//export goGPUSafeModeDecoderRejected
+func goGPUSafeModeDecoderRejected(level C.int, reason *C.char) {
+	r := C.GoString(reason)
+	gpu, _ := VKVideoGetGPUName()
+	logrus.Errorf("🛟 [GPU safe mode] %s (gpu=%q) -- level %d (D3D11 renderer) for this process and the next start", r, gpu, int(level))
+	gpuSafeModeMu.Lock()
+	defer gpuSafeModeMu.Unlock()
+	saveGPUSafeModeLocked(int(level), gpu, r)
+}
+
+// saveGPUSafeModeLocked writes gpu_safe_mode.json; gpuSafeModeMu held.
+func saveGPUSafeModeLocked(level int, gpu, reason string) {
 	if gpuSafeModePath == "" {
-		return true
+		return
 	}
 	rec := gpuSafeModeRecord{
-		Level:   remember,
+		Level:   level,
 		Version: gpuSafeModeVersion,
 		GPU:     gpu,
 		Reason:  reason,
@@ -179,7 +199,6 @@ func HandleGPUStuck() bool {
 			logrus.Warnf("🛟 [GPU safe mode] could not save %s: %v", gpuSafeModePath, err)
 		}
 	}
-	return true
 }
 
 var gpuStallWatchdogOnce sync.Once
