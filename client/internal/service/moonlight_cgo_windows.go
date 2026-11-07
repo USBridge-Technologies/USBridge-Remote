@@ -348,6 +348,7 @@ extern void win_gpu_safe_mode_raise(int level);
 extern int  win_gpu_safe_mode(void);
 extern int  vk_video_backend(void);
 extern void goGPUSafeModeDecoderRejected(int level, char *reason);
+extern int  win_vk_decode_supported(int codec, int bit_depth, int w, int h, char *why, int n);
 // PyroWave GPU decode (pyrowave_decode_windows.c).
 extern int pyrowave_win_decode(const uint8_t *au, size_t len, void **out_img, int *out_vkfmt, void **out_sem,
                                uint64_t *out_val, int *out_w, int *out_h, int *out_narrow, void **out_slot);
@@ -556,6 +557,23 @@ static void win_av_init(void) {
         // demoted: this GPU's Vulkan decoder rejected every frame earlier
     } else if (sw_id == AV_CODEC_ID_H264 || sw_id == AV_CODEC_ID_HEVC) {
         AVBufferRef *vk_ref = win_vk_hwdev_ctx_ref();
+        if (vk_ref) {
+            char why[160];
+            int bit_depth = (g_video_format & 0x2200) ? 10 : 8; // H265_MAIN10 / AV1_MAIN10 bits
+            if (!win_vk_decode_supported(sw_id == AV_CODEC_ID_HEVC, bit_depth, g_stream_w, g_stream_h, why, sizeof(why))) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "libavcodec/win: Vulkan Video Decode cannot do this %s stream (%s) -- trying D3D11VA", codec_label, why);
+                goVTLog(msg);
+                av_buffer_unref(&vk_ref);
+                // Same reasoning as dr_submit's demotion: without Vulkan
+                // decode or the interop, the D3D11 renderer shows D3D11VA
+                // frames on the GPU, the Vulkan overlay only via a CPU copy.
+                if (win_gpu_safe_mode() < 2 && vk_video_backend() < 0) {
+                    win_gpu_safe_mode_raise(2);
+                    goVTLog((char*)"libavcodec/win: GPU safe mode 2 for this process -- D3D11 renderer");
+                }
+            }
+        }
         if (vk_ref) {
             AVCodecContext *test = avcodec_alloc_context3(codec);
             test->hw_device_ctx = av_buffer_ref(vk_ref);

@@ -9,6 +9,7 @@ extern int  vk_video_is_gpu_stuck(void);
 extern void vk_video_mark_gpu_stuck(void);
 extern int  d3dx_unblock(void);
 extern int  vk_video_backend(void);
+extern int  win_legacy_intel_default_adapter(char *name, int n, unsigned *dev_id);
 */
 import "C"
 
@@ -89,6 +90,16 @@ func InitGPUSafeMode(appName, version string) {
 	case "vulkan-nointerop":
 		C.win_gpu_safe_mode_raise(1)
 		logrus.Warn("🛟 [GPU safe mode] USBRIDGE_RENDERER=vulkan-nointerop -- level 1 (no D3D11->Vulkan interop)")
+	}
+
+	// Old Intel iGPUs (legacy Windows driver) never get Vulkan: see
+	// win_intel_legacy_gpu in vk_hwdev_bridge_windows.c.
+	var name [128]C.char
+	var devID C.uint
+	if C.win_legacy_intel_default_adapter(&name[0], C.int(len(name)), &devID) != 0 {
+		C.win_gpu_safe_mode_raise(2)
+		logrus.Warnf("🛟 [GPU safe mode] %s (0x%04x) is a legacy Intel iGPU -- level 2 (no Vulkan: D3D11VA decode, D3D11 renderer)",
+			C.GoString(&name[0]), uint(devID))
 	}
 
 	if gpuSafeModePath == "" {
