@@ -129,14 +129,7 @@ func (dw *DiskWidget) handleAddImage() {
 	fileDialog.SetView(dialog.ListView)
 	fileDialog.SetTitleText(i18n.Current.SelectDiskImage)
 	fileDialog.SetFilter(storage.NewExtensionFileFilter(dw.supportedTypes))
-	fileDialog.Show()
-
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		fyne.Do(func() {
-			fileDialog.Resize(fyne.NewSize(900, 650))
-		})
-	}()
+	view.ShowFileDialog(fileDialog, dw.window)
 }
 
 func (dw *DiskWidget) handleDeleteImageFromDevice(driveIndex int, filename string) {

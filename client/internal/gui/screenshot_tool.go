@@ -55,6 +55,7 @@ func (mw *MainWindow) showScreenshotToolMenu() {
 // function's callers elsewhere in this package for the same fallback
 // pattern).
 func (mw *MainWindow) captureScreenshotToFile() {
+	parent := nativeParentWindow(mw.window)
 	go func() {
 		png, ok := api.RequestLiveFrame(screenshotToolFrameTimeout)
 		if !ok {
@@ -65,7 +66,7 @@ func (mw *MainWindow) captureScreenshotToFile() {
 		}
 		name := "usbridge-screenshot-" + time.Now().Format("20060102-150405") + ".png"
 		if nativeSaveAvailable() {
-			path, err := nativeSaveFile("Save Screenshot", name)
+			path, err := nativeSaveFile(parent, "Save Screenshot", name, pngSaveFilter)
 			if err != nil {
 				fyne.Do(func() { mw.fyneSaveScreenshotPNG(png, name) })
 				return
@@ -147,5 +148,5 @@ func (mw *MainWindow) fyneSaveScreenshotPNG(png []byte, name string) {
 		view.ShowInfoDialog("Screenshot", fmt.Sprintf("Saved to %s", wc.URI().Name()), mw.window)
 	}, mw.window)
 	fd.SetFileName(name)
-	fd.Show()
+	view.ShowFileDialog(fd, mw.window)
 }

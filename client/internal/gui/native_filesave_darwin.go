@@ -10,9 +10,12 @@ import (
 
 func nativeSaveAvailable() bool { return true }
 
-func nativeSaveFile(title, defaultName string) (string, error) {
+// choose file name has no type filter; the caller appends the extension.
+func nativeSaveFile(_ uintptr, title, defaultName string, _ saveFilter) (string, error) {
 	script := fmt.Sprintf(
-		`POSIX path of (choose file name with prompt %q default name %q)`,
+		// activate: the panel belongs to osascript, which otherwise opens
+		// it behind the client window.
+		"activate\nPOSIX path of (choose file name with prompt %q default name %q)",
 		title, defaultName,
 	)
 	cmd := exec.Command("osascript", "-e", script)

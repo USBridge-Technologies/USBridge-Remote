@@ -1131,8 +1131,9 @@ func (mw *MainWindow) downloadBenchmarkResults(res *benchmarkResult) {
 		return
 	}
 	if nativeSaveAvailable() {
+		parent := nativeParentWindow(mw.window)
 		go func() {
-			path, err := nativeSaveFile(title, name)
+			path, err := nativeSaveFile(parent, title, name, zipSaveFilter)
 			if err != nil {
 				fyne.Do(func() { mw.fyneSaveBenchmarkZip(res, name) })
 				return
@@ -1206,7 +1207,7 @@ func (mw *MainWindow) fyneSaveBenchmarkZip(res *benchmarkResult, name string) {
 		view.ShowInfoDialog(i18n.Current.BenchResultsTitle, fmt.Sprintf(i18n.Current.BenchSaveResultsDone, wc.URI().Name()), mw.window)
 	}, mw.window)
 	fd.SetFileName(name)
-	fd.Show()
+	view.ShowFileDialog(fd, mw.window)
 }
 
 func (mw *MainWindow) saveBenchmarkZipFile(res *benchmarkResult, path string) {

@@ -4,6 +4,6 @@ package gui
 
 func nativeSaveAvailable() bool { return false }
 
-func nativeSaveFile(string, string) (string, error) {
+func nativeSaveFile(uintptr, string, string, saveFilter) (string, error) {
 	return "", nil
 }
