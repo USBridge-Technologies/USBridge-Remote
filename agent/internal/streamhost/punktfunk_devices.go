@@ -10,9 +10,11 @@ import (
 )
 
 // ListCaptureDevices lists the host's physical monitors as punktfunk-host
-// itself sees them (`punktfunk-host list-monitors`, Linux only), for
-// SetOutputName. Empty when there is no binary, off Linux, or when the
-// compositor isn't reachable.
+// itself sees them (`punktfunk-host list-monitors`, Linux), for
+// SetOutputName. On Windows Punktfunk captures a monitor by its GDI name
+// (see punktfunkMonitorName), so the desktop's own active monitors are the
+// list. Empty when there is no binary, on other platforms, or when the
+// compositor/desktop isn't reachable.
 //
 // On KDE, listing works for any binary but capturing doesn't: KWin only
 // hands zkde_screencast_unstable_v1 to a punktfunk-host whose executable
@@ -26,6 +28,12 @@ func (b *punktfunkBackend) ListCaptureDevices() []CaptureDevice {
 	// list-monitors is a Linux command: elsewhere punktfunk-host answers
 	// "unknown command". On Windows every call of it also flashed a console
 	// window, and the GUI asks for devices every few seconds.
+	if runtime.GOOS == "windows" {
+		if b.binaryPath() == "" {
+			return nil
+		}
+		return punktfunkWindowsMonitors()
+	}
 	if runtime.GOOS != "linux" {
 		return nil
 	}
@@ -82,6 +90,37 @@ func parsePunktfunkMonitors(out string) []CaptureDevice {
 			}
 		}
 		devices = append(devices, d)
+	}
+	return devices
+}
+
+// punktfunkWindowsMonitors is the desktop's active physical monitors, named
+// by GDI name -- what PUNKTFUNK_CAPTURE_MONITOR takes on Windows. Without
+// this list the benchmark's monitor pin (app.applyBenchMonitor, matching by
+// GDIName) never reached Punktfunk: it streamed a virtual display of its own
+// while the benchmark video played on the pinned monitor.
+func punktfunkWindowsMonitors() []CaptureDevice {
+	list, err := punktfunkListMonitors()
+	if err != nil {
+		return nil
+	}
+	var devices []CaptureDevice
+	for _, m := range list {
+		if !m.Active || m.Virtual || m.GDIName == "" {
+			continue
+		}
+		name := m.Name
+		if name == "" {
+			name = m.GDIName
+		}
+		devices = append(devices, CaptureDevice{
+			OutputName:  m.GDIName,
+			DisplayName: name,
+			Primary:     m.Primary,
+			Width:       m.Width,
+			Height:      m.Height,
+			GDIName:     m.GDIName,
+		})
 	}
 	return devices
 }

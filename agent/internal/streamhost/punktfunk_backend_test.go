@@ -560,3 +560,24 @@ func TestPunktfunkVirtualOutputPrefix(t *testing.T) {
 		t.Fatalf("virtual display: prefix %q, want Virtual-punktfunk", got)
 	}
 }
+
+// The benchmark pins Punktfunk on Windows by GDI name: its device list has to
+// carry the desktop's active physical monitors, without the virtual one.
+func TestPunktfunkWindowsMonitors(t *testing.T) {
+	punktfunkListMonitors = func() ([]displaypower.Monitor, error) {
+		return []displaypower.Monitor{
+			{ID: "a", Name: "ARZOPA", Active: true, GDIName: `\\.\DISPLAY1`, Primary: true, Width: 3840, Height: 2160},
+			{ID: "b", Name: "Off Panel", Active: false},
+			{ID: "c", Name: "VDD by MTT", Active: true, GDIName: `\\.\DISPLAY5`, Virtual: true, Width: 1920, Height: 1080},
+		}, nil
+	}
+	t.Cleanup(func() { punktfunkListMonitors = displaypower.ListInSession })
+	got := punktfunkWindowsMonitors()
+	if len(got) != 1 {
+		t.Fatalf("got %+v, want the one active physical monitor", got)
+	}
+	if d := got[0]; d.GDIName != `\\.\DISPLAY1` || d.OutputName != `\\.\DISPLAY1` || d.DisplayName != "ARZOPA" ||
+		!d.Primary || d.Width != 3840 || d.Height != 2160 {
+		t.Errorf("monitor = %+v", d)
+	}
+}
