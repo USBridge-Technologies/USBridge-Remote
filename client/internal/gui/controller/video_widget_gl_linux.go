@@ -54,6 +54,15 @@ func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullsc
 	if window == nil {
 		return
 	}
+	renderer := service.VideoRenderer()
+	if renderer == service.VideoRendererSoftware {
+		if attempt == 0 {
+			logrus.Info("[VK/Linux] software renderer chosen in Client settings — using Fyne canvas")
+		}
+		view.OnOverlayShow = nil
+		view.OnOverlayHide = nil
+		return
+	}
 	nw, ok := window.(driver.NativeWindow)
 	if !ok {
 		logrus.Warn("[VK/Linux] window does not implement NativeWindow — using Fyne canvas")
@@ -107,9 +116,10 @@ func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullsc
 		}
 		vkOnWayland = false
 
-		// Try Vulkan first; fall back to GLX if unavailable.
+		// Try Vulkan first (unless OpenGL is chosen in Client settings);
+		// fall back to GLX if unavailable.
 		service.VKVideoResetLastFrame()
-		if service.VKVideoCreate(xwin, px, py, pw, ph) {
+		if renderer != service.VideoRendererOpenGL && service.VKVideoCreate(xwin, px, py, pw, ph) {
 			logrus.Infof("[VK/Linux] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)",
 				fullscreen, px, py, pw, ph)
 			vkOcclusion.reset()
@@ -120,7 +130,11 @@ func (vw *VideoWidget) startMetalVideoOnWindowAttempt(window fyne.Window, fullsc
 			// connection and dispatch via fyne.Do.
 			vw.startVKMouseForwarding(scale)
 		} else {
-			logrus.Warn("[VK/Linux] Vulkan init failed — trying GLX fallback")
+			if renderer == service.VideoRendererOpenGL {
+				logrus.Info("[VK/Linux] OpenGL chosen in Client settings — GLX overlay")
+			} else {
+				logrus.Warn("[VK/Linux] Vulkan init failed — trying GLX fallback")
+			}
 			if !service.GLVideoCreate(xwin, px, py, pw, ph, vw.enableVSync) {
 				view.OnOverlayShow = nil
 				view.OnOverlayHide = nil
@@ -169,14 +183,19 @@ func (vw *VideoWidget) startWaylandVideo(window fyne.Window, surface uintptr, px
 	vkOnWayland = true
 	vkWaylandScale = ls
 	service.VKVideoResetLastFrame()
-	if display != 0 && service.VKVideoCreateWayland(display, surface, px, py, pw, ph, ls) {
+	openGL := service.VideoRenderer() == service.VideoRendererOpenGL
+	if !openGL && display != 0 && service.VKVideoCreateWayland(display, surface, px, py, pw, ph, ls) {
 		logrus.Infof("[VK/Wayland] overlay active rect=(%d,%d,%dx%d) scale=%.2f", px, py, pw, ph, ls)
 		vkOcclusion.reset()
 		vw.syncVKOcclusion()
 		vw.nativeVideoReady()
 		return
 	}
-	logrus.Warn("[VK/Wayland] Vulkan subsurface failed — trying EGL fallback")
+	if openGL {
+		logrus.Info("[VK/Wayland] OpenGL chosen in Client settings — EGL overlay")
+	} else {
+		logrus.Warn("[VK/Wayland] Vulkan subsurface failed — trying EGL fallback")
+	}
 	if display == 0 || !service.GLVideoCreateWayland(display, surface, px, py, pw, ph, ls, vw.enableVSync) {
 		view.OnOverlayShow = nil
 		view.OnOverlayHide = nil

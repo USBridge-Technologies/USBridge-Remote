@@ -128,6 +128,7 @@ func main() {
 	}()
 
 	logrus.Infof("Starting %s version %s", appName, version)
+	service.InitVideoRendererPrefs(appName) // before InitGPUSafeMode and the Fyne app
 	service.InitGPUSafeMode(appName, version)
 
 	i18n.Init("en")

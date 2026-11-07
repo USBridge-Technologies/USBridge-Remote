@@ -80,7 +80,20 @@ func InitGPUSafeMode(appName, version string) {
 		gpuSafeModePath = filepath.Join(base, appName, gpuSafeModeFile)
 	}
 
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("USBRIDGE_RENDERER"))) {
+	renderer := strings.ToLower(strings.TrimSpace(os.Getenv("USBRIDGE_RENDERER")))
+	userChoice := false
+	if renderer == "" {
+		// Client settings' video renderer (the environment wins).
+		switch VideoRenderer() {
+		case VideoRendererD3D11:
+			renderer = "d3d11"
+		case VideoRendererGDI:
+			renderer = "gdi"
+		}
+		userChoice = renderer != ""
+	}
+	forcedVulkan := VideoRenderer() == VideoRendererVulkan && os.Getenv("USBRIDGE_RENDERER") == ""
+	switch renderer {
 	case "gdi":
 		C.win_gpu_safe_mode_raise(3)
 		logrus.Warn("🛟 [GPU safe mode] USBRIDGE_RENDERER=gdi -- level 3 (GDI overlay)")
@@ -90,6 +103,16 @@ func InitGPUSafeMode(appName, version string) {
 	case "vulkan-nointerop":
 		C.win_gpu_safe_mode_raise(1)
 		logrus.Warn("🛟 [GPU safe mode] USBRIDGE_RENDERER=vulkan-nointerop -- level 1 (no D3D11->Vulkan interop)")
+	}
+
+	if userChoice {
+		logrus.Infof("🛟 [GPU safe mode] renderer %s chosen in Client settings", renderer)
+	}
+	if forcedVulkan {
+		// Vulkan chosen by hand: no automatic step down at startup (legacy
+		// Intel, a remembered stall). A stall in this run still falls back.
+		logrus.Info("🛟 [GPU safe mode] Vulkan chosen in Client settings -- automatic safe mode skipped at startup")
+		return
 	}
 
 	// Old Intel iGPUs (legacy Windows driver) never get Vulkan: see

@@ -193,6 +193,12 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		logrus.Warn("🍎 [Metal] startMetalVideoOnWindow: window=nil — skipped")
 		return
 	}
+	if service.VideoRenderer() == service.VideoRendererSoftware {
+		logrus.Info("🍎 [Metal] software renderer chosen in Client settings — using Fyne canvas")
+		view.OnOverlayShow = nil
+		view.OnOverlayHide = nil
+		return
+	}
 	nw, ok := window.(driver.NativeWindow)
 	if !ok {
 		logrus.Warnf("🍎 [Metal] window type %T does not implement driver.NativeWindow — Metal skipped", window)

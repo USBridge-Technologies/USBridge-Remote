@@ -765,6 +765,14 @@ type LocalizedStrings struct {
 	PlayoutBufferSmoothEnd      string    // hint under the slider's right end
 	PlayoutBufferBadge          string    // small platform badge next to the Jitter Buffer title
 	ScrollSpeed                 string    // two-finger scroll speed slider title, video parameters dialog (touch screens)
+	VideoRenderer               string    // Client settings: video renderer picker title
+	DisplayServer               string    // Client settings: display server picker title (Linux)
+	RendererAuto                string    // renderer / display server picker: automatic choice
+	RendererSoftware            string    // renderer picker: drawn by the UI toolkit on the CPU
+	RendererGDI                 string    // renderer picker: Windows GDI
+	RendererHintLinux           string    // Client settings: when the Linux choices apply
+	RendererHintWindows         string    // Client settings: when the Windows choice applies
+	RendererHintMac             string    // Client settings: when the macOS choice applies
 	Fec                         string    // FEC slider caption in the bitrate card (agent POST /api/video/fec)
 	FecAuto                     string    // the FEC slider's auto position
 	VideoSource                 string    // "Video source" picker caption, video parameters dialog (agent POST /api/video/source)
@@ -1638,6 +1646,14 @@ func EN() *LocalizedStrings {
 		PlayoutBufferSmoothEnd:               "Smoothest",
 		PlayoutBufferBadge:                   "Beta",
 		ScrollSpeed:                          "Two-finger scroll",
+		VideoRenderer:                        "Video renderer",
+		DisplayServer:                        "Display server",
+		RendererAuto:                         "Auto",
+		RendererSoftware:                     "Software (CPU)",
+		RendererGDI:                          "GDI (software)",
+		RendererHintLinux:                    "The renderer applies to the next stream, the display server after restarting the client.",
+		RendererHintWindows:                  "Applies after restarting the client.",
+		RendererHintMac:                      "Applies to the next stream.",
 		Fec:                                  "FEC",
 		FecAuto:                              "Auto",
 		VideoSource:                          "Screen",
@@ -2151,6 +2167,14 @@ func ES() *LocalizedStrings {
 	locale.TailscaleServerHint = "Cada servidor guarda su propio inicio de sesion: tras cambiar, inicia sesion una vez; al volver se recupera el anterior. Los agentes en tu Headscale sirven HTTPS con un certificado autofirmado en sus direcciones IP."
 	locale.TailscaleServerNeedURL = "Introduce la direccion de tu Headscale."
 	locale.ScrollSpeed = "Desplazamiento con dos dedos"
+	locale.VideoRenderer = "Renderizador de vídeo"
+	locale.DisplayServer = "Servidor gráfico"
+	locale.RendererAuto = "Automático"
+	locale.RendererSoftware = "Software (CPU)"
+	locale.RendererGDI = "GDI (software)"
+	locale.RendererHintLinux = "El renderizador se aplica a la próxima transmisión; el servidor gráfico, al reiniciar el cliente."
+	locale.RendererHintWindows = "Se aplica al reiniciar el cliente."
+	locale.RendererHintMac = "Se aplica a la próxima transmisión."
 	locale.KVMNetEthernet = "Ethernet"
 	locale.KVMNetWiFi = "Wi-Fi"
 	locale.KVMEventLog = "Registro de eventos"
@@ -2713,6 +2737,14 @@ func UKProper() *LocalizedStrings {
 	locale.TailscaleServerHint = "Кожен сервер має власний вхід: після перемикання увійдіть один раз; повернення відновлює попередній. Агенти у вашому Headscale віддають HTTPS із самопідписаним сертифікатом на своїх IP-адресах."
 	locale.TailscaleServerNeedURL = "Введіть адресу вашого Headscale."
 	locale.ScrollSpeed = "Прокрутка двома пальцями"
+	locale.VideoRenderer = "Рендерер відео"
+	locale.DisplayServer = "Графічний сервер"
+	locale.RendererAuto = "Авто"
+	locale.RendererSoftware = "Програмний (CPU)"
+	locale.RendererGDI = "GDI (програмний)"
+	locale.RendererHintLinux = "Рендерер застосовується до наступного стріму, графічний сервер — після перезапуску клієнта."
+	locale.RendererHintWindows = "Застосовується після перезапуску клієнта."
+	locale.RendererHintMac = "Застосовується до наступного стріму."
 	locale.KVMNetEthernet = "Ethernet"
 	locale.KVMNetWiFi = "Wi-Fi"
 	locale.KVMEventLog = "Журнал подій"
