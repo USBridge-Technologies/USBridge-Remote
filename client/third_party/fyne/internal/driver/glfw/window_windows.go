@@ -14,7 +14,13 @@ import (
 
 func (w *window) setDarkMode() {
 	if runtime.GOOS == "windows" {
-		hwnd := w.view().GetWin32Window()
+		// A window that was never shown has no viewport yet, and a closing one no
+		// longer does; a settings change walks them all. create() sets this on Show.
+		view := w.view()
+		if view == nil {
+			return
+		}
+		hwnd := view.GetWin32Window()
 		dark := isDark()
 		// cannot use a go bool.
 		var winBool int32

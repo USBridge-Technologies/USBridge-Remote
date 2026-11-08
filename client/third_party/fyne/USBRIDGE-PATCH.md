@@ -1,8 +1,8 @@
 # Fyne v2.8.2 with one USBridge patch
 
 Upstream fyne.io/fyne/v2 v2.8.2, without cmd/, testdata and upstream tests.
-The only change is in `internal/driver/mobile/driver.go`, plus the test
-`internal/driver/mobile/driver_startup_test.go`.
+The changes are in `internal/driver/mobile/driver.go`, plus the test
+`internal/driver/mobile/driver_startup_test.go`, and the Windows one below.
 
 ## The bug
 
@@ -19,6 +19,14 @@ theme in `theme.Padding()`.
 `NewGoMobileDriver` creates the queue and marks the main goroutine, and before
 `Run()` only main runs functions directly. Everything else waits in the queue
 for the event loop, as the desktop driver does.
+
+## Windows: a window with no viewport
+
+`setDarkMode` in `internal/driver/glfw/window_windows.go` now returns when the
+window has no viewport. Since Fyne 2.8 every settings change calls it on all
+windows, and on Windows it dereferenced the viewport. The client's keep-alive
+window is never shown, so it has none: any settings change closed the client
+with a nil pointer panic.
 
 ## Upgrading Fyne
 
