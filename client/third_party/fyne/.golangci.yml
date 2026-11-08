@@ -1,0 +1,45 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - gocyclo
+    - gosec
+    - govet
+    - nolintlint
+    - staticcheck
+    - unused
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: cmd/fyne/ # The whole tool is deprecated
+        linters:
+          - errcheck
+          - gosec
+          - staticcheck
+      - path: cmd/fyne_demo/ # The whole tool is deprecated
+        linters:
+          - errcheck
+          - gosec
+      - path: test/ # In tests, the usage of deprecated stuff is valid to check for compatibility.
+        linters:
+          - staticcheck
+        text: "SA1019"
+      - path: _test\.go # TODO: Clarify whether we should explicitly handle errors in tests (e.g., using require.NoError()).
+        linters:
+          - errcheck
+  settings:
+    gosec:
+      excludes:
+        - G104 # gosec does not have a sophisticated ignore for unchecked errors; we rely on errcheck, instead
+        # 3**: gosec is quite pedantic about permissions … even the standard library does not fulfil the tests
+        - G301
+        - G302
+        - G304
+        - G306
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -SA4023

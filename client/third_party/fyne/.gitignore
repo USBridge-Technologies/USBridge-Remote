@@ -1,0 +1,2 @@
+# The patterns in client/.gitignore would hide a package and sources here.
+!*

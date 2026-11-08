@@ -1,0 +1,359 @@
+//go:build wasm || test_web_driver
+
+package gl
+
+import (
+	"math"
+
+	"github.com/fyne-io/gl-js"
+)
+
+const (
+	arrayBuffer           = gl.ARRAY_BUFFER
+	bitColorBuffer        = gl.COLOR_BUFFER_BIT
+	bitDepthBuffer        = gl.DEPTH_BUFFER_BIT
+	clampToEdge           = gl.CLAMP_TO_EDGE
+	colorFormatRGBA       = gl.RGBA
+	compileStatus         = gl.COMPILE_STATUS
+	constantAlpha         = gl.CONSTANT_ALPHA
+	float                 = gl.FLOAT
+	fragmentShader        = gl.FRAGMENT_SHADER
+	front                 = gl.FRONT
+	back                  = gl.BACK
+	glFalse               = gl.FALSE
+	linkStatus            = gl.LINK_STATUS
+	maxTextureSizeParam   = gl.MAX_TEXTURE_SIZE
+	one                   = gl.ONE
+	zero                  = gl.ZERO
+	oneMinusConstantAlpha = gl.ONE_MINUS_CONSTANT_ALPHA
+	oneMinusSrcAlpha      = gl.ONE_MINUS_SRC_ALPHA
+	scissorTest           = gl.SCISSOR_TEST
+	srcAlpha              = gl.SRC_ALPHA
+	staticDraw            = gl.STATIC_DRAW
+	texture0              = gl.TEXTURE0
+	texture1              = gl.TEXTURE1
+	texture2D             = gl.TEXTURE_2D
+	textureNearest        = gl.NEAREST
+	textureMinFilter      = gl.TEXTURE_MIN_FILTER
+	textureMagFilter      = gl.TEXTURE_MAG_FILTER
+	textureWrapS          = gl.TEXTURE_WRAP_S
+	textureWrapT          = gl.TEXTURE_WRAP_T
+	triangles             = gl.TRIANGLES
+	triangleStrip         = gl.TRIANGLE_STRIP
+	unsignedByte          = gl.UNSIGNED_BYTE
+	vertexShader          = gl.VERTEX_SHADER
+)
+
+type (
+	// Attribute represents a GL attribute
+	Attribute gl.Attrib
+	// Buffer represents a GL buffer
+	Buffer gl.Buffer
+	// Program represents a compiled GL program
+	Program gl.Program
+	// Shader represents a GL shader
+	Shader gl.Shader
+	// Uniform represents a GL uniform
+	Uniform gl.Uniform
+)
+
+var (
+	noBuffer          = Buffer(gl.NoBuffer)
+	noProgram         = Program(gl.NoProgram)
+	noShader          = Shader(gl.NoShader)
+	textureFilterToGL = [...]int32{gl.LINEAR, gl.NEAREST, gl.LINEAR}
+)
+
+func (p *painter) Init() {
+	p.ctx = &xjsContext{}
+	p.maxTextureSize = p.ctx.GetInteger(maxTextureSizeParam)
+	gl.Disable(gl.DEPTH_TEST)
+	gl.Enable(gl.BLEND)
+	p.logError()
+	p.program = programState{
+		ref:        p.createProgram("simple_es"),
+		buff:       p.createBuffer(20),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.blurProgram = programState{
+		ref:        p.createProgram("blur_es"),
+		buff:       p.createBuffer(20),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.lineProgram = programState{
+		ref:        p.createProgram("line_es"),
+		buff:       p.createBuffer(24),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.rectangleProgram = programState{
+		ref:        p.createProgram("rectangle_es"),
+		buff:       p.createBuffer(16),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.roundRectangleProgram = programState{
+		ref:        p.createProgram("round_rectangle_es"),
+		buff:       p.createBuffer(16),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.polygonProgram = programState{
+		ref:        p.createProgram("polygon_es"),
+		buff:       p.createBuffer(16),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.arcProgram = programState{
+		ref:        p.createProgram("arc_es"),
+		buff:       p.createBuffer(16),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.bezierCurveProgram = programState{
+		ref:        p.createProgram("bezier_curve_es"),
+		buff:       p.createBuffer(16),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.arbitraryPolygonProgram = programState{
+		ref:        p.createProgram("arbitrary_polygon_es"),
+		buff:       p.createBuffer(16),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+
+	p.ellipseProgram = programState{
+		ref:        p.createProgram("ellipse_es"),
+		buff:       p.createBuffer(16),
+		uniforms:   make(map[string]*uniformState),
+		attributes: make(map[string]Attribute),
+	}
+}
+
+type xjsContext struct{}
+
+var _ context = (*xjsContext)(nil)
+
+func (c *xjsContext) ActiveTexture(textureUnit uint32) {
+	gl.ActiveTexture(gl.Enum(textureUnit))
+}
+
+func (c *xjsContext) AttachShader(program Program, shader Shader) {
+	gl.AttachShader(gl.Program(program), gl.Shader(shader))
+}
+
+func (c *xjsContext) BindBuffer(target uint32, buf Buffer) {
+	gl.BindBuffer(gl.Enum(target), gl.Buffer(buf))
+}
+
+func (c *xjsContext) BindTexture(target uint32, texture Texture) {
+	gl.BindTexture(gl.Enum(target), gl.Texture(texture))
+}
+
+func (c *xjsContext) BlendColor(r, g, b, a float32) {
+	gl.BlendColor(r, g, b, a)
+}
+
+func (c *xjsContext) BlendFunc(srcFactor, destFactor uint32) {
+	gl.BlendFunc(gl.Enum(srcFactor), gl.Enum(destFactor))
+}
+
+func (c *xjsContext) BufferData(target uint32, points []float32, usage uint32) {
+	gl.BufferData(gl.Enum(target), toLEByteOrder(points...), gl.Enum(usage))
+}
+
+func (c *xjsContext) BufferSubData(target uint32, points []float32) {
+	data := toLEByteOrder(points...)
+	gl.BufferSubData(gl.Enum(target), 0, data)
+}
+
+func (c *xjsContext) Clear(mask uint32) {
+	gl.Clear(gl.Enum(mask))
+}
+
+func (c *xjsContext) ClearColor(r, g, b, a float32) {
+	gl.ClearColor(r, g, b, a)
+}
+
+func (c *xjsContext) CompileShader(shader Shader) {
+	gl.CompileShader(gl.Shader(shader))
+}
+
+func (c *xjsContext) CreateBuffer() Buffer {
+	return Buffer(gl.CreateBuffer())
+}
+
+func (c *xjsContext) CreateProgram() Program {
+	return Program(gl.CreateProgram())
+}
+
+func (c *xjsContext) CreateShader(typ uint32) Shader {
+	return Shader(gl.CreateShader(gl.Enum(typ)))
+}
+
+func (c *xjsContext) CreateTexture() (texture Texture) {
+	return Texture(gl.CreateTexture())
+}
+
+func (c *xjsContext) DeleteBuffer(buffer Buffer) {
+	gl.DeleteBuffer(gl.Buffer(buffer))
+}
+
+func (c *xjsContext) DeleteProgram(program Program) {
+	gl.DeleteProgram(gl.Program(program))
+}
+
+func (c *xjsContext) DeleteTexture(texture Texture) {
+	gl.DeleteTexture(gl.Texture(texture))
+}
+
+func (c *xjsContext) Disable(capability uint32) {
+	gl.Disable(gl.Enum(capability))
+}
+
+func (c *xjsContext) DrawArrays(mode uint32, first, count int) {
+	gl.DrawArrays(gl.Enum(mode), first, count)
+}
+
+func (c *xjsContext) Enable(capability uint32) {
+	gl.Enable(gl.Enum(capability))
+}
+
+func (c *xjsContext) EnableVertexAttribArray(attribute Attribute) {
+	gl.EnableVertexAttribArray(gl.Attrib(attribute))
+}
+
+func (c *xjsContext) GetAttribLocation(program Program, name string) Attribute {
+	return Attribute(gl.GetAttribLocation(gl.Program(program), name))
+}
+
+func (c *xjsContext) GetError() uint32 {
+	return uint32(gl.GetError())
+}
+
+func (c *xjsContext) GetInteger(pname uint32) int {
+	return gl.GetInteger(gl.Enum(pname))
+}
+
+func (c *xjsContext) GetProgrami(program Program, param uint32) int {
+	return gl.GetProgrami(gl.Program(program), gl.Enum(param))
+}
+
+func (c *xjsContext) GetProgramInfoLog(program Program) string {
+	return gl.GetProgramInfoLog(gl.Program(program))
+}
+
+func (c *xjsContext) GetShaderi(shader Shader, param uint32) int {
+	return gl.GetShaderi(gl.Shader(shader), gl.Enum(param))
+}
+
+func (c *xjsContext) GetShaderInfoLog(shader Shader) string {
+	return gl.GetShaderInfoLog(gl.Shader(shader))
+}
+
+func (c *xjsContext) GetUniformLocation(program Program, name string) Uniform {
+	return Uniform(gl.GetUniformLocation(gl.Program(program), name))
+}
+
+func (c *xjsContext) LinkProgram(program Program) {
+	gl.LinkProgram(gl.Program(program))
+}
+
+func (c *xjsContext) CopyTexSubImage2D(target uint32, level, xoffset, yoffset, x, y, width, height int) {
+	gl.CopyTexSubImage2D(gl.Enum(target), level, xoffset, yoffset, x, y, width, height)
+}
+
+func (c *xjsContext) ReadBuffer(_ uint32) {
+}
+
+func (c *xjsContext) ReadPixels(x, y, width, height int, colorFormat, typ uint32, pixels []uint8) {
+	gl.ReadPixels(pixels, x, y, width, height, gl.Enum(colorFormat), gl.Enum(typ))
+}
+
+func (c *xjsContext) ShaderSource(shader Shader, source string) {
+	gl.ShaderSource(gl.Shader(shader), source)
+}
+
+func (c *xjsContext) Scissor(x, y, w, h int32) {
+	gl.Scissor(x, y, w, h)
+}
+
+func (c *xjsContext) TexImage2D(target uint32, level, width, height int, colorFormat, typ uint32, data []uint8) {
+	var jsData interface{}
+	if len(data) > 0 {
+		jsData = data
+	}
+	gl.TexImage2D(
+		gl.Enum(target),
+		level,
+		width,
+		height,
+		gl.Enum(colorFormat),
+		gl.Enum(typ),
+		jsData,
+	)
+}
+
+func (c *xjsContext) TexParameteri(target, param uint32, value int32) {
+	gl.TexParameteri(gl.Enum(target), gl.Enum(param), int(value))
+}
+
+func (c *xjsContext) Uniform1f(uniform Uniform, v float32) {
+	gl.Uniform1f(gl.Uniform(uniform), v)
+}
+
+func (c *xjsContext) Uniform1fv(uniform Uniform, v []float32) {
+	gl.Uniform1fv(gl.Uniform(uniform), v)
+}
+
+func (c *xjsContext) Uniform1i(uniform Uniform, v int32) {
+	gl.Uniform1i(gl.Uniform(uniform), int(v))
+}
+
+func (c *xjsContext) Uniform2f(uniform Uniform, v0, v1 float32) {
+	gl.Uniform2f(gl.Uniform(uniform), v0, v1)
+}
+
+func (c *xjsContext) Uniform2fv(uniform Uniform, v []float32) {
+	gl.Uniform2fv(gl.Uniform(uniform), v)
+}
+
+func (c *xjsContext) Uniform4f(uniform Uniform, v0, v1, v2, v3 float32) {
+	gl.Uniform4f(gl.Uniform(uniform), v0, v1, v2, v3)
+}
+
+func (c *xjsContext) UseProgram(program Program) {
+	gl.UseProgram(gl.Program(program))
+}
+
+func (c *xjsContext) VertexAttribPointerWithOffset(attribute Attribute, size int, typ uint32, normalized bool, stride, offset int) {
+	gl.VertexAttribPointer(gl.Attrib(attribute), size, gl.Enum(typ), normalized, stride, offset)
+}
+
+func (c *xjsContext) Viewport(x, y, width, height int) {
+	gl.Viewport(x, y, width, height)
+}
+
+// toLEByteOrder returns the byte representation of float32 values in little endian byte order.
+func toLEByteOrder(values ...float32) []byte {
+	b := make([]byte, 4*len(values))
+	for i, v := range values {
+		u := math.Float32bits(v)
+		b[4*i+0] = byte(u >> 0)
+		b[4*i+1] = byte(u >> 8)
+		b[4*i+2] = byte(u >> 16)
+		b[4*i+3] = byte(u >> 24)
+	}
+	return b
+}
