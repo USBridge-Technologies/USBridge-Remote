@@ -185,3 +185,15 @@ func unsupportedPlatformApply(_ context.Context, _ string, _ string) error {
 
 // Enabled reports whether this build can self-update at all.
 const Enabled = true
+
+// exitAfterHandoff ends this process once apply has started whatever takes
+// over (the swap helper or the new binary). os.Exit skips deferred calls, so
+// the cleanup apply would otherwise do with defer has to run here: before
+// this, every successful update left its downloaded archive in the temp
+// folder, and on Windows the service's temp folder filled up with them.
+func exitAfterHandoff(cleanup ...func()) {
+	for _, c := range cleanup {
+		c()
+	}
+	os.Exit(0)
+}

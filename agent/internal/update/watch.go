@@ -16,6 +16,7 @@ const recheckInterval = 24 * time.Hour
 // onNewer runs on the watcher goroutine, so it must not block for long.
 // Returns when ctx is cancelled; run it in its own goroutine.
 func Watch(ctx context.Context, currentVersion string, checkNow bool, onNewer func(*Manifest)) {
+	CleanStaleTemp()
 	offered := ""
 	check := func() {
 		m := Check(ctx, currentVersion)

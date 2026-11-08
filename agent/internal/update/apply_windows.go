@@ -67,12 +67,14 @@ func apply(ctx context.Context, artifactPath, version string) error {
 	if BeforeRelaunch != nil {
 		BeforeRelaunch()
 	}
+	suspendServiceRecovery()
 	if err := cmd.Start(); err != nil {
+		EnsureServiceRecovery()
 		os.RemoveAll(stagingDir)
 		return fmt.Errorf("launch update helper: %w", err)
 	}
 
-	os.Exit(0)
+	exitAfterHandoff(func() { os.Remove(artifactPath) })
 	return nil // unreachable
 }
 

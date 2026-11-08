@@ -401,7 +401,7 @@ func Start(opts StartOptions, version string) error {
 		update.CheckAndApply(context.Background(), version)
 		// A headless agent runs for weeks; keep looking for releases daily.
 		go update.Watch(context.Background(), version, false, func(m *update.Manifest) {
-			if err := update.DownloadAndApply(context.Background(), m, nil); err != nil {
+			if err := update.AutoApply(context.Background(), m); err != nil {
 				log.Printf("[app] daily update failed: %v", err)
 			}
 		})

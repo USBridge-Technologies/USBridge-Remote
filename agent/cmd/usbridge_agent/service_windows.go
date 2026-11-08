@@ -15,6 +15,7 @@ import (
 	"usbridge_agent/internal/adminapi"
 	"usbridge_agent/internal/app"
 	"usbridge_agent/internal/sasinput"
+	"usbridge_agent/internal/update"
 )
 
 const serviceName = "USBridgeAgent"
@@ -35,6 +36,9 @@ func runMain(headless, tray bool, attach string) {
 		if err := sasinput.EnsureServicesCanGenerateSAS(); err != nil {
 			log.Printf("could not enable SoftwareSASGeneration policy (Ctrl+Alt+Del injection on the lock screen may not work): %v", err)
 		}
+		// A self-update turns restart-on-failure off for its swap; on again
+		// now, whichever version came up.
+		update.EnsureServiceRecovery()
 		err = svc.Run(serviceName, &agentService{})
 		if err != nil {
 			log.Fatalf("service execution failed: %v", err)

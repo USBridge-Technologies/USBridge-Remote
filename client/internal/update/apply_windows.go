@@ -86,7 +86,7 @@ func apply(ctx context.Context, artifactPath, version string) error {
 		return fmt.Errorf("launch update helper: %w", err)
 	}
 
-	os.Exit(0)
+	exitAfterHandoff(func() { os.Remove(artifactPath) })
 	return nil // unreachable
 }
 

@@ -83,6 +83,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "config.yaml,logs\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\internal\vdisplay\install-mttvdd.ps1"; DestDir: "{app}\drivers"; Flags: ignoreversion
 
+[InstallDelete]
+; Self-update archives and staging folders that earlier versions left in the
+; service's temp folder: one per update, and hundreds of GB on machines where
+; the service restarted mid-swap and kept downloading the update again.
+Type: filesandordirs; Name: "{win}\SystemTemp\usbridge-agent-update-*"
+Type: filesandordirs; Name: "{win}\Temp\usbridge-agent-update-*"
+
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon

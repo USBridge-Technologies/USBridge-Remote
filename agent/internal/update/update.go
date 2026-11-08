@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"runtime"
 	"time"
 
@@ -170,11 +171,12 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress Progre
 // gated on a confirm dialog and reporting progress — see internal/app.Start
 // and internal/ui's ShowAndRun.
 func CheckAndApply(ctx context.Context, currentVersion string) {
+	CleanStaleTemp()
 	manifest := Check(ctx, currentVersion)
 	if manifest == nil {
 		return
 	}
-	if err := DownloadAndApply(ctx, manifest, nil); err != nil {
+	if err := AutoApply(ctx, manifest); err != nil {
 		logrus.WithField("component", "update").WithError(err).Error("failed to apply update — staying on current version")
 	}
 }
@@ -184,4 +186,16 @@ func CheckAndApply(ctx context.Context, currentVersion string) {
 // since applying an update must never take down a working install.
 func unsupportedPlatformApply(_ context.Context, _ string, _ string) error {
 	return fmt.Errorf("self-update not implemented for %s/%s", runtime.GOOS, runtime.GOARCH)
+}
+
+// exitAfterHandoff ends this process once apply has started whatever takes
+// over (the swap helper or the new binary). os.Exit skips deferred calls, so
+// the cleanup apply would otherwise do with defer has to run here: before
+// this, every successful update left its downloaded archive in the temp
+// folder, and on Windows the service's temp folder filled up with them.
+func exitAfterHandoff(cleanup ...func()) {
+	for _, c := range cleanup {
+		c()
+	}
+	os.Exit(0)
 }

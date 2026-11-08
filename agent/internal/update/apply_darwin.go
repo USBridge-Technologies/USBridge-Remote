@@ -67,7 +67,11 @@ func apply(ctx context.Context, artifactPath, version string) error {
 		return fmt.Errorf("relaunch updated app: %w", err)
 	}
 
-	os.Exit(0)
+	exitAfterHandoff(func() {
+		exec.Command("hdiutil", "detach", mountPoint, "-quiet").Run()
+		os.RemoveAll(mountPoint)
+		os.Remove(artifactPath)
+	})
 	return nil // unreachable
 }
 

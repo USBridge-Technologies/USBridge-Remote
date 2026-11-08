@@ -84,6 +84,8 @@ func apply(ctx context.Context, artifactPath, version string) error {
 		return fmt.Errorf("replace running binary: %w", err)
 	}
 
+	// relaunch exits this process, which skips the deferred Remove above.
+	os.Remove(artifactPath)
 	return relaunch(exePath)
 }
 
@@ -101,7 +103,7 @@ func relaunch(exePath string) error {
 		return fmt.Errorf("relaunch updated binary: %w", err)
 	}
 
-	os.Exit(0)
+	exitAfterHandoff()
 	return nil // unreachable
 }
 
