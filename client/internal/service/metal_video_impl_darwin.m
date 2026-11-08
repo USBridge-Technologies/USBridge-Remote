@@ -196,6 +196,11 @@ static double mono_sec(void);
 // Phase lock: when the frame being drawn was ready, on the clock Metal's presentedTime uses.
 static double g_phaseReadyHost = 0.0;
 
+// Display link — drives rendering at the display refresh rate, decoupled from VT decode timing.
+// CADisplayLink (macOS 14+) fires on the main thread directly; no extra dispatch needed.
+// Declared up here: the phase report below reads its period.
+static CADisplayLink *g_display_link = nil;
+
 // metal_video_set_upscale_mode is called from Go (service.SetUpscaleMode,
 // wired to video_start_dialog.go's upscale-quality picker) as soon as the
 // user's choice is known/changed -- no codec-negotiation dependency, unlike
@@ -636,10 +641,6 @@ static double g_hud_last_apply_time = 0.0;
 
 static volatile atomic_int g_active           = 0;
 
-// Display link — drives rendering at the display refresh rate, decoupled from VT decode timing.
-// CADisplayLink (macOS 14+) fires on the main thread directly; no extra dispatch needed.
-// Stored as id to avoid pulling in CoreVideo/CVDisplayLink headers here.
-static CADisplayLink *g_display_link = nil;
 
 // Test-only instrumentation: counts every CADisplayLink actually created vs.
 // invalidated, so a regression test (metal_video_leak_darwin_test.go) can prove
