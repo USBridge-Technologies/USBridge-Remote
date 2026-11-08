@@ -43,4 +43,12 @@ int      bench_frames_drain(bench_frame_t *out, int max);
 uint32_t bench_frames_dropped(void);
 uint64_t bench_now_us(void);
 
+// Time barcode sampling (bench_frames.c). bench_latency_due is one atomic load and a
+// clock read, true a few times a second while the benchmark records. A decoder then
+// stamps the frame with bench_wall_us, gets its luma plane to the CPU if it has to
+// (bytes_per_sample 2: P010), and calls bench_latency_note.
+int      bench_latency_due(void);
+int64_t  bench_wall_us(void);
+void     bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us);
+
 #endif

@@ -85,6 +85,13 @@ type BenchMetrics struct {
 	StreamerEncodeAvg float64 `json:"streamer_gpu_encode_avg_pct"`
 	StreamerDecodeAvg float64 `json:"streamer_gpu_decode_avg_pct"`
 
+	// From the host drawing a picture to this client having it decoded, by the time
+	// barcode in sampled frames. LatencySamples is 0 without it.
+	LatencySamples int     `json:"latency_samples,omitempty"`
+	LatencyP50     float64 `json:"latency_p50_ms,omitempty"`
+	LatencyP95     float64 `json:"latency_p95_ms,omitempty"`
+	LatencyP99     float64 `json:"latency_p99_ms,omitempty"`
+
 	// Network.
 	RTTAvg          float64 `json:"rtt_avg_ms"`
 	RTTMax          float64 `json:"rtt_max_ms"`
@@ -153,6 +160,15 @@ func AnalyzeBenchRun(run *BenchRun) BenchMetrics {
 	}
 	m.Backend = run.Backend
 	m.Codec = run.Codec
+	if pts := BenchLatencySeries(run); len(pts) > 0 {
+		v := make([]float64, len(pts))
+		for i, p := range pts {
+			v[i] = p[1]
+		}
+		sort.Float64s(v)
+		at := func(q float64) float64 { return v[min(len(v)-1, int(float64(len(v))*q))] }
+		m.LatencySamples, m.LatencyP50, m.LatencyP95, m.LatencyP99 = len(v), at(0.5), at(0.95), at(0.99)
+	}
 	m.SwitchMs = run.SwitchMs
 	m.StopMs = run.StopMs
 	m.StartMs = run.StartMs
@@ -451,4 +467,40 @@ func benchLoadAverages(load []BenchLoad, m *BenchMetrics) {
 		m.StreamerDecodeAvg += BenchGPUDecode(l.StreamerGPU) / n
 	}
 	m.HostLoadValid = true
+}
+
+// benchLatencyMaxMs: above this a reading is a stale or misread barcode, not a delay.
+const benchLatencyMaxMs = 10000
+
+// BenchLatencySeries turns the run's barcode readings into [seconds into the run,
+// latency ms], following the clock offset as it was measured around each reading:
+// the two wall clocks were seen moving by over 10 ms against each other within minutes.
+func BenchLatencySeries(run *BenchRun) [][2]float64 {
+	if run == nil || len(run.ClockSamples) == 0 {
+		return nil
+	}
+	clock := run.ClockSamples
+	startUs := run.StartedAt.UnixMicro()
+	offsetAt := func(wall int64) float64 {
+		i := sort.Search(len(clock), func(i int) bool { return clock[i].WallUs >= wall })
+		switch i {
+		case 0:
+			return clock[0].OffsetUs
+		case len(clock):
+			return clock[len(clock)-1].OffsetUs
+		}
+		a, b := clock[i-1], clock[i]
+		return a.OffsetUs + (b.OffsetUs-a.OffsetUs)*float64(wall-a.WallUs)/float64(b.WallUs-a.WallUs)
+	}
+	out := make([][2]float64, 0, len(run.Latency))
+	for _, s := range run.Latency {
+		host := float64(s.WallUs) + offsetAt(s.WallUs)
+		units := uint32(int64(host / 100))
+		ms := float64(int32(units-s.Bar)) / 10
+		if ms <= 0 || ms > benchLatencyMaxMs {
+			continue
+		}
+		out = append(out, [2]float64{float64(s.WallUs-startUs) / 1e6, ms})
+	}
+	return out
 }

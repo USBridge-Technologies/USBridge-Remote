@@ -93,6 +93,18 @@ func decodeAgentResponse(body []byte, err error, out any) error {
 }
 
 // BenchStatus reports the agent's active/available streamers and player.
+// BenchTime is the host's wall clock (GET /api/bench/time), microseconds since the epoch.
+func (c *USBClient) BenchTime() (int64, error) {
+	body, err := c.makeRequest("GET", "/api/bench/time", nil)
+	var t struct {
+		Us int64 `json:"us"`
+	}
+	if err := decodeAgentResponse(body, err, &t); err != nil {
+		return 0, err
+	}
+	return t.Us, nil
+}
+
 func (c *USBClient) BenchStatus() (*BenchStatus, error) {
 	body, err := c.makeRequest("GET", "/api/bench/status", nil)
 	var st BenchStatus

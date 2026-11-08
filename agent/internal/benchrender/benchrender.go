@@ -11,7 +11,7 @@
 // a capture path that only wakes on real damage (DXGI Desktop Duplication)
 // gets a full frame rate. On Windows each frame only repaints the boxes'
 // old and new rectangles with GDI; elsewhere it is a handful of scissored
-// OpenGL clears.
+// OpenGL clears. A row of small rectangles carries the time each frame was drawn.
 package benchrender
 
 import (
@@ -22,6 +22,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // HelperArg is the first command-line argument that makes the agent
@@ -110,6 +111,38 @@ const (
 
 // box is one box's rectangle in window pixels (origin top-left).
 type box struct{ x, y, w, h int }
+
+// The time barcode: a row of black and white cells between the boxes' rows, with
+// the time this frame was drawn, so the client can tell how old the picture it
+// decoded is (service.AnalyzeBenchRun). Guard cells 1010, 32 bits of the wall clock
+// in 100 us units (most significant first), guard cell 1: the client finds the row by
+// its first and last white pixel, so it reads through any scaling or letterboxing.
+const (
+	barcodeCells     = 37
+	barcodeCellWidth = 40.0 // on the 1920x1080 canvas
+	barcodeY         = 500.0
+	barcodeHeight    = 80.0
+)
+
+// barcodeBits gives each cell of the barcode for the clock reading t, white = true.
+func barcodeBits(t time.Time) (bits [barcodeCells]bool) {
+	v := uint32(t.UnixMicro() / 100)
+	bits[0], bits[2], bits[barcodeCells-1] = true, true, true
+	for i := 0; i < 32; i++ {
+		bits[4+i] = v>>(31-i)&1 == 1
+	}
+	return bits
+}
+
+// barcodeBox is cell i's rectangle in a w x h window. Cell edges are computed from
+// the canvas, not from a rounded width, so the row stays exactly as wide as it should.
+func barcodeBox(i, w, h int) box {
+	sx, sy := float64(w)/1920, float64(h)/1080
+	left := (1920 - barcodeCells*barcodeCellWidth) / 2
+	x0 := int(math.Round((left + float64(i)*barcodeCellWidth) * sx))
+	x1 := int(math.Round((left + float64(i+1)*barcodeCellWidth) * sx))
+	return box{x0, int(math.Round(barcodeY * sy)), x1 - x0, int(math.Round(barcodeHeight * sy))}
+}
 
 // boxes places both boxes t seconds in, in a w x h window. Laid out on a
 // 1920x1080 canvas and scaled: 120px boxes crossing at 1500 and 1000 px/s,

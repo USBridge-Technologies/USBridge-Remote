@@ -54,6 +54,9 @@ extern int gl_video_try_submit_nv12(const uint8_t *y, int y_stride, const uint8_
 extern int gl_video_nv12_usable(void);
 extern void gl_video_set_nv12_bt709(int bt709);
 extern int goCPUOverlayWanted(void);
+extern int bench_latency_due(void);
+extern int64_t bench_wall_us(void);
+extern void bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us);
 
 // Vulkan overlay fast path (defined in vk_video_impl_linux.c).
 extern int vk_video_is_active(void);
@@ -679,7 +682,27 @@ static int try_deliver_nv12(AVFrame *frame) {
     return 1;
 }
 
+// The benchmark's time barcode, a few frames a second and only while it records. The
+// one place every renderer's frames pass through, so Vulkan and GL, zero-copy or not,
+// are measured alike. A hardware frame has to come to the CPU for it: what that costs
+// lands on this one frame, none of the others.
+static void bench_latency_sample(AVFrame *frame) {
+    if (!bench_latency_due()) return;
+    int64_t now = bench_wall_us();
+    AVFrame *sw = NULL;
+    AVFrame *src = frame;
+    if (frame->hw_frames_ctx) {
+        sw = av_frame_alloc();
+        if (!sw || av_hwframe_transfer_data(sw, frame, 0) < 0) { av_frame_free(&sw); return; }
+        src = sw;
+    }
+    int bps = src->format == AV_PIX_FMT_P010LE ? 2 : 1;
+    bench_latency_note(src->data[0], src->linesize[0], frame->width, frame->height, bps, now);
+    av_frame_free(&sw);
+}
+
 static void deliver_frame(AVFrame *frame) {
+    bench_latency_sample(frame);
     if (try_deliver_zerocopy(frame)) return;
     if (try_deliver_nv12(frame)) return;
 

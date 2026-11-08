@@ -35,6 +35,7 @@ func main() {
 	dump := flag.String("dump", "", "write the raw run (every frame and 100ms counter tick) as JSON to this file")
 	color444 := flag.Bool("color444", false, "request 4:4:4 chroma (HEVC)")
 	hdr := flag.Bool("hdr", false, "request HDR10 (HEVC Main10)")
+	clockOffset := flag.Float64("clock-offset-us", 0, "host clock minus this one, for the time barcode's latency figures (0: none)")
 	render := flag.String("render", "", "show the stream like the GUI client: gl or vk on X11, gl-wl or vk-wl on Wayland (default: no window)")
 	phaseAB := flag.Int("phase-ab", 0, "Wayland: alternate phase lock off and on, this many seconds each, for -seconds")
 	phaseCSV := flag.String("phase-csv", "", "Wayland: write when each frame reached the screen to this file")
@@ -100,6 +101,9 @@ func main() {
 	}
 	rec.Stop()
 	_ = m.Disconnect()
+	if *clockOffset != 0 {
+		run.ClockSamples = []service.BenchClockSample{{WallUs: time.Now().UnixMicro(), OffsetUs: *clockOffset}}
+	}
 	if *phaseCSV != "" {
 		fmt.Fprintln(os.Stderr, "phase records:", dumpPhase(*phaseCSV))
 	}
@@ -118,7 +122,7 @@ func main() {
 		"host_ms_avg": met.HostLatencyAvg, "host_ms_p95": met.HostLatencyP95, "host_timing_ok": met.HostTimingOK,
 		"transfer_ms_avg": met.TransferAvg, "transfer_ms_p95": met.TransferP95,
 		"jitter_ms_avg": met.NetJitterAvg, "jitter_ms_p95": met.NetJitterP95,
-		"rtt_ms_avg": met.RTTAvg, "playout_ms_avg": met.PlayoutDelayAvg,
+		"rtt_ms_avg": met.RTTAvg, "latency_samples": met.LatencySamples, "latency_p50_ms": met.LatencyP50, "latency_p95_ms": met.LatencyP95, "latency_p99_ms": met.LatencyP99, "playout_ms_avg": met.PlayoutDelayAvg,
 		"bitrate_mbps": met.BitrateMbps, "loss_pct": met.PacketLossPct,
 		"fec_recovered": met.FecRecovered, "fec_failed": met.FecFailed,
 		"lost_frames": met.LostFrames, "recovery_avg_ms": met.RecoveryAvgMs, "idr": met.IDRFrames,

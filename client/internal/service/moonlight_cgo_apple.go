@@ -23,6 +23,9 @@ extern void goMoonlightPadHaptics(unsigned short controllerNumber, unsigned int 
 extern void goMoonlightPadAudio(unsigned short controllerNumber, unsigned int sequence, unsigned char format, unsigned char *data, unsigned short length, unsigned short frames);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
+extern int bench_latency_due(void);
+extern int64_t bench_wall_us(void);
+extern void bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us);
 extern void goVideoFormatNegotiated(int videoFormat);
 extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
 extern int  goAIVisionShouldSample(void);
@@ -533,6 +536,20 @@ static void vt_callback(
             g_vt_fps_start  = now;
             g_vt_fps_frames = 0;
         }
+    }
+
+    // ── The benchmark's time barcode, a few frames a second while it records ──
+    // The buffer is CPU-visible already: locking it read-only costs next to nothing.
+    if (bench_latency_due() && CVPixelBufferIsPlanar(img)) {
+        int64_t bench_now = bench_wall_us();
+        CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
+        bench_latency_note((const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(img, 0),
+                           (int)CVPixelBufferGetBytesPerRowOfPlane(img, 0),
+                           (int)CVPixelBufferGetWidthOfPlane(img, 0),
+                           (int)CVPixelBufferGetHeightOfPlane(img, 0),
+                           CVPixelBufferGetPixelFormatType(img) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ? 2 : 1,
+                           bench_now);
+        CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
     }
 
     // ── Metal fast path (zero CPU copy via IOSurface, macOS and iOS) ─────────

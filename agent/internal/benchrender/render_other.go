@@ -103,6 +103,16 @@ func run(o options) error {
 			gl.ClearColor(c[0], c[1], c[2], 1)
 			gl.Clear(gl.COLOR_BUFFER_BIT)
 		}
+		for i, white := range barcodeBits(time.Now()) {
+			b := barcodeBox(i, fw, fh)
+			v := float32(0)
+			if white {
+				v = 1
+			}
+			gl.Scissor(int32(b.x), int32(fh-b.y-b.h), int32(b.w), int32(b.h))
+			gl.ClearColor(v, v, v, 1)
+			gl.Clear(gl.COLOR_BUFFER_BIT)
+		}
 		win.SwapBuffers()
 		glfw.PollEvents()
 

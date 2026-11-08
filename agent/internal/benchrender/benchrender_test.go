@@ -1,6 +1,9 @@
 package benchrender
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // What benchvideo builds is what the helper parses.
 func TestArgsRoundTrip(t *testing.T) {
@@ -43,5 +46,36 @@ func TestBoxesMoveEveryFrame(t *testing.T) {
 			t.Fatalf("frame %d: boxes overlap", i)
 		}
 		prev = cur
+	}
+}
+
+func TestBarcodeCarriesTheClock(t *testing.T) {
+	now := time.UnixMicro(1794159000123400)
+	bits := barcodeBits(now)
+	if !bits[0] || bits[1] || !bits[2] || bits[3] || !bits[barcodeCells-1] {
+		t.Fatalf("guard cells: %v", bits)
+	}
+	var v uint32
+	for i := 0; i < 32; i++ {
+		v <<= 1
+		if bits[4+i] {
+			v |= 1
+		}
+	}
+	if want := uint32(now.UnixMicro() / 100); v != want {
+		t.Fatalf("value %d, want %d", v, want)
+	}
+}
+
+func TestBarcodeStaysBetweenTheBoxes(t *testing.T) {
+	first, last := barcodeBox(0, 1920, 1080), barcodeBox(barcodeCells-1, 1920, 1080)
+	if first.x < 0 || last.x+last.w > 1920 {
+		t.Fatalf("row runs off the window: %+v .. %+v", first, last)
+	}
+	if first.y < 420 || first.y+first.h > 660 {
+		t.Fatalf("row overlaps a box: %+v", first)
+	}
+	if first.y > 540 || first.y+first.h < 540 {
+		t.Fatalf("row misses the picture's middle line: %+v", first)
 	}
 }

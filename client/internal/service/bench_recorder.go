@@ -30,6 +30,22 @@ type BenchFrame struct {
 	PtsUs uint64 `json:"pts_us"`
 }
 
+// BenchLatencySample is one time barcode read from a decoded frame: the client's wall
+// clock when the frame was ready, and the host's when it drew the picture (see
+// agent/internal/benchrender: the wall clock's low 32 bits in 100 us units).
+type BenchLatencySample struct {
+	WallUs int64  `json:"wall_us"`
+	Bar    uint32 `json:"bar"`
+}
+
+// BenchClockSample is one reading of the host's wall clock against this client's:
+// host minus client, from the quickest of a few round trips.
+type BenchClockSample struct {
+	WallUs   int64   `json:"wall_us"`
+	OffsetUs float64 `json:"offset_us"`
+	RTTMs    float64 `json:"rtt_ms"`
+}
+
 // BenchTick is one 100ms sample of the connection counters.
 type BenchTick struct {
 	AtUs           uint64  `json:"at_us"` // client clock, same as BenchFrame
@@ -85,6 +101,10 @@ type BenchRun struct {
 	EndUs       uint64       `json:"end_us"`
 	Frames      []BenchFrame `json:"frames"`
 	Ticks       []BenchTick  `json:"ticks"`
+	// Latency needs the test window's barcode, and ClockSamples an agent that can
+	// tell the time: without both a run just has no latency figures.
+	Latency      []BenchLatencySample `json:"latency,omitempty"`
+	ClockSamples []BenchClockSample   `json:"clock,omitempty"`
 	RingDropped uint32       `json:"ring_dropped,omitempty"`
 	Content     string       `json:"content,omitempty"`
 	// Monitor is the host monitor the test video played on, as the agent
@@ -105,6 +125,7 @@ type BenchRun struct {
 var (
 	benchFramesEnableFn  func(on bool)
 	benchFramesDrainFn   func(dst []BenchFrame) []BenchFrame
+	benchLatencyDrainFn  func(dst []BenchLatencySample) []BenchLatencySample
 	benchFramesDroppedFn func() uint32
 	benchNowUsFn         func() uint64
 	// benchRenderedFramesFn returns the renderer's running count of
@@ -139,6 +160,9 @@ func (r *BenchRecorder) Start(run *BenchRun) {
 	r.run = run
 	r.stop = make(chan struct{})
 	r.done = make(chan struct{})
+	if fn := benchLatencyDrainFn; fn != nil {
+		fn(nil) // whatever the previous run left
+	}
 	if fn := benchFramesEnableFn; fn != nil {
 		fn(true)
 	}
@@ -161,6 +185,9 @@ func (r *BenchRecorder) Stop() *BenchRun {
 	}
 	if fn := benchFramesDrainFn; fn != nil {
 		run.Frames = fn(run.Frames)
+	}
+	if fn := benchLatencyDrainFn; fn != nil {
+		run.Latency = fn(run.Latency)
 	}
 	if fn := benchFramesDroppedFn; fn != nil {
 		run.RingDropped = fn()
@@ -228,6 +255,9 @@ func (r *BenchRecorder) loop(run *BenchRun, stop, done chan struct{}) {
 		r.mu.Lock()
 		run.Ticks = append(run.Ticks, t)
 		run.Frames = append(run.Frames, frames...)
+		if fn := benchLatencyDrainFn; fn != nil {
+			run.Latency = fn(run.Latency)
+		}
 		r.mu.Unlock()
 	}
 }

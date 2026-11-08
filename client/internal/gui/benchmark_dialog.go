@@ -510,6 +510,9 @@ func benchmarkRows() []benchmarkRow {
 	load := func(f func(service.BenchMetrics) float64) func(service.BenchMetrics) (float64, bool) {
 		return func(m service.BenchMetrics) (float64, bool) { return f(m), m.HostLoadValid }
 	}
+	latency := func(f func(service.BenchMetrics) float64) func(service.BenchMetrics) (float64, bool) {
+		return func(m service.BenchMetrics) (float64, bool) { return f(m), m.LatencySamples > 0 }
+	}
 	return []benchmarkRow{
 		{"", "Codec", func(m service.BenchMetrics) (float64, bool) { return 0, m.Codec != "" }, "", true},
 
@@ -529,6 +532,11 @@ func benchmarkRows() []benchmarkRow {
 		{"", "Time frozen", always(func(m service.BenchMetrics) float64 { return m.StallTotalMs }), "%.0f ms", true},
 		{"", "Hitches (>2 frames)", always(func(m service.BenchMetrics) float64 { return float64(m.Hitches) }), "%.0f", true},
 		{"", "Client render fps", func(m service.BenchMetrics) (float64, bool) { return m.RenderFPS, m.RenderValid }, "%.1f", false},
+
+		{"Latency (drawn on the host -> decoded here)", "p50", latency(func(m service.BenchMetrics) float64 { return m.LatencyP50 }), "%.1f ms", true},
+		{"", "p95", latency(func(m service.BenchMetrics) float64 { return m.LatencyP95 }), "%.1f ms", true},
+		{"", "p99", latency(func(m service.BenchMetrics) float64 { return m.LatencyP99 }), "%.1f ms", true},
+		{"", "Frames measured", latency(func(m service.BenchMetrics) float64 { return float64(m.LatencySamples) }), "%.0f", false},
 
 		{"Host (capture + encode)", "Encode time avg", always(func(m service.BenchMetrics) float64 { return m.HostLatencyAvg }), "%.2f ms", true},
 		{"", "Encode time p95", always(func(m service.BenchMetrics) float64 { return m.HostLatencyP95 }), "%.2f ms", true},

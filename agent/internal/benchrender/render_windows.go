@@ -110,7 +110,29 @@ func toRect(b box) winRect {
 type renderer struct {
 	hwnd     windows.HWND
 	bg, a, b uintptr // brushes
+	white    uintptr
+	black    uintptr
 	cur      [2]box
+	// The barcode cells on screen, repainted only where they change.
+	bar      [barcodeCells]bool
+	barDrawn bool
+	w, h     int
+}
+
+// paintBarcode draws the barcode for the clock reading now.
+func (r *renderer) paintBarcode(hdc uintptr, now time.Time) {
+	bits := barcodeBits(now)
+	for i, white := range bits {
+		if r.barDrawn && white == r.bar[i] {
+			continue
+		}
+		brush := r.black
+		if white {
+			brush = r.white
+		}
+		r.fill(hdc, barcodeBox(i, r.w, r.h), brush)
+	}
+	r.bar, r.barDrawn = bits, true
 }
 
 func (r *renderer) fill(hdc uintptr, b box, brush uintptr) {
@@ -124,6 +146,9 @@ func (r *renderer) paintAll(hdc uintptr) {
 	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), r.bg)
 	r.fill(hdc, r.cur[0], r.a)
 	r.fill(hdc, r.cur[1], r.b)
+	r.w, r.h = int(rc.Right-rc.Left), int(rc.Bottom-rc.Top)
+	r.barDrawn = false
+	r.paintBarcode(hdc, time.Now())
 }
 
 func run(o options) error {
@@ -144,6 +169,8 @@ func run(o options) error {
 	r.bg, _, _ = procCreateSolidBrush.Call(colorref(colorBackground))
 	r.a, _, _ = procCreateSolidBrush.Call(colorref(colorBoxA))
 	r.b, _, _ = procCreateSolidBrush.Call(colorref(colorBoxB))
+	r.white, _, _ = procCreateSolidBrush.Call(colorref(0xffffff))
+	r.black, _, _ = procCreateSolidBrush.Call(colorref(0x000000))
 	r.cur = boxes(0, area.W, area.H)
 
 	quit := false
@@ -241,6 +268,8 @@ func run(o options) error {
 		r.cur = nb
 		r.fill(hdc, r.cur[0], r.a)
 		r.fill(hdc, r.cur[1], r.b)
+		r.w, r.h = int(rc.Right-rc.Left), int(rc.Bottom-rc.Top)
+		r.paintBarcode(hdc, time.Now())
 		procGdiFlush.Call()
 
 		next = next.Add(period)

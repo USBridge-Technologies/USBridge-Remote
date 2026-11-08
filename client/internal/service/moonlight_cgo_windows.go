@@ -51,6 +51,9 @@ extern void goMoonlightPadHaptics(unsigned short controllerNumber, unsigned int 
 extern void goMoonlightPadAudio(unsigned short controllerNumber, unsigned int sequence, unsigned char format, unsigned char *data, unsigned short length, unsigned short frames);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
+extern int bench_latency_due(void);
+extern int64_t bench_wall_us(void);
+extern void bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us);
 extern void goVideoFormatNegotiated(int videoFormat);
 extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
 extern void goNetGraphOverlay(uint8_t *rgba, int width, int height, int stride, int bgr);
@@ -725,6 +728,7 @@ static HANDLE   g_rb_event  = NULL;
 static HANDLE   g_rb_thread = NULL;
 static AVFrame *g_rb_frame  = NULL;
 static int      g_rb_vtframe = 0;
+static int64_t  g_rb_bench_wall_us = 0; // nonzero: a time barcode sample, nothing else wants this job
 static LONG     g_rb_gen = 0;
 static int      g_vk_session_frames = 0; // frames this stream; reset in dr_setup
 static int      g_vk_overlay_seen = 0;   // overlay was active at some point this stream
@@ -746,6 +750,8 @@ static DWORD WINAPI win_readback_thread(LPVOID arg) {
         AVFrame *frame = g_rb_frame;
         int vtframe = g_rb_vtframe;
         LONG gen = g_rb_gen;
+        int64_t bench_wall = g_rb_bench_wall_us;
+        g_rb_bench_wall_us = 0;
         g_rb_frame = NULL;
         LeaveCriticalSection(&g_rb_cs);
         if (!frame) continue;
@@ -763,7 +769,10 @@ static DWORD WINAPI win_readback_thread(LPVOID arg) {
             sw = av_frame_alloc();
             got = sw && av_hwframe_transfer_data(sw, frame, 0) == 0;
         }
-        if (got) {
+        if (got && bench_wall) {
+            bench_latency_note(sw->data[0], sw->linesize[0], frame->width, frame->height,
+                               sw->format == AV_PIX_FMT_P010LE ? 2 : 1, bench_wall);
+        } else if (got) {
             int w = frame->width, h = frame->height;
             if (!sws || w != sws_w || h != sws_h || sw->format != sws_fmt) {
                 if (sws) sws_freeContext(sws);
@@ -796,7 +805,7 @@ static void win_readback_cancel(void) {
     LeaveCriticalSection(&g_rb_cs);
 }
 
-static void win_readback_post(AVFrame *frame, int vtframe) {
+static void win_readback_post_for(AVFrame *frame, int vtframe, int64_t bench_wall_us_stamp) {
     if (!g_rb_thread) {
         InitializeCriticalSection(&g_rb_cs);
         g_rb_event = CreateEvent(NULL, FALSE, FALSE, NULL);
@@ -809,9 +818,14 @@ static void win_readback_post(AVFrame *frame, int vtframe) {
         g_rb_frame = av_frame_clone(frame);
         g_rb_vtframe = vtframe;
         g_rb_gen = g_stream_gen;
+        g_rb_bench_wall_us = bench_wall_us_stamp;
     }
     LeaveCriticalSection(&g_rb_cs);
     SetEvent(g_rb_event);
+}
+
+static void win_readback_post(AVFrame *frame, int vtframe) {
+    win_readback_post_for(frame, vtframe, 0);
 }
 
 // win_frame_notify: per-frame GUI/stats notification shared by the
@@ -945,7 +959,22 @@ static void win_deliver_frame_vulkan(AVFrame *frame) {
     }
 }
 
+// The benchmark's time barcode, a few frames a second and only while it records. On
+// the readback thread for a hardware frame, so the decode path never waits for the
+// GPU; the frame is stamped here, as it's ready. A job already in the slot wins.
+static void win_bench_latency_sample(AVFrame *frame) {
+    if (!bench_latency_due()) return;
+    int64_t now = bench_wall_us();
+    if (!frame->hw_frames_ctx) {
+        bench_latency_note(frame->data[0], frame->linesize[0], frame->width, frame->height,
+                           frame->format == AV_PIX_FMT_P010LE ? 2 : 1, now);
+        return;
+    }
+    win_readback_post_for(frame, 0, now);
+}
+
 static void win_deliver_frame(AVFrame *frame) {
+    win_bench_latency_sample(frame);
     // The zero-copy paths hand VkImages to the Vulkan backend; when the
     // overlay came up on D3D11/GDI instead (Vulkan presentation failed while
     // Vulkan/interop decode works) the frames take the CPU path below.

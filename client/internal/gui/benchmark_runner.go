@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -232,6 +234,8 @@ func (mw *MainWindow) benchmarkOne(ctx context.Context, run *service.BenchRun, r
 	}
 
 	recorder.Start(run)
+	stopClock := sampleBenchClock(client, run)
+	defer stopClock()
 	loadErr := client.BenchLoadStart()
 	if loadErr != nil {
 		logrus.Infof("📈 [Benchmark] host load not sampled: %v", loadErr)
@@ -269,6 +273,7 @@ func (mw *MainWindow) benchmarkOne(ctx context.Context, run *service.BenchRun, r
 		}
 	}
 	recorder.Stop()
+	stopClock()
 	stopLoad()
 	_ = client.BenchVideoStop()
 	vw.BenchmarkStopStream()
@@ -280,6 +285,61 @@ func (mw *MainWindow) benchmarkOne(ctx context.Context, run *service.BenchRun, r
 // the benchmark pinned: the streamer would then be measured on a different
 // picture than the other one. A window the agent couldn't see is let
 // through (it can't tell), with a warning.
+// sampleBenchClock measures the host's clock against this one every few seconds for
+// run's latency figures, until the returned function is called. The agent's own request
+// path is in the round trip, so each reading keeps the quickest of a few requests.
+// An older agent doesn't know the endpoint: the run then has no latency figures.
+func sampleBenchClock(client *api.USBClient, run *service.BenchRun) (stop func()) {
+	const every, requests = 4 * time.Second, 6
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	var clock []service.BenchClockSample
+	read := func() bool {
+		best := service.BenchClockSample{RTTMs: math.MaxFloat64}
+		for i := 0; i < requests; i++ {
+			t0 := time.Now()
+			host, err := client.BenchTime()
+			t1 := time.Now()
+			if err != nil {
+				return false
+			}
+			if rtt := float64(t1.Sub(t0).Microseconds()) / 1000; rtt < best.RTTMs {
+				mid := (t0.UnixMicro() + t1.UnixMicro()) / 2
+				best = service.BenchClockSample{WallUs: mid, OffsetUs: float64(host - mid), RTTMs: rtt}
+			}
+		}
+		clock = append(clock, best)
+		return true
+	}
+	go func() {
+		defer close(finished)
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		if !read() {
+			return
+		}
+		for {
+			select {
+			case <-done:
+				read()
+				return
+			case <-ticker.C:
+				if !read() {
+					return
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			close(done)
+			<-finished
+			run.ClockSamples = clock
+		})
+	}
+}
+
 func benchVideoPlacementError(v api.BenchVideo) error {
 	if v.RequestedMonitor == "" {
 		return nil

@@ -222,7 +222,11 @@ func RenderBenchChart(runs []*BenchRun, metrics []BenchMetrics) *image.RGBA {
 			loadPanels = 2
 		}
 	}
-	h := benchChartMargin + 44 + len(runs)*(timelineH+gap) + (4+loadPanels)*(panelH+gap) + 190
+	latencyPanels := 0
+	if benchMaxLatency(metrics) > 0 {
+		latencyPanels = 1
+	}
+	h := benchChartMargin + 44 + len(runs)*(timelineH+gap) + (4+loadPanels+latencyPanels)*(panelH+gap) + 190
 	img := image.NewRGBA(image.Rect(0, 0, benchChartW, h))
 	draw.Draw(img, img.Bounds(), image.NewUniform(benchChartBg), image.Point{}, draw.Src)
 
@@ -282,6 +286,15 @@ func RenderBenchChart(runs []*BenchRun, metrics []BenchMetrics) *image.RGBA {
 		}
 	}
 	y += panelH + gap
+
+	// Host drawing a picture -> decoded here, by the time barcode (sampled).
+	if latencyMax := benchMaxLatency(metrics); latencyMax > 0 {
+		p = newBenchPanel(img, y, panelH, "Latency: drawn on the host -> decoded here (sampled frames)", maxSec, latencyMax, "ms")
+		for _, r := range runs {
+			benchPlotSeries(p, BenchLatencySeries(r), BenchBackendColor(r.Backend))
+		}
+		y += panelH + gap
+	}
 
 	// 3. Host encode time (per-frame header), 250ms averages.
 	p = newBenchPanel(img, y, panelH, "Host capture+encode time per frame (250ms average)", maxSec, benchMaxHost(metrics), "ms")
@@ -428,6 +441,17 @@ func benchMaxFPS(runs []*BenchRun) float64 {
 	}
 	// Multiples of 20 so the four grid lines land on round fps values.
 	return math.Ceil((math.Max(m, 30)+1)/20) * 20
+}
+
+func benchMaxLatency(metrics []BenchMetrics) float64 {
+	m := 0.0
+	for _, x := range metrics {
+		m = math.Max(m, x.LatencyP99*1.25)
+	}
+	if m <= 0 {
+		return 0
+	}
+	return benchNiceCeil(m, 10)
 }
 
 func benchMaxHost(metrics []BenchMetrics) float64 {

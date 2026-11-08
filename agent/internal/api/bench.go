@@ -75,6 +75,14 @@ func (s *Server) benchApp(w http.ResponseWriter) (benchApplication, bool) {
 	return b, ok
 }
 
+// benchTime is GET /api/bench/time: this host's wall clock, the one the benchmark's
+// time barcode is drawn from. The client takes the offset to its own clock from a
+// few quick requests during a run.
+func (s *Server) benchTime(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]int64{"us": time.Now().UnixMicro()})
+}
+
 func (s *Server) benchStatus(w http.ResponseWriter, r *http.Request) {
 	b, ok := s.benchApp(w)
 	if !ok {

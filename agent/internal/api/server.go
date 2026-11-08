@@ -278,6 +278,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/video/monitors/primary", sec.LimitPolling(s.monitorSetPrimary))
 	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))
 	mux.HandleFunc("GET /api/bench/status", sec.LimitPolling(s.benchStatus))
+	mux.HandleFunc("GET /api/bench/time", sec.LimitPolling(s.benchTime))
 	mux.HandleFunc("POST /api/bench/backend", sec.LimitPolling(s.benchBackend))
 	mux.HandleFunc("POST /api/bench/monitor", sec.LimitPolling(s.benchMonitor))
 	mux.HandleFunc("POST /api/bench/prepare", sec.LimitPolling(s.benchPrepare))

@@ -23,6 +23,8 @@ extern void     bench_frames_enable(int on);
 extern int      bench_frames_drain(bench_frame_t *out, int max);
 extern uint32_t bench_frames_dropped(void);
 extern uint64_t bench_now_us(void);
+extern int      bench_latency_drain(int64_t *wall_us, uint32_t *bar, int max);
+extern int      bench_barcode_decode_row(const uint8_t *row, int width, int bytes_per_sample, uint32_t *out);
 */
 import "C"
 
@@ -39,6 +41,7 @@ func init() {
 	benchFramesDrainFn = benchDrainCgo
 	benchFramesDroppedFn = func() uint32 { return uint32(C.bench_frames_dropped()) }
 	benchNowUsFn = func() uint64 { return uint64(C.bench_now_us()) }
+	benchLatencyDrainFn = benchLatencyDrainCgo
 }
 
 const benchDrainBatch = 1024
@@ -64,4 +67,27 @@ func benchDrainCgo(dst []BenchFrame) []BenchFrame {
 			return dst
 		}
 	}
+}
+
+func benchLatencyDrainCgo(dst []BenchLatencySample) []BenchLatencySample {
+	const batch = 256
+	var wall [batch]C.int64_t
+	var bar [batch]C.uint32_t
+	for {
+		n := int(C.bench_latency_drain(&wall[0], &bar[0], batch))
+		for i := 0; i < n; i++ {
+			dst = append(dst, BenchLatencySample{WallUs: int64(wall[i]), Bar: uint32(bar[i])})
+		}
+		if n < batch {
+			return dst
+		}
+	}
+}
+
+// benchDecodeBarcodeRow is bench_barcode_decode_row for the tests (a _test.go file can't use cgo).
+func benchDecodeBarcodeRow(row []byte, bytesPerSample int) (uint32, bool) {
+	var out C.uint32_t
+	width := len(row) / bytesPerSample
+	ok := C.bench_barcode_decode_row((*C.uint8_t)(unsafe.Pointer(&row[0])), C.int(width), C.int(bytesPerSample), &out) != 0
+	return uint32(out), ok
 }
