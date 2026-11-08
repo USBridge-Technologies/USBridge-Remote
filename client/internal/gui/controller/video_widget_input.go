@@ -139,6 +139,7 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
+	syncScanCodeNumbering()
 	// Soft IME: characters come only via TypedRune → UTF-8. KeyDown from
 	// keyboardTyped's Latin Code would double-insert (VK + rune).
 	if vw.IsSystemIMESticky() {
@@ -193,6 +194,7 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
+	syncScanCodeNumbering()
 	if vw.IsSystemIMESticky() {
 		switch event.Name {
 		case fyne.KeyBackspace, fyne.KeyDelete, fyne.KeyReturn, fyne.KeyEnter,

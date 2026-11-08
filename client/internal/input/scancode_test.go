@@ -1,6 +1,9 @@
 package input
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestNormalizeScanCodeFor(t *testing.T) {
 	tests := []struct {
@@ -62,5 +65,39 @@ func TestMacCharacterKeysResolveToVK(t *testing.T) {
 		if got := getVKCodeFromPS2ScanCode(normalizeScanCodeFor("darwin", mac)); got != vk {
 			t.Errorf("mac 0x%X -> VK 0x%X, want 0x%X", mac, got, vk)
 		}
+	}
+}
+
+func TestNormalizeScanCodeOnNativeWayland(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux numbering")
+	}
+	SetLinuxScanCodesAreEvdev(true)
+	defer SetLinuxScanCodesAreEvdev(false)
+	// evdev codes are the PS/2 ones: 1..8, F, J, Enter.
+	for evdev, ps2 := range map[int]int{2: 0x02, 3: 0x03, 9: 0x09, 33: 0x21, 36: 0x24, 28: 0x1C} {
+		if got := NormalizeScanCode(evdev); got != ps2 {
+			t.Errorf("evdev %d: got %#x, want %#x", evdev, got, ps2)
+		}
+	}
+	// Digit 3 is VK_3, J is VK_J (not Enter).
+	if vk := GetVKCodeFromScanCode(4); vk != 0x33 {
+		t.Errorf("digit 3: vk %#x", vk)
+	}
+	if vk := GetVKCodeFromScanCode(36); vk != 0x4A {
+		t.Errorf("J: vk %#x", vk)
+	}
+	// Keys mode looks keys up by position: G typed "[" here.
+	if vk := GetVKCodeFromScanCode(34); vk != 0x47 {
+		t.Errorf("G: vk %#x", vk)
+	}
+}
+
+func TestNormalizeScanCodeOnX11(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux numbering")
+	}
+	if got := NormalizeScanCode(12); got != 0x04 { // xkb 12 = digit 3
+		t.Errorf("xkb 12: got %#x", got)
 	}
 }

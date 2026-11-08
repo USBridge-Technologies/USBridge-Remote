@@ -1,6 +1,9 @@
 package input
 
-import "runtime"
+import (
+	"runtime"
+	"sync/atomic"
+)
 
 // NormalizeScanCode converts the scan code GLFW reports in
 // fyne.KeyEvent.Physical.ScanCode into a Windows PS/2 Set-1 scan code
@@ -20,7 +23,21 @@ import "runtime"
 //
 // Returns 0 for a code with no PS/2 equivalent.
 func NormalizeScanCode(scanCode int) int {
+	if linuxScanCodesAreEvdev.Load() {
+		scanCode += 8 // into the xkb numbering normalizeScanCodeFor reads
+	}
 	return normalizeScanCodeFor(runtime.GOOS, scanCode)
+}
+
+// linuxScanCodesAreEvdev: GLFW on native Wayland reports evdev codes, on X11 the
+// xkb ones (evdev+8). Read as xkb, evdev codes land 8 too low: digits 1-8 went
+// negative and stopped counting as character keys, so each was sent twice (raw VK
+// and TypedRune text), and J (36) read as Enter (28).
+var linuxScanCodesAreEvdev atomic.Bool
+
+// SetLinuxScanCodesAreEvdev says which numbering GLFW is using; see above.
+func SetLinuxScanCodesAreEvdev(evdev bool) {
+	linuxScanCodesAreEvdev.Store(evdev)
 }
 
 func normalizeScanCodeFor(goos string, scanCode int) int {
