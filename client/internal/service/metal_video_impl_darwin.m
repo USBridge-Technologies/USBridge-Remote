@@ -8,6 +8,7 @@
 #import <AppKit/AppKit.h>
 #import <CoreVideo/CoreVideo.h>
 #import <QuartzCore/QuartzCore.h>
+#include "phase_report.h"
 #import <Metal/Metal.h>
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
@@ -192,6 +193,8 @@ static void apply_dynamic_range(CALayer *layer, BOOL hdr);
 // decode-latency counters), used by metal_spike_render's periodic
 // CVMetalTextureCacheFlush throttle above that definition.
 static double mono_sec(void);
+// Phase lock: when the frame being drawn was ready, on the clock Metal's presentedTime uses.
+static double g_phaseReadyHost = 0.0;
 
 // metal_video_set_upscale_mode is called from Go (service.SetUpscaleMode,
 // wired to video_start_dialog.go's upscale-quality picker) as soon as the
@@ -540,6 +543,14 @@ static int metal_spike_render(CVPixelBufferRef buf, CGRect container) {
         [enc endEncoding];
     }
 
+    if (phase_report_enabled() && g_phaseReadyHost > 0) {
+        double ready = g_phaseReadyHost, period = g_display_link ? g_display_link.duration : 0;
+        [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
+            if (shown.presentedTime > 0 && period > 0) {
+                phase_report_presented((int64_t)(ready * 1e6), (int64_t)(shown.presentedTime * 1e6), (int64_t)(period * 1e6), 5000);
+            }
+        }];
+    }
     [cmd presentDrawable:drawable];
     [cmd commit];
 
@@ -692,6 +703,7 @@ static double mono_sec(void) {
 // Render — called on main thread; OWNS buf and always releases it.
 // ─────────────────────────────────────────────────────────────────────────────
 static void metal_render_main_with_buf(CVPixelBufferRef buf, double latencyMs) {
+    g_phaseReadyHost = CACurrentMediaTime() - latencyMs / 1000.0;
     if (!atomic_load(&g_active) || !g_layer) {
         CVPixelBufferRelease(buf);
         return;

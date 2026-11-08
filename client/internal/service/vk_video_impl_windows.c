@@ -769,6 +769,9 @@ static volatile atomic_int g_hidden;
 // vk_create_swapchain (including on vk_recreate_swapchain resize/out-of-date
 // recreation, hence atomic rather than a plain int passed as a parameter).
 static volatile atomic_int g_vsync = 1;
+// The swapchain shows a frame at once (VSync off), so no frame waits for a refresh.
+static volatile int g_tearing = 0;
+int vk_video_tearing(void) { return g_tearing; }
 
 // Pending frame — single-slot queue, protected by g_cs.
 static uint8_t          *g_buf      = NULL;
@@ -1311,6 +1314,7 @@ static int vk_create_swapchain(int w, int h) {
     sci.preTransform     = caps.currentTransform;
     sci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     sci.presentMode      = pm;
+    g_tearing = pm == VK_PRESENT_MODE_IMMEDIATE_KHR;
     sci.clipped          = VK_TRUE;
 
     {

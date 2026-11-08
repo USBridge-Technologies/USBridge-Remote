@@ -1,8 +1,8 @@
 // Phase lock on a Wayland client: when each decoded frame really reached the
 // screen (wp_presentation), and how long before the compositor's latch it was
 // ready, sent as the 0x5530 report: a host with a source faster than the stream times its
-// frames by it, any other ignores it. Client settings turns the reports off
-// (phase_probe_set_enabled); USBRIDGE_PHASE_PROBE keeps a per-frame record for the benchmark.
+// frames by it, any other ignores it (phase_report.c). USBRIDGE_PHASE_PROBE keeps a per-frame
+// record for the benchmark.
 #if defined(__linux__) && !defined(__ANDROID__)
 
 #define _GNU_SOURCE
@@ -15,8 +15,8 @@
 #include <time.h>
 #include <wayland-client.h>
 #include "presentation_time_protocol.h"
+#include "phase_report.h"
 
-extern int LiSendPhaseReport(const uint8_t *data, uint16_t length);
 
 typedef struct {
     int64_t ready_us, present_us;
@@ -27,7 +27,7 @@ typedef struct {
     uint8_t bar_ok;
 } phase_rec;
 
-enum { REC_CAP = 200000, WINDOW = 256 };
+enum { REC_CAP = 200000 };
 static phase_rec *g_rec;
 static atomic_int g_nrec;
 static struct wl_display *g_dpy;
@@ -35,12 +35,7 @@ static struct wl_event_queue *g_queue;
 static struct wl_surface *g_surface_wrap;
 static struct wp_presentation *g_pres;
 static atomic_int g_reporting, g_arm;
-static atomic_int g_enabled = 1;
 static int64_t g_aim_us;
-static int64_t g_slack[WINDOW];
-static int g_slack_n;
-static int64_t g_period_ns, g_window_start_us;
-static int64_t g_lead_last_us, g_spread_last_us;
 
 static pthread_mutex_t g_cur_mu = PTHREAD_MUTEX_INITIALIZER;
 static int64_t g_cur_ready;
@@ -57,50 +52,6 @@ static phase_rec *rec_add(void) {
     return (g_rec && i < REC_CAP) ? &g_rec[i] : NULL;
 }
 
-static int cmp_i64(const void *a, const void *b) {
-    int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
-    return x < y ? -1 : x > y;
-}
-
-// Slack is circular: a frame just past the latch has nearly a refresh until the
-// next one, yet belongs next to the frames that just made it.
-static void window_add(int64_t present_us, int64_t ready_us, int64_t refresh_ns) {
-    if (refresh_ns <= 0) return;
-    g_period_ns = refresh_ns;
-    int64_t period_us = refresh_ns / 1000;
-    int64_t raw = present_us - ready_us - g_aim_us;
-    int64_t v;
-    if (raw >= period_us) {
-        // Waited past a whole refresh: it missed the latch before the one that showed it.
-        // Modulo the period that reads as a comfortable margin, and the lock would stay
-        // there, a refresh late for good (seen live: 24 ms instead of 8).
-        v = -(raw - period_us) - 1000;
-    } else {
-        v = raw % period_us;
-        if (v < 0) v += period_us;
-        if (v > period_us * 3 / 4) v -= period_us;
-    }
-    if (g_slack_n < WINDOW) g_slack[g_slack_n++] = v;
-
-    int64_t now = present_us;
-    if (!g_window_start_us) g_window_start_us = now;
-    if (now - g_window_start_us < 500000) return;
-    g_window_start_us = now;
-    int n = g_slack_n;
-    g_slack_n = 0;
-    if (n < 10) return;
-    qsort(g_slack, n, sizeof(g_slack[0]), cmp_i64);
-    int64_t lead = g_slack[(n - 1) * 10 / 100], high = g_slack[(n - 1) * 90 / 100];
-    g_lead_last_us = lead; g_spread_last_us = high - lead;
-    if (!atomic_load(&g_reporting)) return;
-    uint8_t m[16] = {1};
-    uint16_t frames = (uint16_t)n;
-    uint32_t period = (uint32_t)g_period_ns, spread = (uint32_t)((high - lead) * 1000);
-    int32_t lead_ns = (int32_t)(lead * 1000);
-    memcpy(m + 2, &frames, 2); memcpy(m + 4, &period, 4); memcpy(m + 8, &lead_ns, 4); memcpy(m + 12, &spread, 4);
-    LiSendPhaseReport(m, sizeof(m));
-}
-
 typedef struct { phase_rec r; } fb_ctx;
 
 static void fb_sync_output(void *d, struct wp_presentation_feedback *f, struct wl_output *o) {
@@ -115,7 +66,7 @@ static void fb_presented(void *d, struct wp_presentation_feedback *f, uint32_t s
     c->r.status = 1;
     phase_rec *out = rec_add();
     if (out) *out = c->r;
-    window_add(c->r.present_us, c->r.ready_us, refresh);
+    if (atomic_load(&g_reporting)) phase_report_presented(c->r.ready_us, c->r.present_us, refresh / 1000, g_aim_us);
     wp_presentation_feedback_destroy(f);
     free(c);
 }
@@ -139,7 +90,7 @@ static const struct wl_registry_listener registry_listener = { registry_global, 
 
 int phase_probe_init(struct wl_display *dpy, struct wl_surface *surface) {
     int probe = getenv("USBRIDGE_PHASE_PROBE") != NULL;
-    int lock = atomic_load(&g_enabled);
+    int lock = phase_report_enabled();
     if ((!probe && !lock) || g_pres) return g_pres != NULL;
     // KWin's latch sits this far before the vblank (measured 4-6 ms at 60 Hz).
     const char *aim = getenv("USBRIDGE_PHASE_AIM_US");
@@ -204,12 +155,6 @@ void phase_probe_after_commit(void) {
     wl_display_dispatch_queue_pending(g_dpy, g_queue);
 }
 
-// The Client settings switch: applies to the next stream and to one running now.
-void phase_probe_set_enabled(int on) {
-    atomic_store(&g_enabled, on);
-    atomic_store(&g_reporting, on);
-}
-
 void phase_probe_set(int reporting, int arm) {
     atomic_store(&g_reporting, reporting);
     atomic_store(&g_arm, arm);
@@ -232,10 +177,6 @@ int phase_probe_dump(const char *path) {
     }
     fclose(f);
     return n;
-}
-
-void phase_probe_last(long long *lead_us, long long *spread_us) {
-    *lead_us = g_lead_last_us; *spread_us = g_spread_last_us;
 }
 
 #endif // defined(__linux__) && !defined(__ANDROID__)

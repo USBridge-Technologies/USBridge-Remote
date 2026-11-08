@@ -51,6 +51,9 @@ extern void goMoonlightPadHaptics(unsigned short controllerNumber, unsigned int 
 extern void goMoonlightPadAudio(unsigned short controllerNumber, unsigned int sequence, unsigned char format, unsigned char *data, unsigned short length, unsigned short frames);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
+#include <dwmapi.h>
+#include "phase_report.h"
+extern int vk_video_tearing(void);
 extern int bench_latency_due(void);
 extern int64_t bench_wall_us(void);
 extern void bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us);
@@ -973,8 +976,35 @@ static void win_bench_latency_sample(AVFrame *frame) {
     win_readback_post_for(frame, 0, now);
 }
 
+// Phase lock: this frame is ready, and DWM says when the refresh it can make comes. Not on
+// a tearing swapchain: a frame goes out at once there, with no refresh to wait for.
+static void win_phase_report(void) {
+    typedef HRESULT (WINAPI *PFN_DwmTiming)(HWND, DWM_TIMING_INFO *);
+    static PFN_DwmTiming timing;
+    static int tried;
+    if (!phase_report_enabled() || vk_video_tearing()) return;
+    if (!tried) {
+        tried = 1;
+        HMODULE m = LoadLibraryW(L"dwmapi.dll");
+        if (m) timing = (PFN_DwmTiming)GetProcAddress(m, "DwmGetCompositionTimingInfo");
+    }
+    if (!timing) return;
+    DWM_TIMING_INFO ti;
+    memset(&ti, 0, sizeof(ti));
+    ti.cbSize = sizeof(ti);
+    if (FAILED(timing(NULL, &ti)) || !ti.qpcRefreshPeriod) return;
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    double us_per_tick = 1e6 / (double)freq.QuadPart;
+    int64_t next = (int64_t)((double)((LONGLONG)ti.qpcVBlank - now.QuadPart) * us_per_tick);
+    // DWM takes its last frame shortly before the refresh, and this one has yet to render.
+    phase_report_ready(next, (int64_t)((double)ti.qpcRefreshPeriod * us_per_tick), 4000, (int64_t)((double)now.QuadPart * us_per_tick));
+}
+
 static void win_deliver_frame(AVFrame *frame) {
     win_bench_latency_sample(frame);
+    win_phase_report();
     // The zero-copy paths hand VkImages to the Vulkan backend; when the
     // overlay came up on D3D11/GDI instead (Vulkan presentation failed while
     // Vulkan/interop decode works) the frames take the CPU path below.
