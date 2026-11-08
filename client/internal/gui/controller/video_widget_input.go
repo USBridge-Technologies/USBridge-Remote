@@ -1434,9 +1434,13 @@ func (vw *VideoWidget) nativeDestRectDp() (x, y, w, h float32, ok bool) {
 	return ox + float32(dest.DX)/scale, oy + float32(dest.DY)/scale, float32(dest.DW) / scale, float32(dest.DH) / scale, true
 }
 
+// nativeOverlayScale converts the overlay's buffer pixels to dp. Not simply the
+// canvas scale: on native Wayland the output scale lives in the framebuffer scale,
+// and with the canvas scale alone the picture read several times its real size, so
+// the host's cursor sat up and to the left of the client's.
 func (vw *VideoWidget) nativeOverlayScale() float32 {
 	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
-		if s := vw.parentWindow.Canvas().Scale(); s > 0 {
+		if s := nativeBufferScale(vw.parentWindow.Canvas()); s > 0 {
 			return s
 		}
 	}
