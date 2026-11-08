@@ -1,7 +1,7 @@
 // Phase lock on a Wayland client: when each decoded frame really reached the
 // screen (wp_presentation), and how long before the compositor's latch it was
-// ready. Sends that as the 0x5530 report and, with USBRIDGE_PHASE_PROBE set,
-// keeps a per-frame record for the benchmark. Off without that variable.
+// ready. USBRIDGE_PHASE_LOCK=1 sends that as the 0x5530 report; USBRIDGE_PHASE_PROBE
+// keeps a per-frame record for the benchmark. Nothing runs without one of them.
 #define _GNU_SOURCE
 #include <pthread.h>
 #include <stdatomic.h>
@@ -125,10 +125,14 @@ static void registry_remove(void *d, struct wl_registry *r, uint32_t n) { (void)
 static const struct wl_registry_listener registry_listener = { registry_global, registry_remove };
 
 int phase_probe_init(struct wl_display *dpy, struct wl_surface *surface) {
-    if (!getenv("USBRIDGE_PHASE_PROBE") || g_pres) return g_pres != NULL;
+    int probe = getenv("USBRIDGE_PHASE_PROBE") != NULL;
+    int lock = getenv("USBRIDGE_PHASE_LOCK") != NULL;
+    if ((!probe && !lock) || g_pres) return g_pres != NULL;
+    // KWin's latch sits this far before the vblank (measured 4-6 ms at 60 Hz).
     const char *aim = getenv("USBRIDGE_PHASE_AIM_US");
-    g_aim_us = aim ? atoll(aim) : 0;
-    if (!g_rec) g_rec = calloc(REC_CAP, sizeof(phase_rec));
+    g_aim_us = aim ? atoll(aim) : 5000;
+    if (lock) atomic_store(&g_reporting, 1);
+    if (probe && !g_rec) g_rec = calloc(REC_CAP, sizeof(phase_rec));
     g_dpy = dpy;
     g_queue = wl_display_create_queue(dpy);
     struct wl_display *wrap = wl_proxy_create_wrapper(dpy);

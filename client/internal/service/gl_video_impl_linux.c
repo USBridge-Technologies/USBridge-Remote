@@ -252,6 +252,77 @@ static void gl_quad(float x0, float y0, float x1, float y1) {
     glEnd();
 }
 
+// Net Graph HUD: pushed about ten times a second, drawn over the picture as a blended
+// quad. Burning it into the frame's pixels kept GL on the CPU RGBA path, whose sws_scale
+// on the receive thread could not keep up with the stream: ~30 fps at 1440p, and frames
+// piling up in the socket for as long as the HUD was on.
+static pthread_mutex_t g_hud_mu = PTHREAD_MUTEX_INITIALIZER;
+static uint8_t *g_hud_px;
+static int g_hud_w, g_hud_h, g_hud_dirty, g_hud_on, g_hud_tex_w, g_hud_tex_h;
+static float g_hud_scale = 1.0f;
+static GLuint g_hud_tex;
+
+void gl_video_hud_set_pixels(const uint8_t *rgba, int w, int h, float scale) {
+    size_t n = (size_t)w * (size_t)h * 4;
+    pthread_mutex_lock(&g_hud_mu);
+    if (w != g_hud_w || h != g_hud_h || !g_hud_px) {
+        free(g_hud_px);
+        g_hud_px = (uint8_t *)malloc(n);
+    }
+    if (g_hud_px) {
+        memcpy(g_hud_px, rgba, n);
+        g_hud_w = w; g_hud_h = h; g_hud_dirty = 1; g_hud_on = 1;
+        g_hud_scale = scale > 0 ? scale : 1.0f;
+    }
+    pthread_mutex_unlock(&g_hud_mu);
+}
+
+void gl_video_hud_clear(void) {
+    pthread_mutex_lock(&g_hud_mu);
+    g_hud_on = 0;
+    pthread_mutex_unlock(&g_hud_mu);
+}
+
+// x0..y1: the picture's rect in clip space; fw: the frame's width. Sized like the CPU
+// burn-in: in frame pixels, bottom-right, netGraphHudMargin (24) from the edges.
+static void gl_hud_draw(int fw, int fh, float x0, float y0, float x1, float y1) {
+    pthread_mutex_lock(&g_hud_mu);
+    int on = g_hud_on && g_hud_w > 0 && fw > 0 && fh > 0;
+    float scale = g_hud_scale;
+    if (on) {
+        if (!g_hud_tex) {
+            glGenTextures(1, &g_hud_tex);
+            glBindTexture(GL_TEXTURE_2D, g_hud_tex);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            g_hud_tex_w = g_hud_tex_h = 0;
+        }
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, g_hud_tex);
+        if (g_hud_dirty) {
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_hud_w, g_hud_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_hud_px);
+            g_hud_tex_w = g_hud_w; g_hud_tex_h = g_hud_h;
+            g_hud_dirty = 0;
+        }
+    }
+    pthread_mutex_unlock(&g_hud_mu);
+    if (!on) return;
+    float px = (x1 - x0) / (float)fw, py = (y1 - y0) / (float)fh;
+    float qx1 = x1 - 24.0f * px, qy0 = y0 + 24.0f * py;
+    float qx0 = qx1 - (float)g_hud_tex_w * scale * px;
+    float qy1 = qy0 + (float)g_hud_tex_h * scale * py;
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_TEXTURE_2D);
+    gl_quad(qx0, qy0, qx1, qy1);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+}
+
 static void gl_render_frame(void) {
     int fw = 0, fh = 0, fs = 0;
     uint8_t *tmp = NULL;
@@ -331,6 +402,8 @@ static void gl_render_frame(void) {
         glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, g_ytex);
         gl_quad(x0, y0, x1, y1);
         glUseProgram(0);
+        // The RGBA path below has the HUD burnt in already.
+        gl_hud_draw(fw, fh, x0, y0, x1, y1);
     } else {
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, g_tex);

@@ -9,6 +9,8 @@ package service
 extern int  vk_hud_set_pixels(const uint8_t *rgba, int w, int h);
 extern void vk_hud_clear(void);
 extern void vk_hud_set_scale(float s);
+extern void gl_video_hud_set_pixels(const uint8_t *rgba, int w, int h, float scale);
+extern void gl_video_hud_clear(void);
 */
 import "C"
 
@@ -37,14 +39,17 @@ import (
 // netGraphMetalPush/Clear/ScalePush feed the native Vulkan HUD layer: the
 // zero-copy VAAPI/QSV dma-buf path (vk_video_impl_linux.c) never produces a
 // CPU pixel buffer, so ApplyNetGraphOverlay's burn-in can't reach it and the
-// HUD is composited on the GPU as a second alpha-blended draw instead. On
-// the RGBA/GL paths these pushes are harmless (the pixels just sit unused;
-// the CPU burn-in still draws there).
+// HUD is composited on the GPU as a second alpha-blended draw instead. The GL
+// renderer's NV12 path does the same (gl_video_hud_set_pixels); on the RGBA path
+// the pixels sit unused and the CPU burn-in draws.
 func init() {
 	netGraphRenderFPS = netGraphLinuxNativeFPS
 	benchRenderedFramesFn = netGraphLinuxRenderedFrames
 	netGraphMetalPush = pushNetGraphOverlayToVulkan
-	netGraphMetalClear = func() { C.vk_hud_clear() }
+	netGraphMetalClear = func() {
+		C.vk_hud_clear()
+		C.gl_video_hud_clear()
+	}
 	netGraphScalePush = func(scale float32) { C.vk_hud_set_scale(C.float(scale)) }
 	// GPU name: only the Vulkan path tracks a physical device (g_pdev in
 	// vk_video_impl_linux.c) -- the GL path has no equivalent, so this
@@ -62,6 +67,7 @@ func pushNetGraphOverlayToVulkan(img *image.RGBA) {
 	if img == nil || len(img.Pix) == 0 {
 		return
 	}
+	C.gl_video_hud_set_pixels((*C.uint8_t)(unsafe.Pointer(&img.Pix[0])), C.int(img.Rect.Dx()), C.int(img.Rect.Dy()), C.float(NetGraphScalePercent())/100)
 	rc := C.vk_hud_set_pixels((*C.uint8_t)(unsafe.Pointer(&img.Pix[0])), C.int(img.Rect.Dx()), C.int(img.Rect.Dy()))
 	if n := netGraphVkPushCount.Add(1); n == 1 {
 		logrus.Infof("[Net Graph/Vulkan] push #%d rc=%d img=%dx%d", n, int(rc), img.Rect.Dx(), img.Rect.Dy())
