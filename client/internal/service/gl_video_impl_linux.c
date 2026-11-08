@@ -7,6 +7,11 @@
 
 #if defined(__linux__) && !defined(__ANDROID__)
 
+struct wl_display; struct wl_surface;
+extern int  phase_probe_init(struct wl_display *dpy, struct wl_surface *surface);
+extern void phase_probe_note_submit(const unsigned char *y, int stride, int w, int h);
+extern void phase_probe_before_commit(void);
+extern void phase_probe_after_commit(void);
 #include <X11/Xlib.h>
 #include <X11/extensions/shape.h>
 #define GL_GLEXT_PROTOTYPES
@@ -354,8 +359,13 @@ static void gl_render_frame(void) {
         pthread_mutex_unlock(&g_holes_mu);
     }
 
-    if (g_is_wl) eglSwapBuffers(g_egl_dpy, g_egl_surf);
-    else glXSwapBuffers(g_dpy, g_win);
+    if (g_is_wl) {
+        if (kind) phase_probe_before_commit();
+        eglSwapBuffers(g_egl_dpy, g_egl_surf);
+        phase_probe_after_commit();
+    } else {
+        glXSwapBuffers(g_dpy, g_win);
+    }
     if (!kind) return; // a redraw is not a frame
 
     // Update stats atomics — Go polls these, no CGO from render thread.
@@ -565,6 +575,7 @@ int gl_video_create_wayland(uintptr_t display, uintptr_t parent_surface,
     atomic_store(&g_want_w, w); atomic_store(&g_want_h, h);
     g_cur_w = w; g_cur_h = h;
     if (!gl_start_thread()) goto fail;
+    phase_probe_init((struct wl_display *)display, vk_wl_surface());
     {
         char m[160];
         snprintf(m, sizeof(m), "overlay created (Wayland EGL %d.%d) %dx%d at (%d,%d) scale %.2f",
@@ -685,6 +696,7 @@ int gl_video_try_submit_nv12(const uint8_t *y, int y_stride, const uint8_t *uv, 
     if (!atomic_load(&g_active) || atomic_load(&g_nv12_failed) || w <= 0 || h <= 0) return 0;
     int cw = (w + 1) / 2, ch = (h + 1) / 2;
     size_t ysz = (size_t)w * (size_t)h, uvsz = (size_t)cw * 2 * (size_t)ch;
+    phase_probe_note_submit(y, y_stride, w, h);
     pthread_mutex_lock(&g_mu);
     if (g_nv12_cap < ysz + uvsz) {
         free(g_nv12_buf);

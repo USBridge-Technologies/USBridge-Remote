@@ -22,6 +22,11 @@
 
 #define VK_USE_PLATFORM_XLIB_KHR
 #define VK_USE_PLATFORM_WAYLAND_KHR
+struct wl_display; struct wl_surface;
+extern int  phase_probe_init(struct wl_display *dpy, struct wl_surface *surface);
+extern void phase_probe_note_submit(const unsigned char *y, int stride, int w, int h);
+extern void phase_probe_before_commit(void);
+extern void phase_probe_after_commit(void);
 #include <vulkan/vulkan.h>
 #include "pyrowave.h"
 #include <vulkan/vulkan_xlib.h>
@@ -1335,7 +1340,9 @@ static int vk_render_frame_dmabuf(DmabufFrame *f) {
     pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
     pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
     g_render_stage = 6;
+    phase_probe_before_commit();
     res = vkQueuePresentKHR(g_queue, &pi);
+    phase_probe_after_commit();
     g_render_stage = 1;
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
         g_render_stage = 7; vk_recreate_swapchain(); g_render_stage = 1;
@@ -1645,7 +1652,9 @@ static int vk_render_frame_nv12(const Nv12Buf *fb) {
     pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
     g_render_stage = 6;
     t0 = mono_sec();
+    phase_probe_before_commit();
     res = vkQueuePresentKHR(g_queue, &pi);
+    phase_probe_after_commit();
     dt = mono_sec() - t0;
     if (dt > 0.1) {
         snprintf(dbg, sizeof(dbg), "SLOW QueuePresent (nv12) %.0f ms res=%d", dt * 1000.0, (int)res);
@@ -1971,7 +1980,9 @@ static int vk_render_frame_pyrowave(const uint8_t *au, size_t aulen) {
     pi.swapchainCount = 1; pi.pSwapchains = &g_swap; pi.pImageIndices = &img_idx;
     g_render_stage = 6;
     t0 = mono_sec();
+    phase_probe_before_commit();
     res = vkQueuePresentKHR(g_queue, &pi);
+    phase_probe_after_commit();
     dt = mono_sec() - t0;
     if (dt > 0.1) {
         snprintf(dbg, sizeof(dbg), "SLOW QueuePresent (pyrowave) %.0f ms res=%d", dt * 1000.0, (int)res);
@@ -2047,6 +2058,7 @@ int vk_video_try_submit_nv12(const uint8_t *y, int y_stride,
                              const uint8_t *uv, int uv_stride,
                              int width, int height) {
     if (!atomic_load(&g_active) || !g_nv12_supported || width <= 0 || height <= 0) return 0;
+    phase_probe_note_submit(y, y_stride, width, height);
     Nv12Buf *b = &g_nv12_bufs[g_nv12_back];
     size_t total = nv12_total_size(width, height);
     if (b->cap < total) {
@@ -2275,7 +2287,9 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     pi.pImageIndices      = &img_idx;
     g_render_stage = 6;
     t0 = mono_sec();
+    phase_probe_before_commit();
     res = vkQueuePresentKHR(g_queue, &pi);
+    phase_probe_after_commit();
     dt = mono_sec() - t0;
     if (dt > 0.1) {
         snprintf(dbg, sizeof(dbg), "SLOW QueuePresent %.0f ms res=%d", dt * 1000.0, (int)res);
@@ -2733,6 +2747,7 @@ int vk_video_create_wayland(uintptr_t display, uintptr_t parent_surface,
         return 0;
     }
     g_win_visible = 1;
+    phase_probe_init((struct wl_display *)display, vk_wl_surface());
 
     if (!vk_create_instance())  { goVKLog("vk_video_create_wayland: vkCreateInstance failed", 2); goto fail; }
     if (!vk_select_device())    { goVKLog("vk_video_create_wayland: no suitable GPU", 2);          goto fail; }

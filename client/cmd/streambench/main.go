@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -34,8 +35,18 @@ func main() {
 	dump := flag.String("dump", "", "write the raw run (every frame and 100ms counter tick) as JSON to this file")
 	color444 := flag.Bool("color444", false, "request 4:4:4 chroma (HEVC)")
 	hdr := flag.Bool("hdr", false, "request HDR10 (HEVC Main10)")
+	render := flag.String("render", "", "show the stream like the GUI client: gl or vk on X11, gl-wl or vk-wl on Wayland (default: no window)")
+	phaseAB := flag.Int("phase-ab", 0, "Wayland: alternate phase lock off and on, this many seconds each, for -seconds")
+	phaseCSV := flag.String("phase-csv", "", "Wayland: write when each frame reached the screen to this file")
+	vsync := flag.Bool("vsync", true, "with -render gl: wait for vsync")
+	netGraph := flag.Bool("netgraph", false, "with -render: Net Graph on, as a CPU overlay")
 	flag.Parse()
 	logrus.SetLevel(logrus.WarnLevel)
+
+	if *phaseCSV != "" {
+		os.Setenv("USBRIDGE_PHASE_PROBE", "1")
+	}
+	body := func(rendererStats func() string) {
 
 	if !service.BenchSupported() {
 		fmt.Fprintln(os.Stderr, "this build does not record per-frame data")
@@ -52,6 +63,16 @@ func main() {
 	// An unpaired client asks the host for a PIN; print it so a script can submit it to the host
 	// (the agent's POST /token/pin).
 	m.SetOnPairingPINRequired(func(pin string) { fmt.Println("PIN", pin) })
+	if *render != "" && rendererStats == nil {
+		stop, stats, err := startRenderer(*render, 1280, 720, *vsync)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "renderer:", err)
+			os.Exit(1)
+		}
+		defer stop()
+		rendererStats = stats
+		service.SetNetGraphEnabled(*netGraph)
+	}
 	connectAt := time.Now()
 	if err := m.ConnectToMoonlight(); err != nil {
 		fmt.Fprintln(os.Stderr, "connect:", err)
@@ -65,9 +86,23 @@ func main() {
 	run := &service.BenchRun{Backend: *label, ExpectedFPS: *fps, Width: *width, Height: *height,
 		StartupMs: float64(startup.Milliseconds()), Codec: codec}
 	rec.Start(run)
-	time.Sleep(time.Duration(*seconds) * time.Second)
+	if *phaseAB > 0 {
+		// A cycle starts released so the first arm is the host's own pacing; 4 s of each
+		// arm are left out of the analysis while the lock settles or lets go.
+		end := time.Now().Add(time.Duration(*seconds) * time.Second)
+		for arm := 0; time.Now().Before(end); arm = 1 - arm {
+			setPhase(arm == 1, arm)
+			time.Sleep(time.Duration(*phaseAB) * time.Second)
+		}
+		setPhase(false, 0)
+	} else {
+		time.Sleep(time.Duration(*seconds) * time.Second)
+	}
 	rec.Stop()
 	_ = m.Disconnect()
+	if *phaseCSV != "" {
+		fmt.Fprintln(os.Stderr, "phase records:", dumpPhase(*phaseCSV))
+	}
 
 	if *dump != "" {
 		if b, err := json.Marshal(run); err == nil {
@@ -88,6 +123,15 @@ func main() {
 		"fec_recovered": met.FecRecovered, "fec_failed": met.FecFailed,
 		"lost_frames": met.LostFrames, "recovery_avg_ms": met.RecoveryAvgMs, "idr": met.IDRFrames,
 	}
+	if rendererStats != nil {
+		out["renderer"], out["renderer_stats"] = *render, rendererStats()
+	}
 	b, _ := json.Marshal(out)
 	fmt.Println(string(b))
+	}
+	if strings.HasSuffix(*render, "-wl") {
+		runOnWayland(*render, 1280, 720, *vsync, body)
+		return
+	}
+	body(nil)
 }
