@@ -39,10 +39,10 @@ func (mw *MainWindow) StartWhatsNewSync() {
 
 // InstallUpdatesBackend wires the footer version -> What's new -> Updates
 // dialog (Release/Test channel switch, check and install on demand) to
-// internal/update. Does nothing in builds with self-update compiled out,
-// which hides the dialog's entry point.
+// internal/update. Does nothing where the store delivers updates (iOS, market
+// builds), which hides the dialog's entry point.
 func (mw *MainWindow) InstallUpdatesBackend(version string) {
-	if !update.Enabled {
+	if !update.InAppUpdates() {
 		return
 	}
 	var (

@@ -3,6 +3,7 @@ package update
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -23,6 +24,13 @@ var (
 	channelValue  = ChannelStable
 )
 
+// InAppUpdates reports whether the user can update from inside the app. It is
+// off on iOS and in market builds, where the store delivers updates, and in the
+// web client, which is always the deployed version.
+func InAppUpdates() bool { return inAppUpdatesOn(runtime.GOOS) }
+
+func inAppUpdatesOn(goos string) bool { return Enabled && goos != "ios" && goos != "js" }
+
 // channelFilePath is where the choice persists between launches.
 func channelFilePath() string {
 	dir, err := os.UserConfigDir()
@@ -35,6 +43,11 @@ func channelFilePath() string {
 // GetChannel returns the selected channel. USBRIDGE_UPDATE_CHANNEL=test
 // overrides the stored choice, so a CI/dev run needs no UI.
 func GetChannel() Channel {
+	// Without in-app updates there is no switch to leave Test with, and an
+	// earlier choice would pin What's new to pre-release notes.
+	if !InAppUpdates() {
+		return ChannelStable
+	}
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("USBRIDGE_UPDATE_CHANNEL")), string(ChannelTest)) {
 		return ChannelTest
 	}
