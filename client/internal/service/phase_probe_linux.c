@@ -2,6 +2,8 @@
 // screen (wp_presentation), and how long before the compositor's latch it was
 // ready. USBRIDGE_PHASE_LOCK=1 sends that as the 0x5530 report; USBRIDGE_PHASE_PROBE
 // keeps a per-frame record for the benchmark. Nothing runs without one of them.
+#if defined(__linux__) && !defined(__ANDROID__)
+
 #define _GNU_SOURCE
 #include <pthread.h>
 #include <stdatomic.h>
@@ -218,3 +220,5 @@ int phase_probe_dump(const char *path) {
 void phase_probe_last(long long *lead_us, long long *spread_us) {
     *lead_us = g_lead_last_us; *spread_us = g_spread_last_us;
 }
+
+#endif // defined(__linux__) && !defined(__ANDROID__)
