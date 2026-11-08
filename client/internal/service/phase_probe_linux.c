@@ -1,8 +1,8 @@
 // Phase lock on a Wayland client: when each decoded frame really reached the
 // screen (wp_presentation), and how long before the compositor's latch it was
-// ready, sent as the 0x5530 report: a host with phase_lock_source_hz set times its frames
-// by it, any other ignores it. USBRIDGE_PHASE_LOCK=0 turns the reports off; USBRIDGE_PHASE_PROBE
-// keeps a per-frame record for the benchmark.
+// ready, sent as the 0x5530 report: a host with a source faster than the stream times its
+// frames by it, any other ignores it. Client settings turns the reports off
+// (phase_probe_set_enabled); USBRIDGE_PHASE_PROBE keeps a per-frame record for the benchmark.
 #if defined(__linux__) && !defined(__ANDROID__)
 
 #define _GNU_SOURCE
@@ -35,6 +35,7 @@ static struct wl_event_queue *g_queue;
 static struct wl_surface *g_surface_wrap;
 static struct wp_presentation *g_pres;
 static atomic_int g_reporting, g_arm;
+static atomic_int g_enabled = 1;
 static int64_t g_aim_us;
 static int64_t g_slack[WINDOW];
 static int g_slack_n;
@@ -138,8 +139,7 @@ static const struct wl_registry_listener registry_listener = { registry_global, 
 
 int phase_probe_init(struct wl_display *dpy, struct wl_surface *surface) {
     int probe = getenv("USBRIDGE_PHASE_PROBE") != NULL;
-    const char *lock_env = getenv("USBRIDGE_PHASE_LOCK");
-    int lock = !(lock_env && lock_env[0] == '0');
+    int lock = atomic_load(&g_enabled);
     if ((!probe && !lock) || g_pres) return g_pres != NULL;
     // KWin's latch sits this far before the vblank (measured 4-6 ms at 60 Hz).
     const char *aim = getenv("USBRIDGE_PHASE_AIM_US");
@@ -202,6 +202,12 @@ void phase_probe_after_commit(void) {
     if (!g_pres) return;
     wl_display_flush(g_dpy);
     wl_display_dispatch_queue_pending(g_dpy, g_queue);
+}
+
+// The Client settings switch: applies to the next stream and to one running now.
+void phase_probe_set_enabled(int on) {
+    atomic_store(&g_enabled, on);
+    atomic_store(&g_reporting, on);
 }
 
 void phase_probe_set(int reporting, int arm) {

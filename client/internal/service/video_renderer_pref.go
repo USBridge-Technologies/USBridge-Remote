@@ -38,7 +38,15 @@ const (
 type VideoRendererPrefs struct {
 	Renderer      string `json:"renderer,omitempty"`
 	DisplayServer string `json:"display_server,omitempty"`
+	// PhaseSyncOff: Client settings' "Sync frames to this display" switched off.
+	PhaseSyncOff bool `json:"phase_sync_off,omitempty"`
 }
+
+// phaseSyncApplyFn hands the switch to the platform's reporter; nil where there is none.
+var phaseSyncApplyFn func(on bool)
+
+// PhaseSyncSupported: this client can tell the host when its display takes frames.
+func PhaseSyncSupported() bool { return phaseSyncApplyFn != nil }
 
 const videoRendererPrefsFile = "video_renderer.json"
 
@@ -83,6 +91,9 @@ func InitVideoRendererPrefs(appName string) {
 	p := videoRendererPrefs
 	videoRendererMu.Unlock()
 
+	if fn := phaseSyncApplyFn; fn != nil {
+		fn(!p.PhaseSyncOff)
+	}
 	if r := p.Renderer; r != "" && r != VideoRendererAuto {
 		logrus.Infof("🎞️ [Renderer] video renderer set to %s in Client settings", r)
 	}
@@ -140,6 +151,9 @@ func SaveVideoRendererPrefs(p VideoRendererPrefs) error {
 	videoRendererMu.Lock()
 	defer videoRendererMu.Unlock()
 	videoRendererPrefs = p
+	if fn := phaseSyncApplyFn; fn != nil {
+		fn(!p.PhaseSyncOff)
+	}
 	if videoRendererPath == "" {
 		return nil
 	}

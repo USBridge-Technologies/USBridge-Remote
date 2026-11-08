@@ -771,6 +771,8 @@ type LocalizedStrings struct {
 	RendererSoftware            string    // renderer picker: drawn by the UI toolkit on the CPU
 	RendererGDI                 string    // renderer picker: Windows GDI
 	RendererHintLinux           string    // Client settings: when the Linux choices apply
+	PhaseSync                   string    // Client settings: phase lock switch
+	PhaseSyncHint               string    // Client settings: what it does
 	RendererHintWindows         string    // Client settings: when the Windows choice applies
 	RendererHintMac             string    // Client settings: when the macOS choice applies
 	Fec                         string    // FEC slider caption in the bitrate card (agent POST /api/video/fec)
@@ -1652,6 +1654,8 @@ func EN() *LocalizedStrings {
 		RendererSoftware:                     "Software (CPU)",
 		RendererGDI:                          "GDI (software)",
 		RendererHintLinux:                    "The renderer applies to the next stream, the display server after restarting the client.",
+		PhaseSync:                            "Sync frames to this display",
+		PhaseSyncHint:                        "Lower latency: the host times each frame to arrive just before this screen refreshes. Works on native Wayland, when the host has a fast source such as a high-refresh virtual display.",
 		RendererHintWindows:                  "Applies after restarting the client.",
 		RendererHintMac:                      "Applies to the next stream.",
 		Fec:                                  "FEC",
@@ -2173,6 +2177,8 @@ func ES() *LocalizedStrings {
 	locale.RendererSoftware = "Software (CPU)"
 	locale.RendererGDI = "GDI (software)"
 	locale.RendererHintLinux = "El renderizador se aplica a la próxima transmisión; el servidor gráfico, al reiniciar el cliente."
+	locale.PhaseSync = "Sincronizar los fotogramas con esta pantalla"
+	locale.PhaseSyncHint = "Menor latencia: el host programa cada fotograma para que llegue justo antes de que esta pantalla se actualice. Funciona en Wayland nativo, cuando el host tiene una fuente rápida, como una pantalla virtual de alta frecuencia."
 	locale.RendererHintWindows = "Se aplica al reiniciar el cliente."
 	locale.RendererHintMac = "Se aplica a la próxima transmisión."
 	locale.KVMNetEthernet = "Ethernet"
@@ -2743,6 +2749,8 @@ func UKProper() *LocalizedStrings {
 	locale.RendererSoftware = "Програмний (CPU)"
 	locale.RendererGDI = "GDI (програмний)"
 	locale.RendererHintLinux = "Рендерер застосовується до наступного стріму, графічний сервер — після перезапуску клієнта."
+	locale.PhaseSync = "Синхронізувати кадри з цим екраном"
+	locale.PhaseSyncHint = "Менша затримка: хост розраховує кожен кадр так, щоб він надходив якраз перед оновленням цього екрана. Працює на нативному Wayland, коли хост має швидке джерело, наприклад віртуальний дисплей із високою частотою."
 	locale.RendererHintWindows = "Застосовується після перезапуску клієнта."
 	locale.RendererHintMac = "Застосовується до наступного стріму."
 	locale.KVMNetEthernet = "Ethernet"

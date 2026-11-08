@@ -58,6 +58,13 @@ func (mw *MainWindow) showClientSettingsDialog() {
 		body.Add(view.NewDialogHint(hint, clientSettingsWidth))
 	}
 
+	var phaseSync view.DialogToggle
+	if service.PhaseSyncSupported() {
+		phaseSync = view.NewDialogToggle(!rendererPrefs.PhaseSyncOff, nil)
+		body.Add(view.NewDialogVSpace(10))
+		body.Add(view.NewDialogToggleRow(phaseSync, i18n.Current.PhaseSync, i18n.Current.PhaseSyncHint, clientSettingsWidth))
+	}
+
 	var scrollSpeed func() int
 	if view.IsMobile() {
 		var row fyne.CanvasObject
@@ -69,10 +76,16 @@ func (mw *MainWindow) showClientSettingsDialog() {
 
 	apply := func() {
 		clientSettingsOpen.Store(false)
-		if renderer != nil {
-			next := service.VideoRendererPrefs{Renderer: renderer(), DisplayServer: rendererPrefs.DisplayServer}
+		if renderer != nil || phaseSync != nil {
+			next := rendererPrefs
+			if renderer != nil {
+				next.Renderer = renderer()
+			}
 			if displayServer != nil {
 				next.DisplayServer = displayServer()
+			}
+			if phaseSync != nil {
+				next.PhaseSyncOff = !phaseSync.IsChecked()
 			}
 			if next != rendererPrefs {
 				if err := service.SaveVideoRendererPrefs(next); err != nil {
@@ -103,7 +116,11 @@ func (mw *MainWindow) showClientSettingsDialog() {
 		MinWidth:   clientSettingsWidth,
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			w := minF(clientSettingsWidth+40, canvasSize.Width-24)
-			h := minF(clientSettingsHeight(renderer != nil, displayServer != nil), canvasSize.Height-24)
+			h := clientSettingsHeight(renderer != nil, displayServer != nil)
+			if phaseSync != nil {
+				h += 80
+			}
+			h = minF(h, canvasSize.Height-24)
 			return fyne.NewSize(w, h)
 		},
 	})
