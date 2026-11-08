@@ -1,7 +1,8 @@
 // Phase lock on a Wayland client: when each decoded frame really reached the
 // screen (wp_presentation), and how long before the compositor's latch it was
-// ready. USBRIDGE_PHASE_LOCK=1 sends that as the 0x5530 report; USBRIDGE_PHASE_PROBE
-// keeps a per-frame record for the benchmark. Nothing runs without one of them.
+// ready, sent as the 0x5530 report: a host with phase_lock_source_hz set times its frames
+// by it, any other ignores it. USBRIDGE_PHASE_LOCK=0 turns the reports off; USBRIDGE_PHASE_PROBE
+// keeps a per-frame record for the benchmark.
 #if defined(__linux__) && !defined(__ANDROID__)
 
 #define _GNU_SOURCE
@@ -137,7 +138,8 @@ static const struct wl_registry_listener registry_listener = { registry_global, 
 
 int phase_probe_init(struct wl_display *dpy, struct wl_surface *surface) {
     int probe = getenv("USBRIDGE_PHASE_PROBE") != NULL;
-    int lock = getenv("USBRIDGE_PHASE_LOCK") != NULL;
+    const char *lock_env = getenv("USBRIDGE_PHASE_LOCK");
+    int lock = !(lock_env && lock_env[0] == '0');
     if ((!probe && !lock) || g_pres) return g_pres != NULL;
     // KWin's latch sits this far before the vblank (measured 4-6 ms at 60 Hz).
     const char *aim = getenv("USBRIDGE_PHASE_AIM_US");
