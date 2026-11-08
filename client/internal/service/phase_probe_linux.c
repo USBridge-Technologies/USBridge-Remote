@@ -66,9 +66,18 @@ static void window_add(int64_t present_us, int64_t ready_us, int64_t refresh_ns)
     if (refresh_ns <= 0) return;
     g_period_ns = refresh_ns;
     int64_t period_us = refresh_ns / 1000;
-    int64_t v = (present_us - ready_us - g_aim_us) % period_us;
-    if (v < 0) v += period_us;
-    if (v > period_us * 3 / 4) v -= period_us;
+    int64_t raw = present_us - ready_us - g_aim_us;
+    int64_t v;
+    if (raw >= period_us) {
+        // Waited past a whole refresh: it missed the latch before the one that showed it.
+        // Modulo the period that reads as a comfortable margin, and the lock would stay
+        // there, a refresh late for good (seen live: 24 ms instead of 8).
+        v = -(raw - period_us) - 1000;
+    } else {
+        v = raw % period_us;
+        if (v < 0) v += period_us;
+        if (v > period_us * 3 / 4) v -= period_us;
+    }
     if (g_slack_n < WINDOW) g_slack[g_slack_n++] = v;
 
     int64_t now = present_us;
