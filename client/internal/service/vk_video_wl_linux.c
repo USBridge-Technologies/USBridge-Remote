@@ -152,7 +152,10 @@ void vk_wl_set_hidden(int hidden) {
 }
 
 // Call only after the VkSurfaceKHR on w_surf has been destroyed.
+extern void phase_probe_forget_surface(void);
+
 void vk_wl_destroy(void) {
+    phase_probe_forget_surface();
     if (w_vport)    { wp_viewport_destroy(w_vport);       w_vport = NULL; }
     if (w_sub)      { wl_subsurface_destroy(w_sub);       w_sub = NULL; }
     if (w_surf)     { wl_surface_destroy(w_surf);         w_surf = NULL; }

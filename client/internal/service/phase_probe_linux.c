@@ -91,7 +91,12 @@ static const struct wl_registry_listener registry_listener = { registry_global, 
 int phase_probe_init(struct wl_display *dpy, struct wl_surface *surface) {
     int probe = getenv("USBRIDGE_PHASE_PROBE") != NULL;
     int lock = phase_report_enabled();
-    if ((!probe && !lock) || g_pres) return g_pres != NULL;
+    if (!probe && !lock) return 0;
+    if (g_pres) {
+        // A renderer made again (the benchmark does, per run) brings a new surface.
+        if (!g_surface_wrap && surface) g_surface_wrap = wl_proxy_create_wrapper(surface);
+        return 1;
+    }
     // KWin's latch sits this far before the vblank (measured 4-6 ms at 60 Hz).
     const char *aim = getenv("USBRIDGE_PHASE_AIM_US");
     g_aim_us = aim ? atoll(aim) : 5000;
@@ -106,8 +111,19 @@ int phase_probe_init(struct wl_display *dpy, struct wl_surface *surface) {
     wl_display_roundtrip_queue(dpy, g_queue);
     wl_registry_destroy(reg);
     wl_proxy_wrapper_destroy(wrap);
-    g_surface_wrap = wl_proxy_create_wrapper(surface);
+    if (surface) g_surface_wrap = wl_proxy_create_wrapper(surface);
     return g_pres != NULL;
+}
+
+// The surface is about to be destroyed: no feedback is asked for it from here on.
+// Its id goes to the next object made, and a feedback request naming that one
+// (a wp_viewporter, after the benchmark's renderer restart) is a protocol error
+// the compositor answers by dropping the whole connection: the app closed.
+void phase_probe_forget_surface(void) {
+    if (g_surface_wrap) {
+        wl_proxy_wrapper_destroy(g_surface_wrap);
+        g_surface_wrap = NULL;
+    }
 }
 
 // A decoded frame is ready. Its picture carries the host's draw time as a barcode
@@ -136,7 +152,7 @@ void phase_probe_note_submit(const uint8_t *y, int stride, int w, int h) {
 
 // Right before the commit that shows the frame noted last.
 void phase_probe_before_commit(void) {
-    if (!g_pres) return;
+    if (!g_pres || !g_surface_wrap) return;
     pthread_mutex_lock(&g_cur_mu);
     int valid = g_cur_valid;
     phase_rec r = { .ready_us = g_cur_ready, .bar = g_cur_bar, .bar_ok = (uint8_t)g_cur_bar_ok, .arm = (uint8_t)atomic_load(&g_arm) };
