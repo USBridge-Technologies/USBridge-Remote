@@ -2,7 +2,7 @@
 # usage: ab.sh tag render seconds ab vhz [aim]
 P='sshpass -e'; D=${MAC_SSH:?user@mac}; # the password comes from SSHPASS
  tag=$1; r=$2; sec=$3; ab=$4; vhz=$5; aim=${6:-5000}; margin=${7:-1500}
-$P ssh $D "kill \$(pgrep -f 'usbridge-streamer/usbridge-streamer ' | head -1); sleep 6; /tmp/mac_prep.sh $vhz $margin"
+$P ssh $D "/tmp/mac_prep.sh $vhz $margin"
 [ "$vhz" = 0 ] && { W=1920; H=1200; settle=3; } || { W=1920; H=1080; settle=8; }
 rm -f $tag.clock; ( while :; do python3 clock.py >> $tag.clock; sleep 4; done ) & CL=$!
 sleep 3
