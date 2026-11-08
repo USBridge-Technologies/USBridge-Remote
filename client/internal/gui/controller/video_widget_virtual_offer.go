@@ -207,7 +207,12 @@ func (vw *VideoWidget) newHostAppRow(apps []moonlight.App) fyne.CanvasObject {
 var (
 	virtualOfferResolutions = []string{"1280x720", "1920x1080", "2560x1440", "2560x1600", "3440x1440", "3840x2160"}
 	virtualOfferFPS         = []string{"30 fps", "60 fps", "90 fps", "120 fps", "144 fps", "165 fps", "240 fps"}
+	virtualOfferRefresh     = []string{"60 Hz", "120 Hz", "144 Hz", "240 Hz", "480 Hz", "1000 Hz"}
 )
+
+// virtualOfferDefaultRefresh: a monitor faster than the stream lets the host time frames
+// to the client's display (Client settings' phase sync).
+const virtualOfferDefaultRefresh = 240
 
 // virtualOfferChoices is choices with current added (first) when it isn't one.
 func virtualOfferChoices(current string, choices []string) []string {
@@ -334,9 +339,13 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 	if fps <= 60 {
 		fps = virtualOfferDefaultFPS
 	}
+	refresh := virtualOfferDefaultRefresh
 	if w, h, f, ok := virtualSpecMode(cfg.DevicePath); ok {
 		// The virtual display already streamed: its own mode, as it is.
-		width, height, fps = w, h, f
+		width, height, refresh = w, h, f
+		if fps <= 0 || fps > f {
+			fps = min(f, 240)
+		}
 	}
 
 	// The mode, preset to the asked one, open to another.
@@ -356,6 +365,14 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 	})
 	modeRow := container.NewBorder(nil, nil, newVirtualDisplayFieldLabel(i18n.Current.VirtualDisplayOfferMode), nil,
 		container.NewGridWithColumns(2, resPicker, fpsPicker))
+	refreshText := fmt.Sprintf("%d Hz", refresh)
+	refreshPicker := view.NewDeviceDashboardModePicker(virtualOfferChoices(refreshText, virtualOfferRefresh), refreshText, func(s string) {
+		var f int
+		if n, _ := fmt.Sscanf(s, "%d", &f); n == 1 && f > 0 {
+			refresh = f
+		}
+	})
+	refreshRow := container.NewBorder(nil, nil, newVirtualDisplayFieldLabel(i18n.Current.VirtualDisplayOfferRefresh), nil, refreshPicker)
 
 	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 340, true, nil)
 	exclusiveRow, exclusiveChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayExclusive, "", i18n.Current.VirtualDisplayExclusiveHint, 340, true, nil)
@@ -366,6 +383,7 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 	if offer.virtual {
 		body.Add(view.NewDialogHint(i18n.Current.VirtualDisplayOfferNote, 340))
 		body.Add(modeRow)
+		body.Add(refreshRow)
 		body.Add(primaryRow)
 		body.Add(exclusiveRow)
 	}
@@ -461,7 +479,8 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 				}
 				return
 			}
-			spec := fmt.Sprintf("%dx%d@%d", width, height, fps)
+			// The monitor is never slower than the stream.
+			spec := fmt.Sprintf("%dx%d@%d", width, height, max(refresh, fps))
 			next := cfg
 			next.DevicePath = "virtual:" + spec
 			next.DeviceName = "Virtual Display (" + spec + ")"

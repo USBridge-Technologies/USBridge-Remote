@@ -144,14 +144,15 @@ if (-not (Test-Path $settings)) {
     # IddCxMonitorArrival fails with STATUS_NOT_SUPPORTED and the monitor never
     # appears (verified live against 25.7.23; 100 was fine).
     # 60 Hz comes from each <resolution>, the rest from <global>, so no dupes:
-    # 22 x 4 = 88 modes.
+    # 14 x 7 = 98 modes. The high rates are the phase lock's: the faster the source,
+    # the closer a frame can land to the client's display latch.
+    # Same lists as the agent's upgrade of an older install (internal/vdisplay/modes.go).
     $modes = @(
-        "1280x720", "1366x768", "1440x900", "1600x900", "1920x1080", "1920x1200", "2048x1536", "2256x1504",
-        "2360x1640", "2388x1668", "2400x1080", "2532x1170", "2556x1179", "2560x1080", "2560x1440", "2560x1600",
-        "2732x2048", "2796x1290", "2880x1800", "3440x1440", "3840x2160", "5120x1440"
+        "1280x720", "1440x900", "1600x900", "1920x1080", "1920x1200", "2400x1080", "2532x1170",
+        "2560x1080", "2560x1440", "2560x1600", "2880x1800", "3440x1440", "3840x2160", "5120x1440"
     )
     $resXml = ($modes | ForEach-Object { $w, $h = $_ -split "x"; "        <resolution><width>$w</width><height>$h</height><refresh_rate>60</refresh_rate></resolution>" }) -join "`n"
-    $rates = (@(90, 120, 144) | ForEach-Object { "        <g_refresh_rate>$_</g_refresh_rate>" }) -join "`n"
+    $rates = (@(90, 120, 144, 240, 480, 1000) | ForEach-Object { "        <g_refresh_rate>$_</g_refresh_rate>" }) -join "`n"
     @"
 <?xml version='1.0' encoding='utf-8'?>
 <!-- Written by rust-shine scripts/install-mttvdd.ps1. The driver only reads this when the device starts. -->

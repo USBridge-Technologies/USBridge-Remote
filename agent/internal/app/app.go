@@ -52,6 +52,7 @@ import (
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/update"
+	"usbridge_agent/internal/vdisplay"
 	"usbridge_agent/internal/usbpass"
 )
 
@@ -834,6 +835,7 @@ func resolveConfigPath() string {
 // startHidden is forwarded to ui.Window.SetStartHidden when a window is
 // shown at all -- see StartOptions.Tray's doc comment.
 func (a *App) Run(headless, startHidden bool) error {
+	vdisplay.UpgradeModeList()
 	a.headless = headless
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

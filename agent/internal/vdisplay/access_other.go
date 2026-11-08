@@ -9,3 +9,6 @@ func AccessGranted() bool { return true }
 func GrantAccess() error  { return nil }
 func Unload() error       { return nil }
 func Revive() error       { return nil }
+
+// UpgradeModeList is Windows' (the MttVDD driver's mode list).
+func UpgradeModeList() {}

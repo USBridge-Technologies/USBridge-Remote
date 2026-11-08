@@ -1560,14 +1560,17 @@ func virtualDeviceInfo(path string) (VideoDeviceInfo, bool) {
 		return VideoDeviceInfo{}, false
 	}
 	// The display refreshes at its own rate: nothing above it, that one last
-	// (video/info's default).
+	// (video/info's default). A monitor at 480 or 1000 Hz is there for the stream to
+	// pick its frames from, not for a stream that fast.
 	var fps []int
 	for _, f := range virtualStreamFPS {
 		if f < m.Hz {
 			fps = append(fps, f)
 		}
 	}
-	fps = append(fps, m.Hz)
+	if m.Hz <= virtualStreamFPS[len(virtualStreamFPS)-1] {
+		fps = append(fps, m.Hz)
+	}
 	modes := []VideoCaptureMode{{Width: m.Width, Height: m.Height, FPS: fps, PixelFormat: "BGRA"}}
 	for _, r := range virtualStreamResolutions {
 		if r.w <= m.Width && r.h <= m.Height && (r.w != m.Width || r.h != m.Height) {

@@ -86,6 +86,7 @@ type LocalizedStrings struct {
 	VirtualDisplayOfferSubtitle     string
 	VirtualDisplayOfferCreate       string
 	VirtualDisplayOfferMode         string
+	VirtualDisplayOfferRefresh      string
 	VirtualDisplayOfferSkip         string
 	VirtualDisplayOfferAsIsSubtitle string
 	VirtualDisplayOfferNote         string
@@ -975,6 +976,7 @@ func EN() *LocalizedStrings {
 		VirtualDisplayOfferSubtitle:       "On Windows a physical monitor caps capture at its own refresh rate. A virtual display at %[2]dx%[3]d@%[1]d streams the full %[1]d FPS.",
 		VirtualDisplayOfferCreate:         "Virtual",
 		VirtualDisplayOfferMode:           "Mode",
+		VirtualDisplayOfferRefresh:        "Refresh",
 		VirtualDisplayOfferSkip:           "Stream as is",
 		VirtualDisplayOfferAsIsSubtitle:   "Streams the host's screen as is. A virtual display at %[2]dx%[3]d@%[1]d can be made for the session instead.",
 		VirtualDisplayOfferNote:           "A virtual display mostly matters for the Sunshine-based forks (Sunshine, Vibepollo), where a physical monitor caps the refresh rate. USBridge Streamer captures the real monitors at full speed, so most likely you don't need one there.",
@@ -1854,6 +1856,7 @@ func ES() *LocalizedStrings {
 	locale.VirtualDisplayOfferSubtitle = "En Windows un monitor fisico limita la captura a su propia frecuencia. Una pantalla virtual a %[2]dx%[3]d@%[1]d transmite los %[1]d FPS completos."
 	locale.VirtualDisplayOfferCreate = "Virtual"
 	locale.VirtualDisplayOfferMode = "Modo"
+	locale.VirtualDisplayOfferRefresh = "Frecuencia"
 	locale.VirtualDisplayOfferSkip = "Transmitir asi"
 	locale.VirtualDisplayOfferAsIsSubtitle = "Transmite la pantalla del host tal cual. En su lugar se puede crear una pantalla virtual a %[2]dx%[3]d@%[1]d para la sesion."
 	locale.VirtualDisplayOfferNote = "Una pantalla virtual importa sobre todo en los forks basados en Sunshine (Sunshine, Vibepollo), donde un monitor fisico limita la frecuencia. USBridge Streamer captura los monitores reales a toda velocidad, asi que lo mas probable es que alli no la necesites."
@@ -2415,6 +2418,7 @@ func UKProper() *LocalizedStrings {
 	locale.VirtualDisplayOfferSubtitle = "У Windows фізичний монітор обмежує захоплення своєю частотою оновлення. Віртуальний дисплей %[2]dx%[3]d@%[1]d дає повні %[1]d FPS."
 	locale.VirtualDisplayOfferCreate = "Віртуальний"
 	locale.VirtualDisplayOfferMode = "Режим"
+	locale.VirtualDisplayOfferRefresh = "Частота"
 	locale.VirtualDisplayOfferSkip = "Як є"
 	locale.VirtualDisplayOfferAsIsSubtitle = "Транслюється екран хоста як є. Замість нього можна створити на сеанс віртуальний дисплей %[2]dx%[3]d@%[1]d."
 	locale.VirtualDisplayOfferNote = "Віртуальний дисплей потрібен здебільшого форкам на базі Sunshine (Sunshine, Vibepollo), де фізичний монітор обмежує частоту. USBridge Streamer захоплює справжні монітори на повній швидкості, тож там він, найімовірніше, не потрібен."

@@ -291,3 +291,6 @@ func Down() error {
 	}
 	return firstErr
 }
+
+// UpgradeModeList is Windows' (the MttVDD driver's mode list).
+func UpgradeModeList() {}

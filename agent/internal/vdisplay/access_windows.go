@@ -231,3 +231,28 @@ func InstallDriver() error {
 	}
 	return nil
 }
+
+const vddSettingsPath = `C:\\VirtualDisplayDriver\\vdd_settings.xml`
+
+// UpgradeModeList brings an install's mode list up to date and restarts the driver, the
+// only time it reads the file. Needs the elevated agent, which runs this at its start:
+// the installer writes the list once, so an older install would never get new modes.
+// Without rights, or with nothing to do, it does nothing.
+func UpgradeModeList() {
+	data, err := os.ReadFile(vddSettingsPath)
+	if err != nil {
+		return
+	}
+	next, ok := upgradedVDDSettings(string(data))
+	if !ok {
+		return
+	}
+	if err := os.WriteFile(vddSettingsPath, []byte(next), 0o644); err != nil {
+		return // not the elevated one
+	}
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+		`Get-PnpDevice -Class Display | Where-Object { $_.FriendlyName -match 'Virtual Display Driver' } | ForEach-Object { pnputil /restart-device "$($_.InstanceId)" }`)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.CombinedOutput()
+	log.Printf("[vdisplay] virtual display mode list updated (240, 480 and 1000 Hz), driver restarted: err=%v %s", err, strings.TrimSpace(string(out)))
+}
