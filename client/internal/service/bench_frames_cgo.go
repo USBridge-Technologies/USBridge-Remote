@@ -24,6 +24,7 @@ extern int      bench_frames_drain(bench_frame_t *out, int max);
 extern uint32_t bench_frames_dropped(void);
 extern uint64_t bench_now_us(void);
 extern int      bench_latency_drain(int64_t *wall_us, uint32_t *bar, int max);
+extern uint64_t bench_latency_take_size(void);
 extern int      bench_barcode_decode_row(const uint8_t *row, int width, int bytes_per_sample, uint32_t *out);
 */
 import "C"
@@ -42,6 +43,10 @@ func init() {
 	benchFramesDroppedFn = func() uint32 { return uint32(C.bench_frames_dropped()) }
 	benchNowUsFn = func() uint64 { return uint64(C.bench_now_us()) }
 	benchLatencyDrainFn = benchLatencyDrainCgo
+	benchStreamSizeFn = func() (int, int) {
+		s := uint64(C.bench_latency_take_size())
+		return int(s >> 32), int(s & 0xffffffff)
+	}
 }
 
 const benchDrainBatch = 1024

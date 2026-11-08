@@ -85,6 +85,7 @@ static bench_latency_t   g_bench_latency[BENCH_LATENCY_CAP];
 static volatile uint32_t g_latency_head = 0;
 static volatile uint32_t g_latency_tail = 0;
 static volatile uint64_t g_latency_next_us = 0;
+static volatile uint64_t g_latency_size = 0; // width << 32 | height
 
 int64_t bench_wall_us(void) {
 #ifdef _WIN32
@@ -137,6 +138,7 @@ int bench_barcode_decode_row(const uint8_t *row, int width, int bytes_per_sample
 
 void bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us) {
     if (!luma || width <= 0 || height <= 0) return;
+    __atomic_store_n(&g_latency_size, (uint64_t)width << 32 | (uint32_t)height, __ATOMIC_RELAXED);
     uint32_t bar;
     if (!bench_barcode_decode_row(luma + (size_t)(height / 2) * stride, width, bytes_per_sample, &bar)) return;
     uint32_t head = __atomic_load_n(&g_latency_head, __ATOMIC_RELAXED);
@@ -144,6 +146,11 @@ void bench_latency_note(const uint8_t *luma, int stride, int width, int height, 
     if (head - tail >= BENCH_LATENCY_CAP) return;
     g_bench_latency[head % BENCH_LATENCY_CAP] = (bench_latency_t){ wall_us, bar };
     __atomic_store_n(&g_latency_head, head + 1, __ATOMIC_RELEASE);
+}
+
+// The size of the frames decoded since the last call (0 when none was sampled).
+uint64_t bench_latency_take_size(void) {
+    return __atomic_exchange_n(&g_latency_size, 0, __ATOMIC_RELAXED);
 }
 
 int bench_latency_drain(int64_t *wall_us, uint32_t *bar, int max) {

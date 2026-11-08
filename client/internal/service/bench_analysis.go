@@ -63,6 +63,13 @@ type BenchMetrics struct {
 
 	// Host: capture cadence from the host's own timestamps, encode time
 	// from the per-frame header.
+	// StreamWidth/StreamHeight differ from WantWidth/WantHeight when SizeDiffers: the
+	// run's figures are for another picture and don't compare with the others'.
+	WantWidth    int `json:"want_width,omitempty"`
+	WantHeight   int `json:"want_height,omitempty"`
+	StreamWidth  int `json:"stream_width,omitempty"`
+	StreamHeight int `json:"stream_height,omitempty"`
+
 	HostLatencyAvg float64 `json:"host_latency_avg_ms"`
 	HostLatencyP95 float64 `json:"host_latency_p95_ms"`
 	HostLatencyMax float64 `json:"host_latency_max_ms"`
@@ -152,6 +159,11 @@ func BenchIntervals(run *BenchRun) []BenchFrameInterval {
 	return out
 }
 
+// SizeDiffers reports a stream of another size than the one asked for.
+func (m BenchMetrics) SizeDiffers() bool {
+	return m.WantWidth > 0 && m.StreamWidth > 0 && (m.WantWidth != m.StreamWidth || m.WantHeight != m.StreamHeight)
+}
+
 // AnalyzeBenchRun computes the summary metrics of one run.
 func AnalyzeBenchRun(run *BenchRun) BenchMetrics {
 	m := BenchMetrics{}
@@ -160,6 +172,8 @@ func AnalyzeBenchRun(run *BenchRun) BenchMetrics {
 	}
 	m.Backend = run.Backend
 	m.Codec = run.Codec
+	m.WantWidth, m.WantHeight = run.Width, run.Height
+	m.StreamWidth, m.StreamHeight = run.StreamWidth, run.StreamHeight
 	if pts := BenchLatencySeries(run); len(pts) > 0 {
 		v := make([]float64, len(pts))
 		for i, p := range pts {

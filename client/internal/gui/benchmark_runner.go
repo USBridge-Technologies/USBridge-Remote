@@ -277,7 +277,8 @@ func (mw *MainWindow) benchmarkOne(ctx context.Context, run *service.BenchRun, r
 	stopLoad()
 	_ = client.BenchVideoStop()
 	vw.BenchmarkStopStream()
-	logrus.Infof("📈 [Benchmark] %s: recorded %d frames", run.Backend, len(run.Frames))
+	logrus.Infof("📈 [Benchmark] %s: recorded %d frames at %dx%d, %d latency readings, %d clock readings",
+		run.Backend, len(run.Frames), run.StreamWidth, run.StreamHeight, len(run.Latency), len(run.ClockSamples))
 	return nil
 }
 
@@ -294,39 +295,41 @@ func sampleBenchClock(client *api.USBClient, run *service.BenchRun) (stop func()
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	var clock []service.BenchClockSample
-	read := func() bool {
+	warned := false
+	read := func() {
 		best := service.BenchClockSample{RTTMs: math.MaxFloat64}
 		for i := 0; i < requests; i++ {
 			t0 := time.Now()
 			host, err := client.BenchTime()
 			t1 := time.Now()
 			if err != nil {
-				return false
+				if !warned {
+					warned = true
+					logrus.Warnf("📈 [Benchmark] %s: the host's clock can't be read, latency may be missing: %v", run.Backend, err)
+				}
+				continue
 			}
 			if rtt := float64(t1.Sub(t0).Microseconds()) / 1000; rtt < best.RTTMs {
 				mid := (t0.UnixMicro() + t1.UnixMicro()) / 2
 				best = service.BenchClockSample{WallUs: mid, OffsetUs: float64(host - mid), RTTMs: rtt}
 			}
 		}
-		clock = append(clock, best)
-		return true
+		if best.RTTMs < math.MaxFloat64 {
+			clock = append(clock, best)
+		}
 	}
 	go func() {
 		defer close(finished)
 		ticker := time.NewTicker(every)
 		defer ticker.Stop()
-		if !read() {
-			return
-		}
+		read()
 		for {
 			select {
 			case <-done:
 				read()
 				return
 			case <-ticker.C:
-				if !read() {
-					return
-				}
+				read()
 			}
 		}
 	}()

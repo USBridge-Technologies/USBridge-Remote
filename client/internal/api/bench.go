@@ -96,11 +96,23 @@ func decodeAgentResponse(body []byte, err error, out any) error {
 // BenchTime is the host's wall clock (GET /api/bench/time), microseconds since the epoch.
 func (c *USBClient) BenchTime() (int64, error) {
 	body, err := c.makeRequest("GET", "/api/bench/time", nil)
+	if err != nil {
+		return 0, err
+	}
+	return parseBenchTime(body)
+}
+
+// parseBenchTime reads the endpoint's bare {"us": ...}: unlike the agent's other
+// responses it has no {success, data} around it, to keep the request quick.
+func parseBenchTime(body []byte) (int64, error) {
 	var t struct {
 		Us int64 `json:"us"`
 	}
-	if err := decodeAgentResponse(body, err, &t); err != nil {
-		return 0, err
+	if err := json.Unmarshal(body, &t); err != nil {
+		return 0, fmt.Errorf("bench time: %w", err)
+	}
+	if t.Us <= 0 {
+		return 0, fmt.Errorf("bench time: no time in %q", body)
 	}
 	return t.Us, nil
 }

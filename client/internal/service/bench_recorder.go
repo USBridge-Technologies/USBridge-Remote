@@ -96,6 +96,10 @@ type BenchRun struct {
 	StopMs         float64 `json:"stop_ms,omitempty"`
 	StartMs        float64 `json:"start_ms,omitempty"`
 	StoppedBackend string  `json:"stopped_backend,omitempty"`
+	// StreamWidth/StreamHeight are the frames as they were decoded, against Width/Height
+	// asked for: a streamer may send its monitor's own size. 0 when none was sampled.
+	StreamWidth  int `json:"stream_width,omitempty"`
+	StreamHeight int `json:"stream_height,omitempty"`
 	// StartUs/EndUs bound the measurement window on the client clock.
 	StartUs     uint64       `json:"start_us"`
 	EndUs       uint64       `json:"end_us"`
@@ -126,6 +130,7 @@ var (
 	benchFramesEnableFn  func(on bool)
 	benchFramesDrainFn   func(dst []BenchFrame) []BenchFrame
 	benchLatencyDrainFn  func(dst []BenchLatencySample) []BenchLatencySample
+	benchStreamSizeFn    func() (width, height int)
 	benchFramesDroppedFn func() uint32
 	benchNowUsFn         func() uint64
 	// benchRenderedFramesFn returns the renderer's running count of
@@ -163,6 +168,9 @@ func (r *BenchRecorder) Start(run *BenchRun) {
 	if fn := benchLatencyDrainFn; fn != nil {
 		fn(nil) // whatever the previous run left
 	}
+	if fn := benchStreamSizeFn; fn != nil {
+		fn()
+	}
 	if fn := benchFramesEnableFn; fn != nil {
 		fn(true)
 	}
@@ -191,6 +199,9 @@ func (r *BenchRecorder) Stop() *BenchRun {
 	}
 	if fn := benchFramesDroppedFn; fn != nil {
 		run.RingDropped = fn()
+	}
+	if fn := benchStreamSizeFn; fn != nil {
+		run.StreamWidth, run.StreamHeight = fn()
 	}
 	run.EndUs = benchNowUs()
 	// A frame whose first packet arrived before the window opened belongs

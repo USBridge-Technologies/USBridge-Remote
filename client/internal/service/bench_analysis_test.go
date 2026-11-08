@@ -125,3 +125,20 @@ func TestAnalyzeBenchRunAveragesHostLoad(t *testing.T) {
 		t.Fatal("no samples must not be valid")
 	}
 }
+
+func TestSizeDiffersOnlyForAKnownOtherSize(t *testing.T) {
+	cases := []struct {
+		m    BenchMetrics
+		want bool
+	}{
+		{BenchMetrics{WantWidth: 3840, WantHeight: 2160, StreamWidth: 1920, StreamHeight: 1080}, true},
+		{BenchMetrics{WantWidth: 3840, WantHeight: 2160, StreamWidth: 3840, StreamHeight: 2160}, false},
+		{BenchMetrics{WantWidth: 3840, WantHeight: 2160}, false}, // never sampled
+		{BenchMetrics{StreamWidth: 1920, StreamHeight: 1080}, false},
+	}
+	for _, c := range cases {
+		if got := c.m.SizeDiffers(); got != c.want {
+			t.Errorf("%+v: %v", c.m, got)
+		}
+	}
+}

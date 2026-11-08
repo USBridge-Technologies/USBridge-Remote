@@ -513,6 +513,9 @@ func benchmarkRows() []benchmarkRow {
 	latency := func(f func(service.BenchMetrics) float64) func(service.BenchMetrics) (float64, bool) {
 		return func(m service.BenchMetrics) (float64, bool) { return f(m), m.LatencySamples > 0 }
 	}
+	encode := func(f func(service.BenchMetrics) float64) func(service.BenchMetrics) (float64, bool) {
+		return func(m service.BenchMetrics) (float64, bool) { return f(m), m.HostLatencyMax > 0 }
+	}
 	return []benchmarkRow{
 		{"", "Codec", func(m service.BenchMetrics) (float64, bool) { return 0, m.Codec != "" }, "", true},
 
@@ -538,9 +541,9 @@ func benchmarkRows() []benchmarkRow {
 		{"", "p99", latency(func(m service.BenchMetrics) float64 { return m.LatencyP99 }), "%.1f ms", true},
 		{"", "Frames measured", latency(func(m service.BenchMetrics) float64 { return float64(m.LatencySamples) }), "%.0f", false},
 
-		{"Host (capture + encode)", "Encode time avg", always(func(m service.BenchMetrics) float64 { return m.HostLatencyAvg }), "%.2f ms", true},
-		{"", "Encode time p95", always(func(m service.BenchMetrics) float64 { return m.HostLatencyP95 }), "%.2f ms", true},
-		{"", "Encode time max", always(func(m service.BenchMetrics) float64 { return m.HostLatencyMax }), "%.1f ms", true},
+		{"Host (capture + encode)", "Encode time avg", encode(func(m service.BenchMetrics) float64 { return m.HostLatencyAvg }), "%.2f ms", true},
+		{"", "Encode time p95", encode(func(m service.BenchMetrics) float64 { return m.HostLatencyP95 }), "%.2f ms", true},
+		{"", "Encode time max", encode(func(m service.BenchMetrics) float64 { return m.HostLatencyMax }), "%.1f ms", true},
 		{"", "Capture rate", host(func(m service.BenchMetrics) float64 { return m.HostFPS }), "%.1f fps", false},
 		{"", "Capture pacing std-dev", host(func(m service.BenchMetrics) float64 { return m.HostCadenceStd }), "%.2f ms", true},
 		{"", "Longest capture gap", host(func(m service.BenchMetrics) float64 { return m.HostCadenceMax }), "%.0f ms", true},
@@ -788,9 +791,14 @@ var benchSummaryTiles = []benchSummaryTile{
 	{"avg fps", func(m service.BenchMetrics) (float64, bool) { return m.AvgFPS, true }, "%.1f", false},
 	{"1% low fps", func(m service.BenchMetrics) (float64, bool) { return m.Low1FPS, true }, "%.1f", false},
 	{"stalls", func(m service.BenchMetrics) (float64, bool) { return float64(m.StallCount), true }, "%.0f", true},
-	{"encode avg", func(m service.BenchMetrics) (float64, bool) { return m.HostLatencyAvg, true }, "%.1f ms", true},
-	{"bitrate", func(m service.BenchMetrics) (float64, bool) { return m.BitrateMbps, true }, "%.1f Mbps", false},
-	{"startup", func(m service.BenchMetrics) (float64, bool) { return (m.SwitchMs + m.StartupMs) / 1000, true }, "%.1f s", true},
+	// Units in the caption: with four cards side by side a value with its unit is wider
+	// than its column and runs into the next one.
+	{"latency p50, ms", func(m service.BenchMetrics) (float64, bool) { return m.LatencyP50, m.LatencySamples > 0 }, "%.1f", true},
+	{"latency p95, ms", func(m service.BenchMetrics) (float64, bool) { return m.LatencyP95, m.LatencySamples > 0 }, "%.1f", true},
+	// A streamer that reports no encode time sends 0, which is no result and no record.
+	{"encode, ms", func(m service.BenchMetrics) (float64, bool) { return m.HostLatencyAvg, m.HostLatencyMax > 0 }, "%.1f", true},
+	{"bitrate, Mbps", func(m service.BenchMetrics) (float64, bool) { return m.BitrateMbps, true }, "%.1f", false},
+	{"startup, s", func(m service.BenchMetrics) (float64, bool) { return (m.SwitchMs + m.StartupMs) / 1000, true }, "%.1f", true},
 }
 
 // benchSummaryCards builds one card per streamer with its headline numbers
@@ -802,7 +810,7 @@ func benchSummaryCards(metrics []service.BenchMetrics, compact bool) fyne.Canvas
 		oks := make([]bool, len(metrics))
 		for i, m := range metrics {
 			vals[i], oks[i] = tile.value(m)
-			oks[i] = oks[i] && m.Error == ""
+			oks[i] = oks[i] && m.Error == "" && !m.SizeDiffers()
 		}
 		best[t] = benchmarkBestMask(vals, oks, tile.lower, tile.format)
 	}
@@ -839,6 +847,10 @@ func benchSummaryCards(metrics []service.BenchMetrics, compact bool) fyne.Canvas
 			msg.Wrapping = fyne.TextWrapWord
 			cards = append(cards, benchCardPad(container.New(&benchTightVBox{gap: 4}, head, benchText("failed", design.ColorDanger, valueSize, true), msg), accent, cardPadL, cardPadR, cardPadT, cardPadB))
 			continue
+		}
+		if m.SizeDiffers() {
+			note := fmt.Sprintf("%dx%d, not %dx%d", m.StreamWidth, m.StreamHeight, m.WantWidth, m.WantHeight)
+			head = container.New(&benchTightVBox{gap: 2}, head, benchText(note, design.ColorDanger, max(capSize, 12), true))
 		}
 		var tiles []fyne.CanvasObject
 		for t, tile := range benchSummaryTiles {
@@ -993,7 +1005,12 @@ func benchRowValues(metrics []service.BenchMetrics, r benchmarkRow) ([]float64, 
 			oks[i] = false
 		}
 	}
-	return vals, oks, benchmarkBestMask(vals, oks, r.lower, r.format)
+	// A run at another size still shows its figures, but doesn't compete.
+	eligible := make([]bool, len(metrics))
+	for i, m := range metrics {
+		eligible[i] = oks[i] && !m.SizeDiffers()
+	}
+	return vals, oks, benchmarkBestMask(vals, eligible, r.lower, r.format)
 }
 
 func benchRowCell(r benchmarkRow, m service.BenchMetrics, v float64, ok bool) string {
