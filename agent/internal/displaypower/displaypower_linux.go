@@ -184,8 +184,55 @@ func waitVirtualOutput(connector string, timeout time.Duration) (kscreenOutput, 
 	}
 }
 
+// sameRate: a mode KWin made for hz, reduced blanking leaves it a little under
+// (239.79 for 240, 999.5 for 1000).
+func sameRate(rate float64, hz int) bool {
+	return math.Abs(rate-float64(hz)) <= math.Max(1, float64(hz)/100)
+}
+
+// hasMode reports whether the output has a mode of m's size at m's rate.
+func hasMode(o kscreenOutput, m Mode) bool {
+	for _, x := range o.Modes {
+		if x.Size.Width == m.Width && x.Size.Height == m.Height && sameRate(x.RefreshRate, m.Hz) {
+			return true
+		}
+	}
+	return false
+}
+
+// customModeArg is kscreen-doctor's addCustomMode for m: the output by its id
+// (it takes no connector name here), the rate in mHz, reduced blanking.
+func customModeArg(id int, m Mode) string {
+	return fmt.Sprintf("output.%d.addCustomMode.%d.%d.%d.reduced", id, m.Width, m.Height, m.Hz*1000)
+}
+
+// ensureMode gives the vkms output a mode of m's size at m's rate when it has
+// none. vkms itself lists standard modes only (56 and 60 Hz), but takes any
+// mode KWin sets, its vblank timer then running at that mode's rate: 240, 480
+// and 1000 Hz confirmed live (kernel 7.2, Plasma 6.8). KWin keeps custom modes
+// across restarts and adds the same one again on every call, so only a missing
+// one is added. Needs no rights beyond the vkms grant. o comes back as KWin
+// lists it now; on failure (an older KWin, X11) as it was.
+func ensureMode(o kscreenOutput, m Mode) kscreenOutput {
+	if m.Width <= 0 || m.Height <= 0 || m.Hz <= 0 || hasMode(o, m) {
+		return o
+	}
+	if err := kscreenSet(customModeArg(o.ID, m)); err != nil {
+		log.Printf("[vdisplay] virtual monitor custom mode %dx%d@%d: %v", m.Width, m.Height, m.Hz, err)
+		return o
+	}
+	outs, err := kscreenOutputs()
+	if err != nil {
+		return o
+	}
+	if now, ok := findOutput(outs, o.Name); ok {
+		return now
+	}
+	return o
+}
+
 // closestModeID picks the output's mode nearest the wanted one: size first,
-// refresh rate as the tie-breaker (vkms offers standard modes only).
+// refresh rate as the tie-breaker.
 func closestModeID(o kscreenOutput, m Mode) (string, Mode) {
 	best, bestMode := "", Mode{}
 	bestSize, bestHz := math.MaxFloat64, math.MaxFloat64
@@ -219,6 +266,7 @@ func AttachVirtual(m Mode, primary, exclusive bool) (*VirtualState, error) {
 	if err != nil {
 		return st, err
 	}
+	o = ensureMode(o, m)
 	if id, got := closestModeID(o, m); id != "" {
 		st.Mode = got
 		if err := kscreenSet("output." + connector + ".mode." + id); err != nil {

@@ -42,7 +42,13 @@ static id usbVirtual;
 // usbCreateVirtual brings the virtual monitor up; 0 when CoreGraphics won't.
 // The autorelease pools matter: a Go thread has none, and the display outlived
 // its release, autoreleased into nothing.
-static CGDirectDisplayID usbCreateVirtual(unsigned w, unsigned h, double hz, const char *name,
+//
+// The mode is tried at *hz, then at each lower rate of usbRates: a rate
+// WindowServer turns down (480 or 1000 Hz may be past what a macOS takes)
+// gives a slower monitor, not none at all. *hz is the rate that took.
+static const double usbRates[] = {1000, 480, 240, 144, 120, 60};
+
+static CGDirectDisplayID usbCreateVirtual(unsigned w, unsigned h, double *hz, const char *name,
 		unsigned vendor, unsigned product, unsigned serial) {
 	@autoreleasepool {
 		Class descClass = NSClassFromString(@"CGVirtualDisplayDescriptor");
@@ -62,13 +68,32 @@ static CGDirectDisplayID usbCreateVirtual(unsigned w, unsigned h, double hz, con
 		d.terminationHandler = ^(id a, id b) {};
 		CGVirtualDisplay *v = [[displayClass alloc] initWithDescriptor:d];
 		if (!v) return 0;
-		CGVirtualDisplaySettings *s = [[settingsClass alloc] init];
-		s.hiDPI = 0;
-		s.modes = @[[[modeClass alloc] initWithWidth:w height:h refreshRate:hz]];
-		if (![v applySettings:s]) return 0;
+		double rate = *hz;
+		BOOL applied = NO;
+		for (int i = -1; i < (int)(sizeof usbRates / sizeof usbRates[0]) && !applied; i++) {
+			if (i >= 0) {
+				if (usbRates[i] >= *hz) continue;
+				rate = usbRates[i];
+			}
+			CGVirtualDisplaySettings *s = [[settingsClass alloc] init];
+			s.hiDPI = 0;
+			s.modes = @[[[modeClass alloc] initWithWidth:w height:h refreshRate:rate]];
+			applied = [v applySettings:s];
+		}
+		if (!applied) return 0;
+		*hz = rate;
 		usbVirtual = v;
 		return v.displayID;
 	}
+}
+
+// usbRefreshRate is the rate a monitor runs at now; 0 when CoreGraphics has none.
+static double usbRefreshRate(CGDirectDisplayID id) {
+	CGDisplayModeRef m = CGDisplayCopyDisplayMode(id);
+	if (!m) return 0;
+	double r = CGDisplayModeGetRefreshRate(m);
+	CGDisplayModeRelease(m);
+	return r;
 }
 
 static CGDirectDisplayID usbVirtualID(void) {
@@ -129,6 +154,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -536,13 +562,22 @@ func AttachVirtual(m Mode, primary, exclusive bool) (*VirtualState, error) {
 	}
 	name := C.CString(virtualName)
 	defer C.free(unsafe.Pointer(name))
-	vid := C.usbCreateVirtual(C.uint(m.Width), C.uint(m.Height), C.double(m.Hz), name, virtualVendor, virtualProduct, virtualSerial)
+	hz := C.double(m.Hz)
+	vid := C.usbCreateVirtual(C.uint(m.Width), C.uint(m.Height), &hz, name, virtualVendor, virtualProduct, virtualSerial)
 	if vid == 0 {
 		return nil, errors.New("CoreGraphics did not create the virtual monitor")
+	}
+	if got := int(math.Round(float64(hz))); got != m.Hz {
+		log.Printf("[vdisplay] the virtual monitor does not take %d Hz: up at %d Hz", m.Hz, got)
+		m.Hz = got
 	}
 	st := &VirtualState{GDIName: VirtualDeviceName, FriendlyName: virtualName, DevicePath: strconv.FormatUint(uint64(vid), 10), Mode: m}
 	if !waitOnline([]C.CGDirectDisplayID{vid}, 5*time.Second) {
 		return st, fmt.Errorf("the virtual monitor %d did not show up on the desktop", vid)
+	}
+	// The rate the desktop runs it at, when CoreGraphics reports one.
+	if r := float64(C.usbRefreshRate(vid)); r > 0 {
+		st.Mode.Hz = int(math.Round(r))
 	}
 	if err := placeVirtualLocked(vid); err != nil {
 		log.Printf("[vdisplay] %v", err)
