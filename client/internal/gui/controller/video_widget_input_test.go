@@ -2,6 +2,7 @@ package controller
 
 import (
 	"testing"
+	"time"
 
 	"fyne.io/fyne/v2"
 )
@@ -324,5 +325,27 @@ func TestUSBridgeProMapsWholeFrame(t *testing.T) {
 	fx, fy, fw, fh := vw.getFrameContentRect()
 	if fx != 0 || fy != 0 || fw != 1 || fh != 1 {
 		t.Fatalf("usbridge pro frameRect=(%.3f,%.3f,%.3f,%.3f), want full frame", fx, fy, fw, fh)
+	}
+}
+
+func TestIsQuickStationaryTap(t *testing.T) {
+	tests := []struct {
+		name     string
+		dx, dy   float32
+		duration time.Duration
+		want     bool
+	}{
+		{name: "quick tap", duration: 80 * time.Millisecond, want: true},
+		{name: "slow tap past the hold timer", duration: 300 * time.Millisecond, want: true},
+		{name: "wobbly tap", dx: 6, dy: -9, duration: 200 * time.Millisecond, want: true},
+		{name: "drag", dx: 40, duration: 200 * time.Millisecond, want: false},
+		{name: "upward drag", dy: -40, duration: 200 * time.Millisecond, want: false},
+		{name: "long press", duration: 800 * time.Millisecond, want: false},
+	}
+
+	for _, tt := range tests {
+		if got := isQuickStationaryTap(tt.dx, tt.dy, tt.duration); got != tt.want {
+			t.Fatalf("%s: isQuickStationaryTap(%v, %v, %v) = %v, want %v", tt.name, tt.dx, tt.dy, tt.duration, got, tt.want)
+		}
 	}
 }

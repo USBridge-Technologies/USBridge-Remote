@@ -334,13 +334,14 @@ type VideoWidget struct {
 	// lmbUpTimer is non-nil while Up1 is pending (100ms cancel window after Down1).
 	// lmbPendingHold is set when second finger is down but we haven't decided hold vs double-click yet.
 	// lmbHoldTimer fires after 200ms of the second finger being held, committing to the hold.
-	// lmbPendingDoubleClick is set when second finger lifted quickly while lmbUpTimer still runs.
 	lmbTapAt              time.Time
 	lmbUp1Sent            bool // true once Up1 has actually been sent
 	lmbUpTimer            *time.Timer
 	lmbPendingHold        bool
 	lmbHoldTimer          *time.Timer
-	lmbPendingDoubleClick bool
+	// touchDragDX/DY sum the current touch's Dragged deltas (dp): a lift that ends
+	// a drag only reaches DragEnd, which gets no position to measure from.
+	touchDragDX, touchDragDY float32
 	rmbHapticTimer        *time.Timer // fires at 1s hold to signal RMB long-press readiness
 	isClosing             atomic.Bool
 

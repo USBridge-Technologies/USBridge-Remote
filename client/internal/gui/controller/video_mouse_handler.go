@@ -890,6 +890,8 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	t.videoWidget.lastMouseX = ev.Position.X
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.isDragging = false
+	t.videoWidget.touchDragDX = 0
+	t.videoWidget.touchDragDY = 0
 
 	// Footer move-button mode: one-finger drag pans the video; skip cursor/LMB.
 	if t.videoWidget.IsViewportPanMode() {
@@ -952,8 +954,9 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 				if !isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
 					return
 				}
-				// Only vibrate if the finger hasn't moved enough to disqualify long-press.
-				if vw.isDragging {
+				// Only vibrate if the finger hasn't moved enough to disqualify long-press,
+				// and not while it holds a tap-then-hold grab: lifting that isn't a right click.
+				if vw.isDragging || vw.lmbHeld || vw.lmbPendingHold {
 					return
 				}
 				triggerRmbHaptic()
@@ -981,6 +984,75 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	}
 }
 
+// isQuickStationaryTap reports whether a touch that moved dx, dy (dp) for
+// duration was a tap rather than a drag or a long press -- the same limits
+// TouchUp applies to a first tap.
+func isQuickStationaryTap(dx, dy float32, duration time.Duration) bool {
+	return math.Abs(float64(dx)) < 15 && math.Abs(float64(dy)) < 15 && duration < 500*time.Millisecond
+}
+
+// sendSecondClickAfterGap sends Down2+Up2 of a double-click once Up1 is on its
+// way. Delayed by 50ms: without the gap Up1+Down2+Up2 arrive simultaneously and
+// the OS merges them into a triple-click burst.
+func (vw *VideoWidget) sendSecondClickAfterGap() {
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		fyne.Do(func() {
+			vw.enqueueMouseButtonDown(1)
+			vw.enqueueMouseButtonUp(1)
+		})
+	}()
+}
+
+// finishHeldSecondTap ends a tap-then-hold when the finger lifts after moving
+// dx, dy (dp). A real hold or drag just releases what it grabbed. One held only
+// by a slow or wobbly second tap dragged nothing: Down1 was all the host got,
+// so complete the double-click it was meant to be.
+func (vw *VideoWidget) finishHeldSecondTap(dx, dy float32) {
+	vw.lmbHeld = false
+	if vw.lmbUpTimer != nil {
+		vw.lmbUpTimer.Stop()
+		vw.lmbUpTimer = nil
+	}
+	vw.enqueueMouseButtonUp(1)
+	vw.lastVirtualTapAt = time.Time{}
+	vw.isDragging = false
+	vw.resetRelativeMoveAccumulator()
+	if runtime.GOOS == "android" && isQuickStationaryTap(dx, dy, time.Since(vw.touchStartTime)) {
+		vw.lmbUp1Sent = true
+		vw.sendSecondClickAfterGap()
+	}
+}
+
+// finishPendingSecondTap ends a second tap that lifted before lmbHoldTimer
+// decided it was a hold: a double-click, whichever stage Up1 is at.
+func (vw *VideoWidget) finishPendingSecondTap() {
+	vw.lmbPendingHold = false
+	if vw.lmbHoldTimer != nil {
+		vw.lmbHoldTimer.Stop()
+		vw.lmbHoldTimer = nil
+	}
+	if vw.lmbUpTimer != nil || !vw.lmbUp1Sent {
+		// Up1 not yet sent, whether its timer still runs or it deferred Up1 (Down1
+		// still held) — no need to wait any more: send Up1 then Down2+Up2 with gap.
+		if vw.lmbUpTimer != nil {
+			vw.lmbUpTimer.Stop()
+			vw.lmbUpTimer = nil
+		}
+		vw.lmbUp1Sent = true
+		vw.enqueueMouseButtonUp(1)
+		vw.lastVirtualTapAt = time.Time{}
+		vw.sendSecondClickAfterGap()
+	} else {
+		// Up1 already sent — send Down2+Up2 immediately (Up1 was long ago, no merge risk).
+		vw.lastVirtualTapAt = time.Time{}
+		vw.enqueueMouseButtonDown(1)
+		vw.enqueueMouseButtonUp(1)
+	}
+	vw.isDragging = false
+	vw.resetRelativeMoveAccumulator()
+}
+
 // TouchUp handles the end of a touch (mobile)
 func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	// Matches TouchDown's own set of this flag -- deferred so every return
@@ -989,51 +1061,20 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
+	// Finger lifted: no long press to confirm, whichever path below ends this touch.
+	if t.videoWidget.rmbHapticTimer != nil {
+		t.videoWidget.rmbHapticTimer.Stop()
+		t.videoWidget.rmbHapticTimer = nil
+	}
 	// Release held LMB unconditionally — must not be blocked by shouldIgnoreTouchInput
 	// or any other early return, otherwise LMB gets stuck pressed.
 	if t.videoWidget.lmbHeld {
-		t.videoWidget.lmbHeld = false
-		if t.videoWidget.lmbUpTimer != nil {
-			t.videoWidget.lmbUpTimer.Stop()
-			t.videoWidget.lmbUpTimer = nil
-		}
-		t.videoWidget.enqueueMouseButtonUp(1)
-		t.videoWidget.lastVirtualTapAt = time.Time{}
-		t.videoWidget.isDragging = false
-		t.videoWidget.resetRelativeMoveAccumulator()
+		t.videoWidget.finishHeldSecondTap(ev.Position.X-t.videoWidget.touchStartX, ev.Position.Y-t.videoWidget.touchStartY)
 		return
 	}
 	// Pending hold: second finger lifted quickly — treat as double-click.
 	if t.videoWidget.lmbPendingHold {
-		t.videoWidget.lmbPendingHold = false
-		if t.videoWidget.lmbHoldTimer != nil {
-			t.videoWidget.lmbHoldTimer.Stop()
-			t.videoWidget.lmbHoldTimer = nil
-		}
-		if t.videoWidget.lmbUpTimer != nil {
-			// Up1 not yet sent (timer still running) — flag it to complete the double-click after Up1.
-			t.videoWidget.lmbPendingDoubleClick = true
-		} else if !t.videoWidget.lmbUp1Sent {
-			// lmbUpTimer fired but deferred Up1 (Down1 still held) — send Up1 then Down2+Up2 with gap.
-			t.videoWidget.lmbUp1Sent = true
-			t.videoWidget.enqueueMouseButtonUp(1)
-			t.videoWidget.lastVirtualTapAt = time.Time{}
-			vw := t.videoWidget
-			go func() {
-				time.Sleep(50 * time.Millisecond)
-				fyne.Do(func() {
-					vw.enqueueMouseButtonDown(1)
-					vw.enqueueMouseButtonUp(1)
-				})
-			}()
-		} else {
-			// Up1 already sent — send Down2+Up2 immediately (Up1 was long ago, no merge risk).
-			t.videoWidget.lastVirtualTapAt = time.Time{}
-			t.videoWidget.enqueueMouseButtonDown(1)
-			t.videoWidget.enqueueMouseButtonUp(1)
-		}
-		t.videoWidget.isDragging = false
-		t.videoWidget.resetRelativeMoveAccumulator()
+		t.videoWidget.finishPendingSecondTap()
 		return
 	}
 	if t.videoWidget.shouldIgnoreTouchInput() {
@@ -1074,9 +1115,10 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 				t.videoWidget.enqueueMouseClick(2) // right click (long press)
 			} else if duration < 500*time.Millisecond {
 				// Quick tap → left click, arm the drag window (virtualTapHoldWindow to place second finger).
-				// On Android: send Down immediately and delay Up by 100ms so that a quick
-				// second touch can cancel the Up and keep Down held (instant LMB drag, no
-				// gap between the two events that would trigger a double-click on the target).
+				// On Android: send Down immediately and delay Up for the whole drag window so
+				// that a second touch anywhere in it can cancel the Up and keep Down held
+				// (instant LMB drag, no gap between the two events that would trigger a
+				// double-click on the target).
 				now := time.Now()
 				t.videoWidget.lastVirtualTapAt = now
 				if runtime.GOOS == "android" {
@@ -1087,7 +1129,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 					}
 					vw := t.videoWidget
 					t.videoWidget.lmbUp1Sent = false
-					t.videoWidget.lmbUpTimer = time.AfterFunc(150*time.Millisecond, func() {
+					t.videoWidget.lmbUpTimer = time.AfterFunc(virtualTapHoldWindow, func() {
 						fyne.Do(func() {
 							if vw.lmbUpTimer != nil {
 								vw.lmbUpTimer = nil
@@ -1098,20 +1140,6 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 								}
 								vw.lmbUp1Sent = true
 								vw.enqueueMouseButtonUp(1)
-								// Second finger lifted quickly while Up1 was still pending → complete double-click.
-								// Delay Down2 by 50ms: without the gap Up1+Down2+Up2 arrive simultaneously
-								// and the OS merges them into a triple-click burst.
-								if vw.lmbPendingDoubleClick {
-									vw.lmbPendingDoubleClick = false
-									vw.lastVirtualTapAt = time.Time{}
-									go func() {
-										time.Sleep(50 * time.Millisecond)
-										fyne.Do(func() {
-											vw.enqueueMouseButtonDown(1)
-											vw.enqueueMouseButtonUp(1)
-										})
-									}()
-								}
 							}
 						})
 					})
@@ -1321,7 +1349,6 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 			// Release LMB immediately so the cursor moves without drag-selecting.
 			vw.lmbUpTimer.Stop()
 			vw.lmbUpTimer = nil
-			vw.lmbPendingDoubleClick = false
 			vw.lmbUp1Sent = true
 			vw.enqueueMouseButtonUp(1)
 		}
@@ -1414,7 +1441,6 @@ func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 		t.videoWidget.lmbHoldTimer = nil
 	}
 	t.videoWidget.lmbPendingHold = false
-	t.videoWidget.lmbPendingDoubleClick = false
 	t.videoWidget.lmbUp1Sent = false
 	if t.videoWidget.lmbUpTimer != nil {
 		t.videoWidget.lmbUpTimer.Stop()
@@ -1497,6 +1523,8 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 			// rawDx/cw mapping (which is otherwise a direct 1:1 finger-to-cursor
 			// fraction of the video width/height).
 			const virtualCursorTouchSensitivity = 0.6
+			t.videoWidget.touchDragDX += ev.Dragged.DX
+			t.videoWidget.touchDragDY += ev.Dragged.DY
 			t.handleVirtualCursorMove(ev.Dragged.DX*virtualCursorTouchSensitivity, ev.Dragged.DY*virtualCursorTouchSensitivity)
 		} else if t.videoWidget.IsAbsoluteLikeInputMode() {
 			vw := t.videoWidget
@@ -1558,22 +1586,11 @@ func (t *TouchpadWrapper) DragEnd() {
 		// On Android, DragEnd fires when the finger is lifted after a drag — Fyne may
 		// not fire TouchUp in this case.  Release held LMB here so it doesn't stay stuck.
 		if t.videoWidget.lmbPendingHold {
-			t.videoWidget.lmbPendingHold = false
-			if t.videoWidget.lmbHoldTimer != nil {
-				t.videoWidget.lmbHoldTimer.Stop()
-				t.videoWidget.lmbHoldTimer = nil
-			}
+			t.videoWidget.finishPendingSecondTap()
+			return
 		}
 		if t.videoWidget.lmbHeld {
-			t.videoWidget.lmbHeld = false
-			if t.videoWidget.lmbUpTimer != nil {
-				t.videoWidget.lmbUpTimer.Stop()
-				t.videoWidget.lmbUpTimer = nil
-			}
-			t.videoWidget.enqueueMouseButtonUp(1)
-			t.videoWidget.lastVirtualTapAt = time.Time{}
-			t.videoWidget.isDragging = false
-			t.videoWidget.resetRelativeMoveAccumulator()
+			t.videoWidget.finishHeldSecondTap(t.videoWidget.touchDragDX, t.videoWidget.touchDragDY)
 			return
 		}
 		if t.videoWidget.isDragging {
