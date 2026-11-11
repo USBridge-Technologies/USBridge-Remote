@@ -100,3 +100,5 @@ require (
 )
 
 replace usbridge-client => ../client
+
+replace fyne.io/fyne/v2 => ../client/third_party/fyne
