@@ -148,7 +148,7 @@ func (r *renderer) paintAll(hdc uintptr) {
 	r.fill(hdc, r.cur[1], r.b)
 	r.w, r.h = int(rc.Right-rc.Left), int(rc.Bottom-rc.Top)
 	r.barDrawn = false
-	r.paintBarcode(hdc, time.Now())
+	r.paintBarcode(hdc, stampNow())
 }
 
 func run(o options) error {
@@ -269,7 +269,7 @@ func run(o options) error {
 		r.fill(hdc, r.cur[0], r.a)
 		r.fill(hdc, r.cur[1], r.b)
 		r.w, r.h = int(rc.Right-rc.Left), int(rc.Bottom-rc.Top)
-		r.paintBarcode(hdc, time.Now())
+		r.paintBarcode(hdc, stampNow())
 		procGdiFlush.Call()
 
 		next = next.Add(period)

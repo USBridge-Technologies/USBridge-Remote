@@ -52,6 +52,7 @@ func Args(fps int, r *Rect) []string {
 type options struct {
 	fps  int
 	rect *Rect
+	sync string
 }
 
 func parse(args []string) (options, error) {
@@ -59,10 +60,11 @@ func parse(args []string) (options, error) {
 	fs.SetOutput(io.Discard)
 	fps := fs.Int("fps", DefaultFPS, "frames per second")
 	rect := fs.String("rect", "", "x,y,w,h of the monitor to cover (default: the primary one)")
+	syncURL := fs.String("sync", "", "draw the barcode in this host's clock: a KVM's http://ADDR/api/bench/time")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
-	o := options{fps: *fps}
+	o := options{fps: *fps, sync: *syncURL}
 	if o.fps <= 0 || o.fps > 1000 {
 		return options{}, fmt.Errorf("fps %d out of range", o.fps)
 	}
@@ -94,6 +96,10 @@ func Run(args []string) int {
 	if err != nil {
 		log.Printf("[bench-render] %v", err)
 		return 2
+	}
+	inhibitIdle()
+	if o.sync != "" {
+		startClockSync(o.sync)
 	}
 	if err := run(o); err != nil {
 		log.Printf("[bench-render] %v", err)
