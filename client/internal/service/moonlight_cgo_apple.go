@@ -24,8 +24,10 @@ extern void goMoonlightPadAudio(unsigned short controllerNumber, unsigned int se
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern int bench_latency_due(void);
+extern int bench_recording(void);
 extern int64_t bench_wall_us(void);
 extern void bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us);
+extern void bench_latency_note_bgra(const uint8_t *bgra, int stride, int width, int height, int64_t wall_us);
 extern void goVideoFormatNegotiated(int videoFormat);
 extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
 extern int  goAIVisionShouldSample(void);
@@ -500,6 +502,17 @@ static int vt_copy_rgba(CVImageBufferRef img, int w, int h) {
     return 1;
 }
 
+// macOS shows the stream through AVSampleBufferDisplayLayer, which decodes
+// inside AVFoundation and never hands the picture back, so the benchmark's
+// time barcode can't be read from it. While the benchmark records, every
+// frame also goes to this file's VTDecompressionSession (vt_bench_shadow) --
+// a second hardware decode, from an IDR on -- and vt_callback only reads the
+// barcode from its output. Off the rest of the time.
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
+static int g_vt_bench_live = 0;      // the session has had its IDR and decodes along
+static int g_vt_bench_idr_asked = 0; // an IDR was requested for it
+#endif
+
 static void vt_callback(
     void *ctx, void *frameRefCon,
     OSStatus status, VTDecodeInfoFlags flags,
@@ -540,17 +553,32 @@ static void vt_callback(
 
     // ── The benchmark's time barcode, a few frames a second while it records ──
     // The buffer is CPU-visible already: locking it read-only costs next to nothing.
-    if (bench_latency_due() && CVPixelBufferIsPlanar(img)) {
+    // macOS decodes SDR to BGRA (see the session's pixel format), HDR and iOS to
+    // biplanar 4:2:0; both carry the barcode.
+    if (bench_latency_due()) {
         int64_t bench_now = bench_wall_us();
         CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
-        bench_latency_note((const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(img, 0),
-                           (int)CVPixelBufferGetBytesPerRowOfPlane(img, 0),
-                           (int)CVPixelBufferGetWidthOfPlane(img, 0),
-                           (int)CVPixelBufferGetHeightOfPlane(img, 0),
-                           CVPixelBufferGetPixelFormatType(img) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ? 2 : 1,
-                           bench_now);
+        if (CVPixelBufferIsPlanar(img)) {
+            bench_latency_note((const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(img, 0),
+                               (int)CVPixelBufferGetBytesPerRowOfPlane(img, 0),
+                               (int)CVPixelBufferGetWidthOfPlane(img, 0),
+                               (int)CVPixelBufferGetHeightOfPlane(img, 0),
+                               CVPixelBufferGetPixelFormatType(img) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ? 2 : 1,
+                               bench_now);
+        } else if (CVPixelBufferGetPixelFormatType(img) == kCVPixelFormatType_32BGRA) {
+            bench_latency_note_bgra((const uint8_t *)CVPixelBufferGetBaseAddress(img),
+                                    (int)CVPixelBufferGetBytesPerRow(img),
+                                    (int)CVPixelBufferGetWidth(img),
+                                    (int)CVPixelBufferGetHeight(img),
+                                    bench_now);
+        }
         CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
     }
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
+    // The benchmark's shadow decode (see g_vt_bench_live): the picture is on
+    // screen through AVSampleBufferDisplayLayer already.
+    return;
+#endif
 
     // ── Metal fast path (zero CPU copy via IOSurface, macOS and iOS) ─────────
     if (metal_video_try_submit(img)) {
@@ -931,6 +959,40 @@ void platform_post_stop(void) {
 #endif
 }
 
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
+// vt_bench_shadow decodes sample in the VT session too while the benchmark
+// records, for its time barcode (see g_vt_bench_live). It starts on an IDR,
+// asking the host for one, as a delta frame has nothing to refer to.
+static void vt_bench_shadow(CMSampleBufferRef sample, int idr) {
+    if (!bench_recording()) {
+        g_vt_bench_live = 0;
+        g_vt_bench_idr_asked = 0;
+        return;
+    }
+    if (!g_vt_bench_live) {
+        if (!idr) {
+            if (!g_vt_bench_idr_asked) {
+                g_vt_bench_idr_asked = 1;
+                LiRequestIdrFrame();
+            }
+            return;
+        }
+        g_vt_bench_live = 1;
+    }
+    if (!g_vt_session) return;
+    VTDecodeInfoFlags info = 0;
+    OSStatus s = VTDecompressionSessionDecodeFrame(g_vt_session, sample,
+        kVTDecodeFrame_EnableAsynchronousDecompression, NULL, &info);
+    if (s != noErr) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "VT: benchmark decode failed: %d (waiting for an IDR)", (int)s);
+        goVTLog(msg);
+        g_vt_bench_live = 0;
+        g_vt_bench_idr_asked = 0;
+    }
+}
+#endif
+
 int platform_dr_submit(PDECODE_UNIT du) {
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
     if (g_video_format & VIDEO_FORMAT_MASK_PYROWAVE) return pyrowave_submit(du);
@@ -1068,6 +1130,7 @@ int platform_dr_submit(PDECODE_UNIT du) {
             } else if (sr == 0) {
                 ret = DR_OK; // overlay inactive/torn down -- dropped, not a decode failure
             }
+            vt_bench_shadow(sample, du->frameType == FRAME_TYPE_IDR);
 #else
             // iOS keeps the VTDecompressionSession path -- no AVSampleBufferDisplayLayer
             // wiring there (see metal_video_submit_compressed_sample's own macOS-only guard).

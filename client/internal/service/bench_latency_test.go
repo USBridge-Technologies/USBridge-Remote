@@ -44,6 +44,20 @@ func TestBarcodeReadsAtAnySizeAndOffset(t *testing.T) {
 	}
 }
 
+// TestBarcodeReadsDimmedScreen: a target PC dimming its screen scales the whole
+// signal (seen live: white cells at 150, the background at 23, through a KVM).
+func TestBarcodeReadsDimmedScreen(t *testing.T) {
+	for _, scale := range []float64{1, 0.6, 0.35} {
+		row := benchBarcodeRow(1920, 0x5EED1234, 220)
+		for i, v := range row {
+			row[i] = byte(float64(v) * scale)
+		}
+		if got, ok := benchDecodeBarcodeRow(row, 1); !ok || got != 0x5EED1234 {
+			t.Errorf("scale %.2f: got %#x ok=%v", scale, got, ok)
+		}
+	}
+}
+
 func TestBarcodeReadsP010(t *testing.T) {
 	row := benchBarcodeRow(1920, 0xDEADBEEF, 220)
 	wide := make([]byte, 2*len(row))

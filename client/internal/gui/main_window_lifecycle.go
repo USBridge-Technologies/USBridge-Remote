@@ -293,6 +293,7 @@ func (mw *MainWindow) Show() {
 	mw.updateStatusBar()
 	mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromDeepLink, mw.handleSaveFromDeepLink)
 	mw.deepLinkHandler.onJoin = mw.handleJoinFromDeepLink
+	mw.deepLinkHandler.onBenchmark = mw.runDeepLinkBenchmark
 	if mw.connectionManager != nil {
 		mw.deepLinkHandler.onOffer = mw.connectionManager.OfferLink
 	}

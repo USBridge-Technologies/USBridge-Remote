@@ -48,7 +48,9 @@ uint64_t bench_now_us(void);
 // stamps the frame with bench_wall_us, gets its luma plane to the CPU if it has to
 // (bytes_per_sample 2: P010), and calls bench_latency_note.
 int      bench_latency_due(void);
+int      bench_recording(void);
 int64_t  bench_wall_us(void);
 void     bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us);
+void     bench_latency_note_bgra(const uint8_t *bgra, int stride, int width, int height, int64_t wall_us);
 
 #endif

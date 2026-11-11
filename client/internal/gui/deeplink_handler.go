@@ -28,6 +28,10 @@ type DeepLinkHandler struct {
 	// onOffer shows a connect link in the client's own Add Connection
 	// dialog; nil: the plain confirmation dialog below.
 	onOffer func(internalHost, tailscaleHost, masterKey, protocol string)
+
+	// onBenchmark runs the streamer benchmark once an immediate link's
+	// connection streams (usbridge://connect?...&immediate=true&benchmark=30).
+	onBenchmark func(opts deepLinkBenchmark)
 }
 
 // NewDeepLinkHandler creates a new handler
@@ -106,6 +110,10 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 		host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost, deviceHost)
 		if h.onConnect != nil {
 			h.onConnect(host, masterKey, protocol, false)
+		}
+		if bench, ok := parseDeepLinkBenchmark(uri); ok && h.onBenchmark != nil {
+			logrus.Infof("📈 [Benchmark] requested via deep link: %s, codec %q", bench.window, bench.codec)
+			h.onBenchmark(bench)
 		}
 		return
 	}

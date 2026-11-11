@@ -484,8 +484,12 @@ func (mw *MainWindow) startBenchmark(backends []string, monitor, codec string, w
 			if m.RenderValid {
 				renderPart = fmt.Sprintf("render %.1f fps", m.RenderFPS)
 			}
-			logrus.Infof("📈 [Benchmark] %s: startup %.0f+%.0fms, %.1f fps (1%% low %.1f, %s), %d stalls (%d loss/%d host/%d net), host %.1fms p95 %.1fms, net jitter p95 %.1fms, rtt %.1fms, loss %.2f%%, recovery avg %.0fms (idr %d, rfi %d)",
-				m.Backend, m.SwitchMs, m.StartupMs, m.AvgFPS, m.Low1FPS, renderPart, m.StallCount, m.StallLoss, m.StallHost, m.StallNetwork,
+			latencyPart := "latency n/a"
+			if m.LatencySamples > 0 {
+				latencyPart = fmt.Sprintf("latency p50 %.1fms p95 %.1fms p99 %.1fms (%d frames)", m.LatencyP50, m.LatencyP95, m.LatencyP99, m.LatencySamples)
+			}
+			logrus.Infof("📈 [Benchmark] %s: startup %.0f+%.0fms, %.1f fps (1%% low %.1f, %s), %s, %d stalls (%d loss/%d host/%d net), host %.1fms p95 %.1fms, net jitter p95 %.1fms, rtt %.1fms, loss %.2f%%, recovery avg %.0fms (idr %d, rfi %d)",
+				m.Backend, m.SwitchMs, m.StartupMs, m.AvgFPS, m.Low1FPS, renderPart, latencyPart, m.StallCount, m.StallLoss, m.StallHost, m.StallNetwork,
 				m.HostLatencyAvg, m.HostLatencyP95, m.NetJitterP95, m.RTTAvg, m.PacketLossPct, m.RecoveryAvgMs, m.RecoveredByIDR, m.RecoveredByRFI)
 		}
 		benchUIDo(func() { mw.showBenchmarkResults(res, dir) })

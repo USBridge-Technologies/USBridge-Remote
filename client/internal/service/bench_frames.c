@@ -100,6 +100,11 @@ int64_t bench_wall_us(void) {
 #endif
 }
 
+// bench_recording: the benchmark is recording right now.
+int bench_recording(void) {
+    return __atomic_load_n(&g_bench_enabled, __ATOMIC_ACQUIRE);
+}
+
 int bench_latency_due(void) {
     if (!__atomic_load_n(&g_bench_enabled, __ATOMIC_ACQUIRE)) return 0;
     uint64_t now = bench_now_us();
@@ -111,9 +116,19 @@ int bench_latency_due(void) {
 // Reads the barcode from one row of luma; see agent/internal/benchrender. Returns 0
 // on a picture without one (the desktop before the test window is up, a cut-off row).
 int bench_barcode_decode_row(const uint8_t *row, int width, int bytes_per_sample, uint32_t *out) {
-    enum { CELLS = 37, BRIGHT = 190, DARK = 70 };
+    // The levels are relative to the row's brightest pixel, not fixed: a target PC
+    // dimming its screen (KDE's idle dimming scales the HDMI signal itself), a
+    // limited-range output or a capture card's levels all leave the white cells
+    // well under full scale, and the barcode is just as readable.
+    enum { CELLS = 37, MIN_PEAK = 60 };
     int off = bytes_per_sample == 2 ? 1 : 0; // P010: the high byte
     int step = bytes_per_sample == 2 ? 2 : 1;
+    int peak = 0;
+    for (int x = 0; x < width; x++) {
+        if (row[x * step + off] > peak) peak = row[x * step + off];
+    }
+    if (peak < MIN_PEAK) return 0;
+    const int BRIGHT = peak * 3 / 4, DARK = peak * 3 / 8;
     int first = -1, last = -1;
     for (int x = 0; x < width; x++) {
         if (row[x * step + off] >= BRIGHT) {
@@ -136,16 +151,37 @@ int bench_barcode_decode_row(const uint8_t *row, int width, int bytes_per_sample
     return 1;
 }
 
-void bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us) {
-    if (!luma || width <= 0 || height <= 0) return;
+// bench_latency_note_row reads the barcode from the frame's middle row (row) and
+// queues the reading; width x height is the frame's size, for the run's record.
+static void bench_latency_note_row(const uint8_t *row, int width, int height, int bytes_per_sample, int64_t wall_us) {
     __atomic_store_n(&g_latency_size, (uint64_t)width << 32 | (uint32_t)height, __ATOMIC_RELAXED);
     uint32_t bar;
-    if (!bench_barcode_decode_row(luma + (size_t)(height / 2) * stride, width, bytes_per_sample, &bar)) return;
+    if (!bench_barcode_decode_row(row, width, bytes_per_sample, &bar)) return;
     uint32_t head = __atomic_load_n(&g_latency_head, __ATOMIC_RELAXED);
     uint32_t tail = __atomic_load_n(&g_latency_tail, __ATOMIC_ACQUIRE);
     if (head - tail >= BENCH_LATENCY_CAP) return;
     g_bench_latency[head % BENCH_LATENCY_CAP] = (bench_latency_t){ wall_us, bar };
     __atomic_store_n(&g_latency_head, head + 1, __ATOMIC_RELEASE);
+}
+
+void bench_latency_note(const uint8_t *luma, int stride, int width, int height, int bytes_per_sample, int64_t wall_us) {
+    if (!luma || width <= 0 || height <= 0) return;
+    bench_latency_note_row(luma + (size_t)(height / 2) * stride, width, height, bytes_per_sample, wall_us);
+}
+
+// bench_latency_note_bgra is bench_latency_note for a 32-bit BGRA frame (macOS
+// VideoToolbox's SDR output): the middle row's luma is computed first (BT.709 weights,
+// full range -- the barcode is black and white, so the exact matrix doesn't matter).
+void bench_latency_note_bgra(const uint8_t *bgra, int stride, int width, int height, int64_t wall_us) {
+    enum { MAX_W = 8192 };
+    uint8_t row[MAX_W];
+    if (!bgra || width <= 0 || height <= 0 || width > MAX_W) return;
+    const uint8_t *src = bgra + (size_t)(height / 2) * stride;
+    for (int x = 0; x < width; x++) {
+        const uint8_t *p = src + 4 * x;
+        row[x] = (uint8_t)((18 * p[0] + 183 * p[1] + 54 * p[2] + 128) >> 8);
+    }
+    bench_latency_note_row(row, width, height, 1, wall_us);
 }
 
 // The size of the frames decoded since the last call (0 when none was sampled).
