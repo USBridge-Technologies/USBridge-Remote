@@ -184,6 +184,20 @@ void bench_latency_note_bgra(const uint8_t *bgra, int stride, int width, int hei
     bench_latency_note_row(row, width, height, 1, wall_us);
 }
 
+// bench_latency_note_rgba_row is bench_latency_note for one RGBA row read back
+// from the GPU (Android: the decoder's images never reach the CPU otherwise);
+// width x height is the frame's size, the row its middle one.
+void bench_latency_note_rgba_row(const uint8_t *rgba, int width, int height, int64_t wall_us) {
+    enum { MAX_W = 8192 };
+    uint8_t row[MAX_W];
+    if (!rgba || width <= 0 || height <= 0 || width > MAX_W) return;
+    for (int x = 0; x < width; x++) {
+        const uint8_t *p = rgba + 4 * x;
+        row[x] = (uint8_t)((54 * p[0] + 183 * p[1] + 18 * p[2] + 128) >> 8);
+    }
+    bench_latency_note_row(row, width, height, 1, wall_us);
+}
+
 // The size of the frames decoded since the last call (0 when none was sampled).
 uint64_t bench_latency_take_size(void) {
     return __atomic_exchange_n(&g_latency_size, 0, __ATOMIC_RELAXED);

@@ -754,6 +754,76 @@ uint8_t *android_gl_get_frame_from_ahb(void *ahb_void, int crop_x, int crop_y, i
     return out;
 }
 
+// The benchmark's barcode row (android_gl_bench_row_from_ahb): its own one-row
+// FBO, so neither the CPU path's frame-sized FBO nor its PBO pipeline is touched.
+static GLuint g_bench_fbo = 0, g_bench_tex = 0;
+static int    g_bench_w = 0;
+
+// android_gl_bench_row_from_ahb reads row y of a decoder image (crop rect
+// crop_x, crop_w wide) into rgba (crop_w * 4 bytes), synchronously: the async PBO
+// readback above hands out the previous frame, which would be a frame's worth of
+// latency the barcode never had. Only run a few times a second while a benchmark
+// records. Returns 1 on success.
+int android_gl_bench_row_from_ahb(void *ahb_void, int crop_x, int y, int crop_w, uint8_t *rgba) {
+    if (g_context == EGL_NO_CONTEXT || !g_prog || !ahb_void || crop_w <= 0 || !rgba) return 0;
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_egl_busy, &expected, 1)) return 0;
+    int ok = 0;
+    if (!eglMakeCurrent(g_display, g_surface, g_surface, g_context)) goto out;
+    while (glGetError() != GL_NO_ERROR) {} // someone else's, not this readback's
+    AHardwareBuffer *ahb = (AHardwareBuffer *)ahb_void;
+    AHardwareBuffer_Desc d;
+    AHardwareBuffer_describe(ahb, &d);
+    float bw = (float)d.width, bh = (float)d.height;
+    // One output row sampling the middle of source row y (v = 0 is the image's
+    // bottom row, as in android_gl_get_frame_from_ahb).
+    float mtx[16] = {0};
+    mtx[0]  = (float)crop_w / bw;
+    mtx[10] = 1.0f;
+    mtx[12] = (float)crop_x / bw;
+    mtx[13] = ((float)y + 0.5f) / bh;
+    mtx[15] = 1.0f;
+    EGLImageKHR img = src_ahb_bind(ahb);
+    if (img == EGL_NO_IMAGE_KHR) goto unbind;
+    if (!g_bench_fbo) {
+        glGenFramebuffers(1, &g_bench_fbo);
+        glGenTextures(1, &g_bench_tex);
+    }
+    if (g_bench_w != crop_w) {
+        glBindTexture(GL_TEXTURE_2D, g_bench_tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, crop_w, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_bench_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_bench_tex, 0);
+        g_bench_w = crop_w;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, g_bench_fbo);
+    glViewport(0, 0, crop_w, 1);
+    glUseProgram(g_prog);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_src_tex);
+    glUniform1i(g_loc_tex, 0);
+    glUniformMatrix4fv(g_loc_mtx, 1, GL_FALSE, mtx);
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), kVerts);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), kVerts + 2);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glReadPixels(0, 0, crop_w, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    ok = glGetError() == GL_NO_ERROR;
+unbind:
+    src_ahb_unbind(img);
+    eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+out:
+    atomic_store(&g_egl_busy, 0);
+    return ok;
+}
+
 void android_gl_set_jvm(JavaVM *jvm, jobject ctx) {
     if (g_jvm != NULL && g_cls_vsb != NULL) {
         return; // Already initialized
@@ -955,6 +1025,9 @@ void android_gl_release(void) {
     if (g_fbo_tex) { glDeleteTextures(1, &g_fbo_tex); g_fbo_tex = 0; }
     if (g_oes_tex) { glDeleteTextures(1, &g_oes_tex); g_oes_tex = 0; }
     if (g_src_tex) { glDeleteTextures(1, &g_src_tex); g_src_tex = 0; }
+    if (g_bench_fbo) { glDeleteFramebuffers(1, &g_bench_fbo); g_bench_fbo = 0; }
+    if (g_bench_tex) { glDeleteTextures(1, &g_bench_tex); g_bench_tex = 0; }
+    g_bench_w = 0;
     for (int i = 0; i < HWBUF_COUNT; i++) hwbuf_destroy_slot(i);
     g_hwbuf_w = g_hwbuf_h = 0; g_hwbuf_wr = 0;
 

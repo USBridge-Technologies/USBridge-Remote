@@ -53,6 +53,7 @@ extern int           android_decoder_best_size(const char *mime, int w, int h, i
 extern int           android_display_max_refresh(void);
 extern void          android_gl_detach_thread(void);
 extern uint8_t      *android_gl_get_frame_from_ahb(void *ahb, int crop_x, int crop_y, int crop_w, int crop_h);
+extern int           android_gl_bench_row_from_ahb(void *ahb, int crop_x, int y, int crop_w, uint8_t *rgba);
 
 // Declared in video_sps_android.c
 extern int vsps_dims(const uint8_t *nal, size_t len, int hevc, int *w, int *h);
@@ -375,6 +376,7 @@ static void ar_decode(char *data, int len) {
 
 static void amc_present_output(int64_t pts);
 static void amc_present_image(AImage *img);
+static void amc_bench_sample(AImage *img, int64_t wall_us);
 static void amc_stop_output_thread(void);
 static void amc_start_output_thread(void);
 static void amc_teardown(void);
@@ -674,9 +676,13 @@ static void *amc_output_thread(void *arg) {
             idx = n; info = next;
         }
         vlat_note_output((uint64_t)info.presentationTimeUs);
+        // The benchmark's clock for this frame: decoded, as on the other platforms
+        // (where the barcode is read in the decoder's callback).
+        int64_t bench_wall = (g_air && bench_latency_due()) ? bench_wall_us() : 0;
         AMediaCodec_releaseOutputBuffer(g_amc, (size_t)idx, 1);
         if (g_air) {
             AImage *img = air_acquire(30);
+            if (img && bench_wall) amc_bench_sample(img, bench_wall);
             if (img) amc_present_image(img);
         } else {
             amc_present_output(info.presentationTimeUs);
@@ -842,6 +848,24 @@ static void amc_present_output(int64_t pts) {
             }
         }
     }
+}
+
+// amc_bench_sample reads the benchmark's time barcode off a decoder image: its
+// middle row, read back through GL before the image goes to Vulkan (which may hand
+// the buffer back to the decoder while a later read would still be running).
+static void amc_bench_sample(AImage *img, int64_t wall_us) {
+    enum { MAX_W = 8192 };
+    static uint8_t row[MAX_W * 4];
+    AHardwareBuffer *ahb = NULL;
+    if (AImage_getHardwareBuffer(img, &ahb) != AMEDIA_OK || !ahb) return;
+    AImageCropRect c = {0, 0, g_amc_w, g_amc_h};
+    if (AImage_getCropRect(img, &c) != AMEDIA_OK || c.right <= c.left || c.bottom <= c.top) {
+        c.left = 0; c.top = 0; c.right = g_amc_w; c.bottom = g_amc_h;
+    }
+    int w = c.right - c.left, h = c.bottom - c.top;
+    if (w > MAX_W) return;
+    if (android_gl_bench_row_from_ahb(ahb, c.left, c.top + h / 2, w, row))
+        bench_latency_note_rgba_row(row, w, h, wall_us);
 }
 
 // amc_present_image shows a decoder image: straight to Vulkan when it can
