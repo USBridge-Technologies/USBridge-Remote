@@ -249,7 +249,7 @@ func InstallForkTree(t ForkTree, releaseDir string, callerUID int) (string, erro
 		return "", err
 	}
 	binPath := filepath.Join(tmp, t.Bin)
-	binSum, err := regularFileSHA256(binPath)
+	binSum, err := RegularFileSHA256(binPath)
 	if err != nil {
 		_ = os.RemoveAll(tmp)
 		return "", fmt.Errorf("%s has no %s: %w", t.Asset, t.Bin, err)
@@ -299,7 +299,8 @@ func writeRootFile(p, content string) error {
 	return os.Rename(tmp, p)
 }
 
-func regularFileSHA256(p string) (string, error) {
+// RegularFileSHA256 hashes a regular file (following no symlinks).
+func RegularFileSHA256(p string) (string, error) {
 	st, err := os.Lstat(p)
 	if err != nil {
 		return "", err

@@ -134,7 +134,15 @@ func buildStreamerLauncherInstallScript(src, wantSHA256, setcap string, uid int)
 // RustShine updates never need another grant.
 func (s *Service) InstallStreamerLauncher() bool {
 	if s.StreamerLauncherInstalled() && installedLauncherProtocol() >= streamerlaunch.Protocol && forkRuleInstalled() {
-		return true
+		src := bundledStreamerLauncher()
+		if src == "" {
+			return true
+		}
+		srcSum, err1 := streamerlaunch.RegularFileSHA256(src)
+		dstSum, err2 := streamerlaunch.RegularFileSHA256(streamerlaunch.InstallPath)
+		if err1 == nil && err2 == nil && srcSum == dstSum {
+			return true
+		}
 	}
 	src := bundledStreamerLauncher()
 	if src == "" {
@@ -182,6 +190,15 @@ func (s *Service) PriorityGranted() bool {
 	}
 	if installedLauncherProtocol() < streamerlaunch.PriorityMinProtocol {
 		return false
+	}
+	sunBin := streamerlaunch.SunshineBin
+	if st, err := os.Stat(sunBin); err == nil && st.Mode().IsRegular() {
+		out, _ := exec.Command(findCapTool("getcap"), sunBin).CombinedOutput()
+		if len(strings.TrimSpace(string(out))) > 0 {
+			// Sunshine must NOT carry file caps: it runs via ambient capabilities.
+			// File caps trigger AT_SECURE mode, disabling RUNPATH ($ORIGIN/../lib).
+			return false
+		}
 	}
 	vibeBin := streamerlaunch.VibepolloBin
 	if st, err := os.Stat(vibeBin); err == nil && st.Mode().IsRegular() {

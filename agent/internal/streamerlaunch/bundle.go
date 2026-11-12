@@ -55,12 +55,14 @@ const ReleasePublicKeyB64 = "ixB/m3G9UgxUrhQd2rVRzTBDvA/x9NjT1yTmUbUQl+0="
 // depending on something an older installed launcher can't do.
 const (
 	// Protocol 4 adds --grant-priority and CAP_SYS_NICE ambient/permitted propagation.
-	Protocol    = 4
+	// Protocol 5 fixes Sunshine by removing file capabilities (using ambient instead)
+	// and registering vibepollo's library directory in ld.so.conf.
+	Protocol    = 5
 	MinProtocol = 1
 	// VibepolloMinProtocol is the first launcher with --run-vibepollo and CAP_SYS_NICE.
-	VibepolloMinProtocol = 4
+	VibepolloMinProtocol = 5
 	// PriorityMinProtocol is the first launcher with --grant-priority.
-	PriorityMinProtocol = 4
+	PriorityMinProtocol = 5
 )
 
 // InstallDir/InstallPath/AllowedUIDsPath are fixed, root-owned locations

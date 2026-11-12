@@ -42,6 +42,27 @@ usbridge_usbip_configure() {
         { echo vhci-hcd > $USBRIDGE_VHCI_CONF; } 2>/dev/null || true
     fi
     modprobe vhci-hcd >/dev/null 2>&1 || true
+
+    # Update installed streamer launcher and capability states if runtime directory exists
+    if [ -d /usr/local/libexec/usbridge ]; then
+        if [ -f $USBRIDGE_LIBDIR/usbridge-streamer-launch ]; then
+            install -m 0755 $USBRIDGE_LIBDIR/usbridge-streamer-launch /usr/local/libexec/usbridge/usbridge-streamer-launch 2>/dev/null || true
+            setcap cap_sys_admin,cap_sys_nice=ep /usr/local/libexec/usbridge/usbridge-streamer-launch 2>/dev/null || true
+        fi
+        # Sunshine must NOT have file capabilities (ambient capabilities from launcher are used;
+        # file caps trigger AT_SECURE in glibc, breaking $ORIGIN/../lib RUNPATH and failing to load libminiupnpc)
+        if [ -f /usr/local/libexec/usbridge/sunshine/usr/bin/sunshine ]; then
+            setcap -r /usr/local/libexec/usbridge/sunshine/usr/bin/sunshine 2>/dev/null || true
+        fi
+        # Vibepollo needs cap_sys_admin,cap_sys_nice=p on its binary for startup capability sanitization
+        if [ -f /usr/local/libexec/usbridge/vibepollo/usr/bin/vibepollo ]; then
+            setcap cap_sys_admin,cap_sys_nice=p /usr/local/libexec/usbridge/vibepollo/usr/bin/vibepollo 2>/dev/null || true
+        fi
+        if [ -d /usr/local/libexec/usbridge/vibepollo/usr/lib ]; then
+            printf '/usr/local/libexec/usbridge/vibepollo/usr/lib\n' > /etc/ld.so.conf.d/usbridge-streamer.conf 2>/dev/null || true
+            ldconfig 2>/dev/null || true
+        fi
+    fi
     return 0
 }
 
