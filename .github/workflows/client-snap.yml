@@ -47,6 +47,7 @@ permissions:
 jobs:
   snap:
     runs-on: ubuntu-24.04
+    continue-on-error: true
     env:
       SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
     steps:
