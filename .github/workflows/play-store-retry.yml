@@ -1,0 +1,69 @@
+name: play-store-retry
+
+# Background retry workflow for Google Play Store upload.
+# Runs every 4 hours via cron, or on demand (workflow_dispatch).
+# Downloads the latest release's market .aab from GitHub and attempts to publish
+# it to Google Play Console. If Google Play was temporarily down, rejecting uploads,
+# or under review, this keeps trying automatically for days until it succeeds.
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish (leave empty for latest release)"
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  retry-play-store:
+    name: Retry Google Play Publication
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        id: gcp-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.PLAY_WIF_PROVIDER }}
+          service_account: ${{ secrets.PLAY_WIF_SERVICE_ACCOUNT }}
+
+      - name: Determine release tag and download market AAB
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ]; then
+            # Find the latest non-prerelease tag
+            tag="$(gh release list --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')"
+          fi
+          echo "Target release: $tag"
+          mkdir -p aab_dist
+          gh release download "$tag" --pattern 'USBridgeClient-Android-arm64-market-*.aab' --dir aab_dist
+          ls -la aab_dist/
+
+      - name: Publish to Google Play (production track)
+        id: play_upload
+        continue-on-error: true
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: ${{ steps.gcp-auth.outputs.credentials_file_path }}
+          packageName: io.usbridge.client
+          releaseFiles: aab_dist/USBridgeClient-Android-arm64-market-*.aab
+          track: production
+          status: completed
+          retention-days: 7
+
+      - name: Check result
+        run: |
+          if [ "${{ steps.play_upload.outcome }}" = "success" ]; then
+            echo "✓ Successfully published to Google Play!"
+          else
+            echo "::warning::Google Play upload attempt did not succeed yet. The next cron trigger in 4 hours will retry automatically."
+          fi

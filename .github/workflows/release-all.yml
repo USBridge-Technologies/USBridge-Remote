@@ -687,6 +687,9 @@ jobs:
         # prefixed "test-") — those should never auto-publish to real users.
         # The .aab still gets built and verified above either way; it's
         # just this one step, the actual Play Console upload, that's gated.
+        # continue-on-error ensures external store issues never block the GitHub release.
+        id: play_upload
+        continue-on-error: true
         if: ${{ !inputs.prerelease }}
         uses: r0adkll/upload-google-play@v1
         with:
@@ -696,6 +699,10 @@ jobs:
           track: production
           status: completed
           retention-days: 7
+
+      - name: Report Google Play upload status
+        if: ${{ !inputs.prerelease && steps.play_upload.outcome != 'success' }}
+        run: echo "::warning::Google Play upload failed or delayed; background retry workflow (play-store-retry.yml) will continue trying in background."
 
   client-macos:
     # macos-14 images are retired (brownouts cancel the job from October
