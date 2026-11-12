@@ -257,8 +257,13 @@ func InstallForkTree(t ForkTree, releaseDir string, callerUID int) (string, erro
 	setcap := FindCapTool("setcap")
 	if t.Name == "vibepollo" {
 		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=p", binPath).Run()
+		ldConf := "/etc/ld.so.conf.d/usbridge-streamer.conf"
+		ldContent := VibepolloDir + "/usr/lib\n"
+		if err := os.WriteFile(ldConf, []byte(ldContent), 0o644); err == nil {
+			_ = exec.Command("ldconfig").Run()
+		}
 	} else if t.Name == "sunshine" {
-		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=ep", binPath).Run()
+		_ = exec.Command(setcap, "-r", binPath).Run()
 	}
 	if err := CheckTreeRootOwned(tmp); err != nil {
 		_ = os.RemoveAll(tmp)

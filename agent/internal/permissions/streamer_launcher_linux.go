@@ -124,7 +124,8 @@ func buildStreamerLauncherInstallScript(src, wantSHA256, setcap string, uid int)
 		"chmod 0644 " + q(streamerlaunch.AllowedUIDsPath),
 		fmt.Sprintf("grep -qx %d %s || echo %d >> %s", uid, q(streamerlaunch.AllowedUIDsPath), uid, q(streamerlaunch.AllowedUIDsPath)),
 		"[ -f " + q(vibeBin) + " ] && " + q(setcap) + " cap_sys_admin,cap_sys_nice=p " + q(vibeBin) + " || true",
-		"[ -f " + q(sunBin) + " ] && " + q(setcap) + " cap_sys_admin,cap_sys_nice=ep " + q(sunBin) + " || true",
+		"[ -f " + q(sunBin) + " ] && " + q(setcap) + " -r " + q(sunBin) + " || true",
+		"printf '%s/usr/lib\\n' " + q(streamerlaunch.VibepolloDir) + " > /etc/ld.so.conf.d/usbridge-streamer.conf && ldconfig || true",
 	}, "\n")
 }
 

@@ -207,10 +207,20 @@ func grantPriority(extraPaths []string) {
 		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=p", vibeBin).Run()
 	}
 
-	// 3. Grant cap_sys_admin,cap_sys_nice=ep to sunshine binary if present
+	// 3. Sunshine does NOT use file capabilities: it inherits ambient CAP_SYS_ADMIN
+	// and CAP_SYS_NICE directly from the launcher. Setting file capabilities on
+	// sunshine causes glibc to enter AT_SECURE mode, disabling its RUNPATH ($ORIGIN/../lib)
+	// and failing to load bundled libraries (libminiupnpc.so.17). Remove any file caps on it.
 	sunBin := streamerlaunch.SunshineBin
 	if st, err := os.Stat(sunBin); err == nil && st.Mode().IsRegular() {
-		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=ep", sunBin).Run()
+		_ = exec.Command(setcap, "-r", sunBin).Run()
+	}
+
+	// 4. Configure ld.so so secure-mode loader finds vibepollo's bundled libraries
+	ldConf := "/etc/ld.so.conf.d/usbridge-streamer.conf"
+	ldContent := streamerlaunch.VibepolloDir + "/usr/lib\n"
+	if err := os.WriteFile(ldConf, []byte(ldContent), 0o644); err == nil {
+		_ = exec.Command("ldconfig").Run()
 	}
 
 	// 4. Any extra paths passed by the caller (e.g. punktfunk-host)
