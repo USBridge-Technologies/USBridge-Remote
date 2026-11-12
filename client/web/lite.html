@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
 <title>USBridge KVM Lite</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23c4e77a' d='M16 2L2 9l14 7 14-7-14-7zM2 23l14 7 14-7v-6l-14 7-14-7v6z'/%3E%3C/svg%3E">
+<link rel="shortcut icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23c4e77a' d='M16 2L2 9l14 7 14-7-14-7zM2 23l14 7 14-7v-6l-14 7-14-7v6z'/%3E%3C/svg%3E">
 <style>
 /* USBridge official dark palette (1:1 matching USBridge-Remote GUI) */
 :root {
@@ -412,6 +414,120 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   overflow-y: auto;
   white-space: pre-wrap;
 }
+
+/* Dashboard Columns (Devices Tab 2-column layout matching native client) */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 330px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.device-rows { display: flex; flex-direction: column; gap: 8px; }
+.device-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(43,49,54,0.4);
+  font-size: 13px;
+}
+.device-row:last-child { border-bottom: none; }
+.dev-name { display: flex; align-items: center; gap: 8px; color: #fff; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--input);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.badge.active { color: var(--teal); border-color: rgba(65,224,195,0.4); }
+
+/* App Bottom Status Indicator Bar / Footer (1:1 with native Fyne client) */
+#appFooter {
+  height: 28px;
+  background: var(--head);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+  z-index: 90;
+}
+.footer-left { display: flex; align-items: center; gap: 10px; }
+.footer-version { font-family: monospace; font-size: 11px; color: var(--dim); }
+.footer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+.footer-chip.running { color: var(--lime); border-color: rgba(196,231,122,0.4); }
+.footer-chip.done { color: var(--teal); border-color: rgba(65,224,195,0.4); }
+.footer-chip.error { color: var(--err); border-color: rgba(255,107,107,0.4); }
+
+.footer-right { display: flex; align-items: center; gap: 8px; }
+.footer-stat { font-family: monospace; font-size: 11px; color: var(--lime); }
+.footer-divider { width: 1px; height: 12px; background: var(--line); margin: 0 2px; }
+.footer-icon-group { display: flex; align-items: center; gap: 4px; }
+.footer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  color: var(--dim);
+  transition: all 0.15s;
+  cursor: default;
+}
+.footer-icon.active { color: var(--teal); }
+.footer-icon.green { color: var(--lime); }
+.footer-icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+/* Storage Progress Chip in Footer */
+.footer-storage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.footer-storage-chip:hover { border-color: var(--line-active); background: var(--panel-hover); }
+.footer-storage-chip svg { color: var(--muted); }
+.footer-storage-bar-wrap { width: 44px; height: 5px; background: #202428; border-radius: 2.5px; overflow: hidden; }
+.footer-storage-bar-fill { height: 100%; width: 0%; background: var(--teal); transition: width 0.3s; }
+.spinner-small {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(196,231,122,0.3);
+  border-top-color: var(--lime);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { 0%{transform:rotate(0deg);} 100%{transform:rotate(360deg);} }
 </style>
 </head>
 <body>
@@ -542,62 +658,160 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
       </div>
     </div>
 
-    <!-- TAB 2: Devices (Virtual Media / ISO, USB Gadgets, Storage) -->
+    <!-- TAB 2: Devices (1:1 layout with native Fyne client) -->
     <div class="tab-view" id="viewDevices">
       <div class="container-cards">
-        <!-- Card: Virtual CD-ROM & Mass Storage -->
-        <div class="card">
-          <div class="card-head">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-              <span>Virtual CD-ROM & Disk Drive</span>
-            </div>
-            <div id="mountStatusBadge" class="pill">Unmounted</div>
-          </div>
-          <div class="card-sub" id="storageSummary">Checking local storage…</div>
-
-          <!-- Upload ISO Section -->
-          <div style="background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
-            <div style="font-weight: 600; font-size: 13px;">Upload Image (ISO / IMG)</div>
-            <div style="display: flex; gap: 10px; align-items: center;">
-              <input type="file" id="devIsoFileInput" accept=".iso,.img,.bin" style="flex: 1; font-size: 13px; color: var(--muted);">
-              <button class="btn btn-primary" id="devUploadBtn" onclick="uploadDeviceISO()">Upload</button>
-            </div>
-            <div id="devUploadProgress" style="display: none;">
-              <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
-                <span id="devUploadLabel">Uploading…</span>
-                <span id="devUploadPct">0%</span>
+        <div class="dashboard-grid">
+          <!-- Left Column: Input Hub, Video Pipe, Audio Pipeline, Network -->
+          <div class="dashboard-col" style="display:flex; flex-direction:column; gap:16px;">
+            <!-- HID & Input Hub Card -->
+            <div class="card" style="padding:16px 18px;">
+              <div class="card-head" style="padding-bottom:10px;">
+                <div class="card-title" style="font-size:14px;">
+                  <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
+                  <span>HID & Input Hub</span>
+                </div>
               </div>
-              <div class="progress-wrap"><div class="progress-fill" id="devUploadBar"></div></div>
+              <div class="device-rows">
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot connected" id="devDotKb"></span><b>USB Keyboard</b></div>
+                  <span class="badge" id="devBadgeKb">Connected (Composite HID)</span>
+                </div>
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot connected" id="devDotMouse"></span><b>USB Mouse</b></div>
+                  <span class="badge" id="devBadgeMouse">Connected (Composite HID)</span>
+                </div>
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot" id="devDotGamepad"></span><b>USB Gamepad</b></div>
+                  <span class="badge" id="devBadgeGamepad">Standby (Direct Mode)</span>
+                </div>
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot" id="devDotPen"></span><b>Pen Tablet</b></div>
+                  <span class="badge">Absolute Pointing</span>
+                </div>
+              </div>
+              <div style="display:flex; gap:8px; margin-top:8px;">
+                <button class="btn btn-secondary" style="flex:1; padding:6px 10px; font-size:12px;" onclick="requestPointerLockDirect()">Lock Pointer</button>
+                <button class="btn btn-secondary" style="flex:1; padding:6px 10px; font-size:12px;" onclick="sendShortcut('cad')">Ctrl+Alt+Del</button>
+              </div>
+            </div>
+
+            <!-- Video Pipe & EDID Card -->
+            <div class="card" style="padding:16px 18px;">
+              <div class="card-head" style="padding-bottom:10px;">
+                <div class="card-title" style="font-size:14px;">
+                  <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                  <span>Video Pipe & EDID</span>
+                </div>
+              </div>
+              <div class="device-rows">
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot connected"></span><b>Capture Pipeline</b></div>
+                  <span class="badge" style="color:var(--teal);">Hardware HDMI</span>
+                </div>
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot connected"></span><b>Stream Encoder</b></div>
+                  <span class="badge" id="devEncoderLabel">Hardware H.264</span>
+                </div>
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot connected"></span><b>Active Resolution</b></div>
+                  <span class="badge" id="devResolutionLabel">1920x1080 @ 60 FPS</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Audio Pipeline Card -->
+            <div class="card" style="padding:16px 18px;">
+              <div class="card-head" style="padding-bottom:10px;">
+                <div class="card-title" style="font-size:14px;">
+                  <svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                  <span>Audio Pipeline</span>
+                </div>
+              </div>
+              <div class="device-rows">
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot connected" id="devDotAudio"></span><b>USB Audio Codec</b></div>
+                  <span class="badge" id="devBadgeAudio">UAC2 Active</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Network & System Card -->
+            <div class="card" style="padding:16px 18px;">
+              <div class="card-head" style="padding-bottom:10px;">
+                <div class="card-title" style="font-size:14px;">
+                  <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                  <span>Network (RNDIS)</span>
+                </div>
+              </div>
+              <div class="device-rows">
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot connected" id="devDotRndis"></span><b>USB Ethernet</b></div>
+                  <span class="badge" id="devBadgeRndis">10.55.0.1 (Setup Network)</span>
+                </div>
+              </div>
             </div>
           </div>
 
-          <!-- Stored Images List -->
-          <div>
-            <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px;">Images on Device</div>
-            <table class="data-table">
-              <thead>
-                <tr><th>Image Name</th><th>Size</th><th>Action</th></tr>
-              </thead>
-              <tbody id="deviceImagesTableBody">
-                <tr><td colspan="3" style="color:var(--dim); text-align:center;">Loading images…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+          <!-- Right Column: Virtual Mass Storage & ISO Media -->
+          <div class="dashboard-col" style="display:flex; flex-direction:column; gap:16px;">
+            <div class="card" style="padding:20px 22px;">
+              <div class="card-head">
+                <div class="card-title">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span>Virtual Mass Storage & ISO Media</span>
+                </div>
+                <div id="mountStatusBadge" class="pill">No Disk Mounted</div>
+              </div>
 
-        <!-- Card: HID & Input Hub -->
-        <div class="card">
-          <div class="card-head">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
-              <span>HID & Input Hub</span>
+              <!-- Storage capacity bar -->
+              <div style="background:var(--input); border:1px solid var(--line); border-radius:8px; padding:12px 14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-size:12px; font-weight:600; color:var(--text);" id="storageSummary">SD Card Storage</span>
+                  <span style="font-size:12px; font-family:monospace; color:var(--teal);" id="storagePercentText">--% Used</span>
+                </div>
+                <div class="progress-wrap"><div class="progress-fill" id="storageSummaryBar" style="width: 0%;"></div></div>
+                <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:6px;">
+                  <span id="storageUsedDetail">Used: --</span>
+                  <span id="storageFreeDetail">Free: --</span>
+                </div>
+              </div>
+
+              <!-- Upload ISO Section -->
+              <div style="background:var(--input); border:1px solid var(--line); border-radius:8px; padding:14px; display:flex; flex-direction:column; gap:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-weight:600; font-size:13px;">Upload Image (ISO / IMG)</span>
+                  <span style="font-size:11px; color:var(--muted);">Stores on SD card (/mnt/emmc/iso)</span>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                  <input type="file" id="devIsoFileInput" accept=".iso,.img,.bin" style="flex:1; font-size:13px; color:var(--muted);">
+                  <button class="btn btn-primary" id="devUploadBtn" onclick="uploadDeviceISO()">Upload</button>
+                </div>
+                <div id="devUploadProgress" style="display:none;">
+                  <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                    <span id="devUploadLabel">Uploading…</span>
+                    <span id="devUploadPct">0%</span>
+                  </div>
+                  <div class="progress-wrap"><div class="progress-fill" id="devUploadBar"></div></div>
+                </div>
+              </div>
+
+              <!-- Stored Images List -->
+              <div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                  <div style="font-weight:600; font-size:13px;">Images on Device</div>
+                  <button class="btn btn-secondary" style="padding:3px 10px; font-size:11px;" onclick="loadDevicesTab()">Refresh</button>
+                </div>
+                <table class="data-table">
+                  <thead>
+                    <tr><th>Image / Volume Name</th><th>Size</th><th>Format</th><th>Status</th><th>Action</th></tr>
+                  </thead>
+                  <tbody id="deviceImagesTableBody">
+                    <tr><td colspan="5" style="color:var(--dim); text-align:center;">Loading images…</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-          <p class="card-sub">Hardware keyboard and mouse emulation running via Linux OTG USB Gadget.</p>
-          <div style="display:flex; gap:12px;">
-            <button class="btn btn-secondary" onclick="requestPointerLockDirect()">Capture Cursor (Pointer Lock)</button>
-            <button class="btn btn-secondary" onclick="sendShortcut('cad')">Send Ctrl+Alt+Del</button>
           </div>
         </div>
       </div>
@@ -612,15 +826,32 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
               <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
               <span>SD Card & System Snapshots</span>
             </div>
-            <button class="btn btn-primary" onclick="createSnapshot()">+ Create Snapshot</button>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-secondary" onclick="loadSnapshotsTab()">Refresh</button>
+              <button class="btn btn-primary" onclick="createSnapshot()">+ Create Snapshot</button>
+            </div>
           </div>
-          <p class="card-sub">Create restore points and backups of the KVM rootfs and user configuration.</p>
+          <p class="card-sub">Create restore points and instant Btrfs snapshots of the KVM rootfs and user configuration.</p>
+
+          <!-- Storage capacity info box -->
+          <div style="background:var(--input); border:1px solid var(--line); border-radius:8px; padding:12px 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span style="font-size:12px; font-weight:600; color:var(--text);" id="snapshotStorageSummary">Storage Space</span>
+              <span style="font-size:12px; font-family:monospace; color:var(--teal);" id="snapshotStoragePercentText">--%</span>
+            </div>
+            <div class="progress-wrap"><div class="progress-fill" id="snapshotStorageBar" style="width: 0%;"></div></div>
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:6px;">
+              <span id="snapshotStorageUsed">Used: --</span>
+              <span id="snapshotStorageFree">Free: --</span>
+            </div>
+          </div>
+
           <table class="data-table">
             <thead>
-              <tr><th>Snapshot ID / Version</th><th>Timestamp</th><th>Action</th></tr>
+              <tr><th>Snapshot ID / Date</th><th>Size</th><th>Status</th><th>Action</th></tr>
             </thead>
             <tbody id="snapshotsTableBody">
-              <tr><td colspan="3" style="color:var(--dim); text-align:center;">Loading snapshots…</td></tr>
+              <tr><td colspan="4" style="color:var(--dim); text-align:center;">Loading snapshots…</td></tr>
             </tbody>
           </table>
         </div>
@@ -637,18 +868,77 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
               <span>Automation Scripts</span>
             </div>
             <div style="display:flex; gap:8px;">
-              <button class="btn btn-secondary" onclick="loadScripts()">Refresh</button>
-              <button class="btn btn-secondary" onclick="stopScript()">Stop Running</button>
+              <button class="btn btn-secondary" onclick="loadScriptsTab()">Refresh</button>
+              <button class="btn btn-secondary" style="color:var(--err);" onclick="stopScript()">Stop Running</button>
             </div>
           </div>
-          <p class="card-sub">Run Starlark automation scripts on the KVM device.</p>
-          <div id="scriptsList" style="display:flex; flex-direction:column; gap:8px;"></div>
-          <div style="font-weight: 600; font-size: 13px; margin-top: 10px;">Execution Log</div>
+          <p class="card-sub">Run Starlark automation scripts on the KVM device (automated BIOS entry, terminal installers, benchmark macros).</p>
+
+          <div id="scriptsList" style="display:flex; flex-direction:column; gap:8px;">
+            <div style="color:var(--dim); font-size:13px;">Loading scripts…</div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; border-top:1px solid var(--line); padding-top:12px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-weight:600; font-size:13px;">Execution Log</span>
+              <span class="badge" id="scriptStatusBadge" style="background:#172105; color:var(--lime); border:1px solid rgba(196,231,122,0.3);">Idle</span>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-secondary" style="padding:3px 10px; font-size:11px;" id="copyLogBtn" onclick="copyScriptLog()">Copy Log</button>
+              <button class="btn btn-secondary" style="padding:3px 10px; font-size:11px;" onclick="clearScriptLog()">Clear</button>
+            </div>
+          </div>
           <div class="log-box" id="scriptLogBox">No script running.</div>
         </div>
       </div>
     </div>
   </main>
+
+  <!-- Fixed Bottom Status Indicator Footer (1:1 with native Fyne client) -->
+  <footer id="appFooter">
+    <div class="footer-left">
+      <span class="footer-version">USBridge Lite v0.9.12</span>
+      <div id="footerScriptStatus" class="footer-chip" style="display:none;" onclick="switchTab('scripts')" title="Automation Script Status">
+        <span class="spinner-small" id="footerScriptSpinner"></span>
+        <span id="footerScriptLabel">running script</span>
+      </div>
+    </div>
+    <div class="footer-right">
+      <div class="footer-stat" id="footerStreamStats">-- FPS · --x--</div>
+      <div class="footer-divider"></div>
+      <div class="footer-icon-group">
+        <span class="footer-icon" id="fIconAudio" title="Audio Pipeline">
+          <svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        </span>
+        <span class="footer-icon" id="fIconRndis" title="USB Ethernet / RNDIS (Setup Network)">
+          <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        </span>
+        <span class="footer-icon" id="fIconKeyboard" title="USB Keyboard">
+          <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
+        </span>
+        <span class="footer-icon" id="fIconMouse" title="USB Mouse">
+          <svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></svg>
+        </span>
+        <span class="footer-icon" id="fIconGamepad" title="USB Gamepad">
+          <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h2M16 10v2"/></svg>
+        </span>
+        <span class="footer-icon" id="fIconCdrom" title="Virtual CD-ROM / Mass Storage">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+        </span>
+        <span class="footer-icon" id="fIconSnapshot" title="Snapshots">
+          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+        </span>
+      </div>
+      <div class="footer-divider"></div>
+      <div class="footer-storage-chip" id="footerStorageChip" onclick="switchTab('devices')" title="SD Card Storage: Click to open Devices">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-4-4H6a2 2 0 0 0-2 2z"/><line x1="8" y1="4" x2="8" y2="8"/><line x1="12" y1="4" x2="12" y2="8"/><line x1="16" y1="4" x2="16" y2="8"/></svg>
+        <div class="footer-storage-bar-wrap">
+          <div class="footer-storage-bar-fill" id="footerStorageBarFill" style="width: 0%;"></div>
+        </div>
+        <span id="footerStorageText" style="font-size:11px; font-family:monospace; color:var(--text);">-- / -- GB</span>
+      </div>
+    </div>
+  </footer>
 </div>
 
 <!-- Modal: Connection Dialog (1:1 with native Fyne showConnectionEditorDialog) -->
@@ -2151,60 +2441,167 @@ onmessage = (e) => {
 
   window.openSetupNet = function() { window.open('http://10.55.0.1/', '_blank'); };
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   // --- TAB: Devices (ISO, Mounting, Storage) ---
   async function loadDevicesTab() {
     var tb = document.getElementById('deviceImagesTableBody');
     var badge = document.getElementById('mountStatusBadge');
-    var summ = document.getElementById('storageSummary');
 
-    try {
-      var status = await api('GET', '/api/device/status');
-      if (status && status.mounted) {
-        badge.textContent = 'Mounted: ' + (status.image || 'Attached');
-        badge.className = 'pill active';
-      } else {
-        badge.textContent = 'No disk mounted';
-        badge.className = 'pill';
-      }
-    } catch(e) {}
-
+    // 1. Storage Status (SD card / eMMC partition)
     try {
       var space = await api('GET', '/api/storage/status');
-      if (space && space.sdcard) {
-        summ.textContent = 'SD Card: ' + (space.sdcard.free_gb || '0') + ' GB free / ' + (space.sdcard.total_gb || '0') + ' GB total';
+      var storage = (space && (space.boot_device_is_sd || !space.sdcard || !space.sdcard.mounted)) ? space.emmc : (space ? space.sdcard : null);
+      if (storage && storage.total > 0) {
+        var freeStr = storage.free_human || (storage.free ? (storage.free / 1073741824).toFixed(1) + ' GB' : '--');
+        var totalStr = storage.total_human || (storage.total ? (storage.total / 1073741824).toFixed(1) + ' GB' : '--');
+        var usedStr = storage.used_human || (storage.used ? (storage.used / 1073741824).toFixed(1) + ' GB' : '--');
+        var pct = storage.percent !== undefined ? storage.percent : (storage.used && storage.total ? (storage.used / storage.total * 100) : 0);
+
+        document.getElementById('storageSummary').textContent = 'SD Card: ' + freeStr + ' free / ' + totalStr + ' total';
+        document.getElementById('storagePercentText').textContent = pct.toFixed(1) + '% Used';
+        document.getElementById('storageSummaryBar').style.width = Math.min(100, Math.max(0, pct)) + '%';
+        document.getElementById('storageUsedDetail').textContent = 'Used: ' + usedStr;
+        document.getElementById('storageFreeDetail').textContent = 'Free: ' + freeStr;
+
+        // Also update footer chip
+        var fText = document.getElementById('footerStorageText');
+        var fBar = document.getElementById('footerStorageBarFill');
+        if (fText) fText.textContent = usedStr + ' / ' + totalStr;
+        if (fBar) fBar.style.width = Math.min(100, Math.max(0, pct)) + '%';
+      }
+    } catch(e) {
+      console.warn('Storage status query failed:', e);
+    }
+
+    // 2. Hardware Peripherals Status
+    try {
+      var devInfo = await api('GET', '/api/device/info');
+      if (devInfo && devInfo.devices) {
+        var hasKb = false, hasMouse = false, hasRndis = false, hasCdrom = false, hasGamepad = false;
+        devInfo.devices.forEach(function(d) {
+          if (d.status === 'connected') {
+            if (d.type === 'keyboard') hasKb = true;
+            if (d.type === 'mouse') hasMouse = true;
+            if (d.type && d.type.indexOf('rndis') !== -1) hasRndis = true;
+            if (d.type === 'storage' || d.type === 'cdrom') hasCdrom = true;
+            if (d.type === 'gamepad') hasGamepad = true;
+          }
+        });
+        updateDevIndicator('devDotKb', 'devBadgeKb', hasKb, 'Connected (Composite HID)', 'Disconnected');
+        updateDevIndicator('devDotMouse', 'devBadgeMouse', hasMouse, 'Connected (Composite HID)', 'Disconnected');
+        updateDevIndicator('devDotGamepad', 'devBadgeGamepad', hasGamepad, 'Connected (Direct Mode)', 'Standby');
+        updateDevIndicator('devDotRndis', 'devBadgeRndis', hasRndis, '10.55.0.1 (Setup Network)', 'Offline');
+
+        setIndicator('fIconKeyboard', hasKb, 'green');
+        setIndicator('fIconMouse', hasMouse, 'green');
+        setIndicator('fIconRndis', hasRndis, 'teal');
+        setIndicator('fIconCdrom', hasCdrom, 'teal');
+        setIndicator('fIconGamepad', hasGamepad, 'teal');
+        setIndicator('fIconAudio', true, 'teal');
       }
     } catch(e) {}
 
+    // 3. Local drives & ISO images
     try {
-      var drives = await api('GET', '/api/drives/local');
+      var drivesResp = await api('GET', '/api/drives/local');
       tb.innerHTML = '';
-      if (!drives || !drives.length) {
-        tb.innerHTML = '<tr><td colspan="3" style="color:var(--dim); text-align:center;">No images found. Upload an ISO above.</td></tr>';
-        return;
+      var list = (drivesResp && Array.isArray(drivesResp.drives)) ? drivesResp.drives :
+                 (Array.isArray(drivesResp) ? drivesResp : []);
+
+      var anyMounted = false;
+      if (!list || !list.length) {
+        tb.innerHTML = '<tr><td colspan="5" style="color:var(--dim); text-align:center; padding:18px;">No images stored on device. Upload an ISO or IMG file above.</td></tr>';
+      } else {
+        list.forEach(function(d) {
+          var tr = document.createElement('tr');
+          var fname = d.name || d.filename || 'drive';
+          var size = d.size_human || (d.size ? (d.size / 1048576).toFixed(1) + ' MB' : '-');
+          var format = d.file_type || (fname.toLowerCase().endsWith('.img') ? 'IMG' : 'ISO');
+          var isMounted = !!d.is_mounted;
+          if (isMounted) anyMounted = true;
+
+          var mountActionBtn = isMounted ?
+            '<button class="btn btn-secondary" style="padding:2px 8px; font-size:11px; color:var(--alert); border-color:var(--alert); margin-right:6px;" onclick="unmountDrive()">Disconnect</button>' :
+            '<button class="btn btn-primary" style="padding:2px 8px; font-size:11px; margin-right:6px;" onclick="mountDrive(\'' + escapeHtml(d.source_path || fname) + '\', \'' + format + '\')">Mount</button>';
+
+          var deleteBtn = (format !== 'MTP' && d.source_type !== 'mtp') ?
+            '<button class="btn btn-secondary" style="padding:2px 8px; font-size:11px; color:var(--err);" title="Delete file" onclick="deleteISO(\'' + escapeHtml(fname) + '\')">&times;</button>' : '';
+
+          tr.innerHTML = '<td><b>' + escapeHtml(fname) + '</b></td>' +
+            '<td style="color:var(--muted); font-family:monospace;">' + size + '</td>' +
+            '<td><span class="badge">' + format + '</span></td>' +
+            '<td>' + (isMounted ? '<span class="badge active" style="color:var(--teal);">Mounted</span>' : '<span class="badge">Unmounted</span>') + '</td>' +
+            '<td>' + mountActionBtn + deleteBtn + '</td>';
+          tb.appendChild(tr);
+        });
       }
-      drives.forEach(function(d) {
-        var tr = document.createElement('tr');
-        var fname = d.name || d.filename;
-        var size = d.size_mb ? (d.size_mb + ' MB') : (d.size ? Math.round(d.size/1048576) + ' MB' : '-');
-        tr.innerHTML = '<td><b>' + fname + '</b></td>' +
-          '<td style="color:var(--muted);">' + size + '</td>' +
-          '<td>' +
-            '<button class="btn btn-secondary" style="padding:2px 8px; font-size:11px; margin-right:6px;" onclick="mountISO(\'' + fname + '\')">Mount</button>' +
-            '<button class="btn btn-secondary" style="padding:2px 8px; font-size:11px; color:var(--err);" onclick="deleteISO(\'' + fname + '\')">&times;</button>' +
-          '</td>';
-        tb.appendChild(tr);
-      });
+
+      if (badge) {
+        if (anyMounted) {
+          badge.textContent = 'Drive Mounted';
+          badge.className = 'pill active';
+          setIndicator('fIconCdrom', true, 'teal');
+        } else {
+          badge.textContent = 'No Disk Mounted';
+          badge.className = 'pill';
+          setIndicator('fIconCdrom', false, 'teal');
+        }
+      }
     } catch(e) {
-      tb.innerHTML = '<tr><td colspan="3" style="color:var(--err); text-align:center;">Failed: ' + e.message + '</td></tr>';
+      tb.innerHTML = '<tr><td colspan="5" style="color:var(--err); text-align:center;">Failed to list devices: ' + escapeHtml(e.message) + '</td></tr>';
     }
   }
 
-  window.mountISO = async function(fname) {
+  function updateDevIndicator(dotId, badgeId, isOnline, onlineText, offlineText) {
+    var dot = document.getElementById(dotId);
+    var badge = document.getElementById(badgeId);
+    if (dot) {
+      dot.className = isOnline ? 'status-dot connected' : 'status-dot disconnected';
+    }
+    if (badge) {
+      badge.textContent = isOnline ? onlineText : offlineText;
+      badge.className = isOnline ? 'badge active' : 'badge';
+    }
+  }
+
+  function setIndicator(id, active, activeColor) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (active) {
+      el.classList.add('active');
+      if (activeColor === 'green') el.classList.add('green');
+    } else {
+      el.classList.remove('active', 'green');
+    }
+  }
+
+  window.mountDrive = async function(sourcePath, fileType) {
     try {
-      await api('POST', '/api/device/start', { iso_path: '/mnt/sdcard/' + fname, mode: 'cdrom' });
-      alert('Mounted: ' + fname);
-      loadDevicesTab();
+      var isMtp = fileType === 'MTP' || (sourcePath && sourcePath.indexOf('/data') !== -1);
+      await api('POST', '/api/device/start', {
+        devices: [
+          {
+            device: isMtp ? 'mtp' : 'drive',
+            type: isMtp ? 'mtp' : 'cdrom',
+            server: sourcePath,
+            read_only: !isMtp
+          }
+        ],
+        merge: true
+      });
+      setTimeout(loadDevicesTab, 600);
     } catch(e) { alert('Mount failed: ' + e.message); }
+  };
+
+  window.unmountDrive = async function() {
+    try {
+      await api('POST', '/api/device/stop', {});
+      setTimeout(loadDevicesTab, 600);
+    } catch(e) { alert('Disconnect failed: ' + e.message); }
   };
 
   window.deleteISO = async function(fname) {
@@ -2270,26 +2667,44 @@ onmessage = (e) => {
     xhr.send(fd);
   };
 
-  // --- TAB: Snapshots ---
+  // --- TAB: Snapshots (POST /api/backup/get_snapshots) ---
   async function loadSnapshotsTab() {
     var tb = document.getElementById('snapshotsTableBody');
-    tb.innerHTML = '<tr><td colspan="3" style="color:var(--dim); text-align:center;">Loading snapshots…</td></tr>';
+    tb.innerHTML = '<tr><td colspan="4" style="color:var(--dim); text-align:center;">Loading snapshots…</td></tr>';
     try {
-      var list = await api('GET', '/api/backup/get_snapshots');
+      var resp = await api('POST', '/api/backup/get_snapshots', {});
       tb.innerHTML = '';
+      if (resp && resp.disk_total_human) {
+        var sumText = 'SD Card: ' + (resp.disk_free_human || '--') + ' free / ' + (resp.disk_total_human || '--') + ' total';
+        document.getElementById('snapshotStorageSummary').textContent = sumText;
+        var usedPct = resp.disk_total ? Math.round((resp.disk_used / resp.disk_total) * 100) : 0;
+        document.getElementById('snapshotStoragePercentText').textContent = usedPct + '% Used';
+        document.getElementById('snapshotStorageBar').style.width = usedPct + '%';
+        document.getElementById('snapshotStorageUsed').textContent = 'Used: ' + (resp.disk_used_human || '--');
+        document.getElementById('snapshotStorageFree').textContent = 'Free: ' + (resp.disk_free_human || '--');
+      }
+      var list = resp && Array.isArray(resp.snapshots) ? resp.snapshots : [];
       if (!list || !list.length) {
-        tb.innerHTML = '<tr><td colspan="3" style="color:var(--dim); text-align:center;">No snapshots saved. Press "+ Create Snapshot" to create one.</td></tr>';
+        tb.innerHTML = '<tr><td colspan="4" style="color:var(--dim); text-align:center; padding:24px;">No snapshots saved. Press "+ Create Snapshot" to create a new restore point.</td></tr>';
         return;
       }
       list.forEach(function(s) {
         var tr = document.createElement('tr');
-        tr.innerHTML = '<td><b>' + (s.version || s.name || s.id) + '</b></td>' +
-          '<td style="color:var(--muted);">' + (s.created_at || s.timestamp || '-') + '</td>' +
-          '<td><button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="alert(\'Snapshot restore ready\')">Restore</button></td>';
+        var name = s.name || s.version || s.id || 'Snapshot';
+        var size = s.size_human || (s.size ? (s.size / 1048576).toFixed(1) + ' MB' : '-');
+        var date = s.date || (s.timestamp ? new Date(s.timestamp * 1000).toLocaleString() : '-');
+        var isMounted = !!s.connected;
+
+        tr.innerHTML = '<td><b>' + escapeHtml(name) + '</b><div style="font-size:11px; color:var(--muted);">' + escapeHtml(date) + '</div></td>' +
+          '<td style="color:var(--muted); font-family:monospace;">' + size + '</td>' +
+          '<td>' + (isMounted ? '<span class="badge active" style="color:var(--teal);">Mounted</span>' : '<span class="badge">Saved</span>') + '</td>' +
+          '<td>' +
+            '<button class="btn btn-secondary" style="padding:2px 10px; font-size:11px;" onclick="toggleMountSnapshot(\'' + escapeHtml(name) + '\', ' + isMounted + ')">' + (isMounted ? 'Unmount' : 'Mount') + '</button>' +
+          '</td>';
         tb.appendChild(tr);
       });
     } catch(e) {
-      tb.innerHTML = '<tr><td colspan="3" style="color:var(--dim); text-align:center;">Snapshots service: ' + e.message + '</td></tr>';
+      tb.innerHTML = '<tr><td colspan="4" style="color:var(--err); text-align:center;">Snapshots service: ' + escapeHtml(e.message) + '</td></tr>';
     }
   }
 
@@ -2302,54 +2717,216 @@ onmessage = (e) => {
     } catch(e) { alert('Failed to create snapshot: ' + e.message); }
   };
 
-  // --- TAB: Scripts ---
+  window.toggleMountSnapshot = async function(name, currentlyMounted) {
+    try {
+      if (currentlyMounted) {
+        await api('POST', '/api/device/stop', {});
+      } else {
+        await api('POST', '/api/device/start', {
+          devices: [{ device: 'drive', type: 'backup', server: '/mnt/emmc/backup/' + name, read_only: true }],
+          merge: true
+        });
+      }
+      setTimeout(loadSnapshotsTab, 600);
+    } catch(e) { alert('Snapshot action failed: ' + e.message); }
+  };
+
+  // --- TAB: Scripts (Automation) ---
+  var activeScriptPath = '';
+  var scriptLogInterval = null;
+
   async function loadScriptsTab() {
     var box = document.getElementById('scriptsList');
     box.innerHTML = '<div style="color:var(--dim); font-size:13px;">Loading scripts…</div>';
     try {
       var scripts = await api('GET', '/api/scripts/list');
       box.innerHTML = '';
-      if (!scripts || !scripts.length) {
-        box.innerHTML = '<div style="color:var(--dim); font-size:13px;">No automation scripts installed.</div>';
+      var list = Array.isArray(scripts) ? scripts : (scripts && scripts.scripts ? scripts.scripts : []);
+      if (!list || !list.length) {
+        box.innerHTML = '<div style="color:var(--dim); font-size:13px; padding:12px;">No automation scripts installed on /mnt/emmc/scripts or /mnt/sdcard/scripts.</div>';
         return;
       }
-      scripts.forEach(function(sc) {
+      list.forEach(function(sc) {
+        var name = sc.Name || sc.name || 'Script';
+        var path = sc.Path || sc.path || '';
+        var desc = sc.Description || sc.desc || sc.description || '';
+
         var row = document.createElement('div');
-        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:var(--input); border:1px solid var(--line); border-radius:6px; padding:10px 12px;';
-        row.innerHTML = '<span><b>' + (sc.name || sc) + '</b></span>' +
-          '<button class="btn btn-primary" style="padding:4px 12px; font-size:12px;" onclick="runScript(\'' + (sc.name || sc) + '\')">Run</button>';
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:var(--input); border:1px solid var(--line); border-radius:6px; padding:10px 14px; gap:12px;';
+        row.innerHTML = '<div style="flex:1;">' +
+          '<div style="font-weight:600; font-size:13px; color:var(--text);">' + escapeHtml(name) + '</div>' +
+          (desc ? '<div style="font-size:12px; color:var(--muted); margin-top:2px;">' + escapeHtml(desc) + '</div>' : '') +
+          '<div style="font-size:11px; font-family:monospace; color:var(--dim); margin-top:2px;">' + escapeHtml(path) + '</div>' +
+        '</div>' +
+        '<div style="display:flex; gap:6px; flex-shrink:0;">' +
+          '<button class="btn btn-secondary" style="padding:4px 10px; font-size:11px;" onclick="viewScriptLog(\'' + encodeURIComponent(path) + '\')">Log</button>' +
+          '<button class="btn btn-primary" style="padding:4px 14px; font-size:12px;" onclick="runScript(\'' + encodeURIComponent(path) + '\')">▶ Run</button>' +
+        '</div>';
         box.appendChild(row);
       });
     } catch(e) {
-      box.innerHTML = '<div style="color:var(--err); font-size:13px;">Failed: ' + e.message + '</div>';
+      box.innerHTML = '<div style="color:var(--err); font-size:13px;">Failed: ' + escapeHtml(e.message) + '</div>';
     }
   }
 
-  window.runScript = async function(name) {
+  window.runScript = async function(encodedPath) {
+    var path = decodeURIComponent(encodedPath);
+    activeScriptPath = path;
     var logBox = document.getElementById('scriptLogBox');
-    logBox.textContent = 'Running ' + name + '…\n';
+    var badge = document.getElementById('scriptStatusBadge');
+    badge.textContent = 'Running';
+    badge.style.color = 'var(--lime)';
+    logBox.textContent = 'Starting ' + path + '…\n';
     try {
-      await api('POST', '/api/scripts/run', { name: name });
-      pollScriptLog();
+      await api('POST', '/api/scripts/run', { path: path });
+      startScriptLogPolling(path);
+      updateFooterScriptStatus('running', 'running script');
     } catch(e) {
-      logBox.textContent += 'Error: ' + e.message;
+      badge.textContent = 'Error';
+      badge.style.color = 'var(--err)';
+      logBox.textContent += 'Error starting script: ' + e.message + '\n';
+      updateFooterScriptStatus('error', 'error script');
     }
   };
 
   window.stopScript = async function() {
     try {
-      await api('POST', '/api/scripts/stop', {});
-      alert('Script stopped.');
+      await api('POST', '/api/scripts/stop', { path: activeScriptPath || '' });
+      var badge = document.getElementById('scriptStatusBadge');
+      badge.textContent = 'Stopped';
+      badge.style.color = 'var(--muted)';
+      var logBox = document.getElementById('scriptLogBox');
+      logBox.textContent += '\n--- Script stopped by user ---\n';
+      updateFooterScriptStatus('idle');
+      if (scriptLogInterval) clearInterval(scriptLogInterval);
     } catch(e) { alert('Stop failed: ' + e.message); }
   };
 
-  async function pollScriptLog() {
+  window.viewScriptLog = function(encodedPath) {
+    var path = decodeURIComponent(encodedPath);
+    activeScriptPath = path;
+    startScriptLogPolling(path);
+  };
+
+  function startScriptLogPolling(path) {
+    if (scriptLogInterval) clearInterval(scriptLogInterval);
+    pollScriptLog(path);
+    scriptLogInterval = setInterval(function() { pollScriptLog(path); }, 1000);
+  }
+
+  async function pollScriptLog(path) {
     var logBox = document.getElementById('scriptLogBox');
+    var badge = document.getElementById('scriptStatusBadge');
     try {
-      var log = await api('GET', '/api/scripts/log');
-      if (log && log.output) logBox.textContent = log.output;
+      var log = await api('GET', '/api/scripts/log?path=' + encodeURIComponent(path) + '&offset=0');
+      if (log && log.lines && log.lines.length) {
+        logBox.textContent = log.lines.join('\n');
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+      var statuses = await api('GET', '/api/scripts/status');
+      var isRunning = false, hasError = '';
+      if (Array.isArray(statuses)) {
+        statuses.forEach(function(st) {
+          if (st.Path === path || st.path === path) {
+            if (st.Running || st.running) isRunning = true;
+            if (st.Error || st.error) hasError = st.Error || st.error;
+          }
+        });
+      }
+      if (isRunning) {
+        badge.textContent = 'Running';
+        badge.style.color = 'var(--lime)';
+        updateFooterScriptStatus('running', 'running script');
+      } else if (hasError) {
+        badge.textContent = 'Error: ' + hasError;
+        badge.style.color = 'var(--err)';
+        updateFooterScriptStatus('error', 'error script');
+        clearInterval(scriptLogInterval);
+      } else {
+        badge.textContent = 'Finished';
+        badge.style.color = 'var(--teal)';
+        updateFooterScriptStatus('done', 'done script');
+        clearInterval(scriptLogInterval);
+      }
     } catch(e) {}
   }
+
+  window.copyScriptLog = function() {
+    var text = document.getElementById('scriptLogBox').textContent;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text);
+      var btn = document.getElementById('copyLogBtn');
+      var oldText = btn.textContent;
+      btn.textContent = 'Copied!';
+      btn.style.color = 'var(--lime)';
+      setTimeout(function() { btn.textContent = oldText; btn.style.color = ''; }, 1500);
+    }
+  };
+
+  window.clearScriptLog = function() {
+    document.getElementById('scriptLogBox').textContent = '';
+    document.getElementById('scriptStatusBadge').textContent = 'Idle';
+    document.getElementById('scriptStatusBadge').style.color = 'var(--muted)';
+  };
+
+  function updateFooterScriptStatus(kind, labelText) {
+    var chip = document.getElementById('footerScriptStatus');
+    var label = document.getElementById('footerScriptLabel');
+    var spinner = document.getElementById('footerScriptSpinner');
+    if (!chip) return;
+
+    if (kind === 'idle') {
+      chip.style.display = 'none';
+      return;
+    }
+    chip.style.display = 'inline-flex';
+    chip.className = 'footer-chip ' + kind;
+    if (label) label.textContent = labelText || kind;
+    if (spinner) {
+      spinner.style.display = kind === 'running' ? 'inline-block' : 'none';
+    }
+  }
+
+  // --- Periodic Hardware Status Poller (every 3 seconds) ---
+  async function pollHardwareStatus() {
+    if (!state.masterKey) return;
+    try {
+      var devInfo = await api('GET', '/api/device/info');
+      if (devInfo && devInfo.devices) {
+        var hasKb = false, hasMouse = false, hasRndis = false, hasCdrom = false, hasGamepad = false;
+        devInfo.devices.forEach(function(d) {
+          if (d.status === 'connected') {
+            if (d.type === 'keyboard') hasKb = true;
+            if (d.type === 'mouse') hasMouse = true;
+            if (d.type && d.type.indexOf('rndis') !== -1) hasRndis = true;
+            if (d.type === 'storage' || d.type === 'cdrom') hasCdrom = true;
+            if (d.type === 'gamepad') hasGamepad = true;
+          }
+        });
+        setIndicator('fIconKeyboard', hasKb, 'green');
+        setIndicator('fIconMouse', hasMouse, 'green');
+        setIndicator('fIconRndis', hasRndis, 'teal');
+        setIndicator('fIconCdrom', hasCdrom, 'teal');
+        setIndicator('fIconGamepad', hasGamepad, 'teal');
+        setIndicator('fIconAudio', true, 'teal');
+      }
+    } catch(e) {}
+
+    try {
+      var space = await api('GET', '/api/storage/status');
+      var storage = (space && (space.boot_device_is_sd || !space.sdcard || !space.sdcard.mounted)) ? space.emmc : (space ? space.sdcard : null);
+      if (storage && storage.total > 0) {
+        var usedStr = storage.used_human || (storage.used ? (storage.used / 1073741824).toFixed(1) + ' GB' : '--');
+        var totalStr = storage.total_human || (storage.total ? (storage.total / 1073741824).toFixed(1) + ' GB' : '--');
+        var pct = storage.percent !== undefined ? storage.percent : 0;
+        var el = document.getElementById('footerStorageText');
+        var bar = document.getElementById('footerStorageBarFill');
+        if (el) el.textContent = usedStr + ' / ' + totalStr;
+        if (bar) bar.style.width = Math.min(100, Math.max(0, pct)) + '%';
+      }
+    } catch(e) {}
+  }
+  setInterval(pollHardwareStatus, 3000);
 
   // --- Settings: Moonlight logic ---
   async function loadMoonlightSettings() {
@@ -2414,7 +2991,8 @@ onmessage = (e) => {
   // --- Metrics Poller ---
   setInterval(function() {
     var statsEl = document.getElementById('streamStats');
-    if (!statsEl) return;
+    var footerStatsEl = document.getElementById('footerStreamStats');
+
     if (state.wtSession && state.wtSession.stats) {
       var st = state.wtSession.stats;
       var now = performance.now();
@@ -2423,7 +3001,9 @@ onmessage = (e) => {
       state.lastStats.frames = st.framesDecoded;
       state.lastStats.lastCheck = now;
       var rtt = st.rttMs ? Math.round(st.rttMs) + ' ms' : '<1 ms';
-      statsEl.textContent = 'WT · ' + (fps >= 0 ? fps : 0) + ' fps · ' + rtt;
+      var text = 'WT · ' + (fps >= 0 ? fps : 0) + ' fps · ' + rtt;
+      if (statsEl) statsEl.textContent = text;
+      if (footerStatsEl) footerStatsEl.textContent = text;
       return;
     }
     var video = document.getElementById('remoteVideo');
@@ -2436,7 +3016,9 @@ onmessage = (e) => {
       state.lastStats.frames = totalFrames;
       state.lastStats.lastCheck = now;
       if (fps >= 0 && fps < 240 && video.videoWidth > 0) {
-        statsEl.textContent = video.videoWidth + 'x' + video.videoHeight + ' · ' + fps + ' fps';
+        var text = video.videoWidth + 'x' + video.videoHeight + ' · ' + fps + ' fps';
+        if (statsEl) statsEl.textContent = text;
+        if (footerStatsEl) footerStatsEl.textContent = text;
       }
     }
   }, 1000);
