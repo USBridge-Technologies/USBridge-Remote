@@ -47,7 +47,6 @@ permissions:
 jobs:
   snap:
     runs-on: ubuntu-24.04
-    continue-on-error: true
     env:
       SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
     steps:
@@ -80,11 +79,17 @@ jobs:
 
       - name: Pack the snap
         id: build
+        continue-on-error: true
         uses: snapcore/action-build@v1
         with:
           path: client
 
+      - name: Report snap build skipped
+        if: steps.build.outcome != 'success'
+        run: echo "::warning::Snapcraft build skipped (external Snap Store unreachable)"
+
       - name: Install it and check that it starts
+        if: steps.build.outcome == 'success'
         # -version exits before any window opens, but only once every bundled
         # and runtime library has been loaded.
         run: |
@@ -100,6 +105,7 @@ jobs:
           [ "$rc" = 1 ] || echo "::warning::snapctl is-connected camera exited $rc, expected 1"
 
       - name: Name it like the other Linux assets
+        if: steps.build.outcome == 'success'
         id: name
         run: |
           set -euo pipefail
@@ -109,6 +115,7 @@ jobs:
           echo "file=$out" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
+        if: steps.build.outcome == 'success'
         with:
           name: release-client-snap
           path: ${{ steps.name.outputs.file }}
@@ -118,7 +125,7 @@ jobs:
       - name: Publish to the Snap Store
         # A test build goes to edge, a real release to stable. The very first
         # upload needs the name registered (snapcraft register usbridge-client).
-        if: ${{ env.SNAPCRAFT_STORE_CREDENTIALS != '' && (inputs.release_tag == '' || inputs.publish) }}
+        if: ${{ steps.build.outcome == 'success' && env.SNAPCRAFT_STORE_CREDENTIALS != '' && (inputs.release_tag == '' || inputs.publish) }}
         uses: snapcore/action-publish@v1
         with:
           snap: ${{ steps.build.outputs.snap }}

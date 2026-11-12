@@ -1105,6 +1105,21 @@ jobs:
       - client-android-market
       - client-macos
       - client-ios
+    if: |
+      always() &&
+      !contains(needs.*.result, 'cancelled') &&
+      needs.agent-linux.result == 'success' &&
+      needs.agent-macos.result == 'success' &&
+      needs.agent-windows.result == 'success' &&
+      needs.bundle-windows.result == 'success' &&
+      needs.bundle-macos.result == 'success' &&
+      needs.client-linux.result == 'success' &&
+      needs.client-flatpak.result == 'success' &&
+      needs.client-windows.result == 'success' &&
+      needs.client-android.result == 'success' &&
+      needs.client-android-market.result == 'success' &&
+      needs.client-macos.result == 'success' &&
+      needs.client-ios.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
