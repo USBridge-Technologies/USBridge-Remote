@@ -77,8 +77,15 @@ echo -e "${YELLOW}==> Building app.wasm (GOOS=js GOARCH=wasm, version=$CLIENT_VE
 # not using cgo or SWIG") instead of quietly excluding them the way it does
 # when CGO_ENABLED=0 is explicit. Confirmed live: this build broke on a
 # machine with a C toolchain installed and silently worked on one without.
-CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -ldflags "-X main.version=$CLIENT_VERSION" -o "$WEB_DIR/app.wasm" ./cmd/wasm
+CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -ldflags "-s -w -X main.version=$CLIENT_VERSION" -o "$WEB_DIR/app.wasm" ./cmd/wasm
 ls -lh "$WEB_DIR/app.wasm"
+
+# Pre-compress app.wasm for high-speed serving over KVM / network
+echo -e "${YELLOW}==> Pre-compressing assets (gzip, brotli)...${NC}"
+gzip -k -9 -f "$WEB_DIR/app.wasm" && echo -e "${GREEN}✓${NC} app.wasm.gz ready"
+if command -v brotli >/dev/null 2>&1; then
+    brotli -k -q 7 -f "$WEB_DIR/app.wasm" && echo -e "${GREEN}✓${NC} app.wasm.br ready"
+fi
 
 # Resolve wasm_exec.js from whatever toolchain `go build` above actually
 # used (see this script's top doc comment) -- Go >=1.24 ships it at

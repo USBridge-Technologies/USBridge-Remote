@@ -1,0 +1,2459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<title>USBridge KVM Lite</title>
+<style>
+/* USBridge official dark palette (1:1 matching USBridge-Remote GUI) */
+:root {
+  --win: #0b0f12;
+  --head: #181c1f;
+  --panel: #111417;
+  --panel-hover: #1b2024;
+  --input: #171b1e;
+  --line: #2b3136;
+  --line-active: #4a545c;
+  --text: #f0f3f5;
+  --muted: #a0a8ae;
+  --dim: #6c757c;
+  --lime: #c4e77a;
+  --lime-hover: #d6f79c;
+  --lime-text: #172105;
+  --teal: #41e0c3;
+  --alert: #e98a2b;
+  --err: #ff6b6b;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); color: var(--text); font-family: var(--font); overflow: hidden; user-select: none; }
+
+#app {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* App Header */
+#header {
+  height: 48px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  flex-shrink: 0;
+  z-index: 100;
+}
+.header-left { display: flex; align-items: center; gap: 18px; }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #fff;
+  text-decoration: none;
+}
+.brand-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--lime);
+  color: var(--lime-text);
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+/* Tab Selector */
+.tabs { display: flex; align-items: center; gap: 4px; }
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+.tab-btn:hover { color: var(--text); background: var(--panel-hover); }
+.tab-btn.active { color: var(--lime); background: rgba(196,231,122,0.12); font-weight: 700; }
+.tab-btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; flex-shrink: 0; }
+
+.header-right { display: flex; align-items: center; gap: 8px; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.pill:hover { background: var(--panel-hover); border-color: var(--line-active); }
+.pill.active { background: var(--lime); color: var(--lime-text); border-color: var(--lime); font-weight: 600; }
+.pill.danger { border-color: rgba(255,107,107,0.4); color: var(--err); }
+.pill.danger:hover { background: rgba(255,107,107,0.15); }
+.pill svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; flex-shrink: 0; }
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+  display: inline-block;
+}
+.status-dot.connected { background: var(--teal); box-shadow: 0 0 8px rgba(65,224,195,0.6); }
+.status-dot.connecting { background: var(--alert); animation: pulse 1.2s infinite; }
+.status-dot.disconnected { background: var(--err); }
+@keyframes pulse { 0%{opacity:0.4} 50%{opacity:1} 100%{opacity:0.4} }
+
+/* Main Content Area */
+#main {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--win);
+}
+.tab-view {
+  position: absolute;
+  inset: 0;
+  display: none;
+  overflow: auto;
+}
+.tab-view.active { display: flex; }
+
+/* View: Control Tab */
+#viewControl {
+  flex-direction: column;
+  background: #000;
+}
+#viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+#remoteVideo {
+  max-width: 100%;
+  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  cursor: crosshair;
+}
+
+/* Control Floating Overlay Bar */
+#controlOverlay {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(17, 20, 23, 0.88);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+#streamStats { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Pointer Lock Indicator */
+#lockNotice {
+  position: absolute;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(17, 20, 23, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--lime);
+  display: none;
+  z-index: 500;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+
+/* Virtual Soft-Keys Strip (Bottom) */
+#keyStrip {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  background: rgba(17, 20, 23, 0.92);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  z-index: 60;
+  transform: translateY(100%);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+#keyStrip.open { transform: translateY(0); }
+.key-btn {
+  background: var(--head);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.key-btn:hover { background: var(--panel-hover); border-color: var(--line-active); }
+.key-btn.active { background: var(--lime); color: var(--lime-text); }
+
+/* Views: Devices, Snapshots, Scripts Cards Layout */
+.container-cards {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title svg { width: 18px; height: 18px; stroke: var(--lime); }
+.card-sub { font-size: 13px; color: var(--muted); }
+
+/* Table Styles */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table th {
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+}
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(43,49,54,0.5);
+  color: var(--text);
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* Dropdowns */
+.dropdown { position: relative; }
+.menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  min-width: 180px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.6);
+  padding: 4px;
+  display: none;
+  flex-direction: column;
+  z-index: 2000;
+}
+.dropdown.open .menu { display: flex; }
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s;
+}
+.menu-item:hover { background: var(--panel-hover); color: #fff; }
+.menu-item.danger { color: var(--err); }
+.menu-item.danger:hover { background: rgba(255,107,107,0.15); }
+.menu-sep { height: 1px; background: var(--line); margin: 4px 0; }
+
+/* Modals */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(4px);
+  z-index: 3000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  width: 100%;
+  max-width: 520px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; }
+.modal-title { font-size: 18px; font-weight: 600; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+.modal-close:hover { color: #fff; }
+.input-row { display: flex; flex-direction: column; gap: 6px; }
+.input-row label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.input-row input, .input-row select {
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #fff;
+  outline: none;
+}
+.input-row input:focus { border-color: var(--lime); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+.btn-primary { background: var(--lime); color: var(--lime-text); }
+.btn-primary:hover { background: var(--lime-hover); }
+.btn-secondary { background: var(--head); color: var(--text); border-color: var(--line); }
+.btn-secondary:hover { background: var(--panel-hover); }
+
+/* Progress bar */
+.progress-wrap { height: 6px; background: var(--input); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.progress-fill { height: 100%; width: 0%; background: var(--lime); transition: width 0.15s ease; }
+
+/* Console / Log box */
+.log-box {
+  background: #080a0c;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  color: #b0b8c0;
+  height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Top Application Header Bar -->
+  <header id="header">
+    <div class="header-left">
+      <a href="#" class="brand" onclick="switchTab('control'); return false;">
+        <span>USBridge</span>
+        <span class="brand-badge">Lite</span>
+      </a>
+
+      <!-- 4 Standard USBridge-Remote Tabs -->
+      <nav class="tabs">
+        <button class="tab-btn active" id="tabBtnControl" onclick="switchTab('control')">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span>Control</span>
+        </button>
+        <button class="tab-btn" id="tabBtnDevices" onclick="switchTab('devices')">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="19" r="2"/><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><path d="M12 17V7M6 7v2a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7"/></svg>
+          <span>Devices</span>
+        </button>
+        <button class="tab-btn" id="tabBtnSnapshots" onclick="switchTab('snapshots')">
+          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+          <span>Snapshots</span>
+        </button>
+        <button class="tab-btn" id="tabBtnScripts" onclick="switchTab('scripts')">
+          <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span>Scripts</span>
+        </button>
+      </nav>
+    </div>
+
+    <div class="header-right">
+      <div class="pill" id="connStatus" onclick="openConnectionModal()" style="cursor:pointer;" title="Connection status (click to view/edit)">
+        <span class="status-dot disconnected" id="statusDot"></span>
+        <span id="statusLabel">Connecting…</span>
+      </div>
+
+      <!-- Power (ATX) Dropdown -->
+      <div class="dropdown" id="powerDropdown">
+        <button class="pill" onclick="toggleDropdown('powerDropdown')">
+          <svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>
+          <span>Power</span>
+        </button>
+        <div class="menu">
+          <button class="menu-item" onclick="powerAction('power', 200)">Power On / Short Press</button>
+          <button class="menu-item danger" onclick="powerAction('power', 5000)">Force Power Off (5s)</button>
+          <button class="menu-item danger" onclick="powerAction('reset', 200)">Reset ATX</button>
+        </div>
+      </div>
+
+      <!-- Moonlight Pairing Button -->
+      <button class="pill" onclick="openMoonlightModal()" title="Moonlight / Artemis Streaming Pairing">
+        <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h2M16 10v2"/></svg>
+        <span>Moonlight</span>
+      </button>
+
+      <!-- Settings / Connection Button -->
+      <button class="pill" onclick="openConnectionModal()" title="Connection Settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+
+      <!-- Fullscreen Button -->
+      <button class="pill" onclick="toggleFullscreen()" title="Fullscreen">
+        <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+      </button>
+
+      <!-- Switch to Full WASM Client Link -->
+      <a href="index.html" class="pill" id="fullAppBtn" title="Switch to Full Fyne WASM Client">
+        <span>WASM App</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Multi-Tab Body -->
+  <main id="main">
+    <!-- TAB 1: Control (KVM Monitor + Input) -->
+    <div class="tab-view active" id="viewControl">
+      <div id="viewport" tabindex="0">
+        <!-- Floating Controls Strip over Video -->
+        <div id="controlOverlay">
+          <div id="streamStats">0 fps · 0 ms</div>
+          <button class="pill" id="mouseModeBtn" title="Toggle Absolute / Pointer Lock">
+            <svg viewBox="0 0 24 24"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg>
+            <span id="mouseModeLabel">Mouse: Abs</span>
+          </button>
+
+          <!-- Keys Dropdown -->
+          <div class="dropdown" id="keysDropdown">
+            <button class="pill" onclick="toggleDropdown('keysDropdown')">
+              <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
+              <span>Keys</span>
+            </button>
+            <div class="menu">
+              <button class="menu-item" onclick="sendShortcut('cad')"><b>Ctrl + Alt + Del</b></button>
+              <button class="menu-item" onclick="sendShortcut('alt_tab')">Alt + Tab</button>
+              <button class="menu-item" onclick="sendShortcut('alt_f4')">Alt + F4</button>
+              <button class="menu-item" onclick="sendShortcut('win')">Win / Super</button>
+              <button class="menu-item" onclick="sendShortcut('ctrl_esc')">Ctrl + Esc</button>
+              <button class="menu-item" onclick="sendShortcut('prtscn')">PrintScreen</button>
+              <div class="menu-sep"></div>
+              <button class="menu-item" onclick="toggleKeyStrip()">Toggle Soft-Key Bar</button>
+            </div>
+          </div>
+        </div>
+
+        <video id="remoteVideo" autoplay playsinline muted></video>
+        <div id="lockNotice">Pointer locked. Press <b>ESC</b> to release cursor.</div>
+
+        <!-- Virtual Soft-Keys Strip (Bottom) -->
+        <div id="keyStrip">
+          <button class="key-btn" id="modCtrl" onclick="toggleModifier('ctrl')">Ctrl</button>
+          <button class="key-btn" id="modAlt" onclick="toggleModifier('alt')">Alt</button>
+          <button class="key-btn" id="modShift" onclick="toggleModifier('shift')">Shift</button>
+          <button class="key-btn" id="modWin" onclick="toggleModifier('win')">Win</button>
+          <button class="key-btn" onclick="sendSingleKey('Escape')">Esc</button>
+          <button class="key-btn" onclick="sendSingleKey('Tab')">Tab</button>
+          <button class="key-btn" onclick="sendSingleKey('Enter')">Enter</button>
+          <button class="key-btn" onclick="sendSingleKey('Backspace')">Bksp</button>
+          <button class="key-btn" onclick="sendSingleKey('Delete')">Del</button>
+          <button class="key-btn" onclick="sendSingleKey('ArrowUp')">↑</button>
+          <button class="key-btn" onclick="sendSingleKey('ArrowDown')">↓</button>
+          <button class="key-btn" onclick="sendSingleKey('ArrowLeft')">←</button>
+          <button class="key-btn" onclick="sendSingleKey('ArrowRight')">→</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: Devices (Virtual Media / ISO, USB Gadgets, Storage) -->
+    <div class="tab-view" id="viewDevices">
+      <div class="container-cards">
+        <!-- Card: Virtual CD-ROM & Mass Storage -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>Virtual CD-ROM & Disk Drive</span>
+            </div>
+            <div id="mountStatusBadge" class="pill">Unmounted</div>
+          </div>
+          <div class="card-sub" id="storageSummary">Checking local storage…</div>
+
+          <!-- Upload ISO Section -->
+          <div style="background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-weight: 600; font-size: 13px;">Upload Image (ISO / IMG)</div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <input type="file" id="devIsoFileInput" accept=".iso,.img,.bin" style="flex: 1; font-size: 13px; color: var(--muted);">
+              <button class="btn btn-primary" id="devUploadBtn" onclick="uploadDeviceISO()">Upload</button>
+            </div>
+            <div id="devUploadProgress" style="display: none;">
+              <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                <span id="devUploadLabel">Uploading…</span>
+                <span id="devUploadPct">0%</span>
+              </div>
+              <div class="progress-wrap"><div class="progress-fill" id="devUploadBar"></div></div>
+            </div>
+          </div>
+
+          <!-- Stored Images List -->
+          <div>
+            <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px;">Images on Device</div>
+            <table class="data-table">
+              <thead>
+                <tr><th>Image Name</th><th>Size</th><th>Action</th></tr>
+              </thead>
+              <tbody id="deviceImagesTableBody">
+                <tr><td colspan="3" style="color:var(--dim); text-align:center;">Loading images…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Card: HID & Input Hub -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
+              <span>HID & Input Hub</span>
+            </div>
+          </div>
+          <p class="card-sub">Hardware keyboard and mouse emulation running via Linux OTG USB Gadget.</p>
+          <div style="display:flex; gap:12px;">
+            <button class="btn btn-secondary" onclick="requestPointerLockDirect()">Capture Cursor (Pointer Lock)</button>
+            <button class="btn btn-secondary" onclick="sendShortcut('cad')">Send Ctrl+Alt+Del</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Snapshots (SD Card Backups) -->
+    <div class="tab-view" id="viewSnapshots">
+      <div class="container-cards">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+              <span>SD Card & System Snapshots</span>
+            </div>
+            <button class="btn btn-primary" onclick="createSnapshot()">+ Create Snapshot</button>
+          </div>
+          <p class="card-sub">Create restore points and backups of the KVM rootfs and user configuration.</p>
+          <table class="data-table">
+            <thead>
+              <tr><th>Snapshot ID / Version</th><th>Timestamp</th><th>Action</th></tr>
+            </thead>
+            <tbody id="snapshotsTableBody">
+              <tr><td colspan="3" style="color:var(--dim); text-align:center;">Loading snapshots…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: Scripts (Automation) -->
+    <div class="tab-view" id="viewScripts">
+      <div class="container-cards">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              <span>Automation Scripts</span>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-secondary" onclick="loadScripts()">Refresh</button>
+              <button class="btn btn-secondary" onclick="stopScript()">Stop Running</button>
+            </div>
+          </div>
+          <p class="card-sub">Run Starlark automation scripts on the KVM device.</p>
+          <div id="scriptsList" style="display:flex; flex-direction:column; gap:8px;"></div>
+          <div style="font-weight: 600; font-size: 13px; margin-top: 10px;">Execution Log</div>
+          <div class="log-box" id="scriptLogBox">No script running.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal: Connection Dialog (1:1 with native Fyne showConnectionEditorDialog) -->
+<div class="modal-overlay" id="connModal">
+  <div class="modal" style="max-width: 480px;">
+    <div class="modal-head">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div style="width:32px; height:32px; border-radius:8px; background:rgba(196,231,122,0.12); border:1px solid rgba(196,231,122,0.35); display:flex; align-items:center; justify-content:center; color:var(--lime);">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </div>
+        <div>
+          <h3 class="modal-title" style="font-size:16px;">Connect to KVM</h3>
+          <div style="font-size:12px; color:var(--muted);">Enter device details or connect via link</div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal('connModal')">&times;</button>
+    </div>
+
+    <!-- Quick action toolbar -->
+    <div style="display:flex; justify-content:flex-end;">
+      <button class="btn btn-secondary" id="togglePasteBtn" style="padding:4px 10px; font-size:11px;" onclick="togglePasteView()">
+        <span id="pasteBtnLabel">🔗 Paste Link</span>
+      </button>
+    </div>
+
+    <!-- Inline Paste View (collapsible) -->
+    <div id="pasteBox" style="display:none; flex-direction:column; gap:6px; background:#080b0e; border:1px solid #242a30; border-radius:8px; padding:10px;">
+      <div style="font-size:11px; color:var(--muted);">Paste usbridge://connect link here:</div>
+      <textarea id="pasteInput" rows="2" style="width:100%; font-family:monospace; font-size:11px; background:#111417; border:1px solid var(--line); border-radius:6px; color:#fff; padding:6px; resize:none;" placeholder="usbridge://connect?internal_host=...&master_key=..."></textarea>
+      <div id="pasteErr" style="font-size:11px; color:var(--err);"></div>
+      <div style="display:flex; justify-content:flex-end; gap:6px;">
+        <button class="btn btn-secondary" style="padding:3px 8px; font-size:11px;" onclick="togglePasteView(false)">Cancel</button>
+        <button class="btn btn-primary" style="padding:3px 10px; font-size:11px;" onclick="applyPastedLink()">Apply</button>
+      </div>
+    </div>
+
+    <!-- Feedback Message Banner -->
+    <div id="connFeedback" style="display:none; font-size:12px; padding:8px 12px; border-radius:6px; background:rgba(196,231,122,0.1); border:1px solid rgba(196,231,122,0.3); color:var(--lime);"></div>
+
+    <!-- Stats Card / Form (styled 1:1 like Fyne NewConnectionCardEditableStatsBox) -->
+    <div style="background:#080b0e; border:1px solid #242a30; border-radius:8px; padding:2px 12px; display:flex; flex-direction:column;">
+      <!-- Name Row -->
+      <div style="display:flex; align-items:center; min-height:36px;">
+        <span style="width:65px; font-size:12px; color:var(--muted); font-weight:500;">Name</span>
+        <input type="text" id="connName" value="USBridge KVM" placeholder="USBridge KVM" style="flex:1; background:transparent; border:none; color:#fff; font-size:13px; outline:none;">
+      </div>
+      <div style="height:1px; background:#1e2428;"></div>
+
+      <!-- LAN Row -->
+      <div style="display:flex; align-items:center; min-height:36px;">
+        <span style="width:65px; font-size:12px; color:var(--muted); font-weight:500;">LAN</span>
+        <input type="text" id="connLan" placeholder="e.g. 192.168.200.25" style="flex:1; background:transparent; border:none; color:#fff; font-size:13px; font-family:monospace; outline:none;">
+        <button class="icon-btn" onclick="copyField('connLan')" title="Copy LAN address" style="background:none; border:none; color:var(--muted); cursor:pointer; padding:4px;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        </button>
+      </div>
+      <div style="height:1px; background:#1e2428;"></div>
+
+      <!-- TS Row -->
+      <div style="display:flex; align-items:center; min-height:36px;">
+        <span style="width:65px; font-size:12px; color:var(--muted); font-weight:500;">TS</span>
+        <input type="text" id="connTs" placeholder="Tailscale IP (optional)" style="flex:1; background:transparent; border:none; color:#ebffbc; font-size:13px; font-family:monospace; outline:none;">
+        <button class="icon-btn" onclick="copyField('connTs')" title="Copy TS address" style="background:none; border:none; color:var(--muted); cursor:pointer; padding:4px;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        </button>
+      </div>
+      <div style="height:1px; background:#1e2428;"></div>
+
+      <!-- Protocol Row -->
+      <div style="display:flex; align-items:center; min-height:36px;">
+        <span style="width:65px; font-size:12px; color:var(--muted); font-weight:500;">Protocol</span>
+        <select id="connProtocol" style="flex:1; background:transparent; border:none; color:#41e0c3; font-size:12px; font-weight:600; outline:none; cursor:pointer;">
+          <option value="auto" style="background:#111417; color:#fff;" selected>Auto (WebTransport → WebRTC fallback)</option>
+          <option value="webtransport" style="background:#111417; color:#fff;">WebTransport (Direct QUIC)</option>
+          <option value="webrtc" style="background:#111417; color:#fff;">WebRTC</option>
+        </select>
+      </div>
+      <div style="height:1px; background:#1e2428;"></div>
+
+      <!-- Token Row -->
+      <div style="display:flex; align-items:center; min-height:36px;">
+        <span style="width:65px; font-size:12px; color:var(--muted); font-weight:500;">Token</span>
+        <input type="password" id="connToken" placeholder="Master Key / Token" style="flex:1; background:transparent; border:none; color:#fff; font-size:12px; font-family:monospace; outline:none;">
+        <button class="icon-btn" id="toggleTokenBtn" onclick="toggleTokenVisibility()" title="Show/hide token" style="background:none; border:none; color:var(--muted); cursor:pointer; padding:4px;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="icon-btn" onclick="copyField('connToken')" title="Copy token" style="background:none; border:none; color:var(--muted); cursor:pointer; padding:4px;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Modal Actions -->
+    <div class="modal-actions" style="margin-top:8px;">
+      <button class="btn btn-secondary" onclick="openSetupNet()">Setup (10.55.0.1)</button>
+      <span style="flex:1;"></span>
+      <button class="btn btn-secondary" onclick="closeModal('connModal')">Cancel</button>
+      <button class="btn btn-secondary" style="background:#1e2428 !important; border:1px solid #3a4248 !important; color:#e0e0e0 !important;" onclick="saveConnectionOnly()">Save</button>
+      <button class="btn btn-primary" onclick="applyConnectionAndConnect()">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <span>Connect</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Moonlight / Artemis Streaming Pairing (Completely separate!) -->
+<div class="modal-overlay" id="moonlightModal">
+  <div class="modal" style="max-width: 500px;">
+    <div class="modal-head">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div style="width:32px; height:32px; border-radius:8px; background:rgba(65,224,195,0.12); border:1px solid rgba(65,224,195,0.35); display:flex; align-items:center; justify-content:center; color:var(--teal);">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h2M16 10v2"/></svg>
+        </div>
+        <div>
+          <h3 class="modal-title" style="font-size:16px;">Moonlight Pairing</h3>
+          <div style="font-size:12px; color:var(--muted);">Pair Moonlight / Artemis game-streaming clients</div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal('moonlightModal')">&times;</button>
+    </div>
+
+    <div>
+      <p style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">Enter the 4-digit PIN Moonlight shows on your client:</p>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="cfgMoonlightPin" maxlength="4" placeholder="····" style="width: 110px; text-align:center; font-size:18px; letter-spacing:4px; font-family:monospace; background:var(--input); border:1px solid var(--line); border-radius:6px; color:#fff;">
+        <button class="btn btn-primary" onclick="submitMoonlightPIN()">Send PIN</button>
+      </div>
+      <div id="cfgPinMsg" style="font-size: 12px; margin-top: 6px; min-height: 1.2em;"></div>
+    </div>
+
+    <div style="border-top: 1px solid var(--line); padding-top: 12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span style="font-size: 13px; font-weight: 600;">Authorized Clients</span>
+        <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="unpairAllMoonlight()">Remove All</button>
+      </div>
+      <div id="cfgMoonlightList" style="display:flex; flex-direction:column; gap:6px; max-height:160px; overflow-y:auto;"></div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:4px;">
+      <button class="btn btn-secondary" onclick="closeModal('moonlightModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// The browser half of rust-shine's WebTransport stream (its
+// crates/webrtc-video/src/webtransport.rs has the protocol): H.264 access
+// units arrive one per unidirectional stream and go through WebCodecs into
+// a MediaStreamTrackGenerator, so the page's ordinary <video> element (and
+// everything wt_wasm.go's callers already do with it) shows them; Opus
+// datagrams take the same route into an <audio>. Kept in JS rather than Go
+// because it runs per frame and per packet. wt_wasm.go evaluates this once
+// and drives window.__usbridgeWT.
+(function () {
+  if (window.__usbridgeWT) return;
+
+  const MSG_HELLO = 1, MSG_INPUT = 2, MSG_KEYFRAME = 3, MSG_OPEN = 4, MSG_DATA = 5, MSG_OPENED = 6;
+  const MSG_WELCOME = 1;
+  // The server's last word when another page opened a session: this page
+  // must not reconnect on its own, or two tabs take the stream from each
+  // other forever.
+  const MSG_TAKEN_OVER = 7;
+  const KIND_VIDEO = 1, KIND_AUDIO = 2;
+  // Decoder queue depth past which a delta frame is dropped and the stream
+  // resumes at a keyframe instead: latency over smoothness.
+  const MAX_DECODE_QUEUE = 4;
+  const enc = new TextEncoder(), dec = new TextDecoder();
+
+  function supported() {
+    return !!(window.isSecureContext && typeof WebTransport === 'function' && typeof VideoDecoder === 'function' &&
+      typeof EncodedVideoChunk === 'function' && typeof MediaStreamTrackGenerator === 'function');
+  }
+
+  function frame(type, payload) {
+    const out = new Uint8Array(5 + payload.length);
+    out[0] = type;
+    new DataView(out.buffer).setUint32(1, payload.length);
+    out.set(payload, 5);
+    return out;
+  }
+
+  // Splits a byte stream into [type u8][len u32][payload] messages.
+  function messageReader(readable, onMessage) {
+    const r = readable.getReader();
+    let buf = new Uint8Array(0);
+    return (async () => {
+      for (;;) {
+        const { value, done } = await r.read();
+        if (done) return;
+        const b = new Uint8Array(buf.length + value.length);
+        b.set(buf); b.set(value, buf.length); buf = b;
+        while (buf.length >= 5) {
+          const len = new DataView(buf.buffer, buf.byteOffset).getUint32(1);
+          if (buf.length < 5 + len) break;
+          onMessage(buf[0], buf.slice(5, 5 + len));
+          buf = buf.subarray(5 + len);
+        }
+      }
+    })();
+  }
+
+  async function readAll(stream) {
+    const r = stream.getReader();
+    const parts = [];
+    let n = 0;
+    for (;;) {
+      const { value, done } = await r.read();
+      if (done) break;
+      parts.push(value); n += value.length;
+    }
+    if (parts.length === 1) return parts[0];
+    const out = new Uint8Array(n);
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  }
+
+  // avc1.PPCCLL from the first SPS in an Annex B access unit.
+  function avcCodec(au) {
+    for (let i = 0; i + 6 < au.length; i++) {
+      if (au[i] === 0 && au[i + 1] === 0 && au[i + 2] === 1 && (au[i + 3] & 0x1f) === 7) {
+        let s = 'avc1.';
+        for (let k = 4; k < 7; k++) s += au[i + k].toString(16).padStart(2, '0').toUpperCase();
+        return s;
+      }
+    }
+    return null;
+  }
+
+  // HEVC Main, level 5.1: one codec string for both the support probe and
+  // the decoder (the Annex B stream carries its own VPS/SPS/PPS).
+  const HEVC_CODEC = 'hvc1.1.6.L153.B0';
+
+  async function hevcSupported() {
+    if (typeof VideoDecoder !== 'function' || !VideoDecoder.isConfigSupported) return false;
+    try {
+      const r = await VideoDecoder.isConfigSupported({ codec: HEVC_CODEC, optimizeForLatency: true });
+      return !!r.supported;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Video decode and paint run in a dedicated worker on an OffscreenCanvas
+  // when the browser can: a VideoDecoder's output and its queue are served
+  // by its own thread's event loop, so on the page's thread every long
+  // task of the UI (Fyne) looked like a decoder backlog -- frames dropped,
+  // a keyframe asked for, the stream ballooning, 60 fps sagging to 20.
+  // The page now only hands each access unit over; after a stall the worker
+  // decodes the burst and paints the newest frame.
+  const WORKER_SRC = `'use strict';
+const HEVC = ${JSON.stringify(HEVC_CODEC)};
+// A real decoder backlog (~200 ms at 60 fps), not a busy page.
+const MAX_QUEUE = 12;
+let canvas, ctx, h265 = false, decoder = null, configured = '', waitingKey = true;
+// The GPU's decoder, asked for outright; software only when the browser
+// has none for this stream (a configure error), and then said so.
+let accel = 'prefer-hardware';
+const st = { framesDecoded: 0, framesDropped: 0, decodeTimeMs: 0, frames: 0, w: 0, h: 0, decoder: '' };
+const started = new Map();
+function report() { postMessage({ type: 'stats', st }); }
+setInterval(report, 250);
+${avcCodec.toString()}
+// Every frame is painted as it's decoded: the compositor shows the newest
+// one at each vsync. Pacing paints with the worker's requestAnimationFrame
+// painted only about half of a 60 fps stream.
+function draw(f) {
+  if (canvas.width !== f.displayWidth || canvas.height !== f.displayHeight) {
+    canvas.width = f.displayWidth; canvas.height = f.displayHeight;
+    st.w = f.displayWidth; st.h = f.displayHeight;
+    report();
+  }
+  ctx.drawImage(f, 0, 0);
+  f.close();
+  st.frames++;
+  // Per frame: the page's frame counter reads at most a few new frames per
+  // poll, so a 250 ms report capped it near 30 fps.
+  postMessage({ type: 'frame', n: st.frames });
+}
+function keyframe() { postMessage({ type: 'keyframe' }); }
+function newDecoder() {
+  return new VideoDecoder({
+    output(f) {
+      const t0 = started.get(f.timestamp);
+      if (t0 !== undefined) { st.decodeTimeMs += performance.now() - t0; started.delete(f.timestamp); }
+      st.framesDecoded++;
+      draw(f);
+    },
+    error(e) {
+      if (accel === 'prefer-hardware' && st.framesDecoded === 0) {
+        accel = 'no-preference';
+        postMessage({ type: 'log', msg: 'no hardware decoder for ' + configured + ' (' + (e && e.message) + '), decoding in software' });
+      }
+      configured = ''; waitingKey = true; started.clear(); keyframe();
+    },
+  });
+}
+function onAU(au) {
+  const key = (au[1] & 1) === 1;
+  const ts = Number(new DataView(au.buffer, au.byteOffset).getBigUint64(2));
+  const data = au.subarray(10);
+  if (waitingKey && !key) { st.framesDropped++; return; }
+  if (!decoder || decoder.state === 'closed') { decoder = newDecoder(); configured = ''; }
+  if (key) {
+    const codec = h265 ? HEVC : (avcCodec(data) || 'avc1.42E01F');
+    if (codec !== configured) {
+      decoder.configure({ codec, optimizeForLatency: true, hardwareAcceleration: accel });
+      configured = codec;
+      st.decoder = accel === 'prefer-hardware' ? 'hardware' : 'software';
+    }
+  }
+  if (!configured) { st.framesDropped++; waitingKey = true; return; }
+  waitingKey = false;
+  if (!key && decoder.decodeQueueSize > MAX_QUEUE) { st.framesDropped++; waitingKey = true; keyframe(); return; }
+  started.set(ts, performance.now());
+  if (started.size > 64) started.clear();
+  try {
+    decoder.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: ts, data }));
+  } catch (_) {
+    configured = ''; waitingKey = true; keyframe();
+  }
+}
+onmessage = (e) => {
+  const m = e.data;
+  if (m.type === 'init') {
+    canvas = m.canvas; ctx = canvas.getContext('2d', { alpha: false }); h265 = m.h265;
+    // Ask before the first keyframe, so a browser without a GPU decoder
+    // (Linux Chrome without VA-API) starts in software instead of losing
+    // the first keyframe to a failed configure.
+    VideoDecoder.isConfigSupported({ codec: h265 ? HEVC : 'avc1.640034', optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' })
+      .then((r) => {
+        if (r.supported || accel !== 'prefer-hardware') return;
+        accel = 'no-preference';
+        postMessage({ type: 'log', msg: 'this browser has no hardware ' + (h265 ? 'HEVC' : 'H.264') + ' decoder, decoding in software' });
+      }, () => {});
+  }
+  else if (m.type === 'au') onAU(new Uint8Array(m.buf));
+  else if (m.type === 'close') {
+    try { if (decoder && decoder.state !== 'closed') decoder.close(); } catch (_) {}
+    close();
+  }
+};
+`;
+
+  // videoSurface returns what the page shows the video in: a <canvas>
+  // taking videoEl's place, painted by a worker (see WORKER_SRC), or
+  // videoEl itself where workers can't do that. The canvas carries what the
+  // Go side reads off a <video>: videoWidth/videoHeight and
+  // getVideoPlaybackQuality().totalVideoFrames.
+  function videoSurface(videoEl) {
+    if (typeof Worker !== 'function' || typeof OffscreenCanvas !== 'function' || typeof VideoDecoder !== 'function' ||
+      typeof HTMLCanvasElement.prototype.transferControlToOffscreen !== 'function') return videoEl;
+    let worker;
+    try {
+      worker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })));
+    } catch (_) {
+      return videoEl; // e.g. a CSP without blob: workers
+    }
+    const c = document.createElement('canvas');
+    c.id = videoEl.id;
+    c.style.cssText = videoEl.style.cssText;
+    if (videoEl.parentNode) videoEl.replaceWith(c);
+    c.videoWidth = 0;
+    c.videoHeight = 0;
+    c.__frames = 0;
+    c.getVideoPlaybackQuality = () => ({ totalVideoFrames: c.__frames, droppedVideoFrames: 0 });
+    c.__worker = worker;
+    return c;
+  }
+
+  function hexBytes(hex) {
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return out;
+  }
+
+  // A named channel over one bidirectional stream, shaped like the parts of
+  // RTCDataChannel that dcconn_wasm.go uses.
+  class Channel extends EventTarget {
+    constructor(session, label) {
+      super();
+      this.label = label;
+      this.binaryType = 'arraybuffer';
+      this.readyState = 'connecting';
+      this._writer = null;
+      session._wt.createBidirectionalStream().then(async (bidi) => {
+        this._writer = bidi.writable.getWriter();
+        await this._writer.write(frame(MSG_OPEN, enc.encode(label)));
+        // Open only once the host confirms its end; a stream that ends
+        // first is a channel that couldn't be attached.
+        await messageReader(bidi.readable, (type, payload) => {
+          if (type === MSG_OPENED && this.readyState === 'connecting') {
+            this.readyState = 'open';
+            this.dispatchEvent(new Event('open'));
+            return;
+          }
+          if (type !== MSG_DATA || this.readyState !== 'open') return;
+          const ev = new Event('message');
+          ev.data = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
+          this.dispatchEvent(ev);
+        });
+        if (this.readyState === 'connecting') this.dispatchEvent(new Event('error'));
+        this._closed();
+      }).catch(() => {
+        if (this.readyState === 'connecting') this.dispatchEvent(new Event('error'));
+        this._closed();
+      });
+    }
+    send(data) {
+      if (this.readyState !== 'open') throw new Error('channel not open');
+      const bytes = typeof data === 'string' ? enc.encode(data) :
+        data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      this._writer.write(frame(MSG_DATA, bytes)).catch(() => this._closed());
+    }
+    close() {
+      if (this._writer) this._writer.close().catch(() => {});
+      this._closed();
+    }
+    _closed() {
+      if (this.readyState === 'closed') return;
+      this.readyState = 'closed';
+      this.dispatchEvent(new Event('close'));
+    }
+  }
+
+  class Session {
+    // opts: { url, certHash, hello (object), videoEl, audioEl, onState(state, detail) }
+    constructor(opts) {
+      this._opts = opts;
+      this.welcome = null;
+      this.stats = { framesReceived: 0, framesDecoded: 0, framesDropped: 0, keyframes: 0, bytesReceived: 0,
+        audioPackets: 0, decodeErrors: 0, decodeTimeMs: 0, rttMs: 0, codec: '' };
+      this._closedFlag = false;
+    }
+
+    async open(timeoutMs) {
+      const o = this._opts;
+      const wt = this._wt = new WebTransport(o.url, {
+        serverCertificateHashes: [{ algorithm: 'sha-256', value: hexBytes(o.certHash) }],
+        congestionControl: 'low-latency',
+      });
+      let timer;
+      const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('WebTransport: connect timed out')), timeoutMs); });
+      try {
+        await Promise.race([wt.ready, timeout]);
+        const ctl = await wt.createBidirectionalStream();
+        this._ctl = ctl.writable.getWriter();
+        await this._ctl.write(frame(MSG_HELLO, enc.encode(JSON.stringify(o.hello || {}))));
+        const welcome = new Promise((resolve) => {
+          messageReader(ctl.readable, (type, payload) => {
+            if (type === MSG_WELCOME) resolve(JSON.parse(dec.decode(payload)));
+            else if (type === MSG_TAKEN_OVER) { this._end('taken-over'); try { wt.close(); } catch (_) {} }
+          }).catch(() => {});
+        });
+        this.welcome = await Promise.race([welcome, timeout]);
+      } catch (e) {
+        try { wt.close(); } catch (_) {}
+        if (o.videoEl && o.videoEl.__worker) o.videoEl.__worker.terminate();
+        throw e;
+      } finally {
+        clearTimeout(timer);
+      }
+      this.stats.codec = this.welcome.codec || 'h264';
+      window.__usbridgeWTLast = { hello: o.hello, welcome: this.welcome };
+
+      wt.closed.then(() => this._end('closed'), (e) => this._end('failed', String(e && e.message || e)));
+      this._startVideo();
+      this._startAudio();
+      this._statsTimer = setInterval(() => {
+        if (typeof wt.getStats !== 'function') return;
+        wt.getStats().then((s) => { const rtt = s && (s.smoothedRtt || s.latestRtt || s.minRtt); if (rtt) this.stats.rttMs = rtt; }).catch(() => {});
+      }, 1000);
+    }
+
+    _startVideo() {
+      const el = this._opts.videoEl;
+      const decode = el.__worker ? this._workerVideo(el) : this._elementVideo(el);
+      const onAU = (au) => {
+        if (au.length < 10 || au[0] !== KIND_VIDEO) return;
+        this.stats.framesReceived++;
+        this.stats.bytesReceived += au.length;
+        if ((au[1] & 1) === 1) this.stats.keyframes++;
+        decode(au);
+      };
+
+      // Streams are accepted in order: read them concurrently, decode in order.
+      (async () => {
+        const r = this._wt.incomingUnidirectionalStreams.getReader();
+        let chain = Promise.resolve();
+        for (;;) {
+          let next;
+          try { next = await r.read(); } catch (_) { return; }
+          if (next.done) return;
+          const body = readAll(next.value).catch(() => null);
+          chain = chain.then(async () => {
+            const au = await body;
+            if (au && !this._closedFlag) onAU(au);
+          });
+        }
+      })();
+    }
+
+    // The worker path (see videoSurface): access units go over, stats and
+    // keyframe requests come back.
+    _workerVideo(canvas) {
+      const w = this._worker = canvas.__worker;
+      const off = canvas.transferControlToOffscreen();
+      w.postMessage({ type: 'init', canvas: off, h265: this.welcome.codec === 'h265' }, [off]);
+      w.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'keyframe') { this.requestKeyframe(); return; }
+        if (m.type === 'log') { console.warn('[webrtc-video] ' + m.msg); return; }
+        if (m.type === 'frame') { canvas.__frames = m.n; return; }
+        if (m.type !== 'stats') return;
+        const st = m.st;
+        this.stats.framesDecoded = st.framesDecoded;
+        this.stats.framesDropped = st.framesDropped;
+        this.stats.decodeTimeMs = st.decodeTimeMs;
+        this.stats.decoder = st.decoder;
+        canvas.__frames = st.frames;
+        canvas.videoWidth = st.w;
+        canvas.videoHeight = st.h;
+      };
+      return (au) => {
+        // Hand the bytes over, not a copy.
+        const buf = au.byteOffset === 0 && au.byteLength === au.buffer.byteLength ? au.buffer : au.slice().buffer;
+        w.postMessage({ type: 'au', buf }, [buf]);
+      };
+    }
+
+    // In-page decode into the <video> (no worker support).
+    _elementVideo(videoEl) {
+      const gen = this._videoGen = new MediaStreamTrackGenerator({ kind: 'video' });
+      const writer = gen.writable.getWriter();
+      videoEl.srcObject = new MediaStream([gen]);
+      const play = videoEl.play();
+      if (play) play.catch(() => {});
+
+      let configured = '', waitingKey = true;
+      const pending = new Map(); // timestamp -> decode start, for decode time
+      // A decode error closes the decoder; a fresh one picks up at the next
+      // keyframe.
+      const newDecoder = () => new VideoDecoder({
+        output: (f) => {
+          const t0 = pending.get(f.timestamp);
+          if (t0 !== undefined) { this.stats.decodeTimeMs += performance.now() - t0; pending.delete(f.timestamp); }
+          this.stats.framesDecoded++;
+          writer.write(f).catch(() => f.close());
+        },
+        error: () => {
+          this.stats.decodeErrors++;
+          configured = ''; waitingKey = true;
+          pending.clear();
+          this.requestKeyframe();
+        },
+      });
+      this._decoder = newDecoder();
+
+      return (au) => {
+        const key = (au[1] & 1) === 1;
+        const ts = Number(new DataView(au.buffer, au.byteOffset).getBigUint64(2));
+        const data = au.subarray(10);
+        if (waitingKey && !key) { this.stats.framesDropped++; return; }
+        if (this._decoder.state === 'closed') { this._decoder = newDecoder(); configured = ''; }
+        const d = this._decoder;
+        if (key) {
+          const codec = this.welcome.codec === 'h265' ? HEVC_CODEC : (avcCodec(data) || 'avc1.42E01F');
+          if (codec !== configured) {
+            d.configure({ codec, optimizeForLatency: true });
+            configured = codec;
+          }
+        }
+        if (!configured) { this.stats.framesDropped++; waitingKey = true; return; }
+        waitingKey = false;
+        if (!key && d.decodeQueueSize > MAX_DECODE_QUEUE) {
+          this.stats.framesDropped++;
+          waitingKey = true;
+          this.requestKeyframe();
+          return;
+        }
+        pending.set(ts, performance.now());
+        if (pending.size > 64) pending.clear();
+        try {
+          d.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: ts, data }));
+        } catch (_) {
+          configured = ''; waitingKey = true;
+          this.requestKeyframe();
+        }
+      };
+    }
+
+    _startAudio() {
+      if (typeof AudioDecoder !== 'function' || !this._opts.audioEl) return;
+      const channels = (this.welcome && this.welcome.audio_channels) || 2;
+      const gen = this._audioGen = new MediaStreamTrackGenerator({ kind: 'audio' });
+      const writer = gen.writable.getWriter();
+      const audioEl = this._opts.audioEl;
+      audioEl.srcObject = new MediaStream([gen]);
+      const play = audioEl.play();
+      if (play) play.catch(() => {});
+      const ad = this._audioDecoder = new AudioDecoder({
+        output: (a) => { writer.write(a).catch(() => a.close()); },
+        error: () => {},
+      });
+      ad.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: channels });
+      (async () => {
+        const r = this._wt.datagrams.readable.getReader();
+        for (;;) {
+          let next;
+          try { next = await r.read(); } catch (_) { return; }
+          if (next.done) return;
+          const d = next.value;
+          if (d.length < 9 || d[0] !== KIND_AUDIO || ad.state !== 'configured') continue;
+          this.stats.audioPackets++;
+          const ts = Number(new DataView(d.buffer, d.byteOffset).getBigUint64(1));
+          // Behind (tab was throttled): drop rather than build up delay.
+          if (ad.decodeQueueSize > 10) continue;
+          try { ad.decode(new EncodedAudioChunk({ type: 'key', timestamp: ts, data: d.subarray(9) })); } catch (_) {}
+        }
+      })();
+    }
+
+    sendInput(bytes) {
+      if (!this._ctl || this._closedFlag) return false;
+      this._ctl.write(frame(MSG_INPUT, bytes)).catch(() => {});
+      return true;
+    }
+
+    requestKeyframe() {
+      if (!this._ctl || this._closedFlag) return;
+      this._ctl.write(frame(MSG_KEYFRAME, new Uint8Array(0))).catch(() => {});
+    }
+
+    createDataChannel(label) { return new Channel(this, label); }
+
+    getStats() { return Object.assign({}, this.stats); }
+
+    _end(state, detail) {
+      if (this._closedFlag) return;
+      this._closedFlag = true;
+      clearInterval(this._statsTimer);
+      for (const d of [this._decoder, this._audioDecoder]) { try { if (d && d.state !== 'closed') d.close(); } catch (_) {} }
+      for (const g of [this._videoGen, this._audioGen]) { try { if (g) g.stop(); } catch (_) {} }
+      if (this._worker) { this._worker.postMessage({ type: 'close' }); this._worker = null; }
+      const cb = this._opts.onState;
+      if (cb) cb(state, detail || '');
+    }
+
+    close() {
+      try { this._wt.close(); } catch (_) {}
+      this._end('closed');
+    }
+  }
+
+  window.__usbridgeWT = {
+    supported,
+    hevcSupported,
+    videoSurface,
+    // Resolves with an open Session, or rejects (unreachable, refused,
+    // timed out) so the caller can fall back to WebRTC.
+    open: async (opts, timeoutMs) => {
+      const s = new Session(opts);
+      await s.open(timeoutMs || 5000);
+      return s;
+    },
+  };
+})();
+
+</script>
+<script>
+(function() {
+  'use strict';
+
+  // --- Pure JS SHA256 & HMAC-SHA256 ---
+  var K=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  function ror(x,n){return (x>>>n)|(x<<(32-n));}
+  function sha256(m){
+    var l=m.length,n=((l+72)>>6)<<6,p=new Uint8Array(n),dv=new DataView(p.buffer);
+    p.set(m);p[l]=0x80;dv.setUint32(n-8,Math.floor(l/0x20000000));dv.setUint32(n-4,(l*8)>>>0);
+    var h=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19],w=new Uint32Array(64);
+    for(var o=0;o<n;o+=64){
+      var i;
+      for(i=0;i<16;i++)w[i]=dv.getUint32(o+i*4);
+      for(i=16;i<64;i++){var x=w[i-15],y=w[i-2];w[i]=w[i-16]+(ror(x,7)^ror(x,18)^(x>>>3))+w[i-7]+(ror(y,17)^ror(y,19)^(y>>>10));}
+      var a=h[0],b=h[1],c=h[2],d=h[3],e=h[4],f=h[5],g=h[6],k=h[7];
+      for(i=0;i<64;i++){
+        var t1=(k+(ror(e,6)^ror(e,11)^ror(e,25))+((e&f)^(~e&g))+K[i]+w[i])|0;
+        var t2=((ror(a,2)^ror(a,13)^ror(a,22))+((a&b)^(a&c)^(b&c)))|0;
+        k=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;
+      }
+      h[0]=(h[0]+a)|0;h[1]=(h[1]+b)|0;h[2]=(h[2]+c)|0;h[3]=(h[3]+d)|0;
+      h[4]=(h[4]+e)|0;h[5]=(h[5]+f)|0;h[6]=(h[6]+g)|0;h[7]=(h[7]+k)|0;
+    }
+    var out=new Uint8Array(32),odv=new DataView(out.buffer);
+    for(i=0;i<8;i++)odv.setUint32(i*4,h[i]);
+    return out;
+  }
+  function cat(a,b){var r=new Uint8Array(a.length+b.length);r.set(a);r.set(b,a.length);return r;}
+  function hmacHex(key,msg){
+    var ip=new Uint8Array(64),op=new Uint8Array(64);
+    for(var i=0;i<64;i++){var kb=i<key.length?key[i]:0;ip[i]=kb^0x36;op[i]=kb^0x5c;}
+    var d=sha256(cat(op,sha256(cat(ip,msg)))),s='';
+    for(i=0;i<d.length;i++)s+=(d[i]<16?'0':'')+d[i].toString(16);
+    return s;
+  }
+
+  // --- Global State ---
+  var state = {
+    name: 'USBridge KVM',
+    host: location.hostname || '127.0.0.1',
+    tsHost: '',
+    masterKey: '',
+    protocol: 'auto',
+    wtSession: null,
+    pc: null,
+    inputDc: null,
+    connected: false,
+    pointerLock: false,
+    modifiers: { ctrl: false, alt: false, shift: false, win: false },
+    lastStats: { fps: 0, frames: 0, lastCheck: performance.now() }
+  };
+
+  var linkDetected = false;
+  var immediateConnect = false;
+
+  var fullAppBtn = document.getElementById('fullAppBtn');
+  if (fullAppBtn) fullAppBtn.href = 'index.html' + location.hash;
+
+  function parseDeepLinkURI(uri) {
+    if (!uri) return null;
+    var str = uri.trim();
+    try {
+      var dec = decodeURIComponent(str);
+      if (dec.includes('usbridge://') || dec.includes('master_key=') || dec.includes('token=')) {
+        str = dec;
+      }
+    } catch(e) {}
+
+    var query = str;
+    if (str.includes('?')) {
+      query = str.substring(str.indexOf('?') + 1);
+    } else if (str.startsWith('usbridge://')) {
+      query = '';
+    }
+
+    var p = new URLSearchParams(query);
+    var ih = p.get('internal_host') || p.get('lan_host') || p.get('host') || p.get('internalHost') || '';
+    var th = p.get('tailscale_host') || p.get('ts_host') || p.get('tailscaleHost') || '';
+    var mk = p.get('master_key') || p.get('token') || p.get('key') || p.get('masterKey') || '';
+    var name = p.get('name') || 'USBridge KVM';
+    var proto = p.get('protocol') || 'auto';
+    var imm = p.get('immediate') === 'true';
+
+    if (!ih && !th && !mk) return null;
+
+    return {
+      name: name,
+      internalHost: ih,
+      tailscaleHost: th,
+      masterKey: mk,
+      protocol: proto,
+      immediate: imm
+    };
+  }
+
+  function saveCurrentConnection() {
+    var data = {
+      name: state.name,
+      internalHost: state.host,
+      tailscaleHost: state.tsHost,
+      masterKey: state.masterKey,
+      protocol: state.protocol || 'auto'
+    };
+    try {
+      localStorage.setItem('usbridge_connection', JSON.stringify(data));
+      sessionStorage.setItem('usbridge_key', state.masterKey);
+    } catch(e) {}
+  }
+
+  function loadSavedConnection() {
+    try {
+      var raw = localStorage.getItem('usbridge_connection');
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && (parsed.internalHost || parsed.masterKey)) {
+          if (parsed.protocol) state.protocol = parsed.protocol;
+          return parsed;
+        }
+      }
+    } catch(e) {}
+    try {
+      var k = sessionStorage.getItem('usbridge_key');
+      if (k) return { name: 'USBridge KVM', internalHost: location.hostname, masterKey: k };
+    } catch(e) {}
+    return null;
+  }
+
+  function fillConnectionDialogFields() {
+    var nameEl = document.getElementById('connName');
+    var lanEl = document.getElementById('connLan');
+    var tsEl = document.getElementById('connTs');
+    var tokenEl = document.getElementById('connToken');
+    if (nameEl) nameEl.value = state.name || 'USBridge KVM';
+    if (lanEl) lanEl.value = state.host || location.hostname;
+    if (tsEl) tsEl.value = state.tsHost || '';
+    if (tokenEl) tokenEl.value = state.masterKey || '';
+    var protoEl = document.getElementById('connProtocol');
+    if (protoEl) protoEl.value = state.protocol || 'auto';
+  }
+
+  function showConnFeedback(msg, type) {
+    var el = document.getElementById('connFeedback');
+    if (!el) return;
+    if (!msg) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.textContent = msg;
+    if (type === 'err') {
+      el.style.background = 'rgba(255,107,107,0.12)';
+      el.style.borderColor = 'rgba(255,107,107,0.35)';
+      el.style.color = 'var(--err)';
+    } else {
+      el.style.background = 'rgba(196,231,122,0.12)';
+      el.style.borderColor = 'rgba(196,231,122,0.35)';
+      el.style.color = 'var(--lime)';
+    }
+  }
+
+  function initConnectionParams() {
+    var rawHash = location.hash || '';
+    if (rawHash.startsWith('#')) rawHash = rawHash.slice(1);
+    if (!rawHash && location.search) rawHash = location.search.slice(1);
+
+    var parsed = parseDeepLinkURI(rawHash);
+    if (parsed && (parsed.internalHost || parsed.masterKey || parsed.tailscaleHost)) {
+      state.name = parsed.name || 'USBridge KVM';
+      state.host = parsed.internalHost || location.hostname;
+      state.tsHost = parsed.tailscaleHost || '';
+      state.masterKey = parsed.masterKey || '';
+      linkDetected = true;
+      immediateConnect = parsed.immediate;
+      saveCurrentConnection();
+
+      // Clear the fragment from browser address bar (like native WASM client does)
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', location.pathname);
+      }
+    } else {
+      var saved = loadSavedConnection();
+      if (saved) {
+        state.name = saved.name || 'USBridge KVM';
+        state.host = saved.internalHost || location.hostname;
+        state.tsHost = saved.tailscaleHost || '';
+        state.masterKey = saved.masterKey || '';
+      }
+    }
+
+    fillConnectionDialogFields();
+  }
+
+  async function api(method, path, body) {
+    if (!state.masterKey) {
+      openConnectionModal('Master key required');
+      throw new Error('Master key required');
+    }
+    var enc = new TextEncoder();
+    var ts = String(Math.floor(Date.now() / 1000));
+    var b = body === undefined ? '' : JSON.stringify(body);
+    var derived = sha256(enc.encode(state.masterKey));
+    var sig = hmacHex(derived, enc.encode(method + path + ts + b));
+    var url = path;
+    var r = await fetch(url, {
+      method: method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Auth-Signature': sig,
+        'X-Auth-Timestamp': ts
+      },
+      body: method === 'GET' ? undefined : b
+    });
+    var text = await r.text(), json = null;
+    try { json = JSON.parse(text); } catch(e) {}
+    if (!r.ok) throw new Error((json && json.error) ? json.error : ('HTTP ' + r.status));
+    return json && json.data !== undefined ? json.data : json;
+  }
+
+  // --- Tab Switching ---
+  window.switchTab = function(tab) {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-view').forEach(function(v) { v.classList.remove('active'); });
+
+    var tabName = tab.charAt(0).toUpperCase() + tab.slice(1);
+    var btn = document.getElementById('tabBtn' + tabName);
+    var view = document.getElementById('view' + tabName);
+    if (btn) btn.classList.add('active');
+    if (view) view.classList.add('active');
+
+    if (tab === 'devices') loadDevicesTab();
+    if (tab === 'snapshots') loadSnapshotsTab();
+    if (tab === 'scripts') loadScriptsTab();
+  };
+
+  // --- Remote Input Binary Packet Builder (NV_INPUT_HEADER) ---
+  const MAGIC_KEY_DOWN       = 0x00000003;
+  const MAGIC_KEY_UP         = 0x00000004;
+  const MAGIC_MOUSE_MOVE_ABS = 0x00000005;
+  const MAGIC_MOUSE_MOVE_REL = 0x00000007;
+  const MAGIC_MOUSE_BTN_DOWN = 0x00000008;
+  const MAGIC_MOUSE_BTN_UP   = 0x00000009;
+  const MAGIC_SCROLL         = 0x0000000A;
+
+  function buildPacket(magic, body) {
+    var buf = new Uint8Array(8 + body.length);
+    var dv = new DataView(buf.buffer);
+    dv.setUint32(0, 4 + body.length, false);
+    dv.setUint32(4, magic, true);
+    buf.set(body, 8);
+    return buf;
+  }
+
+  function sendRawInput(buf) {
+    if (state.wtSession && typeof state.wtSession.sendInput === 'function') {
+      try { state.wtSession.sendInput(buf); return; } catch(e) {}
+    }
+    if (state.inputDc && state.inputDc.readyState === 'open') {
+      state.inputDc.send(buf);
+    }
+  }
+
+  function sendMouseAbs(x, y, w, h) {
+    var body = new Uint8Array(10);
+    var dv = new DataView(body.buffer);
+    dv.setUint16(0, x, false);
+    dv.setUint16(2, y, false);
+    dv.setUint16(6, w, false);
+    dv.setUint16(8, h, false);
+    sendRawInput(buildPacket(MAGIC_MOUSE_MOVE_ABS, body));
+  }
+
+  function sendMouseRel(dx, dy) {
+    var body = new Uint8Array(4);
+    var dv = new DataView(body.buffer);
+    dv.setInt16(0, dx, false);
+    dv.setInt16(2, dy, false);
+    sendRawInput(buildPacket(MAGIC_MOUSE_MOVE_REL, body));
+  }
+
+  function sendMouseButton(btn, down) {
+    var magic = down ? MAGIC_MOUSE_BTN_DOWN : MAGIC_MOUSE_BTN_UP;
+    sendRawInput(buildPacket(magic, new Uint8Array([btn])));
+  }
+
+  function sendScroll(amount) {
+    var body = new Uint8Array(2);
+    new DataView(body.buffer).setInt16(0, amount, false);
+    sendRawInput(buildPacket(MAGIC_SCROLL, body));
+  }
+
+  function sendKeyEvent(vk, mods, down) {
+    var magic = down ? MAGIC_KEY_DOWN : MAGIC_KEY_UP;
+    var body = new Uint8Array(6);
+    new DataView(body.buffer).setUint16(1, vk, true);
+    body[3] = mods;
+    sendRawInput(buildPacket(magic, body));
+  }
+
+  var VK = {
+    Backspace: 8, Tab: 9, Enter: 13, Escape: 27, Space: 32, PageUp: 33, PageDown: 34,
+    End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40,
+    PrintScreen: 44, Insert: 45, Delete: 46,
+    Digit0: 48, Digit1: 49, Digit2: 50, Digit3: 51, Digit4: 52, Digit5: 53, Digit6: 54, Digit7: 55, Digit8: 56, Digit9: 57,
+    KeyA: 65, KeyB: 66, KeyC: 67, KeyD: 68, KeyE: 69, KeyF: 70, KeyG: 71, KeyH: 72, KeyI: 73, KeyJ: 74,
+    KeyK: 75, KeyL: 76, KeyM: 77, KeyN: 78, KeyO: 79, KeyP: 80, KeyQ: 81, KeyR: 82, KeyS: 83, KeyT: 84,
+    KeyU: 85, KeyV: 86, KeyW: 87, KeyX: 88, KeyY: 89, KeyZ: 90,
+    MetaLeft: 91, MetaRight: 92,
+    F1: 112, F2: 113, F3: 114, F4: 115, F5: 116, F6: 117, F7: 118, F8: 119, F9: 120, F10: 121, F11: 122, F12: 123,
+    ShiftLeft: 160, ShiftRight: 161, ControlLeft: 162, ControlRight: 163, AltLeft: 164, AltRight: 165
+  };
+
+  function getModifiers(e) {
+    var m = 0;
+    if (e.shiftKey || state.modifiers.shift) m |= 1;
+    if (e.ctrlKey || state.modifiers.ctrl) m |= 2;
+    if (e.altKey || state.modifiers.alt) m |= 4;
+    if (e.metaKey || state.modifiers.win) m |= 8;
+    return m;
+  }
+
+  function attachInputs() {
+    var video = document.getElementById('remoteVideo');
+    var vp = document.getElementById('viewport');
+
+    function getAbsPos(e) {
+      var r = video.getBoundingClientRect();
+      var vw = video.videoWidth || 1920, vh = video.videoHeight || 1080;
+      var s = Math.min(r.width / vw, r.height / vh);
+      var cw = vw * s, ch = vh * s;
+      var x = (e.clientX - r.left - (r.width - cw) / 2) / s;
+      var y = (e.clientY - r.top - (r.height - ch) / 2) / s;
+      return [Math.max(0, Math.min(vw - 1, Math.round(x))), Math.max(0, Math.min(vh - 1, Math.round(y))), vw, vh];
+    }
+
+    var lastMove = 0;
+    video.addEventListener('mousemove', function(e) {
+      var now = performance.now();
+      if (now - lastMove < 7) return;
+      lastMove = now;
+      if (state.pointerLock) {
+        sendMouseRel(e.movementX, e.movementY);
+      } else {
+        var p = getAbsPos(e);
+        sendMouseAbs(p[0], p[1], p[2], p[3]);
+      }
+    });
+
+    function getBtn(e) { return e.button === 0 ? 1 : (e.button === 1 ? 2 : (e.button === 2 ? 3 : 0)); }
+
+    video.addEventListener('mousedown', function(e) {
+      vp.focus();
+      if (!state.pointerLock) {
+        var p = getAbsPos(e);
+        sendMouseAbs(p[0], p[1], p[2], p[3]);
+      }
+      var b = getBtn(e);
+      if (b) sendMouseButton(b, true);
+      e.preventDefault();
+    });
+
+    video.addEventListener('mouseup', function(e) {
+      var b = getBtn(e);
+      if (b) sendMouseButton(b, false);
+      e.preventDefault();
+    });
+
+    video.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+    video.addEventListener('wheel', function(e) {
+      if (e.deltaY) sendScroll(e.deltaY < 0 ? 120 : -120);
+      e.preventDefault();
+    }, { passive: false });
+
+    window.addEventListener('keydown', function(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      var vk = VK[e.code];
+      if (vk) {
+        sendKeyEvent(vk, getModifiers(e), true);
+        if (e.code === 'Tab' || e.code === 'AltLeft' || e.code === 'AltRight' || (e.code.startsWith('F') && vk >= 112)) {
+          e.preventDefault();
+        }
+      }
+    });
+
+    window.addEventListener('keyup', function(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      var vk = VK[e.code];
+      if (vk) {
+        sendKeyEvent(vk, getModifiers(e), false);
+        e.preventDefault();
+      }
+    });
+
+    document.addEventListener('pointerlockchange', function() {
+      state.pointerLock = (document.pointerLockElement === video || document.pointerLockElement === vp);
+      updateMouseModeUI();
+    });
+  }
+
+  // --- Connect via WebRTC ---
+  async function connectWebRTC() {
+    updateStatus('connecting', 'Negotiating WebRTC…');
+    var video = document.getElementById('remoteVideo');
+
+    if (state.pc) { try { state.pc.close(); } catch(e) {} }
+
+    var pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+    state.pc = pc;
+
+    pc.addEventListener('connectionstatechange', function() {
+      if (pc.connectionState === 'connected') {
+        updateStatus('connected', state.host);
+      } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        updateStatus('disconnected', 'Disconnected');
+      }
+    });
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+
+    pc.addEventListener('track', function(e) {
+      if (e.track.kind === 'video') {
+        video.srcObject = e.streams[0] || new MediaStream([e.track]);
+        video.play().catch(function() {});
+      }
+    });
+
+    var dc = pc.createDataChannel('input', { ordered: true });
+    state.inputDc = dc;
+
+    var offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    await new Promise(function(resolve) {
+      if (pc.iceGatheringState === 'complete') return resolve();
+      var check = function() {
+        if (pc.iceGatheringState === 'complete') {
+          pc.removeEventListener('icegatheringstatechange', check);
+          resolve();
+        }
+      };
+      pc.addEventListener('icegatheringstatechange', check);
+      setTimeout(resolve, 600);
+    });
+
+    var enc = new TextEncoder();
+    var ts = String(Math.floor(Date.now() / 1000));
+    var bodyStr = JSON.stringify({ sdp: pc.localDescription.sdp, codec: 'h264' });
+    var derived = sha256(enc.encode(state.masterKey));
+    var sig = hmacHex(derived, enc.encode('POST/webrtc/offer' + ts + bodyStr));
+
+    var r = await fetch('/webrtc/offer', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Auth-Signature': sig,
+        'X-Auth-Timestamp': ts
+      },
+      body: bodyStr
+    });
+
+    if (!r.ok) throw new Error('WebRTC offer failed: HTTP ' + r.status);
+    var answer = await r.json();
+    await pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
+  }
+
+  async function connectWebTransport() {
+    if (!window.__usbridgeWT || !window.__usbridgeWT.supported()) {
+      throw new Error('WebTransport not supported in this browser');
+    }
+    updateStatus('connecting', 'Negotiating WebTransport…');
+
+    var enc = new TextEncoder();
+    var ts = String(Math.floor(Date.now() / 1000));
+    var derived = sha256(enc.encode(state.masterKey));
+    var sig = hmacHex(derived, enc.encode('GET/webtransport/info' + ts));
+
+    var infoRes = await fetch('/webtransport/info', {
+      headers: {
+        'X-Auth-Signature': sig,
+        'X-Auth-Timestamp': ts
+      }
+    });
+
+    if (!infoRes.ok) {
+      throw new Error('WebTransport info failed: HTTP ' + infoRes.status);
+    }
+
+    var info = await infoRes.json();
+    if (!info || !info.port || !info.cert_hash || !info.path) {
+      throw new Error('Invalid WebTransport info received');
+    }
+
+    var host = location.hostname;
+    var ts2 = String(Math.floor(Date.now() / 1000));
+    var sig2 = hmacHex(derived, enc.encode('CONNECT' + info.path + ts2));
+    var sessionURL = 'https://' + host + ':' + info.port + info.path + '?ts=' + ts2 + '&sig=' + sig2;
+
+    var video = document.getElementById('remoteVideo');
+    if (state.wtSession) {
+      try { state.wtSession.close(); } catch(e) {}
+      state.wtSession = null;
+    }
+
+    var session = await window.__usbridgeWT.open({
+      url: sessionURL,
+      certHash: info.cert_hash,
+      hello: { codec: 'h264' },
+      videoEl: video,
+      onState: function(st) {
+        if (st === 'connected') {
+          updateStatus('connected', state.host + ' (WT)');
+        } else if (st === 'closed' || st === 'failed') {
+          updateStatus('disconnected', 'WebTransport ' + st);
+        }
+      }
+    }, 5000);
+
+    state.wtSession = session;
+    updateStatus('connected', state.host + ' (WebTransport)');
+  }
+
+  async function connect() {
+    if (!state.masterKey) {
+      openConnectionModal();
+      return;
+    }
+
+    if (state.wtSession) {
+      try { state.wtSession.close(); } catch(e) {}
+      state.wtSession = null;
+    }
+    if (state.pc) {
+      try { state.pc.close(); } catch(e) {}
+      state.pc = null;
+    }
+
+    var proto = state.protocol || 'auto';
+
+    if (proto === 'webtransport') {
+      try {
+        await connectWebTransport();
+        return;
+      } catch(err) {
+        console.error('WebTransport connection error:', err);
+        updateStatus('disconnected', 'WebTransport error: ' + err.message);
+        return;
+      }
+    }
+
+    if (proto === 'webrtc') {
+      try {
+        await connectWebRTC();
+        return;
+      } catch(err) {
+        console.error('WebRTC connection error:', err);
+        updateStatus('disconnected', 'WebRTC error: ' + err.message);
+        return;
+      }
+    }
+
+    // Default: 'auto' (Try WebTransport first, fallback to WebRTC)
+    if (window.__usbridgeWT && window.__usbridgeWT.supported()) {
+      try {
+        await connectWebTransport();
+        return;
+      } catch(wtErr) {
+        console.warn('WebTransport failed, falling back to WebRTC:', wtErr);
+      }
+    }
+
+    try {
+      await connectWebRTC();
+    } catch(err) {
+      console.error('Connection error:', err);
+      updateStatus('disconnected', 'Error: ' + err.message);
+    }
+  }
+
+  function updateStatus(cls, label) {
+    var dot = document.getElementById('statusDot');
+    var lbl = document.getElementById('statusLabel');
+    dot.className = 'status-dot ' + cls;
+    lbl.textContent = label;
+  }
+
+  function updateMouseModeUI() {
+    var lbl = document.getElementById('mouseModeLabel');
+    var btn = document.getElementById('mouseModeBtn');
+    var notice = document.getElementById('lockNotice');
+    if (state.pointerLock) {
+      lbl.textContent = 'Mouse: Locked';
+      btn.classList.add('active');
+      notice.style.display = 'block';
+    } else {
+      lbl.textContent = 'Mouse: Abs';
+      btn.classList.remove('active');
+      notice.style.display = 'none';
+    }
+  }
+
+  window.requestPointerLockDirect = function() {
+    switchTab('control');
+    var video = document.getElementById('remoteVideo');
+    video.requestPointerLock();
+  };
+
+  document.getElementById('mouseModeBtn').addEventListener('click', function() {
+    var video = document.getElementById('remoteVideo');
+    if (!state.pointerLock) video.requestPointerLock();
+    else document.exitPointerLock();
+  });
+
+  window.toggleDropdown = function(id) {
+    var el = document.getElementById(id);
+    var open = el.classList.contains('open');
+    document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+    if (!open) el.classList.add('open');
+  };
+
+  window.addEventListener('click', function(e) {
+    if (!e.target.closest('.dropdown')) {
+      document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+    }
+  });
+
+  window.toggleFullscreen = function() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function() {});
+    else document.exitFullscreen().catch(function() {});
+  };
+
+  window.sendShortcut = function(type) {
+    if (type === 'cad') {
+      sendKeyEvent(VK.ControlLeft, 0, true);
+      sendKeyEvent(VK.AltLeft, 2, true);
+      sendKeyEvent(VK.Delete, 6, true);
+      setTimeout(function() {
+        sendKeyEvent(VK.Delete, 6, false);
+        sendKeyEvent(VK.AltLeft, 2, false);
+        sendKeyEvent(VK.ControlLeft, 0, false);
+      }, 80);
+    } else if (type === 'alt_tab') {
+      sendKeyEvent(VK.AltLeft, 0, true);
+      sendKeyEvent(VK.Tab, 4, true);
+      setTimeout(function() {
+        sendKeyEvent(VK.Tab, 4, false);
+        sendKeyEvent(VK.AltLeft, 0, false);
+      }, 80);
+    } else if (type === 'alt_f4') {
+      sendKeyEvent(VK.AltLeft, 0, true);
+      sendKeyEvent(VK.F4, 4, true);
+      setTimeout(function() {
+        sendKeyEvent(VK.F4, 4, false);
+        sendKeyEvent(VK.AltLeft, 0, false);
+      }, 80);
+    } else if (type === 'win') {
+      sendKeyEvent(VK.MetaLeft, 0, true);
+      setTimeout(function() { sendKeyEvent(VK.MetaLeft, 0, false); }, 80);
+    } else if (type === 'ctrl_esc') {
+      sendKeyEvent(VK.ControlLeft, 0, true);
+      sendKeyEvent(VK.Escape, 2, true);
+      setTimeout(function() {
+        sendKeyEvent(VK.Escape, 2, false);
+        sendKeyEvent(VK.ControlLeft, 0, false);
+      }, 80);
+    } else if (type === 'prtscn') {
+      sendKeyEvent(VK.PrintScreen, 0, true);
+      setTimeout(function() { sendKeyEvent(VK.PrintScreen, 0, false); }, 80);
+    }
+    document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+  };
+
+  window.toggleKeyStrip = function() {
+    var el = document.getElementById('keyStrip');
+    el.classList.toggle('open');
+    document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+  };
+
+  window.toggleModifier = function(mod) {
+    state.modifiers[mod] = !state.modifiers[mod];
+    var btn = document.getElementById('mod' + mod.charAt(0).toUpperCase() + mod.slice(1));
+    if (btn) btn.classList.toggle('active', state.modifiers[mod]);
+  };
+
+  window.sendSingleKey = function(code) {
+    var vk = VK[code];
+    if (vk) {
+      sendKeyEvent(vk, getModifiers({}), true);
+      setTimeout(function() { sendKeyEvent(vk, getModifiers({}), false); }, 60);
+    }
+  };
+
+  window.powerAction = async function(btn, dur) {
+    if (!confirm('Execute ATX ' + btn + ' (' + dur + 'ms)?')) return;
+    try {
+      await api('POST', '/api/pcpanel/button', { button: btn, duration_ms: dur });
+      alert('ATX ' + btn + ' triggered.');
+    } catch(e) { alert('ATX failed: ' + e.message); }
+    document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+  };
+
+  window.openModal = function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.add('open');
+  };
+
+  window.closeModal = function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('open');
+  };
+
+  window.openConnectionModal = function(feedback) {
+    fillConnectionDialogFields();
+    if (feedback) {
+      showConnFeedback(feedback, 'err');
+    } else if (linkDetected) {
+      showConnFeedback('✓ Link detected: internal=' + (state.host || location.hostname), 'ok');
+    } else {
+      showConnFeedback('', '');
+    }
+    openModal('connModal');
+  };
+
+  window.openMoonlightModal = function() {
+    openModal('moonlightModal');
+    loadMoonlightSettings();
+  };
+
+  window.applyConnectionAndConnect = function() {
+    var name = (document.getElementById('connName').value.trim()) || 'USBridge KVM';
+    var lan = document.getElementById('connLan').value.trim();
+    var ts = document.getElementById('connTs').value.trim();
+    var token = document.getElementById('connToken').value.trim();
+    var proto = document.getElementById('connProtocol') ? document.getElementById('connProtocol').value : 'auto';
+
+    if (!lan && !ts) {
+      showConnFeedback('At least one address (LAN or TS) is required', 'err');
+      return;
+    }
+    if (!token) {
+      showConnFeedback('Master key / Token is required', 'err');
+      return;
+    }
+
+    state.name = name;
+    state.host = lan || ts;
+    state.tsHost = ts;
+    state.masterKey = token;
+    state.protocol = proto || 'auto';
+    saveCurrentConnection();
+    closeModal('connModal');
+    connect();
+  };
+
+  window.saveConnectionOnly = function() {
+    var name = (document.getElementById('connName').value.trim()) || 'USBridge KVM';
+    var lan = document.getElementById('connLan').value.trim();
+    var ts = document.getElementById('connTs').value.trim();
+    var token = document.getElementById('connToken').value.trim();
+    var proto = document.getElementById('connProtocol') ? document.getElementById('connProtocol').value : 'auto';
+
+    if (!lan && !ts) {
+      showConnFeedback('At least one address is required', 'err');
+      return;
+    }
+    if (!token) {
+      showConnFeedback('Token is required', 'err');
+      return;
+    }
+
+    state.name = name;
+    state.host = lan || ts;
+    state.tsHost = ts;
+    state.masterKey = token;
+    state.protocol = proto || 'auto';
+    saveCurrentConnection();
+    showConnFeedback('✓ Connection saved', 'ok');
+  };
+
+  window.togglePasteView = function(force) {
+    var box = document.getElementById('pasteBox');
+    var label = document.getElementById('pasteBtnLabel');
+    var isShown = box.style.display === 'flex';
+    var show = force !== undefined ? force : !isShown;
+    box.style.display = show ? 'flex' : 'none';
+    label.textContent = show ? 'Manual Entry' : '🔗 Paste Link';
+    if (show) {
+      document.getElementById('pasteInput').focus();
+    }
+  };
+
+  window.applyPastedLink = function() {
+    var input = document.getElementById('pasteInput').value.trim();
+    var err = document.getElementById('pasteErr');
+    if (!input) return;
+    var parsed = parseDeepLinkURI(input);
+    if (!parsed || (!parsed.internalHost && !parsed.tailscaleHost && !parsed.masterKey)) {
+      err.textContent = 'Invalid link format (use usbridge://connect?...)';
+      return;
+    }
+    err.textContent = '';
+    document.getElementById('connName').value = parsed.name || 'USBridge KVM';
+    document.getElementById('connLan').value = parsed.internalHost || '';
+    document.getElementById('connTs').value = parsed.tailscaleHost || '';
+    document.getElementById('connToken').value = parsed.masterKey || '';
+    togglePasteView(false);
+    showConnFeedback('✓ Link parsed: ' + (parsed.internalHost || parsed.tailscaleHost), 'ok');
+  };
+
+  window.copyField = function(id) {
+    var el = document.getElementById(id);
+    if (!el || !el.value) return;
+    var val = el.value;
+    navigator.clipboard.writeText(val).then(function() {
+      showConnFeedback('✓ Copied to clipboard', 'ok');
+      setTimeout(function() { showConnFeedback('', ''); }, 2000);
+    }).catch(function() {
+      el.select();
+      document.execCommand('copy');
+      showConnFeedback('✓ Copied to clipboard', 'ok');
+      setTimeout(function() { showConnFeedback('', ''); }, 2000);
+    });
+  };
+
+  window.toggleTokenVisibility = function() {
+    var el = document.getElementById('connToken');
+    if (!el) return;
+    el.type = el.type === 'password' ? 'text' : 'password';
+  };
+
+  window.openSetupNet = function() { window.open('http://10.55.0.1/', '_blank'); };
+
+  // --- TAB: Devices (ISO, Mounting, Storage) ---
+  async function loadDevicesTab() {
+    var tb = document.getElementById('deviceImagesTableBody');
+    var badge = document.getElementById('mountStatusBadge');
+    var summ = document.getElementById('storageSummary');
+
+    try {
+      var status = await api('GET', '/api/device/status');
+      if (status && status.mounted) {
+        badge.textContent = 'Mounted: ' + (status.image || 'Attached');
+        badge.className = 'pill active';
+      } else {
+        badge.textContent = 'No disk mounted';
+        badge.className = 'pill';
+      }
+    } catch(e) {}
+
+    try {
+      var space = await api('GET', '/api/storage/status');
+      if (space && space.sdcard) {
+        summ.textContent = 'SD Card: ' + (space.sdcard.free_gb || '0') + ' GB free / ' + (space.sdcard.total_gb || '0') + ' GB total';
+      }
+    } catch(e) {}
+
+    try {
+      var drives = await api('GET', '/api/drives/local');
+      tb.innerHTML = '';
+      if (!drives || !drives.length) {
+        tb.innerHTML = '<tr><td colspan="3" style="color:var(--dim); text-align:center;">No images found. Upload an ISO above.</td></tr>';
+        return;
+      }
+      drives.forEach(function(d) {
+        var tr = document.createElement('tr');
+        var fname = d.name || d.filename;
+        var size = d.size_mb ? (d.size_mb + ' MB') : (d.size ? Math.round(d.size/1048576) + ' MB' : '-');
+        tr.innerHTML = '<td><b>' + fname + '</b></td>' +
+          '<td style="color:var(--muted);">' + size + '</td>' +
+          '<td>' +
+            '<button class="btn btn-secondary" style="padding:2px 8px; font-size:11px; margin-right:6px;" onclick="mountISO(\'' + fname + '\')">Mount</button>' +
+            '<button class="btn btn-secondary" style="padding:2px 8px; font-size:11px; color:var(--err);" onclick="deleteISO(\'' + fname + '\')">&times;</button>' +
+          '</td>';
+        tb.appendChild(tr);
+      });
+    } catch(e) {
+      tb.innerHTML = '<tr><td colspan="3" style="color:var(--err); text-align:center;">Failed: ' + e.message + '</td></tr>';
+    }
+  }
+
+  window.mountISO = async function(fname) {
+    try {
+      await api('POST', '/api/device/start', { iso_path: '/mnt/sdcard/' + fname, mode: 'cdrom' });
+      alert('Mounted: ' + fname);
+      loadDevicesTab();
+    } catch(e) { alert('Mount failed: ' + e.message); }
+  };
+
+  window.deleteISO = async function(fname) {
+    if (!confirm('Delete ' + fname + ' from KVM storage?')) return;
+    try {
+      await api('POST', '/api/iso/delete', { filename: fname });
+      loadDevicesTab();
+    } catch(e) { alert('Delete failed: ' + e.message); }
+  };
+
+  window.uploadDeviceISO = function() {
+    var fi = document.getElementById('devIsoFileInput');
+    var file = fi.files[0];
+    if (!file) return alert('Select an ISO or IMG file.');
+
+    var pbox = document.getElementById('devUploadProgress');
+    var pbar = document.getElementById('devUploadBar');
+    var ppct = document.getElementById('devUploadPct');
+    var btn = document.getElementById('devUploadBtn');
+
+    pbox.style.display = 'block';
+    btn.disabled = true;
+
+    var endpoint = '/api/iso/upload?filename=' + encodeURIComponent(file.name);
+    var enc = new TextEncoder();
+    var ts = String(Math.floor(Date.now() / 1000));
+    var derived = sha256(enc.encode(state.masterKey));
+    var sig = hmacHex(derived, enc.encode('POST' + endpoint + ts));
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', endpoint);
+    xhr.setRequestHeader('X-Auth-Signature', sig);
+    xhr.setRequestHeader('X-Auth-Timestamp', ts);
+
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) {
+        var pct = Math.round((e.loaded / e.total) * 100);
+        pbar.style.width = pct + '%';
+        ppct.textContent = pct + '% (' + (e.loaded/1048576).toFixed(1) + ' / ' + (e.total/1048576).toFixed(1) + ' MB)';
+      }
+    };
+
+    xhr.onload = function() {
+      btn.disabled = false;
+      pbox.style.display = 'none';
+      if (xhr.status >= 200 && xhr.status < 300) {
+        alert('File uploaded successfully!');
+        fi.value = '';
+        loadDevicesTab();
+      } else {
+        alert('Upload failed: ' + xhr.responseText);
+      }
+    };
+
+    xhr.onerror = function() {
+      btn.disabled = false;
+      pbox.style.display = 'none';
+      alert('Upload failed: network error');
+    };
+
+    var fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  };
+
+  // --- TAB: Snapshots ---
+  async function loadSnapshotsTab() {
+    var tb = document.getElementById('snapshotsTableBody');
+    tb.innerHTML = '<tr><td colspan="3" style="color:var(--dim); text-align:center;">Loading snapshots…</td></tr>';
+    try {
+      var list = await api('GET', '/api/backup/get_snapshots');
+      tb.innerHTML = '';
+      if (!list || !list.length) {
+        tb.innerHTML = '<tr><td colspan="3" style="color:var(--dim); text-align:center;">No snapshots saved. Press "+ Create Snapshot" to create one.</td></tr>';
+        return;
+      }
+      list.forEach(function(s) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td><b>' + (s.version || s.name || s.id) + '</b></td>' +
+          '<td style="color:var(--muted);">' + (s.created_at || s.timestamp || '-') + '</td>' +
+          '<td><button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="alert(\'Snapshot restore ready\')">Restore</button></td>';
+        tb.appendChild(tr);
+      });
+    } catch(e) {
+      tb.innerHTML = '<tr><td colspan="3" style="color:var(--dim); text-align:center;">Snapshots service: ' + e.message + '</td></tr>';
+    }
+  }
+
+  window.createSnapshot = async function() {
+    if (!confirm('Create a new SD card restore point?')) return;
+    try {
+      await api('POST', '/api/settings/sdcard/snapshots', {});
+      alert('Snapshot created successfully!');
+      loadSnapshotsTab();
+    } catch(e) { alert('Failed to create snapshot: ' + e.message); }
+  };
+
+  // --- TAB: Scripts ---
+  async function loadScriptsTab() {
+    var box = document.getElementById('scriptsList');
+    box.innerHTML = '<div style="color:var(--dim); font-size:13px;">Loading scripts…</div>';
+    try {
+      var scripts = await api('GET', '/api/scripts/list');
+      box.innerHTML = '';
+      if (!scripts || !scripts.length) {
+        box.innerHTML = '<div style="color:var(--dim); font-size:13px;">No automation scripts installed.</div>';
+        return;
+      }
+      scripts.forEach(function(sc) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:var(--input); border:1px solid var(--line); border-radius:6px; padding:10px 12px;';
+        row.innerHTML = '<span><b>' + (sc.name || sc) + '</b></span>' +
+          '<button class="btn btn-primary" style="padding:4px 12px; font-size:12px;" onclick="runScript(\'' + (sc.name || sc) + '\')">Run</button>';
+        box.appendChild(row);
+      });
+    } catch(e) {
+      box.innerHTML = '<div style="color:var(--err); font-size:13px;">Failed: ' + e.message + '</div>';
+    }
+  }
+
+  window.runScript = async function(name) {
+    var logBox = document.getElementById('scriptLogBox');
+    logBox.textContent = 'Running ' + name + '…\n';
+    try {
+      await api('POST', '/api/scripts/run', { name: name });
+      pollScriptLog();
+    } catch(e) {
+      logBox.textContent += 'Error: ' + e.message;
+    }
+  };
+
+  window.stopScript = async function() {
+    try {
+      await api('POST', '/api/scripts/stop', {});
+      alert('Script stopped.');
+    } catch(e) { alert('Stop failed: ' + e.message); }
+  };
+
+  async function pollScriptLog() {
+    var logBox = document.getElementById('scriptLogBox');
+    try {
+      var log = await api('GET', '/api/scripts/log');
+      if (log && log.output) logBox.textContent = log.output;
+    } catch(e) {}
+  }
+
+  // --- Settings: Moonlight logic ---
+  async function loadMoonlightSettings() {
+    var list = document.getElementById('cfgMoonlightList');
+    list.innerHTML = '<div style="color:var(--dim); font-size:11px;">Loading…</div>';
+    try {
+      var clients = await api('GET', '/api/moonlight/clients');
+      list.innerHTML = '';
+      if (!clients || !clients.length) {
+        list.innerHTML = '<div style="color:var(--dim); font-size:11px;">No authorized Moonlight clients.</div>';
+        return;
+      }
+      clients.forEach(function(c) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; background:var(--input); border:1px solid var(--line); border-radius:4px; font-size:12px;';
+        row.innerHTML = '<span>' + (c.name || c.uuid || 'Client') + '</span>' +
+          '<button class="btn btn-secondary" style="padding:1px 6px; font-size:10px; color:var(--err);" onclick="unpairOneMoonlight(\'' + (c.uuid || c.name) + '\')">&times;</button>';
+        list.appendChild(row);
+      });
+    } catch(e) {
+      list.innerHTML = '<div style="color:var(--err); font-size:11px;">Unavailable</div>';
+    }
+  }
+
+  window.submitMoonlightPIN = async function() {
+    var pin = document.getElementById('cfgMoonlightPin').value.trim();
+    var msg = document.getElementById('cfgPinMsg');
+    if (!/^\d{4}$/.test(pin)) {
+      msg.textContent = 'Please enter 4 digits.';
+      msg.style.color = 'var(--err)';
+      return;
+    }
+    msg.textContent = 'Sending PIN…';
+    msg.style.color = 'var(--lime)';
+    try {
+      await api('POST', '/api/moonlight/pin', { pin: pin });
+      msg.textContent = 'PIN accepted! Finishing pairing…';
+      document.getElementById('cfgMoonlightPin').value = '';
+      setTimeout(loadMoonlightSettings, 2000);
+    } catch(e) {
+      msg.textContent = 'PIN rejected: ' + e.message;
+      msg.style.color = 'var(--err)';
+    }
+  };
+
+  window.unpairOneMoonlight = async function(uuid) {
+    if (!confirm('Remove this Moonlight authorization?')) return;
+    try {
+      await api('POST', '/api/moonlight/unpair', { uuid: uuid });
+      loadMoonlightSettings();
+    } catch(e) { alert('Failed: ' + e.message); }
+  };
+
+  window.unpairAllMoonlight = async function() {
+    if (!confirm('Remove ALL authorized Moonlight clients?')) return;
+    try {
+      await api('POST', '/api/moonlight/unpair_all', {});
+      loadMoonlightSettings();
+    } catch(e) { alert('Failed: ' + e.message); }
+  };
+
+  // --- Metrics Poller ---
+  setInterval(function() {
+    var statsEl = document.getElementById('streamStats');
+    if (!statsEl) return;
+    if (state.wtSession && state.wtSession.stats) {
+      var st = state.wtSession.stats;
+      var now = performance.now();
+      var elapsedSec = (now - state.lastStats.lastCheck) / 1000;
+      var fps = Math.round((st.framesDecoded - state.lastStats.frames) / elapsedSec);
+      state.lastStats.frames = st.framesDecoded;
+      state.lastStats.lastCheck = now;
+      var rtt = st.rttMs ? Math.round(st.rttMs) + ' ms' : '<1 ms';
+      statsEl.textContent = 'WT · ' + (fps >= 0 ? fps : 0) + ' fps · ' + rtt;
+      return;
+    }
+    var video = document.getElementById('remoteVideo');
+    if (video) {
+      var quality = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null;
+      var totalFrames = quality ? quality.totalVideoFrames : 0;
+      var now = performance.now();
+      var elapsedSec = (now - state.lastStats.lastCheck) / 1000;
+      var fps = Math.round((totalFrames - state.lastStats.frames) / elapsedSec);
+      state.lastStats.frames = totalFrames;
+      state.lastStats.lastCheck = now;
+      if (fps >= 0 && fps < 240 && video.videoWidth > 0) {
+        statsEl.textContent = video.videoWidth + 'x' + video.videoHeight + ' · ' + fps + ' fps';
+      }
+    }
+  }, 1000);
+
+  // --- Start ---
+  initConnectionParams();
+  attachInputs();
+
+  if (linkDetected && !immediateConnect) {
+    openConnectionModal();
+  } else if (!state.masterKey) {
+    openConnectionModal();
+  } else {
+    connect();
+  }
+
+})();
+</script>
+</body>
+</html>

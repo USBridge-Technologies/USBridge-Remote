@@ -62,9 +62,57 @@
     visibility: hidden;
     pointer-events: none;
   }
+  #loadingBox {
+    position: fixed;
+    inset: 0;
+    background: #0b0f12;
+    color: #f5f5f5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 9999;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid #2a2e31;
+    border-top-color: #c4e77a;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .lite-switch {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 10000;
+    background: rgba(17, 20, 23, 0.9);
+    border: 1px solid #2b3136;
+    color: #c4e77a;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
+    text-decoration: none;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    transition: all 0.15s;
+  }
+  .lite-switch:hover {
+    background: #c4e77a;
+    color: #172105;
+  }
 </style>
 </head>
 <body>
+<a id="liteSwitch" class="lite-switch" href="lite.html">⚡ Lite HTML5 Mode</a>
+<div id="loadingBox">
+  <div class="spinner"></div>
+  <div id="loadingText" style="font-size: 14px; color: #a0a8ae;">Loading WASM Client…</div>
+</div>
 <!-- Grants WebHID access to a gamepad or pen tablet -- the primary capture
      path in Chrome/Edge (see internal/platform/gamepad_hid_wasm.go's doc
      comment for why: it gives real vendor/product id and the real HID
@@ -374,13 +422,53 @@
     });
   }
 
+  const liteSwitch = document.getElementById('liteSwitch');
+  if (liteSwitch) liteSwitch.href = 'lite.html' + location.hash;
+
   const go = new Go();
-  WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then((result) => {
+  const loadingBox = document.getElementById('loadingBox');
+  const loadingText = document.getElementById('loadingText');
+
+  fetch('app.wasm').then(response => {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const contentLength = response.headers.get('content-length');
+    if (!contentLength || !response.body) {
+      return WebAssembly.instantiateStreaming(Promise.resolve(response), go.importObject);
+    }
+    const total = parseInt(contentLength, 10);
+    let loaded = 0;
+    const reader = response.body.getReader();
+    const stream = new ReadableStream({
+      start(controller) {
+        function pump() {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              controller.close();
+              if (loadingText) loadingText.textContent = 'Compiling WebAssembly…';
+              return;
+            }
+            loaded += value.byteLength;
+            if (loadingText) {
+              const pct = Math.round((loaded / total) * 100);
+              loadingText.textContent = 'Loading client: ' + pct + '% (' + (loaded / (1024*1024)).toFixed(1) + ' MB)';
+            }
+            controller.enqueue(value);
+            return pump();
+          });
+        }
+        return pump();
+      }
+    });
+    return WebAssembly.instantiateStreaming(new Response(stream, { headers: response.headers }), go.importObject);
+  }).then((result) => {
+    if (loadingBox) loadingBox.style.display = 'none';
     go.run(result.instance);
     installViewportFollow();
     installFullscreenOnFirstTap();
     installClipboardPasteBridge();
     installHIDConnectButton();
+  }).catch((err) => {
+    if (loadingText) loadingText.textContent = 'Failed to load: ' + err.message;
   });
 </script>
 </body>
