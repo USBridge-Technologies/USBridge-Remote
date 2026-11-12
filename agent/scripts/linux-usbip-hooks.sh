@@ -54,9 +54,9 @@ usbridge_usbip_configure() {
         if [ -f /usr/local/libexec/usbridge/sunshine/usr/bin/sunshine ]; then
             setcap -r /usr/local/libexec/usbridge/sunshine/usr/bin/sunshine 2>/dev/null || true
         fi
-        # Vibepollo needs cap_sys_admin,cap_sys_nice=p on its binary for startup capability sanitization
+        # Vibepollo and Sunshine must NOT have file capabilities (breaks $ORIGIN RUNPATH under AT_SECURE)
         if [ -f /usr/local/libexec/usbridge/vibepollo/usr/bin/vibepollo ]; then
-            setcap cap_sys_admin,cap_sys_nice=p /usr/local/libexec/usbridge/vibepollo/usr/bin/vibepollo 2>/dev/null || true
+            setcap -r /usr/local/libexec/usbridge/vibepollo/usr/bin/vibepollo 2>/dev/null || true
         fi
         rm -f /etc/ld.so.conf.d/usbridge-streamer.conf 2>/dev/null || true
         ldconfig 2>/dev/null || true

@@ -255,9 +255,7 @@ func InstallForkTree(t ForkTree, releaseDir string, callerUID int) (string, erro
 		return "", fmt.Errorf("%s has no %s: %w", t.Asset, t.Bin, err)
 	}
 	setcap := FindCapTool("setcap")
-	if t.Name == "vibepollo" {
-		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=p", binPath).Run()
-	} else if t.Name == "sunshine" {
+	if t.Name == "vibepollo" || t.Name == "sunshine" {
 		_ = exec.Command(setcap, "-r", binPath).Run()
 	}
 	if err := CheckTreeRootOwned(tmp); err != nil {

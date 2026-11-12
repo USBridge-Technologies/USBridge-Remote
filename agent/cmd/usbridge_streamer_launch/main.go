@@ -203,10 +203,13 @@ func grantPriority(extraPaths []string) {
 		fail(exitExecFail, "setcap %s: %v (%s)", streamerlaunch.InstallPath, err, strings.TrimSpace(string(out)))
 	}
 
-	// 2. Grant cap_sys_admin,cap_sys_nice=p to vibepollo binary if present
+	// 2. Streamers (Sunshine, Vibepollo) do NOT use file capabilities: they run through
+	// this launcher. Setting file capabilities causes glibc to enter AT_SECURE mode, disabling
+	// relative RUNPATH ($ORIGIN/../lib) and failing to load bundled libraries (libminiupnpc).
+	// Remove any file caps on them if present.
 	vibeBin := streamerlaunch.VibepolloBin
 	if st, err := os.Stat(vibeBin); err == nil && st.Mode().IsRegular() {
-		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=p", vibeBin).Run()
+		_ = exec.Command(setcap, "-r", vibeBin).Run()
 	}
 
 	// 3. Sunshine does NOT use file capabilities: it inherits ambient CAP_SYS_ADMIN

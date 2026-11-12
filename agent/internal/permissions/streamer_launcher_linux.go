@@ -123,7 +123,7 @@ func buildStreamerLauncherInstallScript(src, wantSHA256, setcap string, uid int)
 		"chown root:root " + q(streamerlaunch.AllowedUIDsPath),
 		"chmod 0644 " + q(streamerlaunch.AllowedUIDsPath),
 		fmt.Sprintf("grep -qx %d %s || echo %d >> %s", uid, q(streamerlaunch.AllowedUIDsPath), uid, q(streamerlaunch.AllowedUIDsPath)),
-		"[ -f " + q(vibeBin) + " ] && " + q(setcap) + " cap_sys_admin,cap_sys_nice=p " + q(vibeBin) + " || true",
+		"[ -f " + q(vibeBin) + " ] && " + q(setcap) + " -r " + q(vibeBin) + " || true",
 		"[ -f " + q(sunBin) + " ] && " + q(setcap) + " -r " + q(sunBin) + " || true",
 		"rm -f /etc/ld.so.conf.d/usbridge-streamer.conf && ldconfig || true",
 	}, "\n")
@@ -202,8 +202,9 @@ func (s *Service) PriorityGranted() bool {
 	}
 	vibeBin := streamerlaunch.VibepolloBin
 	if st, err := os.Stat(vibeBin); err == nil && st.Mode().IsRegular() {
-		out, err := exec.Command(findCapTool("getcap"), vibeBin).CombinedOutput()
-		if err != nil || !strings.Contains(string(out), "cap_sys_nice") {
+		out, _ := exec.Command(findCapTool("getcap"), vibeBin).CombinedOutput()
+		if len(strings.TrimSpace(string(out))) > 0 {
+			// Vibepollo must NOT carry file caps: it runs via launcher.
 			return false
 		}
 	}
