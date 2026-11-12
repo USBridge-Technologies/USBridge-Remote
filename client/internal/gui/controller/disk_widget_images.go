@@ -21,6 +21,7 @@ import (
 type selectedImage struct {
 	FileName string
 	URI      string
+	Size     int64
 }
 
 // setUploadStateByPath sets the upload state for a file by its path.
@@ -72,6 +73,11 @@ func (dw *DiskWidget) handleAddImage() {
 
 	if runtime.GOOS == "android" {
 		dw.pickImageForDiskList()
+		return
+	}
+
+	if runtime.GOOS == "js" {
+		dw.handleAddImageWasm()
 		return
 	}
 
@@ -178,6 +184,9 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 				file.Close()
 			}
 		}
+	} else if strings.HasPrefix(uriString, "wasm://") {
+		filePath = uriString
+		fileSize = selected.Size
 	} else {
 		filePath = dw.convertAndroidURIToPath(uriString, fileName)
 		if info, err := os.Stat(filePath); err == nil {
@@ -438,6 +447,11 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 
 // uploadImageToDevice uploads an image to the device.
 func (dw *DiskWidget) uploadImageToDevice(drive DriveItem) {
+	if runtime.GOOS == "js" {
+		dw.uploadImageToDeviceWasm(drive)
+		return
+	}
+
 	var fileReader *os.File
 	var err error
 

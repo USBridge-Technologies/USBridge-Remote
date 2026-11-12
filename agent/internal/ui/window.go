@@ -3459,7 +3459,7 @@ func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, maste
 	if strings.TrimSpace(tailscaleHost) != "" {
 		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
 	}
-	if strings.TrimSpace(deviceHost) != "" {
+	if strings.TrimSpace(deviceHost) != "" && !strings.Contains(deviceHost, "device.usbridge.io") {
 		values.Set("device_host", strings.TrimSpace(deviceHost))
 	}
 	values.Set("master_key", masterKey)

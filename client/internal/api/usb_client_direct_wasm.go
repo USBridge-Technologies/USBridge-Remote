@@ -44,6 +44,23 @@ func NewDirectUSBClient(host string, port, tlsPort int, timeout int) *USBClient 
 		// This page was served by the device itself (the KVM's own web
 		// client): talk to the very origin it came from.
 		port, tlsPort = p, p
+	} else if loc := js.Global().Get("location"); !loc.IsUndefined() && !loc.IsNull() {
+		pageHost := strings.Trim(loc.Get("hostname").String(), "[]")
+		pagePort, _ := strconv.Atoi(loc.Get("port").String())
+		if pagePort <= 0 {
+			if loc.Get("protocol").String() == "https:" {
+				pagePort = 443
+			} else {
+				pagePort = 80
+			}
+		}
+		if pagePort == 9443 && (tlsPort == 8443 || tlsPort == 0) {
+			tlsPort = 9443
+		}
+		if pageHost != "" && (host == "" || host == "127.0.0.1" || host == "localhost") {
+			host = pageHost
+			port, tlsPort = pagePort, pagePort
+		}
 	}
 	if BrowserIsHTTPS() {
 		return NewUSBClientWithScheme("https", host, tlsPort, timeout, nil)

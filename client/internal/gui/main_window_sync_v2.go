@@ -127,7 +127,7 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 		authURL := strings.TrimSpace(resp.TailscaleStatus.AuthURL)
 		logrus.Debugf("🛰️ [SYNC] authURL=%q doRegister=%v tailscaleReady=%v lastAuthURL=%q",
 			authURL, doRegister, tailscaleReady, mw.lastTailscaleAuthURL)
-		if authURL != "" && !tailscaleReady && doRegister {
+		if authURL != "" && !resp.TailscaleStatus.LoggedIn && !tailscaleReady && doRegister && !isLikelyTailscaleHost(bootstrapHost) {
 			if authURL != mw.lastTailscaleAuthURL {
 				mw.lastTailscaleAuthURL = authURL
 				logrus.Infof("🛰️ [SYNC] Bridge Tailscale needs approval — opening browser: %s", authURL)

@@ -4681,7 +4681,7 @@ func buildQRLink(internalHost, tailscaleHost, deviceHost, masterKey, hwID string
 	if tailscaleHost != "" {
 		values.Set("tailscale_host", tailscaleHost)
 	}
-	if deviceHost != "" {
+	if deviceHost != "" && !strings.Contains(deviceHost, "device.usbridge.io") {
 		values.Set("device_host", deviceHost)
 	}
 	values.Set("master_key", masterKey)

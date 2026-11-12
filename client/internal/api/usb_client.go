@@ -1667,6 +1667,21 @@ func (c *USBClient) UploadISOWithProgress(filePath string, fileReader io.Reader,
 	return lastErr
 }
 
+// BaseURL returns the client's base URL (e.g. "https://10.55.0.1:9443").
+func (c *USBClient) BaseURL() string {
+	return c.baseURL
+}
+
+// APIKey returns the client's api key if any.
+func (c *USBClient) APIKey() string {
+	return c.apiKey
+}
+
+// ComputeUploadHMAC computes the HMAC signature for a multipart upload.
+func (c *USBClient) ComputeUploadHMAC(endpoint string) (timestamp, signature string) {
+	return c.computeUploadHMAC(endpoint)
+}
+
 // computeUploadHMAC computes the HMAC signature for a multipart upload.
 // Body is excluded from the signature (server skips body for multipart to avoid
 // buffering gigabytes into RAM). Timestamp + secret still authenticate the caller.
