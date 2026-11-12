@@ -1182,6 +1182,17 @@ int metal_video_submit_compressed_sample(CMSampleBufferRef sample) {
 
     avsbdl_enqueue(g_avsbdl, sample);
 
+    // Phase lock: time from this frame being ready to the display's next latch.
+    if (phase_report_enabled() && g_display_link) {
+        double target = g_display_link.targetTimestamp, period = g_display_link.duration;
+        double nowm = CACurrentMediaTime();
+        if (period > 0 && target > 0) {
+            double rem = fmod(target - nowm, period);
+            if (rem < 0) rem += period;
+            phase_report_ready((int64_t)(rem * 1e6), (int64_t)(period * 1e6), 2500, (int64_t)(nowm * 1e6));
+        }
+    }
+
     if (atomic_fetch_add(&g_avsbdl_submit_count, 1) == 0) {
         char msg[96];
         snprintf(msg, sizeof(msg), "AVSBDL: first sample enqueued (status=%ld)", (long)avsbdl_status(g_avsbdl));

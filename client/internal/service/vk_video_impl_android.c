@@ -723,7 +723,8 @@ static int vk_create_swapchain(int w, int h) {
     if (g_swap_ext.width  < caps.minImageExtent.width)  g_swap_ext.width  = caps.minImageExtent.width;
     if (g_swap_ext.height < caps.minImageExtent.height) g_swap_ext.height = caps.minImageExtent.height;
 
-    uint32_t imgCount = caps.minImageCount + 1;
+    uint32_t imgCount = caps.minImageCount;
+    if (imgCount < 2) imgCount = 2;
     if (caps.maxImageCount && imgCount > caps.maxImageCount) imgCount = caps.maxImageCount;
 
     VkSwapchainCreateInfoKHR sci = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
@@ -2845,10 +2846,33 @@ void android_vk_force_recreate_swapchain(void) {
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
 }
 
+// Direct SurfaceView mode state (Moonlight architecture):
+// AMediaCodec writes directly to the SurfaceView's ANativeWindow.
+// No Vulkan swapchain, no intermediate AImageReader, zero presentation lag.
+static int            g_direct_mode = 0;
+static ANativeWindow *g_direct_win  = NULL;
+
+extern void amc_set_direct_surface(ANativeWindow *win);
+void android_vk_update_rect(int x, int y, int w, int h);
+
+ANativeWindow *android_get_direct_surface(void) {
+    return g_direct_win;
+}
+
+int android_is_direct_mode(void) {
+    return g_direct_mode;
+}
+
 // android_vk_create: request SurfaceView overlay from Kotlin, wait for surface,
 // then initialise Vulkan renderer. Returns 1 on success.
 int android_vk_create(int x, int y, int w, int h) {
-    if (atomic_load(&g_active)) vk_full_cleanup();
+    if (atomic_load(&g_active)) {
+        if (g_direct_mode && g_direct_win) {
+            android_vk_update_rect(x, y, w, h);
+            return 1;
+        }
+        vk_full_cleanup();
+    }
 
     // Holes belong to the surface they were cut for; Go resets its own copy
     // on create and would never push an empty list over a stale one (a
@@ -2873,6 +2897,23 @@ int android_vk_create(int x, int y, int w, int h) {
         VLOGE("android_vk_create: timeout waiting for SurfaceView surface");
         java_destroy_overlay();
         return 0;
+    }
+
+    // Direct SurfaceView mode: only enabled if explicitly requested via setprop.
+    // Vulkan overlay is the standard path that supports aspect ratio letterboxing,
+    // Fyne menu holes (android_vk_set_holes), and RustDesk-style cursor/pan/zoom.
+    char direct_prop[PROP_VALUE_MAX] = {0};
+    __system_property_get("debug.usbridge.direct", direct_prop);
+    int want_direct = (direct_prop[0] == '1');
+
+    if (want_direct) {
+        g_direct_mode = 1;
+        g_direct_win = win; // retained for AMediaCodec direct output
+        atomic_store(&g_active, 1);
+        VLOGI("android_vk_create: direct SurfaceView mode enabled (Moonlight architecture) — rect=(%d,%d,%dx%d)",
+              x, y, w, h);
+        amc_set_direct_surface(win);
+        return 1;
     }
 
     // Reset viewport to full frame and hide cursor for the new session.
@@ -3160,6 +3201,17 @@ void android_vk_set_holes(const int *xywh, int n) {
 
 void android_vk_destroy(void) {
     if (!atomic_load(&g_active)) return;
+    if (g_direct_mode) {
+        VLOGI("Direct SurfaceView overlay destroyed");
+        g_direct_mode = 0;
+        if (g_direct_win) {
+            ANativeWindow_release(g_direct_win);
+            g_direct_win = NULL;
+        }
+        atomic_store(&g_active, 0);
+        java_destroy_overlay();
+        return;
+    }
     VLOGI("Vulkan/Android renderer destroyed — rendered=%lld submitted=%lld",
           (long long)g_rendered, (long long)g_submitted);
     vk_full_cleanup();

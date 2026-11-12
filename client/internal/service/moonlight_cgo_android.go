@@ -77,6 +77,8 @@ extern int  android_vk_try_submit_aimage(void *img);
 extern void android_vk_release_aimages(void);
 extern void android_vk_set_pacing(int level);
 extern void android_vk_set_hdr(int on);
+extern ANativeWindow *android_get_direct_surface(void);
+extern int           android_is_direct_mode(void);
 
 // Bodies in net_graph_stats_android.c (not inline here: this file has
 // //export, so a non-static function body in this preamble would be
@@ -123,6 +125,7 @@ static uint32_t       g_amc_last_rtp   = 0;
 static uint64_t       g_amc_rtp_ticks  = 0;
 static int            g_amc_hevc       = 0; // stream is HEVC (for SPS parsing)
 static int            g_amc_hdr        = 0; // Main10 stream shown as HDR10
+static int            g_amc_direct     = 0; // Direct SurfaceView output (Moonlight architecture)
 static int            g_sps_w = 0, g_sps_h = 0; // last coded size seen in an SPS
 
 // ── Connection callbacks ──────────────────────────────────────────────────────
@@ -523,12 +526,10 @@ static AMediaFormat *amc_new_format(const char *mime, int width, int height, int
         // Without these the platform sizes decoder clocks for 30 fps:
         // 4K at 60-120 fps then decodes at ~15-20 fps and backs up.
         if (fps > 0) AMediaFormat_setInt32(fmt, "frame-rate", fps);
-        // Qualcomm (Snapdragon 695, HEVC 1080p60): twice the stream rate cut
-        // decode from ~17 to ~13 ms; the maximum made it fall behind (53-56
-        // of 60 fps decoded). `setprop debug.usbridge.oprate N` overrides.
+        // Moonlight sets Short.MAX_VALUE (32767) to ramp Qualcomm/Adreno decoder clocks to max.
         char v[PROP_VALUE_MAX] = {0};
         int oprate = __system_property_get("debug.usbridge.oprate", v) > 0 ? atoi(v) : -1;
-        if (oprate <= 0) oprate = amc_is_qualcomm(decoder) ? (fps > 0 ? fps * 2 : 0) : 32767;
+        if (oprate <= 0) oprate = 32767;
         if (oprate > 0) AMediaFormat_setInt32(fmt, "operating-rate", oprate);
     }
     return fmt;
@@ -577,14 +578,30 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
     vlat_reset();
     android_gl_set_low_latency(g_amc_lowlat);
 
-    // GL is set up either way: it is the fallback for CPU pixels.
-    ANativeWindow *nwin = android_gl_init(width, height);
-    if (!nwin) { ALOGE("amc_init: no native window"); return; }
-    if (g_amc_lowlat && amc_read_prop_flag("debug.usbridge.zerocopy")) {
-        ANativeWindow *rwin = air_create(width, height);
-        if (rwin) {
-            ANativeWindow_release(nwin);
-            nwin = rwin;
+    ANativeWindow *nwin = NULL;
+    ANativeWindow *dwin = android_get_direct_surface();
+    for (int i = 0; i < 50 && !dwin && android_is_direct_mode(); i++) {
+        struct timespec ts = {0, 10000000}; // 10 ms
+        nanosleep(&ts, NULL);
+        dwin = android_get_direct_surface();
+    }
+    if (dwin) {
+        ALOGI("amc_init: using direct SurfaceView (Moonlight architecture)");
+        ANativeWindow_acquire(dwin);
+        ANativeWindow_setBuffersGeometry(dwin, width, height, 0);
+        nwin = dwin;
+        g_amc_direct = 1;
+    } else {
+        g_amc_direct = 0;
+        // GL is set up either way: it is the fallback for CPU pixels.
+        nwin = android_gl_init(width, height);
+        if (!nwin) { ALOGE("amc_init: no native window"); return; }
+        if (g_amc_lowlat && amc_read_prop_flag("debug.usbridge.zerocopy")) {
+            ANativeWindow *rwin = air_create(width, height);
+            if (rwin) {
+                ANativeWindow_release(nwin);
+                nwin = rwin;
+            }
         }
     }
 
@@ -638,6 +655,21 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
     if (nwin) ANativeWindow_release(nwin);
 }
 
+void amc_set_direct_surface(ANativeWindow *win) {
+    if (win) {
+        if (g_amc_w > 0 && g_amc_h > 0) {
+            ANativeWindow_setBuffersGeometry(win, g_amc_w, g_amc_h, 0);
+        }
+        if (g_amc) {
+            media_status_t st = AMediaCodec_setOutputSurface(g_amc, win);
+            ALOGI("amc_set_direct_surface: AMediaCodec_setOutputSurface returned %d", (int)st);
+            if (st == AMEDIA_OK) {
+                g_amc_direct = 1;
+            }
+        }
+    }
+}
+
 // ── Output thread (low-latency path) ─────────────────────────────────────────
 //
 // Waits on the decoder's output queue and shows each frame the moment it is
@@ -652,7 +684,7 @@ static int         g_amc_out_started = 0;
 
 static void *amc_output_thread(void *arg) {
     (void)arg;
-    ALOGI("amc output thread started");
+    ALOGI("amc output thread started (direct=%d)", g_amc_direct);
     while (atomic_load(&g_amc_out_run)) {
         AMediaCodecBufferInfo info;
         ssize_t idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 20000);
@@ -676,16 +708,27 @@ static void *amc_output_thread(void *arg) {
             idx = n; info = next;
         }
         vlat_note_output((uint64_t)info.presentationTimeUs);
-        // The benchmark's clock for this frame: decoded, as on the other platforms
-        // (where the barcode is read in the decoder's callback).
-        int64_t bench_wall = (g_air && bench_latency_due()) ? bench_wall_us() : 0;
-        AMediaCodec_releaseOutputBuffer(g_amc, (size_t)idx, 1);
-        if (g_air) {
-            AImage *img = air_acquire(30);
-            if (img && bench_wall) amc_bench_sample(img, bench_wall);
-            if (img) amc_present_image(img);
+
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        int64_t now_ns = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+
+        if (g_amc_direct) {
+            // Moonlight direct output to SurfaceView: render immediately to surface
+            AMediaCodec_releaseOutputBuffer(g_amc, (size_t)idx, 1);
+            goVTFrame(NULL, g_amc_w, g_amc_h, g_amc_w * 4);
         } else {
-            amc_present_output(info.presentationTimeUs);
+            // The benchmark's clock for this frame: decoded, as on the other platforms
+            // (where the barcode is read in the decoder's callback).
+            int64_t bench_wall = (g_air && bench_latency_due()) ? bench_wall_us() : 0;
+            AMediaCodec_releaseOutputBufferAtTime(g_amc, (size_t)idx, now_ns);
+            if (g_air) {
+                AImage *img = air_acquire(30);
+                if (img && bench_wall) amc_bench_sample(img, bench_wall);
+                if (img) amc_present_image(img);
+            } else {
+                amc_present_output(info.presentationTimeUs);
+            }
         }
     }
     // get_env() in the GL bridge attached this thread to the JVM; a thread
@@ -802,8 +845,16 @@ static int dr_submit(PDECODE_UNIT du) {
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {
         vlat_note_output((uint64_t)info.presentationTimeUs);
-        AMediaCodec_releaseOutputBuffer(g_amc, out_idx, 1);
-        amc_present_output(info.presentationTimeUs);
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        int64_t now_ns = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+        if (g_amc_direct) {
+            AMediaCodec_releaseOutputBufferAtTime(g_amc, (size_t)out_idx, now_ns);
+            goVTFrame(NULL, g_amc_w, g_amc_h, g_amc_w * 4);
+        } else {
+            AMediaCodec_releaseOutputBufferAtTime(g_amc, (size_t)out_idx, now_ns);
+            amc_present_output(info.presentationTimeUs);
+        }
     }
     return DR_OK;
 }
@@ -906,6 +957,7 @@ static void amc_present_image(AImage *img) {
 static void amc_teardown(void) {
     g_amc_negotiated_fmt = -1;
     g_amc_hdr = 0;
+    g_amc_direct = 0;
     android_vk_set_hdr(0);
     if (g_amc) {
         amc_stop_output_thread();

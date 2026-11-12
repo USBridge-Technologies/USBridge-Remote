@@ -11,3 +11,4 @@ package controller
 // have no equivalent OS-level network/goroutine freezing to race against.
 func (vw *VideoWidget) HandleAppBackgrounded() {}
 func (vw *VideoWidget) HandleAppForegrounded() {}
+func (vw *VideoWidget) prepareNativeVideoBeforeConnect() {}

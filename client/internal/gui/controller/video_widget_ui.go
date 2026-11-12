@@ -372,6 +372,9 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		}
 	}
 
+	// Ensure native video overlay is pre-created before Moonlight negotiation begins (on Android, gives AMediaCodec the direct SurfaceView).
+	vw.prepareNativeVideoBeforeConnect()
+
 	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToMoonlight (Moonlight)")
 	vw.debugLogSpinner("before-ConnectToMoonlight")
 	// ConnectToMoonlight itself blocks for the entire negotiation --

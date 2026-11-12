@@ -37,10 +37,20 @@ func (vw *VideoWidget) ensureNativeOverlayOnTop() {}
 // the SurfaceView stays alive through window content changes.
 func (vw *VideoWidget) keepNativeVideoAliveForFullscreenTransition() bool { return true }
 
+func (vw *VideoWidget) prepareNativeVideoBeforeConnect() {
+	// Pre-create the SurfaceView overlay before Moonlight starts negotiating RTSP,
+	// so AMediaCodec has a valid ANativeWindow direct surface at amc_init time.
+	// This matches official Moonlight's architecture (SurfaceView ready before LiStartConnection).
+	vw.startMetalVideoOnWindow(vw.parentWindow, false)
+}
+
 // startMetalVideoOnWindow creates a Vulkan SurfaceView overlay for video.
 // Falls back to the Fyne canvas render-ticker if Vulkan is unavailable.
 func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 	if fullscreen {
+		return
+	}
+	if service.VKVideoAndroidIsActive() {
 		return
 	}
 

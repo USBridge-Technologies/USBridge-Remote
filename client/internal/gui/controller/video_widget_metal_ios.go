@@ -523,3 +523,5 @@ func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 func iosCursorImagePixels() ([]byte, int, int) {
 	return cursorSVGPixels(3)
 }
+
+func (vw *VideoWidget) prepareNativeVideoBeforeConnect() {}
