@@ -58,10 +58,8 @@ usbridge_usbip_configure() {
         if [ -f /usr/local/libexec/usbridge/vibepollo/usr/bin/vibepollo ]; then
             setcap cap_sys_admin,cap_sys_nice=p /usr/local/libexec/usbridge/vibepollo/usr/bin/vibepollo 2>/dev/null || true
         fi
-        if [ -d /usr/local/libexec/usbridge/vibepollo/usr/lib ]; then
-            printf '/usr/local/libexec/usbridge/vibepollo/usr/lib\n' > /etc/ld.so.conf.d/usbridge-streamer.conf 2>/dev/null || true
-            ldconfig 2>/dev/null || true
-        fi
+        rm -f /etc/ld.so.conf.d/usbridge-streamer.conf 2>/dev/null || true
+        ldconfig 2>/dev/null || true
     fi
     return 0
 }

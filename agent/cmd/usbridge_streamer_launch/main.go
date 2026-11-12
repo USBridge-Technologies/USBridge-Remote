@@ -86,9 +86,9 @@ func main() {
 			args = args[1:]
 		}
 		if os.Args[1] == "--run-vibepollo" {
-			runTree("vibepollo", streamerlaunch.VibepolloDir, streamerlaunch.VibepolloBin, args)
+			runTree("vibepollo", streamerlaunch.VibepolloDir, streamerlaunch.VibepolloBin, args, false)
 		}
-		runTree("sunshine", streamerlaunch.SunshineDir, streamerlaunch.SunshineBin, args)
+		runTree("sunshine", streamerlaunch.SunshineDir, streamerlaunch.SunshineBin, args, true)
 	case "--install-tree":
 		if len(os.Args) != 4 {
 			usage()
@@ -142,7 +142,7 @@ func run(bundleDir string, args []string) {
 // re-checked as root-owned on every launch, since its shared libraries run
 // with the same capability. cwd is the tree root: Sunshine and Vibepollo
 // (SUNSHINE_BUILD_APPIMAGE=ON) find their assets relative to it.
-func runTree(name, dir, bin string, args []string) {
+func runTree(name, dir, bin string, args []string, ambient bool) {
 	prepare()
 	if err := streamerlaunch.CheckTreeRootOwned(dir); err != nil {
 		fail(exitVerify, "%s tree: %v", name, err)
@@ -150,7 +150,9 @@ func runTree(name, dir, bin string, args []string) {
 	if err := os.Chdir(dir); err != nil {
 		fail(exitExecFail, "chdir: %v", err)
 	}
-	raiseAmbient()
+	if ambient {
+		raiseAmbient()
+	}
 	argv := append([]string{bin}, args...)
 	env := streamerlaunch.SanitizedEnv(os.Environ(), true)
 	err := unix.Exec(bin, argv, env)
@@ -216,12 +218,9 @@ func grantPriority(extraPaths []string) {
 		_ = exec.Command(setcap, "-r", sunBin).Run()
 	}
 
-	// 4. Configure ld.so so secure-mode loader finds vibepollo's bundled libraries
-	ldConf := "/etc/ld.so.conf.d/usbridge-streamer.conf"
-	ldContent := streamerlaunch.VibepolloDir + "/usr/lib\n"
-	if err := os.WriteFile(ldConf, []byte(ldContent), 0o644); err == nil {
-		_ = exec.Command("ldconfig").Run()
-	}
+	// 4. Remove any global ld.so.conf entry so bundled fork libraries do not shadow system libs
+	_ = os.Remove("/etc/ld.so.conf.d/usbridge-streamer.conf")
+	_ = exec.Command("ldconfig").Run()
 
 	// 4. Any extra paths passed by the caller (e.g. punktfunk-host)
 	for _, p := range extraPaths {
