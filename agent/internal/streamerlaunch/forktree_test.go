@@ -185,7 +185,10 @@ func TestForkPolkitRuleScope(t *testing.T) {
 	if !strings.Contains(ForkPolkitRule, `action.lookup("program") != "`+InstallPath+`"`) {
 		t.Fatal("rule not pinned to the launcher's path")
 	}
-	if !strings.Contains(ForkPolkitRule, `--install-tree (sunshine|vibepollo) \/\S+$/`) {
-		t.Fatal("rule allows more than --install-tree of the known trees")
+	if !strings.Contains(ForkPolkitRule, `--install-tree (sunshine|vibepollo) \/\S+`) {
+		t.Fatal("rule missing --install-tree of the known trees")
+	}
+	if !strings.Contains(ForkPolkitRule, `--grant-priority`) {
+		t.Fatal("rule missing --grant-priority")
 	}
 }

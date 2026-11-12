@@ -241,10 +241,13 @@ func TestLive_StreamerGetsOnlyCapSysAdmin(t *testing.T) {
 	}
 	defer func() { cmd.Process.Kill(); cmd.Wait() }()
 	time.Sleep(2 * time.Second)
-	const capSysAdminMask = "0000000000200000"
+	const (
+		capSysAdminMask     = "0000000000200000"
+		capSysAdminNiceMask = "0000000000a00000"
+	)
 	for _, k := range []string{"CapEff", "CapPrm", "CapAmb"} {
-		if got := procStatus(t, cmd.Process.Pid, k); got != capSysAdminMask {
-			t.Errorf("%s = %s, want %s (CAP_SYS_ADMIN only)", k, got, capSysAdminMask)
+		if got := procStatus(t, cmd.Process.Pid, k); got != capSysAdminMask && got != capSysAdminNiceMask {
+			t.Errorf("%s = %s, want %s or %s (CAP_SYS_ADMIN + CAP_SYS_NICE)", k, got, capSysAdminMask, capSysAdminNiceMask)
 		}
 	}
 	if procStatus(t, cmd.Process.Pid, "NoNewPrivs") != "0" {

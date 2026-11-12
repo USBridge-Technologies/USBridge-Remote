@@ -63,6 +63,8 @@ type TokenProvider interface {
 	SetAWDLDisableDuringStreaming(enabled bool) error
 	AWDLSudoersPreview() string
 	NvidiaPowerMode() string
+	PriorityGranted() bool
+	RequestPriority() bool
 	SetNvidiaPowerMode(mode string) error
 	GPUs() []config.GPUInfo
 	StreamerAutoUpdateEnabled() bool
@@ -198,6 +200,11 @@ type PermsProvider interface {
 	FirewallBlocking(tcp, udp []int) bool
 	RequestFirewall(tcp, udp []int) bool
 	FirewallPreview(tcp, udp []int) string
+
+	// PriorityGranted/RequestPriority: Linux only -- grants CAP_SYS_NICE
+	// to the launcher and streamers for real-time priority.
+	PriorityGranted() bool
+	RequestPriority() bool
 }
 
 // TailscaleProvider is satisfied by *tailscale.Service (embedded engine) or
@@ -257,6 +264,10 @@ type Window struct {
 	// animate (see kwinplanes). A script in the user's Plasma env dir, in
 	// effect from the next login; no administrator rights.
 	kwinPlanesCheck *permStatusChip
+	// priorityCheck: Linux only -- Permissions row that grants CAP_SYS_NICE
+	// to launcher and streamers for realtime thread scheduling and high-priority contexts.
+	priorityCheck *permStatusChip
+	priorityInfo  func()
 
 	// Screen Capture: a single unified control for how video gets captured.
 	// On Linux this is Sunshine's capture backend, picked automatically from
@@ -521,6 +532,7 @@ type uiStatus struct {
 	kwinPlanes      kwinPlanesState
 	streamerRunning bool
 	sessionActive   bool
+	priorityGranted bool
 	// firewallBlocking is collected off the UI thread: on firewalld it
 	// shells out to firewall-cmd, which takes a few hundred ms.
 	firewallBlocking bool
@@ -1650,6 +1662,33 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.kwinPlanesCheck.Hide()
 		permStatusRow.Add(w.kwinPlanesCheck)
 	}
+	if runtime.GOOS == "linux" {
+		w.priorityCheck = newPermStatusChip(loc().ProcessPriority, func() {
+			go func() {
+				var ok bool
+				if w.perms != nil {
+					ok = w.perms.RequestPriority()
+				}
+				if ok && w.token != nil {
+					_ = w.token.RestartSunshine()
+				}
+				fyne.Do(func() {
+					if w.priorityCheck != nil {
+						w.priorityCheck.requestDone()
+					}
+				})
+				w.performRefresh()
+			}()
+		})
+		w.priorityInfo = func() {
+			showInfoDialog(loc().ProcessPriority, loc().ProcessPriorityInfo, win)
+		}
+		w.priorityCheck.AddHelp(w.priorityInfo)
+		if w.perms != nil {
+			w.priorityCheck.SetChecked(w.perms.PriorityGranted())
+		}
+		permStatusRow.Add(w.priorityCheck)
+	}
 	w.refreshPermRequestLabels()
 
 	var permTop []fyne.CanvasObject
@@ -2274,6 +2313,9 @@ func (w *Window) applyLanguage() {
 	}
 	if w.kwinPlanesCheck != nil {
 		w.kwinPlanesCheck.SetBaseLabel(c.KWinPlanesAccess)
+	}
+	if w.priorityCheck != nil {
+		w.priorityCheck.SetBaseLabel(c.ProcessPriority)
 	}
 	w.refreshPermRequestLabels()
 	w.refreshAutostartChrome()
@@ -2941,6 +2983,7 @@ func (w *Window) performRefresh() {
 		}
 		if w.perms != nil && runtime.GOOS == "linux" {
 			status.firewallBlocking = w.perms.FirewallBlocking(w.firewallPorts())
+			status.priorityGranted = w.perms.PriorityGranted()
 		}
 		if runtime.GOOS == "linux" {
 			status.kwinPlanes.applicable, status.kwinPlanes.done = kwinplanes.Status()
@@ -2978,6 +3021,9 @@ func (w *Window) performRefresh() {
 			}
 			if w.accessCheck != nil {
 				w.accessCheck.SetChecked(status.accessGranted)
+			}
+			if w.priorityCheck != nil {
+				w.priorityCheck.SetChecked(status.priorityGranted)
 			}
 			if w.moonlightBtn != nil {
 				w.moonlightBtn.SetText(fmt.Sprintf("%d", status.moonlightCount))

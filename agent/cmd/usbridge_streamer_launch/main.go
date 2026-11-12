@@ -32,15 +32,21 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 
 	"usbridge_agent/internal/streamerlaunch"
 )
 
-const capSysAdmin = unix.CAP_SYS_ADMIN
+const (
+	capSysAdmin = unix.CAP_SYS_ADMIN
+	capSysNice  = unix.CAP_SYS_NICE
+)
 
 // Exit codes the agent can tell apart in its log.
 const (
@@ -88,6 +94,8 @@ func main() {
 			usage()
 		}
 		installTree(os.Args[2], os.Args[3])
+	case "--grant-priority":
+		grantPriority(os.Args[2:])
 	case "--run":
 		if len(os.Args) < 3 {
 			usage()
@@ -167,6 +175,58 @@ func installTree(name, releaseDir string) {
 	fmt.Printf("version=%s\n", version)
 }
 
+// grantPriority grants CAP_SYS_NICE across the launcher and all streamer targets.
+// Runs as root through pkexec.
+func grantPriority(extraPaths []string) {
+	if os.Geteuid() != 0 {
+		fail(exitDenied, "--grant-priority must run as root (through pkexec)")
+	}
+	uidStr := os.Getenv("PKEXEC_UID")
+	if uidStr == "" {
+		fail(exitDenied, "--grant-priority runs through pkexec only (no PKEXEC_UID)")
+	}
+	uid, err := strconv.Atoi(uidStr)
+	if err != nil {
+		fail(exitDenied, "--grant-priority bad PKEXEC_UID: %v", err)
+	}
+	if err := streamerlaunch.UIDAllowed(streamerlaunch.AllowedUIDsPath, uid); err != nil {
+		fail(exitDenied, "%v", err)
+	}
+
+	setcap := streamerlaunch.FindCapTool("setcap")
+
+	// 1. Grant cap_sys_admin,cap_sys_nice=ep to launcher itself
+	cmd := exec.Command(setcap, "cap_sys_admin,cap_sys_nice=ep", streamerlaunch.InstallPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fail(exitExecFail, "setcap %s: %v (%s)", streamerlaunch.InstallPath, err, strings.TrimSpace(string(out)))
+	}
+
+	// 2. Grant cap_sys_admin,cap_sys_nice=p to vibepollo binary if present
+	vibeBin := streamerlaunch.VibepolloBin
+	if st, err := os.Stat(vibeBin); err == nil && st.Mode().IsRegular() {
+		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=p", vibeBin).Run()
+	}
+
+	// 3. Grant cap_sys_admin,cap_sys_nice=ep to sunshine binary if present
+	sunBin := streamerlaunch.SunshineBin
+	if st, err := os.Stat(sunBin); err == nil && st.Mode().IsRegular() {
+		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=ep", sunBin).Run()
+	}
+
+	// 4. Any extra paths passed by the caller (e.g. punktfunk-host)
+	for _, p := range extraPaths {
+		if p == "" {
+			continue
+		}
+		if st, err := os.Lstat(p); err == nil && st.Mode().IsRegular() {
+			if sys, ok := st.Sys().(*syscall.Stat_t); ok && int(sys.Uid) == uid {
+				_ = exec.Command(setcap, "cap_sys_nice=ep", p).Run()
+			}
+		}
+	}
+	fmt.Println("granted")
+}
+
 // prepare is the shared prologue of both run modes: PDEATHSIG, caller uid
 // allowlist, and a check that the file capability actually took effect.
 func prepare() {
@@ -191,9 +251,10 @@ func prepare() {
 	}
 }
 
-// raiseAmbient moves CAP_SYS_ADMIN into the ambient set, which survives
-// execve into a binary with no file capability of its own -- so the target
-// is never in secure-execution mode and its RPATH keeps resolving.
+// raiseAmbient moves CAP_SYS_ADMIN (and CAP_SYS_NICE if permitted) into the
+// ambient set, which survives execve into a binary with no file capability
+// of its own -- so the target is never in secure-execution mode and its
+// RPATH keeps resolving.
 func raiseAmbient() {
 	// Ambient-raise needs the capability in both permitted (from our file
 	// capability, `=ep`) and inheritable. A fresh exec's inheritable set
@@ -204,6 +265,11 @@ func raiseAmbient() {
 	}
 	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_RAISE, capSysAdmin, 0, 0); err != nil {
 		fail(exitNoCap, "raise ambient CAP_SYS_ADMIN: %v", err)
+	}
+	if havePermitted(capSysNice) {
+		if err := addInheritable(capSysNice); err == nil {
+			_ = unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_RAISE, capSysNice, 0, 0)
+		}
 	}
 }
 
@@ -267,7 +333,7 @@ func boolDigit(b bool) string {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: usbridge-streamer-launch --version | --verify <bundle-dir> | --run <bundle-dir> [--] [args...] | --run-sunshine [--] [args...] | --run-vibepollo [--] [args...] | --install-tree sunshine|vibepollo <release-dir>")
+	fmt.Fprintln(os.Stderr, "usage: usbridge-streamer-launch --version | --verify <bundle-dir> | --run <bundle-dir> [--] [args...] | --run-sunshine [--] [args...] | --run-vibepollo [--] [args...] | --install-tree sunshine|vibepollo <release-dir> | --grant-priority [extra-paths...]")
 	os.Exit(exitUsage)
 }
 

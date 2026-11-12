@@ -571,6 +571,12 @@ func (c *Client) ScreenRecordingGranted() bool {
 	return body.Value
 }
 
+func (c *Client) PriorityGranted() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/perms/priority", nil, &body)
+	return body.Value
+}
+
 func (c *Client) RequestAccessibility() bool {
 	var body boolBody
 	_ = c.do(http.MethodPost, "/perms/request-accessibility", nil, &body)
@@ -580,6 +586,12 @@ func (c *Client) RequestAccessibility() bool {
 func (c *Client) RequestScreenRecording() bool {
 	var body boolBody
 	_ = c.do(http.MethodPost, "/perms/request-screen-recording", nil, &body)
+	return body.Value
+}
+
+func (c *Client) RequestPriority() bool {
+	var body boolBody
+	_ = c.do(http.MethodPost, "/perms/request-priority", nil, &body)
 	return body.Value
 }
 

@@ -128,6 +128,8 @@ type PermsBackend interface {
 	RequestScreenRecording() bool
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
+	PriorityGranted() bool
+	RequestPriority() bool
 }
 
 // TSBackend mirrors internal/tailscale.Service's methods used by the GUI.
@@ -308,8 +310,10 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /perms/accessibility", s.handlePermsBool(func() bool { return s.perms.AccessibilityGranted() }))
 	mux.HandleFunc("GET /perms/screen-recording", s.handlePermsBool(func() bool { return s.perms.ScreenRecordingGranted() }))
+	mux.HandleFunc("GET /perms/priority", s.handlePermsBool(func() bool { return s.perms.PriorityGranted() }))
 	mux.HandleFunc("POST /perms/request-accessibility", s.handlePermsBool(func() bool { return s.perms.RequestAccessibility() }))
 	mux.HandleFunc("POST /perms/request-screen-recording", s.handlePermsBool(func() bool { return s.perms.RequestScreenRecording() }))
+	mux.HandleFunc("POST /perms/request-priority", s.handlePermsBool(func() bool { return s.perms.RequestPriority() }))
 	mux.HandleFunc("POST /perms/open-privacy-settings", s.handlePermsErr(func() error { return s.perms.OpenPrivacySettings() }))
 	mux.HandleFunc("POST /perms/open-screen-recording-settings", s.handlePermsErr(func() error { return s.perms.OpenScreenRecordingSettings() }))
 

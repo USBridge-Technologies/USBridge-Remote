@@ -32,6 +32,10 @@ func (s *Service) ClipboardToolAvailable() bool    { return true }
 func (s *Service) RequestClipboardTool() bool      { return true }
 func (s *Service) ClipboardInstallPreview() string { return "" }
 
+// PriorityGranted / RequestPriority are Linux-only (CAP_SYS_NICE).
+func (s *Service) PriorityGranted() bool { return true }
+func (s *Service) RequestPriority() bool { return true }
+
 // FirewallBlocking/RequestFirewall/FirewallPreview are Linux-only (ufw /
 // firewalld) -- see firewall_linux.go.
 func (s *Service) FirewallBlocking(tcp, udp []int) bool  { return false }

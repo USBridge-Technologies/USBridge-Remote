@@ -21,3 +21,10 @@ func (s *Service) EnsureTreeKMS(target string) bool { return false }
 
 // HasFileCapability is Linux-only, see streamer_launcher_linux.go.
 func HasFileCapability(p string) bool { return false }
+
+// PriorityGranted is Linux-only.
+func (s *Service) PriorityGranted() bool { return true }
+
+// RequestPriority is Linux-only.
+func (s *Service) RequestPriority() bool { return true }
+

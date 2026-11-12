@@ -54,13 +54,13 @@ const ReleasePublicKeyB64 = "ixB/m3G9UgxUrhQd2rVRzTBDvA/x9NjT1yTmUbUQl+0="
 // one-time re-grant instead -- bump both only when the agent starts
 // depending on something an older installed launcher can't do.
 const (
-	// Protocol 3 adds --install-tree (see forktree.go).
-	Protocol    = 3
+	// Protocol 4 adds --grant-priority and CAP_SYS_NICE ambient/permitted propagation.
+	Protocol    = 4
 	MinProtocol = 1
-	// VibepolloMinProtocol is the first launcher with --run-vibepollo; only a
-	// Vibepollo KMS grant needs it, so Sunshine/RustShine grants made by a
-	// protocol-1 launcher stay valid.
-	VibepolloMinProtocol = 2
+	// VibepolloMinProtocol is the first launcher with --run-vibepollo and CAP_SYS_NICE.
+	VibepolloMinProtocol = 4
+	// PriorityMinProtocol is the first launcher with --grant-priority.
+	PriorityMinProtocol = 4
 )
 
 // InstallDir/InstallPath/AllowedUIDsPath are fixed, root-owned locations
@@ -257,3 +257,15 @@ func extractBinary(archive []byte) ([]byte, error) {
 		return io.ReadAll(io.LimitReader(tr, maxBinaryBytes))
 	}
 }
+
+// FindCapTool returns the absolute path to tool (e.g. "setcap", "getcap")
+// checking standard system sbin/bin locations first.
+func FindCapTool(tool string) string {
+	for _, p := range []string{"/sbin/" + tool, "/usr/sbin/" + tool, "/bin/" + tool, "/usr/bin/" + tool} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return tool
+}
+

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -52,13 +53,13 @@ const ForkInstallProtocol = 3
 const ForkPolkitRulePath = "/etc/polkit-1/rules.d/49-usbridge-streamer.rules"
 
 // ForkPolkitRule lets pkexec run exactly `<InstallPath> --install-tree
-// sunshine|vibepollo <absolute dir>` without a password -- nothing else, and
-// only the root-owned launcher at its fixed path.
+// sunshine|vibepollo <absolute dir>` or `<InstallPath> --grant-priority`
+// without a password -- nothing else, and only the root-owned launcher at its fixed path.
 const ForkPolkitRule = `polkit.addRule(function(action, subject) {
     if (action.id != "org.freedesktop.policykit.exec") return;
     if (action.lookup("program") != "` + InstallPath + `") return;
     var cmd = action.lookup("command_line") || "";
-    if (/^\/usr\/local\/libexec\/usbridge\/usbridge-streamer-launch --install-tree (sunshine|vibepollo) \/\S+$/.test(cmd)) return polkit.Result.YES;
+    if (/^\/usr\/local\/libexec\/usbridge\/usbridge-streamer-launch (--install-tree (sunshine|vibepollo) \/\S+|--grant-priority(\s+\S+)*)$/.test(cmd)) return polkit.Result.YES;
 });
 `
 
@@ -247,10 +248,17 @@ func InstallForkTree(t ForkTree, releaseDir string, callerUID int) (string, erro
 		_ = os.RemoveAll(tmp)
 		return "", err
 	}
-	binSum, err := regularFileSHA256(filepath.Join(tmp, t.Bin))
+	binPath := filepath.Join(tmp, t.Bin)
+	binSum, err := regularFileSHA256(binPath)
 	if err != nil {
 		_ = os.RemoveAll(tmp)
 		return "", fmt.Errorf("%s has no %s: %w", t.Asset, t.Bin, err)
+	}
+	setcap := FindCapTool("setcap")
+	if t.Name == "vibepollo" {
+		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=p", binPath).Run()
+	} else if t.Name == "sunshine" {
+		_ = exec.Command(setcap, "cap_sys_admin,cap_sys_nice=ep", binPath).Run()
 	}
 	if err := CheckTreeRootOwned(tmp); err != nil {
 		_ = os.RemoveAll(tmp)

@@ -500,6 +500,17 @@ func (t *thinClientToken) RequestKMSCapture() bool {
 	return t.Client.RecheckKMSCapture()
 }
 
+func (t *thinClientToken) PriorityGranted() bool {
+	return t.perms.PriorityGranted()
+}
+
+func (t *thinClientToken) RequestPriority() bool {
+	if !t.perms.RequestPriority() {
+		return false
+	}
+	return t.Client.PriorityGranted()
+}
+
 // currentInstance holds the most recently started App, set by Run just
 // before it blocks -- the only external reader is NotifySessionChange
 // (called from cmd/usbridge_agent/service_windows.go's SessionChange
@@ -4364,6 +4375,32 @@ func (a *App) RecheckKMSCapture() bool {
 	if granted {
 		if err := a.RestartSunshine(); err != nil {
 			log.Printf("[app] failed to restart Sunshine after KMS recheck: %v", err)
+		}
+	}
+	return granted
+}
+
+// PriorityGranted reports whether the streamer launcher and installed streamer
+// trees have CAP_SYS_NICE granted for real-time / high-priority scheduling.
+func (a *App) PriorityGranted() bool {
+	if a.perms == nil {
+		return false
+	}
+	return a.perms.PriorityGranted()
+}
+
+// RequestPriority grants CAP_SYS_NICE across the streamer launcher and installed
+// streamer binaries (Vibepollo, Sunshine, Punktfunk) and restarts the streamer host
+// so the elevated capabilities take effect.
+func (a *App) RequestPriority() bool {
+	if a.perms == nil {
+		return false
+	}
+	granted := a.perms.RequestPriority()
+	if granted {
+		a.syncSunshineCapExec()
+		if err := a.RestartSunshine(); err != nil {
+			log.Printf("[app] failed to restart streamer after granting priority capability: %v", err)
 		}
 	}
 	return granted

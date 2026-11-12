@@ -14,7 +14,7 @@ import (
 func TestStreamerLauncherInstallScript_HashBeforeSetcap(t *testing.T) {
 	s := buildStreamerLauncherInstallScript("/tmp/src launcher", "abc123", "/usr/sbin/setcap", 1000)
 	iHash := strings.Index(s, "sha256sum -c")
-	iCap := strings.Index(s, "cap_sys_admin=ep")
+	iCap := strings.Index(s, "cap_sys_admin,cap_sys_nice=ep")
 	iMove := strings.Index(s, "mv -f")
 	if !strings.HasPrefix(s, "set -e\n") || iHash < 0 || iCap < iHash || iMove < iCap {
 		t.Fatalf("wrong order:\n%s", s)
@@ -22,7 +22,7 @@ func TestStreamerLauncherInstallScript_HashBeforeSetcap(t *testing.T) {
 	if !strings.Contains(s, `install -o root -g root -m 0755 "/tmp/src launcher" "`+streamerlaunch.InstallDir+`/.usbridge-streamer-launch.tmp"`) {
 		t.Fatalf("source not copied root-owned first:\n%s", s)
 	}
-	if strings.Contains(s, `setcap" cap_sys_admin=ep "/tmp`) {
+	if strings.Contains(s, `setcap" cap_sys_admin,cap_sys_nice=ep "/tmp`) {
 		t.Fatal("setcap on the user-writable source")
 	}
 	if !strings.Contains(s, "grep -qx 1000") {

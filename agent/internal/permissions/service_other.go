@@ -18,6 +18,8 @@ func (s *Service) OpenPrivacySettings() error            { return nil }
 func (s *Service) OpenScreenRecordingSettings() error    { return nil }
 func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
 func (s *Service) RequestKMSCapture(binPath string) bool { return false }
+func (s *Service) PriorityGranted() bool                 { return true }
+func (s *Service) RequestPriority() bool                 { return true }
 
 // ClipboardToolAvailable/RequestClipboardTool are Linux-only -- see
 // service_linux.go.

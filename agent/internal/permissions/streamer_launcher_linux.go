@@ -108,6 +108,8 @@ func buildStreamerLauncherInstallScript(src, wantSHA256, setcap string, uid int)
 	q := shellQuoteUsername
 	dir := streamerlaunch.InstallDir
 	tmp := dir + "/.usbridge-streamer-launch.tmp"
+	vibeBin := streamerlaunch.VibepolloBin
+	sunBin := streamerlaunch.SunshineBin
 	return strings.Join([]string{
 		"set -e",
 		"umask 022",
@@ -115,12 +117,14 @@ func buildStreamerLauncherInstallScript(src, wantSHA256, setcap string, uid int)
 		"install -d -o root -g root -m 0755 " + q(streamerlaunch.EmptyDir),
 		"install -o root -g root -m 0755 " + q(src) + " " + q(tmp),
 		"echo " + q(wantSHA256+"  "+tmp) + " | sha256sum -c --status",
-		q(setcap) + " cap_sys_admin=ep " + q(tmp),
+		q(setcap) + " cap_sys_admin,cap_sys_nice=ep " + q(tmp),
 		"mv -f " + q(tmp) + " " + q(streamerlaunch.InstallPath),
 		"touch " + q(streamerlaunch.AllowedUIDsPath),
 		"chown root:root " + q(streamerlaunch.AllowedUIDsPath),
 		"chmod 0644 " + q(streamerlaunch.AllowedUIDsPath),
 		fmt.Sprintf("grep -qx %d %s || echo %d >> %s", uid, q(streamerlaunch.AllowedUIDsPath), uid, q(streamerlaunch.AllowedUIDsPath)),
+		"[ -f " + q(vibeBin) + " ] && " + q(setcap) + " cap_sys_admin,cap_sys_nice=p " + q(vibeBin) + " || true",
+		"[ -f " + q(sunBin) + " ] && " + q(setcap) + " cap_sys_admin,cap_sys_nice=ep " + q(sunBin) + " || true",
 	}, "\n")
 }
 
@@ -163,6 +167,56 @@ func (s *Service) InstallStreamerLauncher() bool {
 		return false
 	}
 	return s.StreamerLauncherInstalled()
+}
+
+// PriorityGranted reports whether process priority elevation rights (CAP_SYS_NICE)
+// are in place on the streamer launcher and installed streamers.
+func (s *Service) PriorityGranted() bool {
+	if err := streamerlaunch.CheckRootOwned(streamerlaunch.InstallPath); err != nil {
+		return false
+	}
+	out, err := exec.Command(findCapTool("getcap"), streamerlaunch.InstallPath).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "cap_sys_nice") {
+		return false
+	}
+	if installedLauncherProtocol() < streamerlaunch.PriorityMinProtocol {
+		return false
+	}
+	vibeBin := streamerlaunch.VibepolloBin
+	if st, err := os.Stat(vibeBin); err == nil && st.Mode().IsRegular() {
+		out, err := exec.Command(findCapTool("getcap"), vibeBin).CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "cap_sys_nice") {
+			return false
+		}
+	}
+	return streamerlaunch.UIDAllowed(streamerlaunch.AllowedUIDsPath, os.Getuid()) == nil
+}
+
+// RequestPriority grants CAP_SYS_NICE across the streamer launcher and all
+// streamers (RustShine, Sunshine, Punktfunk, Vibepollo).
+func (s *Service) RequestPriority() bool {
+	if s.PriorityGranted() {
+		return true
+	}
+	var extraPaths []string
+	if home, err := os.UserHomeDir(); err == nil {
+		punktfunkBin := filepath.Join(home, ".config", "usbridge-agent", "punktfunk", "punktfunk-host")
+		if st, err := os.Stat(punktfunkBin); err == nil && st.Mode().IsRegular() {
+			extraPaths = append(extraPaths, punktfunkBin)
+		}
+	}
+	args := append([]string{streamerlaunch.InstallPath, "--grant-priority"}, extraPaths...)
+	out, err := exec.Command("pkexec", args...).CombinedOutput()
+	log.Printf("[permissions] grant priority pkexec exit=%v output=%q", err, string(out))
+	if err == nil && s.PriorityGranted() {
+		return true
+	}
+	if !s.InstallStreamerLauncher() {
+		return false
+	}
+	out, err = exec.Command("pkexec", args...).CombinedOutput()
+	log.Printf("[permissions] retry grant priority pkexec exit=%v output=%q", err, string(out))
+	return s.PriorityGranted()
 }
 
 func copyAndHash(src string) (path, sum string, err error) {
