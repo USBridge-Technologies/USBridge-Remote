@@ -155,10 +155,6 @@ func (s *Service) FirewallBlocking(tcp, udp []int) bool  { return false }
 func (s *Service) RequestFirewall(tcp, udp []int) bool   { return true }
 func (s *Service) FirewallPreview(tcp, udp []int) string { return "" }
 
-// PriorityGranted / RequestPriority are Linux-only (CAP_SYS_NICE).
-func (s *Service) PriorityGranted() bool { return true }
-func (s *Service) RequestPriority() bool { return true }
-
 // GPU clock locking is Windows-only (NVML clock lock via an elevated
 // gamestream-server --gpu-clock-lock-daemon helper -- see
 // service_windows.go's own docs); not applicable on macOS.
