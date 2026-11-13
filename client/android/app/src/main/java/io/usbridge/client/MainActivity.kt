@@ -239,6 +239,29 @@ class MainActivity : GoNativeActivity() {
         super.onPause()
     }
 
+    // A usbridge:// link opened while the app is running (singleTask) comes
+    // here, not to onCreate: getIntent() would keep returning the old intent.
+    // Go picks it up once through takeOpenedUri (platform.TakeOpenedURL), so
+    // the same link opened again is handled again.
+    @Volatile private var openedUri: String? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val data = intent.data
+        if (data != null && data.scheme == "usbridge") {
+            Log.i(TAG, "link opened while running: ${data.scheme}://${data.host}")
+            openedUri = data.toString()
+        }
+    }
+
+    /** Called from Go via JNI. */
+    fun takeOpenedUri(): String? {
+        val u = openedUri
+        openedUri = null
+        return u
+    }
+
     private fun requestInAppReview() {
         val manager = ReviewManagerFactory.create(this)
         Log.i(TAG, "in-app review: requesting flow")

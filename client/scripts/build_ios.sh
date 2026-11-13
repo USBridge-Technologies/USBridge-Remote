@@ -110,6 +110,17 @@ if [ -f "$INFO_PLIST" ]; then
     # uses exempt encryption.
     /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST" 2>/dev/null || \
     /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$INFO_PLIST"
+
+    # usbridge:// links (guest invitations, connect links) open the app;
+    # internal/platform/openurl_darwin.go receives them.
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$INFO_PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy \
+        -c "Add :CFBundleURLTypes array" \
+        -c "Add :CFBundleURLTypes:0 dict" \
+        -c "Add :CFBundleURLTypes:0:CFBundleURLName string 'USBridge link'" \
+        -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" \
+        -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string usbridge" \
+        "$INFO_PLIST"
 fi
 
 # 4b. Rebuild Assets.car via actool with all required icon sizes including 167x167 (iPad Pro)
