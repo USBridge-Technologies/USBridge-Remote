@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 )
 
-// Guest access on an agent (agent/internal/api/guest.go). All of these are
-// owner calls -- signed with the master key -- and only a software agent
-// answers them; a KVM or an older agent answers 404.
+// GuestInviteTimeout bounds InviteGuest. Creating a share brings the host's
+// guest node up on the USBridge Headscale, which on a KVM board means starting
+// a second tailscaled and registering it (15-30 s); the client's usual 8 s
+// budget cut that off every time, and the host then revoked the half-made
+// invitation when the connection dropped.
+const GuestInviteTimeout = 150 * time.Second
+
+// Guest access on an agent (agent/internal/api/guest.go) or a KVM
+// (usbridge/web/guest.go). All of these are owner calls -- signed with the
+// master key; an older agent or KVM answers 404.
 
 // Guest is one share as the agent reports it.
 type Guest struct {
@@ -60,11 +68,22 @@ var (
 )
 
 func (c *USBClient) guestCall(method, endpoint string, body any, out any) error {
+	return c.guestCallTimeout(method, endpoint, body, out, 0)
+}
+
+// guestCallTimeout is guestCall with its own HTTP budget (0 = the client's usual one).
+func (c *USBClient) guestCallTimeout(method, endpoint string, body any, out any, timeout time.Duration) error {
 	var raw []byte
 	if body != nil {
 		raw, _ = json.Marshal(body)
 	}
-	resp, err := c.makeRequest(method, endpoint, raw)
+	var resp []byte
+	var err error
+	if timeout > 0 && method == "POST" {
+		resp, err = c.PostRawWithTimeout(endpoint, raw, timeout)
+	} else {
+		resp, err = c.makeRequest(method, endpoint, raw)
+	}
 	if err != nil {
 		return mapGuestError(err)
 	}
@@ -101,7 +120,7 @@ func (c *USBClient) InviteGuest(inv GuestInvite) (inviteURL string, mailSent boo
 		InviteURL string `json:"invite_url"`
 		MailSent  bool   `json:"mail_sent"`
 	}
-	if err = c.guestCall("POST", "/api/guests", inv, &out); err != nil {
+	if err = c.guestCallTimeout("POST", "/api/guests", inv, &out, GuestInviteTimeout); err != nil {
 		return "", false, err
 	}
 	return out.InviteURL, out.MailSent, nil

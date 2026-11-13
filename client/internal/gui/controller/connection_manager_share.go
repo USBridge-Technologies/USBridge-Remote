@@ -134,6 +134,10 @@ type shareDraft struct {
 	consent bool
 	message string
 	isError bool
+	// sending: an invitation is on its way to the host (which may take a
+	// while: it brings its guest network up); the dialog shows that and
+	// does not offer Send again until the answer is in.
+	sending bool
 }
 
 var shareExpirySeconds = []int64{3600, 24 * 3600, 7 * 24 * 3600, 30 * 24 * 3600, 0}
@@ -301,7 +305,7 @@ func (cm *ConnectionManager) buildShareDialog(idx int, draft shareDraft, list *a
 		ApplyText:  t.ShareInvite,
 		MinWidth:   440,
 	}
-	if reachable {
+	if reachable && !draft.sending {
 		spec.OnApply = func() {
 			email := strings.TrimSpace(emailEntry.Text)
 			d := shareDraft{email: email, role: roleIdx, expiry: expiryIdx, consent: consent.IsChecked()}
@@ -311,6 +315,11 @@ func (cm *ConnectionManager) buildShareDialog(idx int, draft shareDraft, list *a
 				return
 			}
 			inv := api.GuestInvite{Email: email, Role: shareRoles[roleIdx], ExpiresIn: shareExpirySeconds[expiryIdx], RequireConsent: d.consent}
+			// Say what is happening while the host sets its guest network up
+			// (api.GuestInviteTimeout); the outcome replaces this dialog.
+			waiting := d
+			waiting.sending, waiting.message = true, fmt.Sprintf(t.ShareSending, email)
+			reopen2(cm, idx, waiting, list)
 			go func() {
 				link, sent, err := cm.agentClient(conn).InviteGuest(inv)
 				switch {

@@ -281,7 +281,13 @@ func (s *Server) guestsInvite(w http.ResponseWriter, r *http.Request) {
 	if req.RequireConsent != nil {
 		consent = *req.RequireConsent
 	}
-	sh, res, err := g.Invite(r.Context(), req.Email, guestauth.Role(req.Role), expires, consent)
+	// The invitation outlives the client's connection: joining the guest
+	// network can take longer than the owner's app waits, and a share that
+	// is already created in the cloud must not be revoked just because the
+	// app gave up early.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+	defer cancel()
+	sh, res, err := g.Invite(ctx, req.Email, guestauth.Role(req.Role), expires, consent)
 	switch {
 	case err == nil:
 		s.ok(w, "guest_invited", map[string]any{"guest": sh, "invite_url": res.InviteURL, "mail_sent": res.MailSent})

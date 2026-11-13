@@ -835,6 +835,7 @@ type LocalizedStrings struct {
 	ShareStatusIdle       string
 	ShareStatusEnded      string
 	ShareInvitedOK        string
+	ShareSending          string
 	ShareInvitedNoMail    string
 	ShareErrFree          string
 	ShareErrCloud         string
@@ -1717,6 +1718,7 @@ func EN() *LocalizedStrings {
 		ShareStatusIdle:       "Has access",
 		ShareStatusEnded:      "Ended",
 		ShareInvitedOK:        "Invitation sent to %s",
+		ShareSending:          "Sending the invitation to %s… The computer is setting up its guest network, this can take up to a minute.",
 		ShareInvitedNoMail:    "Access created for %s, but the e-mail could not be sent. Send them this link: %s",
 		ShareErrFree:          "The free plan allows one guest. Upgrade to Pro for more.",
 		ShareErrCloud:         "Cannot reach the USBridge cloud to send the invitation.",
