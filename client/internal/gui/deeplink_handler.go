@@ -62,6 +62,15 @@ func redactDeepLink(uri string) string {
 
 // CheckAndHandleDeepLink checks for a deep link and handles it
 func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
+	// A link macOS opened the app with arrives once per click, so the same
+	// link clicked again (after signing in, say) is handled again.
+	if uri := platform.TakeOpenedURL(); uri != "" {
+		logrus.Infof("🔗 Link opened: %s", redactDeepLink(uri))
+		h.lastURI = uri
+		h.handleURI(uri, parent)
+		return
+	}
+
 	// Get the URI from the Intent
 	uri, err := platform.GetIntentDataURI()
 	if err != nil {
@@ -84,7 +93,10 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 
 	// Remember the current URI
 	h.lastURI = uri
+	h.handleURI(uri, parent)
+}
 
+func (h *DeepLinkHandler) handleURI(uri string, parent fyne.Window) {
 	if strings.HasPrefix(uri, "usbridge://join") {
 		shareID, jerr := parseJoinLink(uri)
 		if jerr != nil {
