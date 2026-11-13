@@ -165,25 +165,6 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   cursor: crosshair;
 }
 
-/* Control Floating Overlay Bar */
-#controlOverlay {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(17, 20, 23, 0.88);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 4px 10px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-}
-#streamStats { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-
 /* Pointer Lock Indicator */
 #lockNotice {
   position: absolute;
@@ -418,7 +399,7 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
 /* Dashboard Columns (Devices Tab 2-column layout matching native client) */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 330px 1fr;
+  grid-template-columns: minmax(360px, 390px) 1fr;
   gap: 16px;
   align-items: start;
 }
@@ -435,9 +416,11 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   padding: 8px 0;
   border-bottom: 1px solid rgba(43,49,54,0.4);
   font-size: 13px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .device-row:last-child { border-bottom: none; }
-.dev-name { display: flex; align-items: center; gap: 8px; color: #fff; }
+.dev-name { display: flex; align-items: center; gap: 8px; color: #fff; flex-shrink: 0; }
 .badge {
   display: inline-flex;
   align-items: center;
@@ -528,6 +511,167 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   display: inline-block;
 }
 @keyframes spin { 0%{transform:rotate(0deg);} 100%{transform:rotate(360deg);} }
+
+/* Footer Clickable Elements & Dropdowns */
+.footer-stat.clickable { cursor: pointer; transition: all 0.15s; }
+.footer-stat.clickable:hover { color: var(--lime); background: var(--panel-hover); border-radius: 4px; padding: 0 4px; }
+.footer-icon.clickable { cursor: pointer; transition: all 0.15s; }
+.footer-icon.clickable:hover { color: var(--lime); transform: scale(1.1); }
+.footer-popup {
+  position: fixed;
+  bottom: 32px;
+  background: var(--panel);
+  border: 1px solid var(--line-active);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.7);
+  z-index: 1000;
+  display: none;
+  flex-direction: column;
+  padding: 8px 0;
+  min-width: 200px;
+}
+.footer-popup.open { display: flex; }
+.footer-popup-head {
+  padding: 6px 14px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.footer-popup .menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+.footer-popup .menu-item:hover { background: var(--panel-hover); color: var(--lime); }
+.footer-popup .menu-item.active { color: var(--lime); font-weight: 600; }
+.footer-popup .menu-sep { height: 1px; background: var(--line); margin: 4px 0; }
+
+/* KVM Gear Button in Overlay */
+#kvmGearBtn {
+  background: rgba(17,20,23,0.75);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#kvmGearBtn:hover {
+  background: var(--panel-hover);
+  border-color: var(--lime);
+  color: var(--lime);
+}
+
+/* Modal Tabs */
+.modal-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+  padding-bottom: 4px;
+}
+.modal-tab-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.modal-tab-btn:hover { color: var(--text); background: var(--panel-hover); }
+.modal-tab-btn.active { color: var(--lime); background: rgba(196,231,122,0.12); }
+.modal-tab-pane { display: none; }
+.modal-tab-pane.active { display: block; }
+
+/* MCP Bridge Card */
+.mcp-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+.mcp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.mcp-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mcp-codebox {
+  background: #090b0d;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #41e0c3;
+  margin: 10px 0;
+  position: relative;
+  overflow-x: auto;
+  white-space: pre;
+}
+.mcp-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.mcp-copy-btn:hover { color: var(--lime); border-color: var(--lime); }
+
+/* Devices Interactive Button Groups */
+.btn-group-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  background: #090b0d;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  max-width: 100%;
+}
+.btn-pill-opt {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.btn-pill-opt:hover { color: var(--text); background: var(--panel-hover); }
+.btn-pill-opt.active { color: #000; background: var(--lime); box-shadow: 0 1px 6px rgba(196,231,122,0.3); }
+
 </style>
 </head>
 <body>
@@ -587,15 +731,37 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
         <span>Moonlight</span>
       </button>
 
-      <!-- Settings / Connection Button -->
-      <button class="pill" onclick="openConnectionModal()" title="Connection Settings">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <!-- Share Access Button -->
+      <button class="pill" onclick="openShareModal()" title="Share Access to email / by code">
+        <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        <span>Share</span>
       </button>
 
-      <!-- Fullscreen Button -->
-      <button class="pill" onclick="toggleFullscreen()" title="Fullscreen">
-        <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-      </button>
+      <!-- Settings Dropdown (Hardware KVM & Connection) -->
+      <div class="dropdown" id="settingsDropdown">
+        <button class="pill" onclick="toggleDropdown('settingsDropdown')" title="Settings (Hardware KVM, ATX & Connection)">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <div class="menu">
+          <button class="menu-item" onclick="openShareModal(); toggleDropdown('settingsDropdown');">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            <b>Share Access (Invite & Code)</b>
+          </button>
+          <button class="menu-item" onclick="openKVMSettingsModal(); toggleDropdown('settingsDropdown');">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Hardware KVM & ATX</span>
+          </button>
+          <button class="menu-item" onclick="openConnectionModal(); toggleDropdown('settingsDropdown');">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <span>Connection Settings</span>
+          </button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" onclick="openSetupNet(); toggleDropdown('settingsDropdown');">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <span>Setup Page (10.55.0.1)</span>
+          </button>
+        </div>
+      </div>
 
       <!-- Switch to Full WASM Client Link -->
       <a href="index.html" class="pill" id="fullAppBtn" title="Switch to Full Fyne WASM Client">
@@ -609,33 +775,6 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
     <!-- TAB 1: Control (KVM Monitor + Input) -->
     <div class="tab-view active" id="viewControl">
       <div id="viewport" tabindex="0">
-        <!-- Floating Controls Strip over Video -->
-        <div id="controlOverlay">
-          <div id="streamStats">0 fps · 0 ms</div>
-          <button class="pill" id="mouseModeBtn" title="Toggle Absolute / Pointer Lock">
-            <svg viewBox="0 0 24 24"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg>
-            <span id="mouseModeLabel">Mouse: Abs</span>
-          </button>
-
-          <!-- Keys Dropdown -->
-          <div class="dropdown" id="keysDropdown">
-            <button class="pill" onclick="toggleDropdown('keysDropdown')">
-              <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
-              <span>Keys</span>
-            </button>
-            <div class="menu">
-              <button class="menu-item" onclick="sendShortcut('cad')"><b>Ctrl + Alt + Del</b></button>
-              <button class="menu-item" onclick="sendShortcut('alt_tab')">Alt + Tab</button>
-              <button class="menu-item" onclick="sendShortcut('alt_f4')">Alt + F4</button>
-              <button class="menu-item" onclick="sendShortcut('win')">Win / Super</button>
-              <button class="menu-item" onclick="sendShortcut('ctrl_esc')">Ctrl + Esc</button>
-              <button class="menu-item" onclick="sendShortcut('prtscn')">PrintScreen</button>
-              <div class="menu-sep"></div>
-              <button class="menu-item" onclick="toggleKeyStrip()">Toggle Soft-Key Bar</button>
-            </div>
-          </div>
-        </div>
-
         <video id="remoteVideo" autoplay playsinline muted></video>
         <div id="lockNotice">Pointer locked. Press <b>ESC</b> to release cursor.</div>
 
@@ -671,28 +810,36 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
                   <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
                   <span>HID & Input Hub</span>
                 </div>
+                <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="sendShortcut('cad')">Ctrl+Alt+Del</button>
               </div>
               <div class="device-rows">
                 <div class="device-row">
                   <div class="dev-name"><span class="status-dot connected" id="devDotKb"></span><b>USB Keyboard</b></div>
-                  <span class="badge" id="devBadgeKb">Connected (Composite HID)</span>
+                  <span class="badge" id="devBadgeKb">OTG Gadget (hidg0)</span>
                 </div>
                 <div class="device-row">
-                  <div class="dev-name"><span class="status-dot connected" id="devDotMouse"></span><b>USB Mouse</b></div>
-                  <span class="badge" id="devBadgeMouse">Connected (Composite HID)</span>
+                  <div class="dev-name"><span class="status-dot connected" id="devDotMouse"></span><b>USB Mouse Mode</b></div>
+                  <div class="btn-group-pills" id="mouseModeGroup">
+                    <button class="btn-pill-opt active" id="btnMouseAbs" onclick="setMouseMode('absolute')">Absolute (Tablet)</button>
+                    <button class="btn-pill-opt" id="btnMouseRel" onclick="setMouseMode('relative')">Relative (Lock)</button>
+                  </div>
                 </div>
                 <div class="device-row">
                   <div class="dev-name"><span class="status-dot" id="devDotGamepad"></span><b>USB Gamepad</b></div>
-                  <span class="badge" id="devBadgeGamepad">Standby (Direct Mode)</span>
+                  <div class="btn-group-pills" id="gamepadModeGroup">
+                    <button class="btn-pill-opt active" id="btnGpadDirect" onclick="setGamepadMode('direct')">Direct</button>
+                    <button class="btn-pill-opt" id="btnGpadXbox" onclick="setGamepadMode('xbox')">Xbox 360</button>
+                    <button class="btn-pill-opt" id="btnGpadOff" onclick="setGamepadMode('off')">Off</button>
+                  </div>
                 </div>
                 <div class="device-row">
-                  <div class="dev-name"><span class="status-dot" id="devDotPen"></span><b>Pen Tablet</b></div>
-                  <span class="badge">Absolute Pointing</span>
+                  <div class="dev-name"><span class="status-dot connected" id="devDotPen"></span><b>Pen Digitizer</b></div>
+                  <span class="badge">HID Tablet (0..32767)</span>
                 </div>
               </div>
-              <div style="display:flex; gap:8px; margin-top:8px;">
-                <button class="btn btn-secondary" style="flex:1; padding:6px 10px; font-size:12px;" onclick="requestPointerLockDirect()">Lock Pointer</button>
-                <button class="btn btn-secondary" style="flex:1; padding:6px 10px; font-size:12px;" onclick="sendShortcut('cad')">Ctrl+Alt+Del</button>
+              <div style="display:flex; gap:8px; margin-top:10px;">
+                <button class="btn btn-secondary" style="flex:1; padding:6px 10px; font-size:12px;" onclick="requestPointerLockDirect()">Capture Cursor (Pointer Lock)</button>
+                <button class="btn btn-secondary" style="flex:1; padding:6px 10px; font-size:12px;" onclick="toggleKeyStrip()">Toggle Soft-Key Bar</button>
               </div>
             </div>
 
@@ -703,19 +850,28 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
                   <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
                   <span>Video Pipe & EDID</span>
                 </div>
+                <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="reloadEDID()" title="Reload EDID display profile">Reload EDID</button>
               </div>
               <div class="device-rows">
                 <div class="device-row">
-                  <div class="dev-name"><span class="status-dot connected"></span><b>Capture Pipeline</b></div>
-                  <span class="badge" style="color:var(--teal);">Hardware HDMI</span>
+                  <div class="dev-name"><span class="status-dot connected"></span><b>Capture Source</b></div>
+                  <span class="badge" style="color:var(--teal);">NanoKVM Hardware HDMI</span>
                 </div>
                 <div class="device-row">
-                  <div class="dev-name"><span class="status-dot connected"></span><b>Stream Encoder</b></div>
-                  <span class="badge" id="devEncoderLabel">Hardware H.264</span>
+                  <div class="dev-name"><span class="status-dot connected"></span><b>Video Codec</b></div>
+                  <div class="btn-group-pills">
+                    <button class="btn-pill-opt active" id="btnCodecH264" onclick="setVideoCodec('h264')">H.264</button>
+                    <button class="btn-pill-opt" id="btnCodecH265" onclick="setVideoCodec('h265')">H.265 (HEVC)</button>
+                  </div>
                 </div>
                 <div class="device-row">
-                  <div class="dev-name"><span class="status-dot connected"></span><b>Active Resolution</b></div>
-                  <span class="badge" id="devResolutionLabel">1920x1080 @ 60 FPS</span>
+                  <div class="dev-name"><span class="status-dot connected"></span><b>Resolution & Rate</b></div>
+                  <div class="btn-group-pills">
+                    <button class="btn-pill-opt active" id="btnRes1080p60" onclick="setVideoProfile(1920, 1080, 60)">1080p60</button>
+                    <button class="btn-pill-opt" id="btnRes1080p30" onclick="setVideoProfile(1920, 1080, 30)">1080p30</button>
+                    <button class="btn-pill-opt" id="btnRes720p60" onclick="setVideoProfile(1280, 720, 60)">720p60</button>
+                    <button class="btn-pill-opt" id="btnRes720p30" onclick="setVideoProfile(1280, 720, 30)">720p30</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -730,24 +886,44 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
               </div>
               <div class="device-rows">
                 <div class="device-row">
-                  <div class="dev-name"><span class="status-dot connected" id="devDotAudio"></span><b>USB Audio Codec</b></div>
-                  <span class="badge" id="devBadgeAudio">UAC2 Active</span>
+                  <div class="dev-name"><span class="status-dot connected" id="devDotAudio"></span><b>UAC2 Sound Sink</b></div>
+                  <div class="btn-group-pills">
+                    <button class="btn-pill-opt active" id="btnAudioOn" onclick="setAudioMute(false)">Active</button>
+                    <button class="btn-pill-opt" id="btnAudioMute" onclick="setAudioMute(true)">Muted</button>
+                  </div>
+                </div>
+                <div class="device-row">
+                  <div class="dev-name"><span class="status-dot" id="devDotMic"></span><b>Microphone Return</b></div>
+                  <div class="btn-group-pills">
+                    <button class="btn-pill-opt" id="btnMicOn" onclick="toggleMic(true)">Enabled</button>
+                    <button class="btn-pill-opt active" id="btnMicOff" onclick="toggleMic(false)">Off</button>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- Network & System Card -->
+            <!-- Network Card (RNDIS) -->
             <div class="card" style="padding:16px 18px;">
               <div class="card-head" style="padding-bottom:10px;">
                 <div class="card-title" style="font-size:14px;">
                   <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-                  <span>Network (RNDIS)</span>
+                  <span>Network Card (RNDIS)</span>
                 </div>
+                <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="openSetupNet()" title="Open setup web interface">Open 10.55.0.1</button>
               </div>
               <div class="device-rows">
                 <div class="device-row">
-                  <div class="dev-name"><span class="status-dot connected" id="devDotRndis"></span><b>USB Ethernet</b></div>
-                  <span class="badge" id="devBadgeRndis">10.55.0.1 (Setup Network)</span>
+                  <div class="dev-name"><span class="status-dot connected" id="devDotRndis"></span><b>Mode</b></div>
+                  <div class="btn-group-pills" id="rndisModeGroup">
+                    <button class="btn-pill-opt active" id="btnRndisSetup" onclick="setRNDISMode('usbsetup')">Setup (10.55.0.1)</button>
+                    <button class="btn-pill-opt" id="btnRndisRouter" onclick="setRNDISMode('auto')">Router</button>
+                    <button class="btn-pill-opt" id="btnRndisBridge" onclick="setRNDISMode('etherbridge')">Bridge</button>
+                    <button class="btn-pill-opt" id="btnRndisOff" onclick="setRNDISMode('off')">Off</button>
+                  </div>
+                </div>
+                <div class="device-row">
+                  <div class="dev-name"><span style="color:var(--muted); font-size:12px;">Active Profile</span></div>
+                  <span class="badge" id="devBadgeRndis" style="color:var(--lime);">10.55.0.1 (Setup Network)</span>
                 </div>
               </div>
             </div>
@@ -904,41 +1080,59 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
       </div>
     </div>
     <div class="footer-right">
-      <div class="footer-stat" id="footerStreamStats">-- FPS · --x--</div>
+      <div class="footer-stat clickable" id="footerStreamStats" onclick="toggleFooterStreamMenu(event)" title="Stream Video & Framerate Settings">-- FPS · --x--</div>
       <div class="footer-divider"></div>
       <div class="footer-icon-group">
-        <span class="footer-icon" id="fIconAudio" title="Audio Pipeline">
+        <span class="footer-icon clickable" id="fIconAudio" onclick="toggleAudioMute()" title="Audio Pipeline: Click to mute/unmute">
           <svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
         </span>
         <span class="footer-icon" id="fIconRndis" title="USB Ethernet / RNDIS (Setup Network)">
           <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
         </span>
-        <span class="footer-icon" id="fIconKeyboard" title="USB Keyboard">
+        <span class="footer-icon clickable" id="fIconKeyboard" onclick="toggleFooterKeysMenu(event)" title="Virtual Keyboard & Shortcuts">
           <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
         </span>
-        <span class="footer-icon" id="fIconMouse" title="USB Mouse">
-          <svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></svg>
+        <span class="footer-icon clickable" id="fIconMouse" onclick="toggleMouseMode()" title="Mouse Mode: Click to toggle Absolute / Pointer Lock">
+          <svg viewBox="0 0 24 24"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg>
         </span>
-        <span class="footer-icon" id="fIconGamepad" title="USB Gamepad">
+        <span class="footer-icon clickable" id="fIconGamepad" onclick="switchTab('devices')" title="USB Gamepad">
           <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4M8 10v4M15 11h2M16 10v2"/></svg>
         </span>
-        <span class="footer-icon" id="fIconCdrom" title="Virtual CD-ROM / Mass Storage">
+        <span class="footer-icon clickable" id="fIconCdrom" onclick="switchTab('devices')" title="Virtual Mass Storage & CD-ROM">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
         </span>
-        <span class="footer-icon" id="fIconSnapshot" title="Snapshots">
-          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+        <span class="footer-icon clickable" id="fIconFullscreen" onclick="toggleFullscreen()" title="Toggle Fullscreen">
+          <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
         </span>
-      </div>
-      <div class="footer-divider"></div>
-      <div class="footer-storage-chip" id="footerStorageChip" onclick="switchTab('devices')" title="SD Card Storage: Click to open Devices">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-4-4H6a2 2 0 0 0-2 2z"/><line x1="8" y1="4" x2="8" y2="8"/><line x1="12" y1="4" x2="12" y2="8"/><line x1="16" y1="4" x2="16" y2="8"/></svg>
-        <div class="footer-storage-bar-wrap">
-          <div class="footer-storage-bar-fill" id="footerStorageBarFill" style="width: 0%;"></div>
-        </div>
-        <span id="footerStorageText" style="font-size:11px; font-family:monospace; color:var(--text);">-- / -- GB</span>
       </div>
     </div>
   </footer>
+
+  <!-- Footer Stream Settings Popup -->
+  <div class="footer-popup" id="footerStreamPopup" style="right:120px;">
+    <div class="footer-popup-head">Stream Resolution & FPS</div>
+    <button class="menu-item" onclick="setVideoProfile(1920, 1080, 60)">1080p @ 60 FPS (Default)</button>
+    <button class="menu-item" onclick="setVideoProfile(1920, 1080, 30)">1080p @ 30 FPS</button>
+    <button class="menu-item" onclick="setVideoProfile(1280, 720, 60)">720p @ 60 FPS</button>
+    <button class="menu-item" onclick="setVideoProfile(1280, 720, 30)">720p @ 30 FPS</button>
+    <div class="menu-sep"></div>
+    <div class="footer-popup-head">Codec</div>
+    <button class="menu-item" onclick="setVideoCodec('h264')">H.264 (Hardware)</button>
+    <button class="menu-item" onclick="setVideoCodec('h265')">H.265 / HEVC</button>
+  </div>
+
+  <!-- Footer Keys Popup -->
+  <div class="footer-popup" id="footerKeysPopup" style="right:40px;">
+    <div class="footer-popup-head">Keyboard Shortcuts</div>
+    <button class="menu-item" onclick="sendShortcut('cad')"><b>Ctrl + Alt + Del</b></button>
+    <button class="menu-item" onclick="sendShortcut('alt_tab')">Alt + Tab</button>
+    <button class="menu-item" onclick="sendShortcut('alt_f4')">Alt + F4</button>
+    <button class="menu-item" onclick="sendShortcut('win')">Win / Super Key</button>
+    <button class="menu-item" onclick="sendShortcut('ctrl_esc')">Ctrl + Esc</button>
+    <button class="menu-item" onclick="sendShortcut('prtscn')">PrintScreen</button>
+    <div class="menu-sep"></div>
+    <button class="menu-item" onclick="toggleKeyStrip()">Toggle Soft-Key Bar</button>
+  </div>
 </div>
 
 <!-- Modal: Connection Dialog (1:1 with native Fyne showConnectionEditorDialog) -->
@@ -1045,6 +1239,103 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   </div>
 </div>
 
+<!-- Modal: Hardware KVM & ATX Settings (Шестеренка) -->
+<div class="modal-overlay" id="kvmSettingsModal">
+  <div class="modal" style="max-width: 560px;">
+    <div class="modal-head">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div style="width:32px; height:32px; border-radius:8px; background:rgba(196,231,122,0.12); border:1px solid rgba(196,231,122,0.35); display:flex; align-items:center; justify-content:center; color:var(--lime);">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </div>
+        <div>
+          <h3 class="modal-title" style="font-size:16px;">KVM Hardware Settings</h3>
+          <div style="font-size:12px; color:var(--muted);">Hardware ATX power, KVM board control, and network</div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal('kvmSettingsModal')">&times;</button>
+    </div>
+
+    <!-- Modal Tabs -->
+    <div class="modal-tabs">
+      <button class="modal-tab-btn active" id="btnKvmTabPower" onclick="switchKVMModalTab('power')">ATX Power</button>
+      <button class="modal-tab-btn" id="btnKvmTabSystem" onclick="switchKVMModalTab('system')">KVM System</button>
+      <button class="modal-tab-btn" id="btnKvmTabNet" onclick="switchKVMModalTab('net')">Network</button>
+      <button class="modal-tab-btn" id="btnKvmTabEvents" onclick="switchKVMModalTab('events')">Events</button>
+    </div>
+
+    <!-- Tab 1: ATX Power -->
+    <div class="modal-tab-pane active" id="kvmPanePower">
+      <div style="font-size:13px; color:var(--muted); margin-bottom:14px;">Direct physical control of host PC power button and reset pins via optocouplers.</div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px;">
+          <div>
+            <div style="font-weight:600; font-size:13px;">Power On Host</div>
+            <div style="font-size:11px; color:var(--muted);">Sends momentary short-press (200ms) to power switch pins</div>
+          </div>
+          <button class="btn btn-primary" onclick="sendKVMPowerAction('power_on')">Power On</button>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px;">
+          <div>
+            <div style="font-weight:600; font-size:13px; color:#ff8585;">Force Power Off</div>
+            <div style="font-size:11px; color:var(--muted);">Holds power button pins for 5 seconds to force shutdown</div>
+          </div>
+          <button class="btn btn-secondary" style="color:#ff8585; border-color:rgba(255,133,133,0.3);" onclick="sendKVMPowerAction('power_off')">Force Off (5s)</button>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px;">
+          <div>
+            <div style="font-weight:600; font-size:13px; color:#ff8585;">Hardware Reset</div>
+            <div style="font-size:11px; color:var(--muted);">Sends hardware reset signal to restart the target PC</div>
+          </div>
+          <button class="btn btn-secondary" style="color:#ff8585; border-color:rgba(255,133,133,0.3);" onclick="sendKVMPowerAction('reset')">Reset PC</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: KVM System -->
+    <div class="modal-tab-pane" id="kvmPaneSystem">
+      <div class="device-rows" style="margin-bottom:14px;">
+        <div class="device-row">
+          <span style="color:var(--muted); font-size:12px;">Board Device</span>
+          <span class="badge" id="kvmBoardModel">NanoKVM (SG2002 RISC-V)</span>
+        </div>
+        <div class="device-row">
+          <span style="color:var(--muted); font-size:12px;">Firmware Version</span>
+          <span class="badge" id="kvmFirmwareVer">USBridge 2.0 (dev)</span>
+        </div>
+        <div class="device-row">
+          <span style="color:var(--muted); font-size:12px;">Capture Streamer</span>
+          <span class="badge" style="color:var(--lime);">rust-shine (Zero-Copy VENC)</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="checkKVMUpdates()">Check Updates</button>
+        <button class="btn btn-secondary" style="flex:1; color:#ff8585; border-color:rgba(255,133,133,0.3);" onclick="rebootKVMDevice()">Reboot KVM</button>
+      </div>
+    </div>
+
+    <!-- Tab 3: Network -->
+    <div class="modal-tab-pane" id="kvmPaneNet">
+      <div id="kvmNetStatusBox" style="background:#090b0d; border:1px solid var(--line); border-radius:6px; padding:10px 12px; font-family:monospace; font-size:11px; line-height:1.6; margin-bottom:12px;">
+        Loading network configuration…
+      </div>
+      <button class="btn btn-secondary" style="width:100%;" onclick="loadKVMNetwork()">Refresh Network Info</button>
+    </div>
+
+    <!-- Tab 4: Event Log -->
+    <div class="modal-tab-pane" id="kvmPaneEvents">
+      <div id="kvmEventsBox" style="background:#090b0d; border:1px solid var(--line); border-radius:6px; padding:10px 12px; font-family:monospace; font-size:11px; max-height:220px; overflow-y:auto; line-height:1.5;">
+        Loading system events…
+      </div>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="loadKVMEvents()">Refresh Events</button>
+    </div>
+
+    <div class="modal-actions" style="margin-top:16px;">
+      <span style="flex:1;"></span>
+      <button class="btn btn-secondary" onclick="closeModal('kvmSettingsModal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Moonlight / Artemis Streaming Pairing (Completely separate!) -->
 <div class="modal-overlay" id="moonlightModal">
   <div class="modal" style="max-width: 500px;">
@@ -1080,6 +1371,92 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
 
     <div class="modal-actions" style="margin-top:4px;">
       <button class="btn btn-secondary" onclick="closeModal('moonlightModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Share Access (Guest Invitations & Code) Modal -->
+<div class="modal-backdrop" id="shareModal">
+  <div class="modal-dialog" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        <div>
+          <span>Share Access</span>
+          <div style="font-size:11px; font-weight:normal; color:var(--muted); margin-top:2px;">Invite guests by email or access code</div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal('shareModal')">×</button>
+    </div>
+
+    <div style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">
+      Share control or viewing of this KVM with someone. They connect with their own email and role instead of your master key.
+    </div>
+
+    <div class="field-row">
+      <label class="field-label" for="shareGuestEmail">Guest E-mail</label>
+      <input type="email" class="field-input" id="shareGuestEmail" placeholder="colleague@example.com" autocomplete="off" spellcheck="false">
+    </div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px;">
+      <div>
+        <label class="field-label" for="shareGuestRole">Role</label>
+        <select class="field-input" id="shareGuestRole" style="cursor:pointer;">
+          <option value="operator" selected>Operator (Mouse & Keyboard)</option>
+          <option value="viewer">Viewer (View only)</option>
+          <option value="technician">Technician (Full control & disks)</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label" for="shareGuestExpiry">Expiration</label>
+        <select class="field-input" id="shareGuestExpiry" style="cursor:pointer;">
+          <option value="86400" selected>1 day (24 hours)</option>
+          <option value="3600">1 hour</option>
+          <option value="604800">7 days</option>
+          <option value="2592000">30 days</option>
+          <option value="0">Never</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+      <input type="checkbox" id="shareGuestConsent" checked style="width:auto; cursor:pointer;">
+      <label for="shareGuestConsent" style="font-size:12px; color:var(--text); cursor:pointer;">Ask confirmation on KVM screen before connecting</label>
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
+      <button class="btn btn-primary" onclick="sendShareInvite()">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        Send Invitation
+      </button>
+    </div>
+
+    <div id="shareInviteMsg" style="font-size: 12px; min-height: 1.2em; margin-bottom:8px;"></div>
+
+    <div id="shareResultBox" style="display:none; background:rgba(65,224,195,0.06); border:1px solid rgba(65,224,195,0.3); border-radius:8px; padding:10px 12px; margin-bottom:12px;">
+      <div style="font-size:12px; font-weight:600; color:var(--teal); margin-bottom:6px;">Invitation created!</div>
+      <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:11px;">
+        <span style="color:var(--muted); width:36px;">LINK:</span>
+        <span id="shareResultLink" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:monospace; color:var(--text);"></span>
+        <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="copyText(document.getElementById('shareResultLink').textContent, 'Invite Link')">Copy</button>
+      </div>
+      <div style="display:flex; align-items:center; gap:6px; font-size:11px;">
+        <span style="color:var(--muted); width:36px;">CODE:</span>
+        <span id="shareResultCode" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:monospace; color:var(--lime);"></span>
+        <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="copyText(document.getElementById('shareResultCode').textContent, 'Share Code')">Copy</button>
+      </div>
+    </div>
+
+    <div style="border-top: 1px solid var(--line); padding-top: 12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span style="font-size: 13px; font-weight: 600;">Guests with access</span>
+        <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="loadShareGuests()">Refresh</button>
+      </div>
+      <div id="shareGuestsList" style="display:flex; flex-direction:column; gap:6px; max-height:160px; overflow-y:auto;"></div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:8px;">
+      <button class="btn btn-secondary" onclick="closeModal('shareModal')">Close</button>
     </div>
   </div>
 </div>
@@ -1169,19 +1546,57 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
     return null;
   }
 
-  // HEVC Main, level 5.1: one codec string for both the support probe and
-  // the decoder (the Annex B stream carries its own VPS/SPS/PPS).
-  const HEVC_CODEC = 'hvc1.1.6.L153.B0';
+  // HEVC candidates across various browser/GPU combinations.
+  const HEVC_CANDIDATES = [
+    'hev1.1.6.L120.B0',
+    'hev1.1.6.L93.B0',
+    'hev1.1.6.L123.B0',
+    'hev1.1.6.L150.B0',
+    'hev1.1.6.L153.B0',
+    'hvc1.1.6.L120.B0',
+    'hvc1.1.6.L93.B0',
+    'hvc1.1.6.L123.B0',
+    'hvc1.1.6.L150.B0',
+    'hvc1.1.6.L153.B0',
+    'hev1.1.6.L120.90',
+    'hev1.1.6.L153.90',
+    'hvc1.1.6.L120.90',
+    'hvc1.1.6.L153.90'
+  ];
+
+  let cachedSupportedHevc = null;
+  async function getSupportedHEVCCodec() {
+    if (cachedSupportedHevc !== null) return cachedSupportedHevc;
+    if (typeof VideoDecoder !== 'function' || !VideoDecoder.isConfigSupported) {
+      cachedSupportedHevc = false;
+      return null;
+    }
+    for (const c of HEVC_CANDIDATES) {
+      try {
+        const r = await VideoDecoder.isConfigSupported({ codec: c, optimizeForLatency: true });
+        if (r && r.supported) {
+          cachedSupportedHevc = c;
+          return c;
+        }
+      } catch (_) {}
+      try {
+        const r2 = await VideoDecoder.isConfigSupported({ codec: c, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' });
+        if (r2 && r2.supported) {
+          cachedSupportedHevc = c;
+          return c;
+        }
+      } catch (_) {}
+    }
+    cachedSupportedHevc = false;
+    return null;
+  }
 
   async function hevcSupported() {
-    if (typeof VideoDecoder !== 'function' || !VideoDecoder.isConfigSupported) return false;
-    try {
-      const r = await VideoDecoder.isConfigSupported({ codec: HEVC_CODEC, optimizeForLatency: true });
-      return !!r.supported;
-    } catch (_) {
-      return false;
-    }
+    const c = await getSupportedHEVCCodec();
+    return !!c;
   }
+
+  const HEVC_CODEC = 'hev1.1.6.L120.B0';
 
   // Video decode and paint run in a dedicated worker on an OffscreenCanvas
   // when the browser can: a VideoDecoder's output and its queue are served
@@ -1489,10 +1904,16 @@ onmessage = (e) => {
           this.stats.framesDecoded++;
           writer.write(f).catch(() => f.close());
         },
-        error: () => {
+        error: (e) => {
           this.stats.decodeErrors++;
           configured = ''; waitingKey = true;
           pending.clear();
+          console.warn('[VideoDecoder] decode error:', e);
+          if (this.welcome && this.welcome.codec === 'h265') {
+            if (window.showToast) window.showToast('H.265 decode error in browser: falling back to H.264');
+            if (window.setVideoCodec) window.setVideoCodec('h264');
+            return;
+          }
           this.requestKeyframe();
         },
       });
@@ -1506,10 +1927,20 @@ onmessage = (e) => {
         if (this._decoder.state === 'closed') { this._decoder = newDecoder(); configured = ''; }
         const d = this._decoder;
         if (key) {
-          const codec = this.welcome.codec === 'h265' ? HEVC_CODEC : (avcCodec(data) || 'avc1.42E01F');
+          const hevcC = cachedSupportedHevc || HEVC_CODEC;
+          const codec = this.welcome.codec === 'h265' ? hevcC : (avcCodec(data) || 'avc1.42E01F');
           if (codec !== configured) {
-            d.configure({ codec, optimizeForLatency: true });
-            configured = codec;
+            try {
+              d.configure({ codec, optimizeForLatency: true });
+              configured = codec;
+            } catch (cfgErr) {
+              console.error('[VideoDecoder] configure error for ' + codec + ':', cfgErr);
+              if (this.welcome.codec === 'h265') {
+                if (window.showToast) window.showToast('Browser rejected H.265 codec: falling back to H.264');
+                if (window.setVideoCodec) window.setVideoCodec('h264');
+                return;
+              }
+            }
           }
         }
         if (!configured) { this.stats.framesDropped++; waitingKey = true; return; }
@@ -1653,11 +2084,20 @@ onmessage = (e) => {
     tsHost: '',
     masterKey: '',
     protocol: 'auto',
+    codec: 'h264',
+    targetFps: 60,
+    targetBitrate: 8000,
+    mouseMode: 'absolute',
+    audioMuted: false,
+    micEnabled: false,
     wtSession: null,
     pc: null,
     inputDc: null,
     connected: false,
     pointerLock: false,
+    activeScriptPath: null,
+    mcpWs: null,
+    mcpConnected: false,
     modifiers: { ctrl: false, alt: false, shift: false, win: false },
     lastStats: { fps: 0, frames: 0, lastCheck: performance.now() }
   };
@@ -1668,132 +2108,149 @@ onmessage = (e) => {
   var fullAppBtn = document.getElementById('fullAppBtn');
   if (fullAppBtn) fullAppBtn.href = 'index.html' + location.hash;
 
-  function parseDeepLinkURI(uri) {
-    if (!uri) return null;
-    var str = uri.trim();
-    try {
-      var dec = decodeURIComponent(str);
-      if (dec.includes('usbridge://') || dec.includes('master_key=') || dec.includes('token=')) {
-        str = dec;
+  function parseConnectionURI(raw) {
+    if (!raw) return null;
+    var str = String(raw).trim();
+    if (!str) return null;
+
+    if (str.startsWith('#')) str = str.slice(1);
+    if (str.startsWith('?')) str = str.slice(1);
+    str = str.trim();
+
+    // Repeatedly decode URI components in case of multiple encodings (%253A -> %3A -> :)
+    for (var i = 0; i < 3; i++) {
+      if (str.indexOf('%') === -1) break;
+      try {
+        var next = decodeURIComponent(str);
+        if (next === str) break;
+        str = next;
+      } catch(_) {
+        break;
       }
-    } catch(e) {}
-
-    var query = str;
-    if (str.includes('?')) {
-      query = str.substring(str.indexOf('?') + 1);
-    } else if (str.startsWith('usbridge://')) {
-      query = '';
     }
+    str = str.trim();
 
-    var p = new URLSearchParams(query);
-    var ih = p.get('internal_host') || p.get('lan_host') || p.get('host') || p.get('internalHost') || '';
-    var th = p.get('tailscale_host') || p.get('ts_host') || p.get('tailscaleHost') || '';
-    var mk = p.get('master_key') || p.get('token') || p.get('key') || p.get('masterKey') || '';
-    var name = p.get('name') || 'USBridge KVM';
-    var proto = p.get('protocol') || 'auto';
-    var imm = p.get('immediate') === 'true';
+    var name = 'USBridge KVM';
+    var host = location.hostname || '127.0.0.1';
+    var internalHost = '';
+    var tailscaleHost = '';
+    var key = '';
+    var proto = 'auto';
+    var immediate = false;
 
-    if (!ih && !th && !mk) return null;
+    var uIdx = str.indexOf('usbridge://');
+    if (uIdx !== -1) {
+      var afterScheme = str.slice(uIdx + 11);
+      var qIdx = afterScheme.indexOf('?');
+      var pathPart = qIdx !== -1 ? afterScheme.slice(0, qIdx) : afterScheme;
+      var queryPart = qIdx !== -1 ? afterScheme.slice(qIdx + 1) : '';
 
-    return {
-      name: name,
-      internalHost: ih,
-      tailscaleHost: th,
-      masterKey: mk,
-      protocol: proto,
-      immediate: imm
-    };
-  }
-
-  function saveCurrentConnection() {
-    var data = {
-      name: state.name,
-      internalHost: state.host,
-      tailscaleHost: state.tsHost,
-      masterKey: state.masterKey,
-      protocol: state.protocol || 'auto'
-    };
-    try {
-      localStorage.setItem('usbridge_connection', JSON.stringify(data));
-      sessionStorage.setItem('usbridge_key', state.masterKey);
-    } catch(e) {}
-  }
-
-  function loadSavedConnection() {
-    try {
-      var raw = localStorage.getItem('usbridge_connection');
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        if (parsed && (parsed.internalHost || parsed.masterKey)) {
-          if (parsed.protocol) state.protocol = parsed.protocol;
-          return parsed;
+      if (queryPart) {
+        var qp = new URLSearchParams(queryPart);
+        key = qp.get('master_key') || qp.get('token') || qp.get('key') || '';
+        internalHost = qp.get('internal_host') || qp.get('host') || qp.get('lan') || '';
+        tailscaleHost = qp.get('tailscale_host') || qp.get('ts') || '';
+        proto = qp.get('protocol') || qp.get('proto') || 'auto';
+        name = qp.get('name') || name;
+        if (qp.get('immediate') === 'true' || qp.get('connect') === 'true') {
+          immediate = true;
         }
       }
-    } catch(e) {}
-    try {
-      var k = sessionStorage.getItem('usbridge_key');
-      if (k) return { name: 'USBridge KVM', internalHost: location.hostname, masterKey: k };
-    } catch(e) {}
-    return null;
-  }
 
-  function fillConnectionDialogFields() {
-    var nameEl = document.getElementById('connName');
-    var lanEl = document.getElementById('connLan');
-    var tsEl = document.getElementById('connTs');
-    var tokenEl = document.getElementById('connToken');
-    if (nameEl) nameEl.value = state.name || 'USBridge KVM';
-    if (lanEl) lanEl.value = state.host || location.hostname;
-    if (tsEl) tsEl.value = state.tsHost || '';
-    if (tokenEl) tokenEl.value = state.masterKey || '';
-    var protoEl = document.getElementById('connProtocol');
-    if (protoEl) protoEl.value = state.protocol || 'auto';
-  }
-
-  function showConnFeedback(msg, type) {
-    var el = document.getElementById('connFeedback');
-    if (!el) return;
-    if (!msg) { el.style.display = 'none'; return; }
-    el.style.display = 'block';
-    el.textContent = msg;
-    if (type === 'err') {
-      el.style.background = 'rgba(255,107,107,0.12)';
-      el.style.borderColor = 'rgba(255,107,107,0.35)';
-      el.style.color = 'var(--err)';
+      if (!key && pathPart.indexOf('@') !== -1) {
+        var atParts = pathPart.split('@');
+        key = decodeURIComponent(atParts[0]);
+        if (atParts[1]) {
+          internalHost = decodeURIComponent(atParts[1]);
+        }
+      }
     } else {
-      el.style.background = 'rgba(196,231,122,0.12)';
-      el.style.borderColor = 'rgba(196,231,122,0.35)';
-      el.style.color = 'var(--lime)';
+      try {
+        var qp = new URLSearchParams(str);
+        key = qp.get('master_key') || qp.get('token') || qp.get('key') || '';
+        internalHost = qp.get('internal_host') || qp.get('host') || qp.get('lan') || '';
+        tailscaleHost = qp.get('tailscale_host') || qp.get('ts') || '';
+        proto = qp.get('protocol') || qp.get('proto') || 'auto';
+        name = qp.get('name') || name;
+        if (qp.get('immediate') === 'true' || qp.get('connect') === 'true') {
+          immediate = true;
+        }
+      } catch(_) {}
     }
+
+    host = internalHost || tailscaleHost || location.hostname || '127.0.0.1';
+
+    if (!key) return null;
+    return {
+      name: name,
+      host: host,
+      internalHost: internalHost || host,
+      tailscaleHost: tailscaleHost,
+      key: key,
+      proto: proto,
+      immediate: immediate
+    };
   }
 
   function initConnectionParams() {
-    var rawHash = location.hash || '';
-    if (rawHash.startsWith('#')) rawHash = rawHash.slice(1);
-    if (!rawHash && location.search) rawHash = location.search.slice(1);
+    var hash = location.hash;
+    var search = location.search;
+    var stored = null;
+    try { stored = JSON.parse(localStorage.getItem('usbridge_conn_v2') || 'null'); } catch(e) {}
 
-    var parsed = parseDeepLinkURI(rawHash);
-    if (parsed && (parsed.internalHost || parsed.masterKey || parsed.tailscaleHost)) {
-      state.name = parsed.name || 'USBridge KVM';
-      state.host = parsed.internalHost || location.hostname;
-      state.tsHost = parsed.tailscaleHost || '';
-      state.masterKey = parsed.masterKey || '';
+    var deep = null;
+    if (hash && hash.length > 1) {
+      deep = parseConnectionURI(hash);
+    }
+    if (!deep && search && search.length > 1) {
+      deep = parseConnectionURI(search);
+    }
+    if (!deep) {
+      var savedLink = null;
+      try { savedLink = localStorage.getItem('usbridge_last_deep_link'); } catch(_) {}
+      if (savedLink) {
+        deep = parseConnectionURI(savedLink);
+      }
+    }
+
+    if (deep && deep.key) {
+      state.name = deep.name || state.name;
+      state.host = deep.host || state.host;
+      state.tsHost = deep.tailscaleHost || '';
+      state.masterKey = deep.key;
+      state.protocol = deep.proto || 'auto';
       linkDetected = true;
-      immediateConnect = parsed.immediate;
-      saveCurrentConnection();
+      immediateConnect = true;
 
-      // Clear the fragment from browser address bar (like native WASM client does)
-      if (window.history && window.history.replaceState) {
-        window.history.replaceState(null, '', location.pathname);
-      }
-    } else {
-      var saved = loadSavedConnection();
-      if (saved) {
-        state.name = saved.name || 'USBridge KVM';
-        state.host = saved.internalHost || location.hostname;
-        state.tsHost = saved.tailscaleHost || '';
-        state.masterKey = saved.masterKey || '';
-      }
+      try {
+        localStorage.setItem('usbridge_conn_v2', JSON.stringify({
+          name: state.name,
+          host: state.host,
+          ts: state.tsHost,
+          key: state.masterKey,
+          proto: state.protocol,
+          codec: state.codec,
+          fps: state.targetFps
+        }));
+        if (hash) {
+          localStorage.setItem('usbridge_last_deep_link', hash);
+        }
+      } catch(_) {}
+
+      try {
+        if (history.replaceState && location.hash) {
+          history.replaceState(null, '', location.pathname + location.search);
+        }
+      } catch(_) {}
+
+    } else if (stored && stored.key) {
+      state.name = stored.name || state.name;
+      state.host = stored.host || location.hostname || '127.0.0.1';
+      state.tsHost = stored.ts || '';
+      state.masterKey = stored.key;
+      state.protocol = stored.proto || 'auto';
+      state.codec = stored.codec || 'h264';
+      state.targetFps = stored.fps || 60;
     }
 
     fillConnectionDialogFields();
@@ -1860,21 +2317,29 @@ onmessage = (e) => {
   }
 
   function sendRawInput(buf) {
+    var sent = false;
     if (state.wtSession && typeof state.wtSession.sendInput === 'function') {
-      try { state.wtSession.sendInput(buf); return; } catch(e) {}
+      try {
+        if (state.wtSession.sendInput(buf)) sent = true;
+      } catch(e) {}
     }
-    if (state.inputDc && state.inputDc.readyState === 'open') {
-      state.inputDc.send(buf);
+    if (!sent && state.inputDc && state.inputDc.readyState === 'open') {
+      try {
+        state.inputDc.send(buf);
+        sent = true;
+      } catch(e) {}
     }
+    return sent;
   }
 
   function sendMouseAbs(x, y, w, h) {
     var body = new Uint8Array(10);
     var dv = new DataView(body.buffer);
-    dv.setUint16(0, x, false);
-    dv.setUint16(2, y, false);
-    dv.setUint16(6, w, false);
-    dv.setUint16(8, h, false);
+    dv.setInt16(0, x, false);
+    dv.setInt16(2, y, false);
+    dv.setInt16(4, 0, false);
+    dv.setInt16(6, w || 32767, false);
+    dv.setInt16(8, h || 32767, false);
     sendRawInput(buildPacket(MAGIC_MOUSE_MOVE_ABS, body));
   }
 
@@ -1928,54 +2393,80 @@ onmessage = (e) => {
   }
 
   function attachInputs() {
-    var video = document.getElementById('remoteVideo');
     var vp = document.getElementById('viewport');
+    if (!vp) return;
 
-    function getAbsPos(e) {
-      var r = video.getBoundingClientRect();
-      var vw = video.videoWidth || 1920, vh = video.videoHeight || 1080;
+    function getNormalizedPos(e) {
+      var target = document.getElementById('remoteVideo');
+      if (!target) return [16383, 16383];
+      var r = target.getBoundingClientRect();
+      var vw = target.videoWidth || target.width || 1920;
+      var vh = target.videoHeight || target.height || 1080;
       var s = Math.min(r.width / vw, r.height / vh);
       var cw = vw * s, ch = vh * s;
-      var x = (e.clientX - r.left - (r.width - cw) / 2) / s;
-      var y = (e.clientY - r.top - (r.height - ch) / 2) / s;
-      return [Math.max(0, Math.min(vw - 1, Math.round(x))), Math.max(0, Math.min(vh - 1, Math.round(y))), vw, vh];
+      var clientX = e.clientX, clientY = e.clientY;
+      var px = clientX - (r.left + (r.width - cw) / 2);
+      var py = clientY - (r.top + (r.height - ch) / 2);
+      var u = Math.max(0, Math.min(1, px / cw));
+      var v = Math.max(0, Math.min(1, py / ch));
+      var absX = Math.round(u * 32767);
+      var absY = Math.round(v * 32767);
+      return [absX, absY];
     }
 
     var lastMove = 0;
-    video.addEventListener('mousemove', function(e) {
+    vp.addEventListener('mousemove', function(e) {
       var now = performance.now();
       if (now - lastMove < 7) return;
       lastMove = now;
+
       if (state.pointerLock) {
-        sendMouseRel(e.movementX, e.movementY);
+        var dx = e.movementX || 0;
+        var dy = e.movementY || 0;
+        if (dx !== 0 || dy !== 0) {
+          sendMouseRel(dx, dy);
+        }
       } else {
-        var p = getAbsPos(e);
-        sendMouseAbs(p[0], p[1], p[2], p[3]);
+        var pos = getNormalizedPos(e);
+        sendMouseAbs(pos[0], pos[1], 32767, 32767);
       }
     });
 
-    function getBtn(e) { return e.button === 0 ? 1 : (e.button === 1 ? 2 : (e.button === 2 ? 3 : 0)); }
+    function getBtn(e) {
+      if (e.button === 0) return 1; // Left
+      if (e.button === 1) return 2; // Middle
+      if (e.button === 2) return 3; // Right
+      return 0;
+    }
 
-    video.addEventListener('mousedown', function(e) {
+    vp.addEventListener('mousedown', function(e) {
       vp.focus();
+      var b = getBtn(e);
       if (!state.pointerLock) {
-        var p = getAbsPos(e);
-        sendMouseAbs(p[0], p[1], p[2], p[3]);
+        var pos = getNormalizedPos(e);
+        if (b) sendMouseButton(b, true);
+        sendMouseAbs(pos[0], pos[1], 32767, 32767);
+      } else {
+        if (b) sendMouseButton(b, true);
       }
-      var b = getBtn(e);
-      if (b) sendMouseButton(b, true);
       e.preventDefault();
     });
 
-    video.addEventListener('mouseup', function(e) {
+    vp.addEventListener('mouseup', function(e) {
       var b = getBtn(e);
-      if (b) sendMouseButton(b, false);
+      if (!state.pointerLock) {
+        var pos = getNormalizedPos(e);
+        if (b) sendMouseButton(b, false);
+        sendMouseAbs(pos[0], pos[1], 32767, 32767);
+      } else {
+        if (b) sendMouseButton(b, false);
+      }
       e.preventDefault();
     });
 
-    video.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+    vp.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
-    video.addEventListener('wheel', function(e) {
+    vp.addEventListener('wheel', function(e) {
       if (e.deltaY) sendScroll(e.deltaY < 0 ? 120 : -120);
       e.preventDefault();
     }, { passive: false });
@@ -2001,7 +2492,8 @@ onmessage = (e) => {
     });
 
     document.addEventListener('pointerlockchange', function() {
-      state.pointerLock = (document.pointerLockElement === video || document.pointerLockElement === vp);
+      var target = document.getElementById('remoteVideo');
+      state.pointerLock = (document.pointerLockElement === target || document.pointerLockElement === vp);
       updateMouseModeUI();
     });
   }
@@ -2020,7 +2512,7 @@ onmessage = (e) => {
 
     pc.addEventListener('connectionstatechange', function() {
       if (pc.connectionState === 'connected') {
-        updateStatus('connected', state.host);
+        updateStatus('connected', state.host + ' (WebRTC)');
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
         updateStatus('disconnected', 'Disconnected');
       }
@@ -2033,6 +2525,15 @@ onmessage = (e) => {
       if (e.track.kind === 'video') {
         video.srcObject = e.streams[0] || new MediaStream([e.track]);
         video.play().catch(function() {});
+        try {
+          var receivers = pc.getReceivers();
+          receivers.forEach(function(r) {
+            if (r.track && r.track.kind === 'video') {
+              if ('playoutDelayHint' in r) r.playoutDelayHint = 0;
+              if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0;
+            }
+          });
+        } catch(_) {}
       }
     });
 
@@ -2056,7 +2557,7 @@ onmessage = (e) => {
 
     var enc = new TextEncoder();
     var ts = String(Math.floor(Date.now() / 1000));
-    var bodyStr = JSON.stringify({ sdp: pc.localDescription.sdp, codec: 'h264' });
+    var bodyStr = JSON.stringify({ sdp: pc.localDescription.sdp, codec: state.codec || 'h264', fps: 30 });
     var derived = sha256(enc.encode(state.masterKey));
     var sig = hmacHex(derived, enc.encode('POST/webrtc/offer' + ts + bodyStr));
 
@@ -2108,19 +2609,37 @@ onmessage = (e) => {
     var sessionURL = 'https://' + host + ':' + info.port + info.path + '?ts=' + ts2 + '&sig=' + sig2;
 
     var video = document.getElementById('remoteVideo');
+    if (video && video.srcObject) {
+      try {
+        video.srcObject.getTracks().forEach(function(t) { t.stop(); });
+        video.srcObject = null;
+      } catch(e) {}
+    }
     if (state.wtSession) {
       try { state.wtSession.close(); } catch(e) {}
       state.wtSession = null;
     }
 
+    var fps = state.targetFps || 60;
+    var codec = state.codec || 'h264';
+    if (codec === 'h265') {
+      var supported = window.__usbridgeWT ? await window.__usbridgeWT.hevcSupported() : false;
+      if (!supported) {
+        console.warn('[WebTransport] H.265 not supported in this browser, falling back to H.264');
+        codec = 'h264';
+        state.codec = 'h264';
+      }
+    }
+    var bitrate = state.targetBitrate || 8000;
+
     var session = await window.__usbridgeWT.open({
       url: sessionURL,
       certHash: info.cert_hash,
-      hello: { codec: 'h264' },
+      hello: { codec: codec, fps: fps, bitrate_kbps: bitrate },
       videoEl: video,
       onState: function(st) {
         if (st === 'connected') {
-          updateStatus('connected', state.host + ' (WT)');
+          updateStatus('connected', state.host + ' (WT ' + fps + 'fps)');
         } else if (st === 'closed' || st === 'failed') {
           updateStatus('disconnected', 'WebTransport ' + st);
         }
@@ -2170,13 +2689,13 @@ onmessage = (e) => {
       }
     }
 
-    // Default: 'auto' (Try WebTransport first, fallback to WebRTC)
+    // Auto mode: try WebTransport first, fallback to WebRTC
     if (window.__usbridgeWT && window.__usbridgeWT.supported()) {
       try {
         await connectWebTransport();
         return;
-      } catch(wtErr) {
-        console.warn('WebTransport failed, falling back to WebRTC:', wtErr);
+      } catch(err) {
+        console.warn('WebTransport failed, falling back to WebRTC:', err);
       }
     }
 
@@ -2184,43 +2703,365 @@ onmessage = (e) => {
       await connectWebRTC();
     } catch(err) {
       console.error('Connection error:', err);
-      updateStatus('disconnected', 'Error: ' + err.message);
+      updateStatus('disconnected', 'Connection error: ' + err.message);
     }
   }
 
   function updateStatus(cls, label) {
     var dot = document.getElementById('statusDot');
     var lbl = document.getElementById('statusLabel');
-    dot.className = 'status-dot ' + cls;
-    lbl.textContent = label;
+    if (dot) dot.className = 'status-dot ' + cls;
+    if (lbl) lbl.textContent = label;
   }
 
   function updateMouseModeUI() {
-    var lbl = document.getElementById('mouseModeLabel');
-    var btn = document.getElementById('mouseModeBtn');
+    var fIcon = document.getElementById('fIconMouse');
     var notice = document.getElementById('lockNotice');
+    var btnAbs = document.getElementById('btnMouseAbs');
+    var btnRel = document.getElementById('btnMouseRel');
     if (state.pointerLock) {
-      lbl.textContent = 'Mouse: Locked';
-      btn.classList.add('active');
-      notice.style.display = 'block';
+      if (fIcon) {
+        fIcon.classList.add('active', 'green');
+        fIcon.title = 'Mouse: Locked / Captured (Press ESC to release)';
+      }
+      if (btnAbs) btnAbs.classList.remove('active');
+      if (btnRel) btnRel.classList.add('active');
+      if (notice) notice.style.display = 'block';
     } else {
-      lbl.textContent = 'Mouse: Abs';
-      btn.classList.remove('active');
-      notice.style.display = 'none';
+      if (fIcon) {
+        fIcon.classList.remove('active', 'green');
+        fIcon.title = 'Mouse: Absolute Mode (Click to lock/capture)';
+      }
+      if (btnAbs) btnAbs.classList.add('active');
+      if (btnRel) btnRel.classList.remove('active');
+      if (notice) notice.style.display = 'none';
     }
   }
 
   window.requestPointerLockDirect = function() {
     switchTab('control');
-    var video = document.getElementById('remoteVideo');
-    video.requestPointerLock();
+    var target = document.getElementById('remoteVideo') || document.getElementById('viewport');
+    if (target && target.requestPointerLock) {
+      target.requestPointerLock();
+    }
   };
 
-  document.getElementById('mouseModeBtn').addEventListener('click', function() {
-    var video = document.getElementById('remoteVideo');
-    if (!state.pointerLock) video.requestPointerLock();
-    else document.exitPointerLock();
-  });
+  window.toggleMouseMode = function() {
+    var target = document.getElementById('remoteVideo') || document.getElementById('viewport');
+    if (state.pointerLock) {
+      document.exitPointerLock();
+    } else {
+      switchTab('control');
+      if (target && target.requestPointerLock) {
+        target.requestPointerLock();
+      }
+    }
+  };
+
+  window.setMouseMode = function(mode) {
+    state.mouseMode = mode;
+    if (mode === 'relative') {
+      window.toggleMouseMode();
+    } else {
+      if (state.pointerLock) document.exitPointerLock();
+      updateMouseModeUI();
+    }
+  };
+
+  window.setGamepadMode = function(mode) {
+    document.querySelectorAll('#gamepadModeGroup .btn-pill-opt').forEach(function(b) { b.classList.remove('active'); });
+    var btn = document.getElementById(mode === 'direct' ? 'btnGpadDirect' : (mode === 'xbox' ? 'btnGpadXbox' : 'btnGpadOff'));
+    if (btn) btn.classList.add('active');
+    var dot = document.getElementById('devDotGamepad');
+    if (dot) dot.className = mode !== 'off' ? 'status-dot connected' : 'status-dot';
+  };
+
+  window.setVideoProfile = function(w, h, fps) {
+    state.targetFps = fps;
+    var badge = document.getElementById('devResolutionLabel');
+    if (badge) badge.textContent = w + 'x' + h + ' @ ' + fps + ' FPS';
+    document.querySelectorAll('.footer-popup').forEach(function(p) { p.classList.remove('open'); });
+    connect();
+  };
+
+  window.setVideoCodec = async function(codec) {
+    if (codec === 'h265') {
+      var supported = window.__usbridgeWT ? await window.__usbridgeWT.hevcSupported() : false;
+      if (!supported) {
+        showToast('H.265 (HEVC) WebCodecs is not supported by your browser. Remaining on H.264.');
+        var btnH264 = document.getElementById('btnCodecH264');
+        var btnH265 = document.getElementById('btnCodecH265');
+        if (btnH264) btnH264.classList.add('active');
+        if (btnH265) btnH265.classList.remove('active');
+        state.codec = 'h264';
+        return;
+      }
+    }
+    state.codec = codec;
+    var btnH264 = document.getElementById('btnCodecH264');
+    var btnH265 = document.getElementById('btnCodecH265');
+    if (codec === 'h265') {
+      if (btnH264) btnH264.classList.remove('active');
+      if (btnH265) btnH265.classList.add('active');
+    } else {
+      if (btnH264) btnH264.classList.add('active');
+      if (btnH265) btnH265.classList.remove('active');
+    }
+    document.querySelectorAll('.footer-popup').forEach(function(p) { p.classList.remove('open'); });
+    connect();
+  };
+
+  // --- Share Access Modal & Guest Invitations ---
+  window.openShareModal = function() {
+    openModal('shareModal');
+    loadShareGuests();
+  };
+
+  window.loadShareGuests = async function() {
+    var box = document.getElementById('shareGuestsList');
+    if (!box) return;
+    try {
+      var res = await api('GET', '/api/guests');
+      renderShareGuests(res && res.guests || []);
+    } catch(e) {
+      box.innerHTML = '<div style="font-size:12px; color:var(--muted);">Guests list not available (' + e.message + ')</div>';
+    }
+  };
+
+  function renderShareGuests(guests) {
+    var box = document.getElementById('shareGuestsList');
+    if (!box) return;
+    box.innerHTML = '';
+    if (!guests || !guests.length) {
+      box.innerHTML = '<div style="font-size:12px; color:var(--muted);">No guest shares yet.</div>';
+      return;
+    }
+    guests.forEach(function(g) {
+      if (g.live === false && g.status === 'revoked') return;
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:12px;';
+      var left = document.createElement('div');
+      left.style.cssText = 'min-width:0; flex:1; margin-right:8px;';
+      var email = document.createElement('div');
+      email.style.cssText = 'font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+      email.textContent = g.email || g.id;
+      var sub = document.createElement('div');
+      sub.style.cssText = 'font-size:11px; color:var(--muted);';
+      var st = g.session === 'allowed' ? 'active' : (g.session === 'pending' ? 'waiting approval' : (g.status || 'invited'));
+      sub.textContent = g.role + ' · ' + st;
+      left.appendChild(email);
+      left.appendChild(sub);
+      row.appendChild(left);
+
+      var actions = document.createElement('div');
+      actions.style.cssText = 'display:flex; gap:6px; flex-shrink:0;';
+      if (g.session === 'pending') {
+        var allowBtn = document.createElement('button');
+        allowBtn.className = 'btn btn-secondary';
+        allowBtn.style.cssText = 'padding:2px 8px; font-size:11px; color:var(--lime);';
+        allowBtn.textContent = 'Allow';
+        allowBtn.onclick = async function() {
+          try { await api('POST', '/api/guests/' + encodeURIComponent(g.id) + '/decide', { allow: true }); loadShareGuests(); } catch(e) { alert(e.message); }
+        };
+        actions.appendChild(allowBtn);
+
+        var denyBtn = document.createElement('button');
+        denyBtn.className = 'btn btn-secondary';
+        denyBtn.style.cssText = 'padding:2px 8px; font-size:11px; color:#ff8585;';
+        denyBtn.textContent = 'Deny';
+        denyBtn.onclick = async function() {
+          try { await api('POST', '/api/guests/' + encodeURIComponent(g.id) + '/decide', { allow: false }); loadShareGuests(); } catch(e) { alert(e.message); }
+        };
+        actions.appendChild(denyBtn);
+      }
+      if (g.session === 'allowed') {
+        var endBtn = document.createElement('button');
+        endBtn.className = 'btn btn-secondary';
+        endBtn.style.cssText = 'padding:2px 8px; font-size:11px;';
+        endBtn.textContent = 'Disconnect';
+        endBtn.onclick = async function() {
+          try { await api('POST', '/api/guests/' + encodeURIComponent(g.id) + '/end', {}); loadShareGuests(); } catch(e) { alert(e.message); }
+        };
+        actions.appendChild(endBtn);
+      }
+      var revBtn = document.createElement('button');
+      revBtn.className = 'btn btn-secondary';
+      revBtn.style.cssText = 'padding:2px 8px; font-size:11px; color:#ff8585; border-color:rgba(255,133,133,0.3);';
+      revBtn.textContent = 'Revoke';
+      revBtn.onclick = async function() {
+        if (!confirm('Revoke access for ' + g.email + '?')) return;
+        try { await api('DELETE', '/api/guests/' + encodeURIComponent(g.id)); loadShareGuests(); } catch(e) { alert(e.message); }
+      };
+      actions.appendChild(revBtn);
+      row.appendChild(actions);
+      box.appendChild(row);
+    });
+  }
+
+  window.sendShareInvite = async function() {
+    var emailInput = document.getElementById('shareGuestEmail');
+    var email = (emailInput.value || '').trim();
+    var msg = document.getElementById('shareInviteMsg');
+    if (!email || email.indexOf('@') === -1) {
+      if (msg) { msg.style.color = '#ff8585'; msg.textContent = 'Enter a valid email address.'; }
+      return;
+    }
+    var role = document.getElementById('shareGuestRole').value;
+    var exp = parseInt(document.getElementById('shareGuestExpiry').value, 10) || 0;
+    var consent = document.getElementById('shareGuestConsent').checked;
+
+    if (msg) { msg.style.color = 'var(--muted)'; msg.textContent = 'Creating invitation…'; }
+    try {
+      var res = await api('POST', '/api/guests', { email: email, role: role, expires_in: exp, require_consent: consent });
+      if (msg) {
+        msg.style.color = 'var(--teal)';
+        msg.textContent = res && res.mail_sent ? 'Invitation sent to ' + email + '!' : 'Invitation created!';
+      }
+      var link = res && res.invite_url || '';
+      var code = res && res.guest && res.guest.id || '';
+      var resBox = document.getElementById('shareResultBox');
+      if (resBox && (link || code)) {
+        resBox.style.display = 'block';
+        document.getElementById('shareResultLink').textContent = link;
+        document.getElementById('shareResultCode').textContent = code;
+      }
+      emailInput.value = '';
+      loadShareGuests();
+    } catch(e) {
+      if (msg) { msg.style.color = '#ff8585'; msg.textContent = 'Invitation failed: ' + e.message; }
+    }
+  };
+
+  window.reloadEDID = async function() {
+    try {
+      await api('POST', '/api/device/edid', { action: 'reload' });
+      alert('EDID display profile reloaded successfully!');
+    } catch(e) { alert('EDID reload failed: ' + e.message); }
+  };
+
+  window.setAudioMute = function(muted) {
+    state.audioMuted = muted;
+    var btnOn = document.getElementById('btnAudioOn');
+    var btnMute = document.getElementById('btnAudioMute');
+    if (muted) {
+      if (btnOn) btnOn.classList.remove('active');
+      if (btnMute) btnMute.classList.add('active');
+    } else {
+      if (btnOn) btnOn.classList.add('active');
+      if (btnMute) btnMute.classList.remove('active');
+    }
+    var fIcon = document.getElementById('fIconAudio');
+    if (fIcon) {
+      if (muted) fIcon.classList.remove('active');
+      else fIcon.classList.add('active');
+    }
+  };
+
+  window.toggleAudioMute = function() {
+    window.setAudioMute(!state.audioMuted);
+  };
+
+  window.toggleMic = function(enabled) {
+    state.micEnabled = enabled;
+    var btnOn = document.getElementById('btnMicOn');
+    var btnOff = document.getElementById('btnMicOff');
+    if (enabled) {
+      if (btnOn) btnOn.classList.add('active');
+      if (btnOff) btnOff.classList.remove('active');
+    } else {
+      if (btnOn) btnOn.classList.remove('active');
+      if (btnOff) btnOff.classList.add('active');
+    }
+  };
+
+  window.setRNDISMode = async function(mode) {
+    updateRNDISUI(mode);
+    try {
+      if (mode === 'off') {
+        await api('POST', '/api/device/stop', { device: 'rndis' });
+      } else {
+        await api('POST', '/api/device/start', {
+          device: 'rndis',
+          rndis_mode: mode
+        });
+      }
+    } catch(e) {
+      console.warn('Direct device start failed, trying batch:', e);
+      try {
+        if (mode === 'off') {
+          await api('POST', '/api/device/stop', { device: 'rndis' });
+        } else {
+          await api('POST', '/api/device/start', {
+            devices: [{ device: 'rndis', rndis_mode: mode }],
+            merge: true
+          });
+        }
+      } catch(err2) {
+        console.error('Failed to set RNDIS mode:', err2);
+      }
+    }
+  };
+
+  function updateRNDISUI(mode) {
+    var bSetup = document.getElementById('btnRndisSetup');
+    var bRouter = document.getElementById('btnRndisRouter');
+    var bBridge = document.getElementById('btnRndisBridge');
+    var bOff = document.getElementById('btnRndisOff');
+    var badge = document.getElementById('devBadgeRndis');
+    var dot = document.getElementById('devDotRndis');
+    var fIcon = document.getElementById('fIconRndis');
+
+    if (bSetup) bSetup.classList.toggle('active', mode === 'usbsetup');
+    if (bRouter) bRouter.classList.toggle('active', mode === 'auto' || mode === 'router');
+    if (bBridge) bBridge.classList.toggle('active', mode === 'etherbridge' || mode === 'bridge');
+    if (bOff) bOff.classList.toggle('active', mode === 'off');
+
+    if (badge) {
+      if (mode === 'usbsetup') {
+        badge.textContent = '10.55.0.1 (Setup Network)';
+        badge.style.color = 'var(--lime)';
+      } else if (mode === 'auto' || mode === 'router') {
+        badge.textContent = 'NAT Router (Internet Share)';
+        badge.style.color = 'var(--teal)';
+      } else if (mode === 'etherbridge' || mode === 'bridge') {
+        badge.textContent = 'Ethernet Bridge (LAN)';
+        badge.style.color = 'var(--teal)';
+      } else {
+        badge.textContent = 'Off / Disconnected';
+        badge.style.color = 'var(--muted)';
+      }
+    }
+
+    if (dot) {
+      dot.className = 'status-dot ' + (mode === 'off' ? 'disconnected' : 'connected');
+    }
+    if (fIcon) {
+      if (mode === 'off') {
+        fIcon.classList.remove('active', 'green');
+      } else if (mode === 'usbsetup') {
+        fIcon.classList.add('active', 'green');
+      } else {
+        fIcon.classList.add('active');
+        fIcon.classList.remove('green');
+      }
+    }
+  }
+
+  window.toggleFooterStreamMenu = function(e) {
+    e.stopPropagation();
+    var p = document.getElementById('footerStreamPopup');
+    var open = p.classList.contains('open');
+    document.querySelectorAll('.footer-popup').forEach(function(el) { el.classList.remove('open'); });
+    if (!open) p.classList.add('open');
+  };
+
+  window.toggleFooterKeysMenu = function(e) {
+    e.stopPropagation();
+    var p = document.getElementById('footerKeysPopup');
+    var open = p.classList.contains('open');
+    document.querySelectorAll('.footer-popup').forEach(function(el) { el.classList.remove('open'); });
+    if (!open) p.classList.add('open');
+  };
 
   window.toggleDropdown = function(id) {
     var el = document.getElementById(id);
@@ -2232,6 +3073,9 @@ onmessage = (e) => {
   window.addEventListener('click', function(e) {
     if (!e.target.closest('.dropdown')) {
       document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+    }
+    if (!e.target.closest('.footer-popup') && !e.target.closest('#footerStreamStats') && !e.target.closest('#fIconKeyboard')) {
+      document.querySelectorAll('.footer-popup').forEach(function(p) { p.classList.remove('open'); });
     }
   });
 
@@ -2249,180 +3093,288 @@ onmessage = (e) => {
         sendKeyEvent(VK.Delete, 6, false);
         sendKeyEvent(VK.AltLeft, 2, false);
         sendKeyEvent(VK.ControlLeft, 0, false);
-      }, 80);
+      }, 100);
     } else if (type === 'alt_tab') {
       sendKeyEvent(VK.AltLeft, 0, true);
       sendKeyEvent(VK.Tab, 4, true);
       setTimeout(function() {
         sendKeyEvent(VK.Tab, 4, false);
         sendKeyEvent(VK.AltLeft, 0, false);
-      }, 80);
+      }, 100);
     } else if (type === 'alt_f4') {
       sendKeyEvent(VK.AltLeft, 0, true);
       sendKeyEvent(VK.F4, 4, true);
       setTimeout(function() {
         sendKeyEvent(VK.F4, 4, false);
         sendKeyEvent(VK.AltLeft, 0, false);
-      }, 80);
+      }, 100);
     } else if (type === 'win') {
       sendKeyEvent(VK.MetaLeft, 0, true);
-      setTimeout(function() { sendKeyEvent(VK.MetaLeft, 0, false); }, 80);
+      setTimeout(function() { sendKeyEvent(VK.MetaLeft, 0, false); }, 100);
     } else if (type === 'ctrl_esc') {
       sendKeyEvent(VK.ControlLeft, 0, true);
       sendKeyEvent(VK.Escape, 2, true);
       setTimeout(function() {
         sendKeyEvent(VK.Escape, 2, false);
         sendKeyEvent(VK.ControlLeft, 0, false);
-      }, 80);
+      }, 100);
     } else if (type === 'prtscn') {
       sendKeyEvent(VK.PrintScreen, 0, true);
-      setTimeout(function() { sendKeyEvent(VK.PrintScreen, 0, false); }, 80);
+      setTimeout(function() { sendKeyEvent(VK.PrintScreen, 0, false); }, 100);
     }
     document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+    document.querySelectorAll('.footer-popup').forEach(function(p) { p.classList.remove('open'); });
   };
 
   window.toggleKeyStrip = function() {
-    var el = document.getElementById('keyStrip');
-    el.classList.toggle('open');
-    document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+    var s = document.getElementById('keyStrip');
+    s.classList.toggle('open');
   };
 
   window.toggleModifier = function(mod) {
     state.modifiers[mod] = !state.modifiers[mod];
     var btn = document.getElementById('mod' + mod.charAt(0).toUpperCase() + mod.slice(1));
-    if (btn) btn.classList.toggle('active', state.modifiers[mod]);
+    if (btn) {
+      if (state.modifiers[mod]) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
   };
 
   window.sendSingleKey = function(code) {
     var vk = VK[code];
     if (vk) {
-      sendKeyEvent(vk, getModifiers({}), true);
-      setTimeout(function() { sendKeyEvent(vk, getModifiers({}), false); }, 60);
+      var m = (state.modifiers.shift ? 1 : 0) | (state.modifiers.ctrl ? 2 : 0) | (state.modifiers.alt ? 4 : 0) | (state.modifiers.win ? 8 : 0);
+      sendKeyEvent(vk, m, true);
+      setTimeout(function() { sendKeyEvent(vk, m, false); }, 50);
     }
   };
 
-  window.powerAction = async function(btn, dur) {
-    if (!confirm('Execute ATX ' + btn + ' (' + dur + 'ms)?')) return;
+  // --- Hardware KVM Gear Modal Functions ---
+  window.openKVMSettingsModal = function() {
+    document.getElementById('kvmSettingsModal').classList.add('open');
+    switchKVMModalTab('power');
+  };
+
+  window.switchKVMModalTab = function(tab) {
+    document.querySelectorAll('.modal-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.modal-tab-pane').forEach(function(p) { p.classList.remove('active'); });
+    var btn = document.getElementById('btnKvmTab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+    var pane = document.getElementById('kvmPane' + tab.charAt(0).toUpperCase() + tab.slice(1));
+    if (btn) btn.classList.add('active');
+    if (pane) pane.classList.add('active');
+
+    if (tab === 'net') loadKVMNetwork();
+    if (tab === 'events') loadKVMEvents();
+  };
+
+  window.sendKVMPowerAction = async function(action) {
+    var label = action === 'power_on' ? 'Power on host PC?' : (action === 'power_off' ? 'FORCE power off host PC?' : 'Hardware reset host PC?');
+    if (!confirm(label)) return;
     try {
-      await api('POST', '/api/pcpanel/button', { button: btn, duration_ms: dur });
-      alert('ATX ' + btn + ' triggered.');
-    } catch(e) { alert('ATX failed: ' + e.message); }
-    document.querySelectorAll('.dropdown').forEach(function(d) { d.classList.remove('open'); });
+      await api('POST', '/api/settings/power', { action: action });
+      alert('Power command sent successfully');
+    } catch(e) { alert('Power action failed: ' + e.message); }
   };
 
-  window.openModal = function(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.add('open');
+  window.rebootKVMDevice = async function() {
+    if (!confirm('Reboot the KVM board itself? (Target PC will stay running)')) return;
+    try {
+      await api('POST', '/api/settings/reboot', {});
+      alert('KVM is rebooting. Please wait 15 seconds then refresh.');
+    } catch(e) { alert('Reboot command failed: ' + e.message); }
   };
 
+  window.checkKVMUpdates = async function() {
+    try {
+      var res = await api('GET', '/api/settings/update/check');
+      alert(res && res.message ? res.message : 'System is up to date.');
+    } catch(e) { alert('Update check: ' + e.message); }
+  };
+
+  window.loadKVMNetwork = async function() {
+    var box = document.getElementById('kvmNetStatusBox');
+    box.textContent = 'Loading network status…';
+    try {
+      var net = await api('GET', '/api/network/status');
+      box.textContent = JSON.stringify(net, null, 2);
+    } catch(e) { box.textContent = 'Network status: ' + e.message; }
+  };
+
+  window.loadKVMEvents = async function() {
+    var box = document.getElementById('kvmEventsBox');
+    box.textContent = 'Loading events…';
+    try {
+      var ev = await api('GET', '/api/events');
+      box.textContent = Array.isArray(ev) ? ev.join('\\n') : JSON.stringify(ev, null, 2);
+    } catch(e) { box.textContent = 'Events: ' + e.message; }
+  };
+
+  // --- Modal Helpers ---
   window.closeModal = function(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.remove('open');
+    var m = document.getElementById(id);
+    if (m) m.classList.remove('open');
   };
 
-  window.openConnectionModal = function(feedback) {
-    fillConnectionDialogFields();
-    if (feedback) {
-      showConnFeedback(feedback, 'err');
-    } else if (linkDetected) {
-      showConnFeedback('✓ Link detected: internal=' + (state.host || location.hostname), 'ok');
+  function showConnFeedback(msg, type) {
+    var el = document.getElementById('connFeedback');
+    if (!el) return;
+    if (!msg) {
+      el.style.display = 'none';
+      el.textContent = '';
+      return;
+    }
+    el.style.display = 'block';
+    el.textContent = msg;
+    if (type === 'err') {
+      el.style.background = 'rgba(255, 99, 132, 0.15)';
+      el.style.borderColor = 'rgba(255, 99, 132, 0.4)';
+      el.style.color = '#ff6b81';
     } else {
-      showConnFeedback('', '');
+      el.style.background = 'rgba(196, 231, 122, 0.15)';
+      el.style.borderColor = 'rgba(196, 231, 122, 0.4)';
+      el.style.color = '#c4e77a';
     }
-    openModal('connModal');
-  };
+  }
 
-  window.openMoonlightModal = function() {
-    openModal('moonlightModal');
-    loadMoonlightSettings();
-  };
-
-  window.applyConnectionAndConnect = function() {
-    var name = (document.getElementById('connName').value.trim()) || 'USBridge KVM';
-    var lan = document.getElementById('connLan').value.trim();
-    var ts = document.getElementById('connTs').value.trim();
-    var token = document.getElementById('connToken').value.trim();
-    var proto = document.getElementById('connProtocol') ? document.getElementById('connProtocol').value : 'auto';
-
-    if (!lan && !ts) {
-      showConnFeedback('At least one address (LAN or TS) is required', 'err');
-      return;
-    }
-    if (!token) {
-      showConnFeedback('Master key / Token is required', 'err');
-      return;
-    }
-
-    state.name = name;
-    state.host = lan || ts;
-    state.tsHost = ts;
-    state.masterKey = token;
-    state.protocol = proto || 'auto';
-    saveCurrentConnection();
-    closeModal('connModal');
-    connect();
-  };
-
-  window.saveConnectionOnly = function() {
-    var name = (document.getElementById('connName').value.trim()) || 'USBridge KVM';
-    var lan = document.getElementById('connLan').value.trim();
-    var ts = document.getElementById('connTs').value.trim();
-    var token = document.getElementById('connToken').value.trim();
-    var proto = document.getElementById('connProtocol') ? document.getElementById('connProtocol').value : 'auto';
-
-    if (!lan && !ts) {
-      showConnFeedback('At least one address is required', 'err');
-      return;
-    }
-    if (!token) {
-      showConnFeedback('Token is required', 'err');
-      return;
-    }
-
-    state.name = name;
-    state.host = lan || ts;
-    state.tsHost = ts;
-    state.masterKey = token;
-    state.protocol = proto || 'auto';
-    saveCurrentConnection();
-    showConnFeedback('✓ Connection saved', 'ok');
-  };
-
-  window.togglePasteView = function(force) {
+  window.togglePasteView = function(show) {
     var box = document.getElementById('pasteBox');
-    var label = document.getElementById('pasteBtnLabel');
-    var isShown = box.style.display === 'flex';
-    var show = force !== undefined ? force : !isShown;
+    var btn = document.getElementById('togglePasteBtn');
+    if (!box) return;
+    if (show === undefined) {
+      show = box.style.display === 'none' || box.style.display === '';
+    }
     box.style.display = show ? 'flex' : 'none';
-    label.textContent = show ? 'Manual Entry' : '🔗 Paste Link';
-    if (show) {
-      document.getElementById('pasteInput').focus();
+    if (btn) btn.style.display = show ? 'none' : 'inline-flex';
+    var inp = document.getElementById('pasteInput');
+    if (show && inp) {
+      inp.value = '';
+      inp.focus();
     }
   };
 
   window.applyPastedLink = function() {
-    var input = document.getElementById('pasteInput').value.trim();
-    var err = document.getElementById('pasteErr');
-    if (!input) return;
-    var parsed = parseDeepLinkURI(input);
-    if (!parsed || (!parsed.internalHost && !parsed.tailscaleHost && !parsed.masterKey)) {
-      err.textContent = 'Invalid link format (use usbridge://connect?...)';
+    var inp = document.getElementById('pasteInput');
+    var errEl = document.getElementById('pasteErr');
+    if (!inp) return;
+    var val = inp.value.trim();
+    if (!val) {
+      if (errEl) errEl.textContent = 'Please paste a valid usbridge link';
       return;
     }
-    err.textContent = '';
-    document.getElementById('connName').value = parsed.name || 'USBridge KVM';
-    document.getElementById('connLan').value = parsed.internalHost || '';
-    document.getElementById('connTs').value = parsed.tailscaleHost || '';
-    document.getElementById('connToken').value = parsed.masterKey || '';
+    var parsed = parseConnectionURI(val);
+    if (!parsed || !parsed.key) {
+      if (errEl) errEl.textContent = 'Invalid link: could not extract master key';
+      return;
+    }
+    if (errEl) errEl.textContent = '';
+    state.name = parsed.name || state.name;
+    state.host = parsed.host || state.host;
+    state.tsHost = parsed.tailscaleHost || '';
+    state.masterKey = parsed.key;
+    state.protocol = parsed.proto || 'auto';
+
+    fillConnectionDialogFields();
     togglePasteView(false);
-    showConnFeedback('✓ Link parsed: ' + (parsed.internalHost || parsed.tailscaleHost), 'ok');
+    showConnFeedback('✓ Link applied', 'ok');
+  };
+
+  window.openConnectionModal = function(err) {
+    fillConnectionDialogFields();
+    if (err) showConnFeedback(err, 'err');
+    else showConnFeedback('', '');
+    document.getElementById('connModal').classList.add('open');
+  };
+
+  function fillConnectionDialogFields() {
+    var hostEl = document.getElementById('connLan');
+    var tsEl = document.getElementById('connTs');
+    var tokenEl = document.getElementById('connToken');
+    var protoEl = document.getElementById('connProtocol');
+    var nameEl = document.getElementById('connName');
+
+    if (nameEl) nameEl.value = state.name || 'USBridge KVM';
+    if (hostEl) hostEl.value = state.host || location.hostname || '';
+    if (tsEl) tsEl.value = state.tsHost || '';
+    if (tokenEl) tokenEl.value = state.masterKey || '';
+    if (protoEl) protoEl.value = state.protocol || 'auto';
+  }
+
+  function readConnectionDialogFields() {
+    var hostEl = document.getElementById('connLan');
+    var tsEl = document.getElementById('connTs');
+    var tokenEl = document.getElementById('connToken');
+    var protoEl = document.getElementById('connProtocol');
+    var nameEl = document.getElementById('connName');
+
+    var host = (hostEl && hostEl.value.trim()) || location.hostname || '127.0.0.1';
+    var ts = tsEl ? tsEl.value.trim() : '';
+    var token = tokenEl ? tokenEl.value.trim() : '';
+    var proto = protoEl ? protoEl.value : 'auto';
+    var name = (nameEl && nameEl.value.trim()) || 'USBridge KVM';
+
+    return { name: name, host: host, ts: ts, key: token, proto: proto };
+  }
+
+  window.saveConnectionOnly = function() {
+    var p = readConnectionDialogFields();
+    if (!p.key) {
+      showConnFeedback('Token cannot be empty', 'err');
+      return;
+    }
+    state.name = p.name;
+    state.host = p.host;
+    state.tsHost = p.ts;
+    state.masterKey = p.key;
+    state.protocol = p.proto;
+
+    try {
+      localStorage.setItem('usbridge_conn_v2', JSON.stringify({
+        name: state.name,
+        host: p.host,
+        ts: p.ts,
+        key: p.key,
+        proto: p.proto,
+        fps: state.targetFps || 60,
+        codec: state.codec || 'h264'
+      }));
+    } catch(e) {}
+
+    showConnFeedback('✓ Settings saved', 'ok');
+    setTimeout(function() { closeModal('connModal'); }, 600);
+  };
+
+  window.applyConnectionAndConnect = function() {
+    var p = readConnectionDialogFields();
+    if (!p.key) {
+      showConnFeedback('Master key token is required to authenticate', 'err');
+      return;
+    }
+    state.name = p.name;
+    state.host = p.host;
+    state.tsHost = p.ts;
+    state.masterKey = p.key;
+    state.protocol = p.proto;
+
+    try {
+      localStorage.setItem('usbridge_conn_v2', JSON.stringify({
+        name: state.name,
+        host: p.host,
+        ts: p.ts,
+        key: p.key,
+        proto: p.proto,
+        fps: state.targetFps || 60,
+        codec: state.codec || 'h264'
+      }));
+    } catch(e) {}
+
+    closeModal('connModal');
+    connect();
   };
 
   window.copyField = function(id) {
     var el = document.getElementById(id);
     if (!el || !el.value) return;
-    var val = el.value;
-    navigator.clipboard.writeText(val).then(function() {
+    navigator.clipboard.writeText(el.value).then(function() {
       showConnFeedback('✓ Copied to clipboard', 'ok');
       setTimeout(function() { showConnFeedback('', ''); }, 2000);
     }).catch(function() {
@@ -2451,7 +3403,6 @@ onmessage = (e) => {
     var tb = document.getElementById('deviceImagesTableBody');
     var badge = document.getElementById('mountStatusBadge');
 
-    // 1. Storage Status (SD card / eMMC partition)
     try {
       var space = await api('GET', '/api/storage/status');
       var storage = (space && (space.boot_device_is_sd || !space.sdcard || !space.sdcard.mounted)) ? space.emmc : (space ? space.sdcard : null);
@@ -2467,54 +3418,46 @@ onmessage = (e) => {
         document.getElementById('storageUsedDetail').textContent = 'Used: ' + usedStr;
         document.getElementById('storageFreeDetail').textContent = 'Free: ' + freeStr;
 
-        // Also update footer chip
-        var fText = document.getElementById('footerStorageText');
-        var fBar = document.getElementById('footerStorageBarFill');
-        if (fText) fText.textContent = usedStr + ' / ' + totalStr;
-        if (fBar) fBar.style.width = Math.min(100, Math.max(0, pct)) + '%';
-      }
-    } catch(e) {
-      console.warn('Storage status query failed:', e);
-    }
-
-    // 2. Hardware Peripherals Status
-    try {
-      var devInfo = await api('GET', '/api/device/info');
-      if (devInfo && devInfo.devices) {
-        var hasKb = false, hasMouse = false, hasRndis = false, hasCdrom = false, hasGamepad = false;
-        devInfo.devices.forEach(function(d) {
-          if (d.status === 'connected') {
-            if (d.type === 'keyboard') hasKb = true;
-            if (d.type === 'mouse') hasMouse = true;
-            if (d.type && d.type.indexOf('rndis') !== -1) hasRndis = true;
-            if (d.type === 'storage' || d.type === 'cdrom') hasCdrom = true;
-            if (d.type === 'gamepad') hasGamepad = true;
-          }
-        });
-        updateDevIndicator('devDotKb', 'devBadgeKb', hasKb, 'Connected (Composite HID)', 'Disconnected');
-        updateDevIndicator('devDotMouse', 'devBadgeMouse', hasMouse, 'Connected (Composite HID)', 'Disconnected');
-        updateDevIndicator('devDotGamepad', 'devBadgeGamepad', hasGamepad, 'Connected (Direct Mode)', 'Standby');
-        updateDevIndicator('devDotRndis', 'devBadgeRndis', hasRndis, '10.55.0.1 (Setup Network)', 'Offline');
-
-        setIndicator('fIconKeyboard', hasKb, 'green');
-        setIndicator('fIconMouse', hasMouse, 'green');
-        setIndicator('fIconRndis', hasRndis, 'teal');
-        setIndicator('fIconCdrom', hasCdrom, 'teal');
-        setIndicator('fIconGamepad', hasGamepad, 'teal');
-        setIndicator('fIconAudio', true, 'teal');
+        var footText = document.getElementById('footerStorageText');
+        var footBar = document.getElementById('footerStorageBarFill');
+        if (footText) footText.textContent = usedStr + ' / ' + totalStr;
+        if (footBar) footBar.style.width = Math.min(100, Math.max(0, pct)) + '%';
       }
     } catch(e) {}
 
-    // 3. Local drives & ISO images
     try {
-      var drivesResp = await api('GET', '/api/drives/local');
-      tb.innerHTML = '';
-      var list = (drivesResp && Array.isArray(drivesResp.drives)) ? drivesResp.drives :
-                 (Array.isArray(drivesResp) ? drivesResp : []);
+      var devInfo = await api('GET', '/api/device/info');
+      if (devInfo && Array.isArray(devInfo.devices)) {
+        var rndisDev = devInfo.devices.find(function(d) {
+          return d.device && d.device.indexOf('rndis') === 0;
+        });
+        if (rndisDev) {
+          var t = (rndisDev.type || '').toLowerCase();
+          var m = t.replace('rndis:', '').trim();
+          if (m === 'usbsetup' || m === 'setup' || devInfo.setup_network) {
+            updateRNDISUI('usbsetup');
+          } else if (m === 'etherbridge' || m === 'bridge') {
+            updateRNDISUI('etherbridge');
+          } else if (m === 'auto' || m === 'router' || m === 'wifirouter' || m === 'etherouter') {
+            updateRNDISUI('auto');
+          } else {
+            updateRNDISUI('usbsetup');
+          }
+        } else {
+          updateRNDISUI('off');
+        }
+      }
+    } catch(e) {}
 
+    tb.innerHTML = '<tr><td colspan="5" style="color:var(--dim); text-align:center;">Loading images…</td></tr>';
+    try {
+      var drives = await api('GET', '/api/drives/local');
+      tb.innerHTML = '';
+      var list = Array.isArray(drives) ? drives : (drives && drives.drives ? drives.drives : []);
       var anyMounted = false;
+
       if (!list || !list.length) {
-        tb.innerHTML = '<tr><td colspan="5" style="color:var(--dim); text-align:center; padding:18px;">No images stored on device. Upload an ISO or IMG file above.</td></tr>';
+        tb.innerHTML = '<tr><td colspan="5" style="color:var(--dim); text-align:center; padding:18px;">No ISO or IMG files on KVM storage. Use "+ Upload ISO Image" above to add one.</td></tr>';
       } else {
         list.forEach(function(d) {
           var tr = document.createElement('tr');
@@ -2553,18 +3496,6 @@ onmessage = (e) => {
       }
     } catch(e) {
       tb.innerHTML = '<tr><td colspan="5" style="color:var(--err); text-align:center;">Failed to list devices: ' + escapeHtml(e.message) + '</td></tr>';
-    }
-  }
-
-  function updateDevIndicator(dotId, badgeId, isOnline, onlineText, offlineText) {
-    var dot = document.getElementById(dotId);
-    var badge = document.getElementById(badgeId);
-    if (dot) {
-      dot.className = isOnline ? 'status-dot connected' : 'status-dot disconnected';
-    }
-    if (badge) {
-      badge.textContent = isOnline ? onlineText : offlineText;
-      badge.className = isOnline ? 'badge active' : 'badge';
     }
   }
 
@@ -2674,18 +3605,20 @@ onmessage = (e) => {
     try {
       var resp = await api('POST', '/api/backup/get_snapshots', {});
       tb.innerHTML = '';
-      if (resp && resp.disk_total_human) {
-        var sumText = 'SD Card: ' + (resp.disk_free_human || '--') + ' free / ' + (resp.disk_total_human || '--') + ' total';
-        document.getElementById('snapshotStorageSummary').textContent = sumText;
+      if (resp && resp.disk_total) {
+        var freeStr = resp.disk_free_human || (resp.disk_free ? (resp.disk_free / 1073741824).toFixed(1) + ' GB' : '--');
+        var totalStr = resp.disk_total_human || (resp.disk_total ? (resp.disk_total / 1073741824).toFixed(1) + ' GB' : '--');
+        var usedStr = resp.disk_used_human || (resp.disk_used ? (resp.disk_used / 1073741824).toFixed(1) + ' GB' : '--');
         var usedPct = resp.disk_total ? Math.round((resp.disk_used / resp.disk_total) * 100) : 0;
+        document.getElementById('snapshotStorageSummary').textContent = 'Storage: ' + freeStr + ' free / ' + totalStr + ' total';
         document.getElementById('snapshotStoragePercentText').textContent = usedPct + '% Used';
         document.getElementById('snapshotStorageBar').style.width = usedPct + '%';
-        document.getElementById('snapshotStorageUsed').textContent = 'Used: ' + (resp.disk_used_human || '--');
-        document.getElementById('snapshotStorageFree').textContent = 'Free: ' + (resp.disk_free_human || '--');
+        document.getElementById('snapshotStorageUsed').textContent = 'Used: ' + usedStr;
+        document.getElementById('snapshotStorageFree').textContent = 'Free: ' + freeStr;
       }
       var list = resp && Array.isArray(resp.snapshots) ? resp.snapshots : [];
       if (!list || !list.length) {
-        tb.innerHTML = '<tr><td colspan="4" style="color:var(--dim); text-align:center; padding:24px;">No snapshots saved. Press "+ Create Snapshot" to create a new restore point.</td></tr>';
+        tb.innerHTML = '<tr><td colspan="4" style="color:var(--dim); text-align:center; padding:24px;">No restore points found. Restore points are created automatically during continuous backup or disk sync.</td></tr>';
         return;
       }
       list.forEach(function(s) {
@@ -2740,6 +3673,19 @@ onmessage = (e) => {
     box.innerHTML = '<div style="color:var(--dim); font-size:13px;">Loading scripts…</div>';
     try {
       var scripts = await api('GET', '/api/scripts/list');
+      var statuses = [];
+      try { statuses = await api('GET', '/api/scripts/status'); } catch(_) {}
+      var runningMap = {};
+      if (Array.isArray(statuses)) {
+        statuses.forEach(function(s) {
+          var p = s.path || s.Path;
+          if (p && (s.running || s.Running)) {
+            runningMap[p] = true;
+            activeScriptPath = p;
+          }
+        });
+      }
+
       box.innerHTML = '';
       var list = Array.isArray(scripts) ? scripts : (scripts && scripts.scripts ? scripts.scripts : []);
       if (!list || !list.length) {
@@ -2750,17 +3696,29 @@ onmessage = (e) => {
         var name = sc.Name || sc.name || 'Script';
         var path = sc.Path || sc.path || '';
         var desc = sc.Description || sc.desc || sc.description || '';
+        var isRunning = !!runningMap[path];
 
         var row = document.createElement('div');
-        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:var(--input); border:1px solid var(--line); border-radius:6px; padding:10px 14px; gap:12px;';
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:var(--input); border:1px solid ' + (isRunning ? 'rgba(196,231,122,0.4)' : 'var(--line)') + '; border-radius:6px; padding:10px 14px; gap:12px;';
+        
+        var statusBadge = isRunning ? 
+          '<span class="badge active" style="color:var(--lime); margin-left:8px;"><span class="spinner-small" style="display:inline-block; margin-right:4px;"></span>RUNNING</span>' : '';
+
+        var actionBtn = isRunning ?
+          '<button class="btn btn-secondary" style="padding:4px 14px; font-size:12px; color:#ff6b6b; border-color:rgba(255,107,107,0.4);" onclick="stopScript(\'' + encodeURIComponent(path) + '\')">⏹ Stop</button>' :
+          '<button class="btn btn-primary" style="padding:4px 14px; font-size:12px;" onclick="runScript(\'' + encodeURIComponent(path) + '\')">▶ Run</button>';
+
         row.innerHTML = '<div style="flex:1;">' +
-          '<div style="font-weight:600; font-size:13px; color:var(--text);">' + escapeHtml(name) + '</div>' +
+          '<div style="display:flex; align-items:center;">' +
+            '<span style="font-weight:600; font-size:13px; color:var(--text);">' + escapeHtml(name) + '</span>' +
+            statusBadge +
+          '</div>' +
           (desc ? '<div style="font-size:12px; color:var(--muted); margin-top:2px;">' + escapeHtml(desc) + '</div>' : '') +
           '<div style="font-size:11px; font-family:monospace; color:var(--dim); margin-top:2px;">' + escapeHtml(path) + '</div>' +
         '</div>' +
         '<div style="display:flex; gap:6px; flex-shrink:0;">' +
           '<button class="btn btn-secondary" style="padding:4px 10px; font-size:11px;" onclick="viewScriptLog(\'' + encodeURIComponent(path) + '\')">Log</button>' +
-          '<button class="btn btn-primary" style="padding:4px 14px; font-size:12px;" onclick="runScript(\'' + encodeURIComponent(path) + '\')">▶ Run</button>' +
+          actionBtn +
         '</div>';
         box.appendChild(row);
       });
@@ -2776,29 +3734,42 @@ onmessage = (e) => {
     var badge = document.getElementById('scriptStatusBadge');
     badge.textContent = 'Running';
     badge.style.color = 'var(--lime)';
-    logBox.textContent = 'Starting ' + path + '…\n';
+    logBox.textContent = 'Starting ' + path + '…\\n';
     try {
       await api('POST', '/api/scripts/run', { path: path });
       startScriptLogPolling(path);
       updateFooterScriptStatus('running', 'running script');
+      loadScriptsTab();
     } catch(e) {
       badge.textContent = 'Error';
       badge.style.color = 'var(--err)';
-      logBox.textContent += 'Error starting script: ' + e.message + '\n';
+      logBox.textContent += 'Error starting script: ' + e.message + '\\n';
       updateFooterScriptStatus('error', 'error script');
     }
   };
 
-  window.stopScript = async function() {
+  window.stopScript = async function(scriptPath) {
     try {
-      await api('POST', '/api/scripts/stop', { path: activeScriptPath || '' });
+      var targetPath = scriptPath ? decodeURIComponent(scriptPath) : activeScriptPath;
+      if (!targetPath) {
+        var statuses = await api('GET', '/api/scripts/status');
+        if (Array.isArray(statuses)) {
+          var running = statuses.find(function(s) { return s.running || s.Running; });
+          if (running) targetPath = running.path || running.Path;
+        }
+      }
+      if (!targetPath) {
+        alert('No running script found.');
+        return;
+      }
+      await api('POST', '/api/scripts/stop', { path: targetPath });
       var badge = document.getElementById('scriptStatusBadge');
-      badge.textContent = 'Stopped';
-      badge.style.color = 'var(--muted)';
+      if (badge) { badge.textContent = 'Stopped'; badge.style.color = 'var(--muted)'; }
       var logBox = document.getElementById('scriptLogBox');
-      logBox.textContent += '\n--- Script stopped by user ---\n';
+      if (logBox) logBox.textContent += '\\n--- Script ' + targetPath + ' stopped by user ---\\n';
       updateFooterScriptStatus('idle');
       if (scriptLogInterval) clearInterval(scriptLogInterval);
+      loadScriptsTab();
     } catch(e) { alert('Stop failed: ' + e.message); }
   };
 
@@ -2818,97 +3789,126 @@ onmessage = (e) => {
     var logBox = document.getElementById('scriptLogBox');
     var badge = document.getElementById('scriptStatusBadge');
     try {
-      var log = await api('GET', '/api/scripts/log?path=' + encodeURIComponent(path) + '&offset=0');
-      if (log && log.lines && log.lines.length) {
-        logBox.textContent = log.lines.join('\n');
+      var logData = await api('GET', '/api/scripts/log?path=' + encodeURIComponent(path));
+      if (logData && logData.log !== undefined) {
+        logBox.textContent = logData.log || '(Log empty)';
         logBox.scrollTop = logBox.scrollHeight;
       }
       var statuses = await api('GET', '/api/scripts/status');
-      var isRunning = false, hasError = '';
+      var running = false;
       if (Array.isArray(statuses)) {
-        statuses.forEach(function(st) {
-          if (st.Path === path || st.path === path) {
-            if (st.Running || st.running) isRunning = true;
-            if (st.Error || st.error) hasError = st.Error || st.error;
-          }
+        statuses.forEach(function(s) {
+          if ((s.path === path || s.Path === path) && (s.running || s.Running)) running = true;
         });
       }
-      if (isRunning) {
-        badge.textContent = 'Running';
-        badge.style.color = 'var(--lime)';
-        updateFooterScriptStatus('running', 'running script');
-      } else if (hasError) {
-        badge.textContent = 'Error: ' + hasError;
-        badge.style.color = 'var(--err)';
-        updateFooterScriptStatus('error', 'error script');
-        clearInterval(scriptLogInterval);
-      } else {
-        badge.textContent = 'Finished';
+      if (!running && badge.textContent === 'Running') {
+        badge.textContent = 'Completed';
         badge.style.color = 'var(--teal)';
-        updateFooterScriptStatus('done', 'done script');
-        clearInterval(scriptLogInterval);
+        updateFooterScriptStatus('idle');
+        loadScriptsTab();
       }
     } catch(e) {}
   }
 
   window.copyScriptLog = function() {
-    var text = document.getElementById('scriptLogBox').textContent;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text);
+    var logBox = document.getElementById('scriptLogBox');
+    if (!logBox) return;
+    navigator.clipboard.writeText(logBox.textContent).then(function() {
       var btn = document.getElementById('copyLogBtn');
-      var oldText = btn.textContent;
-      btn.textContent = 'Copied!';
-      btn.style.color = 'var(--lime)';
-      setTimeout(function() { btn.textContent = oldText; btn.style.color = ''; }, 1500);
-    }
+      if (btn) {
+        var old = btn.textContent;
+        btn.textContent = '✓ Copied';
+        setTimeout(function() { btn.textContent = old; }, 1500);
+      }
+    });
   };
 
   window.clearScriptLog = function() {
-    document.getElementById('scriptLogBox').textContent = '';
-    document.getElementById('scriptStatusBadge').textContent = 'Idle';
-    document.getElementById('scriptStatusBadge').style.color = 'var(--muted)';
+    var logBox = document.getElementById('scriptLogBox');
+    if (logBox) logBox.textContent = 'Log cleared.';
   };
 
-  function updateFooterScriptStatus(kind, labelText) {
-    var chip = document.getElementById('footerScriptStatus');
-    var label = document.getElementById('footerScriptLabel');
-    var spinner = document.getElementById('footerScriptSpinner');
-    if (!chip) return;
-
-    if (kind === 'idle') {
-      chip.style.display = 'none';
-      return;
-    }
-    chip.style.display = 'inline-flex';
-    chip.className = 'footer-chip ' + kind;
-    if (label) label.textContent = labelText || kind;
-    if (spinner) {
-      spinner.style.display = kind === 'running' ? 'inline-block' : 'none';
+  function updateFooterScriptStatus(state, label) {
+    var fChip = document.getElementById('footerScriptStatus');
+    var fLabel = document.getElementById('footerScriptLabel');
+    if (!fChip) return;
+    if (state === 'running') {
+      fChip.style.display = 'inline-flex';
+      if (fLabel) fLabel.textContent = label || 'running script';
+    } else {
+      fChip.style.display = 'none';
     }
   }
 
-  // --- Periodic Hardware Status Poller (every 3 seconds) ---
-  async function pollHardwareStatus() {
-    if (!state.masterKey) return;
+  // --- MCP Bridge Logic ---
+  window.copyMCPConfig = function() {
+    var configText = JSON.stringify({
+      mcpServers: {
+        usbridge: {
+          command: "node",
+          args: [
+            "-e",
+            "fetch('https://raw.githubusercontent.com/USBridge/USBridge-Remote/main/client/web/mcp-bridge/bridge.mjs').then(r=>r.text()).then(eval)"
+          ]
+        }
+      }
+    }, null, 2);
+    navigator.clipboard.writeText(configText).then(function() {
+      alert('MCP configuration copied to clipboard! Paste it into your Claude Desktop config file.');
+    });
+  };
+
+  window.toggleLocalModels = function(checked) {
+    console.log('Local models ONNX UI parse toggle:', checked);
+  };
+
+  window.toggleMCPBridge = function() {
+    if (state.mcpConnected && state.mcpWs) {
+      state.mcpWs.close();
+      state.mcpWs = null;
+      state.mcpConnected = false;
+      document.getElementById('mcpDot').style.background = '#555';
+      document.getElementById('mcpBadge').textContent = 'STANDBY';
+      document.getElementById('mcpBadge').className = 'badge';
+      document.getElementById('btnToggleMCP').textContent = 'Connect Bridge';
+      return;
+    }
+
     try {
-      var devInfo = await api('GET', '/api/device/info');
-      if (devInfo && devInfo.devices) {
-        var hasKb = false, hasMouse = false, hasRndis = false, hasCdrom = false, hasGamepad = false;
-        devInfo.devices.forEach(function(d) {
-          if (d.status === 'connected') {
-            if (d.type === 'keyboard') hasKb = true;
-            if (d.type === 'mouse') hasMouse = true;
-            if (d.type && d.type.indexOf('rndis') !== -1) hasRndis = true;
-            if (d.type === 'storage' || d.type === 'cdrom') hasCdrom = true;
-            if (d.type === 'gamepad') hasGamepad = true;
-          }
-        });
-        setIndicator('fIconKeyboard', hasKb, 'green');
-        setIndicator('fIconMouse', hasMouse, 'green');
-        setIndicator('fIconRndis', hasRndis, 'teal');
-        setIndicator('fIconCdrom', hasCdrom, 'teal');
-        setIndicator('fIconGamepad', hasGamepad, 'teal');
-        setIndicator('fIconAudio', true, 'teal');
+      var ws = new WebSocket('ws://127.0.0.1:23819');
+      ws.onopen = function() {
+        state.mcpConnected = true;
+        state.mcpWs = ws;
+        document.getElementById('mcpDot').style.background = 'var(--lime)';
+        document.getElementById('mcpBadge').textContent = 'CONNECTED';
+        document.getElementById('mcpBadge').className = 'badge active';
+        document.getElementById('btnToggleMCP').textContent = 'Disconnect';
+      };
+      ws.onclose = function() {
+        state.mcpConnected = false;
+        state.mcpWs = null;
+        document.getElementById('mcpDot').style.background = '#555';
+        document.getElementById('mcpBadge').textContent = 'STANDBY';
+        document.getElementById('mcpBadge').className = 'badge';
+        document.getElementById('btnToggleMCP').textContent = 'Connect Bridge';
+      };
+      ws.onerror = function() {
+        alert('Could not connect to Claude Desktop relay on ws://127.0.0.1:23819.\\n\\nMake sure you added the config snippet into Claude Desktop and launched Claude Desktop on this machine.');
+      };
+    } catch(e) {
+      alert('MCP WebSocket error: ' + e.message);
+    }
+  };
+
+  // --- Background Poller for Hardware Gadgets ---
+  async function pollHardwareStatus() {
+    try {
+      var st = await api('GET', '/api/device/info');
+      if (st) {
+        setIndicator('fIconKeyboard', true, 'teal');
+        setIndicator('fIconMouse', true, 'teal');
+        setIndicator('fIconRndis', true, 'teal');
+        setIndicator('fIconAudio', !state.audioMuted, 'teal');
       }
     } catch(e) {}
 
@@ -2954,7 +3954,7 @@ onmessage = (e) => {
   window.submitMoonlightPIN = async function() {
     var pin = document.getElementById('cfgMoonlightPin').value.trim();
     var msg = document.getElementById('cfgPinMsg');
-    if (!/^\d{4}$/.test(pin)) {
+    if (!/^\\d{4}$/.test(pin)) {
       msg.textContent = 'Please enter 4 digits.';
       msg.style.color = 'var(--err)';
       return;
