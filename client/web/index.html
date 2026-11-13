@@ -84,34 +84,116 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .lite-switch {
+  .loading-lite-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 8px 18px;
+    background: #172105;
+    border: 1px solid rgba(196, 231, 122, 0.4);
+    color: #c4e77a;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .loading-lite-btn:hover {
+    background: #c4e77a;
+    color: #172105;
+    box-shadow: 0 4px 16px rgba(196, 231, 122, 0.3);
+  }
+  .lite-banner-wrap {
     position: fixed;
-    top: 12px;
-    right: 12px;
+    bottom: 24px;
+    right: 16px;
     z-index: 10000;
-    background: rgba(17, 20, 23, 0.9);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(17, 20, 23, 0.92);
     border: 1px solid #2b3136;
+    border-radius: 20px;
+    padding: 4px 8px 4px 12px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.6);
+    transition: all 0.2s;
+  }
+  .lite-banner-wrap:hover {
+    border-color: #c4e77a;
+  }
+  .lite-switch-link {
     color: #c4e77a;
     font-size: 12px;
     font-weight: 600;
-    padding: 6px 14px;
-    border-radius: 20px;
     text-decoration: none;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
-  .lite-switch:hover {
+  .lite-switch-link:hover {
+    text-decoration: underline;
+  }
+  .lite-banner-close {
+    background: none;
+    border: none;
+    color: #717b84;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+  }
+  .lite-banner-close:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.1);
+  }
+  .lite-mini-toggle {
+    position: fixed;
+    bottom: 24px;
+    right: 16px;
+    z-index: 9999;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(17, 20, 23, 0.85);
+    border: 1px solid #2b3136;
+    color: #c4e77a;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    transition: all 0.2s;
+  }
+  .lite-mini-toggle:hover {
     background: #c4e77a;
     color: #172105;
+    transform: scale(1.1);
   }
 </style>
 </head>
 <body>
-<a id="liteSwitch" class="lite-switch" href="lite.html">⚡ Lite HTML5 Mode</a>
+<div id="liteBannerWrap" class="lite-banner-wrap">
+  <a id="liteSwitch" class="lite-switch-link" href="lite.html" title="Switch to fast HTML5 web client">
+    <span>⚡</span>
+    <span>Lite HTML5 Mode</span>
+  </a>
+  <button id="closeLiteBanner" class="lite-banner-close" onclick="dismissLiteBanner(event)" title="Dismiss banner">&times;</button>
+</div>
+<a id="liteMiniToggle" class="lite-mini-toggle" href="lite.html" title="Switch to Lite HTML5 client">⚡</a>
+
 <div id="loadingBox">
   <div class="spinner"></div>
   <div id="loadingText" style="font-size: 14px; color: #a0a8ae;">Loading WASM Client…</div>
+  <a id="loadingLiteBtn" class="loading-lite-btn" href="lite.html">⚡ Switch to Lite HTML5 Version (Instant)</a>
 </div>
 <!-- Grants WebHID access to a gamepad or pen tablet -- the primary capture
      path in Chrome/Edge (see internal/platform/gamepad_hid_wasm.go's doc
@@ -423,7 +505,36 @@
   }
 
   const liteSwitch = document.getElementById('liteSwitch');
-  if (liteSwitch) liteSwitch.href = 'lite.html' + location.hash;
+  const loadingLiteBtn = document.getElementById('loadingLiteBtn');
+  const liteMiniToggle = document.getElementById('liteMiniToggle');
+  const liteBannerWrap = document.getElementById('liteBannerWrap');
+
+  function updateLiteLinks() {
+    var h = location.hash;
+    if (h && h.length > 1) {
+      try { localStorage.setItem('usbridge_last_deep_link', h); } catch(_) {}
+    } else {
+      try { h = localStorage.getItem('usbridge_last_deep_link') || ''; } catch(_) {}
+    }
+    var target = 'lite.html' + (h ? (h.startsWith('#') ? h : ('#' + h)) : '');
+    if (liteSwitch) liteSwitch.href = target;
+    if (loadingLiteBtn) loadingLiteBtn.href = target;
+    if (liteMiniToggle) liteMiniToggle.href = target;
+  }
+  updateLiteLinks();
+  window.addEventListener('hashchange', updateLiteLinks);
+
+  if (localStorage.getItem('usbridge_hide_lite_banner') === '1') {
+    if (liteBannerWrap) liteBannerWrap.style.display = 'none';
+    if (liteMiniToggle) liteMiniToggle.style.display = 'flex';
+  }
+
+  window.dismissLiteBanner = function(e) {
+    if (e) e.stopPropagation();
+    if (liteBannerWrap) liteBannerWrap.style.display = 'none';
+    if (liteMiniToggle) liteMiniToggle.style.display = 'flex';
+    try { localStorage.setItem('usbridge_hide_lite_banner', '1'); } catch(_) {}
+  };
 
   const go = new Go();
   const loadingBox = document.getElementById('loadingBox');
