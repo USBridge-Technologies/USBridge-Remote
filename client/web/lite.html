@@ -4157,6 +4157,20 @@ onmessage = (e) => {
     } catch(e) { alert('Failed: ' + e.message); }
   };
 
+  // HTTP round trip to the KVM (GET /api/healthz on the kept-alive
+  // connection): the best of the last few, so one slow reply is not shown.
+  var httpPingBusy = false, httpPings = [];
+  function measureHttpPing() {
+    if (httpPingBusy) return;
+    httpPingBusy = true;
+    var t0 = performance.now();
+    fetch('/api/healthz', { cache: 'no-store' }).then(function(r) { return r.text(); }).then(function() {
+      httpPings.push(performance.now() - t0);
+      if (httpPings.length > 5) httpPings.shift();
+      state.httpPingMs = Math.min.apply(null, httpPings);
+    }).catch(function() {}).then(function() { httpPingBusy = false; });
+  }
+
   // --- Metrics Poller ---
   setInterval(function() {
     var statsEl = document.getElementById('streamStats');
@@ -4176,7 +4190,10 @@ onmessage = (e) => {
       // Network RTT from the QUIC connection: well under 1 ms on a LAN, so
       // shown with a decimal instead of rounded to nothing.
       var fmtMs = function(v) { return v < 10 ? v.toFixed(1) : String(Math.round(v)); };
-      var rtt = st.rttMs > 0 ? 'rtt ' + fmtMs(st.rttMs) + ' ms' : 'rtt -';
+      // Browsers that give no WebTransport stats get an HTTP ping instead.
+      if (!(st.rttMs > 0)) measureHttpPing();
+      var rtt = st.rttMs > 0 ? 'rtt ' + fmtMs(st.rttMs) + ' ms'
+        : (state.httpPingMs > 0 ? 'ping ' + fmtMs(state.httpPingMs) + ' ms' : 'ping -');
       var dec = dFrames > 0 && dDec >= 0 ? ' · dec ' + fmtMs(dDec / dFrames) + ' ms' : '';
       var text = 'WT · ' + (fps >= 0 ? fps : 0) + ' fps · ' + rtt + dec;
       if (statsEl) statsEl.textContent = text;
