@@ -1116,7 +1116,7 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
           <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
         </span>
         <span class="footer-icon clickable" id="fIconKeyboard" onclick="toggleOSK(event)" title="On-screen keyboard">
-          <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M7 14H17M6 10H6.01M10 10H10.01M14 10H14.01M18 10H18.01M5.2 18H18.8C19.92 18 20.48 18 20.91 17.78C21.28 17.59 21.59 17.28 21.78 16.91C22 16.48 22 15.92 22 14.8V9.2C22 8.08 22 7.52 21.78 7.09C21.59 6.72 21.28 6.41 20.91 6.22C20.48 6 19.92 6 18.8 6H5.2C4.08 6 3.52 6 3.09 6.22C2.72 6.41 2.41 6.72 2.22 7.09C2 7.52 2 8.08 2 9.2V14.8C2 15.92 2 16.48 2.22 16.91C2.41 17.28 2.72 17.59 3.09 17.78C3.52 18 4.08 18 5.2 18Z"/></svg>
         </span>
         <span class="footer-icon clickable" id="fIconMouse" onclick="toggleFooterMouseMenu(event)" title="Mouse mode">
           <svg viewBox="0 0 24 24"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg>
@@ -4166,11 +4166,19 @@ onmessage = (e) => {
       var st = state.wtSession.stats;
       var now = performance.now();
       var elapsedSec = (now - state.lastStats.lastCheck) / 1000;
-      var fps = Math.round((st.framesDecoded - state.lastStats.frames) / elapsedSec);
+      var dFrames = st.framesDecoded - state.lastStats.frames;
+      var fps = Math.round(dFrames / elapsedSec);
+      // Decode time per frame over this interval (WebCodecs, in the browser).
+      var dDec = st.decodeTimeMs - (state.lastStats.decodeMs || 0);
+      state.lastStats.decodeMs = st.decodeTimeMs;
       state.lastStats.frames = st.framesDecoded;
       state.lastStats.lastCheck = now;
-      var rtt = st.rttMs ? Math.round(st.rttMs) + ' ms' : '<1 ms';
-      var text = 'WT · ' + (fps >= 0 ? fps : 0) + ' fps · ' + rtt;
+      // Network RTT from the QUIC connection: well under 1 ms on a LAN, so
+      // shown with a decimal instead of rounded to nothing.
+      var fmtMs = function(v) { return v < 10 ? v.toFixed(1) : String(Math.round(v)); };
+      var rtt = st.rttMs > 0 ? 'rtt ' + fmtMs(st.rttMs) + ' ms' : 'rtt -';
+      var dec = dFrames > 0 && dDec >= 0 ? ' · dec ' + fmtMs(dDec / dFrames) + ' ms' : '';
+      var text = 'WT · ' + (fps >= 0 ? fps : 0) + ' fps · ' + rtt + dec;
       if (statsEl) statsEl.textContent = text;
       if (footerStatsEl) footerStatsEl.textContent = text;
       return;
