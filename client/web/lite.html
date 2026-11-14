@@ -2459,29 +2459,44 @@ onmessage = (e) => {
       e.preventDefault();
     }, { passive: false });
 
+    // Keys sent down to the KVM and not yet up. Every one of them goes up
+    // again even when its keyup never reaches the page (focus moved to a
+    // field, the window lost focus, Esc taken by the browser to leave
+    // pointer lock): a key left down on the KVM stays down on the target.
+    var heldKeys = {};
+    function releaseHeldKeys() {
+      Object.keys(heldKeys).forEach(function(vk) { sendKeyEvent(+vk, 0, false); });
+      heldKeys = {};
+    }
+    window.releaseHeldKeys = releaseHeldKeys;
+
     window.addEventListener('keydown', function(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       var vk = VK[e.code];
-      if (vk) {
-        sendKeyEvent(vk, getModifiers(e), true);
-        if (e.code === 'Tab' || e.code === 'AltLeft' || e.code === 'AltRight' || (e.code.startsWith('F') && vk >= 112)) {
-          e.preventDefault();
-        }
+      if (!vk) return;
+      if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') && !heldKeys[vk]) return;
+      heldKeys[vk] = true;
+      sendKeyEvent(vk, getModifiers(e), true);
+      if (e.code === 'Tab' || e.code === 'Space' || e.code === 'AltLeft' || e.code === 'AltRight' || (e.code.startsWith('F') && vk >= 112)) {
+        e.preventDefault(); // no focus moves, button presses or page scroll here
       }
     });
 
     window.addEventListener('keyup', function(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       var vk = VK[e.code];
-      if (vk) {
-        sendKeyEvent(vk, getModifiers(e), false);
-        e.preventDefault();
-      }
+      if (!vk || !heldKeys[vk]) return;
+      delete heldKeys[vk];
+      sendKeyEvent(vk, getModifiers(e), false);
+      e.preventDefault();
     });
+
+    window.addEventListener('blur', releaseHeldKeys);
+    document.addEventListener('visibilitychange', function() { if (document.hidden) releaseHeldKeys(); });
 
     document.addEventListener('pointerlockchange', function() {
       var target = document.getElementById('remoteVideo');
       state.pointerLock = (document.pointerLockElement === target || document.pointerLockElement === vp);
+      // Leaving pointer lock with Esc: the browser keeps that Esc's keyup.
+      if (!state.pointerLock) releaseHeldKeys();
       updateMouseModeUI();
     });
   }
