@@ -86,7 +86,7 @@ func main() {
 			args = args[1:]
 		}
 		if os.Args[1] == "--run-vibepollo" {
-			runTree("vibepollo", streamerlaunch.VibepolloDir, streamerlaunch.VibepolloBin, args, false)
+			runTree("vibepollo", streamerlaunch.VibepolloDir, streamerlaunch.VibepolloBin, args, true)
 		}
 		runTree("sunshine", streamerlaunch.SunshineDir, streamerlaunch.SunshineBin, args, true)
 	case "--install-tree":

@@ -57,10 +57,14 @@ const (
 	// Protocol 4 adds --grant-priority and CAP_SYS_NICE ambient/permitted propagation.
 	// Protocol 5 fixes Sunshine by removing file capabilities (using ambient instead)
 	// and registering vibepollo's library directory in ld.so.conf.
-	Protocol    = 5
+	// Protocol 6 raises ambient CAP_SYS_ADMIN for Vibepollo too: since its file
+	// capability was stripped (RUNPATH), protocol 5 exec'd it with no
+	// capabilities at all, so KMS capture found no displays and sent no video.
+	Protocol    = 6
 	MinProtocol = 1
-	// VibepolloMinProtocol is the first launcher with --run-vibepollo and CAP_SYS_NICE.
-	VibepolloMinProtocol = 5
+	// VibepolloMinProtocol is the first launcher whose --run-vibepollo hands
+	// Vibepollo CAP_SYS_ADMIN (ambient) for KMS capture.
+	VibepolloMinProtocol = 6
 	// PriorityMinProtocol is the first launcher with --grant-priority.
 	PriorityMinProtocol = 5
 )
