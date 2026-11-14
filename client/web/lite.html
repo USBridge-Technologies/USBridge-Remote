@@ -386,6 +386,16 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   outline: none;
 }
 .input-row input:focus { border-color: var(--lime); }
+/* Share Access dialog fields */
+.field-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.field-label { display: block; font-size: 12px; color: var(--muted); font-weight: 500; margin-bottom: 6px; }
+.field-row .field-label { margin-bottom: 0; }
+.field-input {
+  width: 100%; box-sizing: border-box; height: 34px; padding: 0 10px;
+  background: var(--head); border: 1px solid var(--line); border-radius: 6px;
+  color: var(--text); font-size: 13px; outline: none;
+}
+.field-input:focus { border-color: var(--lime); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .btn {
   padding: 8px 16px;
@@ -1398,14 +1408,16 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
 </div>
 
 <!-- Share Access (Guest Invitations & Code) Modal -->
-<div class="modal-backdrop" id="shareModal">
-  <div class="modal-dialog" style="max-width:480px;">
-    <div class="modal-header">
-      <div class="modal-title">
-        <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+<div class="modal-overlay" id="shareModal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-head">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div style="width:32px; height:32px; border-radius:8px; background:rgba(65,224,195,0.12); border:1px solid rgba(65,224,195,0.35); display:flex; align-items:center; justify-content:center; color:var(--teal);">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </div>
         <div>
-          <span>Share Access</span>
-          <div style="font-size:11px; font-weight:normal; color:var(--muted); margin-top:2px;">Invite guests by email or access code</div>
+          <h3 class="modal-title" style="font-size:16px;">Share Access</h3>
+          <div style="font-size:12px; color:var(--muted);">Invite guests by email or access code</div>
         </div>
       </div>
       <button class="modal-close" onclick="closeModal('shareModal')">×</button>
@@ -1442,7 +1454,7 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
     </div>
 
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-      <input type="checkbox" id="shareGuestConsent" checked style="width:auto; cursor:pointer;">
+      <input type="checkbox" id="shareGuestConsent" style="width:auto; cursor:pointer;">
       <label for="shareGuestConsent" style="font-size:12px; color:var(--text); cursor:pointer;">Ask confirmation on KVM screen before connecting</label>
     </div>
 
@@ -2897,11 +2909,43 @@ onmessage = (e) => {
     connect();
   };
 
+  // --- Modal helpers used by the header buttons ---
+  window.openModal = function(id) {
+    document.querySelectorAll('.footer-popup').forEach(function(p) { p.classList.remove('open'); });
+    var m = document.getElementById(id);
+    if (m) m.classList.add('open');
+  };
+  window.openMoonlightModal = function() {
+    openModal('moonlightModal');
+    var msg = document.getElementById('cfgPinMsg');
+    if (msg) msg.textContent = '';
+    loadMoonlightSettings();
+    var pin = document.getElementById('cfgMoonlightPin');
+    if (pin) setTimeout(function() { pin.focus(); }, 50);
+  };
+  window.copyText = function(text, what) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(function() {
+      showToast((what || 'Text') + ' copied');
+    }, function() { showToast('Copy failed'); });
+  };
+  function guestTimeLeft(sec) {
+    sec = sec || 0;
+    if (sec < 60) return '<1m left';
+    var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+    return (d ? d + 'd ' + h + 'h' : (h ? h + 'h ' + m + 'm' : m + 'm')) + ' left';
+  }
+
   // --- Share Access Modal & Guest Invitations ---
   window.openShareModal = function() {
     openModal('shareModal');
     loadShareGuests();
   };
+  // While the dialog is open the list follows the clock (time left, expiry).
+  setInterval(function() {
+    var m = document.getElementById('shareModal');
+    if (m && m.classList.contains('open')) loadShareGuests();
+  }, 30000);
 
   window.loadShareGuests = async function() {
     var box = document.getElementById('shareGuestsList');
@@ -2922,8 +2966,12 @@ onmessage = (e) => {
       box.innerHTML = '<div style="font-size:12px; color:var(--muted);">No guest shares yet.</div>';
       return;
     }
+    guests = guests.filter(function(g) { return g.live; }); // expired or revoked: no access left
+    if (!guests.length) {
+      box.innerHTML = '<div style="font-size:12px; color:var(--muted);">No guest shares yet.</div>';
+      return;
+    }
     guests.forEach(function(g) {
-      if (g.live === false && g.status === 'revoked') return;
       var row = document.createElement('div');
       row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:12px;';
       var left = document.createElement('div');
@@ -2934,7 +2982,7 @@ onmessage = (e) => {
       var sub = document.createElement('div');
       sub.style.cssText = 'font-size:11px; color:var(--muted);';
       var st = g.session === 'allowed' ? 'active' : (g.session === 'pending' ? 'waiting approval' : (g.status || 'invited'));
-      sub.textContent = g.role + ' · ' + st;
+      sub.textContent = g.role + ' · ' + st + ' · ' + (g.expires_at ? guestTimeLeft(g.expires_in) : 'no expiry');
       left.appendChild(email);
       left.appendChild(sub);
       row.appendChild(left);
