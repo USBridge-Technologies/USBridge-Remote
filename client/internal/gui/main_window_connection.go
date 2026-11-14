@@ -931,7 +931,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 		if !isLikelyTailscaleHost(resolvedHost) && mw.connectionManager != nil {
 			if tsHost := mw.connectionManager.ResolveTailscaleHost(resolvedHost); tsHost != "" {
 				logrus.Infof("🔍 [TS] Resolved tailscale host %s for internal %s", tsHost, resolvedHost)
-				resolvedHost = tsHost
+				// Saved by an older sync without the agent's API port.
+				resolvedHost = inheritAPIPort(tsHost, resolvedHost)
 			}
 		}
 
@@ -1718,6 +1719,23 @@ func (mw *MainWindow) useConnectionAPIPort(host string) string {
 		mw.config.USBPort = apiPortDefault
 	}
 	return bare
+}
+
+// inheritAPIPort is host with from's API port when host has none and from
+// has one ("100.64.1.2" from "192.168.1.5:9090" -> "100.64.1.2:9090"): an
+// agent listens on the same API port on the LAN and on the tailnet.
+func inheritAPIPort(host, from string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return host
+	}
+	if _, p := splitAPIHostPort(host); p > 0 {
+		return host
+	}
+	if _, p := splitAPIHostPort(from); p > 0 {
+		return net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(p))
+	}
+	return host
 }
 
 // splitAPIHostPort splits "host:port" ("[v6]:port"); a host without a

@@ -98,6 +98,10 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 		if resolved == "" {
 			resolved = tsHost
 		}
+		// The agent serves its API on the tailnet on the same port as on the
+		// LAN: an agent on another port than the default keeps it there too,
+		// or the Tailscale connection knocks on 8080.
+		resolved = inheritAPIPort(resolved, bootstrapHost)
 		if resolved != "" && mw.connectionManager != nil {
 			// Pass empty internalHost when bootstrapHost is itself a Tailscale IP —
 			// otherwise RememberResolvedTailscaleHost would overwrite the saved LAN
