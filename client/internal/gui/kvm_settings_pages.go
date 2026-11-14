@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -94,7 +96,37 @@ func kvmPowerPage(client *api.USBClient) (fyne.CanvasObject, func()) {
 func kvmUpdatesPage(client *api.USBClient) (fyne.CanvasObject, func()) {
 	status := newWrapLabel()
 	msg := newWrapLabel()
-	check := view.NewDialogApplyButton(i18n.Current.KVMUpdateCheck, func() {
+	bar := widget.NewProgressBar()
+	bar.Hide()
+	var check fyne.CanvasObject
+	// polling: a refresh loop runs while the KVM reports a check or an
+	// update (every 2 s, so the progress moves); one at a time.
+	var polling atomic.Bool
+	var render func(u *models.UpdateStatus)
+	var poll func()
+	poll = func() {
+		if !polling.CompareAndSwap(false, true) {
+			return
+		}
+		go func() {
+			defer polling.Store(false)
+			for {
+				u, err := client.GetUpdateStatus()
+				fyne.Do(func() {
+					if err != nil {
+						status.SetText(err.Error())
+						return
+					}
+					render(u)
+				})
+				if err != nil || !u.Checking {
+					return
+				}
+				time.Sleep(2 * time.Second)
+			}
+		}()
+	}
+	check = view.NewDialogApplyButton(i18n.Current.KVMUpdateCheck, func() {
 		msg.SetText("…")
 		go func() {
 			err := client.CheckForUpdate()
@@ -105,6 +137,7 @@ func kvmUpdatesPage(client *api.USBClient) (fyne.CanvasObject, func()) {
 					msg.SetText("")
 				}
 			})
+			poll()
 		}()
 	})
 	commit := view.NewDialogCancelButton(i18n.Current.KVMUpdateCommit, func() {
@@ -119,27 +152,36 @@ func kvmUpdatesPage(client *api.USBClient) (fyne.CanvasObject, func()) {
 			})
 		}()
 	})
-	load := func() {
-		go func() {
-			u, err := client.GetUpdateStatus()
-			fyne.Do(func() {
-				if err != nil {
-					status.SetText(err.Error())
-					return
-				}
-				text := i18n.Current.KVMUpdateVersion + ": " + u.Version
-				if u.Status != "" {
-					text += "\n" + u.Status
-					if u.Message != "" {
-						text += ": " + u.Message
-					}
-				}
-				status.SetText(text)
-			})
-		}()
+	render = func(u *models.UpdateStatus) {
+		text := i18n.Current.KVMUpdateVersion + ": " + u.Version
+		line := u.Status
+		switch {
+		case u.Updating && u.Progress >= 0:
+			line = fmt.Sprintf("%s %d%%", u.Status, u.Progress)
+		case u.Message != "":
+			line += ": " + u.Message
+		}
+		if line != "" {
+			text += "\n" + line
+		}
+		status.SetText(text)
+		if u.Updating && u.Progress >= 0 {
+			bar.SetValue(float64(u.Progress) / 100)
+			bar.Show()
+		} else {
+			bar.Hide()
+		}
+		// Nothing to start while a check or an update runs.
+		if u.Checking {
+			check.Hide()
+		} else {
+			check.Show()
+		}
 	}
+	load := poll
 	return container.NewVBox(
 		status,
+		bar,
 		view.NewDialogVSpace(6),
 		container.NewHBox(check, commit),
 		msg,

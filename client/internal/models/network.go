@@ -82,7 +82,9 @@ type PowerSettings struct {
 // KVM firmware updates (/api/settings/update).
 type UpdateStatus struct {
 	Version  string `json:"version"`
-	Checking bool   `json:"checking"`
+	Checking bool   `json:"checking"` // a check or an update is running
+	Updating bool   `json:"updating"` // an update is being downloaded and written
+	Progress int    `json:"progress"` // 0-100 while updating, -1 unknown
 	Status   string `json:"status,omitempty"`
 	Message  string `json:"message,omitempty"`
 	At       string `json:"at,omitempty"`
