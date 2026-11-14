@@ -203,6 +203,29 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 #keyStrip.open { transform: translateY(0); }
+.footer-popup .menu-item.sel { color: var(--lime); }
+.footer-popup .menu-item.sel::after { content: '✓'; }
+#osk {
+  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+  display: none; flex-direction: column; gap: 4px; padding: 8px;
+  width: min(980px, calc(100% - 16px)); box-sizing: border-box;
+  background: rgba(17, 20, 23, 0.94); backdrop-filter: blur(8px);
+  border: 1px solid var(--line); border-radius: 8px; z-index: 70;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+#osk.open { display: flex; }
+#osk .osk-row { display: flex; gap: 4px; }
+#osk .osk-key {
+  flex: 1 1 0; min-width: 0; height: 34px; padding: 0 4px;
+  background: var(--head); border: 1px solid var(--line); border-radius: 4px;
+  color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#osk .osk-key:hover { background: var(--panel-hover); }
+#osk .osk-key:active, #osk .osk-key.held { background: var(--lime); color: #111; border-color: var(--lime); }
+#osk .osk-key.fn { font-size: 11px; color: var(--muted); }
+#osk .osk-key.held { color: #111; }
+@media (max-width: 640px) { #osk .osk-key { height: 30px; font-size: 10px; padding: 0 1px; } }
 .key-btn {
   background: var(--head);
   border: 1px solid var(--line);
@@ -794,6 +817,9 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
           <button class="key-btn" onclick="sendSingleKey('ArrowLeft')">←</button>
           <button class="key-btn" onclick="sendSingleKey('ArrowRight')">→</button>
         </div>
+
+        <!-- On-screen keyboard (footer keyboard icon) -->
+        <div id="osk"></div>
       </div>
     </div>
 
@@ -1089,10 +1115,10 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
         <span class="footer-icon" id="fIconRndis" title="USB Ethernet / RNDIS (Setup Network)">
           <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
         </span>
-        <span class="footer-icon clickable" id="fIconKeyboard" onclick="toggleFooterKeysMenu(event)" title="Virtual Keyboard & Shortcuts">
+        <span class="footer-icon clickable" id="fIconKeyboard" onclick="toggleOSK(event)" title="On-screen keyboard">
           <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
         </span>
-        <span class="footer-icon clickable" id="fIconMouse" onclick="toggleMouseMode()" title="Mouse Mode: Click to toggle Absolute / Pointer Lock">
+        <span class="footer-icon clickable" id="fIconMouse" onclick="toggleFooterMouseMenu(event)" title="Mouse mode">
           <svg viewBox="0 0 24 24"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg>
         </span>
         <span class="footer-icon clickable" id="fIconGamepad" onclick="switchTab('devices')" title="USB Gamepad">
@@ -1121,17 +1147,13 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
     <button class="menu-item" onclick="setVideoCodec('h265')">H.265 / HEVC</button>
   </div>
 
-  <!-- Footer Keys Popup -->
-  <div class="footer-popup" id="footerKeysPopup" style="right:40px;">
-    <div class="footer-popup-head">Keyboard Shortcuts</div>
-    <button class="menu-item" onclick="sendShortcut('cad')"><b>Ctrl + Alt + Del</b></button>
-    <button class="menu-item" onclick="sendShortcut('alt_tab')">Alt + Tab</button>
-    <button class="menu-item" onclick="sendShortcut('alt_f4')">Alt + F4</button>
-    <button class="menu-item" onclick="sendShortcut('win')">Win / Super Key</button>
-    <button class="menu-item" onclick="sendShortcut('ctrl_esc')">Ctrl + Esc</button>
-    <button class="menu-item" onclick="sendShortcut('prtscn')">PrintScreen</button>
+  <!-- Footer Mouse Popup (as the native client: Absolute / Capture / Show cursor) -->
+  <div class="footer-popup" id="footerMousePopup" style="right:70px;">
+    <div class="footer-popup-head">Mouse</div>
+    <button class="menu-item" id="fmAbs" onclick="setMouseMode('absolute')">Absolute</button>
+    <button class="menu-item" id="fmRel" onclick="setMouseMode('relative')">Capture</button>
     <div class="menu-sep"></div>
-    <button class="menu-item" onclick="toggleKeyStrip()">Toggle Soft-Key Bar</button>
+    <button class="menu-item" id="fmCursor" onclick="toggleShowCursor()">Show mouse cursor</button>
   </div>
 </div>
 
@@ -2380,7 +2402,9 @@ onmessage = (e) => {
     KeyU: 85, KeyV: 86, KeyW: 87, KeyX: 88, KeyY: 89, KeyZ: 90,
     MetaLeft: 91, MetaRight: 92,
     F1: 112, F2: 113, F3: 114, F4: 115, F5: 116, F6: 117, F7: 118, F8: 119, F9: 120, F10: 121, F11: 122, F12: 123,
-    ShiftLeft: 160, ShiftRight: 161, ControlLeft: 162, ControlRight: 163, AltLeft: 164, AltRight: 165
+    ShiftLeft: 160, ShiftRight: 161, ControlLeft: 162, ControlRight: 163, AltLeft: 164, AltRight: 165,
+    CapsLock: 20, ContextMenu: 93, Semicolon: 186, Equal: 187, Comma: 188, Minus: 189, Period: 190,
+    Slash: 191, Backquote: 192, BracketLeft: 219, Backslash: 220, BracketRight: 221, Quote: 222
   };
 
   function getModifiers(e) {
@@ -2420,7 +2444,7 @@ onmessage = (e) => {
       if (now - lastMove < 7) return;
       lastMove = now;
 
-      if (state.pointerLock) {
+      if (state.pointerLock && state.mouseMode === 'relative') {
         var dx = e.movementX || 0;
         var dy = e.movementY || 0;
         if (dx !== 0 || dy !== 0) {
@@ -2441,6 +2465,12 @@ onmessage = (e) => {
 
     vp.addEventListener('mousedown', function(e) {
       vp.focus();
+      if (state.mouseMode === 'relative' && !state.pointerLock) {
+        var lockTarget = document.getElementById('remoteVideo') || vp;
+        if (lockTarget.requestPointerLock) lockTarget.requestPointerLock();
+        e.preventDefault();
+        return;
+      }
       var b = getBtn(e);
       if (!state.pointerLock) {
         var pos = getNormalizedPos(e);
@@ -2512,7 +2542,7 @@ onmessage = (e) => {
 
     pc.addEventListener('connectionstatechange', function() {
       if (pc.connectionState === 'connected') {
-        updateStatus('connected', state.host + ' (WebRTC)');
+        updateStatus('connected', state.host + ' (WebRTC)'); syncDeviceMouseType();
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
         updateStatus('disconnected', 'Disconnected');
       }
@@ -2647,7 +2677,7 @@ onmessage = (e) => {
     }, 5000);
 
     state.wtSession = session;
-    updateStatus('connected', state.host + ' (WebTransport)');
+    updateStatus('connected', state.host + ' (WebTransport)'); syncDeviceMouseType();
   }
 
   async function connect() {
@@ -2715,6 +2745,9 @@ onmessage = (e) => {
   }
 
   function updateMouseModeUI() {
+    var fa = document.getElementById('fmAbs'), fr = document.getElementById('fmRel');
+    if (fa) fa.classList.toggle('sel', state.mouseMode !== 'relative');
+    if (fr) fr.classList.toggle('sel', state.mouseMode === 'relative');
     var fIcon = document.getElementById('fIconMouse');
     var notice = document.getElementById('lockNotice');
     var btnAbs = document.getElementById('btnMouseAbs');
@@ -2759,13 +2792,66 @@ onmessage = (e) => {
   };
 
   window.setMouseMode = function(mode) {
-    state.mouseMode = mode;
-    if (mode === 'relative') {
+    state.mouseMode = mode === 'relative' ? 'relative' : 'absolute';
+    try { localStorage.setItem('usbridge_lite_mouse_mode', state.mouseMode); } catch(_) {}
+    document.querySelectorAll('.footer-popup').forEach(function(p) { p.classList.remove('open'); });
+    if (state.mouseMode === 'relative') {
       window.toggleMouseMode();
     } else {
       if (state.pointerLock) document.exitPointerLock();
-      updateMouseModeUI();
     }
+    updateMouseModeUI();
+    syncDeviceMouseType();
+  };
+
+  // The KVM's USB mouse must be of the kind the chosen mode sends: an
+  // absolute (tablet) HID for Absolute, a relative one for Capture. The
+  // native client remounts it the same way (POST /api/device/start, merge).
+  var mouseSyncBusy = false;
+  async function syncDeviceMouseType() {
+    if (!state.masterKey || mouseSyncBusy) return;
+    var want = state.mouseMode === 'relative' ? 'mouse' : 'absolute';
+    mouseSyncBusy = true;
+    try {
+      var info = await api('GET', '/api/device/info');
+      var devs = info && Array.isArray(info.devices) ? info.devices : [];
+      var m = devs.find(function(d) { return d.device && d.device.indexOf('mouse') === 0; });
+      if (m && m.status === 'mounting') return;
+      var cur = m ? String(m.type || '').toLowerCase().split(':')[0] : '';
+      if (m && cur === want) return;
+      await api('POST', '/api/device/start', { merge: true, devices: [{
+        device: 'mouse', type: want, vendor_id: '', product_id: '', product_name: '', manufacturer: ''
+      }] });
+      showToast(want === 'absolute' ? 'KVM mouse switched to Absolute' : 'KVM mouse switched to relative (Capture)');
+    } catch(e) {
+      console.warn('[Mouse] could not switch the KVM mouse to ' + want + ':', e);
+      showToast('Could not switch the KVM mouse: ' + e.message);
+    } finally {
+      mouseSyncBusy = false;
+    }
+  }
+  window.syncDeviceMouseType = syncDeviceMouseType;
+
+  window.toggleFooterMouseMenu = function(e) {
+    e.stopPropagation();
+    var p = document.getElementById('footerMousePopup');
+    var open = p.classList.contains('open');
+    document.querySelectorAll('.footer-popup').forEach(function(el) { el.classList.remove('open'); });
+    if (!open) { updateMouseModeUI(); p.classList.add('open'); }
+  };
+
+  // Local cursor over the video: off by default, as in the native client
+  // (the target's own cursor is in the picture).
+  function applyShowCursor() {
+    var vp = document.getElementById('viewport');
+    if (vp) vp.style.cursor = state.showCursor ? 'default' : 'none';
+    var it = document.getElementById('fmCursor');
+    if (it) it.classList.toggle('sel', !!state.showCursor);
+  }
+  window.toggleShowCursor = function() {
+    state.showCursor = !state.showCursor;
+    try { localStorage.setItem('usbridge_lite_show_cursor', state.showCursor ? '1' : '0'); } catch(_) {}
+    applyShowCursor();
   };
 
   window.setGamepadMode = function(mode) {
@@ -3055,12 +3141,99 @@ onmessage = (e) => {
     if (!open) p.classList.add('open');
   };
 
-  window.toggleFooterKeysMenu = function(e) {
-    e.stopPropagation();
-    var p = document.getElementById('footerKeysPopup');
-    var open = p.classList.contains('open');
+  // --- On-screen keyboard (as the native client's keyboard icon) ---
+  // Modifiers are sticky: tap Ctrl, then C. Held ones go down before the key
+  // and are released after it, then cleared (double-tap... no: tap again to drop).
+  var OSK_ROWS = [
+    [['Esc','Escape','fn'],['F1','F1','fn'],['F2','F2','fn'],['F3','F3','fn'],['F4','F4','fn'],['F5','F5','fn'],['F6','F6','fn'],
+     ['F7','F7','fn'],['F8','F8','fn'],['F9','F9','fn'],['F10','F10','fn'],['F11','F11','fn'],['F12','F12','fn'],['PrtSc','PrintScreen','fn'],['Del','Delete','fn']],
+    [['`','Backquote'],['1','Digit1'],['2','Digit2'],['3','Digit3'],['4','Digit4'],['5','Digit5'],['6','Digit6'],['7','Digit7'],
+     ['8','Digit8'],['9','Digit9'],['0','Digit0'],['-','Minus'],['=','Equal'],['⌫ Bksp','Backspace','',2]],
+    [['Tab','Tab','',1.5],['Q','KeyQ'],['W','KeyW'],['E','KeyE'],['R','KeyR'],['T','KeyT'],['Y','KeyY'],['U','KeyU'],['I','KeyI'],
+     ['O','KeyO'],['P','KeyP'],['[','BracketLeft'],[']','BracketRight'],['\\','Backslash','',1.5]],
+    [['Caps','CapsLock','',1.8],['A','KeyA'],['S','KeyS'],['D','KeyD'],['F','KeyF'],['G','KeyG'],['H','KeyH'],['J','KeyJ'],['K','KeyK'],
+     ['L','KeyL'],[';','Semicolon'],["'",'Quote'],['Enter','Enter','',2.2]],
+    [['Shift','mod:shift','',2.4],['Z','KeyZ'],['X','KeyX'],['C','KeyC'],['V','KeyV'],['B','KeyB'],['N','KeyN'],['M','KeyM'],
+     [',','Comma'],['.','Period'],['/','Slash'],['↑','ArrowUp'],['Shift','mod:shift','',1.6]],
+    [['Ctrl','mod:ctrl','',1.4],['Win','mod:win','',1.2],['Alt','mod:alt','',1.2],['Space','Space','',6],['Alt','mod:alt','',1.2],
+     ['Ctrl+Alt+Del','combo:cad','fn',2],['←','ArrowLeft'],['↓','ArrowDown'],['→','ArrowRight']]
+  ];
+  var OSK_MOD_VK = { shift: 'ShiftLeft', ctrl: 'ControlLeft', alt: 'AltLeft', win: 'MetaLeft' };
+  var OSK_MOD_BIT = { shift: 1, ctrl: 2, alt: 4, win: 8 };
+
+  function oskModBits() {
+    var m = 0;
+    Object.keys(OSK_MOD_BIT).forEach(function(k) { if (state.modifiers[k]) m |= OSK_MOD_BIT[k]; });
+    return m;
+  }
+  function oskRefreshMods() {
+    document.querySelectorAll('#osk .osk-key[data-mod]').forEach(function(b) {
+      b.classList.toggle('held', !!state.modifiers[b.dataset.mod]);
+    });
+    ['ctrl', 'alt', 'shift', 'win'].forEach(function(mod) {
+      var btn = document.getElementById('mod' + mod.charAt(0).toUpperCase() + mod.slice(1));
+      if (btn) btn.classList.toggle('active', !!state.modifiers[mod]);
+    });
+  }
+  function oskPress(code) {
+    if (code.indexOf('mod:') === 0) {
+      var mod = code.slice(4);
+      state.modifiers[mod] = !state.modifiers[mod];
+      oskRefreshMods();
+      return;
+    }
+    if (code === 'combo:cad') { window.sendShortcut('cad'); return; }
+    var vk = VK[code];
+    if (!vk) return;
+    var held = Object.keys(OSK_MOD_VK).filter(function(k) { return state.modifiers[k]; });
+    var bits = 0;
+    held.forEach(function(k) { sendKeyEvent(VK[OSK_MOD_VK[k]], bits, true); bits |= OSK_MOD_BIT[k]; });
+    sendKeyEvent(vk, bits, true);
+    setTimeout(function() {
+      sendKeyEvent(vk, bits, false);
+      held.slice().reverse().forEach(function(k) { bits &= ~OSK_MOD_BIT[k]; sendKeyEvent(VK[OSK_MOD_VK[k]], bits, false); });
+      held.forEach(function(k) { state.modifiers[k] = false; });
+      oskRefreshMods();
+    }, 40);
+  }
+  function buildOSK() {
+    var box = document.getElementById('osk');
+    if (!box || box.childElementCount) return;
+    OSK_ROWS.forEach(function(row) {
+      var r = document.createElement('div');
+      r.className = 'osk-row';
+      row.forEach(function(k) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'osk-key' + (k[2] ? ' ' + k[2] : '');
+        b.textContent = k[0];
+        b.style.flexGrow = String(k[3] || 1);
+        if (k[1].indexOf('mod:') === 0) b.dataset.mod = k[1].slice(4);
+        // pointerdown, not click: the key must not steal focus from the video
+        b.addEventListener('pointerdown', function(ev) { ev.preventDefault(); ev.stopPropagation(); oskPress(k[1]); });
+        b.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+        b.addEventListener('mouseup', function(ev) { ev.stopPropagation(); });
+        b.addEventListener('click', function(ev) { ev.stopPropagation(); });
+        r.appendChild(b);
+      });
+      box.appendChild(r);
+    });
+    // clicks on the keyboard's own background must not reach the target either
+    ['mousedown', 'mouseup', 'click', 'contextmenu'].forEach(function(t) {
+      box.addEventListener(t, function(ev) { ev.stopPropagation(); if (t === 'contextmenu') ev.preventDefault(); });
+    });
+    oskRefreshMods();
+  }
+  window.toggleOSK = function(e) {
+    if (e) e.stopPropagation();
     document.querySelectorAll('.footer-popup').forEach(function(el) { el.classList.remove('open'); });
-    if (!open) p.classList.add('open');
+    switchTab('control');
+    buildOSK();
+    var box = document.getElementById('osk');
+    var open = box.classList.toggle('open');
+    var ic = document.getElementById('fIconKeyboard');
+    if (ic) ic.classList.toggle('green', open);
+    if (open && state.pointerLock) document.exitPointerLock();
   };
 
   window.toggleDropdown = function(id) {
@@ -3133,11 +3306,7 @@ onmessage = (e) => {
 
   window.toggleModifier = function(mod) {
     state.modifiers[mod] = !state.modifiers[mod];
-    var btn = document.getElementById('mod' + mod.charAt(0).toUpperCase() + mod.slice(1));
-    if (btn) {
-      if (state.modifiers[mod]) btn.classList.add('active');
-      else btn.classList.remove('active');
-    }
+    oskRefreshMods();
   };
 
   window.sendSingleKey = function(code) {
@@ -4025,7 +4194,13 @@ onmessage = (e) => {
 
   // --- Start ---
   initConnectionParams();
+  try {
+    if (localStorage.getItem('usbridge_lite_mouse_mode') === 'relative') state.mouseMode = 'relative';
+    state.showCursor = localStorage.getItem('usbridge_lite_show_cursor') === '1';
+  } catch(_) {}
   attachInputs();
+  applyShowCursor();
+  updateMouseModeUI();
 
   if (linkDetected && !immediateConnect) {
     openConnectionModal();
