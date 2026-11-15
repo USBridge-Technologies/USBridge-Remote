@@ -69,7 +69,7 @@ class SignInKeepAliveService : Service() {
             }
         )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Signing in to Tailscale")
+            .setContentTitle("Signing in…")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)
             .build()

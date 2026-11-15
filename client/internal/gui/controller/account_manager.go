@@ -13,6 +13,7 @@ import (
 
 	"usbridge-client/internal/account"
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/service"
 	"usbridge-client/internal/syncconn"
 
 	"fyne.io/fyne/v2"
@@ -367,6 +368,11 @@ func (am *AccountManager) StartLogin() error {
 
 	if uri, parseErr := url.Parse(start.VerificationURL); parseErr == nil {
 		go func() {
+			// Mobile: over the app, in the user's browser session (Custom
+			// Tab / iOS sign-in sheet), closed again once the login is done.
+			if service.OpenSignInPage(start.VerificationURL) {
+				return
+			}
 			if err := am.app.OpenURL(uri); err != nil {
 				logrus.Errorf("account: failed to open login URL %q: %v", start.VerificationURL, err)
 			}
@@ -432,6 +438,7 @@ func (am *AccountManager) pollLogin(ctx context.Context, code string) {
 		am.save()
 		am.mu.Unlock()
 		am.notify()
+		service.CloseSignInPage()
 		return
 	}
 }

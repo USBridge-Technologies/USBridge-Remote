@@ -274,9 +274,10 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 	// makes the login reliably surface instead of sometimes silently timing
 	// out with nothing ever opened.
 	cm.ts.SetAuthURLHandler(func(authURL string) {
-		if runtime.GOOS == "android" {
-			// Android already opens it via the JNI opener inside setLatestAuthURL --
-			// calling openExternalLink too would pop a second browser/intent.
+		if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+			// Android (Custom Tab) and iOS (sign-in sheet) open it inside
+			// setLatestAuthURL -- calling openExternalLink too would pop a
+			// second browser.
 			return
 		}
 		cm.setTailscaleStateAsync(

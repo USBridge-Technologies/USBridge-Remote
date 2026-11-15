@@ -758,13 +758,10 @@ func (s *TailscaleService) setLatestAuthURL(u string) {
 
 	if !alreadyHave && u != "" {
 		logrus.Infof("🔗 [Tailscale] New AuthURL: %s", u)
-		if runtime.GOOS == "android" {
-			logrus.Info("🌐 [Tailscale/Android] Attempting to open AuthURL automatically")
-			opened, err := openAndroidExternalUrl(u)
-			if err != nil {
-				logrus.WithError(err).Error("❌ [Tailscale/Android] Failed to open AuthURL via JNI")
-			} else if opened {
-				logrus.Info("✅ [Tailscale/Android] AuthURL opened successfully")
+		if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+			logrus.Info("🌐 [Tailscale] opening the sign-in page over the app")
+			if !OpenSignInPage(u) {
+				logrus.Error("❌ [Tailscale] could not open the sign-in page")
 			}
 		}
 		if handler != nil {
@@ -814,9 +811,7 @@ func (s *TailscaleService) watchSignIn() {
 		s.latestAuthURL = ""
 		done := s.loginDoneHandler
 		s.mu.Unlock()
-		if runtime.GOOS == "android" {
-			bringAndroidAppToFront()
-		}
+		CloseSignInPage()
 		if done != nil {
 			done()
 		}
