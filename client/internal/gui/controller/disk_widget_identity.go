@@ -125,6 +125,11 @@ func (dw *DiskWidget) applyEDID(id string) {
 // newDashboardUSBIdentityPickers is the USB device picker in use: the
 // keyboard-and-mouse one, or with USB audio in the gadget the audio one (the
 // KVM is one USB device, one name covers everything in it).
+//
+// The choice lives on the KVM (usbridge_usb_identity.json), every client
+// shows it from there. A keyboard/mouse gadget with no keyboard/mouse
+// identity of its own takes the audio one (the board's pickUSBIdentity): the
+// keyboard picker then shows that one, and USBridge there drops both.
 func (dw *DiskWidget) newDashboardUSBIdentityPickers(usbAudio bool) []fyne.CanvasObject {
 	s := dw.usbIdentity
 	if s == nil || len(s.Identities) == 0 {
@@ -139,7 +144,8 @@ func (dw *DiskWidget) newDashboardUSBIdentityPickers(usbAudio bool) []fyne.Canva
 		ids := []string{""}
 		selected := labels[0]
 		for _, id := range s.Identities {
-			if id.Audio != audio {
+			// The audio identity in the keyboard picker: only as the one in use.
+			if id.Audio != audio && !(id.ID == current && id.Audio) {
 				continue
 			}
 			labels = append(labels, prefix+id.Label)
@@ -153,15 +159,19 @@ func (dw *DiskWidget) newDashboardUSBIdentityPickers(usbAudio bool) []fyne.Canva
 		}
 		p := view.NewDeviceDashboardModePicker(labels, selected, func(label string) {
 			for i, l := range labels {
-				if l == label && ids[i] != current {
-					kbm, aud := s.KBM, s.Audio
-					if audio {
-						aud = ids[i]
-					} else {
-						kbm = ids[i]
-					}
-					dw.applyUSBIdentity(kbm, aud)
+				if l != label || ids[i] == current {
+					continue
 				}
+				kbm, aud := s.KBM, s.Audio
+				switch {
+				case audio:
+					aud = ids[i]
+				case ids[i] == "":
+					kbm, aud = "", ""
+				default:
+					kbm = ids[i]
+				}
+				dw.applyUSBIdentity(kbm, aud)
 			}
 		})
 		p.OnHover = dw.dashboardHIDHover
@@ -169,7 +179,7 @@ func (dw *DiskWidget) newDashboardUSBIdentityPickers(usbAudio bool) []fyne.Canva
 		return p
 	}
 	current := s.KBM
-	if usbAudio {
+	if usbAudio || current == "" {
 		current = s.Audio
 	}
 	if p := picker(usbAudio, current); p != nil {
@@ -190,7 +200,7 @@ func (dw *DiskWidget) applyUSBIdentity(kbm, audio string) {
 				view.ShowErrorDialog(err, dw.window)
 			} else {
 				dw.usbIdentity = s
-				view.ShowInfoDialog("USB device", "Saved. The PC sees the new device the next time the KVM starts its USB devices (switch the keyboard or mouse off and on).", dw.window)
+				view.ShowInfoDialog("USB device", "Saved on the KVM. The PC sees the new device in a few seconds (older KVM firmware: the next time it starts its USB devices).", dw.window)
 			}
 			dw.refreshDashboard()
 		})

@@ -40,8 +40,8 @@ func (c *USBClient) GetUSBIdentity() (*models.USBIdentityStatus, error) {
 	return &s, nil
 }
 
-// SetUSBIdentity saves the identities ("" = USBridge's own); the KVM uses
-// them the next time it starts the USB devices.
+// SetUSBIdentity saves the identities ("" = USBridge's own) on the KVM,
+// which rebuilds its USB devices with them.
 func (c *USBClient) SetUSBIdentity(kbm, audio string) (*models.USBIdentityStatus, error) {
 	body, _ := json.Marshal(map[string]string{"kbm": kbm, "audio": audio})
 	var s models.USBIdentityStatus
