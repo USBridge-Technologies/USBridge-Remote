@@ -6,7 +6,9 @@ import "runtime"
 // the app on mobile, in the user's own browser session so they are already
 // signed in to Google: a Custom Tab on Android (kept alive meanwhile, see
 // SignInKeepAliveService), an ASWebAuthenticationSession sheet on iOS.
-// Returns false elsewhere: the caller opens the system browser.
+// Returns false on desktop: the caller opens the default browser (Chrome,
+// Safari, ... with the user's own sign-ins; the sheet would be Safari-only
+// on macOS) and the app raises itself once the sign-in is done.
 func OpenSignInPage(url string) bool {
 	switch runtime.GOOS {
 	case "android":

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -439,6 +440,7 @@ func (am *AccountManager) pollLogin(ctx context.Context, code string) {
 		am.mu.Unlock()
 		am.notify()
 		service.CloseSignInPage()
+		am.raiseWindow()
 		return
 	}
 }
@@ -542,4 +544,16 @@ func (am *AccountManager) DeleteAccount(ctx context.Context) error {
 
 	am.Logout()
 	return nil
+}
+
+// raiseWindow brings the app back in front of the browser the login ran in
+// (desktop: the browser tab can't be closed from here; mobile and macOS
+// close their in-app sign-in page instead).
+func (am *AccountManager) raiseWindow() {
+	if runtime.GOOS == "android" || runtime.GOOS == "ios" || am.app == nil {
+		return
+	}
+	if ws := am.app.Driver().AllWindows(); len(ws) > 0 {
+		fyne.Do(ws[0].RequestFocus)
+	}
 }

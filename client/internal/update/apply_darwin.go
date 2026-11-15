@@ -55,6 +55,7 @@ func apply(ctx context.Context, artifactPath, version string) error {
 	if err := swapIn(ctx, newApp, installedApp); err != nil {
 		return err
 	}
+	refreshLaunchServices(newApp, installedApp)
 
 	if err := exec.Command("open", "-n", installedApp).Start(); err != nil {
 		return fmt.Errorf("relaunch updated app: %w", err)
@@ -66,6 +67,20 @@ func apply(ctx context.Context, artifactPath, version string) error {
 		os.Remove(artifactPath)
 	})
 	return nil // unreachable
+}
+
+// lsregister is LaunchServices' registration tool. Mounting the update .dmg
+// registers the new bundle under the mount path with the same bundle ID, and
+// nothing unregisters it on detach: after enough updates the Dock matched the
+// running app to those stale paths and showed it as a second, unpinned tile.
+const lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+// refreshLaunchServices drops the mounted image's registration and registers
+// the bundle now sitting at installedApp, so the relaunched app is the one
+// LaunchServices (and the Dock's pinned tile) knows. Best effort.
+func refreshLaunchServices(mountedApp, installedApp string) {
+	exec.Command(lsregister, "-u", mountedApp).Run()
+	exec.Command(lsregister, "-f", installedApp).Run()
 }
 
 // installTarget is the bundle path the update replaces: the running bundle
