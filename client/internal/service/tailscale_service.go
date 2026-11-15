@@ -364,6 +364,34 @@ func (s *TailscaleService) WaitUntilReady(ctx context.Context) error {
 	return err
 }
 
+// ResolveLoginState starts the node and waits (up to maxWait) for tsnet to
+// finish reading its saved state, then reports whether it is signed in.
+// Status() on a node that was never started, or one still in NoState, says
+// "signed out" even when a valid session sits on disk, and a sign-in started
+// on that answer forces a needless browser login.
+func (s *TailscaleService) ResolveLoginState(ctx context.Context, maxWait time.Duration) (bool, error) {
+	if _, err := s.serverInstance(); err != nil {
+		return false, err
+	}
+	deadline := time.Now().Add(maxWait)
+	for {
+		st, err := s.Status(ctx)
+		if err == nil && st != nil {
+			if b := st.Backend; b != "" && b != "NoState" {
+				return st.LoggedIn, nil
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
 func (s *TailscaleService) ValidateAddress(raw string) error { return nil }
 
 func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err error) {

@@ -373,12 +373,9 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 		// moment to resume that persisted session first, exactly like
 		// Connect does, so this button only prompts for a fresh login when
 		// one is actually needed.
-		if err := cm.ts.Start(context.Background()); err != nil {
+		if _, err := cm.ts.ResolveLoginState(context.Background(), 15*time.Second); err != nil {
 			logrus.WithError(err).Warn("tailscale client ui: Start failed")
 		}
-		warmCtx, warmCancel := context.WithTimeout(context.Background(), 8*time.Second)
-		_ = cm.ts.WaitUntilReady(warmCtx)
-		warmCancel()
 
 		status, err := cm.ts.Status(context.Background())
 		if err == nil && status != nil && status.LoggedIn {

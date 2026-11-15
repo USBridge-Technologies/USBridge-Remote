@@ -88,6 +88,10 @@ func (s *TailscaleService) WaitUntilReady(ctx context.Context) error {
 	return errTailscaleUnsupported
 }
 
+func (s *TailscaleService) ResolveLoginState(ctx context.Context, maxWait time.Duration) (bool, error) {
+	return false, errTailscaleUnsupported
+}
+
 func (s *TailscaleService) ValidateAddress(raw string) error { return nil }
 
 func (s *TailscaleService) TailnetIPv4(ctx context.Context) (string, error) {

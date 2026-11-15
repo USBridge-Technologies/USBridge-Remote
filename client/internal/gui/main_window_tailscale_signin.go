@@ -30,6 +30,15 @@ func (mw *MainWindow) ensureTailscaleSignedIn(waitCtx context.Context, gen uint6
 		st, err := ts.Status(ctx)
 		return err == nil && st != nil && st.LoggedIn
 	}
+	// Start the node and let it resume the saved session first: before
+	// that, Status() reports "signed out" and a sign-in here would force a
+	// browser login on every app restart.
+	if ok, err := ts.ResolveLoginState(waitCtx, 15*time.Second); err == nil && ok {
+		return nil
+	}
+	if mw.connectAborted(waitCtx, gen) {
+		return errConnectAborted
+	}
 	if loggedIn() {
 		return nil
 	}
