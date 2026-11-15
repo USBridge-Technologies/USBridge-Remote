@@ -657,6 +657,11 @@ func getFreeVideoUDPPort() int {
 // masterKey — API master secret (from the QR code): used for sync and to sign API requests.
 func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey string, gen uint64) error {
 	mw.lastTailscaleAuthURL = ""
+	// The API port follows the connection: take it from this host (or the
+	// default) before any request, the sync below included -- otherwise it
+	// kept the previous connection's port (an agent's 8081 used on a KVM
+	// that listens on 8080: "connection refused").
+	mw.useConnectionAPIPort(host)
 
 	selectedProtocol := mw.protocolSelect.Selected
 
