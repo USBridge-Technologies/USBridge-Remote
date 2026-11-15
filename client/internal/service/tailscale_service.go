@@ -53,10 +53,14 @@ type TailscalePeer struct {
 // WireGuard/netstack embedded in the app, no kernel TUN or system daemon
 // required on any platform.
 type TailscaleService struct {
-	mu                 sync.Mutex
-	server             *tsnet.Server
-	latestAuthURL      string
-	authURLHandler     func(string)
+	mu             sync.Mutex
+	server         *tsnet.Server
+	latestAuthURL  string
+	authURLHandler func(string)
+	// loginDoneHandler runs when a sign-in opened in the browser completes
+	// (watchSignIn); watchingSignIn keeps one watcher at a time.
+	loginDoneHandler   func()
+	watchingSignIn     bool
 	lastBackendState   string
 	recoveringIdentity bool
 
@@ -766,6 +770,57 @@ func (s *TailscaleService) setLatestAuthURL(u string) {
 		if handler != nil {
 			handler(u)
 		}
+		go s.watchSignIn()
+	}
+}
+
+// SetLoginDoneHandler registers a callback run once a sign-in opened in the
+// browser completes, so the UI (the Tailscale toggle) catches up without
+// another tap.
+func (s *TailscaleService) SetLoginDoneHandler(fn func()) {
+	s.mu.Lock()
+	s.loginDoneHandler = fn
+	s.mu.Unlock()
+}
+
+// watchSignIn waits for the sign-in just opened in the browser to finish,
+// then brings the app back from the browser (Android: closes the Custom Tab)
+// and tells the UI.
+func (s *TailscaleService) watchSignIn() {
+	s.mu.Lock()
+	if s.watchingSignIn {
+		s.mu.Unlock()
+		return
+	}
+	s.watchingSignIn = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.watchingSignIn = false
+		s.mu.Unlock()
+	}()
+
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		time.Sleep(time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		st, err := s.Status(ctx)
+		cancel()
+		if err != nil || st == nil || !st.LoggedIn {
+			continue
+		}
+		logrus.Info("🛰️ [Tailscale] sign-in completed")
+		s.mu.Lock()
+		s.latestAuthURL = ""
+		done := s.loginDoneHandler
+		s.mu.Unlock()
+		if runtime.GOOS == "android" {
+			bringAndroidAppToFront()
+		}
+		if done != nil {
+			done()
+		}
+		return
 	}
 }
 

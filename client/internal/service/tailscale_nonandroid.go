@@ -25,3 +25,5 @@ func openAndroidExternalUrl(url string) (bool, error) {
 func requestAndroidVpnPermission() error {
 	return nil
 }
+
+func bringAndroidAppToFront() {}

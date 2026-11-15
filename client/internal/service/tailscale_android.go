@@ -87,6 +87,23 @@ static int jni_openExternalUrl(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const c
 	return result == JNI_TRUE ? 1 : 0;
 }
 
+static void jni_callVoidMethod(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *name) {
+	JNIEnv *env = (JNIEnv *)jni_env_ptr;
+	jobject activity = (jobject)ctx_ptr;
+	if (env == NULL || activity == NULL) return;
+
+	jclass activityClass = (*env)->GetObjectClass(env, activity);
+	jmethodID method = (*env)->GetMethodID(env, activityClass, name, "()V");
+	if (method == NULL) {
+		if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+		(*env)->DeleteLocalRef(env, activityClass);
+		return;
+	}
+	(*env)->CallVoidMethod(env, activity, method);
+	if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+	(*env)->DeleteLocalRef(env, activityClass);
+}
+
 static void jni_tsRequestVpnPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr) {
 	JNIEnv *env = (JNIEnv *)jni_env_ptr;
 	jobject activity = (jobject)ctx_ptr;
@@ -187,6 +204,26 @@ func openAndroidExternalUrl(url string) (bool, error) {
 		return nil
 	})
 	return opened, err
+}
+
+// bringAndroidAppToFront returns to the app from the Custom Tab the
+// Tailscale sign-in was opened in (MainActivity.bringAppToFront).
+func bringAndroidAppToFront() {
+	_ = driver.RunNative(func(context any) error {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("🔥 PANIC in bringAndroidAppToFront callback: %v", r)
+			}
+		}()
+		androidCtx, ok := context.(*driver.AndroidContext)
+		if !ok || androidCtx == nil {
+			return fmt.Errorf("android context unavailable")
+		}
+		cName := C.CString("bringAppToFront")
+		defer C.free(unsafe.Pointer(cName))
+		C.jni_callVoidMethod(C.uintptr_t(androidCtx.Env), C.uintptr_t(androidCtx.Ctx), cName)
+		return nil
+	})
 }
 
 func requestAndroidVpnPermission() error {

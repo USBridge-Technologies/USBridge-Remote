@@ -287,6 +287,15 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 		)
 		cm.openExternalLink(authURL, "Tailscale login URL")
 	})
+	// The sign-in finished in the browser: switch the toggle on and come back
+	// to the front without another tap (Android returns from the Custom Tab
+	// in the service itself).
+	cm.ts.SetLoginDoneHandler(func() {
+		cm.refreshTailscaleStatus()
+		if runtime.GOOS != "android" && runtime.GOOS != "ios" && cm.window != nil {
+			fyne.Do(cm.window.RequestFocus)
+		}
+	})
 
 	cm.qrScanner = NewQRScanner(
 		app,

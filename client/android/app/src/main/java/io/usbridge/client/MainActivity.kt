@@ -19,6 +19,7 @@ import android.view.MotionEvent
 import android.view.inputmethod.InputMethodManager
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -225,6 +226,8 @@ class MainActivity : GoNativeActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Back in the app (by hand or after the sign-in): nothing to keep alive.
+        SignInKeepAliveService.stop(this)
         reviewGate.onForeground(SystemClock.elapsedRealtime())
         if (!reviewAskStarted && reviewGate.shouldAsk()) {
             reviewAskStarted = true
@@ -663,10 +666,20 @@ class MainActivity : GoNativeActivity() {
 
         runOnUiThread {
             try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl)).apply {
-                    addCategory(Intent.CATEGORY_BROWSABLE)
+                // A Custom Tab: the sign-in shows over the app, in the user's
+                // own browser (its cookies, so already signed in to Google),
+                // and bringAppToFront closes it once the sign-in is done.
+                // Browsers without Custom Tabs just open the link.
+                val uri = Uri.parse(rawUrl)
+                SignInKeepAliveService.start(this)
+                try {
+                    CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, uri)
+                } catch (e: Exception) {
+                    Log.w(TAG, "🌐 [BROWSER] Custom Tab failed, opening the browser", e)
+                    startActivity(Intent(Intent.ACTION_VIEW, uri).apply {
+                        addCategory(Intent.CATEGORY_BROWSABLE)
+                    })
                 }
-                startActivity(intent)
                 opened = true
                 Log.i(TAG, "🌐 [BROWSER] External URL opened: $rawUrl")
             } catch (e: Exception) {
@@ -678,6 +691,26 @@ class MainActivity : GoNativeActivity() {
 
         latch.await(5, TimeUnit.SECONDS)
         return opened
+    }
+
+    /**
+     * Called from Go when the Tailscale sign-in finished: brings the app back
+     * over the Custom Tab (or browser) it was opened in. MainActivity is
+     * singleTask, so CLEAR_TOP also closes the Custom Tab sitting above it in
+     * this task.
+     */
+    fun bringAppToFront() {
+        runOnUiThread {
+            SignInKeepAliveService.stop(this)
+            try {
+                startActivity(Intent(this, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                })
+                Log.i(TAG, "🌐 [BROWSER] back to the app after sign-in")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ [BROWSER] could not bring the app back", e)
+            }
+        }
     }
 
     /**

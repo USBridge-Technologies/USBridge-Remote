@@ -172,6 +172,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
 
     implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")

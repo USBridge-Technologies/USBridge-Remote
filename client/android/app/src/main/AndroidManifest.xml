@@ -98,5 +98,12 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync|connectedDevice" />
+
+        <!-- Keeps the app alive while the Tailscale sign-in is open in a Custom Tab -->
+        <service
+            android:name="io.usbridge.client.SignInKeepAliveService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

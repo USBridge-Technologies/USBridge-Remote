@@ -111,3 +111,5 @@ func (s *TailscaleService) VideoRelayDebugInfo(bridgeHost string) string {
 func (s *TailscaleService) GetPeerDirectIP(tailscaleIP string) string { return "" }
 
 func (s *TailscaleService) SetAuthURLHandler(fn func(string)) {}
+
+func (s *TailscaleService) SetLoginDoneHandler(fn func()) {}
