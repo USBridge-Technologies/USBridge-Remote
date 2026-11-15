@@ -562,6 +562,89 @@ static AMediaCodec *amc_create_decoder(const char *mime, int lowlat, char *name,
     return c;
 }
 
+// ─── HEVC 4:4:4 decode capability ────────────────────────────────────────────
+//
+// Android has no HEVC RExt profile in MediaCodecInfo.CodecProfileLevel, so a
+// decoder can't advertise 4:4:4 the standard way: whether the hardware decoder
+// takes it is only found out by decoding some. k_hevc444_probe is one 128x128
+// gray IDR frame (VPS/SPS/PPS + IDR_N_LP), HEVC Rext 8-bit 4:4:4 -- what the
+// host sends for VIDEO_FORMAT_H265_REXT8_444 (made with ffmpeg -pix_fmt
+// yuv444p -c:v libx265; 128x128 because Qualcomm's minimum is 96x96).
+static const uint8_t k_hevc444_probe[] = {
+    0x00, 0x00, 0x00, 0x01, 0x40, 0x01, 0x0c, 0x01, 0xff, 0xff, 0x04, 0x08,
+    0x00, 0x00, 0x03, 0x00, 0x9e, 0x28, 0x00, 0x00, 0x03, 0x00, 0x00, 0x1e,
+    0xba, 0x02, 0x40, 0x00, 0x00, 0x00, 0x01, 0x42, 0x01, 0x01, 0x04, 0x08,
+    0x00, 0x00, 0x03, 0x00, 0x9e, 0x28, 0x00, 0x00, 0x03, 0x00, 0x00, 0x1e,
+    0x90, 0x02, 0x04, 0x04, 0x0b, 0x2d, 0xd2, 0x52, 0x61, 0x78, 0x0b, 0x40,
+    0x40, 0x00, 0x00, 0x03, 0x00, 0x40, 0x00, 0x00, 0x03, 0x00, 0x42, 0x00,
+    0x00, 0x00, 0x01, 0x44, 0x01, 0xc0, 0x70, 0x30, 0x60, 0x31, 0x20, 0x00,
+    0x00, 0x01, 0x28, 0x01, 0xad, 0xc8, 0xf4, 0x70, 0xd1, 0x17, 0xce, 0x73,
+    0x23, 0x8a, 0x80, 0x07, 0x70, 0x68, 0xac, 0x80, 0x08, 0xd5, 0xdf, 0x74,
+    0x0c, 0x27, 0x43, 0x60,
+};
+
+// android_hevc444_decode_probe decodes k_hevc444_probe with the same decoder
+// component a stream would use (amc_create_decoder, low-latency variant on
+// Qualcomm), to ByteBuffers. 1 = a frame came out, 0 = the decoder rejected
+// it (Qualcomm: driver error on the SPS -> AMEDIA_ERROR_UNKNOWN), -1 = the
+// probe itself couldn't run (no decoder, configure/start failed).
+int android_hevc444_decode_probe(void) {
+    char name[160];
+    AMediaCodec *c = amc_create_decoder("video/hevc", 1, name, sizeof(name));
+    if (!c) return -1;
+    AMediaFormat *f = AMediaFormat_new();
+    AMediaFormat_setString(f, AMEDIAFORMAT_KEY_MIME, "video/hevc");
+    AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_WIDTH, 128);
+    AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_HEIGHT, 128);
+    media_status_t st = AMediaCodec_configure(c, f, NULL, NULL, 0);
+    AMediaFormat_delete(f);
+    if (st != AMEDIA_OK || AMediaCodec_start(c) != AMEDIA_OK) {
+        ALOGE("hevc444 probe: %s configure/start failed (%d)", name, (int)st);
+        AMediaCodec_delete(c);
+        return -1;
+    }
+    int result = -1;
+    ssize_t in = AMediaCodec_dequeueInputBuffer(c, 500000);
+    size_t cap = 0;
+    uint8_t *buf = in >= 0 ? AMediaCodec_getInputBuffer(c, (size_t)in, &cap) : NULL;
+    if (buf && cap >= sizeof(k_hevc444_probe)) {
+        memcpy(buf, k_hevc444_probe, sizeof(k_hevc444_probe));
+        AMediaCodec_queueInputBuffer(c, (size_t)in, 0, sizeof(k_hevc444_probe), 0, 0);
+        in = AMediaCodec_dequeueInputBuffer(c, 100000);
+        if (in >= 0) AMediaCodec_queueInputBuffer(c, (size_t)in, 0, 0, 0, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+        result = 0;
+        for (int i = 0; i < 40; i++) { // up to ~2 s
+            AMediaCodecBufferInfo info;
+            ssize_t o = AMediaCodec_dequeueOutputBuffer(c, &info, 50000);
+            if (o >= 0) {
+                int eos = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
+                if (info.size > 0) result = 1;
+                AMediaCodec_releaseOutputBuffer(c, (size_t)o, 0);
+                if (result || eos) break;
+                continue;
+            }
+            if (o == AMEDIACODEC_INFO_TRY_AGAIN_LATER || o == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED ||
+                o == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) {
+                continue;
+            }
+            ALOGI("hevc444 probe: %s reported error %zd", name, o);
+            break;
+        }
+    }
+    AMediaCodec_stop(c);
+    AMediaCodec_delete(c);
+    ALOGI("hevc444 probe: %s -> %s", name, result == 1 ? "decodes 4:4:4" : result == 0 ? "rejects 4:4:4" : "probe failed");
+    return result;
+}
+
+// A 4:4:4 session whose decoder errors out before showing a single frame
+// (the probe said yes, or a decoder that only fails at stream size): set
+// once, read by Color444DecodeSupported, so the reconnect that follows asks
+// the host for 4:2:0 instead of looping on IDR requests.
+static _Atomic int g_amc_frames_out = 0;
+static _Atomic int g_amc_444_failed = 0;
+int android_amc_444_failed(void) { return atomic_load(&g_amc_444_failed); }
+
 static void amc_init(int fmt_codec, int width, int height, int fps) {
     ALOGI("amc_init: fmt=0x%x %dx%d", fmt_codec, width, height);
     // Safety: clean up stale codec and EGL if dr_cleanup wasn't called.
@@ -575,6 +658,7 @@ static void amc_init(int fmt_codec, int width, int height, int fps) {
     g_amc_spsfix = amc_read_prop_flag("debug.usbridge.spsfix");
     g_amc_spsfix_logged = 0;
     g_amc_negotiated_fmt = fmt_codec;
+    atomic_store(&g_amc_frames_out, 0);
     vlat_reset();
     android_gl_set_low_latency(g_amc_lowlat);
 
@@ -708,6 +792,7 @@ static void *amc_output_thread(void *arg) {
             idx = n; info = next;
         }
         vlat_note_output((uint64_t)info.presentationTimeUs);
+        atomic_fetch_add(&g_amc_frames_out, 1);
 
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -798,6 +883,10 @@ static int dr_submit(PDECODE_UNIT du) {
     // decode failure.
     ssize_t idx = AMediaCodec_dequeueInputBuffer(g_amc, 10000);
     if (idx < 0) {
+        if (idx != AMEDIACODEC_INFO_TRY_AGAIN_LATER && g_amc_negotiated_fmt > 0 && (g_amc_negotiated_fmt & (0x0400 | 0x0800)) &&
+            atomic_load(&g_amc_frames_out) == 0 && !atomic_exchange(&g_amc_444_failed, 1)) {
+            ALOGE("dr_submit: decoder failed on the HEVC 4:4:4 stream before any frame -- next connection asks for 4:2:0");
+        }
         ALOGE("dr_submit: no input buffer available (idx=%zd) — requesting IDR", idx);
         return DR_NEED_IDR;
     }
@@ -845,6 +934,7 @@ static int dr_submit(PDECODE_UNIT du) {
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {
         vlat_note_output((uint64_t)info.presentationTimeUs);
+        atomic_fetch_add(&g_amc_frames_out, 1);
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         int64_t now_ns = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;

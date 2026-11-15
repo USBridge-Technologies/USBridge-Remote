@@ -421,7 +421,19 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 		return
 	}
 	if mi := vw.moonlightInput(); mi != nil {
-		return // Moonlight: keys go via KeyDown/KeyUp, not TypedKey
+		// Android: Fyne's mobile driver never delivers KeyDown/KeyUp
+		// (internal/driver/mobile typeDownCanvas only calls TypedKey), so
+		// the soft keyboard's Enter -- Samsung Keyboard and Gboard send it
+		// as KEYCODE_ENTER, not as "\n" text or an editor action -- only
+		// ever arrives here. Press it, in both Characters and Keys mode.
+		if runtime.GOOS == "android" && (event.Name == fyne.KeyReturn || event.Name == fyne.KeyEnter) {
+			logrus.Infof("⌨️ [INPUT][ENTER] soft keyboard Enter (TypedKey %q) -> VK_RETURN", event.Name)
+			vw.enqueueSend(func() {
+				mi.SendMoonlightKey(0x0D, service.LiKeyActionDown, 0)
+				mi.SendMoonlightKey(0x0D, service.LiKeyActionUp, 0)
+			})
+		}
+		return // otherwise keys go via KeyDown/KeyUp, not TypedKey
 	}
 }
 

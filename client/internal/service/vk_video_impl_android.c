@@ -385,6 +385,21 @@ static VkExtent2D vk_surface_extent(const VkSurfaceCapabilitiesKHR *caps) {
 
 // ─── Cursor buffer management ─────────────────────────────────────────────────
 
+// What the cursor buffer was last built from, so vk_recreate_swapchain can
+// rebuild it when the swapchain format changes: the buffer holds pixels
+// already packed for g_swap_fmt (8-bit RGBA/BGRA, or a 10-bit PQ word on an
+// HDR10 swapchain) and is copied into the swapchain image as raw bytes. A
+// buffer built for the SDR swapchain and then copied into the HDR10 one (the
+// decoder's HDR switch recreates the swapchain right after the cursor
+// upload) showed the arrow as a blue/garbled shape.
+static int             g_cursor_kind = 0;      // 0 none, 1 built-in arrow, 2 pixels from Go
+static int             g_cursor_scale = 0;     // kind 1
+static uint8_t        *g_cursor_src = NULL;    // kind 2: RGBA copy
+static int             g_cursor_src_w = 0, g_cursor_src_h = 0;
+static VkFormat        g_cursor_built_fmt = VK_FORMAT_UNDEFINED;
+static uint32_t hdr10_pack_pixel(const uint8_t *rgba, int argb);
+void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h);
+
 static void cursor_destroy(void) {
     g_cursor_nspans = 0; g_cursor_px_w = 0; g_cursor_px_h = 0;
     if (!g_dev) return;
@@ -464,6 +479,15 @@ static void cursor_init(int scale) {
                     for (int px = run_start; px < sx; px++) {
                         int pox = px / scale;
                         if (pox >= CURSOR_BASE_W) pox = CURSOR_BASE_W - 1;
+                        if (g_swap_hdr) {
+                            static const uint8_t border[4] = {0, 0, 0, 255};
+                            static const uint8_t fill[4]   = {0x93, 0xc5, 0x72, 255};
+                            uint32_t word = hdr10_pack_pixel(cursor_is_border(pox, oy) ? border : fill,
+                                                             g_swap_fmt == VK_FORMAT_A2R10G10B10_UNORM_PACK32);
+                            memcpy(dst + buf_off, &word, 4);
+                            buf_off += 4;
+                            continue;
+                        }
                         if (cursor_is_border(pox, oy)) {
                             dst[buf_off++] = 0;
                             dst[buf_off++] = 0;
@@ -488,6 +512,9 @@ static void cursor_init(int scale) {
     g_cursor_vk_buf = buf;
     g_cursor_vk_mem = mem;
     g_cursor_vk_ptr = ptr;
+    g_cursor_built_fmt = g_swap_fmt;
+    g_cursor_kind = 1;
+    g_cursor_scale = scale;
     g_cursor_px_w   = pw;
     g_cursor_px_h   = ph;
     VLOGI("cursor init: scale=%d size=%dx%d spans=%d buf=%u bytes", scale, pw, ph, g_cursor_nspans, buf_off);
@@ -817,7 +844,20 @@ static int vk_recreate_swapchain(void) {
     if (!g_surf) { VLOGE("no surface for swapchain recreation"); return 0; }
 
     vk_destroy_swapchain();
-    return vk_create_swapchain(0, 0);
+    int ok = vk_create_swapchain(0, 0);
+    // The cursor buffer is packed for one swapchain format; rebuild it when
+    // the new swapchain differs (SDR <-> HDR10), see g_cursor_kind.
+    if (ok && g_cursor_built_fmt != VK_FORMAT_UNDEFINED && g_cursor_built_fmt != g_swap_fmt) {
+        VLOGI("swapchain format changed %d -> %d, rebuilding cursor", (int)g_cursor_built_fmt, (int)g_swap_fmt);
+        if (g_cursor_kind == 2 && g_cursor_src) {
+            android_vk_set_cursor_pixels(g_cursor_src, g_cursor_src_w, g_cursor_src_h);
+        } else if (g_cursor_kind == 1 && g_cursor_scale > 0) {
+            int was_visible = atomic_exchange(&g_cursor_visible, 0);
+            cursor_init(g_cursor_scale);
+            atomic_store(&g_cursor_visible, was_visible);
+        }
+    }
+    return ok;
 }
 
 static int vk_ensure_tex(int w, int h) {
@@ -3330,6 +3370,17 @@ void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h) {
     }
     if (!g_dev || !g_pdev || !src_rgba || w <= 0 || h <= 0) return;
 
+    if (src_rgba != g_cursor_src) {
+        size_t n = (size_t)w * (size_t)h * 4;
+        uint8_t *copy = malloc(n);
+        if (copy) {
+            memcpy(copy, src_rgba, n);
+            free(g_cursor_src);
+            g_cursor_src = copy; g_cursor_src_w = w; g_cursor_src_h = h;
+        }
+    }
+    g_cursor_kind = 2;
+
     int was_visible = atomic_exchange(&g_cursor_visible, 0);
     vkDeviceWaitIdle(g_dev);
     cursor_destroy();
@@ -3413,6 +3464,7 @@ void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h) {
     g_cursor_vk_buf = buf;
     g_cursor_vk_mem = mem;
     g_cursor_vk_ptr = ptr;
+    g_cursor_built_fmt = g_swap_fmt;
     g_cursor_px_w   = w;
     g_cursor_px_h   = h;
     g_cursor_nspans = nspans;

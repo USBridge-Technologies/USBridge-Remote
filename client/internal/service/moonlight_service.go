@@ -552,9 +552,17 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		hdr = false
 		logrus.Infof("🌕 [Moonlight/HDR-debug] HDR requested but this display/decoder can't show it now -- asking the host for SDR")
 	}
-	requestedVideoFormat := moonlightVideoFormat(m.videoMode, m.color444, hdr)
+	// Same for 4:4:4: a saved checkbox must not ask the host for HEVC RExt
+	// 4:4:4 a decoder here can't take -- Android's hardware HEVC decoders
+	// fail on the first RExt SPS and the stream never shows a picture.
+	color444 := m.color444
+	if color444 && m.videoMode == models.VideoModeH265 && !Color444DecodeSupported() {
+		color444 = false
+		logrus.Infof("🌕 [Moonlight/HDR-debug] 4:4:4 requested but this device's decoder can't take HEVC 4:4:4 -- asking the host for 4:2:0")
+	}
+	requestedVideoFormat := moonlightVideoFormat(m.videoMode, color444, hdr)
 	logrus.Infof("🌕 [Moonlight/HDR-debug] mode=%s color444=%v hdr=%v -> requestedVideoFormat=0x%04X, serverCodecModeSupport=0x%08X",
-		m.videoMode, m.color444, hdr, requestedVideoFormat, serverInfo.ServerCodecModeSupport)
+		m.videoMode, color444, hdr, requestedVideoFormat, serverInfo.ServerCodecModeSupport)
 	logrus.Infof("🎯 [CODEC-TRACE] ConnectToMoonlight: about to call wrapper.StartStream with requestedVideoFormat=0x%04X (from videoMode=%q) -- this bitmask is what actually drives RTSP codec negotiation with the server, independent of /launch's \"mode\" param",
 		requestedVideoFormat, m.videoMode)
 
@@ -1165,10 +1173,10 @@ func (m *MoonlightService) SetHdr(enabled bool) {
 // only one can be had -- not configurable from here without patching
 // RtspConnection.c, and matches upstream Moonlight's own preference.
 //
-// Both checkboxes only change anything for VideoModeH265 -- this project's
-// hardware encode backends have no H.264 or AV1 4:4:4/Main10 profile wired
-// up, so they're silently ignored for those modes rather than requesting a
-// format the server could never satisfy.
+// 4:4:4 only changes anything for VideoModeH265 (no backend has an H.264 or
+// AV1 4:4:4 profile wired up); HDR applies to H.265 (Main10) and AV1 (Main10,
+// falling back to Main8). Both are ignored for H.264 rather than requesting
+// a format the server could never satisfy.
 func moonlightVideoFormat(mode string, color444, hdr bool) int {
 	switch mode {
 	case models.VideoModeH265:
@@ -1187,6 +1195,12 @@ func moonlightVideoFormat(mode string, color444, hdr bool) int {
 			return 0x0100 // VIDEO_FORMAT_H265
 		}
 	case models.VideoModeAV1:
+		if hdr {
+			// VIDEO_FORMAT_AV1_MAIN10, with VIDEO_FORMAT_AV1_MAIN8 for
+			// RtspConnection.c to fall back to against a host that doesn't
+			// advertise SCM_AV1_MAIN10.
+			return 0x2000 | 0x1000
+		}
 		return 0x1000 // VIDEO_FORMAT_AV1_MAIN8
 	case models.VideoModePyroWave:
 		// A saved "pyrowave" on a client that cannot decode it streams H.264.

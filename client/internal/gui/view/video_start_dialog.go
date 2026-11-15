@@ -75,6 +75,9 @@ type VideoStartDialog struct {
 	color444Hint      *videoDialogWrapText
 	color444TitleText *canvas.Text
 	color444Available bool
+	// color444DecodeMissing: the agent offers 4:4:4 but this client's decoder
+	// can't take it -- picks the "this device" hint over the "remote GPU" one.
+	color444DecodeMissing bool
 	// hdrCheck/hdrHint: the RustShine HDR color upgrade -- mirrors
 	// color444Check's row mechanics, independent axis (see rust-shine's
 	// docs/COLOR_MODES.md), gated on models.VideoStatus.HdrAvailable
@@ -1796,7 +1799,11 @@ func (vsd *VideoStartDialog) createInterface() {
 	})
 	vsd.color444Check.OnTapWhileDisabled = func() {
 		if !vsd.color444Available && !vsd.pyroWave444Available {
-			ShowInfoDialog(i18n.Current.Color444, i18n.Current.Color444UnavailableMessage, vsd.parent)
+			msg := i18n.Current.Color444UnavailableMessage
+			if vsd.color444DecodeMissing {
+				msg = i18n.Current.Color444DecodeUnavailableMessage
+			}
+			ShowInfoDialog(i18n.Current.Color444, msg, vsd.parent)
 			return
 		}
 		if vsd.color444AppliesTo(vsd.selectedModeID()) {
@@ -2152,7 +2159,11 @@ func (vsd *VideoStartDialog) color444AppliesTo(modeID string) bool {
 // hdrAppliesTo: HDR can be streamed with codec modeID (see color444AppliesTo).
 func (vsd *VideoStartDialog) hdrAppliesTo(modeID string) bool {
 	switch modeID {
-	case models.VideoModeH265:
+	// AV1 too: the host offers AV1 Main10 next to AV1 whenever it can do
+	// HDR (SCM_AV1_MAIN10, usbridge-streamer-proto http::handlers), and
+	// moonlightVideoFormat asks for it with AV1 Main8 as the fallback --
+	// checking HDR must not switch an AV1 session over to H.265.
+	case models.VideoModeH265, models.VideoModeAV1:
 		return vsd.hdrAvailable
 	case models.VideoModePyroWave:
 		return vsd.pyroWaveHdrAvailable
@@ -2254,7 +2265,11 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	vsd.captureModes = nil
 	vsd.resolutionLabels = make(map[string]models.VideoCaptureMode)
 	vsd.resolutionHints = make(map[string]string)
-	vsd.color444Available = info != nil && info.Color444Available
+	// Both ends must do 4:4:4: the agent encodes it (hardware + license), and
+	// this client's decoder must take HEVC RExt 4:4:4
+	// (service.Color444DecodeSupported -- Android's hardware decoders don't).
+	vsd.color444DecodeMissing = info != nil && info.Color444Available && !service.Color444DecodeSupported()
+	vsd.color444Available = info != nil && info.Color444Available && !vsd.color444DecodeMissing
 	vsd.configureFec(info)
 	if info != nil {
 		vsd.source.configure(info.Source)
@@ -2631,7 +2646,11 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 		vsd.color444Check.SetWarn(true)
 		vsd.color444Check.SetChecked(false)
 		vsd.color444Check.Disable()
-		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444UnavailableHint, Color: videoDialogHintColor})
+		hint := i18n.Current.Color444UnavailableHint
+		if vsd.color444DecodeMissing {
+			hint = i18n.Current.Color444DecodeUnavailableHint
+		}
+		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: hint, Color: videoDialogHintColor})
 		vsd.setColor444TitleEnabled(true)
 	case !vsd.color444AppliesTo(modeID):
 		vsd.color444Check.SetWarn(false)

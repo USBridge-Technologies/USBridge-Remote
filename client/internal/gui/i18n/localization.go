@@ -742,6 +742,8 @@ type LocalizedStrings struct {
 	Color444Hint                string // hint under the checkbox when 4:4:4 is available (checked or not)
 	Color444UnavailableHint     string // hint when agent reports color_444_available=false (GPU/encoder cannot do HEVC 4:4:4)
 	Color444UnavailableMessage  string // info dialog body when tapping the 4:4:4 warning triangle
+	Color444DecodeUnavailableHint    string // hint when the host can encode 4:4:4 but this device's decoder can't take it (service.Color444DecodeSupported)
+	Color444DecodeUnavailableMessage string // info dialog body for the same case
 	Color444RequiresH265Hint    string
 	Color444Badge               string    // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
 	Hdr                         string    // "HDR Color (RustShine)" checkbox -- mirrors Color444 exactly, independent axis (see rust-shine's docs/COLOR_MODES.md)
@@ -1627,6 +1629,8 @@ func EN() *LocalizedStrings {
 		Color444Hint:                         "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
 		Color444UnavailableHint:              "The remote GPU cannot encode HEVC 4:4:4 — this hardware does not support the mode.",
 		Color444UnavailableMessage:           "This remote GPU cannot encode HEVC 4:4:4. That is a hardware limit.",
+		Color444DecodeUnavailableHint:        "This device's video decoder cannot play HEVC 4:4:4 — the stream stays 4:2:0.",
+		Color444DecodeUnavailableMessage:     "The host can encode HEVC 4:4:4, but this device's hardware video decoder cannot decode it. That is a limit of this device.",
 		Color444RequiresH265Hint:             "Only available with the H.265 codec -- select it above to use 4:4:4 color.",
 		Color444Badge:                        "Pro",
 		Hdr:                                  "HDR Color (USBridge)",
@@ -2093,6 +2097,8 @@ func ES() *LocalizedStrings {
 	locale.Color444Hint = "Croma 4:4:4 completa en vez de 4:2:0: texto mas nitido, mas bitrate."
 	locale.Color444UnavailableHint = "La GPU remota no puede codificar HEVC 4:4:4 — el hardware no soporta este modo."
 	locale.Color444UnavailableMessage = "Esta GPU remota no puede codificar HEVC 4:4:4. Es un limite de hardware."
+	locale.Color444DecodeUnavailableHint = "El decodificador de este dispositivo no reproduce HEVC 4:4:4 — se usa 4:2:0."
+	locale.Color444DecodeUnavailableMessage = "El host puede codificar HEVC 4:4:4, pero el decodificador de video de este dispositivo no. Es un limite de este dispositivo."
 	locale.Color444RequiresH265Hint = "Solo con codec H.265 -- seleccionalo arriba."
 	locale.HdrHint = "Flujo HDR (BT.2020, PQ) en vez de SDR: luces mas brillantes en pantalla HDR."
 	locale.HdrUnavailableHint = "Este host remoto no ofrece encode HDR. Requiere un host con HEVC Main10: Mac Apple Silicon o PC Windows/Linux con GPU NVIDIA."
@@ -2667,6 +2673,8 @@ func UKProper() *LocalizedStrings {
 	locale.Color444Hint = "Повна хрома 4:4:4 замість 4:2:0 — чіткіший текст, вищий бітрейт."
 	locale.Color444UnavailableHint = "Віддалений GPU не вміє HEVC 4:4:4 — це обмеження заліза."
 	locale.Color444UnavailableMessage = "Цей віддалений GPU не кодує HEVC 4:4:4. Це обмеження обладнання."
+	locale.Color444DecodeUnavailableHint = "Відеодекодер цього пристрою не відтворює HEVC 4:4:4 — потік лишається 4:2:0."
+	locale.Color444DecodeUnavailableMessage = "Хост уміє кодувати HEVC 4:4:4, але апаратний відеодекодер цього пристрою його не декодує. Це обмеження пристрою."
 	locale.Color444RequiresH265Hint = "Лише з кодеком H.265 — оберіть його вище."
 	locale.HdrHint = "HDR-потік (BT.2020, PQ) замість SDR — яскравіші світла на HDR-екрані."
 	locale.HdrUnavailableHint = "Цей віддалений хост не пропонує HDR encode. Потрібен хост з HEVC Main10: Mac на Apple Silicon або ПК Windows/Linux з GPU NVIDIA."

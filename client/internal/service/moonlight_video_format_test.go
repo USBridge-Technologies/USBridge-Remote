@@ -137,9 +137,10 @@ func TestMoonlightVideoFormatColor444(t *testing.T) {
 
 // TestMoonlightVideoFormatHdr pins the RustShine HDR color upgrade's bitmask
 // mapping -- mirrors TestMoonlightVideoFormatColor444 exactly, for
-// VIDEO_FORMAT_H265_MAIN10 (0x0200) instead of REXT8_444, and is silently
-// ignored outside VideoModeH265 for the same reason (no H.264/AV1 Main10
-// profile wired up in this project's backends).
+// VIDEO_FORMAT_H265_MAIN10 (0x0200) instead of REXT8_444. AV1 asks for
+// VIDEO_FORMAT_AV1_MAIN10 (0x2000) with AV1_MAIN8 (0x1000) as the fallback
+// (the host advertises SCM_AV1_MAIN10 when it can do AV1 HDR); H.264 has no
+// Main10 profile and ignores it.
 func TestMoonlightVideoFormatHdr(t *testing.T) {
 	if got := moonlightVideoFormat(models.VideoModeH265, false, true); got != 0x0200 {
 		t.Errorf("moonlightVideoFormat(h265, hdr=true) = 0x%04X, want VIDEO_FORMAT_H265_MAIN10 (0x0200)", got)
@@ -150,8 +151,11 @@ func TestMoonlightVideoFormatHdr(t *testing.T) {
 	if got := moonlightVideoFormat(models.VideoModeH264, false, true); got != 0x0001 {
 		t.Errorf("moonlightVideoFormat(h264, hdr=true) = 0x%04X, want plain VIDEO_FORMAT_H264 (0x0001) -- hdr has no H264 profile", got)
 	}
-	if got := moonlightVideoFormat(models.VideoModeAV1, false, true); got != 0x1000 {
-		t.Errorf("moonlightVideoFormat(av1, hdr=true) = 0x%04X, want plain VIDEO_FORMAT_AV1_MAIN8 (0x1000) -- hdr has no AV1 profile wired up", got)
+	if got := moonlightVideoFormat(models.VideoModeAV1, false, true); got != 0x3000 {
+		t.Errorf("moonlightVideoFormat(av1, hdr=true) = 0x%04X, want VIDEO_FORMAT_AV1_MAIN10|VIDEO_FORMAT_AV1_MAIN8 (0x3000)", got)
+	}
+	if codec, ok := videoFormatCodecName(0x2000); !ok || codec != models.VideoModeAV1 {
+		t.Errorf("videoFormatCodecName(0x2000) = (%q, %v), want (%q, true)", codec, ok, models.VideoModeAV1)
 	}
 }
 
