@@ -109,8 +109,6 @@ import "C"
 
 import (
 	"fmt"
-	"net"
-	"net/netip"
 	"strings"
 	"sync"
 	"unsafe"
@@ -241,87 +239,4 @@ func getAndroidString(methodName string) (string, error) {
 		return "", err
 	}
 	return out, nil
-}
-
-func parseAndroidInterfaces(raw string) []netmon.Interface {
-	var ifaces []netmon.Interface
-	for _, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "|")
-		if len(parts) != 2 {
-			continue
-		}
-
-		var (
-			name         string
-			index, mtu   int
-			up           bool
-			broadcast    bool
-			loopback     bool
-			pointToPoint bool
-			multicast    bool
-		)
-		if _, err := fmt.Sscanf(parts[0], "%s %d %d %t %t %t %t %t", &name, &index, &mtu, &up, &broadcast, &loopback, &pointToPoint, &multicast); err != nil {
-			continue
-		}
-
-		iface := netmon.Interface{
-			Interface: &net.Interface{
-				Name:  name,
-				Index: index,
-				MTU:   mtu,
-			},
-			AltAddrs: []net.Addr{},
-		}
-		if up {
-			iface.Flags |= net.FlagUp
-		}
-		if broadcast {
-			iface.Flags |= net.FlagBroadcast
-		}
-		if loopback {
-			iface.Flags |= net.FlagLoopback
-		}
-		if pointToPoint {
-			iface.Flags |= net.FlagPointToPoint
-		}
-		if multicast {
-			iface.Flags |= net.FlagMulticast
-		}
-
-		for _, addrText := range strings.Fields(parts[1]) {
-			addrText = strings.TrimSpace(addrText)
-			if addrText == "" {
-				continue
-			}
-			addrText = strings.ReplaceAll(addrText, "%"+name, "")
-			if _, prefix, err := net.ParseCIDR(addrText); err == nil {
-				iface.AltAddrs = append(iface.AltAddrs, prefix)
-				continue
-			}
-			if addr, err := netip.ParseAddr(addrText); err == nil {
-				bits := 32
-				if addr.Is6() {
-					bits = 128
-				}
-				pfx := netip.PrefixFrom(addr, bits)
-				iface.AltAddrs = append(iface.AltAddrs, prefixToIPNet(pfx))
-			}
-		}
-		ifaces = append(ifaces, iface)
-	}
-	return ifaces
-}
-
-func prefixToIPNet(pfx netip.Prefix) *net.IPNet {
-	addr := pfx.Addr()
-	if addr.Is4() {
-		ip := addr.As4()
-		return &net.IPNet{IP: net.IP(ip[:]), Mask: net.CIDRMask(pfx.Bits(), 32)}
-	}
-	ip := addr.As16()
-	return &net.IPNet{IP: net.IP(ip[:]), Mask: net.CIDRMask(pfx.Bits(), 128)}
 }
