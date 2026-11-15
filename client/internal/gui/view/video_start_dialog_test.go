@@ -127,12 +127,57 @@ func TestConfigure_LiveCodecProviderInactiveFallsBackToAgentHint(t *testing.T) {
 	}
 }
 
-func TestConfigure_NoInfoDefaultsToH264(t *testing.T) {
+// No live codec and no agent hint: H.265 when the host offers it.
+func TestConfigure_NoInfoDefaultsToH265(t *testing.T) {
 	win := test.NewWindow(nil)
 	defer win.Close()
 	vsd := NewVideoStartDialog(win)
 
 	vsd.Configure(nil, 1920, 1080, 60, "20M")
+
+	if got := vsd.selectedModeID(); got != models.VideoModeH265 {
+		t.Fatalf("selectedModeID() = %q, want %q", got, models.VideoModeH265)
+	}
+}
+
+// A host that offers H.264 and H.265 but streams nothing yet (no agent
+// hint): H.265, not the first entry of the list.
+func TestConfigure_BothOfferedNoHintPrefersH265(t *testing.T) {
+	win := test.NewWindow(nil)
+	defer win.Close()
+	vsd := NewVideoStartDialog(win)
+
+	info := &models.VideoInfoData{
+		VideoStatus: models.VideoStatus{
+			SupportedModes: []models.VideoTransportMode{
+				{ID: models.VideoModeH264, Name: "H.264", Transport: "rtp", Encoding: "h264"},
+				{ID: models.VideoModeH265, Name: "H.265", Transport: "rtp", Encoding: "h265"},
+			},
+		},
+	}
+
+	vsd.Configure(info, 1920, 1080, 60, "20M")
+
+	if got := vsd.selectedModeID(); got != models.VideoModeH265 {
+		t.Fatalf("selectedModeID() = %q, want %q", got, models.VideoModeH265)
+	}
+}
+
+// Only H.264 offered and no hint: H.264.
+func TestConfigure_OnlyH264OfferedNoHintSelectsH264(t *testing.T) {
+	win := test.NewWindow(nil)
+	defer win.Close()
+	vsd := NewVideoStartDialog(win)
+
+	info := &models.VideoInfoData{
+		VideoStatus: models.VideoStatus{
+			SupportedModes: []models.VideoTransportMode{
+				{ID: models.VideoModeH264, Name: "H.264", Transport: "rtp", Encoding: "h264"},
+			},
+		},
+	}
+
+	vsd.Configure(info, 1920, 1080, 60, "20M")
 
 	if got := vsd.selectedModeID(); got != models.VideoModeH264 {
 		t.Fatalf("selectedModeID() = %q, want %q", got, models.VideoModeH264)

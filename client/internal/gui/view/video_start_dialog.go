@@ -2412,7 +2412,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	//     which is a transport label like "moonlight", not a codec — using
 	//     it here previously meant this always fell through to the first
 	//     entry in the mode list, i.e. always H264).
-	//  3. H264 as the last-resort default.
+	//  3. H.265 when the host offers it, else H.264 (preferredDefaultModeID).
 	selectedMode, source := "", "default"
 	if vsd.liveCodecProvider != nil {
 		if codec, ok := vsd.liveCodecProvider(); ok && codec != "" {
@@ -2423,7 +2423,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		selectedMode, source = info.Encoding, "agent-hint"
 	}
 	if selectedMode == "" {
-		selectedMode = models.VideoModeH264
+		selectedMode = vsd.preferredDefaultModeID(nil)
 	}
 	logrus.Infof("🎬 [VideoStartDialog] preselecting codec=%s (source=%s)", selectedMode, source)
 	vsd.refreshAvailableModesAndSelect(false)
@@ -3046,14 +3046,28 @@ func (vsd *VideoStartDialog) refreshAvailableModesAndSelect(applySelection bool)
 		return
 	}
 
+	vsd.setSelectedModeID(vsd.preferredDefaultModeID(allowed))
+}
+
+// preferredDefaultModeID is the codec preselected when nothing else decides
+// it: H.265 when the host offers it (and allowed, nil = anything, lets it),
+// since at the same bitrate it looks clearly better -- the NanoKVM's VENC
+// does both; else the first offered mode; else H.264. A host without HEVC
+// still ends up on H.264: moonlight-common-c falls back when the DESCRIBE
+// reply carries no HEVC parameter sets.
+func (vsd *VideoStartDialog) preferredDefaultModeID(allowed map[string]bool) string {
+	ok := func(id string) bool { return len(allowed) == 0 || allowed[id] }
 	for _, mode := range vsd.streamModes {
-		if len(allowed) == 0 || allowed[mode.ID] {
-			vsd.setSelectedModeID(mode.ID)
-			return
+		if mode.ID == models.VideoModeH265 && ok(mode.ID) {
+			return mode.ID
 		}
 	}
-
-	vsd.setSelectedModeID(models.VideoModeH264)
+	for _, mode := range vsd.streamModes {
+		if ok(mode.ID) {
+			return mode.ID
+		}
+	}
+	return models.VideoModeH264
 }
 
 func allowedModesForPixelFormat(format string) map[string]bool {

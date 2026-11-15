@@ -637,7 +637,7 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 		cfg.VideoBitrate = "20000K"
 	}
 	if cfg.VideoMode == "" {
-		cfg.VideoMode = models.VideoModeH264
+		cfg.VideoMode = models.VideoModeH265
 	}
 	logrus.Infof("🎯 [CODEC-TRACE] applyVideoDeviceConfig: VideoMode=%q restart=%v device=%s", cfg.VideoMode, restart, cfg.DevicePath)
 
