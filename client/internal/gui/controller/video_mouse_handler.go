@@ -1275,8 +1275,8 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 }
 
 // handleVirtualCursorMove moves the virtual cursor by the given delta and
-// forwards the absolute position to Moonlight at most every 8ms (same rate as
-// Mac absolute mode). The local Vulkan cursor is always updated immediately.
+// forwards the absolute position to Moonlight at most every 16ms. The local
+// Vulkan cursor is always updated immediately.
 // rawDx/rawDy are already the relative delta — do NOT pass absolute positions.
 func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 	vw := t.videoWidget
@@ -1363,10 +1363,16 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 		vw.refreshViewportViews()
 	}
 
-	// Rate-limit network sends to 8ms so ENet doesn't pile up stale reliable
-	// packets faster than they can be ACKed. When the finger stops,
+	// Rate-limit network sends to ~60/s so ENet doesn't pile up stale
+	// reliable packets faster than they can be ACKed. When the finger stops,
 	// flushVirtualCursorPosition() sends the final position unconditionally.
-	const minInterval = 8 * time.Millisecond
+	// 60/s is what the host shows anyway (its cursor is in the 60 fps video;
+	// a NanoKVM's USB HID takes at most 100 reports/s): the old 8 ms (125/s)
+	// cost a NanoKVM's single core twice the work -- each move is a reliable
+	// packet in, an ACK out, both through tailscale, a decrypt, a uinput and
+	// a HID write -- and showed as jitter in the video while the cursor moved.
+	// The local cursor here still follows the finger on every move.
+	const minInterval = 16 * time.Millisecond
 	if !vw.lastVirtualCursorSentTime.IsZero() && time.Since(vw.lastVirtualCursorSentTime) < minInterval {
 		return
 	}
@@ -1401,7 +1407,7 @@ func (vw *VideoWidget) sendVirtualCursorToHost() {
 		// every other mouse send already goes through enqueueSend: this
 		// was previously a direct, synchronous call right here, blocking
 		// whatever touchmove callback invoked it (handleVirtualCursorMove
-		// calls this, then rate-limits to at most once per 8ms) for
+		// calls this, then rate-limits to at most once per 16ms) for
 		// however long the underlying send takes -- a WebRTC DataChannel
 		// send under wasm, an ENet reliable send elsewhere. Since the same
 		// call also drives updateNativeViewportAndCursor()'s local visual
