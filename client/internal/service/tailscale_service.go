@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -387,6 +388,41 @@ func (s *TailscaleService) ResolveLoginState(ctx context.Context, maxWait time.D
 		select {
 		case <-ctx.Done():
 			return false, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// WaitForPeer waits (up to maxWait) until tailscaleIP is a peer in the node's
+// network map. A node resumed from its saved state reports Running at once on
+// the netmap cached on disk, which can hold no peers; a dial made before
+// control sends the fresh map has no route through the tunnel and hangs
+// until its timeout. Returns early on any non-tailnet address.
+func (s *TailscaleService) WaitForPeer(ctx context.Context, tailscaleIP string, maxWait time.Duration) bool {
+	ip, err := netip.ParseAddr(strings.TrimSpace(tailscaleIP))
+	if err != nil {
+		return false
+	}
+	deadline := time.Now().Add(maxWait)
+	for {
+		if srv, err := s.serverInstance(); err == nil {
+			if lc, err := srv.LocalClient(); err == nil {
+				if st, err := lc.Status(ctx); err == nil && st != nil {
+					for _, key := range st.Peers() {
+						if p := st.Peer[key]; p != nil && slices.Contains(p.TailscaleIPs, ip) {
+							return true
+						}
+					}
+				}
+			}
+		}
+		if !time.Now().Before(deadline) {
+			logrus.Warnf("🛰️ [Tailscale] %s is not in the network map after %s", ip, maxWait)
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
 		case <-time.After(200 * time.Millisecond):
 		}
 	}

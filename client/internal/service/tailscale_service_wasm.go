@@ -92,6 +92,10 @@ func (s *TailscaleService) ResolveLoginState(ctx context.Context, maxWait time.D
 	return false, errTailscaleUnsupported
 }
 
+func (s *TailscaleService) WaitForPeer(ctx context.Context, tailscaleIP string, maxWait time.Duration) bool {
+	return false
+}
+
 func (s *TailscaleService) ValidateAddress(raw string) error { return nil }
 
 func (s *TailscaleService) TailnetIPv4(ctx context.Context) (string, error) {

@@ -712,6 +712,7 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 			logrus.Warnf("⚠️ [CONNECT] tsnet not ready: %v", waitErr)
 			return fmt.Errorf("Tailscale did not come online in time — try again: %w", waitErr)
 		}
+		mw.waitForTailnetPeer(waitCtx, host)
 		if mw.guestSession != nil {
 			if err := mw.waitForSharedNode(waitCtx, gen, host); err != nil {
 				return err
@@ -779,6 +780,7 @@ func (mw *MainWindow) doConnect(waitCtx, apiCtx context.Context, host, masterKey
 			if waitErr != nil {
 				logrus.Warnf("🛰️ [SYNC] Tailscale not ready: %v (proceeding anyway)", waitErr)
 			} else {
+				mw.waitForTailnetPeer(waitCtx, host)
 				logrus.Info("🛰️ [SYNC] Tailscale ready")
 			}
 		}
@@ -1767,4 +1769,18 @@ func (mw *MainWindow) syncMonitorListWithStream(isStreaming bool) {
 		delays = []time.Duration{13 * time.Second}
 	}
 	mw.diskWidget.ReloadVideoDevicesAfter(delays...)
+}
+
+// waitForTailnetPeer holds the first request until host is in the fresh
+// network map: right after the app starts, tsnet runs on the netmap cached
+// on disk, and a request sent then hangs for its whole timeout.
+func (mw *MainWindow) waitForTailnetPeer(ctx context.Context, host string) {
+	if mw.tailscaleService == nil {
+		return
+	}
+	ip := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		ip = h
+	}
+	mw.tailscaleService.WaitForPeer(ctx, ip, 15*time.Second)
 }
