@@ -273,7 +273,8 @@ object VideoSurfaceBridge {
 
     @JvmStatic
     fun release() {
-        PhaseBridge.stop()
+        // No PhaseBridge.stop() here: the GL path's surface is released when the Vulkan renderer takes over,
+        // while the stream goes on. PhaseBridge stops itself once the decoder has been idle.
         surface?.release()
         surfaceTexture?.release()
         surface = null

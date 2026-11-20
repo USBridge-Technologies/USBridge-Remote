@@ -10,6 +10,7 @@
 // The Client settings switch: applies to the next frame.
 void phase_report_set_enabled(int on);
 int  phase_report_enabled(void);
+int  phase_report_sent_count(void); // reports sent so far, for logs
 
 // A frame ready at ready_us was shown at present_us (a platform that knows it, any one
 // clock). latch_us: how long before the refresh the compositor takes its last frame.

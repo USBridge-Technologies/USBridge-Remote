@@ -15,7 +15,8 @@ import android.view.Choreographer
  */
 object PhaseBridge {
     @JvmStatic
-    external fun onVsync(frameTimeNanos: Long, periodNanos: Long): Boolean
+    /** 1: frames are coming, 0: they stopped, 2: none yet. */
+    external fun onVsync(frameTimeNanos: Long, periodNanos: Long): Int
 
     private val main = Handler(Looper.getMainLooper())
     private var running = false
@@ -36,8 +37,10 @@ object PhaseBridge {
                     val sorted = gaps.take(minOf(gapCount, gaps.size)).sorted()
                     val period = sorted[sorted.size / 2]
                     try {
-                        // Stops itself once the decoder has been idle (the stream ended without a stop()).
-                        if (!onVsync(frameTimeNanos, period) && frameTimeNanos - startedAt > 5_000_000_000L) {
+                        // Stops itself once the decoder has gone idle (the stream ended), or if no frame ever
+                        // comes (the host needs a few seconds to lock on its source after a mode change).
+                        val state = onVsync(frameTimeNanos, period)
+                        if (state == 0 || (state == 2 && frameTimeNanos - startedAt > 120_000_000_000L)) {
                             running = false
                             return
                         }

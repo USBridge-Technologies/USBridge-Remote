@@ -13,6 +13,8 @@ extern int LiSendPhaseReport(const uint8_t *data, uint16_t length);
 enum { WINDOW = 256, WINDOW_US = 500000, MIN_FRAMES = 10 };
 
 static atomic_int g_enabled = 1;
+static atomic_int g_reports_sent;
+int phase_report_sent_count(void) { return atomic_load(&g_reports_sent); }
 static atomic_flag g_busy = ATOMIC_FLAG_INIT; // a platform's callbacks may come from any thread
 static int64_t g_slack[WINDOW];
 static int g_count;
@@ -99,6 +101,7 @@ static void note_slack(int64_t slack_us, int64_t period_us, int64_t now_us) {
             memcpy(m + 8, &lead_ns, 4);
             memcpy(m + 12, &spread_ns, 4);
             LiSendPhaseReport(m, sizeof(m));
+            atomic_fetch_add(&g_reports_sent, 1);
         }
     }
     atomic_flag_clear(&g_busy);
