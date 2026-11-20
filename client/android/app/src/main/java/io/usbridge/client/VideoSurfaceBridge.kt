@@ -220,6 +220,12 @@ object VideoSurfaceBridge {
     }
 
     /** The display's highest refresh rate in Hz (rounded), 0 if unknown. */
+    /** Called from the decoder's output thread when frames flow but the display's vsync grid is stale. */
+    @JvmStatic
+    fun startPhaseReports() {
+        PhaseBridge.start()
+    }
+
     @JvmStatic
     fun maxRefreshRate(): Int {
         val activity = MainActivity.getInstance() ?: return 0

@@ -959,6 +959,19 @@ int android_hdr_display_supported(void) {
     return ok ? 1 : 0;
 }
 
+// android_phase_bridge_start asks VideoSurfaceBridge.startPhaseReports to (re)start the vsync
+// reporting for the phase lock (phase_vsync_android.c).
+void android_phase_bridge_start(void) {
+    if (!g_cls_vsb) return;
+    int detach;
+    JNIEnv *env = get_env(&detach);
+    if (!env) return;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "startPhaseReports", "()V");
+    if (mid && !(*env)->ExceptionCheck(env)) (*env)->CallStaticVoidMethod(env, g_cls_vsb, mid);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    detach_env(detach);
+}
+
 // android_display_max_refresh asks VideoSurfaceBridge.maxRefreshRate for the
 // display's highest refresh rate (Hz, rounded), 0 if unknown.
 int android_display_max_refresh(void) {

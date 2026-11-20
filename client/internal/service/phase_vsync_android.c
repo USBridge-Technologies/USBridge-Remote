@@ -13,6 +13,8 @@
 
 #include "phase_report.h"
 
+extern void android_phase_bridge_start(void);
+
 // How long before the refresh SurfaceFlinger still takes a frame queued by the app.
 #define ANDROID_LATCH_US 3000
 
@@ -54,13 +56,20 @@ void phase_android_frame_ready(void) {
     if (!phase_report_enabled()) return;
     int64_t vsync = atomic_load_explicit(&g_vsync_ns, memory_order_acquire);
     int64_t period = atomic_load_explicit(&g_period_ns, memory_order_relaxed);
-    if (vsync <= 0 || period <= 0) return;
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     int64_t now = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
     int64_t since = now - vsync;
-    // No vsync for a while (the callback stopped): the grid can't be trusted.
-    if (since < 0 || since > 2000000000LL) return;
+    // No vsync for a while (the callback stopped, e.g. after the previous stream ended): the grid
+    // can't be trusted. Frames are flowing, so ask PhaseBridge to start again (at most every 2 s).
+    if (vsync <= 0 || period <= 0 || since < 0 || since > 1000000000LL) {
+        static _Atomic int64_t asked_at;
+        if (now - atomic_load(&asked_at) >= 2000000000LL) {
+            atomic_store(&asked_at, now);
+            android_phase_bridge_start();
+        }
+        return;
+    }
     int64_t rem = period - since % period;
     phase_report_ready(rem / 1000, period / 1000, ANDROID_LATCH_US, now / 1000);
 }

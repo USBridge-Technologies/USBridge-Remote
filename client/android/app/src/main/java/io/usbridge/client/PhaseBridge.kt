@@ -22,6 +22,7 @@ object PhaseBridge {
     private var running = false
     private var startedAt = 0L
     private var last = 0L
+    private var lastTick = 0L
     private val gaps = LongArray(16)
     private var gapCount = 0
 
@@ -51,6 +52,7 @@ object PhaseBridge {
                 }
             }
             last = frameTimeNanos
+            lastTick = System.nanoTime()
             Choreographer.getInstance().postFrameCallback(this)
         }
     }
@@ -58,8 +60,12 @@ object PhaseBridge {
     @JvmStatic
     fun start() {
         main.post {
-            if (running) return@post
+            // Running and ticking: nothing to do. Running but silent for a second (the callback chain
+            // was lost): arm it again.
+            if (running && System.nanoTime() - lastTick < 1_000_000_000L) return@post
+            Choreographer.getInstance().removeFrameCallback(callback)
             running = true
+            lastTick = System.nanoTime()
             startedAt = System.nanoTime()
             last = 0
             gapCount = 0
