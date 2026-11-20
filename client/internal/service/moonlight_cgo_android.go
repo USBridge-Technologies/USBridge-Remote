@@ -51,6 +51,7 @@ extern void          android_gl_set_low_latency(int on);
 extern void          android_gl_log_vendor_params(const char *name);
 extern int           android_decoder_best_size(const char *mime, int w, int h, int fps, int *out);
 extern int           android_display_max_refresh(void);
+extern void          phase_android_frame_ready(void);
 extern void          android_gl_detach_thread(void);
 extern uint8_t      *android_gl_get_frame_from_ahb(void *ahb, int crop_x, int crop_y, int crop_w, int crop_h);
 extern int           android_gl_bench_row_from_ahb(void *ahb, int crop_x, int y, int crop_w, uint8_t *rgba);
@@ -793,6 +794,7 @@ static void *amc_output_thread(void *arg) {
         }
         vlat_note_output((uint64_t)info.presentationTimeUs);
         atomic_fetch_add(&g_amc_frames_out, 1);
+        phase_android_frame_ready(); // phase lock report: time to the display's next refresh
 
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -935,6 +937,7 @@ static int dr_submit(PDECODE_UNIT du) {
     if (out_idx >= 0) {
         vlat_note_output((uint64_t)info.presentationTimeUs);
         atomic_fetch_add(&g_amc_frames_out, 1);
+        phase_android_frame_ready(); // phase lock report: time to the display's next refresh
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC, &ts);
         int64_t now_ns = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;

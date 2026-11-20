@@ -1,4 +1,4 @@
-//go:build cgo && !android && !ios && (linux || darwin || windows)
+//go:build cgo && !ios && (linux || darwin || windows || android)
 
 // See phase_report.h.
 

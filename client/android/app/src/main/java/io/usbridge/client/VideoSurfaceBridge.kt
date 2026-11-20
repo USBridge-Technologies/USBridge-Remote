@@ -62,6 +62,7 @@ object VideoSurfaceBridge {
     @JvmStatic
     fun createSurface(texName: Int, lowLatency: Boolean): Surface? {
         release()
+        PhaseBridge.start()
         return try {
             val st = SurfaceTexture(texName)
             if (lowLatency) {
@@ -145,6 +146,7 @@ object VideoSurfaceBridge {
      */
     @JvmStatic
     fun bestDecoderSize(mime: String, w: Int, h: Int, fps: Int): IntArray? {
+        PhaseBridge.start() // a stream is starting (also when it renders straight to a SurfaceView)
         if (w <= 0 || h <= 0) return null
         return try {
             val caps = hardwareDecoderCaps(mime) ?: return null
@@ -271,6 +273,7 @@ object VideoSurfaceBridge {
 
     @JvmStatic
     fun release() {
+        PhaseBridge.stop()
         surface?.release()
         surfaceTexture?.release()
         surface = null
