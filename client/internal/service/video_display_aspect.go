@@ -37,3 +37,26 @@ func NativeDisplayAspect() float64 {
 	}
 	return VideoDisplayAspect()
 }
+
+var videoContentCrop atomic.Bool
+
+// SetVideoContentCrop shows only the x, y, w, h part (normalized) of the
+// decoded frame where a native renderer supports it -- the host letterboxed
+// its desktop into the stream and the bars are not worth screen space. A full
+// rect (or an unsupported renderer) shows the whole frame. NativeContentCrop
+// reports whether the renderer applies it, so the absolute mouse does not
+// cut the bars off twice.
+func SetVideoContentCrop(x, y, w, h float32) {
+	cropped := nativeContentCropSupported && (w < 0.999 || h < 0.999) && w > 0 && h > 0
+	videoContentCrop.Store(cropped)
+	if !nativeContentCropSupported {
+		return
+	}
+	if !cropped {
+		x, y, w, h = 0, 0, 1, 1
+	}
+	setNativeContentCrop(x, y, w, h)
+}
+
+// NativeContentCrop is whether SetVideoContentCrop's rect is applied.
+func NativeContentCrop() bool { return videoContentCrop.Load() }

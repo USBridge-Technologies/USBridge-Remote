@@ -15,3 +15,7 @@ func setNativeDisplayAspect(aspect float32) {
 	C.vk_video_set_display_aspect(C.float(aspect))
 	C.gl_video_set_display_aspect(C.float(aspect))
 }
+
+const nativeContentCropSupported = false
+
+func setNativeContentCrop(x, y, w, h float32) {}

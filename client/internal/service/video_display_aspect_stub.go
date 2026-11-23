@@ -7,3 +7,7 @@ package service
 const nativeDisplayAspectSupported = false
 
 func setNativeDisplayAspect(float32) {}
+
+const nativeContentCropSupported = false
+
+func setNativeContentCrop(x, y, w, h float32) {}

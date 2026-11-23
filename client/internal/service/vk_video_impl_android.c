@@ -51,6 +51,17 @@ static float display_aspect(int fw, int fh) {
     return a > 0.0f ? a : (float)fw / (float)(fh > 0 ? fh : 1);
 }
 
+// Part of the decoded frame that is the picture (normalized x, y, w, h): the
+// host letterboxed its desktop into the requested size, and the bars are not
+// shown -- the absolute mouse already treats them as outside the picture.
+static volatile float g_content[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+void vk_video_set_content_crop(float x, float y, float w, float h) {
+    if (w <= 0.0f || h <= 0.0f || x < 0.0f || y < 0.0f || x + w > 1.001f || y + h > 1.001f) {
+        x = 0.0f; y = 0.0f; w = 1.0f; h = 1.0f;
+    }
+    g_content[0] = x; g_content[1] = y; g_content[2] = w; g_content[3] = h;
+}
+
 #define VTAG "USBridge/VulkanVideo"
 #define VLOGI(...) __android_log_print(ANDROID_LOG_INFO,  VTAG, __VA_ARGS__)
 #define VLOGE(...) __android_log_print(ANDROID_LOG_ERROR, VTAG, __VA_ARGS__)
@@ -978,7 +989,13 @@ static void vk_layout_zoomed_dest(int fw, int fh, int sw, int sh,
                                   float zoom, int pan_x, int pan_y,
                                   int *dx, int *dy, int *dw, int *dh,
                                   int *sx0, int *sy0, int *sx1, int *sy1) {
-    float fa = display_aspect(fw, fh);
+    int cx0 = (int)(g_content[0] * fw + 0.5f), cy0 = (int)(g_content[1] * fh + 0.5f);
+    int cx1 = (int)((g_content[0] + g_content[2]) * fw + 0.5f), cy1 = (int)((g_content[1] + g_content[3]) * fh + 0.5f);
+    if (cx1 > fw) cx1 = fw;
+    if (cy1 > fh) cy1 = fh;
+    int cropped = cx1 > cx0 && cy1 > cy0 && (cx1 - cx0 < fw || cy1 - cy0 < fh);
+    if (!cropped) { cx0 = 0; cy0 = 0; cx1 = fw; cy1 = fh; }
+    float fa = cropped ? (float)(cx1 - cx0) / (float)(cy1 - cy0) : display_aspect(fw, fh);
     float wa = (float)sw / (float)(sh > 0 ? sh : 1);
     *dx = 0;
     *dy = 0;
@@ -1007,10 +1024,10 @@ static void vk_layout_zoomed_dest(int fw, int fh, int sw, int sh,
         *dy = cy - *dh / 2;
     }
     // Full-frame source before clip; pan/zoom clip adjusts src with dest.
-    *sx0 = 0;
-    *sy0 = 0;
-    *sx1 = fw;
-    *sy1 = fh;
+    *sx0 = cx0;
+    *sy0 = cy0;
+    *sx1 = cx1;
+    *sy1 = cy1;
     vk_apply_fit_pan(dx, dy, dw, dh, sx0, sy0, sx1, sy1, sw, sh, pan_x, pan_y);
 }
 

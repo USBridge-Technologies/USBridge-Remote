@@ -1332,6 +1332,11 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 			imgW = imgH * float32(a)
 		}
 	}
+	if service.NativeContentCrop() {
+		if _, _, fw, fh := vw.getFrameContentRect(); fw > 0 && fh > 0 {
+			imgW, imgH = imgW*fw, imgH*fh
+		}
+	}
 	if imgW > 0 && imgH > 0 {
 		baseW, baseH := aspectFitSize(w, availableH, imgW, imgH)
 		vw.baseContentRectW = baseW
@@ -1425,7 +1430,10 @@ func (vw *VideoWidget) absolutePictureRect() (rectX, rectY, rectW, rectH float32
 	}
 
 	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
-	if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
+	// A renderer that already shows only the picture part has that part as
+	// its dest rect: cutting the bars off again would shrink it twice.
+	_, _, _, _, nativeDest := vw.nativeDestRectDp()
+	if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 && !(nativeDest && service.NativeContentCrop()) {
 		rectX += rectW * frameX
 		rectY += rectH * frameY
 		rectW *= frameW
@@ -1692,6 +1700,8 @@ func (vw *VideoWidget) updateInStreamContentRectWith(streamW, streamH float32) {
 	vw.frameMutex.Lock()
 	vw.frameContentX, vw.frameContentY, vw.frameContentW, vw.frameContentH = x, y, w, h
 	vw.frameMutex.Unlock()
+	// The native renderer shows just the picture, not the host's bars.
+	service.SetVideoContentCrop(x, y, w, h)
 	if w < 0.999 || h < 0.999 {
 		if now := time.Now(); now.Sub(inStreamLogAt) >= 2*time.Second {
 			inStreamLogAt = now
