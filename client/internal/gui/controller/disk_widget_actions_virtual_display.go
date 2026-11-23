@@ -79,8 +79,12 @@ func (dw *DiskWidget) handleAddVirtualDisplay() {
 	// On by default: the remote user can't see the physical screens, so
 	// windows opening there would be lost. Can be turned off later with the
 	// display's "Main" switch.
-	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 300, true, nil)
-	body := container.NewVBox(presetRow, customBox, primaryRow)
+	canMain := dw.usbClient == nil || dw.usbClient.CanSetMainDisplay()
+	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 300, canMain, nil)
+	body := container.NewVBox(presetRow, customBox)
+	if canMain {
+		body.Add(primaryRow)
+	}
 
 	var closePopup func()
 	addBtn := newVirtualDisplayAddButton(func() {
@@ -99,7 +103,7 @@ func (dw *DiskWidget) handleAddVirtualDisplay() {
 		dw.userOperationInFlight.Store(true)
 		defer dw.userOperationInFlight.Store(false)
 
-		_, err := dw.usbClient.AddVirtualDisplay(w, h, f, primaryChecked(), false)
+		_, err := dw.usbClient.AddVirtualDisplay(w, h, f, canMain && primaryChecked(), false)
 		if err != nil {
 			logrus.Errorf("Failed to add virtual display: %v", err)
 			view.ShowErrorDialog(fmt.Errorf("Failed to add virtual display: %v", err), dw.window)

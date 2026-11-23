@@ -44,6 +44,12 @@ var routeCaps = map[string]guestauth.Cap{
 	"/api/video/session_end":   guestauth.CapView,
 	"/api/audio/info":          guestauth.CapAudio,
 	"/api/audio/devices":       guestauth.CapAudio,
+	// Read-only hardware-KVM stubs that always return empty/disabled on the
+	// software agent; permitting them under CapView prevents standard clients
+	// from throwing 403 dialogs on initial connect.
+	"/api/scripts/list":   guestauth.CapView,
+	"/api/scripts/status": guestauth.CapView,
+	"/api/storage/status": guestauth.CapView,
 
 	// Pairing hands out a Moonlight client certificate; the agent limits it to
 	// the role (view only for a Viewer) on the stream host, or refuses.
@@ -71,8 +77,8 @@ var routeCaps = map[string]guestauth.Cap{
 	"/api/backup/get_snapshots": guestauth.CapDisks,
 
 	"/api/video/virtual_displays": guestauth.CapDisplay,
-	"/api/video/monitors/enabled": guestauth.CapDisplay,
-	"/api/video/monitors/primary": guestauth.CapDisplay,
+	"/api/video/monitors/enabled": guestauth.CapDisplayExclusive,
+	"/api/video/monitors/primary": guestauth.CapDisplayMain,
 
 	"/api/video/set_device": guestauth.CapVideoSettings,
 	"/api/video/fec":        guestauth.CapVideoSettings,
@@ -95,6 +101,9 @@ func guestCap(path string) (guestauth.Cap, bool) {
 	case strings.HasPrefix(path, "/api/clipboard/blob/"):
 		return guestauth.CapClipboard, true
 	case strings.HasPrefix(path, "/api/video/virtual_displays/"):
+		if strings.HasSuffix(path, "/primary") {
+			return guestauth.CapDisplayMain, true
+		}
 		return guestauth.CapDisplay, true
 	}
 	return 0, false
@@ -170,6 +179,10 @@ func (m *SecurityMiddleware) authorizePrincipal(w http.ResponseWriter, r *http.R
 		return true
 	}
 	need, ok := guestCap(r.URL.Path)
+	if !ok && r.URL.Path == "/api/pcpanel/leds" && r.Method == http.MethodGet {
+		// Read-only LED status poll (stubbed on agent); POST stays owner-only.
+		need, ok = guestauth.CapView, true
+	}
 	if ok && r.URL.Path == "/api/device/start" {
 		// Each kind of device is gated by its own capability (input, pen, gamepad, disks, USB),
 		// so a policy may start exactly the kinds it holds.

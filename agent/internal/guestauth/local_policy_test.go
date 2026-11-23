@@ -51,9 +51,10 @@ func TestLocalTokenAuthAndAudit(t *testing.T) {
 	if !p.Local || p.Label != "vfx-artist-01" || !p.Policy.Has(CapPenTablet) || p.Policy.Has(CapClipFromHost) {
 		t.Fatalf("unexpected principal: %+v", p)
 	}
-	// Replay must be rejected
-	if _, err := auth.VerifyLocal("GET", "/api/status", ts, sig, id, nil); err != ErrReplay {
-		t.Fatalf("expected ErrReplay, got %v", err)
+	// Same-second identical GETs with HMAC must succeed (clients poll multiple
+	// endpoints per second; timestamp window provides replay bounding).
+	if _, err := auth.VerifyLocal("GET", "/api/status", ts, sig, id, nil); err != nil {
+		t.Fatalf("expected same-second GET to succeed, got %v", err)
 	}
 	// Revoked share must be rejected
 	if err := store.Revoke(sh.ID, now); err != nil {

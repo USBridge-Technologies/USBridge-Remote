@@ -239,6 +239,32 @@ object VideoSurfaceBridge {
     }
 
     /**
+     * Returns the hardware decoder's maximum supported (width, height) packed as
+     * (width << 32) | height, or 0 if unavailable. Queries the platform's real
+     * MediaCodec VideoCapabilities so the client can request native host
+     * resolution when supported, or clamp to the highest resolution the device
+     * hardware decoder can handle.
+     */
+    @JvmStatic
+    fun maxHardwareDecodeSize(isHevc: Boolean): Long {
+        return try {
+            val mime = if (isHevc) "video/hevc" else "video/avc"
+            val pair = hardwareDecoderCaps(mime) ?: hardwareDecoderCaps("video/avc") ?: return 0L
+            val vc = pair.second
+            val maxW = vc.supportedWidths.upper
+            val maxH = try {
+                vc.getSupportedHeightsFor(maxW).upper
+            } catch (_: Exception) {
+                vc.supportedHeights.upper
+            }
+            if (maxW <= 0 || maxH <= 0) 0L else (maxW.toLong() shl 32) or (maxH.toLong() and 0xFFFFFFFFL)
+        } catch (e: Exception) {
+            Log.w(TAG, "maxHardwareDecodeSize failed", e)
+            0L
+        }
+    }
+
+    /**
      * Logs the vendor parameters decoder [name] accepts (Android 12+), once
      * per decoder per process: where a new chip's own low-latency switch
      * shows up when the standard KEY_LOW_LATENCY isn't honored.

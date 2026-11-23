@@ -32,7 +32,8 @@ type MasterSyncResponseV2 struct {
 	// host side; DiskWidget.splitRawHID must not pick stream mode against a
 	// backend that answers false here, or the tablet silently stops working
 	// (no USB/IP fallback once stream mode is chosen).
-	RawHIDSupported bool `json:"raw_hid_supported"`
+	RawHIDSupported bool   `json:"raw_hid_supported"`
+	AccessCaps      uint32 `json:"access_caps,omitempty"`
 }
 
 func (c *USBClient) MasterSyncV2(ctx context.Context, payload MasterSyncPayloadV2) (*MasterSyncResponseV2, error) {
@@ -71,6 +72,12 @@ func (c *USBClient) MasterSyncV2(ctx context.Context, payload MasterSyncPayloadV
 	var syncResp MasterSyncResponseV2
 	if err := json.Unmarshal(raw, &syncResp); err != nil {
 		return nil, fmt.Errorf("failed to parse sync data: %v", err)
+	}
+
+	if syncResp.AccessCaps != 0 {
+		c.SetAccessCaps(syncResp.AccessCaps)
+	} else if _, _, isLocal := ParseLocalToken(c.apiSecret); isLocal {
+		c.SetAccessCaps(0)
 	}
 
 	return &syncResp, nil

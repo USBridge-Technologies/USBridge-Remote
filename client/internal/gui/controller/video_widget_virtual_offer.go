@@ -374,8 +374,10 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 	})
 	refreshRow := container.NewBorder(nil, nil, newVirtualDisplayFieldLabel(i18n.Current.VirtualDisplayOfferRefresh), nil, refreshPicker)
 
-	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 340, true, nil)
-	exclusiveRow, exclusiveChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayExclusive, "", i18n.Current.VirtualDisplayExclusiveHint, 340, true, nil)
+	canMain := vw.usbClient == nil || vw.usbClient.CanSetMainDisplay()
+	canExclusive := vw.usbClient == nil || vw.usbClient.CanTurnOtherMonitorsOff()
+	primaryRow, primaryChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayPrimary, "", i18n.Current.VirtualDisplayPrimaryHint, 340, canMain, nil)
+	exclusiveRow, exclusiveChecked := view.NewOptionToggleRow(i18n.Current.VirtualDisplayExclusive, "", i18n.Current.VirtualDisplayExclusiveHint, 340, canExclusive, nil)
 	body := container.NewVBox()
 	if len(offer.apps) > 1 {
 		body.Add(vw.newHostAppRow(offer.apps))
@@ -384,8 +386,12 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 		body.Add(view.NewDialogHint(i18n.Current.VirtualDisplayOfferNote, 340))
 		body.Add(modeRow)
 		body.Add(refreshRow)
-		body.Add(primaryRow)
-		body.Add(exclusiveRow)
+		if canMain {
+			body.Add(primaryRow)
+		}
+		if canExclusive {
+			body.Add(exclusiveRow)
+		}
 	}
 
 	// The native video stays hidden while this is open: a stream still
@@ -467,7 +473,7 @@ func (vw *VideoWidget) showVirtualDisplayOffer(cfg models.VideoDeviceConfig, off
 
 	createBtn := newVirtualDisplayAddButton(func() {
 		answer()
-		primary, exclusive := primaryChecked(), exclusiveChecked()
+		primary, exclusive := canMain && primaryChecked(), canExclusive && exclusiveChecked()
 		go func() {
 			if _, err := vw.usbClient.AddVirtualDisplay(width, height, fps, primary, exclusive); err != nil {
 				logrus.Errorf("Failed to add virtual display: %v", err)

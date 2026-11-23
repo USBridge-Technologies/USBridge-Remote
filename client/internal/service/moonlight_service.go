@@ -1013,6 +1013,12 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 		usbClient = usbapi.NewUSBClientWithScheme(scheme, host, port, 10, nil)
 	}
 	usbClient.SetAPISecretV2(m.apiSecret)
+	if _, _, isLocal := usbapi.ParseLocalToken([]byte(m.apiSecret)); isLocal {
+		// Scoped local tokens pair through /api/guest/moonlight-pair so the
+		// agent binds the client certificate to the share and clamps its
+		// Moonlight permissions to the token's Policy matrix.
+		return m.submitGuestPin(usbClient, pin)
+	}
 	_, err := usbClient.PostRaw("/api/moonlight/pin", body)
 	return err
 }

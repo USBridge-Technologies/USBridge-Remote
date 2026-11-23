@@ -50,6 +50,11 @@ type MasterSyncResponse struct {
 	// DiskWidget.splitRawHID on it before switching a Wacom tablet into
 	// stream mode.
 	RawHIDSupported bool `json:"raw_hid_supported"`
+	// AccessCaps is the effective guestauth.Cap bitmask for this connection
+	// (0xFFFFFFFF for full master-key owner). Clients use this to hide UI
+	// options (such as "Make it the main display" / "Turn the other monitors
+	// off") that the connected token is not permitted to use.
+	AccessCaps uint32 `json:"access_caps,omitempty"`
 }
 
 // MoonlightPINRequest is sent to /api/moonlight/pin.
@@ -182,6 +187,7 @@ func (s *Server) Sync(w http.ResponseWriter, r *http.Request) {
 		TailscaleStatus: tsStatus,
 		SunshineStatus:  sunshineStatus,
 		RawHIDSupported: s.app.RawHIDSupported(),
+		AccessCaps:      0xFFFFFFFF,
 	}
 	s.ok(w, "sync_ok", resp)
 }
@@ -238,6 +244,7 @@ func (s *Server) syncLocalToken(w http.ResponseWriter, env MasterSyncRequest, sh
 	resp := MasterSyncResponse{
 		SunshineStatus:  "no_pin",
 		RawHIDSupported: s.app.RawHIDSupported() && pol.Has(guestauth.CapPenTablet),
+		AccessCaps:      uint32(pol.Caps),
 	}
 	s.ok(w, "sync_ok", resp)
 }

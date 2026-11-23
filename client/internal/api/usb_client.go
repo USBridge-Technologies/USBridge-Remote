@@ -90,6 +90,12 @@ type USBClient struct {
 	// the WebRTC PeerConnection's "api-tunnel" DataChannel instead of a
 	// direct fetch() -- see SetOpenDataChannel's own doc comment.
 	openDataChannel func(label string) (net.Conn, error)
+
+	// accessCaps caches the guestauth.Cap bitmask returned by /api/auth/sync
+	// so the UI can hide controls (such as Make it the main display / Turn
+	// other monitors off) that the connected scoped token does not hold.
+	accessCaps    atomic.Uint32
+	accessCapsSet atomic.Bool
 }
 
 func NewUSBClient(host string, port int, timeout int) *USBClient {

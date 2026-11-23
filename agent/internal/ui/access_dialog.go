@@ -350,7 +350,8 @@ func (w *Window) showPolicyMatrixEditor(parent fyne.Window, existing *guestauth.
 	vidPidEntry.SetText(strings.Join(pol.USB.AllowedVIDPIDs, ", "))
 
 	cbDisplay := newStyledCheck("Displays / Virtual Mon.", pol.Has(guestauth.CapDisplay), nil)
-	cbVideoSet := newStyledCheck("Video / Codec Settings", pol.Has(guestauth.CapVideoSettings), nil)
+	cbDisplayMain := newStyledCheck("Make Virtual Display Main", pol.Has(guestauth.CapDisplayMain), nil)
+	cbDisplayExcl := newStyledCheck("Turn Other Monitors Off", pol.Has(guestauth.CapDisplayExclusive), nil)
 	cbConsent := newStyledCheck("Require Host Consent", consentVal, nil)
 
 	applyPreset := func(p guestauth.Policy) {
@@ -368,13 +369,16 @@ func (w *Window) showPolicyMatrixEditor(parent fyne.Window, existing *guestauth.
 		cbUSBStorage.SetChecked(p.USB.AllowMassStorage)
 		cbUSBOther.SetChecked(p.USB.AllowOther)
 		cbDisplay.SetChecked(p.Has(guestauth.CapDisplay))
-		cbVideoSet.SetChecked(p.Has(guestauth.CapVideoSettings))
+		cbDisplayMain.SetChecked(p.Has(guestauth.CapDisplayMain))
+		cbDisplayExcl.SetChecked(p.Has(guestauth.CapDisplayExclusive))
 	}
 
 	readPolicy := func() guestauth.Policy {
 		var caps guestauth.Cap
 		if cbView.Checked {
-			caps |= guestauth.CapView
+			// Video codec/FEC preferences are client-side choices; always
+			// allow them whenever screen viewing is enabled.
+			caps |= guestauth.CapView | guestauth.CapVideoSettings
 		}
 		if cbAudio.Checked {
 			caps |= guestauth.CapAudio
@@ -406,8 +410,11 @@ func (w *Window) showPolicyMatrixEditor(parent fyne.Window, existing *guestauth.
 		if cbDisplay.Checked {
 			caps |= guestauth.CapDisplay
 		}
-		if cbVideoSet.Checked {
-			caps |= guestauth.CapVideoSettings
+		if cbDisplayMain.Checked {
+			caps |= guestauth.CapDisplayMain
+		}
+		if cbDisplayExcl.Checked {
+			caps |= guestauth.CapDisplayExclusive
 		}
 		var vids []string
 		for _, part := range strings.Split(vidPidEntry.Text, ",") {
@@ -518,7 +525,8 @@ func (w *Window) showPolicyMatrixEditor(parent fyne.Window, existing *guestauth.
 	)
 	cardDLP := sectionCard("DLP (TPN) & HOST",
 		cbClipTo, cbClipFrom, cbFiles,
-		cbDisplay, cbVideoSet, cbConsent,
+		cbDisplay, cbDisplayMain, cbDisplayExcl,
+		cbConsent,
 	)
 	cardUSB := sectionCard("USB WHITELIST",
 		cbUSBHID, cbUSBPen, cbUSBAudio, cbUSBStorage, cbUSBOther,

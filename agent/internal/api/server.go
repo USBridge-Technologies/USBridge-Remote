@@ -1316,6 +1316,14 @@ func (s *Server) virtualDisplayCreate(w http.ResponseWriter, r *http.Request) {
 	path := fmt.Sprintf("virtual:%dx%d@%d", req.Width, req.Height, req.FPS)
 
 	primary := req.Primary == nil || *req.Primary
+	if p := PrincipalFrom(r); p != nil {
+		if !p.Policy.Has(guestauth.CapDisplayMain) {
+			primary = false
+		}
+		if !p.Policy.Has(guestauth.CapDisplayExclusive) {
+			req.Exclusive = false
+		}
+	}
 	if _, err := s.app.SetVirtualDisplayPrimary(primary); err != nil {
 		log.Printf("[api] virtual display create: primary=%v not applied: %v", primary, err)
 	}

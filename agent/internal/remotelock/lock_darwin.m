@@ -121,9 +121,10 @@ static int windowAtPointIsOurs(NSPoint pt) {
 			if ([NSApp windowWithWindowNumber:num] != nil) {
 				return 1;
 			}
-			if (cgWindowOwnedByUs((CGWindowID)num)) {
-				return 1;
-			}
+			// Topmost window under the cursor is known: only block if it
+			// belongs to this agent process, never fall through to occluded
+			// agent windows behind another app.
+			return cgWindowOwnedByUs((CGWindowID)num);
 		}
 		return pointInOurWindowFrames(pt);
 	}
@@ -221,6 +222,7 @@ static int addTapToLoop(CFMachPortRef tap, CFRunLoopSourceRef *outSrc) {
 static void dropTap(CFMachPortRef *tap, CFRunLoopSourceRef *src) {
 	if (*tap != NULL) {
 		CGEventTapEnable(*tap, false);
+		CFMachPortInvalidate(*tap);
 	}
 	if (*src != NULL) {
 		CFRunLoopRemoveSource(CFRunLoopGetMain(), *src, kCFRunLoopCommonModes);

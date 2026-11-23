@@ -1982,8 +1982,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 	body := container.NewBorder(header, footer, nil, nil,
 		container.NewVScroll(newExactInset(content, 16, 16, 8, 8)))
-	lockOverlay := w.buildSessionLockOverlay()
-	win.SetContent(w.wrapWithResizeGuard(container.NewStack(bg, body, lockOverlay)))
+	win.SetContent(w.wrapWithResizeGuard(container.NewStack(bg, body)))
+	w.initSessionLock(win)
 
 	// attachTray must run before wiring our own close intercept below:
 	// desktop.App.SetSystemTrayWindow (called inside attachTray) installs
@@ -3009,6 +3009,7 @@ func (w *Window) performRefresh() {
 		var certLoggedIn bool
 		var activeRestricted []guestauth.Session
 		var pinConfigured bool
+		var remoteLockPref bool
 		if w.token != nil {
 			if clients, err := w.token.ListSunshineClients(); err == nil {
 				status.moonlightCount = len(clients)
@@ -3021,11 +3022,12 @@ func (w *Window) performRefresh() {
 			w.promptPendingGuests(w.token.GuestPending())
 			activeRestricted = w.token.ActiveRestrictedSessions()
 			pinConfigured, _, _ = w.token.AdminPINStatus()
+			remoteLockPref = w.token.RemoteWindowLockEnabled()
 			certStatus = w.token.CertStatus()
 			certLoggedIn = w.token.AccountStatus().LoggedIn
 		}
 		fyne.Do(func() {
-			w.syncSessionLock(activeRestricted, pinConfigured)
+			w.syncSessionLock(activeRestricted, pinConfigured, remoteLockPref)
 			w.maybeFinishPendingTierSwitch(entStatus)
 			w.refreshSupportButton(entStatus)
 			w.refreshTierBadge(entStatus)

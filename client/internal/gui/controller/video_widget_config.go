@@ -506,9 +506,14 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 			info = deviceInfo
 		}
 	}
-	if !hasSavedVideoDeviceConfig(selectedPath) && info != nil && info.Device == selectedPath {
-		cfg = mergeVideoConfigWithInfo(cfg, info)
-		logrus.Infof("🎯 [CODEC-TRACE] resolvePreferredVideoConfig: no saved prefs yet, merged server info.Encoding=%q -> VideoMode=%q", info.Encoding, cfg.VideoMode)
+	if info != nil && (info.Device == selectedPath || info.Device == "") {
+		if !hasSavedVideoDeviceConfig(selectedPath) {
+			cfg = mergeVideoConfigWithInfo(cfg, info)
+			logrus.Infof("🎯 [CODEC-TRACE] resolvePreferredVideoConfig: no saved prefs yet, merged server info.Encoding=%q -> VideoMode=%q %dx%d", info.Encoding, cfg.VideoMode, cfg.VideoWidth, cfg.VideoHeight)
+		} else {
+			cfg = mergeVideoConfigResolution(cfg, info)
+			logrus.Infof("🎯 [CODEC-TRACE] resolvePreferredVideoConfig: refreshed native resolution -> %dx%d", cfg.VideoWidth, cfg.VideoHeight)
+		}
 	}
 	logrus.Infof("🎯 [CODEC-TRACE] resolvePreferredVideoConfig: final VideoMode=%q device=%s", cfg.VideoMode, selectedPath)
 	return cfg, nil
@@ -524,11 +529,9 @@ func mergeVideoConfigResolution(cfg models.VideoDeviceConfig, info *models.Video
 	if info == nil {
 		return cfg
 	}
-	if info.Width > 0 {
-		cfg.VideoWidth = info.Width
-	}
-	if info.Height > 0 {
-		cfg.VideoHeight = info.Height
+	if w, h := selectResolutionForInfo(info, cfg.VideoMode); w > 0 && h > 0 {
+		cfg.VideoWidth = w
+		cfg.VideoHeight = h
 	}
 	return cfg
 }
@@ -537,11 +540,9 @@ func mergeVideoConfigWithInfo(cfg models.VideoDeviceConfig, info *models.VideoIn
 	if info == nil {
 		return cfg
 	}
-	if info.Width > 0 {
-		cfg.VideoWidth = info.Width
-	}
-	if info.Height > 0 {
-		cfg.VideoHeight = info.Height
+	if w, h := selectResolutionForInfo(info, cfg.VideoMode); w > 0 && h > 0 {
+		cfg.VideoWidth = w
+		cfg.VideoHeight = h
 	}
 	if info.FPS > 0 {
 		cfg.VideoFPS = info.FPS

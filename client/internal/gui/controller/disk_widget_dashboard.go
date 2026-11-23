@@ -1292,6 +1292,9 @@ func (dw *DiskWidget) newDashboardVirtualDisplayPrimaryToggle(drive DriveItem) f
 	if drive.VideoDevice == nil || drive.VideoDevice.Primary == nil {
 		return nil
 	}
+	if dw.usbClient != nil && !dw.usbClient.CanSetMainDisplay() {
+		return nil
+	}
 	id := drive.VideoDevice.Path
 	on := *drive.VideoDevice.Primary
 	btn := view.NewDeviceDashboardTextToggle(i18n.Current.VirtualDisplayPrimaryToggle, on, func() {

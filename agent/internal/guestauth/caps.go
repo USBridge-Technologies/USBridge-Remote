@@ -37,8 +37,10 @@ const (
 	CapFileTransfer                  // 0x0080: clipboard files, drag&drop, upload/download
 	CapUSB                           // 0x0100: general USB passthrough (filtered by USBPolicy)
 	CapDisks                         // 0x0200: mass storage / flash drives / MTP / NBD / ISO
-	CapDisplay                       // 0x0400: virtual displays, monitor enable/primary
-	CapVideoSettings                 // 0x0800: codec, FEC, video source settings
+	CapDisplay          // 0x0400: virtual displays
+	CapVideoSettings    // 0x0800: codec, FEC, video source settings
+	CapDisplayMain      // 0x1000: make virtual/selected display the main display
+	CapDisplayExclusive // 0x2000: turn other physical monitors off
 )
 
 // CapClipboard matches bidirectional clipboard access (legacy convenience mask).
@@ -116,7 +118,8 @@ func PresetTechnician() Policy {
 	return Policy{
 		Caps: CapView | CapAudio | CapInput | CapPenTablet | CapGamepad |
 			CapClipToHost | CapClipFromHost | CapFileTransfer |
-			CapUSB | CapDisks | CapDisplay | CapVideoSettings,
+			CapUSB | CapDisks | CapDisplay | CapVideoSettings |
+			CapDisplayMain | CapDisplayExclusive,
 		USB: USBPolicy{
 			AllowHID:         true,
 			AllowPenTablet:   true,

@@ -192,9 +192,6 @@ func (a *Authenticator) VerifyLocal(method, requestURI, ts, sigHex, shareID stri
 	if !hmac.Equal([]byte(sigHex), []byte(expected)) {
 		return nil, ErrInvalid
 	}
-	if a.replayed("loc:"+shareID+":"+sigHex, now) {
-		return nil, ErrReplay
-	}
 	return &Principal{
 		ShareID:        sh.ID,
 		Label:          sh.Label,

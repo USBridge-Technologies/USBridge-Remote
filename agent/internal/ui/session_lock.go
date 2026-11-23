@@ -14,42 +14,23 @@ import (
 	"usbridge_agent/internal/ui/design"
 )
 
-// sessionLockBarrier is a full-window opaque widget that swallows all mouse
-// taps so clicks never bleed through to the underlying agent controls while a
-// restricted client session is active.
-type sessionLockBarrier struct {
-	widget.BaseWidget
-	content fyne.CanvasObject
-}
-
-func newSessionLockBarrier(content fyne.CanvasObject) *sessionLockBarrier {
-	b := &sessionLockBarrier{content: content}
-	b.ExtendBaseWidget(b)
-	return b
-}
-
-func (b *sessionLockBarrier) CreateRenderer() fyne.WidgetRenderer {
-	bg := canvas.NewRectangle(color.NRGBA{R: 12, G: 14, B: 16, A: 248})
-	return widget.NewSimpleRenderer(container.NewStack(bg, b.content))
-}
-
-func (b *sessionLockBarrier) Tapped(*fyne.PointEvent)          {}
-func (b *sessionLockBarrier) TappedSecondary(*fyne.PointEvent) {}
-
 type sessionLockState struct {
-	overlay          *sessionLockBarrier
+	modal            *widget.PopUp
 	clientsLabel     *canvas.Text
 	pinEntry         *widget.Entry
 	errText          *canvas.Text
-	unlockBox        *fyne.Container
-	noPINHint        *canvas.Text
+	hintText         *canvas.Text
+	pinConfigured    bool
 	activeRestricted bool
 	adminUnlocked    bool
 	prevRemoteLock   bool
 	remotelockForced bool
 }
 
-func (w *Window) buildSessionLockOverlay() fyne.CanvasObject {
+func (w *Window) initSessionLock(win fyne.Window) {
+	if win == nil {
+		return
+	}
 	title := canvas.NewText("Agent Interface Locked", design.ColorTextLight)
 	title.TextSize = 15
 	title.TextStyle.Bold = true
@@ -66,6 +47,10 @@ func (w *Window) buildSessionLockOverlay() fyne.CanvasObject {
 	pinEntry := widget.NewPasswordEntry()
 	pinEntry.SetPlaceHolder("Admin PIN")
 
+	hintText := canvas.NewText("", design.ColorMutedOlive)
+	hintText.TextSize = 10
+	hintText.Alignment = fyne.TextAlignCenter
+
 	errText := canvas.NewText("", color.NRGBA{R: 239, G: 68, B: 68, A: 255})
 	errText.TextSize = 10
 	errText.Alignment = fyne.TextAlignCenter
@@ -76,36 +61,39 @@ func (w *Window) buildSessionLockOverlay() fyne.CanvasObject {
 			return
 		}
 		pin := pinEntry.Text
-		if w.token.VerifyAdminPIN(pin) {
-			w.sessionLock.adminUnlocked = true
+		if w.sessionLock.pinConfigured {
+			if !w.token.VerifyAdminPIN(pin) {
+				errText.Text = "Invalid Admin PIN"
+				errText.Show()
+				errText.Refresh()
+				return
+			}
 			w.cachedAdminPIN = pin
-			pinEntry.SetText("")
-			errText.Hide()
-			w.sessionLock.overlay.Hide()
-			w.sessionLock.overlay.Refresh()
-		} else {
-			errText.Text = "Invalid Admin PIN"
-			errText.Show()
-			errText.Refresh()
+		} else if pin != "" {
+			if err := w.token.SetAdminPIN("", pin); err != nil {
+				errText.Text = err.Error()
+				errText.Show()
+				errText.Refresh()
+				return
+			}
+			w.cachedAdminPIN = pin
+			w.sessionLock.pinConfigured = true
+		}
+		w.sessionLock.adminUnlocked = true
+		pinEntry.SetText("")
+		errText.Hide()
+		if w.sessionLock.modal != nil {
+			w.sessionLock.modal.Hide()
+			if w.guiWin != nil && w.guiWin.Canvas() != nil {
+				w.guiWin.Canvas().Overlays().Remove(w.sessionLock.modal)
+			}
 		}
 	}
 	pinEntry.OnSubmitted = func(string) { doUnlock() }
 
-	unlockBtn := newIconActionButton("Unlock (Admin)", nil, doUnlock)
+	unlockBtn := newIconActionButton("Unlock", nil, doUnlock)
 	unlockBtn.Compact = true
 	unlockBtn.Accent = true
-
-	unlockBox := container.NewVBox(
-		pinEntry,
-		spacerSize(1, 6),
-		container.NewCenter(unlockBtn),
-		errText,
-	)
-
-	noPINHint := canvas.NewText("Set an Admin PIN in Access → Security to unlock while a session is active.", design.ColorMutedOlive)
-	noPINHint.TextSize = 10
-	noPINHint.Alignment = fyne.TextAlignCenter
-	noPINHint.Hide()
 
 	cardInner := container.NewVBox(
 		title,
@@ -113,12 +101,15 @@ func (w *Window) buildSessionLockOverlay() fyne.CanvasObject {
 		sub,
 		spacerSize(1, 8),
 		clientsLbl,
-		spacerSize(1, 12),
-		unlockBox,
-		noPINHint,
+		spacerSize(1, 10),
+		pinEntry,
+		hintText,
+		spacerSize(1, 6),
+		container.NewCenter(unlockBtn),
+		errText,
 	)
 	widthLock := canvas.NewRectangle(color.Transparent)
-	widthLock.SetMinSize(fyne.NewSize(320, 1))
+	widthLock.SetMinSize(fyne.NewSize(340, 1))
 
 	cardBg := canvas.NewRectangle(design.ColorGray900)
 	cardBg.CornerRadius = design.RadiusMD
@@ -130,28 +121,26 @@ func (w *Window) buildSessionLockOverlay() fyne.CanvasObject {
 		container.NewVBox(widthLock, newExactInset(cardInner, 20, 20, 18, 18)),
 	)
 
-	barrier := newSessionLockBarrier(container.NewCenter(card))
-	barrier.Hide()
+	modal := widget.NewModalPopUp(card, win.Canvas())
 
 	w.sessionLock = &sessionLockState{
-		overlay:      barrier,
+		modal:        modal,
 		clientsLabel: clientsLbl,
 		pinEntry:     pinEntry,
 		errText:      errText,
-		unlockBox:    unlockBox,
-		noPINHint:    noPINHint,
+		hintText:     hintText,
 	}
-	return barrier
 }
 
-// syncSessionLock updates the UI lock overlay and hardware remotelock state
+// syncSessionLock updates the modal lock overlay and hardware remotelock state
 // whenever the set of active restricted sessions changes. Must be called on
-// the Fyne UI thread.
-func (w *Window) syncSessionLock(active []guestauth.Session, pinConfigured bool) {
-	if w.sessionLock == nil || w.sessionLock.overlay == nil {
+// the Fyne UI thread; prevRemoteLock is pre-fetched off the UI thread.
+func (w *Window) syncSessionLock(active []guestauth.Session, pinConfigured bool, prevRemoteLock bool) {
+	if w.sessionLock == nil || w.sessionLock.modal == nil {
 		return
 	}
 	st := w.sessionLock
+	st.pinConfigured = pinConfigured
 	hasActive := len(active) > 0
 
 	if hasActive {
@@ -163,44 +152,49 @@ func (w *Window) syncSessionLock(active []guestauth.Session, pinConfigured bool)
 		st.clientsLabel.Refresh()
 
 		if pinConfigured {
-			st.unlockBox.Show()
-			st.noPINHint.Hide()
+			st.pinEntry.SetPlaceHolder("Enter Admin PIN to unlock")
+			st.hintText.Text = "Enter your Admin PIN to access settings during this session."
 		} else {
-			st.unlockBox.Hide()
-			st.noPINHint.Show()
+			st.pinEntry.SetPlaceHolder("Optional: set new Admin PIN (min 4 chars)")
+			st.hintText.Text = "No Admin PIN set yet — click Unlock, or enter a PIN to protect settings."
 		}
+		st.hintText.Refresh()
 
 		if !st.activeRestricted {
-			// Transition: idle -> restricted session active.
 			st.activeRestricted = true
 			st.adminUnlocked = false
-			st.prevRemoteLock = w.token != nil && w.token.RemoteWindowLockEnabled()
-			remotelock.SetEnabled(true)
+			st.prevRemoteLock = prevRemoteLock
 			st.remotelockForced = true
-			// Dismiss any open popups (e.g. TOKEN / Master Key QR) immediately.
+			go remotelock.SetEnabled(true)
+			// Dismiss and remove any open popups (e.g. TOKEN / Master Key QR) immediately.
 			if w.guiWin != nil && w.guiWin.Canvas() != nil {
-				for _, ov := range w.guiWin.Canvas().Overlays().List() {
-					ov.Hide()
+				overlays := w.guiWin.Canvas().Overlays()
+				for _, ov := range overlays.List() {
+					if ov != st.modal {
+						ov.Hide()
+						overlays.Remove(ov)
+					}
 				}
 			}
 		}
-		if !st.adminUnlocked && st.overlay.Hidden {
-			st.overlay.Show()
-			st.overlay.Refresh()
+		if !st.adminUnlocked && st.modal.Hidden {
+			st.modal.Show()
 		}
 	} else {
 		if st.activeRestricted {
-			// Transition: restricted session ended -> auto-unlock.
 			st.activeRestricted = false
 			st.adminUnlocked = false
 			if st.remotelockForced {
-				remotelock.SetEnabled(st.prevRemoteLock)
+				restore := st.prevRemoteLock
 				st.remotelockForced = false
+				go remotelock.SetEnabled(restore)
 			}
 		}
-		if !st.overlay.Hidden {
-			st.overlay.Hide()
-			st.overlay.Refresh()
+		if !st.modal.Hidden {
+			st.modal.Hide()
+		}
+		if w.guiWin != nil && w.guiWin.Canvas() != nil {
+			w.guiWin.Canvas().Overlays().Remove(st.modal)
 		}
 	}
 }

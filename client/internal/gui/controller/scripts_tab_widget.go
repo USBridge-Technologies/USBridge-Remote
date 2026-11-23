@@ -906,6 +906,10 @@ func (w *ScriptsTabWidget) refreshScriptsList() {
 		}
 		fyne.Do(func() { w.setBusy(false) })
 		if err != nil {
+			if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "not_permitted") {
+				logrus.Debugf("[scripts] list not permitted for this access token: %v", err)
+				return
+			}
 			if w.window != nil {
 				view.ShowErrorDialog(err, w.window)
 			}

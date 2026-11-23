@@ -363,12 +363,23 @@ func (a *App) checkAdminPIN(pin string) error {
 	return nil
 }
 
-// ActiveRestrictedSessions returns all currently connected non-root sessions.
+// ActiveRestrictedSessions returns currently live non-root sessions (active
+// within the last 15 seconds, or while a video stream is running) so the agent
+// UI lock engages only while a restricted client is actually connected and
+// auto-unlocks promptly after disconnect.
 func (a *App) ActiveRestrictedSessions() []guestauth.Session {
 	if a.guests == nil {
 		return nil
 	}
-	return a.guests.Sessions.ActiveAllowed()
+	now := time.Now()
+	streaming := a.SessionActive()
+	var live []guestauth.Session
+	for _, s := range a.guests.Sessions.ActiveAllowed() {
+		if streaming || now.Sub(s.LastActive) <= 15*time.Second {
+			live = append(live, s)
+		}
+	}
+	return live
 }
 
 // ListAccessTokens returns all recorded local tokens and guest shares (newest first).

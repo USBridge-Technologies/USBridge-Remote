@@ -987,6 +987,23 @@ int android_display_max_refresh(void) {
     return (int)hz;
 }
 
+// android_max_hw_decode_size asks VideoSurfaceBridge.maxHardwareDecodeSize for
+// the hardware decoder's maximum supported (width<<32)|height, 0 if unknown.
+int64_t android_max_hw_decode_size(int is_hevc) {
+    if (!g_cls_vsb) return 0;
+    int detach;
+    JNIEnv *env = get_env(&detach);
+    if (!env) return 0;
+    jlong packed = 0;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "maxHardwareDecodeSize", "(Z)J");
+    if (mid && !(*env)->ExceptionCheck(env)) {
+        packed = (*env)->CallStaticLongMethod(env, g_cls_vsb, mid, is_hevc ? JNI_TRUE : JNI_FALSE);
+    }
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); packed = 0; }
+    detach_env(detach);
+    return (int64_t)packed;
+}
+
 // android_gl_log_vendor_params logs decoder `name`'s vendor parameters
 // (VideoSurfaceBridge.logVendorParameters).
 void android_gl_log_vendor_params(const char *name) {

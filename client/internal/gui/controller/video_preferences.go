@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
@@ -20,11 +21,20 @@ type videoPreferences struct {
 }
 
 func defaultVideoDeviceConfig(devicePath, deviceName string) models.VideoDeviceConfig {
+	// Default to 1080p (clamped to the client's hardware decoder max) until
+	// /api/video/info provides the host's native resolution, instead of the
+	// old blurry 1280x720 fallback.
+	w, h := 1920, 1080
+	if maxW, maxH := service.MaxHardwareDecodeResolution(models.VideoModeH265); maxW > 0 && maxH > 0 {
+		if cw, ch := SelectBestResolution(w, h, nil, maxW, maxH); cw > 0 && ch > 0 {
+			w, h = cw, ch
+		}
+	}
 	return models.VideoDeviceConfig{
 		DevicePath:    devicePath,
 		DeviceName:    deviceName,
-		VideoWidth:    1280,
-		VideoHeight:   720,
+		VideoWidth:    w,
+		VideoHeight:   h,
 		VideoFPS:      60,
 		VideoQuality:  100,
 		VideoBitrate:  "20000K",
