@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
 
-// clientEntry mirrors gamestream-server's confirmed GET /api/clients/list
-// response shape: a JSON array of {"uniqueid": "<string>"} objects — no
-// "name" field (unlike Sunshine's named_certs), so Client.Name is always ""
-// for this backend.
+// clientEntry mirrors an entry of gamestream-server's GET /api/clients/list.
+// Current servers answer {"named": [{"uniqueid","uuid","name"}]} (Sunshine-like
+// envelope, name = cert CN); older ones answered a bare array of
+// {"uniqueid"} — ListClients accepts both.
 type clientEntry struct {
 	UniqueID string `json:"uniqueid"`
+	Name     string `json:"name"`
 }
 
 func (b *rustshineBackend) ListClients(adminPort int) ([]Client, error) {
@@ -32,13 +34,25 @@ func (b *rustshineBackend) ListClients(adminPort int) ([]Client, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gamestream-server returned HTTP %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Named []clientEntry `json:"named"`
+	}
 	var entries []clientEntry
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+	if err := json.Unmarshal(raw, &envelope); err == nil {
+		entries = envelope.Named
+	} else if err := json.Unmarshal(raw, &entries); err != nil {
 		return nil, err
 	}
 	out := make([]Client, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, Client{UniqueID: e.UniqueID})
+		out = append(out, Client{Name: e.Name, UniqueID: e.UniqueID})
 	}
 	return out, nil
 }
