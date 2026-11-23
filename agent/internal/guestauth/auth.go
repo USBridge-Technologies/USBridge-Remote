@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -39,12 +40,29 @@ type Claims struct {
 	Exp  int64  `json:"exp"`
 }
 
-// Principal is who a verified guest request came from.
+// Principal is who a verified guest or local-token request came from.
 type Principal struct {
 	ShareID        string
+	Label          string
 	Email          string
 	Role           Role
+	Policy         Policy
+	Local          bool
 	RequireConsent bool
+}
+
+// DisplayName returns a human-readable identifier for logs and UI.
+func (p *Principal) DisplayName() string {
+	if p == nil {
+		return ""
+	}
+	if l := strings.TrimSpace(p.Label); l != "" {
+		return l
+	}
+	if e := strings.TrimSpace(p.Email); e != "" {
+		return e
+	}
+	return p.ShareID
 }
 
 var (
@@ -139,7 +157,53 @@ func (a *Authenticator) Verify(method, requestURI, ts, sigB64, ticket string, bo
 	if a.replayed(sigB64, now) {
 		return nil, ErrReplay
 	}
-	return &Principal{ShareID: sh.ID, Email: sh.Email, Role: sh.Role, RequireConsent: sh.RequireConsent}, nil
+	return &Principal{
+		ShareID:        sh.ID,
+		Label:          sh.Label,
+		Email:          sh.Email,
+		Role:           sh.Role,
+		Policy:         sh.EffectivePolicy(),
+		Local:          sh.Local,
+		RequireConsent: sh.RequireConsent,
+	}, nil
+}
+
+// VerifyLocal authenticates a self-hosted local access token request carrying
+// X-Access-Token-ID, X-Auth-Timestamp, and X-Auth-Signature (HMAC-SHA256 using
+// the token's local secret). No cloud backend or email is involved.
+func (a *Authenticator) VerifyLocal(method, requestURI, ts, sigHex, shareID string, body []byte) (*Principal, error) {
+	shareID = strings.TrimSpace(shareID)
+	if shareID == "" || ts == "" || sigHex == "" {
+		return nil, ErrInvalid
+	}
+	now := a.now()
+	unix, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil || absDur(now.Sub(time.Unix(unix, 0))) > Skew {
+		return nil, ErrInvalid
+	}
+	sh := a.store.Get(shareID)
+	if sh == nil || !sh.Local || sh.LocalSecret == "" {
+		return nil, ErrInvalid
+	}
+	if !sh.Live(now) {
+		return nil, ErrRevoked
+	}
+	expected := CalculateLocalHMAC(method, requestURI, ts, body, sh.LocalSecret)
+	if !hmac.Equal([]byte(sigHex), []byte(expected)) {
+		return nil, ErrInvalid
+	}
+	if a.replayed("loc:"+shareID+":"+sigHex, now) {
+		return nil, ErrReplay
+	}
+	return &Principal{
+		ShareID:        sh.ID,
+		Label:          sh.Label,
+		Email:          sh.Email,
+		Role:           sh.Role,
+		Policy:         sh.EffectivePolicy(),
+		Local:          true,
+		RequireConsent: sh.RequireConsent,
+	}, nil
 }
 
 func (a *Authenticator) replayed(sig string, now time.Time) bool {

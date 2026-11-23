@@ -272,10 +272,11 @@ func TestKickGuestSignsTheShareForRustshine(t *testing.T) {
 }
 
 func TestGuestDeviceStartNeedsPerKindCaps(t *testing.T) {
-	in, disks, usb := guestauth.CapInput, guestauth.CapDisks, guestauth.CapUSB
+	in, pen, pad, disks, usb := guestauth.CapInput, guestauth.CapPenTablet, guestauth.CapGamepad, guestauth.CapDisks, guestauth.CapUSB
 	for body, want := range map[string]guestauth.Cap{
 		`{"devices":[{"device":"keyboard"},{"device":"mouse","type":"absolute"}]}`: in,
-		`{"devices":[{"device":"gamepad"}]}`:                                       in,
+		`{"devices":[{"device":"gamepad"}]}`:                                       pad,
+		`{"devices":[{"device":"wacom"}]}`:                                         pen,
 		`{"devices":[{"device":"keyboard"},{"device":"drive"}]}`:                   in | disks,
 		`{"devices":[{"device":"mtp"}]}`:                                           disks,
 		`{"devices":[{"device":"audio"}]}`:                                         usb,

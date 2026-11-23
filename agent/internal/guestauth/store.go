@@ -13,12 +13,16 @@ import (
 	"time"
 )
 
-// Share is one guest's access, as the agent itself recorded it.
+// Share is one guest's or local scoped token's access, as the agent itself recorded it.
 type Share struct {
-	ID             string `json:"id"`
-	Email          string `json:"email"`
-	Role           Role   `json:"role"`
-	RequireConsent bool   `json:"require_consent"`
+	ID             string  `json:"id"`
+	Label          string  `json:"label,omitempty"`
+	Email          string  `json:"email,omitempty"`
+	Role           Role    `json:"role"`
+	Policy         *Policy `json:"policy,omitempty"`
+	Local          bool    `json:"local,omitempty"`
+	LocalSecret    string  `json:"local_secret,omitempty"`
+	RequireConsent bool    `json:"require_consent"`
 	// ExpiresAt is unix seconds; 0 means no end date.
 	ExpiresAt  int64 `json:"expires_at,omitempty"`
 	CreatedAt  int64 `json:"created_at"`
@@ -28,6 +32,35 @@ type Share struct {
 	// hex) this guest paired with. They are removed from the stream host's
 	// trust list when the share ends, so a revoked guest cannot stream again.
 	Fingerprints []string `json:"fingerprints,omitempty"`
+}
+
+// EffectivePolicy returns the granular Policy for this share, falling back to
+// PolicyForRole for legacy shares that only recorded a Role.
+func (s *Share) EffectivePolicy() Policy {
+	if s.Policy != nil {
+		return *s.Policy
+	}
+	return PolicyForRole(s.Role)
+}
+
+// DisplayName returns a human-readable identifier (Label if set, else Email, else ID).
+func (s *Share) DisplayName() string {
+	if l := strings.TrimSpace(s.Label); l != "" {
+		return l
+	}
+	if e := strings.TrimSpace(s.Email); e != "" {
+		return e
+	}
+	return s.ID
+}
+
+// LocalToken returns the formatted "usbloc1.<id>.<secret>" token for a local
+// share, or "" if this is not a local share.
+func (s *Share) LocalToken() string {
+	if !s.Local || s.LocalSecret == "" {
+		return ""
+	}
+	return FormatLocalToken(s.ID, s.LocalSecret)
 }
 
 // Live reports whether the share still grants access at now.
@@ -98,6 +131,70 @@ func (s *Store) Add(email string, role Role, expiresAt int64, requireConsent boo
 	s.shares[sh.ID] = sh
 	if err := s.saveLocked(); err != nil {
 		delete(s.shares, sh.ID)
+		return nil, err
+	}
+	cp := *sh
+	return &cp, nil
+}
+
+// AddLocal creates a self-hosted local access token directly on the agent
+// (no cloud or email required) with a granular Policy matrix.
+func (s *Store) AddLocal(label string, policy Policy, expiresAt int64, requireConsent bool, now time.Time) (*Share, string, error) {
+	label = strings.TrimSpace(label)
+	if label == "" || len(label) > 120 {
+		return nil, "", ErrBadShare
+	}
+	if expiresAt != 0 && expiresAt <= now.Unix() {
+		return nil, "", ErrBadShare
+	}
+	secret, err := GenerateLocalSecret()
+	if err != nil {
+		return nil, "", err
+	}
+	pol := policy
+	sh := &Share{
+		ID:             NewID(),
+		Label:          label,
+		Role:           RoleCustom,
+		Policy:         &pol,
+		Local:          true,
+		LocalSecret:    secret,
+		RequireConsent: requireConsent,
+		ExpiresAt:      expiresAt,
+		CreatedAt:      now.Unix(),
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shares[sh.ID] = sh
+	if err := s.saveLocked(); err != nil {
+		delete(s.shares, sh.ID)
+		return nil, "", err
+	}
+	cp := *sh
+	return &cp, sh.LocalToken(), nil
+}
+
+// UpdatePolicy updates an existing share's label, granular Policy, consent
+// requirement, and expiry in place.
+func (s *Store) UpdatePolicy(id, label string, policy Policy, requireConsent bool, expiresAt int64) (*Share, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sh, ok := s.shares[id]
+	if !ok {
+		return nil, ErrNoShare
+	}
+	if l := strings.TrimSpace(label); l != "" {
+		if len(l) > 120 {
+			return nil, ErrBadShare
+		}
+		sh.Label = l
+	}
+	pol := policy
+	sh.Policy = &pol
+	sh.Role = RoleCustom
+	sh.RequireConsent = requireConsent
+	sh.ExpiresAt = expiresAt
+	if err := s.saveLocked(); err != nil {
 		return nil, err
 	}
 	cp := *sh

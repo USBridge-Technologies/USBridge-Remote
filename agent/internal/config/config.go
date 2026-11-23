@@ -193,6 +193,17 @@ type Config struct {
 	// once it's rejected rather than trying to refresh it silently.
 	AccountEmail string `yaml:"account_email,omitempty"`
 	AccountToken string `yaml:"account_token,omitempty"`
+
+	// TPN / Studio Security & Admin PIN:
+	// AdminPINHash is an argon2id PHC string guarding policy/token changes and
+	// unlocking the agent UI while a restricted client is connected.
+	AdminPINHash string `yaml:"admin_pin_hash,omitempty"`
+	// AlwaysRequirePIN forces Admin PIN verification before modifying access
+	// policies, tokens, or security settings even when no client is connected.
+	AlwaysRequirePIN bool `yaml:"always_require_pin,omitempty"`
+	// DisableMasterKeyRemote blocks remote HTTP/WS authentication with the
+	// root MasterKey, allowing only scoped local tokens or guest shares.
+	DisableMasterKeyRemote bool `yaml:"disable_master_key_remote,omitempty"`
 }
 
 func Default() Config {
@@ -360,7 +371,7 @@ func Save(path string, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func GenerateSecureToken() (string, error) {

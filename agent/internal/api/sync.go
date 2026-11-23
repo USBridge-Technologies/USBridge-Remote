@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"usbridge_agent/internal/guestauth"
 )
 
 // MasterSyncRequest is the outer envelope sent by the client — AES-GCM encrypted payload.
@@ -104,6 +106,17 @@ func (s *Server) Sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if localID := strings.TrimSpace(r.Header.Get("X-Access-Token-ID")); localID != "" {
+		s.syncLocalToken(w, env, localID)
+		return
+	}
+
+	if s.sec.isMasterKeyRemoteDisabled() {
+		log.Printf("[api] sync: master key remote access disabled")
+		s.fail(w, http.StatusForbidden, "master_key_disabled", nil)
+		return
+	}
+
 	masterKey := s.currentMasterKey()
 	if len(masterKey) == 0 {
 		s.fail(w, http.StatusInternalServerError, "master_key_not_configured", nil)
@@ -169,6 +182,62 @@ func (s *Server) Sync(w http.ResponseWriter, r *http.Request) {
 		TailscaleStatus: tsStatus,
 		SunshineStatus:  sunshineStatus,
 		RawHIDSupported: s.app.RawHIDSupported(),
+	}
+	s.ok(w, "sync_ok", resp)
+}
+
+// syncLocalToken handles POST /api/auth/sync for self-hosted local access tokens
+// (X-Access-Token-ID). It decrypts the envelope with the token's own secret and
+// returns only non-privileged status (no Tailscale registration, no unrestricted
+// Moonlight PIN relay).
+func (s *Server) syncLocalToken(w http.ResponseWriter, env MasterSyncRequest, shareID string) {
+	g := s.guests
+	if g == nil {
+		s.fail(w, http.StatusForbidden, "guest_access_off", nil)
+		return
+	}
+	sh := g.Store.Get(shareID)
+	if sh == nil || !sh.Local || sh.LocalSecret == "" {
+		s.fail(w, http.StatusUnauthorized, "guest_auth_failed", nil)
+		return
+	}
+	if !sh.Live(time.Now()) {
+		s.fail(w, http.StatusForbidden, "share_ended", nil)
+		return
+	}
+	aesKey := deriveKey([]byte(sh.LocalSecret))
+	plaintext, err := decryptAESGCM(env.Payload, env.IV, aesKey)
+	if err != nil {
+		log.Printf("[api] sync(local %s): decrypt failed: %v", shareID, err)
+		s.fail(w, http.StatusUnauthorized, "decrypt_failed", err)
+		return
+	}
+	var payload MasterSyncPayload
+	if err := json.Unmarshal(plaintext, &payload); err != nil {
+		s.fail(w, http.StatusBadRequest, "invalid_payload", err)
+		return
+	}
+	pol := sh.EffectivePolicy()
+	p := &guestauth.Principal{
+		ShareID:        sh.ID,
+		Label:          sh.Label,
+		Email:          sh.Email,
+		Role:           sh.Role,
+		Policy:         pol,
+		Local:          true,
+		RequireConsent: sh.RequireConsent,
+	}
+	if !g.Sessions.Allowed(p) {
+		if st := g.Sessions.Hello(p); st != guestauth.StateAllowed {
+			s.fail(w, http.StatusForbidden, "consent_required", nil)
+			return
+		}
+	}
+	g.Store.Touch(sh.ID, time.Now())
+
+	resp := MasterSyncResponse{
+		SunshineStatus:  "no_pin",
+		RawHIDSupported: s.app.RawHIDSupported() && pol.Has(guestauth.CapPenTablet),
 	}
 	s.ok(w, "sync_ok", resp)
 }

@@ -1103,8 +1103,12 @@ func (c *USBClient) signRequest(req *http.Request, method, endpoint string, body
 		return nil
 	}
 	if len(c.apiSecret) > 0 {
+		tokenID, secret, isLocal := ParseLocalToken(c.apiSecret)
 		timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-		req.Header.Set("X-Auth-Signature", CalculateHMACV2(method, endpoint, timestamp, string(body), c.apiSecret))
+		if isLocal {
+			req.Header.Set("X-Access-Token-ID", tokenID)
+		}
+		req.Header.Set("X-Auth-Signature", CalculateHMACV2(method, endpoint, timestamp, string(body), secret))
 		req.Header.Set("X-Auth-Timestamp", timestamp)
 	}
 	return nil

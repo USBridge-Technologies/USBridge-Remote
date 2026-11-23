@@ -12,10 +12,11 @@ import (
 // Manager ties the local share list, request verification, live sessions and
 // the cloud together. It is what the API and the host UI talk to.
 type Manager struct {
-	Store    *Store
-	Auth     *Authenticator
-	Sessions *Sessions
-	Cloud    *Cloud
+	Store      *Store
+	Auth       *Authenticator
+	Sessions   *Sessions
+	Cloud      *Cloud
+	LocalAudit *LocalAuditWriter
 
 	// DeviceName is how this machine is called in the invite e-mail.
 	DeviceName func() string
@@ -125,6 +126,29 @@ func (m *Manager) Invite(ctx context.Context, email string, role Role, expiresAt
 	return sh, res, nil
 }
 
+// CreateLocal creates a self-hosted local access token directly on the agent
+// with a granular Policy matrix. Never contacts any cloud service.
+func (m *Manager) CreateLocal(label string, policy Policy, expiresAt int64, requireConsent bool) (*Share, string, error) {
+	now := time.Now()
+	sh, tok, err := m.Store.AddLocal(label, policy, expiresAt, requireConsent, now)
+	if err != nil {
+		return nil, "", err
+	}
+	m.Audit(AuditEvent{ShareID: sh.ID, Event: "local_created", TS: now.Unix(), Detail: sh.Label})
+	return sh, tok, nil
+}
+
+// UpdatePolicy updates an existing share's label, Policy matrix, consent, and
+// expiry in place and logs the change to the local audit trail.
+func (m *Manager) UpdatePolicy(id, label string, policy Policy, requireConsent bool, expiresAt int64) (*Share, error) {
+	sh, err := m.Store.UpdatePolicy(id, label, policy, requireConsent, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	m.Audit(AuditEvent{ShareID: sh.ID, Event: "policy_updated", Detail: sh.DisplayName()})
+	return sh, nil
+}
+
 func wrapCloud(err error) error {
 	if errors.Is(err, ErrFreeLimit) || errors.Is(err, ErrRateLimit) {
 		return err
@@ -164,12 +188,30 @@ func (m *Manager) dropCertificates(id string) {
 	}
 }
 
-// Audit queues an event for the cloud's trail (kept for Pro/Enterprise).
+// Audit writes an event to the local JSONL audit log (always, offline-safe)
+// and queues it for the cloud's trail (kept for Pro/Enterprise when online).
 func (m *Manager) Audit(ev AuditEvent) {
 	if ev.TS == 0 {
 		ev.TS = time.Now().Unix()
 	}
 	ev.Detail = strings.TrimSpace(ev.Detail)
+	if m.LocalAudit != nil {
+		var label, email string
+		if ev.ShareID != "" && m.Store != nil {
+			if sh := m.Store.Get(ev.ShareID); sh != nil {
+				label = sh.Label
+				email = sh.Email
+			}
+		}
+		m.LocalAudit.Write(LocalAuditRecord{
+			TS:      ev.TS,
+			Event:   ev.Event,
+			ShareID: ev.ShareID,
+			Label:   label,
+			Email:   email,
+			Detail:  ev.Detail,
+		})
+	}
 	m.auditMu.Lock()
 	if len(m.pending) < 500 {
 		m.pending = append(m.pending, ev)

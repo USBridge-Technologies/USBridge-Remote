@@ -139,11 +139,27 @@ func (c *WebRTCClient) signHMAC(method, path, body string) (ts, sig string) {
 // client signs the same way).
 func signHMAC(masterKey, method, path, body string) (ts, sig string) {
 	ts = strconv.FormatInt(time.Now().Unix(), 10)
-	derived := sha256.Sum256([]byte(masterKey))
+	sig = signHMACWithKey(method, path, ts, body, masterKey)
+	return
+}
+
+func signHMACWithKey(method, path, ts, body, key string) string {
+	derived := sha256.Sum256([]byte(key))
 	mac := hmac.New(sha256.New, derived[:])
 	mac.Write([]byte(method + path + ts + body))
-	sig = hex.EncodeToString(mac.Sum(nil))
-	return
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func parseLocalToken(raw string) (tokenID, secret string, ok bool) {
+	s := strings.TrimSpace(raw)
+	if !strings.HasPrefix(s, "usbloc1.") {
+		return "", "", false
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 || parts[1] == "" || len(parts[2]) < 32 {
+		return "", "", false
+	}
+	return parts[1], parts[2], true
 }
 
 // SetBitrateKbps sets the bitrate ceiling this session will request from
@@ -476,6 +492,14 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 			return "", fmt.Errorf("webrtc: guest sign-in: %w", gerr)
 		}
 		authHeaders = h
+	} else if tokenID, secret, isLocal := parseLocalToken(c.masterKey); isLocal {
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
+		sig := signHMACWithKey("POST", path, ts, offerSDP, secret)
+		authHeaders = map[string]string{
+			"X-Access-Token-ID": tokenID,
+			"X-Auth-Timestamp":  ts,
+			"X-Auth-Signature":  sig,
+		}
 	} else {
 		ts, sig := c.signHMAC("POST", path, string(reqBody))
 		authHeaders = map[string]string{"X-Auth-Timestamp": ts, "X-Auth-Signature": sig}

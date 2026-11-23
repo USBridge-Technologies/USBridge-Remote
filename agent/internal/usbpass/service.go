@@ -315,6 +315,7 @@ func (s *Service) Start() error {
 	}
 	cmd := exec.Command(exe, args...)
 	cmd.Dir = filepath.Dir(exe)
+	cmd.Env = append(os.Environ(), "USBRIDGE_USB_POLICY_FILE="+filepath.Join(s.stateDir, "usb_policy.json"))
 	// usbridge-usb-broker.exe is a console-subsystem binary; launched from
 	// this (GUI-subsystem) agent process without this, Windows allocates it
 	// a brand new, visible console window that just sits there for the

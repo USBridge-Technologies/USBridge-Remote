@@ -22,14 +22,28 @@ const IdleTimeout = 10 * time.Minute
 // PendingTimeout turns an unanswered consent prompt into a denial.
 const PendingTimeout = 90 * time.Second
 
-// Session is one guest's live access.
+// Session is one guest's or local scoped client's live access.
 type Session struct {
 	ShareID    string    `json:"share_id"`
-	Email      string    `json:"email"`
+	Label      string    `json:"label,omitempty"`
+	Email      string    `json:"email,omitempty"`
 	Role       Role      `json:"role"`
+	Policy     Policy    `json:"policy"`
+	Local      bool      `json:"local,omitempty"`
 	State      State     `json:"state"`
 	StartedAt  time.Time `json:"started_at"`
 	LastActive time.Time `json:"last_active"`
+}
+
+// DisplayName returns Label if set, else Email, else ShareID.
+func (s Session) DisplayName() string {
+	if s.Label != "" {
+		return s.Label
+	}
+	if s.Email != "" {
+		return s.Email
+	}
+	return s.ShareID
 }
 
 // Event is reported to the audit trail and the host UI.
@@ -80,7 +94,17 @@ func (s *Sessions) Hello(p *Principal) State {
 		s.mu.Unlock()
 		return st
 	}
-	sess := &Session{ShareID: p.ShareID, Email: p.Email, Role: p.Role, StartedAt: now, LastActive: now, State: StatePending}
+	sess := &Session{
+		ShareID:    p.ShareID,
+		Label:      p.Label,
+		Email:      p.Email,
+		Role:       p.Role,
+		Policy:     p.Policy,
+		Local:      p.Local,
+		StartedAt:  now,
+		LastActive: now,
+		State:      StatePending,
+	}
 	if !p.RequireConsent {
 		sess.State = StateAllowed
 	}
@@ -180,5 +204,17 @@ func (s *Sessions) List() []Session {
 		out = append(out, *cur)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
+	return out
+}
+
+// ActiveAllowed returns all currently allowed (non-expired) restricted sessions.
+func (s *Sessions) ActiveAllowed() []Session {
+	all := s.List()
+	var out []Session
+	for _, sess := range all {
+		if sess.State == StateAllowed {
+			out = append(out, sess)
+		}
+	}
 	return out
 }

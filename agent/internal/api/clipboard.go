@@ -16,7 +16,33 @@ import (
 	"github.com/gorilla/websocket"
 
 	"usbridge_agent/internal/clipboard"
+	"usbridge_agent/internal/guestauth"
 )
+
+// clipboardPolicy controls clipboard direction and file-transfer gating for a
+// connected session. Owner (master-key) sessions get full bidirectional + files.
+type clipboardPolicy struct {
+	shareID  string
+	toHost   bool
+	fromHost bool
+	files    bool
+}
+
+func fullClipboardPolicy() clipboardPolicy {
+	return clipboardPolicy{toHost: true, fromHost: true, files: true}
+}
+
+func clipboardPolicyForPrincipal(p *guestauth.Principal) clipboardPolicy {
+	if p == nil {
+		return fullClipboardPolicy()
+	}
+	return clipboardPolicy{
+		shareID:  p.ShareID,
+		toHost:   p.Policy.Has(guestauth.CapClipToHost),
+		fromHost: p.Policy.Has(guestauth.CapClipFromHost),
+		files:    p.Policy.Has(guestauth.CapFileTransfer),
+	}
+}
 
 const (
 	blobIDLength = 32 // hex-encoded 16 random bytes
@@ -245,32 +271,53 @@ func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	s.runClipboardDuplex(mgr, conn, &writeMu, func(err error) {
+	pol := clipboardPolicyForPrincipal(PrincipalFrom(r))
+	s.runClipboardDuplexWithPolicy(mgr, conn, &writeMu, pol, func(err error) {
 		if err != nil && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 			log.Printf("[api] clipboard_ws read error: %v", err)
 		}
 	})
 }
 
-// runClipboardDuplex is clipboardWS/usbPassBridgeClipboard's shared core:
-// pushes local clipboard changes out over conn as they happen, and applies
-// whatever comes back in. writeMu additionally guards conn against a
-// concurrent write from clipboardWS's own ping goroutine (usbPassBridgeClipboard
-// has no equivalent -- WebRTC DataChannels have their own keepalive at the
-// SCTP/ICE layer -- but sharing one mutex-guarded write path costs nothing
-// there and keeps this signature uniform). onDone receives ReadJSON's final
-// error -- always non-nil, since the only way this loop ever ends is a
-// failed read (peer closed, transport error, ...) -- for the caller's own
-// logging/filtering (clipboardWS silences an ordinary WS close code, for
-// instance).
+// runClipboardDuplex runs the clipboard duplex loop with the effective policy
+// (if any restricted session is active over a bridge transport without an HTTP
+// principal, apply the intersection of active restricted policies as defense in depth).
 func (s *Server) runClipboardDuplex(mgr *clipboard.Manager, conn clipboardJSONConn, writeMu *sync.Mutex, onDone func(error)) {
+	pol := fullClipboardPolicy()
+	if s.guests != nil {
+		if active := s.guests.Sessions.ActiveAllowed(); len(active) > 0 {
+			for _, sess := range active {
+				pol.shareID = sess.ShareID
+				pol.toHost = pol.toHost && sess.Policy.Has(guestauth.CapClipToHost)
+				pol.fromHost = pol.fromHost && sess.Policy.Has(guestauth.CapClipFromHost)
+				pol.files = pol.files && sess.Policy.Has(guestauth.CapFileTransfer)
+			}
+		}
+	}
+	s.runClipboardDuplexWithPolicy(mgr, conn, writeMu, pol, onDone)
+}
+
+func (s *Server) runClipboardDuplexWithPolicy(mgr *clipboard.Manager, conn clipboardJSONConn, writeMu *sync.Mutex, pol clipboardPolicy, onDone func(error)) {
 	safeWriteJSON := func(v interface{}) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		return conn.WriteJSON(v)
 	}
 
+	auditBlocked := func(detail string) {
+		if s.guests != nil {
+			s.guests.Audit(guestauth.AuditEvent{ShareID: pol.shareID, Event: "clipboard_blocked", Detail: detail})
+		}
+	}
+
 	pushLocal := func(content clipboard.Content) {
+		if !pol.fromHost {
+			return
+		}
+		if content.Kind == clipboard.KindFile && !pol.files {
+			auditBlocked("host_to_client_file")
+			return
+		}
 		event := ClipboardEvent{Kind: string(content.Kind), Hash: content.Hash()}
 		switch content.Kind {
 		case clipboard.KindText:
@@ -305,31 +352,28 @@ func (s *Server) runClipboardDuplex(mgr *clipboard.Manager, conn clipboardJSONCo
 		}
 	}
 
-	// Push local clipboard changes to this connection for as long as it's
-	// open; clear the callback on disconnect so a later local change with no
-	// connected peer doesn't try to write to a closed socket.
-	mgr.SetOnLocalChange(pushLocal)
+	if pol.fromHost {
+		mgr.SetOnLocalChange(pushLocal)
 
-	pushPending := func(info clipboard.PendingInfo) {
-		event := ClipboardEvent{Kind: string(info.Kind), Pending: true, FileCount: info.Count, Size: info.ApproxSize}
-		if err := safeWriteJSON(event); err != nil {
-			log.Printf("[api] clipboard_ws pending push failed: %v", err)
+		pushPending := func(info clipboard.PendingInfo) {
+			if info.Kind == clipboard.KindFile && !pol.files {
+				return
+			}
+			event := ClipboardEvent{Kind: string(info.Kind), Pending: true, FileCount: info.Count, Size: info.ApproxSize}
+			if err := safeWriteJSON(event); err != nil {
+				log.Printf("[api] clipboard_ws pending push failed: %v", err)
+			}
 		}
-	}
-	mgr.SetOnLocalChangePending(pushPending)
+		mgr.SetOnLocalChangePending(pushPending)
 
-	defer func() {
-		mgr.SetOnLocalChange(nil)
-		mgr.SetOnLocalChangePending(nil)
-	}()
+		defer func() {
+			mgr.SetOnLocalChange(nil)
+			mgr.SetOnLocalChangePending(nil)
+		}()
 
-	// mgr's poll loop only fires on the *edge* of a detected clipboard
-	// change, so a local change that happened (or that failed to send) while
-	// no client was connected would otherwise never be retried. Resync once
-	// up front on every fresh connection so the peer always converges to
-	// whatever is currently on the clipboard, not just future changes.
-	if content, ok := mgr.Snapshot(); ok {
-		pushLocal(content)
+		if content, ok := mgr.Snapshot(); ok {
+			pushLocal(content)
+		}
 	}
 
 	for {
@@ -339,18 +383,25 @@ func (s *Server) runClipboardDuplex(mgr *clipboard.Manager, conn clipboardJSONCo
 			return
 		}
 		if event.Pending {
-			// No BlobID yet — the peer is still reading/uploading. Nothing to
-			// apply; this exists purely so a UI hook can show "receiving N
-			// files..." instead of appearing to hang until the real event.
 			log.Printf("[api] clipboard_ws remote is preparing %s change (count=%d, approx_size=%d)", event.Kind, event.FileCount, event.Size)
 			continue
 		}
 		if event.Kind == ClipboardRequestKind {
-			// The client's manual "get clipboard": answer with whatever is
-			// on this host's clipboard right now, changed or not.
+			if !pol.fromHost {
+				auditBlocked("host_to_client_request")
+				continue
+			}
 			if content, ok := mgr.Snapshot(); ok {
 				pushLocal(content)
 			}
+			continue
+		}
+		if !pol.toHost {
+			auditBlocked("client_to_host_" + event.Kind)
+			continue
+		}
+		if event.Kind == string(clipboard.KindFile) && !pol.files {
+			auditBlocked("client_to_host_file")
 			continue
 		}
 		if err := s.applyClipboardEvent(mgr, event); err != nil {

@@ -401,8 +401,12 @@ func (cs *ClipboardSync) signedHeader(method, path string) http.Header {
 	if len(cs.client.apiSecret) == 0 {
 		return header
 	}
+	tokenID, secret, isLocal := ParseLocalToken(cs.client.apiSecret)
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig := CalculateHMACV2(method, path, ts, "", cs.client.apiSecret)
+	if isLocal {
+		header.Set("X-Access-Token-ID", tokenID)
+	}
+	sig := CalculateHMACV2(method, path, ts, "", secret)
 	header.Set("X-Auth-Signature", sig)
 	header.Set("X-Auth-Timestamp", ts)
 	return header

@@ -40,7 +40,8 @@ func (c *USBClient) MasterSyncV2(ctx context.Context, payload MasterSyncPayloadV
 		return nil, fmt.Errorf("API secret not set")
 	}
 
-	encrypted, iv, err := EncryptPayloadV2(payload, c.apiSecret)
+	_, syncSecret, _ := ParseLocalToken(c.apiSecret)
+	encrypted, iv, err := EncryptPayloadV2(payload, syncSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt sync payload: %v", err)
 	}

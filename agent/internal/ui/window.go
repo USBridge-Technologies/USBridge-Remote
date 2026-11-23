@@ -74,6 +74,17 @@ type TokenProvider interface {
 	// them in, and that person's answer.
 	GuestPending() []guestauth.Session
 	GuestDecide(shareID string, allow bool) error
+	// Local access tokens, granular policy matrix, active restricted sessions, and Admin PIN.
+	ListAccessTokens() []guestauth.Share
+	CreateLocalToken(adminPIN, label string, policy guestauth.Policy, expiresInSec int64, requireConsent bool) (*guestauth.Share, string, error)
+	UpdateAccessPolicy(adminPIN, id, label string, policy guestauth.Policy, requireConsent bool, expiresAt int64) (*guestauth.Share, error)
+	RevokeAccessToken(adminPIN, id string) error
+	KickAccessSession(adminPIN, id string) error
+	ActiveRestrictedSessions() []guestauth.Session
+	AdminPINStatus() (configured, alwaysRequire, disableMasterRemote bool)
+	VerifyAdminPIN(pin string) bool
+	SetAdminPIN(currentPIN, newPIN string) error
+	SetSecurityOptions(adminPIN string, alwaysRequirePIN, disableMasterKeyRemote bool) error
 	RemoteWindowLockEnabled() bool
 	SetRemoteWindowLock(enabled bool) error
 	RestartSunshine() error
@@ -308,6 +319,10 @@ type Window struct {
 	// equivalent surface (no WebRTC endpoint of its own).
 	rustshineWebRTCRow   *permToggleRow
 	rustshineWebRTCCheck *styledCheck
+
+	// sessionLock locks the agent UI whenever a restricted client is connected.
+	sessionLock    *sessionLockState
+	cachedAdminPIN string
 
 	// usbDriverRow: shown only while RustShine is active and this
 	// platform's USB passthrough driver (vhci-hcd+usbip on Linux,
@@ -1178,7 +1193,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.loadChromePin()
 
 	tokenBtn := newIconActionButton("TOKEN", nil, func() {
-		w.showTokenDialog(win)
+		w.showAccessDialog(win)
 	})
 	tokenBtn.Compact = true
 	tokenBtn.Accent = true
@@ -1967,7 +1982,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 	body := container.NewBorder(header, footer, nil, nil,
 		container.NewVScroll(newExactInset(content, 16, 16, 8, 8)))
-	win.SetContent(w.wrapWithResizeGuard(container.NewStack(bg, body)))
+	lockOverlay := w.buildSessionLockOverlay()
+	win.SetContent(w.wrapWithResizeGuard(container.NewStack(bg, body, lockOverlay)))
 
 	// attachTray must run before wiring our own close intercept below:
 	// desktop.App.SetSystemTrayWindow (called inside attachTray) installs
@@ -2991,6 +3007,8 @@ func (w *Window) performRefresh() {
 		var entStatus entitlement.Status
 		var certStatus tlshost.CertStatus
 		var certLoggedIn bool
+		var activeRestricted []guestauth.Session
+		var pinConfigured bool
 		if w.token != nil {
 			if clients, err := w.token.ListSunshineClients(); err == nil {
 				status.moonlightCount = len(clients)
@@ -3001,10 +3019,13 @@ func (w *Window) performRefresh() {
 			status.streamerRunning = w.token.StreamerRunning()
 			status.sessionActive = w.token.SessionActive()
 			w.promptPendingGuests(w.token.GuestPending())
+			activeRestricted = w.token.ActiveRestrictedSessions()
+			pinConfigured, _, _ = w.token.AdminPINStatus()
 			certStatus = w.token.CertStatus()
 			certLoggedIn = w.token.AccountStatus().LoggedIn
 		}
 		fyne.Do(func() {
+			w.syncSessionLock(activeRestricted, pinConfigured)
 			w.maybeFinishPendingTierSwitch(entStatus)
 			w.refreshSupportButton(entStatus)
 			w.refreshTierBadge(entStatus)

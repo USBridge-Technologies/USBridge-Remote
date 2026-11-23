@@ -52,6 +52,17 @@ type TokenBackend interface {
 	// them in, and that person's answer.
 	GuestPending() []guestauth.Session
 	GuestDecide(shareID string, allow bool) error
+	// Local access tokens, granular policy matrix, active restricted sessions, and Admin PIN.
+	ListAccessTokens() []guestauth.Share
+	CreateLocalToken(adminPIN, label string, policy guestauth.Policy, expiresInSec int64, requireConsent bool) (*guestauth.Share, string, error)
+	UpdateAccessPolicy(adminPIN, id, label string, policy guestauth.Policy, requireConsent bool, expiresAt int64) (*guestauth.Share, error)
+	RevokeAccessToken(adminPIN, id string) error
+	KickAccessSession(adminPIN, id string) error
+	ActiveRestrictedSessions() []guestauth.Session
+	AdminPINStatus() (configured, alwaysRequire, disableMasterRemote bool)
+	VerifyAdminPIN(pin string) bool
+	SetAdminPIN(currentPIN, newPIN string) error
+	SetSecurityOptions(adminPIN string, alwaysRequirePIN, disableMasterKeyRemote bool) error
 	RemoteWindowLockEnabled() bool
 	SetRemoteWindowLock(enabled bool) error
 	RestartSunshine() error
@@ -259,6 +270,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/snooze-streamer-update", s.handleSnoozeStreamerUpdate)
 	mux.HandleFunc("GET /token/guest-pending", s.handleGuestPending)
 	mux.HandleFunc("POST /token/guest-decide", s.handleGuestDecide)
+	s.registerAccessRoutes(mux)
 	mux.HandleFunc("GET /token/remote-window-lock", s.handleRemoteWindowLock)
 	mux.HandleFunc("POST /token/remote-window-lock", s.handleSetRemoteWindowLock)
 	mux.HandleFunc("POST /token/restart-sunshine", s.handleRestartSunshine)

@@ -88,8 +88,10 @@ type SecurityMiddleware struct {
 	// pick up a freshly rotated key.
 	keyMu     sync.RWMutex
 	masterKey []byte
-	// guests handles X-Guest-Ticket requests (guest.go); nil = guest access off.
+	// guests handles X-Guest-Ticket and X-Access-Token-ID requests (guest.go); nil = off.
 	guests *guestauth.Manager
+	// disableMasterKeyRemote blocks root MasterKey auth from remote clients (TPN strict mode).
+	disableMasterKeyRemote bool
 }
 
 // NewSecurityMiddleware creates middleware with the given master key (raw bytes).
@@ -115,6 +117,20 @@ func (m *SecurityMiddleware) currentMasterKey() []byte {
 	m.keyMu.RLock()
 	defer m.keyMu.RUnlock()
 	return m.masterKey
+}
+
+// SetDisableMasterKeyRemote toggles TPN strict mode that rejects remote
+// requests authenticated with the root master key.
+func (m *SecurityMiddleware) SetDisableMasterKeyRemote(disabled bool) {
+	m.keyMu.Lock()
+	m.disableMasterKeyRemote = disabled
+	m.keyMu.Unlock()
+}
+
+func (m *SecurityMiddleware) isMasterKeyRemoteDisabled() bool {
+	m.keyMu.RLock()
+	defer m.keyMu.RUnlock()
+	return m.disableMasterKeyRemote
 }
 
 func (m *SecurityMiddleware) clientIP(r *http.Request) string {
@@ -150,6 +166,14 @@ func isSyncPath(path string) bool {
 func (m *SecurityMiddleware) verifyHMAC(w http.ResponseWriter, r *http.Request, body []byte) bool {
 	if r.Header.Get("X-Guest-Ticket") != "" {
 		return m.verifyGuest(w, r, body)
+	}
+	if r.Header.Get("X-Access-Token-ID") != "" {
+		return m.verifyLocalToken(w, r, body)
+	}
+	if m.isMasterKeyRemoteDisabled() {
+		log.Printf("[security] rejected master-key request from %s path=%s: master key remote access disabled", m.clientIP(r), r.URL.Path)
+		writeGuestDenied(w, http.StatusForbidden, "master_key_disabled")
+		return false
 	}
 	sig := r.Header.Get("X-Auth-Signature")
 	tsStr := r.Header.Get("X-Auth-Timestamp")
@@ -200,6 +224,14 @@ func (m *SecurityMiddleware) verifyHMAC(w http.ResponseWriter, r *http.Request, 
 func (m *SecurityMiddleware) verifyHMACNoBody(w http.ResponseWriter, r *http.Request) bool {
 	if r.Header.Get("X-Guest-Ticket") != "" {
 		return m.verifyGuest(w, r, nil)
+	}
+	if r.Header.Get("X-Access-Token-ID") != "" {
+		return m.verifyLocalToken(w, r, nil)
+	}
+	if m.isMasterKeyRemoteDisabled() {
+		log.Printf("[security] rejected master-key blob request from %s path=%s: master key remote access disabled", m.clientIP(r), r.URL.Path)
+		writeGuestDenied(w, http.StatusForbidden, "master_key_disabled")
+		return false
 	}
 	sig := r.Header.Get("X-Auth-Signature")
 	tsStr := r.Header.Get("X-Auth-Timestamp")

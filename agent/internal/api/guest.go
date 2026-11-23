@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -56,11 +57,11 @@ var routeCaps = map[string]guestauth.Cap{
 
 	"/api/clipboard/ws": guestauth.CapClipboard,
 
-	"/api/usb/passthrough/status":              guestauth.CapUSB,
+	"/api/usb/passthrough/status":              guestauth.CapView,
 	"/api/usb/passthrough/install":             guestauth.CapUSB,
 	"/api/usb/passthrough/session":             guestauth.CapUSB,
-	"/api/usb/passthrough/browser-session":     guestauth.CapUSB,
-	"/api/usb/passthrough/browser-pen-session": guestauth.CapUSB,
+	"/api/usb/passthrough/browser-session":     guestauth.CapGamepad,
+	"/api/usb/passthrough/browser-pen-session": guestauth.CapPenTablet,
 	"/api/device/start":                        guestauth.CapUSB,
 	"/api/device/stop":                         guestauth.CapUSB,
 
@@ -119,8 +120,8 @@ func writeGuestDenied(w http.ResponseWriter, status int, code string) {
 }
 
 // verifyGuest authenticates a request carrying X-Guest-Ticket, enforces the
-// role's capabilities and the host's consent, and stores the principal in the
-// request context. body is what the guest signed (empty for the no-body variant).
+// share's Policy capabilities and the host's consent, and stores the principal
+// in the request context. body is what the guest signed (empty for the no-body variant).
 func (m *SecurityMiddleware) verifyGuest(w http.ResponseWriter, r *http.Request, body []byte) bool {
 	g := m.guestManager()
 	if g == nil {
@@ -130,6 +131,7 @@ func (m *SecurityMiddleware) verifyGuest(w http.ResponseWriter, r *http.Request,
 	p, err := g.Auth.Verify(r.Method, r.URL.RequestURI(), r.Header.Get("X-Auth-Timestamp"), r.Header.Get("X-Auth-Signature"), r.Header.Get("X-Guest-Ticket"), body)
 	if err != nil {
 		log.Printf("[security] guest rejected from %s path=%s: %v", m.clientIP(r), r.URL.Path, err)
+		g.Audit(guestauth.AuditEvent{Event: "auth_failed", Detail: "guest " + m.clientIP(r) + " " + r.URL.Path})
 		code := http.StatusUnauthorized
 		if errors.Is(err, guestauth.ErrRevoked) {
 			code = http.StatusForbidden
@@ -137,25 +139,80 @@ func (m *SecurityMiddleware) verifyGuest(w http.ResponseWriter, r *http.Request,
 		writeGuestDenied(w, code, "guest_auth_failed")
 		return false
 	}
+	return m.authorizePrincipal(w, r, g, p, body, false)
+}
+
+// verifyLocalToken authenticates a self-hosted local access token carrying
+// X-Access-Token-ID + X-Auth-Timestamp + X-Auth-Signature.
+func (m *SecurityMiddleware) verifyLocalToken(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	g := m.guestManager()
+	if g == nil {
+		writeGuestDenied(w, http.StatusForbidden, "guest_access_off")
+		return false
+	}
+	p, err := g.Auth.VerifyLocal(r.Method, r.URL.RequestURI(), r.Header.Get("X-Auth-Timestamp"), r.Header.Get("X-Auth-Signature"), r.Header.Get("X-Access-Token-ID"), body)
+	if err != nil {
+		log.Printf("[security] local token rejected from %s path=%s: %v", m.clientIP(r), r.URL.Path, err)
+		g.Audit(guestauth.AuditEvent{ShareID: r.Header.Get("X-Access-Token-ID"), Event: "auth_failed", Detail: "local " + m.clientIP(r) + " " + r.URL.Path})
+		code := http.StatusUnauthorized
+		if errors.Is(err, guestauth.ErrRevoked) {
+			code = http.StatusForbidden
+		}
+		writeGuestDenied(w, code, "guest_auth_failed")
+		return false
+	}
+	return m.authorizePrincipal(w, r, g, p, body, true)
+}
+
+func (m *SecurityMiddleware) authorizePrincipal(w http.ResponseWriter, r *http.Request, g *guestauth.Manager, p *guestauth.Principal, body []byte, autoHello bool) bool {
 	if guestOpenPaths[r.URL.Path] {
 		*r = *r.WithContext(context.WithValue(r.Context(), principalKey{}, p))
 		return true
 	}
 	need, ok := guestCap(r.URL.Path)
 	if ok && r.URL.Path == "/api/device/start" {
-		// Each kind of device is gated by its own capability (input, disks, USB),
-		// so a role may start exactly the kinds it holds.
+		// Each kind of device is gated by its own capability (input, pen, gamepad, disks, USB),
+		// so a policy may start exactly the kinds it holds.
 		if c, parsed := deviceStartCaps(body); parsed {
 			need = c
 		}
 	}
-	if !ok || !p.Role.Has(need) {
+	allowed := false
+	if ok {
+		switch {
+		case r.URL.Path == "/api/clipboard/ws":
+			// Allow opening the clipboard WS if either direction is enabled;
+			// runClipboardDuplex enforces direction and file-transfer rules.
+			allowed = p.Policy.HasAny(guestauth.CapClipToHost | guestauth.CapClipFromHost)
+		case strings.HasPrefix(r.URL.Path, "/api/clipboard/blob/"):
+			if r.Method == http.MethodPut {
+				allowed = p.Policy.Has(guestauth.CapClipToHost)
+			} else {
+				allowed = p.Policy.Has(guestauth.CapClipFromHost)
+			}
+		case r.URL.Path == "/api/usb/passthrough/session":
+			// USB passthrough session handshake is allowed if any USB/Pen/Gamepad cap is granted;
+			// usb-broker enforces the exact per-device USBPolicy whitelist on attach.
+			allowed = p.Policy.HasAny(guestauth.CapUSB | guestauth.CapPenTablet | guestauth.CapGamepad)
+		default:
+			allowed = p.Policy.Has(need)
+		}
+	}
+	if !allowed {
+		g.Audit(guestauth.AuditEvent{ShareID: p.ShareID, Event: "denied_cap", Detail: r.Method + " " + r.URL.Path})
 		writeGuestDenied(w, http.StatusForbidden, "not_permitted")
 		return false
 	}
 	if !g.Sessions.Allowed(p) {
-		writeGuestDenied(w, http.StatusForbidden, "consent_required")
-		return false
+		if autoHello {
+			if st := g.Sessions.Hello(p); st != guestauth.StateAllowed {
+				writeGuestDenied(w, http.StatusForbidden, "consent_required")
+				return false
+			}
+		} else {
+			writeGuestDenied(w, http.StatusForbidden, "consent_required")
+			return false
+		}
 	}
 	g.Store.Touch(p.ShareID, time.Now())
 	*r = *r.WithContext(context.WithValue(r.Context(), principalKey{}, p))
@@ -163,12 +220,16 @@ func (m *SecurityMiddleware) verifyGuest(w http.ResponseWriter, r *http.Request,
 }
 
 // deviceKindCap is the capability a guest needs to start one kind of device:
-// keyboard / mouse / gamepad need input, drives and MTP need disks, everything
-// else (USB audio, ...) needs the USB capability.
+// keyboard / mouse need input, gamepad needs gamepad, pen/tablet/wacom need
+// pen tablet, drives and MTP need disks, everything else needs USB.
 func deviceKindCap(kind string) guestauth.Cap {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "keyboard", "mouse", "gamepad":
+	case "keyboard", "mouse":
 		return guestauth.CapInput
+	case "gamepad":
+		return guestauth.CapGamepad
+	case "tablet", "pen", "wacom":
+		return guestauth.CapPenTablet
 	case "drive", "mtp":
 		return guestauth.CapDisks
 	}
@@ -197,6 +258,11 @@ func deviceStartCaps(body []byte) (need guestauth.Cap, ok bool) {
 func (s *Server) SetGuestManager(g *guestauth.Manager) {
 	s.guests = g
 	s.sec.SetGuestManager(g)
+}
+
+// SetDisableMasterKeyRemote toggles TPN strict mode that blocks remote root master-key auth.
+func (s *Server) SetDisableMasterKeyRemote(disabled bool) {
+	s.sec.SetDisableMasterKeyRemote(disabled)
 }
 
 type guestInviteRequest struct {
@@ -446,34 +512,34 @@ func (s *Server) guestsDecide(w http.ResponseWriter, r *http.Request) {
 const (
 	GuestRoleHeader  = "X-Usbridge-Guest-Role"
 	GuestShareHeader = "X-Usbridge-Guest-Share"
+	GuestCapsHeader  = "X-Usbridge-Guest-Caps"
 )
 
-// AuthorizeOffer vets a WebRTC "POST /webrtc/offer" before it reaches
-// rust-shine, whether it arrived directly or through the cloud signaling
-// relay. h is the request's headers and is rewritten in place.
-//
-// An owner's request (no guest ticket) is passed on untouched -- rust-shine
-// verifies the master-key HMAC itself -- except that any guest role headers
-// are stripped, so a request can't claim a role it wasn't given.
-//
-// A guest's request is verified here (ticket, guest signature, share live in
-// the local record, view permission, host consent -- an offer is also the
-// guest's "hello", since over the relay it is the only thing that gets
-// through) and then re-signed with the master key so rust-shine accepts it,
-// with the guest's role attached for rust-shine to enforce. It returns the
-// HTTP status and a short code on refusal, 0 on success.
 func (s *Server) AuthorizeOffer(method, uri string, h http.Header, body []byte) (int, string) {
 	h.Del(GuestRoleHeader)
 	h.Del(GuestShareHeader)
+	h.Del(GuestCapsHeader)
 	ticket := h.Get("X-Guest-Ticket")
-	if ticket == "" {
+	localID := h.Get("X-Access-Token-ID")
+	if ticket == "" && localID == "" {
+		if s.sec.isMasterKeyRemoteDisabled() {
+			return http.StatusForbidden, "master_key_disabled"
+		}
 		return 0, ""
 	}
 	g := s.guests
 	if g == nil {
 		return http.StatusForbidden, "guest_access_off"
 	}
-	p, err := g.Auth.Verify(method, uri, h.Get("X-Auth-Timestamp"), h.Get("X-Auth-Signature"), ticket, offerSignedBody(body))
+	var (
+		p   *guestauth.Principal
+		err error
+	)
+	if localID != "" {
+		p, err = g.Auth.VerifyLocal(method, uri, h.Get("X-Auth-Timestamp"), h.Get("X-Auth-Signature"), localID, offerSignedBody(body))
+	} else {
+		p, err = g.Auth.Verify(method, uri, h.Get("X-Auth-Timestamp"), h.Get("X-Auth-Signature"), ticket, offerSignedBody(body))
+	}
 	if err != nil {
 		log.Printf("[security] guest offer rejected: %v", err)
 		if errors.Is(err, guestauth.ErrRevoked) {
@@ -481,7 +547,7 @@ func (s *Server) AuthorizeOffer(method, uri string, h http.Header, body []byte) 
 		}
 		return http.StatusUnauthorized, "guest_auth_failed"
 	}
-	if !p.Role.Has(guestauth.CapView) {
+	if !p.Policy.Has(guestauth.CapView) {
 		return http.StatusForbidden, "not_permitted"
 	}
 	if st := g.Sessions.Hello(p); st != guestauth.StateAllowed {
@@ -495,10 +561,12 @@ func (s *Server) AuthorizeOffer(method, uri string, h http.Header, body []byte) 
 	key := s.currentMasterKey()
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	h.Del("X-Guest-Ticket")
+	h.Del("X-Access-Token-ID")
 	h.Set("X-Auth-Timestamp", ts)
 	h.Set("X-Auth-Signature", CalculateHMAC(method, uri, ts, string(body), key))
 	h.Set(GuestRoleHeader, string(p.Role))
 	h.Set(GuestShareHeader, p.ShareID)
+	h.Set(GuestCapsHeader, fmt.Sprintf("0x%x", uint32(p.Policy.Caps)))
 	return 0, ""
 }
 
@@ -563,10 +631,12 @@ func (s *Server) guestWTGrant(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadGateway, "webtransport_unavailable", err)
 		return
 	}
+	capsHex := fmt.Sprintf("0x%x", uint32(p.Policy.Caps))
 	info["ts"] = ts
 	info["role"] = string(p.Role)
+	info["caps"] = capsHex
 	info["share"] = p.ShareID
-	info["sig"] = CalculateHMAC("CONNECT", "/webtransport", ts, string(p.Role)+"|"+p.ShareID, key)
+	info["sig"] = CalculateHMAC("CONNECT", "/webtransport", ts, string(p.Role)+"|"+p.ShareID+"|"+capsHex, key)
 	s.ok(w, "wt_grant", info)
 }
 
