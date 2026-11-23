@@ -284,6 +284,7 @@ func (vw *VideoWidget) applyRequestSource(request *models.VideoStartRequest) {
 	}
 	logrus.Infof("🖼️ [VideoSource] agent video source %+v", *request.Source)
 	vw.setSourceDisplayAspect(request.Source.DisplayAspect())
+	vw.setRequestedSourceShape(*request.Source)
 }
 
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {

@@ -180,6 +180,47 @@ const (
 type VideoSourceInfo struct {
 	VideoSourceSetting
 	AutoSupported bool `json:"auto_supported"`
+	// PictureShape: what the encoded picture's shape follows (see the
+	// PictureShape* values); "" from older agents and where the picture is
+	// the requested size with the desktop letterboxed into it.
+	PictureShape string `json:"picture_shape,omitempty"`
+}
+
+// Picture shapes (VideoSourceInfo.PictureShape).
+const (
+	// PictureShapeSource: the source setting decides -- auto the monitor,
+	// manual Width x Height, each fitted into the requested size with no
+	// bars; capture the requested size (rust-shine on Windows).
+	PictureShapeSource = "source"
+	// PictureShapeDesktop: always the monitor's own shape (rust-shine KMS
+	// on Linux).
+	PictureShapeDesktop = "desktop"
+)
+
+// PictureShapeFor is the encoded picture's shape for the source setting s
+// under shape (VideoSourceInfo.PictureShape), desktopW x desktopH being the
+// captured monitor; ok false when the picture is the requested size.
+func PictureShapeFor(shape string, s VideoSourceSetting, desktopW, desktopH float32) (w, h float32, ok bool) {
+	switch shape {
+	case PictureShapeDesktop:
+		w, h = desktopW, desktopH
+	case PictureShapeSource:
+		switch s.Mode {
+		case VideoSourceAuto, "":
+			w, h = desktopW, desktopH
+			if s.Width > 0 && s.Height > 0 {
+				w, h = float32(s.Width), float32(s.Height)
+			}
+		case VideoSourceManual:
+			if len(s.Rect) > 0 {
+				// An exact area is encoded like auto, the monitor's shape.
+				w, h = desktopW, desktopH
+			} else if s.Width > 0 && s.Height > 0 {
+				w, h = float32(s.Width), float32(s.Height)
+			}
+		}
+	}
+	return w, h, w > 0 && h > 0
 }
 
 // VideoSourceSetting is which part of a capture card's frame is the target's

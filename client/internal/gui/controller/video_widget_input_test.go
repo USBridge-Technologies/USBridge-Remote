@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"usbridge-client/internal/models"
+
 	"fyne.io/fyne/v2"
 )
 
@@ -244,6 +246,91 @@ func TestSetAgentProtocolSwitchesInStreamCrop(t *testing.T) {
 	_, _, fw, _ = vw.getFrameContentRect()
 	if fw >= 0.999 {
 		t.Fatalf("RustShine Pro should crop again, fw=%v", fw)
+	}
+}
+
+func pictureShapeInfo(w, h int, shape string, source models.VideoSourceSetting) *models.VideoInfoData {
+	return &models.VideoInfoData{VideoStatus: models.VideoStatus{
+		Width: w, Height: h,
+		Source: &models.VideoSourceInfo{VideoSourceSetting: source, AutoSupported: true, PictureShape: shape},
+	}}
+}
+
+func frameRectOf(vw *VideoWidget) (float32, float32, float32, float32) {
+	return vw.getFrameContentRect()
+}
+
+// rust-shine on Windows under auto encodes the 16:10 desktop asked for at
+// 2560x1440 at 2304x1440 -- no bars -- while Android's decoder reports
+// 2560x1440: cropping 5% off each side put the pointer off (2026-11-23).
+func TestPictureShapeSourceAutoDropsInStreamCrop(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.agentProtocol = "pro"
+	vw.lastVideoImgW, vw.lastVideoImgH = 2560, 1440
+	vw.rememberHostDesktopFromInfo(pictureShapeInfo(2560, 1600, models.PictureShapeSource,
+		models.VideoSourceSetting{Mode: models.VideoSourceAuto, Width: 2560, Height: 1600}))
+	vw.UpdateTouchpadAndContentRect(2560, 1440, nil)
+	if fx, fy, fw, fh := frameRectOf(vw); fx != 0 || fy != 0 || fw < 0.999 || fh < 0.999 {
+		t.Fatalf("auto picture must not crop, frameRect=(%.3f,%.3f,%.3f,%.3f)", fx, fy, fw, fh)
+	}
+
+	// Whole frame: the desktop is letterboxed into the requested size.
+	vw.setRequestedSourceShape(models.VideoSourceSetting{Mode: models.VideoSourceCapture})
+	if _, _, fw, _ := frameRectOf(vw); fw >= 0.999 {
+		t.Fatalf("whole frame should crop 16:10-in-16:9, fw=%v", fw)
+	}
+
+	// Manual 5:4 on the 16:10 desktop: a 5:4 picture, the desktop
+	// letterboxed into it (bars above and below).
+	vw.setRequestedSourceShape(models.VideoSourceSetting{Mode: models.VideoSourceManual, Width: 1280, Height: 1024})
+	if _, fy, fw, fh := frameRectOf(vw); fw < 0.999 || fh >= 0.999 || fy <= 0 {
+		t.Fatalf("manual 5:4 should letterbox the 16:10 desktop vertically, fy=%v fw=%v fh=%v", fy, fw, fh)
+	}
+
+	// Back to auto from the dialog: the monitor again.
+	vw.setRequestedSourceShape(models.VideoSourceSetting{Mode: models.VideoSourceAuto})
+	if _, _, fw, fh := frameRectOf(vw); fw < 0.999 || fh < 0.999 {
+		t.Fatalf("auto again must not crop, fw=%v fh=%v", fw, fh)
+	}
+}
+
+// A 32:9 monitor (5120x1440) asked for at 3840x2160: the picture is
+// 3840x1080, no bars, under auto.
+func TestPictureShapeSourceSuperUltrawide(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.agentProtocol = "pro"
+	vw.lastVideoImgW, vw.lastVideoImgH = 3840, 2160
+	vw.rememberHostDesktopFromInfo(pictureShapeInfo(5120, 1440, models.PictureShapeSource,
+		models.VideoSourceSetting{Mode: models.VideoSourceAuto, Width: 5120, Height: 1440}))
+	vw.UpdateTouchpadAndContentRect(3840, 2160, nil)
+	if fx, fy, fw, fh := frameRectOf(vw); fx != 0 || fy != 0 || fw < 0.999 || fh < 0.999 {
+		t.Fatalf("32:9 auto picture must not crop, frameRect=(%.3f,%.3f,%.3f,%.3f)", fx, fy, fw, fh)
+	}
+}
+
+// rust-shine KMS on Linux keeps the monitor's shape whatever the setting.
+func TestPictureShapeDesktopIgnoresSetting(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.agentProtocol = "pro"
+	vw.lastVideoImgW, vw.lastVideoImgH = 1920, 1080
+	vw.rememberHostDesktopFromInfo(pictureShapeInfo(1920, 1200, models.PictureShapeDesktop,
+		models.VideoSourceSetting{Mode: models.VideoSourceCapture}))
+	vw.UpdateTouchpadAndContentRect(1920, 1080, nil)
+	if _, _, fw, fh := frameRectOf(vw); fw < 0.999 || fh < 0.999 {
+		t.Fatalf("KMS picture must not crop, fw=%v fh=%v", fw, fh)
+	}
+}
+
+// An agent without picture_shape (older, macOS) keeps the crop.
+func TestNoPictureShapeKeepsInStreamCrop(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.agentProtocol = "pro"
+	vw.lastVideoImgW, vw.lastVideoImgH = 2560, 1440
+	vw.rememberHostDesktopFromInfo(pictureShapeInfo(2560, 1600, "",
+		models.VideoSourceSetting{Mode: models.VideoSourceAuto}))
+	vw.UpdateTouchpadAndContentRect(2560, 1440, nil)
+	if _, _, fw, _ := frameRectOf(vw); fw >= 0.999 {
+		t.Fatalf("no picture shape should crop as before, fw=%v", fw)
 	}
 }
 

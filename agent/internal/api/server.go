@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -985,6 +986,15 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 	// The client's "Screen" picker (POST /api/video/source): present when
 	// this backend takes it.
 	if source, ok := s.app.VideoSource(); ok {
+		// Under auto the stream takes the captured monitor's own shape:
+		// tell the client which one, so it maps the absolute mouse onto a
+		// picture of that shape rather than one letterboxed into the size
+		// it asked for (a 16:10 desktop asked for at 2560x1440 is encoded
+		// at 2304x1440, no bars).
+		if source.Mode == "auto" && source.Width == 0 && selected != nil && len(modes) > 0 {
+			source.Width, source.Height = width, height
+		}
+		source.PictureShape = pictureShape(runtime.GOOS, devicePath)
 		info["source"] = source
 	}
 	s.ok(w, "video_info", info)
@@ -1011,13 +1021,48 @@ type VideoFecInfo struct {
 
 // VideoSourceInfo is /api/video/info's "source" and POST /api/video/source's
 // body: the stream's shape. Mode "auto" (the default) streams the desktop's
-// own shape, no bars; "capture" the client's requested size exactly, the
+// own shape, no bars -- /api/video/info then reports the captured monitor's
+// size in Width x Height; "capture" the client's requested size exactly, the
 // desktop letterboxed into it; "manual" the Width x Height shape.
 type VideoSourceInfo struct {
 	Mode          string `json:"mode"`
 	Width         int    `json:"width,omitempty"`
 	Height        int    `json:"height,omitempty"`
 	AutoSupported bool   `json:"auto_supported"`
+	// PictureShape: what the encoded picture's shape follows, so the client
+	// knows where the desktop is in it (/api/video/info only):
+	//   "source"  -- the source setting: auto the monitor, manual Width x
+	//                Height, both fitted into the requested size with no
+	//                bars; capture the requested size, desktop letterboxed
+	//                (rust-shine DXGI, pipeline windows_output_dims).
+	//   "desktop" -- always the monitor's own shape, whatever the setting
+	//                (rust-shine KMS, pipeline kms_output_dims).
+	//   ""        -- the requested size, the desktop letterboxed into it
+	//                (macOS ScreenCaptureKit; a capture card's frame).
+	PictureShape string `json:"picture_shape,omitempty"`
+}
+
+// Picture shapes (VideoSourceInfo.PictureShape).
+const (
+	PictureShapeSource  = "source"
+	PictureShapeDesktop = "desktop"
+)
+
+// pictureShape is VideoSourceInfo.PictureShape for rust-shine streaming the
+// device at devicePath on goos.
+func pictureShape(goos, devicePath string) string {
+	switch goos {
+	case "windows":
+		return PictureShapeSource
+	case "linux":
+		// A monitor captured through KMS ("drm:N", or rust-shine's raw
+		// "card|connector"); a V4L2 capture card's frame is cut by the
+		// source setting instead.
+		if strings.HasPrefix(devicePath, "drm:") || (strings.HasPrefix(devicePath, "raw:") && strings.Contains(devicePath, "|")) {
+			return PictureShapeDesktop
+		}
+	}
+	return ""
 }
 
 // videoSource sets the stream's shape from the client's "Screen" picker:

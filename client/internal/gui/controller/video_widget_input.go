@@ -890,6 +890,7 @@ func (vw *VideoWidget) SetAgentEnvironment(agentOS, agentDisplay string) {
 		// desktop pillarboxed into the stream put the cursor off).
 		vw.frameMutex.Lock()
 		vw.hostDesktopW, vw.hostDesktopH = 0, 0
+		vw.pictureShape, vw.pictureSource = "", models.VideoSourceSetting{}
 		vw.frameMutex.Unlock()
 	}
 	vw.agentOS = strings.TrimSpace(agentOS)
@@ -1548,6 +1549,42 @@ func (vw *VideoWidget) hostDesktopSize() (float32, float32) {
 	return vw.hostDesktopW, vw.hostDesktopH
 }
 
+// sourceShape is the encoded picture's shape when the agent gives the
+// picture a shape of its own (models.PictureShapeFor), 0, 0 when the
+// picture is the requested size.
+func (vw *VideoWidget) sourceShape() (float32, float32) {
+	vw.frameMutex.RLock()
+	defer vw.frameMutex.RUnlock()
+	w, h, _ := models.PictureShapeFor(vw.pictureShape, vw.pictureSource, vw.hostDesktopW, vw.hostDesktopH)
+	return w, h
+}
+
+// setRequestedSourceShape follows the dialog's video source choice (the
+// agent restarts its streamer with it; /api/video/info is read before that).
+// Under auto the shape is the captured monitor: the host desktop size.
+func (vw *VideoWidget) setRequestedSourceShape(source models.VideoSourceSetting) {
+	if source.Mode == models.VideoSourceAuto {
+		source.Width, source.Height = 0, 0
+	}
+	vw.frameMutex.Lock()
+	vw.pictureSource = source
+	vw.frameMutex.Unlock()
+	vw.updateInStreamContentRect()
+}
+
+// fitShapeInto is the largest size of the w x h shape inside bounds -- the
+// size rust-shine encodes at (pipeline fit_aspect).
+func fitShapeInto(boundsW, boundsH, w, h float32) (float32, float32) {
+	if boundsW <= 0 || boundsH <= 0 || w <= 0 || h <= 0 {
+		return boundsW, boundsH
+	}
+	scale := boundsW / w
+	if s := boundsH / h; s < scale {
+		scale = s
+	}
+	return w * scale, h * scale
+}
+
 func (vw *VideoWidget) rememberHostDesktopFromInfo(info *models.VideoInfoData) {
 	if info == nil {
 		return
@@ -1556,10 +1593,17 @@ func (vw *VideoWidget) rememberHostDesktopFromInfo(info *models.VideoInfoData) {
 	// frame's own aspect: the aspect is process-wide, and one left over
 	// from a capture-card session squeezed its picture.
 	aspect := 0.0
+	shape := ""
+	var source models.VideoSourceSetting
 	if info.Source != nil {
 		aspect = info.Source.DisplayAspect()
+		shape = info.Source.PictureShape
+		source = info.Source.VideoSourceSetting
 	}
 	vw.setSourceDisplayAspect(aspect)
+	vw.frameMutex.Lock()
+	vw.pictureShape, vw.pictureSource = shape, source
+	vw.frameMutex.Unlock()
 	w, h := hostDesktopSizeFromModes(info.CaptureModes)
 	if info.Width > 0 && info.Height > 0 {
 		if area := float32(info.Width) * float32(info.Height); area > w*h {
@@ -1634,6 +1678,15 @@ func (vw *VideoWidget) updateInStreamContentRectWith(streamW, streamH float32) {
 		x, y, w, h = 0, 0, 1, 1
 	} else {
 		hostW, hostH := vw.hostDesktopSize()
+		// The agent may encode the source's shape fitted into the requested
+		// size instead of letterboxing the desktop into it (rust-shine on
+		// Windows, auto/manual): the picture is then that shape, and the
+		// decoder still reports the requested size on some platforms
+		// (Android's AMediaCodec). Cropping the requested size's bars off
+		// a picture without them put the pointer off by the bar width.
+		if sw, sh := vw.sourceShape(); sw > 0 && sh > 0 {
+			streamW, streamH = fitShapeInto(streamW, streamH, sw, sh)
+		}
 		x, y, w, h = containFitNorm(streamW, streamH, hostW, hostH)
 	}
 	vw.frameMutex.Lock()

@@ -11,6 +11,7 @@ import (
 	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/media"
+	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
@@ -142,6 +143,8 @@ type VideoWidget struct {
 	lastVideoImgH              float32         // pixel height of the last decoded video frame
 	hostDesktopW               float32         // native host monitor width (capture modes[0] / max)
 	hostDesktopH               float32         // native host monitor height
+	pictureShape               string          // models.VideoSourceInfo.PictureShape from the last /api/video/info
+	pictureSource              models.VideoSourceSetting // the agent's source setting the picture shape follows
 	agentProtocol              string          // agent tariff: opensource (Sunshine) or rustshine free/pro/enterprise
 	hotkeyActions              HotkeyActions   // Ctrl+Alt+Shift hotkeys needing the main window (video_widget_hotkeys.go)
 	hotkeysHeld                map[int16]bool  // hotkey keys whose KeyDown was consumed, so their KeyUp is too
