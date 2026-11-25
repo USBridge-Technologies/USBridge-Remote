@@ -131,7 +131,7 @@ static void vk_eq_push(int type, int x, int y, int btn) {
 // ─── keyboard event queue (standalone fullscreen mode only) ──────────────────
 // In standalone mode the VK window is the only window and receives keyboard focus.
 // WM_KEYDOWN/WM_KEYUP are pushed here; Go polls via vk_video_next_key_event().
-// type: 1=keydown, 2=keyup. vk_code = Win32 Virtual Key code (wParam).
+// type: 1=keydown, 2=keyup, 3=focus lost (release all). vk_code = Win32 Virtual Key code.
 
 #define VK_KQ_CAP 256
 typedef struct { int type; int vk_code; } VkKeyEvt;
@@ -216,6 +216,31 @@ static void vk_apply_holes(HWND hw) {
     g_hole_rgn = cut;
 }
 
+// Standalone fullscreen keyboard hook. Window messages never see what
+// Windows itself acts on first -- Alt+Tab, Win (Start), Ctrl+Esc, Alt+Esc,
+// Win+<x> -- so those switched apps on THIS PC instead of reaching the host,
+// and the Alt left down on the host stayed stuck. While the fullscreen window
+// is in front, a low-level hook takes every key from the keyboard (not
+// injected ones) into the key queue and swallows it. The hook runs on the
+// window thread (its message loop dispatches the callback). Ctrl+Alt+Del and
+// Win+L are the secure attention keys: no hook sees them, the window loses
+// focus instead (type 3 below). The Go side leaves on F11 / Ctrl+Esc.
+static HHOOK g_kb_hook = NULL;
+
+static LRESULT CALLBACK vk_ll_kb_proc(int code, WPARAM wp, LPARAM lp) {
+    if (code == HC_ACTION && g_standalone && g_child_hwnd &&
+        GetForegroundWindow() == g_child_hwnd) {
+        const KBDLLHOOKSTRUCT *k = (const KBDLLHOOKSTRUCT *)lp;
+        if (!(k->flags & LLKHF_INJECTED)) {
+            // vkCode is already sided (VK_LSHIFT/VK_RMENU...).
+            if (wp == WM_KEYDOWN || wp == WM_SYSKEYDOWN) vk_kq_push(1, (int)k->vkCode);
+            else if (wp == WM_KEYUP || wp == WM_SYSKEYUP) vk_kq_push(2, (int)k->vkCode);
+            return 1;
+        }
+    }
+    return CallNextHookEx(g_kb_hook, code, wp, lp);
+}
+
 static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
     if (msg == WM_USER+3) { vk_apply_holes(hw); return 0; }
@@ -237,6 +262,11 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     // Standalone mode keyboard: push raw Win32 VK codes into the key queue.
     // Go polls via vk_video_next_key_event() and forwards to Moonlight directly.
     if (g_standalone) {
+        // Focus gone (Win+L, Ctrl+Alt+Del, another app forcing itself in
+        // front): no key-ups will come, have the Go side release them.
+        if (msg == WM_KILLFOCUS || (msg == WM_ACTIVATE && LOWORD(wp) == WA_INACTIVE)) {
+            vk_kq_push(3, 0);
+        }
         if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
             int vk = (int)wp;
             // Map generic modifier VKs to left/right variants using scan code.
@@ -352,6 +382,14 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         vk_eq_push(2, pt.x, pt.y, btn);
         return 0;
     }
+    if (msg == WM_MOUSEHWHEEL) {
+        // Tilt wheel: 6 = right (positive delta), 7 = left.
+        int btn = GET_WHEEL_DELTA_WPARAM(wp) > 0 ? 6 : 7;
+        POINT pt = { (int)(short)LOWORD(lp), (int)(short)HIWORD(lp) };
+        if (hw) ScreenToClient(hw, &pt);
+        vk_eq_push(2, pt.x, pt.y, btn);
+        return 0;
+    }
     // WM_USER+1/+2: hide/show requests posted by the render thread.
     if (msg == WM_USER+1) { ShowWindow(hw, SW_HIDE); return 0; }
     if (msg == WM_USER+2) {
@@ -422,6 +460,8 @@ static DWORD WINAPI vk_hwnd_thread(LPVOID unused) {
     if (g_hwnd_args.standalone) {
         SetForegroundWindow(g_child_hwnd);
         SetFocus(g_child_hwnd);
+        g_kb_hook = SetWindowsHookExW(WH_KEYBOARD_LL, vk_ll_kb_proc, GetModuleHandleW(NULL), 0);
+        if (!g_kb_hook) goVKLog("vk_video: WH_KEYBOARD_LL hook failed -- Alt+Tab/Win stay with Windows", 1);
     }
 
     // Register for Raw Mouse Input on this window.
@@ -442,6 +482,7 @@ static DWORD WINAPI vk_hwnd_thread(LPVOID unused) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    if (g_kb_hook) { UnhookWindowsHookEx(g_kb_hook); g_kb_hook = NULL; }
     return 0;
 }
 
@@ -5280,7 +5321,7 @@ void vk_video_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *s
 }
 
 // vk_video_next_key_event — drain one pending keyboard event (standalone mode only).
-// Returns 1 if an event was consumed. type: 1=keydown, 2=keyup.
+// Returns 1 if an event was consumed. type: 1=keydown, 2=keyup, 3=focus lost.
 // vk_out receives the Win32 Virtual Key code (same values Moonlight expects).
 // Thread-safe; called from the Go key-forwarding goroutine.
 int vk_video_next_key_event(int *type_out, int *vk_out) {

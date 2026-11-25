@@ -173,10 +173,7 @@ func (vw *VideoWidget) enqueueMouseClick(button int) {
 	if mi == nil || !mi.IsInputActive() {
 		return
 	}
-	moonlightBtn := button
-	if button == 2 {
-		moonlightBtn = service.LiMouseButtonRight
-	}
+	moonlightBtn := absoluteButtonToMoonlight(button)
 	vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn) })
 	vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn) })
 }
@@ -186,10 +183,7 @@ func (vw *VideoWidget) enqueueMouseButtonDown(button int) {
 	if mi == nil || !mi.IsInputActive() {
 		return
 	}
-	moonlightBtn := button
-	if button == 2 {
-		moonlightBtn = service.LiMouseButtonRight
-	}
+	moonlightBtn := absoluteButtonToMoonlight(button)
 	vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn) })
 }
 
@@ -198,10 +192,7 @@ func (vw *VideoWidget) enqueueMouseButtonUp(button int) {
 	if mi == nil || !mi.IsInputActive() {
 		return
 	}
-	moonlightBtn := button
-	if button == 2 {
-		moonlightBtn = service.LiMouseButtonRight
-	}
+	moonlightBtn := absoluteButtonToMoonlight(button)
 	vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn) })
 }
 

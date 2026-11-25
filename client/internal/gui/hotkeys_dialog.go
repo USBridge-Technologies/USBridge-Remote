@@ -167,6 +167,8 @@ func (mw *MainWindow) showHotkeysDialog() {
 	for _, r := range rows {
 		list = append(list, container.New(&hotkeyRowLayout{}, hotkeyKeyChip("Ctrl+Alt+Shift+"+r.key), hotkeyDesc(r.what)))
 	}
+	// Not a Ctrl+Alt+Shift combo: fullscreen's own way out.
+	list = append(list, container.New(&hotkeyRowLayout{}, hotkeyKeyChip("F11 / Ctrl+Esc"), hotkeyDesc(i18n.Current.HotkeyLeaveFullscreen)))
 
 	body := view.NewDialogSurfaceCard(container.New(&hotkeyListLayout{}, list...))
 	subtitle := i18n.Current.HotkeysTitle + ". " + i18n.Current.HotkeysNote

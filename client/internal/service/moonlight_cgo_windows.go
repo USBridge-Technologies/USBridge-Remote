@@ -1701,6 +1701,7 @@ static void do_send_mouse_position(short x, short y, short refW, short refH) {
 }
 static void do_send_mouse_button(char action, int button) { LiSendMouseButtonEvent(action, button); }
 static void do_send_scroll(signed char clicks)            { LiSendScrollEvent(clicks); }
+static void do_send_hscroll(signed char clicks)           { LiSendHScrollEvent(clicks); }
 static void do_send_multi_controller(
     unsigned short cn, unsigned short am, unsigned int b,
     unsigned char lt, unsigned char rt,
@@ -2015,6 +2016,12 @@ func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8) {
 		return
 	}
 	C.do_send_scroll(C.schar(clicks))
+}
+func (w *MoonlightCgoWrapper) SendMoonlightHScroll(clicks int8) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_hscroll(C.schar(clicks))
 }
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 	controllerNumber uint16, activeGamepadMask uint16, buttons uint32,

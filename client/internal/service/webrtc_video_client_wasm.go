@@ -657,6 +657,11 @@ func (c *WebRTCVideoClient) SendMoonlightScroll(clicks int8) {
 	c.sendInput(webrtcweb.EncodeScroll(int16(clicks) * wheelDelta))
 }
 
+func (c *WebRTCVideoClient) SendMoonlightHScroll(clicks int8) {
+	const wheelDelta = 120 // as SendMoonlightScroll
+	c.sendInput(webrtcweb.EncodeHScroll(int16(clicks) * wheelDelta))
+}
+
 func (c *WebRTCVideoClient) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint32, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {
 	// Not implemented yet -- input_wasm.go only encodes the packet types
 	// VideoWidget's mouse/keyboard paths actually exercise today (see its

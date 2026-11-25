@@ -24,6 +24,7 @@
 extern void goMouseCaptureMove(int dx, int dy);
 extern void goMouseCaptureButton(int button, int pressed);
 extern void goMouseCaptureScroll(int delta);
+extern void goMouseCaptureHScroll(int delta);
 
 static HWND g_hwnd = NULL;
 static HHOOK g_hook = NULL;
@@ -36,6 +37,19 @@ static int g_active = 0;
 // diff successive samples ourselves. -1 means "no previous sample yet".
 static int g_last_abs_x = -1;
 static int g_last_abs_y = -1;
+
+// Wheel remainders below one notch (WHEEL_DELTA). Smooth/high-resolution
+// wheels (Logitech Options smooth scrolling, free-spin, precision touchpads)
+// report 1/8 notch or less at a time; dividing each report by WHEEL_DELTA
+// dropped every one of them and the wheel did nothing.
+static int g_wheel_acc = 0, g_hwheel_acc = 0;
+
+static int usbridge_wheel_notches(int *acc, int delta) {
+    *acc += delta;
+    int n = *acc / WHEEL_DELTA;
+    *acc -= n * WHEEL_DELTA;
+    return n;
+}
 
 static void usbridge_handle_rawmouse(RAWMOUSE *rm) {
     if (rm->usFlags & MOUSE_MOVE_ABSOLUTE) {
@@ -55,8 +69,8 @@ static void usbridge_handle_rawmouse(RAWMOUSE *rm) {
         goMouseCaptureMove((int)rm->lLastX, (int)rm->lLastY);
     }
 
-    // Button numbers match Limelight.h's BUTTON_LEFT/MIDDLE/RIGHT (1/2/3)
-    // directly.
+    // Button numbers match Limelight.h's BUTTON_LEFT/MIDDLE/RIGHT/X1/X2
+    // (1/2/3/4/5) directly.
     USHORT bf = rm->usButtonFlags;
     if (bf & RI_MOUSE_LEFT_BUTTON_DOWN)   goMouseCaptureButton(1, 1);
     if (bf & RI_MOUSE_LEFT_BUTTON_UP)     goMouseCaptureButton(1, 0);
@@ -64,8 +78,18 @@ static void usbridge_handle_rawmouse(RAWMOUSE *rm) {
     if (bf & RI_MOUSE_RIGHT_BUTTON_UP)    goMouseCaptureButton(3, 0);
     if (bf & RI_MOUSE_MIDDLE_BUTTON_DOWN) goMouseCaptureButton(2, 1);
     if (bf & RI_MOUSE_MIDDLE_BUTTON_UP)   goMouseCaptureButton(2, 0);
+    if (bf & RI_MOUSE_BUTTON_4_DOWN)      goMouseCaptureButton(4, 1);
+    if (bf & RI_MOUSE_BUTTON_4_UP)        goMouseCaptureButton(4, 0);
+    if (bf & RI_MOUSE_BUTTON_5_DOWN)      goMouseCaptureButton(5, 1);
+    if (bf & RI_MOUSE_BUTTON_5_UP)        goMouseCaptureButton(5, 0);
     if (bf & RI_MOUSE_WHEEL) {
-        goMouseCaptureScroll((int)((SHORT)rm->usButtonData) / WHEEL_DELTA);
+        int n = usbridge_wheel_notches(&g_wheel_acc, (int)(SHORT)rm->usButtonData);
+        if (n != 0) goMouseCaptureScroll(n);
+    }
+    if (bf & RI_MOUSE_HWHEEL) {
+        // Positive = right, as Moonlight's horizontal scroll.
+        int n = usbridge_wheel_notches(&g_hwheel_acc, (int)(SHORT)rm->usButtonData);
+        if (n != 0) goMouseCaptureHScroll(n);
     }
 }
 

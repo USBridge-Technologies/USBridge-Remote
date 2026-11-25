@@ -2,13 +2,15 @@
 
 package controller
 
-// HandleAppBackgrounded / HandleAppForegrounded are no-ops on desktop.
-// See video_widget_android.go's HandleAppBackgrounded doc comment for the
-// mobile-specific race (a stray video frame from a superseded connection
-// attempt popping the native overlay up over the wrong screen after the OS
-// throttles/freezes background work) these exist to close on Android/iOS —
-// desktop platforms don't get backgrounded/foregrounded the same way, and
-// have no equivalent OS-level network/goroutine freezing to race against.
-func (vw *VideoWidget) HandleAppBackgrounded() {}
-func (vw *VideoWidget) HandleAppForegrounded() {}
+// HandleAppBackgrounded: on desktop Fyne calls it when no window of the
+// client has focus any more (Alt+Tab, a click into another app). Keys held
+// at that moment never get their KeyUp in this process, so the host would
+// keep them pressed and auto-repeat them: release everything sent. (See
+// video_widget_android.go for the mobile-only video race the mobile
+// versions close; desktop has none.)
+func (vw *VideoWidget) HandleAppBackgrounded() {
+	vw.releaseAllMoonlightKeys()
+}
+
+func (vw *VideoWidget) HandleAppForegrounded()           {}
 func (vw *VideoWidget) prepareNativeVideoBeforeConnect() {}

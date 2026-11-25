@@ -180,6 +180,8 @@ type LocalizedStrings struct {
 	HotkeyPaste                       string
 	HotkeyDisplays                    string
 	HotkeysNote                       string
+	HotkeyLeaveFullscreen             string // hotkeys dialog row for F11 / Ctrl+Esc
+	FullscreenExitHint                string // shown over the video on entering fullscreen
 	BenchTitle                        string
 	BenchHint                         string
 	BenchDuration                     string
@@ -1071,6 +1073,8 @@ func EN() *LocalizedStrings {
 		HotkeyPaste:                       "Type the clipboard text into the host",
 		HotkeyDisplays:                    "Switch the host monitor (Sunshine)",
 		HotkeysNote:                       "Keys are matched by position, so they work in any keyboard layout.",
+		HotkeyLeaveFullscreen:             "Leave fullscreen (Esc alone goes to the host)",
+		FullscreenExitHint:                "F11 or Ctrl+Esc: leave fullscreen",
 		BenchTitle:                        "Streamer benchmark",
 		BenchHint:                         "Each selected streamer is switched on the host, started from scratch and shown the same fast-moving video with the Net Graph on. Startup is timed separately; the video starts only once the stream is up.",
 		BenchDuration:                     "Measure each streamer for",
@@ -2291,6 +2295,8 @@ func ES() *LocalizedStrings {
 	locale.HotkeyPaste = "Escribir el texto del portapapeles en el host"
 	locale.HotkeyDisplays = "Cambiar el monitor del host (Sunshine)"
 	locale.HotkeysNote = "Las teclas se reconocen por posición: funcionan con cualquier distribución."
+	locale.HotkeyLeaveFullscreen = "Salir de pantalla completa (Esc solo va al host)"
+	locale.FullscreenExitHint = "F11 o Ctrl+Esc: salir de pantalla completa"
 	return locale
 }
 
@@ -2866,6 +2872,8 @@ func UKProper() *LocalizedStrings {
 	locale.HotkeyPaste = "Надрукувати текст із буфера на хості"
 	locale.HotkeyDisplays = "Перемкнути монітор хоста (Sunshine)"
 	locale.HotkeysNote = "Клавіші розпізнаються за положенням, тож працюють у будь-якій розкладці."
+	locale.HotkeyLeaveFullscreen = "Вийти з повного екрана (сам Esc іде на хост)"
+	locale.FullscreenExitHint = "F11 або Ctrl+Esc: вийти з повного екрана"
 	return locale
 }
 

@@ -54,18 +54,22 @@ static CGEventRef usbridgeEventTapCallback(CGEventTapProxy proxy, CGEventType ty
         case kCGEventLeftMouseUp:
             goNativeCaptureButton(1, 0);
             return NULL;
+        // Moonlight button numbers: 1 left, 2 middle, 3 right, 4 X1, 5 X2.
+        // (Right went as 2 and middle as 3 before: swapped on the host.)
         case kCGEventRightMouseDown:
-            goNativeCaptureButton(2, 1);
-            return NULL;
-        case kCGEventRightMouseUp:
-            goNativeCaptureButton(2, 0);
-            return NULL;
-        case kCGEventOtherMouseDown:
             goNativeCaptureButton(3, 1);
             return NULL;
-        case kCGEventOtherMouseUp:
+        case kCGEventRightMouseUp:
             goNativeCaptureButton(3, 0);
             return NULL;
+        case kCGEventOtherMouseDown:
+        case kCGEventOtherMouseUp: {
+            // kCGMouseEventButtonNumber: 2 middle, 3 back, 4 forward.
+            int64_t n = CGEventGetIntegerValueField(event, kCGMouseEventButtonNumber);
+            int b = n == 3 ? 4 : n == 4 ? 5 : 2;
+            goNativeCaptureButton(b, type == kCGEventOtherMouseDown ? 1 : 0);
+            return NULL;
+        }
         case kCGEventScrollWheel: {
             int delta = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventDeltaAxis1);
             if (delta != 0) {
@@ -75,7 +79,10 @@ static CGEventRef usbridgeEventTapCallback(CGEventTapProxy proxy, CGEventType ty
         }
         case kCGEventKeyDown: {
             CGKeyCode keycode = (CGKeyCode)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
-            if (keycode == (CGKeyCode)53 || keycode == (CGKeyCode)103) {
+            // F11 (103), or Ctrl+Esc (53), leaves fullscreen; Esc alone
+            // goes on to the host (isFullscreenExitKey).
+            bool ctrl = (CGEventGetFlags(event) & kCGEventFlagMaskControl) != 0;
+            if (keycode == (CGKeyCode)103 || (keycode == (CGKeyCode)53 && ctrl)) {
                 goNativeCaptureExit();
                 return NULL;
             }
@@ -218,6 +225,7 @@ import (
 	"time"
 	"usbridge-client/internal/service"
 
+	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -386,6 +394,7 @@ func (c *darwinNativeFullscreenCapture) processEvents() {
 					mi.SendMoonlightScroll(int8(clamp(event.value, -127, 127)))
 				}
 			case "exit":
+				fyne.Do(noteFullscreenExitKey)
 				if c.onExit != nil {
 					go c.onExit()
 				}

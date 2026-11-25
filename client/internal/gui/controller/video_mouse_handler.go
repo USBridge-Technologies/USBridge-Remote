@@ -10,6 +10,7 @@ import (
 
 	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -58,6 +59,10 @@ type TouchpadWrapper struct {
 	cursor      *canvas.Image
 	hScrollBar  *canvas.Rectangle
 	vScrollBar  *canvas.Rectangle
+
+	// hScrollResidual: horizontal wheel delta (Moonlight sign) below one
+	// notch, carried to the next Scrolled.
+	hScrollResidual float32
 
 	// Keyboard handlers (for macOS, where Canvas.SetOnTypedKey may not work)
 	window            fyne.Window
@@ -510,6 +515,7 @@ func (t *TouchpadWrapper) inCaptureMode() bool {
 
 // MouseDown handles a mouse button press (desktop)
 func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
+	service.HideVideoHint() // a click: the fullscreen hint has been seen
 	t.requestFocus()
 	if t.inCaptureMode() {
 		return
@@ -838,6 +844,18 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 	}
 	if !t.videoWidget.isMouseConnected {
 		return
+	}
+
+	// Horizontal: a tilt wheel (Logitech M720 & co.) or a touchpad swiped
+	// sideways. GLFW's X axis is positive to the LEFT (WM_MOUSEHWHEEL is
+	// negated "for consistency with macOS and X11"), Moonlight's to the right.
+	t.hScrollResidual -= ev.Scrolled.DX
+	if h := int(t.hScrollResidual / 10); h != 0 {
+		t.hScrollResidual -= float32(h) * 10
+		if mi := t.videoWidget.moonlightInput(); mi != nil && mi.IsInputActive() {
+			h8 := int8(clamp(h, -127, 127))
+			t.videoWidget.enqueueSend(func() { mi.SendMoonlightHScroll(h8) })
+		}
 	}
 
 	scroll := int(ev.Scrolled.DY / 10)

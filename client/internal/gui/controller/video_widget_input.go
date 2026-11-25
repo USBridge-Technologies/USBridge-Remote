@@ -114,6 +114,24 @@ func (vw *VideoWidget) moonlightTrackKeyUp(vkCode int16) {
 	delete(vw.moonlightHeldVKs, vkCode)
 }
 
+// moonlightKeyHeld reports whether vkCode's press was sent and not released.
+func (vw *VideoWidget) moonlightKeyHeld(vkCode int16) bool {
+	vw.moonlightKeyMu.Lock()
+	defer vw.moonlightKeyMu.Unlock()
+	return vw.moonlightHeldVKs[vkCode]
+}
+
+// sendMoonlightKeyUp releases a held key on the host.
+func (vw *VideoWidget) sendMoonlightKeyUp(vkCode int16) {
+	vw.moonlightTrackKeyUp(vkCode)
+	mi := vw.moonlightInput()
+	if mi == nil {
+		return
+	}
+	mods := widgetToMoonlightModifiers(vw.currentHIDModifiers())
+	vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods) })
+}
+
 // releaseAllMoonlightKeys sends synthetic KeyUp for every key currently tracked as held,
 // then clears the held set and resets modifier state. Call on window focus loss or stream
 // stop to prevent stuck keys from continuing to repeat on the remote host.
@@ -216,6 +234,14 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 		}
 	}
 	if vw.consumeHotkeyUp(event) {
+		return
+	}
+	// A key whose press went out as a raw VK must get its release, even if
+	// it would route as text now: Ctrl+C pressed with Ctrl held goes as VK
+	// 'C', and with Ctrl let go first the release of C looked like a plain
+	// character key and was dropped, so the host auto-repeated "cccc".
+	if vk := vw.keystrokeVKCode(event); vk != 0 && vw.moonlightKeyHeld(vk) {
+		vw.sendMoonlightKeyUp(vk)
 		return
 	}
 	if vw.routesKeystrokeAsText(event) {
@@ -1149,9 +1175,14 @@ func (vw *VideoWidget) SendAbsoluteEvent(x, y int, scroll int, force bool) {
 
 // absoluteButtonToMoonlight maps our HID button numbers to Moonlight button constants.
 // HID: 1=left, 2=right, 3=middle. Moonlight: Left=1, Middle=2, Right=3.
+// Middle (3) went through unmapped before, i.e. as Moonlight 3 = Right: a
+// wheel click was a right click on the host.
 func absoluteButtonToMoonlight(button int) int {
-	if button == 2 {
+	switch button {
+	case 2:
 		return service.LiMouseButtonRight
+	case 3:
+		return service.LiMouseButtonMiddle
 	}
 	return button
 }

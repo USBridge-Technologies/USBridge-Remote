@@ -778,6 +778,9 @@ func buildNetGraphHUD(samples []NetGraphSample) *image.RGBA {
 // entirely on that path, which meant the HUD just never appeared there.
 func ApplyNetGraphOverlay(rgba []byte, w, h, stride int, bgr bool) {
 	if !netGraphEnabled.Load() {
+		if hint := videoHintImg.Load(); hint != nil { // ShowVideoHint
+			netGraphBlitOverlay(rgba, w, h, stride, hint, bgr)
+		}
 		return
 	}
 	img := netGraphCachedImg.Load()

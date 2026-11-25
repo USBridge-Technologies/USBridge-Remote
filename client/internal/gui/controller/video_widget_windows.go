@@ -178,8 +178,10 @@ func (vw *VideoWidget) stopVKMouseForwarding() {
 }
 
 // startVKKeyForwarding polls the C key event queue (standalone fullscreen mode) and
-// routes Win32 Virtual Key codes directly to Moonlight input.  exitFn is called when
-// VK_ESCAPE is pressed, allowing the caller to exit fullscreen cleanly.
+// routes Win32 Virtual Key codes directly to Moonlight input. exitFn is called on
+// F11 or Ctrl+Esc (isFullscreenExitVK); Esc alone goes to the host. The C side's
+// low-level hook also hands over Alt+Tab, Win and the like, so they reach the host
+// instead of switching apps here.
 func (vw *VideoWidget) startVKKeyForwarding(exitFn func()) {
 	vw.stopVKKeyForwarding()
 	quit := make(chan struct{})
@@ -198,10 +200,20 @@ func (vw *VideoWidget) startVKKeyForwarding(exitFn func()) {
 					if !ok {
 						break
 					}
-					// VK_ESCAPE exits fullscreen
-					if typ == 1 && vkCode == 0x1B {
+					if typ == 3 {
+						// The fullscreen window lost focus: no KeyUp will come.
+						vw.releaseAllMoonlightKeys()
+						continue
+					}
+					if typ == 1 && isFullscreenExitVK(vkCode, vw.keyboardModifierState.Load()) {
+						// Ctrl is down on the host for Ctrl+Esc: release it too.
+						vw.releaseAllMoonlightKeys()
+						go fyne.Do(noteFullscreenExitKey)
 						go exitFn()
 						return
+					}
+					if typ == 1 {
+						service.HideVideoHint() // any key: the hint has been seen
 					}
 					mi := vw.moonlightInput()
 					if mi == nil {
@@ -307,6 +319,7 @@ func (vw *VideoWidget) dispatchVKWinMouseEvent(typ int, x, y float32, button int
 			PointEvent: fyne.PointEvent{Position: pos},
 		})
 	case 2: // button/scroll press
+		service.HideVideoHint() // a click or wheel: the hint has been seen
 		switch button {
 		case 4: // wheel up
 			tw.Scrolled(&fyne.ScrollEvent{
@@ -318,6 +331,15 @@ func (vw *VideoWidget) dispatchVKWinMouseEvent(typ int, x, y float32, button int
 				PointEvent: fyne.PointEvent{Position: pos},
 				Scrolled:   fyne.Delta{DX: 0, DY: -10},
 			})
+		case 6, 7: // tilt wheel right / left; GLFW's X axis is positive to the left
+			dx := float32(-10)
+			if button == 7 {
+				dx = 10
+			}
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: dx, DY: 0},
+			})
 		default:
 			tw.MouseDown(&desktop.MouseEvent{
 				PointEvent: fyne.PointEvent{Position: pos},
@@ -325,7 +347,7 @@ func (vw *VideoWidget) dispatchVKWinMouseEvent(typ int, x, y float32, button int
 			})
 		}
 	case 3: // button release — ignore scroll pseudo-buttons
-		if button != 4 && button != 5 {
+		if button < 4 || button > 7 {
 			tw.MouseUp(&desktop.MouseEvent{
 				PointEvent: fyne.PointEvent{Position: pos},
 				Button:     vkWinButtonToFyne(button),

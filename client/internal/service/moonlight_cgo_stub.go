@@ -39,6 +39,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16)              
 func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, refW, refH int16)          {}
 func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int)           {}
 func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8)                            {}
+func (w *MoonlightCgoWrapper) SendMoonlightHScroll(clicks int8)                           {}
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 	cn uint16, am uint16, b uint32, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16,
 ) {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/gui/graphics"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
@@ -70,6 +71,11 @@ func (fd *FullscreenDialog) Show() {
 	}
 
 	fd.enterFullscreen()
+	if fd.isFullscreen && !fullscreenExitLearned() {
+		// Esc no longer leaves fullscreen (it goes to the host): say how,
+		// until the user has once left with F11 / Ctrl+Esc.
+		service.ShowVideoHint(i18n.Current.FullscreenExitHint, 5*time.Second)
+	}
 }
 
 // enterFullscreen switches output into fullscreen while minimizing extra UI redraws.
@@ -233,7 +239,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	}
 
 	fd.fullscreenWindow.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
-		if event.Name == fyne.KeyEscape || string(event.Name) == "Back" {
+		if isFullscreenExitKey(event.Name, fd.keyboardModifierState.Load()) || string(event.Name) == "Back" {
 			logrus.Infof("🔍 Exit key pressed (%s) - exiting fullscreen mode", event.Name)
 			fd.exitFullscreen()
 			return

@@ -22,9 +22,45 @@ func (fd *FullscreenDialog) handleKeyDown(event *fyne.KeyEvent) {
 			}
 		}
 	}
+	if isFullscreenExitKey(event.Name, fd.keyboardModifierState.Load()) {
+		logrus.Infof("⌨️ [FS][INPUT][DOWN] %q: leaving fullscreen", event.Name)
+		noteFullscreenExitKey()
+		fd.exitFullscreen()
+		return
+	}
+	service.HideVideoHint() // any key: the hint has been seen
 	if fd.videoWidget != nil {
 		fd.videoWidget.handlePhysicalKeyDown(event)
 	}
+}
+
+// fullscreenExitLearnedPrefKey: set once the user left fullscreen with
+// F11 / Ctrl+Esc; the "how to leave" hint is not shown after that.
+const fullscreenExitLearnedPrefKey = "fullscreen_exit_hint_learned"
+
+func fullscreenExitLearned() bool {
+	app := fyne.CurrentApp()
+	return app != nil && app.Preferences().BoolWithFallback(fullscreenExitLearnedPrefKey, false)
+}
+
+// noteFullscreenExitKey: the exit key was used -- stop showing the hint.
+func noteFullscreenExitKey() {
+	service.HideVideoHint()
+	if app := fyne.CurrentApp(); app != nil && !fullscreenExitLearned() {
+		app.Preferences().SetBool(fullscreenExitLearnedPrefKey, true)
+	}
+}
+
+// isFullscreenExitKey: F11, or Ctrl+Esc, leaves fullscreen. Esc alone goes
+// to the host like any key (it closes dialogs, leaves the host's own
+// fullscreen apps...). mods is the widget modifier mask (Ctrl=1).
+func isFullscreenExitKey(name fyne.KeyName, mods int32) bool {
+	return name == fyne.KeyF11 || (name == fyne.KeyEscape && mods&1 != 0)
+}
+
+// isFullscreenExitVK is isFullscreenExitKey for Win32 virtual keys.
+func isFullscreenExitVK(vk int, mods int32) bool {
+	return vk == 0x7A /* VK_F11 */ || (vk == 0x1B /* VK_ESCAPE */ && mods&1 != 0)
 }
 
 func (fd *FullscreenDialog) handleKeyUp(event *fyne.KeyEvent) {
@@ -55,7 +91,7 @@ func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
-	if event.Name == fyne.KeyEscape || event.Name == fyne.KeyF11 || string(event.Name) == "Back" {
+	if isFullscreenExitKey(event.Name, fd.keyboardModifierState.Load()) || string(event.Name) == "Back" {
 		logrus.Info("⌨️ [FS][INPUT][PRESS] leaving fullscreen")
 		fd.exitFullscreen()
 		return

@@ -1291,6 +1291,7 @@ void do_send_mouse_button(char act, int btn) {
     if (ret != 0) ALOGE("LiSendMouseButtonEvent FAILED ret=%d act=%d btn=%d", ret, (int)act, btn);
 }
 void do_send_scroll(signed char c) { LiSendScrollEvent(c); }
+void do_send_hscroll(signed char c) { LiSendHScrollEvent(c); }
 void do_send_multi_controller(unsigned short cn, unsigned short am, unsigned int b, unsigned char lt, unsigned char rt, short lx, short ly, short rx, short ry) {
     LiSendMultiControllerEvent(cn, am, b, lt, rt, lx, ly, rx, ry);
 }
@@ -1674,6 +1675,11 @@ func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(a int8, b int) {
 func (w *MoonlightCgoWrapper) SendMoonlightScroll(c int8) {
 	if liStartConnectionActive.Load() {
 		C.do_send_scroll(C.schar(c))
+	}
+}
+func (w *MoonlightCgoWrapper) SendMoonlightHScroll(c int8) {
+	if liStartConnectionActive.Load() {
+		C.do_send_hscroll(C.schar(c))
 	}
 }
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(cn uint16, am uint16, b uint32, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16) {

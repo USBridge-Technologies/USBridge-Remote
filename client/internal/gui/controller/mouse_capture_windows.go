@@ -164,7 +164,7 @@ func goMouseCaptureMove(dx, dy C.int) {
 }
 
 // goMouseCaptureButton's button already matches Limelight.h's BUTTON_LEFT/
-// MIDDLE/RIGHT (1/2/3) -- see mouse_capture_windows.c's mapping comment.
+// MIDDLE/RIGHT/X1/X2 (1-5) -- see mouse_capture_windows.c's mapping comment.
 //
 //export goMouseCaptureButton
 func goMouseCaptureButton(button, pressed C.int) {
@@ -195,4 +195,17 @@ func goMouseCaptureScroll(delta C.int) {
 		return
 	}
 	mi.SendMoonlightScroll(int8(clamp(int(delta), -127, 127)))
+}
+
+//export goMouseCaptureHScroll
+func goMouseCaptureHScroll(delta C.int) {
+	e := activeWinMouseCapture()
+	if e == nil || e.miProvider == nil {
+		return
+	}
+	mi := e.miProvider()
+	if mi == nil {
+		return
+	}
+	mi.SendMoonlightHScroll(int8(clamp(int(delta), -127, 127)))
 }

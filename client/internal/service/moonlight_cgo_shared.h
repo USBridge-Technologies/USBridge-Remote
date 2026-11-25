@@ -433,6 +433,9 @@ void do_send_mouse_button(char action, int button) {
 void do_send_scroll(signed char clicks) {
     LiSendScrollEvent(clicks);
 }
+void do_send_hscroll(signed char clicks) {
+    LiSendHScrollEvent(clicks);
+}
 void do_send_multi_controller(
     unsigned short controllerNumber, unsigned short activeGamepadMask,
     unsigned int buttons,
