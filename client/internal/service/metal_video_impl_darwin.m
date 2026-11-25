@@ -1595,8 +1595,16 @@ void metal_video_set_holes(const float *xywhr, int n) {
 - (void)otherMouseDown:(NSEvent *)e   { [self pushButtonEvent:2 btn:2 event:e]; }
 - (void)otherMouseUp:(NSEvent *)e     { [self pushButtonEvent:3 btn:2 event:e]; }
 // ── scroll wheel ──────────────────────────────────────────────────────────
+// One notch per event along its main axis: 4 up, 5 down, 6 right, 7 left
+// (the tilt-wheel pseudo-buttons, as on Windows). A sideways wheel or swipe
+// used to read only scrollingDeltaY -- 0 for it, so ">= 0" sent wheel-up --
+// and events with no delta at all (scroll phase begin/end) did the same.
 - (void)scrollWheel:(NSEvent *)e {
-    int btn = (e.scrollingDeltaY >= 0) ? 4 : 5; // 4=up 5=down
+    CGFloat dx = e.scrollingDeltaX, dy = e.scrollingDeltaY;
+    if (dx == 0 && dy == 0) return;
+    int btn;
+    if (fabs(dy) >= fabs(dx)) btn = dy > 0 ? 4 : 5;
+    else btn = dx > 0 ? 7 : 6; // deltaX > 0: wheel left
     NSPoint pt = [self convertPoint:e.locationInWindow fromView:nil];
     metal_push_mouse(2, (float)pt.x, (float)(self.bounds.size.height - pt.y), btn);
 }

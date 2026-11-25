@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"runtime"
+
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
@@ -51,16 +53,23 @@ func noteFullscreenExitKey() {
 	}
 }
 
-// isFullscreenExitKey: F11, or Ctrl+Esc, leaves fullscreen. Esc alone goes
-// to the host like any key (it closes dialogs, leaves the host's own
-// fullscreen apps...). mods is the widget modifier mask (Ctrl=1).
+// isFullscreenExitKey: Ctrl+Esc, or F11 except on a Mac, leaves
+// fullscreen; Moonlight's Ctrl+Alt+Shift+X toggles it (handleHotkeyDown, by
+// key position). Esc alone goes to the host like any key (it closes
+// dialogs, leaves the host's own fullscreen apps...). On a Mac F11 goes to
+// the host too: fullscreen turns the system shortcuts off there so that
+// Fn+F1..F12 reach it (fullscreen_exit_keys_darwin.go). mods is the widget
+// modifier mask (Ctrl=1).
 func isFullscreenExitKey(name fyne.KeyName, mods int32) bool {
-	return name == fyne.KeyF11 || (name == fyne.KeyEscape && mods&1 != 0)
+	return (name == fyne.KeyF11 && runtime.GOOS != "darwin") || (name == fyne.KeyEscape && mods&1 != 0)
 }
 
-// isFullscreenExitVK is isFullscreenExitKey for Win32 virtual keys.
+// isFullscreenExitVK is isFullscreenExitKey for Win32 virtual keys, with
+// Ctrl+Alt+Shift+X: the standalone fullscreen window's keys skip
+// handleHotkeyDown.
 func isFullscreenExitVK(vk int, mods int32) bool {
-	return vk == 0x7A /* VK_F11 */ || (vk == 0x1B /* VK_ESCAPE */ && mods&1 != 0)
+	return vk == 0x7A /* VK_F11 */ || (vk == 0x1B /* VK_ESCAPE */ && mods&1 != 0) ||
+		(vk == 0x58 /* X */ && mods&hotkeyModsMask == hotkeyModsMask && mods&hotkeySuperMask == 0)
 }
 
 func (fd *FullscreenDialog) handleKeyUp(event *fyne.KeyEvent) {

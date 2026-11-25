@@ -498,9 +498,16 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 		mw.fullscreenIcon.SetIcon(assets.FullscreenIconFooter)
 	}
 
+	keysText := canvas.NewText(hotkeyModsLabel()+"X", design.ColorStatusBarResolutionText)
+	keysText.TextSize = statusIndicatorFPSTextSize
+	mw.fullscreenKeysBtn = newStatusBarTextButton(keysText, mw.showHotkeysDialog)
+	if mw.fullscreenIcon == nil || !mw.fullscreenIcon.Visible() {
+		mw.fullscreenKeysBtn.Hide()
+	}
 	videoParts := []fyne.CanvasObject{
 		controlFooterIconBox(mw.footerVideoSettingsIcon),
 		controlFooterIconBox(mw.fullscreenIcon),
+		mw.fullscreenKeysBtn,
 	}
 	if mw.videoMonitorToggle != nil {
 		mw.videoMonitorBtn = controlFooterIconBox(mw.videoMonitorToggle)

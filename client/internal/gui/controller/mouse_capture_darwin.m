@@ -41,6 +41,7 @@
 extern void goMouseCaptureMove(int dx, int dy);
 extern void goMouseCaptureButton(int button, int pressed);
 extern void goMouseCaptureScroll(int delta);
+extern void goMouseCaptureHScroll(int delta);
 
 static id g_monitor = nil;
 static NSWindow *g_window = nil;
@@ -108,6 +109,12 @@ int usbridge_mouse_capture_start(uintptr_t nsWindowPtr) {
                 CGFloat delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY;
                 if (delta != 0) {
                     goMouseCaptureScroll((int)lround(delta));
+                }
+                // Sideways: deltaX > 0 is wheel left, Moonlight's positive
+                // horizontal scroll is right.
+                CGFloat hdelta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaX : event.deltaX;
+                if (hdelta != 0) {
+                    goMouseCaptureHScroll(-(int)lround(hdelta));
                 }
                 return nil;
             }

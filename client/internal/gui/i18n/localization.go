@@ -182,6 +182,7 @@ type LocalizedStrings struct {
 	HotkeysNote                       string
 	HotkeyLeaveFullscreen             string // hotkeys dialog row for F11 / Ctrl+Esc
 	FullscreenExitHint                string // shown over the video on entering fullscreen
+	FullscreenExitHintMac             string // the same on macOS (F11 is a media key there)
 	BenchTitle                        string
 	BenchHint                         string
 	BenchDuration                     string
@@ -694,115 +695,115 @@ type LocalizedStrings struct {
 	WiFiTuneHint                         string // subtitle while the tune is still needed
 	WiFiTuneDoneHint                     string // subtitle once the tune is in place
 	// Android Wi-Fi tips dialog (controller/wifi_tips.go): settings no app can change.
-	WiFiTipsMenu                string
-	WiFiTipsTitle               string
-	WiFiTipsSubtitle            string
-	WiFiTipsNowOn               string
-	WiFiTipsNowOff              string
-	WiFiTipScanTitle            string
-	WiFiTipScanWhere            string
-	WiFiTipAdaptiveTitle        string
-	WiFiTipAdaptiveWhere        string
-	WiFiTipMobileDataTitle      string
-	WiFiTipMobileDataWhere      string
-	WiFiTipThrottleTitle        string
-	WiFiTipThrottleWhere        string
-	WiFiTipsAppNote             string
-	WiFiTipsOpen                string
-	WiFiTipsOK                  string
-	WiFiTipsDontShow            string
-	AWDLGrantAccess             string // prominent header button label: grant the one-time AWDL sudoers permission
-	UDPBufferGrantAccess        string // header button label (Linux): raise the kernel's UDP receive-buffer cap once
-	UDPBufferRunCommand         string // that button's dialog where the app can't raise it itself (snap): the command follows
-	SnapConnectDevices          string // header button label (snap): interfaces snapd didn't connect
-	SnapConnectRunCommand       string // that button's dialog: the commands follow
-	CopyCommand                 string // button copying a terminal command
-	ClipboardSend               string // clipboard menu: push the local clipboard to the host now
-	ClipboardReceive            string // clipboard menu: pull the host clipboard to this device now
-	ClipboardAutoSync           string // clipboard menu: automatic two-way sync toggle
-	ClipboardNotConnected       string // clipboard menu error: sync channel not connected
-	ClipboardEmpty              string // clipboard menu error: nothing to transfer
-	KeyboardInputKeys           string // keyboard input mode: raw keys, host layout decides
-	KeyboardInputText           string // keyboard input mode: characters typed with the client layout
-	KeyboardInputClipboard      string // keyboard input mode: text pasted through the host clipboard
-	RemoteKeyboardLayout        string // hardware KVM: the target's keyboard layout, "%s" = its name
-	RemoteKeyboardLayoutAuto    string // hardware KVM: target layout = this computer's
-	EnableVSync                 string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
-	EnableVSyncHint             string // description shown under the VSync checkbox
-	EnableVSyncBadge            string // small badge next to the VSync title, e.g. "RECOMMENDED"
-	AMDFSR                      string // "Upscale Quality" picker title, video parameters dialog (macOS: bilinear/bicubic/lanczos/AMD FSR 1.0)
-	AMDFSRHint                  string // description shown under the upscale quality picker
-	AMDFSRBadge                 string // small badge next to the upscale quality title, e.g. "NEW"
-	UpscaleBilinear             string // upscale quality picker option: "Off" -- fast default, no extra GPU cost, bypasses the Metal upscale path entirely (see UPSCALE_MODE_BILINEAR's own comment)
-	UpscaleBicubic              string // upscale quality picker option: smoother than bilinear
-	UpscaleLanczos              string // upscale quality picker option: sharper than bicubic
-	UpscaleFSR1                 string // upscale quality picker option: AMD FSR 1.0 (EASU+RCAS), sharpest, macOS only for now
-	AIVision                    string // "AI Vision overlay" switch title, AI & Scripts tab (debugging view)
-	AIVisionHint                string // hint under the AI Vision switch
-	AIVisionBadge               string // small badge next to the AI Vision title ("Debug")
-	Color444                    string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
-	Color444Hint                string // hint under the checkbox when 4:4:4 is available (checked or not)
-	Color444UnavailableHint     string // hint when agent reports color_444_available=false (GPU/encoder cannot do HEVC 4:4:4)
-	Color444UnavailableMessage  string // info dialog body when tapping the 4:4:4 warning triangle
+	WiFiTipsMenu                     string
+	WiFiTipsTitle                    string
+	WiFiTipsSubtitle                 string
+	WiFiTipsNowOn                    string
+	WiFiTipsNowOff                   string
+	WiFiTipScanTitle                 string
+	WiFiTipScanWhere                 string
+	WiFiTipAdaptiveTitle             string
+	WiFiTipAdaptiveWhere             string
+	WiFiTipMobileDataTitle           string
+	WiFiTipMobileDataWhere           string
+	WiFiTipThrottleTitle             string
+	WiFiTipThrottleWhere             string
+	WiFiTipsAppNote                  string
+	WiFiTipsOpen                     string
+	WiFiTipsOK                       string
+	WiFiTipsDontShow                 string
+	AWDLGrantAccess                  string // prominent header button label: grant the one-time AWDL sudoers permission
+	UDPBufferGrantAccess             string // header button label (Linux): raise the kernel's UDP receive-buffer cap once
+	UDPBufferRunCommand              string // that button's dialog where the app can't raise it itself (snap): the command follows
+	SnapConnectDevices               string // header button label (snap): interfaces snapd didn't connect
+	SnapConnectRunCommand            string // that button's dialog: the commands follow
+	CopyCommand                      string // button copying a terminal command
+	ClipboardSend                    string // clipboard menu: push the local clipboard to the host now
+	ClipboardReceive                 string // clipboard menu: pull the host clipboard to this device now
+	ClipboardAutoSync                string // clipboard menu: automatic two-way sync toggle
+	ClipboardNotConnected            string // clipboard menu error: sync channel not connected
+	ClipboardEmpty                   string // clipboard menu error: nothing to transfer
+	KeyboardInputKeys                string // keyboard input mode: raw keys, host layout decides
+	KeyboardInputText                string // keyboard input mode: characters typed with the client layout
+	KeyboardInputClipboard           string // keyboard input mode: text pasted through the host clipboard
+	RemoteKeyboardLayout             string // hardware KVM: the target's keyboard layout, "%s" = its name
+	RemoteKeyboardLayoutAuto         string // hardware KVM: target layout = this computer's
+	EnableVSync                      string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
+	EnableVSyncHint                  string // description shown under the VSync checkbox
+	EnableVSyncBadge                 string // small badge next to the VSync title, e.g. "RECOMMENDED"
+	AMDFSR                           string // "Upscale Quality" picker title, video parameters dialog (macOS: bilinear/bicubic/lanczos/AMD FSR 1.0)
+	AMDFSRHint                       string // description shown under the upscale quality picker
+	AMDFSRBadge                      string // small badge next to the upscale quality title, e.g. "NEW"
+	UpscaleBilinear                  string // upscale quality picker option: "Off" -- fast default, no extra GPU cost, bypasses the Metal upscale path entirely (see UPSCALE_MODE_BILINEAR's own comment)
+	UpscaleBicubic                   string // upscale quality picker option: smoother than bilinear
+	UpscaleLanczos                   string // upscale quality picker option: sharper than bicubic
+	UpscaleFSR1                      string // upscale quality picker option: AMD FSR 1.0 (EASU+RCAS), sharpest, macOS only for now
+	AIVision                         string // "AI Vision overlay" switch title, AI & Scripts tab (debugging view)
+	AIVisionHint                     string // hint under the AI Vision switch
+	AIVisionBadge                    string // small badge next to the AI Vision title ("Debug")
+	Color444                         string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
+	Color444Hint                     string // hint under the checkbox when 4:4:4 is available (checked or not)
+	Color444UnavailableHint          string // hint when agent reports color_444_available=false (GPU/encoder cannot do HEVC 4:4:4)
+	Color444UnavailableMessage       string // info dialog body when tapping the 4:4:4 warning triangle
 	Color444DecodeUnavailableHint    string // hint when the host can encode 4:4:4 but this device's decoder can't take it (service.Color444DecodeSupported)
 	Color444DecodeUnavailableMessage string // info dialog body for the same case
-	Color444RequiresH265Hint    string
-	Color444Badge               string    // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
-	Hdr                         string    // "HDR Color (RustShine)" checkbox -- mirrors Color444 exactly, independent axis (see rust-shine's docs/COLOR_MODES.md)
-	HdrHint                     string    // hint under the checkbox when HDR is available (checked or not)
-	HdrUnavailableHint          string    // hint when agent reports hdr_available=false
-	HdrUnavailableMessage       string    // info dialog body when tapping the HDR warning triangle
-	HdrClientUnsupportedHint    string    // hint when the agent offers HDR but this client can't display it (service.HdrDisplaySupported)
-	HdrRequiresH265Hint         string    // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
-	HdrBadge                    string    // badge next to the HDR title -- empty: HDR is free-tier (unlike 4:4:4's "PRO"), see newVideoDialogBadge's caller
-	NetGraph                    string    // "Net Graph" checkbox title, video parameters dialog -- live network/render HUD, pure local overlay like AI Vision
-	NetGraphHint                string    // hint shown under the Net Graph checkbox
-	NetGraphBadge               string    // small badge next to the Net Graph title, e.g. "MAC"
-	NetGraphSize                string    // Connections footer metrics-settings panel: HUD size slider label
-	NetGraphBackground          string    // Connections footer metrics-settings panel: HUD wash opacity slider label
-	FrameSmoothing              string    // "Smooth Motion" checkbox title, video parameters dialog -- motion-extrapolated stall concealment, pure local rendering fallback like AI Vision
-	FrameSmoothingHint          string    // hint shown under the Smooth Motion checkbox
-	FrameSmoothingBadge         string    // small badge next to the Smooth Motion title, e.g. "BETA"
-	PlayoutBuffer               string    // "Jitter Buffer" slider title, video parameters dialog -- moonlight-common-c fork's FramePacer.h; off by default
-	PlayoutBufferHint           string    // hint shown under the Jitter Buffer slider
-	PlayoutBufferLevelNames     [5]string // the slider's levels, 0 = off .. 4 = smoothest (service.PlayoutBufferLevel)
-	PlayoutBufferLowEnd         string    // hint under the slider's left end
-	PlayoutBufferSmoothEnd      string    // hint under the slider's right end
-	PlayoutBufferBadge          string    // small platform badge next to the Jitter Buffer title
-	ScrollSpeed                 string    // two-finger scroll speed slider title, video parameters dialog (touch screens)
-	VideoRenderer               string    // Client settings: video renderer picker title
-	DisplayServer               string    // Client settings: display server picker title (Linux)
-	RendererAuto                string    // renderer / display server picker: automatic choice
-	RendererSoftware            string    // renderer picker: drawn by the UI toolkit on the CPU
-	RendererGDI                 string    // renderer picker: Windows GDI
-	RendererHintLinux           string    // Client settings: when the Linux choices apply
-	PhaseSync                   string    // Client settings: phase lock switch
-	PhaseSyncHint               string    // Client settings: what it does
-	RendererHintWindows         string    // Client settings: when the Windows choice applies
-	RendererHintMac             string    // Client settings: when the macOS choice applies
-	Fec                         string    // FEC slider caption in the bitrate card (agent POST /api/video/fec)
-	FecAuto                     string    // the FEC slider's auto position
-	VideoSource                 string    // "Video source" picker caption, video parameters dialog (agent POST /api/video/source)
-	VideoSourceWholeFrame       string    // video source: the capture card's whole frame
-	VideoSourceCustom           string    // video source: a resolution typed in
-	VideoSourceAuto             string    // video source: the agent finds the screen in the frame
-	VideoSourceAutoDetail       string    // video source picker: what Auto does
-	VideoSourceWholeFrameDetail string    // video source picker: what the whole frame is
-	VideoSourceWidth            string    // custom source resolution: width field placeholder
-	VideoSourceHeight           string    // custom source resolution: height field placeholder
-	VideoSourceRect             string    // custom source: optional exact area field placeholder
-	VideoSourceHint             string    // hint under the video source picker
-	HostVirtualDisplay          string    // "Virtual display" checkbox title, video parameters dialog -- only against a plain Apollo/Vibepollo host
-	HostVirtualDisplayHint      string    // hint shown under the host Virtual display checkbox
-	OtherSettings               string    // labeled divider above the video-parameters toggle list, same style as OrEnterManually
-	MuteAudio                   string    // "Mute Audio"
-	UnmuteAudio                 string    // "Unmute Audio"
-	DeviceAudio                 string    // "Audio"
-	DeviceUSBAudio              string    // "USB Audio Codec"
-	AudioDeviceUAC1             string    // "UAC1"
-	AudioDeviceUAC2             string    // "UAC2"
-	DriveModeDisk               string    // "USB Stick"
-	DriveModeCDROM              string    // "CD-ROM"
+	Color444RequiresH265Hint         string
+	Color444Badge                    string    // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
+	Hdr                              string    // "HDR Color (RustShine)" checkbox -- mirrors Color444 exactly, independent axis (see rust-shine's docs/COLOR_MODES.md)
+	HdrHint                          string    // hint under the checkbox when HDR is available (checked or not)
+	HdrUnavailableHint               string    // hint when agent reports hdr_available=false
+	HdrUnavailableMessage            string    // info dialog body when tapping the HDR warning triangle
+	HdrClientUnsupportedHint         string    // hint when the agent offers HDR but this client can't display it (service.HdrDisplaySupported)
+	HdrRequiresH265Hint              string    // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
+	HdrBadge                         string    // badge next to the HDR title -- empty: HDR is free-tier (unlike 4:4:4's "PRO"), see newVideoDialogBadge's caller
+	NetGraph                         string    // "Net Graph" checkbox title, video parameters dialog -- live network/render HUD, pure local overlay like AI Vision
+	NetGraphHint                     string    // hint shown under the Net Graph checkbox
+	NetGraphBadge                    string    // small badge next to the Net Graph title, e.g. "MAC"
+	NetGraphSize                     string    // Connections footer metrics-settings panel: HUD size slider label
+	NetGraphBackground               string    // Connections footer metrics-settings panel: HUD wash opacity slider label
+	FrameSmoothing                   string    // "Smooth Motion" checkbox title, video parameters dialog -- motion-extrapolated stall concealment, pure local rendering fallback like AI Vision
+	FrameSmoothingHint               string    // hint shown under the Smooth Motion checkbox
+	FrameSmoothingBadge              string    // small badge next to the Smooth Motion title, e.g. "BETA"
+	PlayoutBuffer                    string    // "Jitter Buffer" slider title, video parameters dialog -- moonlight-common-c fork's FramePacer.h; off by default
+	PlayoutBufferHint                string    // hint shown under the Jitter Buffer slider
+	PlayoutBufferLevelNames          [5]string // the slider's levels, 0 = off .. 4 = smoothest (service.PlayoutBufferLevel)
+	PlayoutBufferLowEnd              string    // hint under the slider's left end
+	PlayoutBufferSmoothEnd           string    // hint under the slider's right end
+	PlayoutBufferBadge               string    // small platform badge next to the Jitter Buffer title
+	ScrollSpeed                      string    // two-finger scroll speed slider title, video parameters dialog (touch screens)
+	VideoRenderer                    string    // Client settings: video renderer picker title
+	DisplayServer                    string    // Client settings: display server picker title (Linux)
+	RendererAuto                     string    // renderer / display server picker: automatic choice
+	RendererSoftware                 string    // renderer picker: drawn by the UI toolkit on the CPU
+	RendererGDI                      string    // renderer picker: Windows GDI
+	RendererHintLinux                string    // Client settings: when the Linux choices apply
+	PhaseSync                        string    // Client settings: phase lock switch
+	PhaseSyncHint                    string    // Client settings: what it does
+	RendererHintWindows              string    // Client settings: when the Windows choice applies
+	RendererHintMac                  string    // Client settings: when the macOS choice applies
+	Fec                              string    // FEC slider caption in the bitrate card (agent POST /api/video/fec)
+	FecAuto                          string    // the FEC slider's auto position
+	VideoSource                      string    // "Video source" picker caption, video parameters dialog (agent POST /api/video/source)
+	VideoSourceWholeFrame            string    // video source: the capture card's whole frame
+	VideoSourceCustom                string    // video source: a resolution typed in
+	VideoSourceAuto                  string    // video source: the agent finds the screen in the frame
+	VideoSourceAutoDetail            string    // video source picker: what Auto does
+	VideoSourceWholeFrameDetail      string    // video source picker: what the whole frame is
+	VideoSourceWidth                 string    // custom source resolution: width field placeholder
+	VideoSourceHeight                string    // custom source resolution: height field placeholder
+	VideoSourceRect                  string    // custom source: optional exact area field placeholder
+	VideoSourceHint                  string    // hint under the video source picker
+	HostVirtualDisplay               string    // "Virtual display" checkbox title, video parameters dialog -- only against a plain Apollo/Vibepollo host
+	HostVirtualDisplayHint           string    // hint shown under the host Virtual display checkbox
+	OtherSettings                    string    // labeled divider above the video-parameters toggle list, same style as OrEnterManually
+	MuteAudio                        string    // "Mute Audio"
+	UnmuteAudio                      string    // "Unmute Audio"
+	DeviceAudio                      string    // "Audio"
+	DeviceUSBAudio                   string    // "USB Audio Codec"
+	AudioDeviceUAC1                  string    // "UAC1"
+	AudioDeviceUAC2                  string    // "UAC2"
+	DriveModeDisk                    string    // "USB Stick"
+	DriveModeCDROM                   string    // "CD-ROM"
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -1074,7 +1075,8 @@ func EN() *LocalizedStrings {
 		HotkeyDisplays:                    "Switch the host monitor (Sunshine)",
 		HotkeysNote:                       "Keys are matched by position, so they work in any keyboard layout.",
 		HotkeyLeaveFullscreen:             "Leave fullscreen (Esc alone goes to the host)",
-		FullscreenExitHint:                "F11 or Ctrl+Esc: leave fullscreen",
+		FullscreenExitHint:                "Ctrl+Alt+Shift+X, F11 or Ctrl+Esc: leave fullscreen",
+		FullscreenExitHintMac:             "Ctrl+Option+Shift+X or Ctrl+Esc: leave fullscreen",
 		BenchTitle:                        "Streamer benchmark",
 		BenchHint:                         "Each selected streamer is switched on the host, started from scratch and shown the same fast-moving video with the Net Graph on. Startup is timed separately; the video starts only once the stream is up.",
 		BenchDuration:                     "Measure each streamer for",
@@ -2296,7 +2298,8 @@ func ES() *LocalizedStrings {
 	locale.HotkeyDisplays = "Cambiar el monitor del host (Sunshine)"
 	locale.HotkeysNote = "Las teclas se reconocen por posición: funcionan con cualquier distribución."
 	locale.HotkeyLeaveFullscreen = "Salir de pantalla completa (Esc solo va al host)"
-	locale.FullscreenExitHint = "F11 o Ctrl+Esc: salir de pantalla completa"
+	locale.FullscreenExitHint = "Ctrl+Alt+Shift+X, F11 o Ctrl+Esc: salir de pantalla completa"
+	locale.FullscreenExitHintMac = "Ctrl+Option+Shift+X o Ctrl+Esc: salir de pantalla completa"
 	return locale
 }
 
@@ -2873,7 +2876,8 @@ func UKProper() *LocalizedStrings {
 	locale.HotkeyDisplays = "Перемкнути монітор хоста (Sunshine)"
 	locale.HotkeysNote = "Клавіші розпізнаються за положенням, тож працюють у будь-якій розкладці."
 	locale.HotkeyLeaveFullscreen = "Вийти з повного екрана (сам Esc іде на хост)"
-	locale.FullscreenExitHint = "F11 або Ctrl+Esc: вийти з повного екрана"
+	locale.FullscreenExitHint = "Ctrl+Alt+Shift+X, F11 або Ctrl+Esc: вийти з повного екрана"
+	locale.FullscreenExitHintMac = "Ctrl+Option+Shift+X або Ctrl+Esc: вийти з повного екрана"
 	return locale
 }
 

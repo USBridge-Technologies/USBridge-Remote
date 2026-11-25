@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 
 	"usbridge-client/internal/api"
-	"usbridge-client/internal/guestclient"
 	"usbridge-client/internal/clipboard"
+	"usbridge-client/internal/guestclient"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/i18n"
@@ -243,10 +243,13 @@ type MainWindow struct {
 	videoMonitorChipLoaded bool
 	// fullscreenIcon sits in the Control footer (after video settings).
 	fullscreenIcon *headerStatusBadgeButton
-	audioIcon      *headerStatusBadgeButton
-	captureIcon    *widget.Button
-	keyboardIcon   *headerStatusBadgeButton
-	mouseIcon      *headerStatusBadgeButton
+	// fullscreenKeysBtn: the fullscreen hotkey written out next to
+	// fullscreenIcon, shown with it; opens the hotkeys list.
+	fullscreenKeysBtn *statusBarTextButton
+	audioIcon         *headerStatusBadgeButton
+	captureIcon       *widget.Button
+	keyboardIcon      *headerStatusBadgeButton
+	mouseIcon         *headerStatusBadgeButton
 	// clipboardIcon/inputModeIcon are Control footer menus: clipboard
 	// send/get/auto-sync and keyboard keys/characters mode. Clipboard also
 	// appears on the mobile Control footer (mobileClipboardToggle).

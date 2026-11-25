@@ -80,7 +80,9 @@ func (vw *VideoWidget) handleHotkeyDown(event *fyne.KeyEvent) bool {
 		vw.StopVideoAsync()
 	case vkHotkeyFullscreen:
 		fyne.Do(func() {
-			if !vw.ExitFullscreenIfNeeded() {
+			if vw.ExitFullscreenIfNeeded() {
+				noteFullscreenExitKey()
+			} else {
 				vw.ShowFullscreen()
 			}
 		})

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"image"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,10 +72,17 @@ func (fd *FullscreenDialog) Show() {
 	}
 
 	fd.enterFullscreen()
+	if fd.isFullscreen {
+		startFullscreenExitKeys(fd)
+	}
 	if fd.isFullscreen && !fullscreenExitLearned() {
 		// Esc no longer leaves fullscreen (it goes to the host): say how,
 		// until the user has once left with F11 / Ctrl+Esc.
-		service.ShowVideoHint(i18n.Current.FullscreenExitHint, 5*time.Second)
+		hint := i18n.Current.FullscreenExitHint
+		if runtime.GOOS == "darwin" {
+			hint = i18n.Current.FullscreenExitHintMac
+		}
+		service.ShowVideoHint(hint, 5*time.Second)
 	}
 }
 
@@ -368,6 +376,7 @@ func (fd *FullscreenDialog) exitFullscreen() {
 	}
 
 	logrus.Info("🔍 Exiting fullscreen mode")
+	stopFullscreenExitKeys()
 
 	// Windows standalone VK fullscreen path.
 	if fd.windowlessVKFullscreen {

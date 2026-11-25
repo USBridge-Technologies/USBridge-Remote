@@ -170,3 +170,16 @@ func goMouseCaptureScroll(delta C.int) {
 	}
 	mi.SendMoonlightScroll(int8(clamp(int(delta), -127, 127)))
 }
+
+//export goMouseCaptureHScroll
+func goMouseCaptureHScroll(delta C.int) {
+	e := activeMouseCapture()
+	if e == nil || e.miProvider == nil {
+		return
+	}
+	mi := e.miProvider()
+	if mi == nil {
+		return
+	}
+	mi.SendMoonlightHScroll(int8(clamp(int(delta), -127, 127)))
+}

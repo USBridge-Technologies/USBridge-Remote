@@ -2,6 +2,7 @@ package gui
 
 import (
 	"image/color"
+	"runtime"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -165,10 +166,10 @@ func (mw *MainWindow) showHotkeysDialog() {
 
 	var list []fyne.CanvasObject
 	for _, r := range rows {
-		list = append(list, container.New(&hotkeyRowLayout{}, hotkeyKeyChip("Ctrl+Alt+Shift+"+r.key), hotkeyDesc(r.what)))
+		list = append(list, container.New(&hotkeyRowLayout{}, hotkeyKeyChip(hotkeyModsLabel()+r.key), hotkeyDesc(r.what)))
 	}
 	// Not a Ctrl+Alt+Shift combo: fullscreen's own way out.
-	list = append(list, container.New(&hotkeyRowLayout{}, hotkeyKeyChip("F11 / Ctrl+Esc"), hotkeyDesc(i18n.Current.HotkeyLeaveFullscreen)))
+	list = append(list, container.New(&hotkeyRowLayout{}, hotkeyKeyChip(leaveFullscreenKeys()), hotkeyDesc(i18n.Current.HotkeyLeaveFullscreen)))
 
 	body := view.NewDialogSurfaceCard(container.New(&hotkeyListLayout{}, list...))
 	subtitle := i18n.Current.HotkeysTitle + ". " + i18n.Current.HotkeysNote
@@ -201,4 +202,22 @@ func (mw *MainWindow) showHotkeysDialog() {
 			return min
 		},
 	})
+}
+
+// leaveFullscreenKeys: Ctrl+Alt+Shift+X has its own row (Moonlight's);
+// on a Mac F11 goes to the host like the other F keys.
+func leaveFullscreenKeys() string {
+	if runtime.GOOS == "darwin" {
+		return "Ctrl+Esc"
+	}
+	return "F11 / Ctrl+Esc"
+}
+
+// hotkeyModsLabel is how the hotkeys' Ctrl+Alt+Shift reads on this
+// keyboard: Alt is Option on a Mac.
+func hotkeyModsLabel() string {
+	if runtime.GOOS == "darwin" {
+		return "Ctrl+Option+Shift+"
+	}
+	return "Ctrl+Alt+Shift+"
 }

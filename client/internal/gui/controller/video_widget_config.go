@@ -529,6 +529,17 @@ func mergeVideoConfigResolution(cfg models.VideoDeviceConfig, info *models.Video
 	if info == nil {
 		return cfg
 	}
+	// A size the user picked that the source still offers stays: info's
+	// width/height is the stream running now (or the server's 720p
+	// placeholder when none is), so a 1080p pick restarted the stream and
+	// came back as the 720p it was replacing.
+	if cfg.VideoWidth > 0 && cfg.VideoHeight > 0 {
+		for _, m := range info.CaptureModes {
+			if m.Width == cfg.VideoWidth && m.Height == cfg.VideoHeight {
+				return cfg
+			}
+		}
+	}
 	if w, h := selectResolutionForInfo(info, cfg.VideoMode); w > 0 && h > 0 {
 		cfg.VideoWidth = w
 		cfg.VideoHeight = h

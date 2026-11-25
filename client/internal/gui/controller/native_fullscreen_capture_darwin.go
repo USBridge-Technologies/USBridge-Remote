@@ -13,6 +13,7 @@ package controller
 extern void goNativeCaptureMove(int dx, int dy);
 extern void goNativeCaptureButton(int button, int pressed);
 extern void goNativeCaptureScroll(int delta);
+extern void goNativeCaptureHScroll(int delta);
 extern void goNativeCaptureExit(void);
 
 static CFMachPortRef usbridgeEventTap = NULL;
@@ -75,14 +76,24 @@ static CGEventRef usbridgeEventTapCallback(CGEventTapProxy proxy, CGEventType ty
             if (delta != 0) {
                 goNativeCaptureScroll(delta);
             }
+            // Axis 2 is horizontal, positive = left; Moonlight's is right.
+            int hdelta = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventDeltaAxis2);
+            if (hdelta != 0) {
+                goNativeCaptureHScroll(-hdelta);
+            }
             return NULL;
         }
         case kCGEventKeyDown: {
             CGKeyCode keycode = (CGKeyCode)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
-            // F11 (103), or Ctrl+Esc (53), leaves fullscreen; Esc alone
-            // goes on to the host (isFullscreenExitKey).
-            bool ctrl = (CGEventGetFlags(event) & kCGEventFlagMaskControl) != 0;
-            if (keycode == (CGKeyCode)103 || (keycode == (CGKeyCode)53 && ctrl)) {
+            // Ctrl+Esc (53), or Moonlight's Ctrl+Option+Shift+X (7),
+            // leaves fullscreen; Esc alone and the F keys go on to the
+            // host (isFullscreenExitKey).
+            CGEventFlags f = CGEventGetFlags(event);
+            bool ctrl = (f & kCGEventFlagMaskControl) != 0;
+            bool opt = (f & kCGEventFlagMaskAlternate) != 0;
+            bool shift = (f & kCGEventFlagMaskShift) != 0;
+            bool cmd = (f & kCGEventFlagMaskCommand) != 0;
+            if ((keycode == (CGKeyCode)53 && ctrl) || (keycode == (CGKeyCode)7 && ctrl && opt && shift && !cmd)) {
                 goNativeCaptureExit();
                 return NULL;
             }
@@ -393,6 +404,11 @@ func (c *darwinNativeFullscreenCapture) processEvents() {
 				if mi := c.miProvider(); mi != nil {
 					mi.SendMoonlightScroll(int8(clamp(event.value, -127, 127)))
 				}
+			case "hscroll":
+				flushMove()
+				if mi := c.miProvider(); mi != nil {
+					mi.SendMoonlightHScroll(int8(clamp(event.value, -127, 127)))
+				}
 			case "exit":
 				fyne.Do(noteFullscreenExitKey)
 				if c.onExit != nil {
@@ -451,6 +467,18 @@ func goNativeCaptureScroll(delta C.int) {
 	}
 	capture.enqueue(nativeCaptureEvent{
 		kind:  "scroll",
+		value: clamp(int(delta), -127, 127),
+	})
+}
+
+//export goNativeCaptureHScroll
+func goNativeCaptureHScroll(delta C.int) {
+	capture := activeCapture()
+	if capture == nil {
+		return
+	}
+	capture.enqueue(nativeCaptureEvent{
+		kind:  "hscroll",
 		value: clamp(int(delta), -127, 127),
 	})
 }

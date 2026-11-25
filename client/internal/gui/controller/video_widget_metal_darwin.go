@@ -152,6 +152,15 @@ func (vw *VideoWidget) dispatchMetalMouseEvent(typ int, x, y float32, button int
 				PointEvent: fyne.PointEvent{Position: pos},
 				Scrolled:   fyne.Delta{DX: 0, DY: -10},
 			})
+		case 6, 7: // wheel right / left (GLFW's DX: positive = left)
+			dx := float32(-10)
+			if button == 7 {
+				dx = 10
+			}
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: dx},
+			})
 		default:
 			tw.MouseDown(&desktop.MouseEvent{
 				PointEvent: fyne.PointEvent{Position: pos},
@@ -159,7 +168,7 @@ func (vw *VideoWidget) dispatchMetalMouseEvent(typ int, x, y float32, button int
 			})
 		}
 	case 3: // release
-		if button != 4 && button != 5 {
+		if button < 4 || button > 7 {
 			tw.MouseUp(&desktop.MouseEvent{
 				PointEvent: fyne.PointEvent{Position: pos},
 				Button:     metalButtonToFyne(button),
