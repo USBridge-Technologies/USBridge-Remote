@@ -170,6 +170,11 @@ func (mw *MainWindow) showHotkeysDialog() {
 	}
 	// Not a Ctrl+Alt+Shift combo: fullscreen's own way out.
 	list = append(list, container.New(&hotkeyRowLayout{}, hotkeyKeyChip(leaveFullscreenKeys()), hotkeyDesc(i18n.Current.HotkeyLeaveFullscreen)))
+	if runtime.GOOS == "darwin" {
+		// The MacBook's top row is media keys; with Fn+Ctrl+Option the F
+		// key itself reaches the host.
+		list = append(list, container.New(&hotkeyRowLayout{}, hotkeyKeyChip("Fn+Ctrl+Option+F1 … F12"), hotkeyDesc(i18n.Current.HotkeyFKeysMac)))
+	}
 
 	body := view.NewDialogSurfaceCard(container.New(&hotkeyListLayout{}, list...))
 	subtitle := i18n.Current.HotkeysTitle + ". " + i18n.Current.HotkeysNote

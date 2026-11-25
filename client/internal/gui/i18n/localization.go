@@ -181,6 +181,7 @@ type LocalizedStrings struct {
 	HotkeyDisplays                    string
 	HotkeysNote                       string
 	HotkeyLeaveFullscreen             string // hotkeys dialog row for F11 / Ctrl+Esc
+	HotkeyFKeysMac                    string // hotkeys dialog row (macOS): F keys to the host
 	FullscreenExitHint                string // shown over the video on entering fullscreen
 	FullscreenExitHintMac             string // the same on macOS (F11 is a media key there)
 	BenchTitle                        string
@@ -1075,6 +1076,7 @@ func EN() *LocalizedStrings {
 		HotkeyDisplays:                    "Switch the host monitor (Sunshine)",
 		HotkeysNote:                       "Keys are matched by position, so they work in any keyboard layout.",
 		HotkeyLeaveFullscreen:             "Leave fullscreen (Esc alone goes to the host)",
+		HotkeyFKeysMac:                    "F1 … F12 to the host",
 		FullscreenExitHint:                "Ctrl+Alt+Shift+X, F11 or Ctrl+Esc: leave fullscreen",
 		FullscreenExitHintMac:             "Ctrl+Option+Shift+X or Ctrl+Esc: leave fullscreen",
 		BenchTitle:                        "Streamer benchmark",
@@ -2298,6 +2300,7 @@ func ES() *LocalizedStrings {
 	locale.HotkeyDisplays = "Cambiar el monitor del host (Sunshine)"
 	locale.HotkeysNote = "Las teclas se reconocen por posición: funcionan con cualquier distribución."
 	locale.HotkeyLeaveFullscreen = "Salir de pantalla completa (Esc solo va al host)"
+	locale.HotkeyFKeysMac = "F1 … F12 al host"
 	locale.FullscreenExitHint = "Ctrl+Alt+Shift+X, F11 o Ctrl+Esc: salir de pantalla completa"
 	locale.FullscreenExitHintMac = "Ctrl+Option+Shift+X o Ctrl+Esc: salir de pantalla completa"
 	return locale
@@ -2876,6 +2879,7 @@ func UKProper() *LocalizedStrings {
 	locale.HotkeyDisplays = "Перемкнути монітор хоста (Sunshine)"
 	locale.HotkeysNote = "Клавіші розпізнаються за положенням, тож працюють у будь-якій розкладці."
 	locale.HotkeyLeaveFullscreen = "Вийти з повного екрана (сам Esc іде на хост)"
+	locale.HotkeyFKeysMac = "F1 … F12 на хост"
 	locale.FullscreenExitHint = "Ctrl+Alt+Shift+X, F11 або Ctrl+Esc: вийти з повного екрана"
 	locale.FullscreenExitHintMac = "Ctrl+Option+Shift+X або Ctrl+Esc: вийти з повного екрана"
 	return locale

@@ -243,8 +243,8 @@ type MainWindow struct {
 	videoMonitorChipLoaded bool
 	// fullscreenIcon sits in the Control footer (after video settings).
 	fullscreenIcon *headerStatusBadgeButton
-	// fullscreenKeysBtn: the fullscreen hotkey written out next to
-	// fullscreenIcon, shown with it; opens the hotkeys list.
+	// fullscreenKeysBtn: how to leave fullscreen (Ctrl+Esc) written out
+	// next to fullscreenIcon, shown with it; opens the hotkeys list.
 	fullscreenKeysBtn *statusBarTextButton
 	audioIcon         *headerStatusBadgeButton
 	captureIcon       *widget.Button

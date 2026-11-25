@@ -498,7 +498,9 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 		mw.fullscreenIcon.SetIcon(assets.FullscreenIconFooter)
 	}
 
-	keysText := canvas.NewText(hotkeyModsLabel()+"X", design.ColorStatusBarResolutionText)
+	// Ctrl+Esc: the easiest way out of fullscreen to remember (the
+	// Ctrl+Alt+Shift+X toggle is in the hotkeys list this opens).
+	keysText := canvas.NewText("Ctrl+Esc", design.ColorStatusBarResolutionText)
 	keysText.TextSize = statusIndicatorFPSTextSize
 	mw.fullscreenKeysBtn = newStatusBarTextButton(keysText, mw.showHotkeysDialog)
 	if mw.fullscreenIcon == nil || !mw.fullscreenIcon.Visible() {
