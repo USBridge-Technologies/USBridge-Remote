@@ -227,15 +227,38 @@ static void vk_apply_holes(HWND hw) {
 // focus instead (type 3 below). The Go side leaves on F11 / Ctrl+Esc.
 static HHOOK g_kb_hook = NULL;
 
+// Keys whose key-down the hook swallowed. Only their key-ups are swallowed
+// too: a key-up of a key pressed BEFORE the window came in front -- the
+// Ctrl+Shift+Alt of Ctrl+Shift+Alt+X that entered fullscreen, or a key held
+// while clicking back in -- must reach Windows. Swallowed, Windows kept
+// Ctrl+Alt (= AltGr) and Shift held down, and typing into another app on the
+// second monitor gave odd characters until fullscreen was left.
+static unsigned char g_kb_hook_down[256];
+
 static LRESULT CALLBACK vk_ll_kb_proc(int code, WPARAM wp, LPARAM lp) {
-    if (code == HC_ACTION && g_standalone && g_child_hwnd &&
-        GetForegroundWindow() == g_child_hwnd) {
+    if (code == HC_ACTION) {
         const KBDLLHOOKSTRUCT *k = (const KBDLLHOOKSTRUCT *)lp;
-        if (!(k->flags & LLKHF_INJECTED)) {
+        DWORD vk = k->vkCode & 0xFF;
+        BOOL up = wp == WM_KEYUP || wp == WM_SYSKEYUP;
+        if (g_standalone && g_child_hwnd && !(k->flags & LLKHF_INJECTED) &&
+            GetForegroundWindow() == g_child_hwnd) {
             // vkCode is already sided (VK_LSHIFT/VK_RMENU...).
-            if (wp == WM_KEYDOWN || wp == WM_SYSKEYDOWN) vk_kq_push(1, (int)k->vkCode);
-            else if (wp == WM_KEYUP || wp == WM_SYSKEYUP) vk_kq_push(2, (int)k->vkCode);
-            return 1;
+            if (!up) {
+                g_kb_hook_down[vk] = 1;
+                vk_kq_push(1, (int)k->vkCode);
+                return 1;
+            }
+            if (g_kb_hook_down[vk]) {
+                g_kb_hook_down[vk] = 0;
+                vk_kq_push(2, (int)k->vkCode);
+                return 1;
+            }
+            // Pressed before we were in front: Windows has its key-down.
+        } else if (up) {
+            // Released after focus went elsewhere: the host side was
+            // released on the focus loss (type 3); Windows gets a stray
+            // key-up, which is harmless.
+            g_kb_hook_down[vk] = 0;
         }
     }
     return CallNextHookEx(g_kb_hook, code, wp, lp);
@@ -374,6 +397,14 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_RBUTTONUP)   { g_btn_down_mask &= ~4; vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 3); return 0; }
     if (msg == WM_MBUTTONDOWN) { g_btn_down_mask |= 2; vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 2); return 0; }
     if (msg == WM_MBUTTONUP)   { g_btn_down_mask &= ~2; vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 2); return 0; }
+    // Back / Forward: 8 = X1, 9 = X2 (4-7 are the wheel pseudo-buttons).
+    // Not added to g_btn_down_mask: they don't drag. TRUE: the documented
+    // return for WM_XBUTTON*, so the system doesn't also make APPCOMMANDs.
+    if (msg == WM_XBUTTONDOWN || msg == WM_XBUTTONUP) {
+        int btn = GET_XBUTTON_WPARAM(wp) == XBUTTON2 ? 9 : 8;
+        vk_eq_push(msg == WM_XBUTTONDOWN ? 2 : 3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), btn);
+        return TRUE;
+    }
     if (msg == WM_MOUSEWHEEL) {
         // Encode scroll as button 4 (up) / 5 (down) — same convention as Linux X11.
         int btn = GET_WHEEL_DELTA_WPARAM(wp) > 0 ? 4 : 5;
@@ -460,6 +491,7 @@ static DWORD WINAPI vk_hwnd_thread(LPVOID unused) {
     if (g_hwnd_args.standalone) {
         SetForegroundWindow(g_child_hwnd);
         SetFocus(g_child_hwnd);
+        ZeroMemory(g_kb_hook_down, sizeof(g_kb_hook_down));
         g_kb_hook = SetWindowsHookExW(WH_KEYBOARD_LL, vk_ll_kb_proc, GetModuleHandleW(NULL), 0);
         if (!g_kb_hook) goVKLog("vk_video: WH_KEYBOARD_LL hook failed -- Alt+Tab/Win stay with Windows", 1);
     }
