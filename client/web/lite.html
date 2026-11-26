@@ -2114,6 +2114,7 @@ onmessage = (e) => {
     var host = location.hostname || '127.0.0.1';
     var internalHost = '';
     var tailscaleHost = '';
+    var deviceHost = '';
     var key = '';
     var proto = 'auto';
     var immediate = false;
@@ -2130,6 +2131,7 @@ onmessage = (e) => {
         key = qp.get('master_key') || qp.get('token') || qp.get('key') || '';
         internalHost = qp.get('internal_host') || qp.get('host') || qp.get('lan') || '';
         tailscaleHost = qp.get('tailscale_host') || qp.get('ts') || '';
+        deviceHost = qp.get('device_host') || '';
         proto = qp.get('protocol') || qp.get('proto') || 'auto';
         name = qp.get('name') || name;
         if (qp.get('immediate') === 'true' || qp.get('connect') === 'true') {
@@ -2150,6 +2152,7 @@ onmessage = (e) => {
         key = qp.get('master_key') || qp.get('token') || qp.get('key') || '';
         internalHost = qp.get('internal_host') || qp.get('host') || qp.get('lan') || '';
         tailscaleHost = qp.get('tailscale_host') || qp.get('ts') || '';
+        deviceHost = qp.get('device_host') || '';
         proto = qp.get('protocol') || qp.get('proto') || 'auto';
         name = qp.get('name') || name;
         if (qp.get('immediate') === 'true' || qp.get('connect') === 'true') {
@@ -2159,6 +2162,9 @@ onmessage = (e) => {
     }
 
     host = internalHost || tailscaleHost || location.hostname || '127.0.0.1';
+    // Over https only the agent's <node>.ts.net name has a certificate the
+    // browser trusts: its IP addresses are self-signed.
+    if (deviceHost && location.protocol === 'https:') host = deviceHost;
 
     if (!key) return null;
     return {
@@ -2236,6 +2242,40 @@ onmessage = (e) => {
     fillConnectionDialogFields();
   }
 
+  // The device this page talks to. '' when the page was served by the
+  // device itself (the KVM's or the agent's own web client): relative URLs,
+  // its own origin. Otherwise (e.g. https://web.usbridge.io/lite) the
+  // saved/linked host, on the agent's HTTPS port 8443 (8080 over http)
+  // unless the host names its port. Over https only a host whose
+  // certificate the browser trusts works: the agent's <node>.ts.net name.
+  function targetHostPort() {
+    var h = ((state.protocol === 'tailscale' && state.tsHost) ? state.tsHost : state.host) || '';
+    h = h.trim().replace(/^[a-z]+:\/\//i, '').replace(/\/.*$/, '');
+    var m = h.match(/^\[([^\]]+)\](?::(\d+))?$/) || h.match(/^([^:]+)(?::(\d+))?$/) ||
+      (/^[0-9a-f:]+$/i.test(h) ? [h, h, ''] : null); // bare IPv6
+    if (!m) return null;
+    var hostOnly = m[1], port = m[2] || '';
+    var pageHost = (location.hostname || '').replace(/^\[|\]$/g, '');
+    if (!hostOnly || hostOnly.toLowerCase() === pageHost.toLowerCase()) return null;
+    var https = location.protocol === 'https:';
+    // Links carry the agent's plain-http API port (8080/8081...): over https
+    // that's its TLS listener, 8443 -- unless the port given already is one
+    // (443, the agent's 8443, the KVM's 9443).
+    if (https && ['443', '8443', '9443'].indexOf(port) < 0) port = '8443';
+    if (!port) port = '8080';
+    return { host: hostOnly, port: port };
+  }
+  function targetOrigin() {
+    var t = targetHostPort();
+    if (!t) return '';
+    var host = t.host.indexOf(':') >= 0 ? '[' + t.host + ']' : t.host;
+    return location.protocol + '//' + host + ':' + t.port;
+  }
+  function targetHostname() {
+    var t = targetHostPort();
+    return t ? t.host : location.hostname;
+  }
+
   async function api(method, path, body) {
     if (!state.masterKey) {
       openConnectionModal('Master key required');
@@ -2246,7 +2286,7 @@ onmessage = (e) => {
     var b = body === undefined ? '' : JSON.stringify(body);
     var derived = sha256(enc.encode(state.masterKey));
     var sig = hmacHex(derived, enc.encode(method + path + ts + b));
-    var url = path;
+    var url = targetOrigin() + path;
     var r = await fetch(url, {
       method: method,
       headers: {
@@ -2564,7 +2604,7 @@ onmessage = (e) => {
     var derived = sha256(enc.encode(state.masterKey));
     var sig = hmacHex(derived, enc.encode('POST/webrtc/offer' + ts + bodyStr));
 
-    var r = await fetch('/webrtc/offer', {
+    var r = await fetch(targetOrigin() + '/webrtc/offer', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2590,7 +2630,7 @@ onmessage = (e) => {
     var derived = sha256(enc.encode(state.masterKey));
     var sig = hmacHex(derived, enc.encode('GET/webtransport/info' + ts));
 
-    var infoRes = await fetch('/webtransport/info', {
+    var infoRes = await fetch(targetOrigin() + '/webtransport/info', {
       headers: {
         'X-Auth-Signature': sig,
         'X-Auth-Timestamp': ts
@@ -2606,7 +2646,8 @@ onmessage = (e) => {
       throw new Error('Invalid WebTransport info received');
     }
 
-    var host = location.hostname;
+    var host = targetHostname();
+    if (host.indexOf(':') >= 0) host = '[' + host + ']';
     var ts2 = String(Math.floor(Date.now() / 1000));
     var sig2 = hmacHex(derived, enc.encode('CONNECT' + info.path + ts2));
     var sessionURL = 'https://' + host + ':' + info.port + info.path + '?ts=' + ts2 + '&sig=' + sig2;
@@ -4149,7 +4190,7 @@ onmessage = (e) => {
     if (httpPingBusy) return;
     httpPingBusy = true;
     var t0 = performance.now();
-    fetch('/api/healthz', { cache: 'no-store' }).then(function(r) { return r.text(); }).then(function() {
+    fetch(targetOrigin() + '/api/healthz', { cache: 'no-store' }).then(function(r) { return r.text(); }).then(function() {
       httpPings.push(performance.now() - t0);
       if (httpPings.length > 5) httpPings.shift();
       state.httpPingMs = Math.min.apply(null, httpPings);

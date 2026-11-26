@@ -28,6 +28,7 @@ import (
 	"usbridge_agent/internal/hostload"
 	"usbridge_agent/internal/usbpass"
 	"usbridge_agent/internal/vdisplay"
+	"usbridge_agent/internal/webclient"
 )
 
 type Application interface {
@@ -323,6 +324,16 @@ func (s *Server) Routes() http.Handler {
 
 	// Proxy /webrtc/* requests to rustshine's native WebRTC signaling listener (port 8444)
 	mux.HandleFunc("/webrtc/", s.webrtcProxy)
+	// The web client's signed lookup of the streamer's WebTransport endpoint
+	// (UDP port, certificate hash): rides the page's own origin like the
+	// offer; the session itself goes straight to that UDP port.
+	mux.HandleFunc("GET /webtransport/info", s.webrtcProxy)
+
+	// The browser client itself, embedded at build time (internal/webclient):
+	// https://<this PC>:8443/ and /lite, same as on the hardware KVM. Its
+	// calls go to this same origin. Everything not registered above and not
+	// one of its files stays a 404.
+	mux.Handle("/", webclient.Handler())
 
 	return s.withCORS(s.withLogging(s.withRecovery(mux)))
 }

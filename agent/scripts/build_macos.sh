@@ -108,6 +108,7 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 
 export CGO_ENABLED=1
 
+"$SCRIPT_DIR/stage_webclient.sh"  # embedded browser client (internal/webclient)
 echo -e "${YELLOW}Compiling app bundle...${NC}"
 go build -ldflags "-X main.version=$VERSION" -o "$BIN_PATH" ./cmd/usbridge_agent
 chmod +x "$BIN_PATH"

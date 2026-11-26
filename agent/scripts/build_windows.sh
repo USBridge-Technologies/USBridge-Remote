@@ -188,6 +188,7 @@ fi
 export CGO_LDFLAGS="${CGO_LDFLAGS:-} -L$DELAYLIB_LDDIR"
 echo -e "${GREEN}✓${NC} opengl32.dll delay-loaded ($(grep -cv '^LIBRARY\|^EXPORTS' "$DELAYLIB_DIR/opengl32.def") exports)"
 
+"$SCRIPT_DIR/stage_webclient.sh"  # embedded browser client (internal/webclient)
 echo -e "${YELLOW}Compiling...${NC}"
 go build -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"
 

@@ -69,6 +69,7 @@ export CGO_ENABLED=1
 export GOOS=linux
 export GOARCH=amd64
 
+"$SCRIPT_DIR/stage_webclient.sh"  # embedded browser client (internal/webclient)
 echo -e "${YELLOW}Compiling agent...${NC}"
 go build -trimpath -tags "$GO_TAGS" -ldflags "-s -w -X main.version=$VERSION" -o "$OUTPUT_PATH" "$BUILD_PKG"
 chmod +x "$OUTPUT_PATH"
