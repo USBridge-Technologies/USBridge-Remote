@@ -162,6 +162,7 @@ function onAU(au) {
       decoder.configure({ codec, optimizeForLatency: true, hardwareAcceleration: accel });
       configured = codec;
       st.decoder = accel === 'prefer-hardware' ? 'hardware' : 'software';
+      postMessage({ type: 'log', msg: 'decoding ' + codec + ' (' + st.decoder + ')' });
     }
   }
   if (!configured) { st.framesDropped++; waitingKey = true; return; }
@@ -182,12 +183,21 @@ onmessage = (e) => {
     // Ask before the first keyframe, so a browser without a GPU decoder
     // (Linux Chrome without VA-API) starts in software instead of losing
     // the first keyframe to a failed configure.
-    VideoDecoder.isConfigSupported({ codec: h265 ? HEVC : 'avc1.640034', optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' })
-      .then((r) => {
-        if (r.supported || accel !== 'prefer-hardware') return;
+    // Several levels, not one: a GPU decoder (Linux Chrome's VA-API) often
+    // stops at level 5.1, and asking only for High 5.2 (avc1.640034) sent
+    // every stream to software even where the real one, 4.x, decodes on
+    // the GPU. Software only when none of them does; a stream the GPU
+    // still refuses falls back on its configure error (newDecoder).
+    const probes = h265 ? [HEVC] : ['avc1.640033', 'avc1.64002A', 'avc1.640028', 'avc1.4D4028', 'avc1.42E01F'];
+    Promise.all(probes.map((codec) => VideoDecoder.isConfigSupported({ codec, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' })
+      .then((r) => (r && r.supported ? codec : ''), () => '')))
+      .then((ok) => {
+        const hw = ok.filter(Boolean);
+        if (hw.length) { postMessage({ type: 'log', msg: 'hardware decoder for ' + hw.join(', ') }); return; }
+        if (accel !== 'prefer-hardware') return;
         accel = 'no-preference';
         postMessage({ type: 'log', msg: 'this browser has no hardware ' + (h265 ? 'HEVC' : 'H.264') + ' decoder, decoding in software' });
-      }, () => {});
+      });
   }
   else if (m.type === 'au') onAU(new Uint8Array(m.buf));
   else if (m.type === 'close') {
