@@ -280,3 +280,19 @@ func TestNodeNameMatchesTheBackend(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestAddWithPolicyIsCustomAndLabelledForCloud(t *testing.T) {
+	now := time.Now()
+	s, _ := OpenStore(t.TempDir())
+	pol := Policy{Caps: CapView | CapAudio | CapInput}
+	sh, err := s.AddWithPolicy("a@b.example", RoleViewer, &pol, 0, true, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sh.Role != RoleCustom || sh.EffectivePolicy().Caps != pol.Caps {
+		t.Fatalf("role %q caps %x", sh.Role, sh.EffectivePolicy().Caps)
+	}
+	if sh.CloudRole() != RoleOperator {
+		t.Fatalf("cloud role %q", sh.CloudRole())
+	}
+}

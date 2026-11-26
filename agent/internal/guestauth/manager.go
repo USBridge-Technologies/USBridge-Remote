@@ -76,12 +76,12 @@ func NodeName(shareID string) string {
 
 // Invite creates a share and has the cloud e-mail it. The local record is
 // removed again if the cloud refuses, so nothing is left half-created.
-func (m *Manager) Invite(ctx context.Context, email string, role Role, expiresAt int64, requireConsent bool) (*Share, *CreateResult, error) {
+func (m *Manager) Invite(ctx context.Context, email string, role Role, policy *Policy, expiresAt int64, requireConsent bool) (*Share, *CreateResult, error) {
 	now := time.Now()
 	if (m.Paid == nil || !m.Paid()) && m.Store.LiveCount(now) >= FreeMaxShares {
 		return nil, nil, ErrFreeLimit
 	}
-	sh, err := m.Store.Add(email, role, expiresAt, requireConsent, now)
+	sh, err := m.Store.AddWithPolicy(email, role, policy, expiresAt, requireConsent, now)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -121,7 +121,7 @@ type CreateResult struct {
 // CreateShare asks the backend to record sh and e-mail the invite.
 func (c *Cloud) CreateShare(ctx context.Context, sh *Share, deviceName, network string) (*CreateResult, error) {
 	req := map[string]any{
-		"id": sh.ID, "guest_email": sh.Email, "role": sh.Role,
+		"id": sh.ID, "guest_email": sh.Email, "role": sh.CloudRole(),
 		"require_consent": sh.RequireConsent, "device_name": deviceName, "network": network,
 	}
 	if sh.ExpiresAt != 0 {

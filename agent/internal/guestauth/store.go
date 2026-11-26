@@ -43,6 +43,23 @@ func (s *Share) EffectivePolicy() Policy {
 	return PolicyForRole(s.Role)
 }
 
+// CloudRole is the role name the backend gets for this share. It only
+// labels the invitation (the agent's own record decides what the guest may
+// do), so a custom matrix is reported as the smallest preset that covers it.
+func (s *Share) CloudRole() Role {
+	if s.Role != RoleCustom {
+		return s.Role
+	}
+	caps := s.EffectivePolicy().Caps
+	switch {
+	case caps&^PresetViewer().Caps == 0:
+		return RoleViewer
+	case caps&^PresetOperator().Caps == 0:
+		return RoleOperator
+	}
+	return RoleTechnician
+}
+
 // DisplayName returns a human-readable identifier (Label if set, else Email, else ID).
 func (s *Share) DisplayName() string {
 	if l := strings.TrimSpace(s.Label); l != "" {
@@ -118,6 +135,15 @@ var (
 
 // Add records a new share and returns it.
 func (s *Store) Add(email string, role Role, expiresAt int64, requireConsent bool, now time.Time) (*Share, error) {
+	return s.AddWithPolicy(email, role, nil, expiresAt, requireConsent, now)
+}
+
+// AddWithPolicy is Add for an invitation whose rights are a granular Policy
+// matrix: the share is then a RoleCustom one that carries the policy.
+func (s *Store) AddWithPolicy(email string, role Role, policy *Policy, expiresAt int64, requireConsent bool, now time.Time) (*Share, error) {
+	if policy != nil {
+		role = RoleCustom
+	}
 	email = strings.ToLower(strings.TrimSpace(email))
 	if !strings.Contains(email, "@") || len(email) > 254 || !ValidRole(role) {
 		return nil, ErrBadShare
@@ -126,6 +152,10 @@ func (s *Store) Add(email string, role Role, expiresAt int64, requireConsent boo
 		return nil, ErrBadShare
 	}
 	sh := &Share{ID: NewID(), Email: email, Role: role, RequireConsent: requireConsent, ExpiresAt: expiresAt, CreatedAt: now.Unix()}
+	if policy != nil {
+		pol := *policy
+		sh.Policy = &pol
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.shares[sh.ID] = sh

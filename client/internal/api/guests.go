@@ -51,6 +51,8 @@ type GuestList struct {
 type GuestInvite struct {
 	Email string `json:"email"`
 	Role  string `json:"role"` // viewer | operator | technician
+	// Policy, when set, is the checkbox matrix and takes the place of Role.
+	Policy *GuestPolicy `json:"policy,omitempty"`
 	// ExpiresIn is seconds from now; 0 = no end date.
 	ExpiresIn      int64 `json:"expires_in"`
 	RequireConsent bool  `json:"require_consent"`

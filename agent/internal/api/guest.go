@@ -283,6 +283,8 @@ type guestInviteRequest struct {
 	Role           string `json:"role"`
 	ExpiresIn      int64  `json:"expires_in"` // seconds from now; 0 = no end date
 	RequireConsent *bool  `json:"require_consent"`
+	// Policy, when set, is the checkbox matrix and replaces Role.
+	Policy *guestauth.Policy `json:"policy,omitempty"`
 }
 
 type guestView struct {
@@ -366,7 +368,7 @@ func (s *Server) guestsInvite(w http.ResponseWriter, r *http.Request) {
 	// app gave up early.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
 	defer cancel()
-	sh, res, err := g.Invite(ctx, req.Email, guestauth.Role(req.Role), expires, consent)
+	sh, res, err := g.Invite(ctx, req.Email, guestauth.Role(req.Role), req.Policy, expires, consent)
 	switch {
 	case err == nil:
 		s.ok(w, "guest_invited", map[string]any{"guest": sh, "invite_url": res.InviteURL, "mail_sent": res.MailSent})

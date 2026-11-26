@@ -819,6 +819,10 @@ type LocalizedStrings struct {
 	ShareRoleViewer       string
 	ShareRoleOperator     string
 	ShareRoleTechnician   string
+	ShareRoleVFX          string
+	ShareRightsLabel      string
+	ShareRightsGroups     [4]string
+	ShareRights           [16]string
 	ShareExpiryLabel      string
 	ShareExpiry1h         string
 	ShareExpiry1d         string
@@ -1708,6 +1712,15 @@ func EN() *LocalizedStrings {
 		ShareRoleViewer:       "Viewer: watch only",
 		ShareRoleOperator:     "Operator: mouse, keyboard, clipboard",
 		ShareRoleTechnician:   "Technician: plus USB, disks, displays",
+		ShareRoleVFX:          "VFX / TPN",
+		ShareRightsLabel:      "Rights",
+		ShareRightsGroups:     [4]string{"Session", "Clipboard and files", "USB devices", "Displays"},
+		ShareRights: [16]string{
+			"View screen", "Audio", "Mouse and keyboard", "Pen tablet (Wacom)", "Gamepads",
+			"Clipboard: client to host", "Clipboard: host to client", "File transfer",
+			"USB: keyboards, mice, SpaceMouse", "USB: pen tablets", "USB: audio", "USB: mass storage", "USB: other classes",
+			"Virtual displays", "Make virtual display main", "Turn other monitors off",
+		},
 		ShareExpiryLabel:      "Access for",
 		ShareExpiry1h:         "1 hour",
 		ShareExpiry1d:         "1 day",

@@ -129,7 +129,7 @@ func (cm *ConnectionManager) agentClient(conn SavedConnection) *api.USBClient {
 // closes itself on Send; it reopens with the outcome).
 type shareDraft struct {
 	email   string
-	role    int
+	rights  api.GuestRights
 	expiry  int
 	consent bool
 	message string
@@ -141,7 +141,6 @@ type shareDraft struct {
 }
 
 var shareExpirySeconds = []int64{3600, 24 * 3600, 7 * 24 * 3600, 30 * 24 * 3600, 0}
-var shareRoles = []string{"viewer", "operator", "technician"}
 
 func shareErrorText(err error) string {
 	switch {
@@ -164,7 +163,7 @@ func (cm *ConnectionManager) openShareDialog(idx int) {
 	if idx < 0 || idx >= len(cm.connections) {
 		return
 	}
-	cm.showShareDialog(idx, shareDraft{role: 1, expiry: 1, consent: true}, nil)
+	cm.showShareDialog(idx, shareDraft{rights: api.GuestRightsOperator(), expiry: 1, consent: true}, nil)
 }
 
 func (cm *ConnectionManager) showShareDialog(idx int, draft shareDraft, known *api.GuestList) {
@@ -224,22 +223,16 @@ func (cm *ConnectionManager) buildShareDialog(idx int, draft shareDraft, list *a
 	body.Add(view.NewDialogHint(t.ShareHint, 0))
 
 	var emailEntry *view.StyledEntry
-	var roleSel, expirySel *view.HeaderDropdown
+	var expirySel *view.HeaderDropdown
+	var rightsBox fyne.CanvasObject
 	var consent view.DialogToggle
-	roleLabels := []string{t.ShareRoleViewer, t.ShareRoleOperator, t.ShareRoleTechnician}
 	expiryLabels := []string{t.ShareExpiry1h, t.ShareExpiry1d, t.ShareExpiry7d, t.ShareExpiry30d, t.ShareExpiryNever}
-	roleIdx, expiryIdx := draft.role, draft.expiry
+	rights, expiryIdx := draft.rights, draft.expiry
 	if reachable {
 		emailEntry = view.NewStyledEntry()
 		emailEntry.SetPlaceHolder(t.ShareEmailPlaceholder)
 		emailEntry.SetText(draft.email)
-		roleSel = view.NewDialogPicker(roleLabels, roleLabels[roleIdx], func(s string) {
-			for i, l := range roleLabels {
-				if l == s {
-					roleIdx = i
-				}
-			}
-		})
+		rightsBox = cm.buildRightsMatrix(&rights)
 		expirySel = view.NewDialogPicker(expiryLabels, expiryLabels[expiryIdx], func(s string) {
 			for i, l := range expiryLabels {
 				if l == s {
@@ -249,7 +242,7 @@ func (cm *ConnectionManager) buildShareDialog(idx int, draft shareDraft, list *a
 		})
 		consent = view.NewDialogToggle(draft.consent, nil)
 		body.Add(view.NewDialogField(t.ShareEmailLabel, emailEntry))
-		body.Add(view.NewDialogField(t.ShareRoleLabel, roleSel))
+		body.Add(view.NewDialogField(t.ShareRightsLabel, rightsBox))
 		body.Add(view.NewDialogField(t.ShareExpiryLabel, expirySel))
 		body.Add(view.NewDialogToggleRow(consent, t.ShareAskConsent, t.ShareAskConsentDesc, 0))
 	}
@@ -308,13 +301,14 @@ func (cm *ConnectionManager) buildShareDialog(idx int, draft shareDraft, list *a
 	if reachable && !draft.sending {
 		spec.OnApply = func() {
 			email := strings.TrimSpace(emailEntry.Text)
-			d := shareDraft{email: email, role: roleIdx, expiry: expiryIdx, consent: consent.IsChecked()}
+			d := shareDraft{email: email, rights: rights, expiry: expiryIdx, consent: consent.IsChecked()}
 			if !strings.Contains(email, "@") || strings.ContainsAny(email, " ,;") {
 				d.message, d.isError = t.ShareErrEmail, true
 				reopen2(cm, idx, d, list)
 				return
 			}
-			inv := api.GuestInvite{Email: email, Role: shareRoles[roleIdx], ExpiresIn: shareExpirySeconds[expiryIdx], RequireConsent: d.consent}
+			pol := rights.Policy()
+			inv := api.GuestInvite{Email: email, Policy: &pol, ExpiresIn: shareExpirySeconds[expiryIdx], RequireConsent: d.consent}
 			// Say what is happening while the host sets its guest network up
 			// (api.GuestInviteTimeout); the outcome replaces this dialog.
 			waiting := d
@@ -326,10 +320,10 @@ func (cm *ConnectionManager) buildShareDialog(idx int, draft shareDraft, list *a
 				case err != nil:
 					d.message, d.isError = shareErrorText(err), true
 				case sent:
-					d = shareDraft{role: roleIdx, expiry: expiryIdx, consent: d.consent, message: fmt.Sprintf(t.ShareInvitedOK, email)}
+					d = shareDraft{rights: rights, expiry: expiryIdx, consent: d.consent, message: fmt.Sprintf(t.ShareInvitedOK, email)}
 				default:
 					logrus.Warnf("guest invitation for %s created without e-mail", email)
-					d = shareDraft{role: roleIdx, expiry: expiryIdx, consent: d.consent, message: fmt.Sprintf(t.ShareInvitedNoMail, email, link)}
+					d = shareDraft{rights: rights, expiry: expiryIdx, consent: d.consent, message: fmt.Sprintf(t.ShareInvitedNoMail, email, link)}
 				}
 				fyne.Do(func() { reopen(d) })
 			}()
@@ -345,4 +339,51 @@ func (cm *ConnectionManager) buildShareDialog(idx int, draft shareDraft, list *a
 // validation message needs no round trip to the agent).
 func reopen2(cm *ConnectionManager, idx int, d shareDraft, list *api.GuestList) {
 	fyne.Do(func() { cm.showShareDialog(idx, d, list) })
+}
+
+// buildRightsMatrix is the checkbox matrix of what the guest may do, the same
+// one the agent's own editor has, with the old roles as presets that fill it.
+// It writes into rights as boxes are ticked.
+func (cm *ConnectionManager) buildRightsMatrix(rights *api.GuestRights) fyne.CanvasObject {
+	t := i18n.Current
+	r := rights
+	fields := [16]*bool{
+		&r.View, &r.Audio, &r.Input, &r.Pen, &r.Gamepad,
+		&r.ClipToHost, &r.ClipFromHost, &r.Files,
+		&r.USBHID, &r.USBPen, &r.USBAudio, &r.USBStorage, &r.USBOther,
+		&r.Display, &r.DisplayMain, &r.DisplayExcl,
+	}
+	// Index ranges of fields per group, matching t.ShareRightsGroups.
+	groups := [4][2]int{{0, 5}, {5, 8}, {8, 13}, {13, 16}}
+	var toggles [16]view.DialogToggle
+	rows := container.NewVBox()
+	for gi, g := range groups {
+		rows.Add(view.NewDialogHint(t.ShareRightsGroups[gi], 0))
+		for i := g[0]; i < g[1]; i++ {
+			i := i
+			toggles[i] = view.NewDialogToggle(*fields[i], func(on bool) { *fields[i] = on })
+			rows.Add(view.NewDialogToggleRow(toggles[i], t.ShareRights[i], "", 0))
+		}
+	}
+	apply := func(p api.GuestRights) {
+		*r = p
+		for i, tg := range toggles {
+			tg.SetChecked(*fields[i])
+		}
+	}
+	presets := container.NewHBox(
+		widget.NewButton(shortRole(t.ShareRoleViewer), func() { apply(api.GuestRightsViewer()) }),
+		widget.NewButton(shortRole(t.ShareRoleOperator), func() { apply(api.GuestRightsOperator()) }),
+		widget.NewButton(shortRole(t.ShareRoleTechnician), func() { apply(api.GuestRightsTechnician()) }),
+		widget.NewButton(t.ShareRoleVFX, func() { apply(api.GuestRightsVFXTPN()) }),
+	)
+	scroll := container.NewVScroll(rows)
+	scroll.SetMinSize(fyne.NewSize(0, 240))
+	return container.NewVBox(presets, scroll)
+}
+
+// shortRole is a role label without its explanation ("Viewer: watch only" -> "Viewer").
+func shortRole(label string) string {
+	name, _, _ := strings.Cut(label, ":")
+	return name
 }
