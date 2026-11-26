@@ -99,6 +99,9 @@ type Status struct {
 	// Meaningful only when ActiveBackend == "rustshine"; Sunshine has no
 	// WebRTC endpoint of its own.
 	WebRTCEnabled bool `json:"webrtc_enabled"`
+	// WebTransportEnabled mirrors cfg.RustShineWebTransportDisabled
+	// (inverted): the checkbox below the WebRTC one.
+	WebTransportEnabled bool `json:"webtransport_enabled"`
 
 	// LinkInProgress/DownloadInProgress + Progress (0..1, -1 if
 	// indeterminate/unknown total) describe an in-flight operation the GUI

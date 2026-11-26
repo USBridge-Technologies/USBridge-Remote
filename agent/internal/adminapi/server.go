@@ -104,6 +104,7 @@ type TokenBackend interface {
 	CheckVibepolloUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
+	SetRustShineWebTransportEnabled(enabled bool) error
 	CaptureModeChoices(kind string) []string
 	StreamCaptureMode(kind string) string
 	SetStreamCaptureMode(kind, mode string) error
@@ -307,6 +308,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/check-vibepollo-update", s.handleCheckVibepolloUpdateNow)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
 	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
+	mux.HandleFunc("POST /token/set-rustshine-webtransport-enabled", s.handleSetRustShineWebTransportEnabled)
 	mux.HandleFunc("POST /token/stream-capture-mode", s.handleStreamCaptureMode)
 	mux.HandleFunc("POST /token/set-stream-capture-mode", s.handleSetStreamCaptureMode)
 	mux.HandleFunc("GET /token/usb-driver-status", s.handleUSBPassthroughStatus)
@@ -962,6 +964,21 @@ func (s *Server) handleSetRustShineWebRTCEnabled(w http.ResponseWriter, r *http.
 		return
 	}
 	if err := s.token.SetRustShineWebRTCEnabled(body.Enabled); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleSetRustShineWebTransportEnabled(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetRustShineWebTransportEnabled(body.Enabled); err != nil {
 		writeError(w, err)
 		return
 	}

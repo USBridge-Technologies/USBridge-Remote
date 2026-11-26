@@ -121,6 +121,7 @@ type LocalizedStrings struct {
 	HostAppNeedsName     string
 	HostAppDelete        string
 	WebRTCToggle         string
+	WebTransportToggle   string
 
 	// Status rows (technical labels stay English)
 	Streamer   string
@@ -493,6 +494,7 @@ func EN() *LocalizedStrings {
 		HostAppNeedsName:     "The app needs a name",
 		HostAppDelete:        "Remove %s?",
 		WebRTCToggle:         "USBridge-streamer Web (WebRTC)",
+		WebTransportToggle:   "USBridge-streamer Web (WebTransport)",
 
 		Streamer:   "Streamer",
 		USBBroker:  "USB Broker",
@@ -802,6 +804,7 @@ func ES() *LocalizedStrings {
 	locale.HostAppNeedsName = "La app necesita un nombre"
 	locale.HostAppDelete = "Quitar %s?"
 	locale.WebRTCToggle = "USBridge-streamer Web (WebRTC)"
+	locale.WebTransportToggle = "USBridge-streamer Web (WebTransport)"
 
 	locale.NotRunning = "No en ejecucion"
 	locale.NotStaged = "No instalado"
@@ -1087,6 +1090,7 @@ func UK() *LocalizedStrings {
 	locale.HostAppNeedsName = "Застосунку потрібна назва"
 	locale.HostAppDelete = "Видалити %s?"
 	locale.WebRTCToggle = "USBridge-streamer Web (WebRTC)"
+	locale.WebTransportToggle = "USBridge-streamer Web (WebTransport)"
 
 	locale.NotRunning = "Не запущено"
 	locale.NotStaged = "Не встановлено"

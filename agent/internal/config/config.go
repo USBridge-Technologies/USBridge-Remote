@@ -122,6 +122,11 @@ type Config struct {
 	// matching gamestream-server's own default) so existing installs keep
 	// the web client working without needing to opt in.
 	RustShineWebRTCDisabled bool `yaml:"rustshine_webrtc_disabled,omitempty"`
+	// RustShineWebTransportDisabled turns off the streamer's WebTransport
+	// (HTTP/3 + WebCodecs) browser stream, on the WebRTC signaling port
+	// (USBRIDGE_WEBTRANSPORT=0 in its environment). Defaults to false
+	// (enabled); it needs the WebRTC endpoint on as well.
+	RustShineWebTransportDisabled bool `yaml:"rustshine_webtransport_disabled,omitempty"`
 	// VirtualDisplayExclusive: while a session streams a virtual monitor, the other
 	// monitors are switched off, and back on once it is over -- the agent's own, for
 	// every stream host (app.virtualOthersWatchdog).

@@ -144,6 +144,7 @@ type TokenProvider interface {
 	CheckSunshineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
+	SetRustShineWebTransportEnabled(enabled bool) error
 	// Linux capture pick on a stream host's card ("sunshine", "vibepollo"):
 	// the modes offered ("" = auto first, nil = no pick), the saved one, and
 	// a change (applied with a restart when that host is the active one).
@@ -319,6 +320,11 @@ type Window struct {
 	// equivalent surface (no WebRTC endpoint of its own).
 	rustshineWebRTCRow   *permToggleRow
 	rustshineWebRTCCheck *styledCheck
+	// rustshineWebTransportRow: the streamer's WebTransport browser stream,
+	// right below the WebRTC row; shown with it, enabled only while WebRTC
+	// is on (it rides the same signaling port).
+	rustshineWebTransportRow   *permToggleRow
+	rustshineWebTransportCheck *styledCheck
 
 	// sessionLock locks the agent UI whenever a restricted client is connected.
 	sessionLock    *sessionLockState
@@ -771,6 +777,24 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 			}
 		} else {
 			w.rustshineWebRTCRow.Hide()
+		}
+		if w.rustshineWebTransportRow != nil {
+			if active {
+				w.rustshineWebTransportRow.Show()
+				if c := w.rustshineWebTransportCheck; c != nil {
+					if c.Checked != st.WebTransportEnabled {
+						c.Checked = st.WebTransportEnabled
+						c.Refresh()
+					}
+					if st.WebRTCEnabled {
+						c.Enable()
+					} else {
+						c.Disable()
+					}
+				}
+			} else {
+				w.rustshineWebTransportRow.Hide()
+			}
 		}
 		if w.permPanel != nil {
 			w.permPanel.Refresh()
@@ -1535,6 +1559,23 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.rustshineWebRTCRow = newPermToggleRow(loc().WebRTCToggle, w.rustshineWebRTCCheck)
 	w.rustshineWebRTCRow.Hide()
 
+	w.rustshineWebTransportCheck = newStyledCheck("", true, func(checked bool) {
+		if w.token == nil {
+			return
+		}
+		go func() {
+			if err := w.token.SetRustShineWebTransportEnabled(checked); err != nil {
+				fyne.Do(func() {
+					if w.rustshineWebTransportCheck != nil {
+						w.rustshineWebTransportCheck.SetChecked(!checked)
+					}
+				})
+			}
+		}()
+	})
+	w.rustshineWebTransportRow = newPermToggleRow(loc().WebTransportToggle, w.rustshineWebTransportCheck)
+	w.rustshineWebTransportRow.Hide()
+
 	// USB passthrough driver install -- shown only while RustShine is
 	// active and the driver isn't present yet (refreshUSBPassthroughUI).
 	// Windows opens usbip-win2's release page directly (no adminapi round
@@ -1721,6 +1762,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	permTop = append(permTop, w.usbDriverRow)
 	permTop = append(permTop, w.rustshineWebRTCRow)
+	permTop = append(permTop, w.rustshineWebTransportRow)
 	permContent := newTightVBox(permTop...)
 	permBlock := newPanel(panelIconPermissions, loc().Permissions, nil, permContent)
 	if p, ok := permBlock.(*themedPanel); ok {
@@ -2343,6 +2385,9 @@ func (w *Window) applyLanguage() {
 	}
 	if w.rustshineWebRTCRow != nil {
 		w.rustshineWebRTCRow.SetLabel(c.WebRTCToggle)
+	}
+	if w.rustshineWebTransportRow != nil {
+		w.rustshineWebTransportRow.SetLabel(c.WebTransportToggle)
 	}
 	if w.usbDriverLang != nil {
 		w.usbDriverLang.Text = c.USBPassthrough

@@ -694,6 +694,7 @@ func New() (*App, error) {
 		instance.stream = streamhost.NewRustshine(instance.exeDir, cfg.StateDir, instance.logPath)
 		applyStreamSharedSecret(instance.stream, masterKeyBytes)
 		applyStreamWebRTCEnabled(instance.stream, !cfg.RustShineWebRTCDisabled)
+		applyStreamWebTransportEnabled(instance.stream, !cfg.RustShineWebTransportDisabled)
 	} else if instance.streamKind == "punktfunk" {
 		instance.stream = streamhost.NewPunktfunk(instance.exeDir, cfg.StateDir, instance.logPath)
 	} else if instance.streamKind == "vibepollo" {
@@ -1943,6 +1944,7 @@ func (a *App) SetStreamBackend(kind string) error {
 		next = streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath)
 		applyStreamSharedSecret(next, []byte(a.cfg.MasterKey))
 		applyStreamWebRTCEnabled(next, !a.cfg.RustShineWebRTCDisabled)
+		applyStreamWebTransportEnabled(next, !a.cfg.RustShineWebTransportDisabled)
 		applyStreamUSBPassBridgeAddr(next, a.usbPassBridgeAddr)
 	case "punktfunk":
 		next = streamhost.NewPunktfunk(a.exeDir, a.cfg.StateDir, a.logPath)
@@ -2180,9 +2182,36 @@ func (a *App) EntitlementStatus() entitlement.Status {
 	st.SunshineVersion = forkrelease.SunshineStagedVersion(a.cfg.StateDir)
 	st.RustShineVersion = entitlement.StagedVersion(a.cfg.StateDir)
 	st.WebRTCEnabled = !a.cfg.RustShineWebRTCDisabled
+	st.WebTransportEnabled = !a.cfg.RustShineWebTransportDisabled
 	st.RustShineAvailableVersion = pending
 	st.RustShineUpdateOffer = pending != "" && pending != a.cfg.StreamerUpdateSnoozed
 	return st
+}
+
+// SetRustShineWebTransportEnabled persists cfg.RustShineWebTransportDisabled
+// and restarts a running USBridge streamer so it takes effect (the
+// streamer reads USBRIDGE_WEBTRANSPORT once, at startup) -- the same shape
+// as SetRustShineWebRTCEnabled.
+func (a *App) SetRustShineWebTransportEnabled(enabled bool) error {
+	saved := a.cfg
+	saved.RustShineWebTransportDisabled = !enabled
+	if err := a.SaveConfig(saved); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+
+	a.streamMu.Lock()
+	kind := a.streamKind
+	stream := a.stream
+	a.streamMu.Unlock()
+	if kind != "rustshine" || stream == nil {
+		return nil
+	}
+
+	applyStreamWebTransportEnabled(stream, enabled)
+	if err := a.RestartSunshine(); err != nil {
+		log.Printf("[app] failed to restart rustshine after webtransport toggle: %v", err)
+	}
+	return nil
 }
 
 // SetRustShineWebRTCEnabled persists cfg.RustShineWebRTCDisabled and, if
@@ -4642,6 +4671,14 @@ func applyStreamSharedSecret(stream streamhost.Backend, secret []byte) {
 // optional interface{ SetWebRTCEnabled(bool) } -- only rustshineBackend
 // does today, same optional-interface probe pattern as
 // applyStreamSharedSecret above; a no-op for sunshineBackend.
+// applyStreamWebTransportEnabled: the same probe for
+// interface{ SetWebTransportEnabled(bool) } (rustshineBackend only).
+func applyStreamWebTransportEnabled(stream streamhost.Backend, enabled bool) {
+	if setter, ok := stream.(interface{ SetWebTransportEnabled(bool) }); ok {
+		setter.SetWebTransportEnabled(enabled)
+	}
+}
+
 func applyStreamWebRTCEnabled(stream streamhost.Backend, enabled bool) {
 	if setter, ok := stream.(interface{ SetWebRTCEnabled(bool) }); ok {
 		setter.SetWebRTCEnabled(enabled)

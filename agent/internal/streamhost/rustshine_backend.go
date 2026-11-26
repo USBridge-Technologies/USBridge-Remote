@@ -171,6 +171,12 @@ type rustshineBackend struct {
 	// startup-only CLI flag).
 	webrtcDisabled bool
 
+	// webtransportDisabled mirrors config.Config.RustShineWebTransportDisabled:
+	// Start sets USBRIDGE_WEBTRANSPORT=0 (else =1) in the streamer's
+	// environment. An environment variable, not a flag, so a streamer
+	// built before it knew about WebTransport still starts.
+	webtransportDisabled bool
+
 	// usbPassBridgeAddr is the agent's api.Server.StartUSBPassBridge
 	// listener address, handed to gamestream-server as
 	// --usbpass-bridge-addr so it knows where to relay a browser-sourced
@@ -251,6 +257,21 @@ func (b *rustshineBackend) SetWebRTCEnabled(enabled bool) {
 	b.mu.Lock()
 	b.webrtcDisabled = !enabled
 	b.mu.Unlock()
+}
+
+// SetWebTransportEnabled sets USBRIDGE_WEBTRANSPORT for the next Start (see
+// webtransportDisabled).
+func (b *rustshineBackend) SetWebTransportEnabled(enabled bool) {
+	b.mu.Lock()
+	b.webtransportDisabled = !enabled
+	b.mu.Unlock()
+}
+
+func webtransportEnviron(disabled bool) string {
+	if disabled {
+		return "USBRIDGE_WEBTRANSPORT=0"
+	}
+	return "USBRIDGE_WEBTRANSPORT=1"
 }
 
 // binaryName is bin/usbridge-streamer's build output name, per its
@@ -793,7 +814,7 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		configureRustshineProcess(cmd)
 		// The keyboard is the USB broker's, as for the forks (rust-shine
 		// enet_input::broker_keyboard).
-		cmd.Env = append(os.Environ(), usbBrokerEnviron())
+		cmd.Env = append(os.Environ(), usbBrokerEnviron(), webtransportEnviron(b.webtransportDisabled))
 		if launchDir != "" && launchDir != "." {
 			cmd.Dir = launchDir
 		}

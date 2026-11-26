@@ -498,6 +498,10 @@ func (c *Client) SetRustShineWebRTCEnabled(enabled bool) error {
 	return c.do(http.MethodPost, "/token/set-rustshine-webrtc-enabled", map[string]bool{"enabled": enabled}, nil)
 }
 
+func (c *Client) SetRustShineWebTransportEnabled(enabled bool) error {
+	return c.do(http.MethodPost, "/token/set-rustshine-webtransport-enabled", map[string]bool{"enabled": enabled}, nil)
+}
+
 func (c *Client) USBPassthroughStatus() usbpass.Status {
 	var st usbpass.Status
 	_ = c.do(http.MethodGet, "/token/usb-driver-status", nil, &st)
