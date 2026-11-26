@@ -2161,10 +2161,12 @@ onmessage = (e) => {
       } catch(_) {}
     }
 
+    // device_host is the agent's <node>.ts.net name: a Tailscale address
+    // (never the LAN one), and over https the only one with a certificate
+    // the browser trusts -- its 100.x address is self-signed. So over https
+    // it takes the Tailscale field; the LAN address stays as linked.
+    if (deviceHost && location.protocol === 'https:') tailscaleHost = deviceHost;
     host = internalHost || tailscaleHost || location.hostname || '127.0.0.1';
-    // Over https only the agent's <node>.ts.net name has a certificate the
-    // browser trusts: its IP addresses are self-signed.
-    if (deviceHost && location.protocol === 'https:') host = deviceHost;
 
     if (!key) return null;
     return {
