@@ -780,6 +780,8 @@ type LocalizedStrings struct {
 	RendererHintLinux                string    // Client settings: when the Linux choices apply
 	PhaseSync                        string    // Client settings: phase lock switch
 	PhaseSyncHint                    string    // Client settings: what it does
+	SwapWinAlt                       string    // Client settings: Win <-> Alt switch
+	SwapWinAltHint                   string    // Client settings: what it does
 	RendererHintWindows              string    // Client settings: when the Windows choice applies
 	RendererHintMac                  string    // Client settings: when the macOS choice applies
 	Fec                              string    // FEC slider caption in the bitrate card (agent POST /api/video/fec)
@@ -1674,6 +1676,8 @@ func EN() *LocalizedStrings {
 		RendererGDI:                          "GDI (software)",
 		RendererHintLinux:                    "The renderer applies to the next stream, the display server after restarting the client.",
 		PhaseSync:                            "Sync frames to this display",
+		SwapWinAlt:                           "Swap Win and Alt",
+		SwapWinAltHint:                       "Win acts as Alt on the host, and Alt as Win. For a PC keyboard on a Mac host this puts Command (Win) next to the space bar, as on a Mac keyboard.",
 		PhaseSyncHint:                        "Lower latency: the host times each frame to arrive just before this screen refreshes. Works when the host has a fast source, such as a virtual display at 240 Hz or more. No effect with VSync off or on Linux X11.",
 		RendererHintWindows:                  "Applies after restarting the client.",
 		RendererHintMac:                      "Applies to the next stream.",
@@ -2210,6 +2214,8 @@ func ES() *LocalizedStrings {
 	locale.RendererGDI = "GDI (software)"
 	locale.RendererHintLinux = "El renderizador se aplica a la próxima transmisión; el servidor gráfico, al reiniciar el cliente."
 	locale.PhaseSync = "Sincronizar los fotogramas con esta pantalla"
+	locale.SwapWinAlt = "Intercambiar Win y Alt"
+	locale.SwapWinAltHint = "Win actúa como Alt en el host, y Alt como Win. Con un teclado de PC y un host Mac, Command (Win) queda junto a la barra espaciadora, como en un teclado Mac."
 	locale.PhaseSyncHint = "Menor latencia: el host programa cada fotograma para que llegue justo antes de que esta pantalla se actualice. Funciona cuando el host tiene una fuente rápida, como una pantalla virtual de 240 Hz o más. Sin efecto con VSync desactivado o en X11 de Linux."
 	locale.RendererHintWindows = "Se aplica al reiniciar el cliente."
 	locale.RendererHintMac = "Se aplica a la próxima transmisión."
@@ -2789,6 +2795,8 @@ func UKProper() *LocalizedStrings {
 	locale.RendererGDI = "GDI (програмний)"
 	locale.RendererHintLinux = "Рендерер застосовується до наступного стріму, графічний сервер — після перезапуску клієнта."
 	locale.PhaseSync = "Синхронізувати кадри з цим екраном"
+	locale.SwapWinAlt = "Поміняти місцями Win і Alt"
+	locale.SwapWinAltHint = "Win працює на хості як Alt, а Alt як Win. З PC-клавіатурою та хостом Mac клавіша Command (Win) опиняється біля пробілу, як на клавіатурі Mac."
 	locale.PhaseSyncHint = "Менша затримка: хост розраховує кожен кадр так, щоб він надходив якраз перед оновленням цього екрана. Працює, коли хост має швидке джерело, наприклад віртуальний дисплей від 240 Гц. Без ефекту з вимкненим VSync або на Linux X11."
 	locale.RendererHintWindows = "Застосовується після перезапуску клієнта."
 	locale.RendererHintMac = "Застосовується до наступного стріму."

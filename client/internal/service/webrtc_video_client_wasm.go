@@ -629,6 +629,7 @@ func (c *WebRTCVideoClient) sendInput(packet []byte) {
 }
 
 func (c *WebRTCVideoClient) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {
+	vkCode, modifiers = applySwapWinAlt(vkCode, modifiers)
 	c.sendInput(webrtcweb.EncodeKey(uint8(vkCode), uint8(modifiers), action == LiKeyActionDown))
 }
 

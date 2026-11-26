@@ -23,6 +23,9 @@ import (
 
 var clientSettingsOpen atomic.Bool
 
+// swapWinAltPref keeps the Win <-> Alt switch across restarts.
+const swapWinAltPref = "swap_win_alt"
+
 const clientSettingsWidth = 420
 
 func (mw *MainWindow) showClientSettingsDialog() {
@@ -65,6 +68,13 @@ func (mw *MainWindow) showClientSettingsDialog() {
 		body.Add(view.NewDialogToggleRow(phaseSync, i18n.Current.PhaseSync, i18n.Current.PhaseSyncHint, clientSettingsWidth))
 	}
 
+	// Win <-> Alt (off by default, kept across restarts): a PC keyboard on
+	// a Mac host then has Command next to the space bar. On every platform:
+	// a tablet's hardware keyboard has the same keys.
+	swapWinAlt := view.NewDialogToggle(service.SwapWinAlt(), nil)
+	body.Add(view.NewDialogVSpace(10))
+	body.Add(view.NewDialogToggleRow(swapWinAlt, i18n.Current.SwapWinAlt, i18n.Current.SwapWinAltHint, clientSettingsWidth))
+
 	var scrollSpeed func() int
 	if view.IsMobile() {
 		var row fyne.CanvasObject
@@ -93,6 +103,14 @@ func (mw *MainWindow) showClientSettingsDialog() {
 				}
 			}
 		}
+		if on := swapWinAlt.IsChecked(); on != service.SwapWinAlt() {
+			// Held keys go up under the old mapping before it changes.
+			if mw.videoWidget != nil {
+				mw.videoWidget.ReleaseAllKeys()
+			}
+			service.SetSwapWinAlt(on)
+			fyne.CurrentApp().Preferences().SetBool(swapWinAltPref, on)
+		}
 		if scrollSpeed != nil {
 			level := scrollSpeed()
 			service.SetScrollSpeedLevel(level)
@@ -120,6 +138,7 @@ func (mw *MainWindow) showClientSettingsDialog() {
 			if phaseSync != nil {
 				h += 80
 			}
+			h += 80 // Win <-> Alt
 			h = minF(h, canvasSize.Height-24)
 			return fyne.NewSize(w, h)
 		},

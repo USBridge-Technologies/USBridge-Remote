@@ -135,6 +135,9 @@ func (vw *VideoWidget) sendMoonlightKeyUp(vkCode int16) {
 // releaseAllMoonlightKeys sends synthetic KeyUp for every key currently tracked as held,
 // then clears the held set and resets modifier state. Call on window focus loss or stream
 // stop to prevent stuck keys from continuing to repeat on the remote host.
+// ReleaseAllKeys releases on the host every key the client holds there.
+func (vw *VideoWidget) ReleaseAllKeys() { vw.releaseAllMoonlightKeys() }
+
 func (vw *VideoWidget) releaseAllMoonlightKeys() {
 	mi := vw.moonlightInput()
 	vw.moonlightKeyMu.Lock()

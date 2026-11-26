@@ -380,6 +380,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	view.RestoreNetGraphPreferences()
 	view.RestorePlayoutBufferPreference()
 	view.RestoreScrollSpeedPreference()
+	service.SetSwapWinAlt(a.Preferences().BoolWithFallback(swapWinAltPref, false))
 	restoreTailscaleControlURL(a)
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")

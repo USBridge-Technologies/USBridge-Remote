@@ -1653,6 +1653,7 @@ func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool) {
 }
 
 func (w *MoonlightCgoWrapper) SendMoonlightKey(c int16, a, m int8) {
+	c, m = applySwapWinAlt(c, m)
 	if liStartConnectionActive.Load() {
 		C.do_send_key(C.short(c), C.char(a), C.char(m))
 	}

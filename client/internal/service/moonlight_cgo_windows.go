@@ -1988,6 +1988,7 @@ func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool) {
 func (w *MoonlightCgoWrapper) GetAudioMuted() bool { return w.audioMuted }
 
 func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {
+	vkCode, modifiers = applySwapWinAlt(vkCode, modifiers)
 	if !liStartConnectionActive.Load() {
 		return
 	}
