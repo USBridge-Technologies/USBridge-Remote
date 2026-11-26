@@ -1083,8 +1083,12 @@ jobs:
             spctl --assess --type execute -vv "$app"
           done
           OUT="dist/USBridge-macOS-arm64-$VERSION.dmg"
+          # An explicit size: hdiutil's own estimate for -srcfolder came out
+          # short once the agent embedded the web client ("create failed -
+          # No space left on device", 3.2.56). Contents plus 25% and 64 MB.
+          SIZE_MB=$(( $(du -sm "$SRC" | cut -f1) * 5 / 4 + 64 ))
           for attempt in 1 2 3; do
-            hdiutil create -volname "USBridge" -srcfolder "$SRC" -ov -format UDZO "$OUT" && break
+            hdiutil create -volname "USBridge" -srcfolder "$SRC" -size "${SIZE_MB}m" -ov -format UDZO "$OUT" && break
             [ "$attempt" -eq 3 ] && exit 1
             sleep 10
           done
