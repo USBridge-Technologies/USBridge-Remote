@@ -142,6 +142,10 @@ func (vw *VideoWidget) stopMetalVideo() {
 // HandleAppForegrounded's reconcile explicitly decides it's still correct
 // to unhide.
 func (vw *VideoWidget) HandleAppBackgrounded() {
+	// A hardware keyboard's keys held while the app goes to the background
+	// (iPad Cmd+Tab, Android Alt+Tab) never get their KeyUp here: release
+	// them on the host, as the desktop version does.
+	vw.releaseAllMoonlightKeys()
 	if service.VKVideoAndroidIsActive() {
 		service.VKVideoAndroidSetHidden(true)
 	}

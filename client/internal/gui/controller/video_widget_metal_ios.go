@@ -27,6 +27,10 @@ func (vw *VideoWidget) isNativeVideoActive() bool {
 // and iOS background execution is throttled similarly to Android's Doze
 // without the right entitlements/background modes).
 func (vw *VideoWidget) HandleAppBackgrounded() {
+	// A hardware keyboard's keys held while the app goes to the background
+	// (iPad Cmd+Tab, Android Alt+Tab) never get their KeyUp here: release
+	// them on the host, as the desktop version does.
+	vw.releaseAllMoonlightKeys()
 	if service.MetalVideoIsActive() {
 		service.MetalVideoSetHidden(true)
 	}
