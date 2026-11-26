@@ -1461,8 +1461,13 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   const MSG_TAKEN_OVER = 7;
   const KIND_VIDEO = 1, KIND_AUDIO = 2;
   // Decoder queue depth past which a delta frame is dropped and the stream
-  // resumes at a keyframe instead: latency over smoothness.
-  const MAX_DECODE_QUEUE = 4;
+  // resumes at a keyframe instead: about a second behind, not a burst. A
+  // keyframe asked for at every small backlog (it was 4, then 12) made a
+  // software-decoded 4K stream pulse: each one comes blurry at the session
+  // bitrate, then sharpens, over and over.
+  const MAX_DECODE_QUEUE = 60;
+  // At most one keyframe request this often: every drop path asks for one.
+  const KEYFRAME_MIN_INTERVAL_MS = 2000;
   const enc = new TextEncoder(), dec = new TextDecoder();
 
   function supported() {
@@ -1587,8 +1592,9 @@ html, body { width: 100%; height: 100%; height: 100dvh; background: var(--win); 
   // decodes the burst and paints the newest frame.
   const WORKER_SRC = `'use strict';
 const HEVC = ${JSON.stringify(HEVC_CODEC)};
-// A real decoder backlog (~200 ms at 60 fps), not a busy page.
-const MAX_QUEUE = 12;
+// A real decoder backlog (about a second at 60 fps), not a burst: see
+// MAX_DECODE_QUEUE on the page's side.
+const MAX_QUEUE = 60;
 let canvas, ctx, h265 = false, decoder = null, configured = '', waitingKey = true;
 // The GPU's decoder, asked for outright; software only when the browser
 // has none for this stream (a configure error), and then said so.
@@ -1602,6 +1608,9 @@ ${avcCodec.toString()}
 // one at each vsync. Pacing paints with the worker's requestAnimationFrame
 // painted only about half of a 60 fps stream.
 function draw(f) {
+  // Behind (more frames already queued): decode them all -- each is a
+  // reference for the next -- but paint only the newest, as WebRTC does.
+  if (decoder && decoder.decodeQueueSize > 1) { f.close(); return; }
   if (canvas.width !== f.displayWidth || canvas.height !== f.displayHeight) {
     canvas.width = f.displayWidth; canvas.height = f.displayHeight;
     st.w = f.displayWidth; st.h = f.displayHeight;
@@ -1636,7 +1645,9 @@ function onAU(au) {
   const key = (au[1] & 1) === 1;
   const ts = Number(new DataView(au.buffer, au.byteOffset).getBigUint64(2));
   const data = au.subarray(10);
-  if (waitingKey && !key) { st.framesDropped++; return; }
+  // Still waiting: ask again (the page lets one request through every
+  // couple of seconds), or a stream without periodic keyframes stays frozen.
+  if (waitingKey && !key) { st.framesDropped++; if (configured || st.framesDecoded) keyframe(); return; }
   if (!decoder || decoder.state === 'closed') { decoder = newDecoder(); configured = ''; }
   if (key) {
     const codec = h265 ? HEVC : (avcCodec(data) || 'avc1.42E01F');
@@ -1913,7 +1924,7 @@ onmessage = (e) => {
         const key = (au[1] & 1) === 1;
         const ts = Number(new DataView(au.buffer, au.byteOffset).getBigUint64(2));
         const data = au.subarray(10);
-        if (waitingKey && !key) { this.stats.framesDropped++; return; }
+        if (waitingKey && !key) { this.stats.framesDropped++; if (configured || this.stats.framesDecoded) this.requestKeyframe(); return; }
         if (this._decoder.state === 'closed') { this._decoder = newDecoder(); configured = ''; }
         const d = this._decoder;
         if (key) {
@@ -1991,6 +2002,9 @@ onmessage = (e) => {
 
     requestKeyframe() {
       if (!this._ctl || this._closedFlag) return;
+      const now = performance.now();
+      if (this._lastKeyframeAsk && now - this._lastKeyframeAsk < KEYFRAME_MIN_INTERVAL_MS) return;
+      this._lastKeyframeAsk = now;
       this._ctl.write(frame(MSG_KEYFRAME, new Uint8Array(0))).catch(() => {});
     }
 
