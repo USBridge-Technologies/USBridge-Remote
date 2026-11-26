@@ -3511,8 +3511,10 @@ func isActiveTailscalePeer(p tailscale.Peer) bool {
 	return false
 }
 
-// deviceHost: see app.buildQRLink -- the ts.net name a browser uses.
-func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, masterKey, protocol, hwID string) string {
+// buildQuickConnectLink: internal_host is the LAN address, tailscale_host
+// the tailnet one (see quickConnectTargets) -- the same link app.buildQRLink
+// builds for /api/auth/qr/link.
+func buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol, hwID string) string {
 	masterKey = strings.TrimSpace(masterKey)
 	if masterKey == "" || masterKey == "unavailable" {
 		return ""
@@ -3528,9 +3530,6 @@ func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, maste
 	if strings.TrimSpace(tailscaleHost) != "" {
 		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
 	}
-	if strings.TrimSpace(deviceHost) != "" && !strings.Contains(deviceHost, "device.usbridge.io") {
-		values.Set("device_host", strings.TrimSpace(deviceHost))
-	}
 	values.Set("master_key", masterKey)
 	if strings.TrimSpace(protocol) != "" {
 		values.Set("protocol", strings.TrimSpace(protocol))
@@ -3542,27 +3541,15 @@ func buildQuickConnectLink(internalHost, tailscaleHost, deviceHost string, maste
 }
 
 // quickConnectTargets returns this machine's internal_host/tailscale_host
-// for the QR/copy-link quick-connect flow. internalHost prefers the
-// device's own <label>.device.usbridge.io hostname (see
-// app.App.DeviceHostname) over the bare LAN IP once one is registered -- it
-// re-resolves via DNS on every connect instead of pinning a LAN IP that
-// goes stale the moment this machine's address changes, and it's what lets
-// a browser web client select the trusted per-device cert via SNI
-// (never sent for a bare-IP connection). Falls back to the bare LAN IP
-// when no hostname is registered yet.
+// for the QR/copy-link quick-connect flow: the LAN IP, and this node's
+// MagicDNS name (<node>.<tailnet>.ts.net -- the name its Tailscale
+// certificate is for, so a browser over https trusts it), its 100.x
+// address only when it has no name.
 func (w *Window) quickConnectTargets() (internalHost string, tailscaleHost string, protocol string, hwID string) {
 	internalHost = localQuickConnectIPv4()
-	if deviceHost := w.deviceHostname(); deviceHost != "" {
-		internalHost = deviceHost
-	}
 	if w.ts != nil {
 		if status, err := w.ts.Status(context.Background()); err == nil && status != nil && status.LoggedIn {
-			switch {
-			case strings.TrimSpace(status.Self.IP4) != "":
-				tailscaleHost = strings.TrimSpace(status.Self.IP4)
-			case strings.TrimSpace(status.Self.DNSName) != "":
-				tailscaleHost = strings.TrimSpace(status.Self.DNSName)
-			}
+			tailscaleHost = tailnetLinkHost(status.Self.DNSName, status.Self.IP4)
 		}
 	}
 	// Best-effort -- see buildQRLink's doc comment (app.go) for why an
@@ -3582,6 +3569,15 @@ func (w *Window) quickConnectTargets() (internalHost string, tailscaleHost strin
 		return internalHost, "", "direct", hwID
 	}
 	return "", "", "", hwID
+}
+
+// tailnetLinkHost: a link's tailscale_host -- the node's MagicDNS name,
+// its tailnet IPv4 when it has none.
+func tailnetLinkHost(dnsName, ip4 string) string {
+	if name := strings.TrimSuffix(strings.TrimSpace(dnsName), "."); name != "" {
+		return name
+	}
+	return strings.TrimSpace(ip4)
 }
 
 func localQuickConnectIPv4() string {

@@ -3,6 +3,7 @@
 package api
 
 import (
+	"net"
 	"strconv"
 	"strings"
 	"syscall/js"
@@ -63,9 +64,25 @@ func NewDirectUSBClient(host string, port, tlsPort int, timeout int) *USBClient 
 		}
 	}
 	if BrowserIsHTTPS() {
-		return NewUSBClientWithScheme("https", host, tlsPort, timeout, nil)
+		return NewUSBClientWithScheme("https", httpsHost(host), tlsPort, timeout, nil)
 	}
 	return NewUSBClient(host, port, timeout)
+}
+
+// httpsHost drops a plain-http API port from host over https: links and
+// QR codes carry the agent's http port ("192.168.1.5:8081",
+// "pc.tailnet.ts.net:8081"), and its TLS listener is tlsPort. A port that
+// already is a TLS one (443, the agent's 8443, the KVM's 9443) stays.
+func httpsHost(host string) string {
+	h, p, err := net.SplitHostPort(strings.TrimSpace(host))
+	if err != nil {
+		return host
+	}
+	switch p {
+	case "443", "8443", "9443":
+		return host
+	}
+	return h
 }
 
 // SameOriginPort reports this page's own port when host is the host the

@@ -17,22 +17,6 @@ import (
 
 const tokenDialogWidth float32 = 380
 
-// tailnetDeviceHost is the ts.net name a browser on the tailnet reaches
-// with a Tailscale-issued cert (CertStatus.TailnetHostname), "" without one.
-func (w *Window) tailnetDeviceHost() string {
-	if w.token == nil {
-		return ""
-	}
-	return w.token.CertStatus().TailnetHostname
-}
-
-func (w *Window) deviceHostname() string {
-	if w.token == nil {
-		return ""
-	}
-	return w.token.DeviceHostname()
-}
-
 func (w *Window) showTokenDialog(parent fyne.Window) {
 	if parent == nil {
 		return
@@ -52,7 +36,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	copyLinkBtn := newIconActionButton(loc().CopyLink, theme.ContentCopyIcon(), func() {
 		masterKey := strings.TrimSpace(w.cfg.MasterKey)
 		internalHost, tailscaleHost, protocol, hwID := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, w.tailnetDeviceHost(), masterKey, protocol, hwID)
+		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol, hwID)
 		if link != "" {
 			parent.Clipboard().SetContent(link)
 		}
@@ -76,7 +60,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 			masterKey = "unavailable"
 		}
 		internalHost, tailscaleHost, protocol, hwID := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, w.tailnetDeviceHost(), masterKey, protocol, hwID)
+		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol, hwID)
 
 		linkEntry.SetFrozen(link)
 		if link == "" {

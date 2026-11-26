@@ -132,7 +132,7 @@ func (w *Window) promptAdminPINDialog(parent fyne.Window, onVerified func(pin st
 
 func (w *Window) showScopedTokenQR(parent fyne.Window, label, token string) {
 	internalHost, tailscaleHost, protocol, hwID := w.quickConnectTargets()
-	link := buildQuickConnectLink(internalHost, tailscaleHost, w.tailnetDeviceHost(), token, protocol, hwID)
+	link := buildQuickConnectLink(internalHost, tailscaleHost, token, protocol, hwID)
 
 	qrImg := canvas.NewImageFromResource(nil)
 	qrImg.FillMode = canvas.ImageFillContain
@@ -651,7 +651,7 @@ func (w *Window) buildMasterKeyTab(parent fyne.Window, withAdminPIN func(func(st
 	refreshRoot := func() {
 		masterKey := strings.TrimSpace(w.cfg.MasterKey)
 		internalHost, tailscaleHost, protocol, hwID := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, w.tailnetDeviceHost(), masterKey, protocol, hwID)
+		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol, hwID)
 		linkEntry.SetFrozen(link)
 		if pngBytes, err := qrcode.Encode(link, qrcode.Medium, 260); err == nil {
 			qrImage.Resource = fyne.NewStaticResource("master-qr.png", pngBytes)

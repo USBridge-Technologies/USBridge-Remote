@@ -4596,29 +4596,17 @@ func (a *App) QRLink() (string, string) {
 	if masterKey == "" {
 		return "", ""
 	}
+	// internal_host is the LAN address, tailscale_host the node's MagicDNS
+	// name (the one its Tailscale certificate is for), its 100.x address
+	// only without a name.
 	internalHost := localIPv4()
-	// Prefer the device's own <label>.device.usbridge.io hostname (see
-	// internal/tlshost, internal/devicecert) over the bare LAN IP once
-	// deviceCertWatchdog has registered+fetched one -- it re-resolves via
-	// DNS on every connect instead of pinning a LAN IP that goes stale the
-	// moment this machine's address changes (DHCP renewal, different
-	// network), and a browser web client needs this exact hostname anyway
-	// (SNI is never sent for an IP-literal connection, so
-	// tlshost.Manager.GetCertificate can never select the trusted device
-	// cert -- only the untrusted self-signed one -- for a bare-IP
-	// connection). Falls back to the bare IP when no hostname is registered
-	// yet, e.g. offline or still within the first tick.
-	if deviceHost := a.DeviceHostname(); deviceHost != "" {
-		internalHost = deviceHost
-	}
 	tailscaleHost := ""
 	if a.ts != nil {
 		if status, err := a.ts.Status(context.Background()); err == nil && status != nil && status.LoggedIn {
-			switch {
-			case strings.TrimSpace(status.Self.IP4) != "":
+			if name := strings.TrimSuffix(strings.TrimSpace(status.Self.DNSName), "."); name != "" {
+				tailscaleHost = name
+			} else {
 				tailscaleHost = strings.TrimSpace(status.Self.IP4)
-			case strings.TrimSpace(status.Self.DNSName) != "":
-				tailscaleHost = strings.TrimSpace(status.Self.DNSName)
 			}
 		}
 	}
@@ -4633,7 +4621,7 @@ func (a *App) QRLink() (string, string) {
 	// free-tier entitlement token for it (see desktopLicense.ts's
 	// documented trust model), no new capability against this device.
 	hwID, _ := hwid.Get()
-	link := buildQRLink(netutil.WithAPIPort(internalHost, a.cfg.HTTPPort), netutil.WithAPIPort(tailscaleHost, a.cfg.HTTPPort), a.TailnetHostname(), masterKey, hwID)
+	link := buildQRLink(netutil.WithAPIPort(internalHost, a.cfg.HTTPPort), netutil.WithAPIPort(tailscaleHost, a.cfg.HTTPPort), masterKey, hwID)
 	return link, masterKey
 }
 
@@ -4701,10 +4689,9 @@ func (a *App) CertStatus() tlshost.CertStatus {
 	return a.tlsMgr.CertStatus()
 }
 
-// deviceHost, when set, is the name a browser connects to over HTTPS (the
-// client's device_host, see its resolveDeepLinkHost): the tailnet name with
-// its Tailscale cert. internal_host stays a LAN address for native clients.
-func buildQRLink(internalHost, tailscaleHost, deviceHost, masterKey, hwID string) string {
+// buildQRLink: internal_host is the LAN address, tailscale_host the tailnet
+// one (see QRLink).
+func buildQRLink(internalHost, tailscaleHost, masterKey, hwID string) string {
 	if masterKey == "" {
 		return ""
 	}
@@ -4717,9 +4704,6 @@ func buildQRLink(internalHost, tailscaleHost, deviceHost, masterKey, hwID string
 	}
 	if tailscaleHost != "" {
 		values.Set("tailscale_host", tailscaleHost)
-	}
-	if deviceHost != "" && !strings.Contains(deviceHost, "device.usbridge.io") {
-		values.Set("device_host", deviceHost)
 	}
 	values.Set("master_key", masterKey)
 	if hwID != "" {
