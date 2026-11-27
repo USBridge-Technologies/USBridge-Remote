@@ -198,6 +198,11 @@ type DiskWidget struct {
 	cameras      []platform.CameraInfo
 	activeUplink map[string]platform.UplinkCapture
 	micAsking    bool // the OS microphone prompt is up (micPermissionReady)
+	// uplinkRestore: the uplinks (microphone, MIDI, cameras) last switched
+	// on for this device, switched on again as their rows appear after a
+	// connect (savedUplinks); uplinkRestoreFor is the device they're for.
+	uplinkRestore    map[string]bool
+	uplinkRestoreFor string
 
 	onStorageInfoUpdate func(usedPct float64, available, total int64)
 	userImages          []*models.DiskInfo
@@ -1497,10 +1502,19 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 			dw.stopAllGamepadCaptures()
 			dw.stopAllPenCaptures()
 			dw.stopAllUplinkCaptures()
+			dw.uplinkRestore, dw.uplinkRestoreFor = nil, ""
 			dw.combineDrives()
 			dw.requestDevicesRefresh()
 		})
 		return
+	}
+	if key := usbClient.DeviceKey(); key != "" {
+		fyne.Do(func() {
+			if dw.uplinkRestoreFor != key {
+				dw.uplinkRestoreFor = key
+				dw.uplinkRestore = dw.savedUplinks(key)
+			}
+		})
 	}
 	dw.Refresh()
 }

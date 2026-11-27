@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 	"sync/atomic"
 
@@ -74,13 +75,23 @@ func midiInputsEqual(a, b []platform.MIDIInputInfo) bool {
 // uplinkItems are the rows combineDrives adds to the Audio card; oldMounted
 // carries each row's toggle over the rebuild.
 func (dw *DiskWidget) uplinkItems(oldMounted map[string]bool) []DriveItem {
+	// on: the row's state; one this device had on last time comes on again
+	// (once, as it appears: a MIDI port or camera may show up later).
+	on := func(key string) bool {
+		if dw.uplinkRestore[key] {
+			delete(dw.uplinkRestore, key)
+			logrus.Infof("🎤 [UPLINK] %s: on again, as last time on this device", key)
+			return true
+		}
+		return oldMounted[key]
+	}
 	var items []DriveItem
 	if service.MicUplinkSupported() {
 		items = append(items, DriveItem{
 			Name:      i18n.Current.UplinkMicrophone,
 			Size:      "N/A",
 			Source:    "uplink",
-			IsMounted: oldMounted[uplinkMicKey],
+			IsMounted: on(uplinkMicKey),
 			IsUplink:  true,
 			UplinkKey: uplinkMicKey,
 		})
@@ -91,7 +102,7 @@ func (dw *DiskWidget) uplinkItems(oldMounted map[string]bool) []DriveItem {
 			Name:      i18n.Current.UplinkMIDIPrefix + in.Name,
 			Size:      "N/A",
 			Source:    "uplink",
-			IsMounted: oldMounted[key],
+			IsMounted: on(key),
 			IsUplink:  true,
 			UplinkKey: key,
 		})
@@ -102,7 +113,7 @@ func (dw *DiskWidget) uplinkItems(oldMounted map[string]bool) []DriveItem {
 			Name:      i18n.Current.UplinkCameraPrefix + cam.Name,
 			Size:      "N/A",
 			Source:    "uplink",
-			IsMounted: oldMounted[key],
+			IsMounted: on(key),
 			IsUplink:  true,
 			UplinkKey: key,
 		})
@@ -303,6 +314,7 @@ func (dw *DiskWidget) newUplinkToggle(drive DriveItem) *view.DeviceToggle {
 				break
 			}
 		}
+		dw.saveUplinks()
 		dw.syncUplinkCaptures()
 		dw.requestDevicesRefresh()
 	})
@@ -323,4 +335,49 @@ func (dw *DiskWidget) stopAllUplinkCaptures() {
 		c.Stop()
 		delete(dw.activeUplink, key)
 	}
+}
+
+// uplinkPrefPrefix + DeviceKey: the uplinks switched on for that device, one
+// key per line. Saved when the user flips a row, not when a disconnect or a
+// failed start turns one off: the choice is the user's, and comes back on
+// the next connect (UpdateClient).
+const uplinkPrefPrefix = "uplinks_on."
+
+func (dw *DiskWidget) saveUplinks() {
+	if dw.app == nil || dw.usbClient == nil {
+		return
+	}
+	key := dw.usbClient.DeviceKey()
+	if key == "" {
+		return
+	}
+	var on []string
+	for _, d := range dw.allDrives {
+		if d.IsUplink && d.IsMounted {
+			on = append(on, d.UplinkKey)
+		}
+	}
+	// A saved one whose row isn't listed now (a MIDI port unplugged) stays.
+	for k := range dw.uplinkRestore {
+		on = append(on, k)
+	}
+	sort.Strings(on)
+	dw.app.Preferences().SetString(uplinkPrefPrefix+key, strings.Join(on, "\n"))
+}
+
+func (dw *DiskWidget) savedUplinks(deviceKey string) map[string]bool {
+	if dw.app == nil {
+		return nil
+	}
+	saved := dw.app.Preferences().String(uplinkPrefPrefix + deviceKey)
+	if saved == "" {
+		return nil
+	}
+	on := make(map[string]bool)
+	for _, k := range strings.Split(saved, "\n") {
+		if k != "" {
+			on[k] = true
+		}
+	}
+	return on
 }

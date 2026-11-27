@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1437,6 +1439,20 @@ func (c *USBClient) GetSnapshots() (*models.SnapshotsResponse, error) {
 // GetBaseURL returns USB client base URL
 func (c *USBClient) GetBaseURL() string {
 	return c.baseURL
+}
+
+// DeviceKey names the device for settings kept per device: a hash of its
+// master key, the same whichever address (LAN, Tailscale) reached it; the
+// host name for a client with no master key (a guest). Not secret.
+func (c *USBClient) DeviceKey() string {
+	if len(c.apiSecret) > 0 {
+		sum := sha256.Sum256(c.apiSecret)
+		return hex.EncodeToString(sum[:8])
+	}
+	if u, err := url.Parse(c.baseURL); err == nil && u.Hostname() != "" {
+		return "host-" + u.Hostname()
+	}
+	return ""
 }
 
 // GetPCPanelLeds gets POWER and HDD LEDs state of target computer
