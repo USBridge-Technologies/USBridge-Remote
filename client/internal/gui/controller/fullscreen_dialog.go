@@ -89,6 +89,14 @@ func (fd *FullscreenDialog) Show() {
 // enterFullscreen switches output into fullscreen while minimizing extra UI redraws.
 func (fd *FullscreenDialog) enterFullscreen() {
 	logrus.Info("🔍 Entering fullscreen mode")
+	// Release any keys held on the host (e.g. Ctrl+Alt+Shift from the
+	// Ctrl+Alt+Shift+X fullscreen hotkey) before opening a new window that
+	// steals focus; otherwise Ctrl stays stuck down on a macOS host and turns
+	// every left click into a right click.
+	fd.keyboardModifierState.Store(0)
+	if fd.videoWidget != nil {
+		fd.videoWidget.releaseAllMoonlightKeys()
+	}
 
 	// On Windows, use a standalone VK fullscreen window instead of a Fyne window.
 	// This eliminates the Z-order race between the GLFW TOPMOST window and the VK
@@ -377,6 +385,10 @@ func (fd *FullscreenDialog) exitFullscreen() {
 
 	logrus.Info("🔍 Exiting fullscreen mode")
 	stopFullscreenExitKeys()
+	fd.keyboardModifierState.Store(0)
+	if fd.videoWidget != nil {
+		fd.videoWidget.releaseAllMoonlightKeys()
+	}
 
 	// Windows standalone VK fullscreen path.
 	if fd.windowlessVKFullscreen {

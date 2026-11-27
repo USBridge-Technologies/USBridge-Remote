@@ -164,9 +164,8 @@ func (vw *VideoWidget) releaseAllMoonlightKeys() {
 	}
 	logrus.Infof("⌨️ [INPUT] releasing %d stuck held key(s) (focus lost or stream stopped)", len(vw.moonlightHeldVKs))
 	if mi != nil {
-		mods := widgetToMoonlightModifiers(int(vw.keyboardModifierState.Load()))
 		for vkCode := range vw.moonlightHeldVKs {
-			vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods) })
+			vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, 0) })
 		}
 	}
 	vw.moonlightHeldVKs = nil

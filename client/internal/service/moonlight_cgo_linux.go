@@ -73,6 +73,11 @@ extern int vk_video_nv12_supported(void);
 extern int vk_video_try_submit_nv12(const uint8_t *y, int y_stride,
                                      const uint8_t *uv, int uv_stride,
                                      int width, int height);
+extern int vk_video_try_submit_p010(const uint8_t *y, int y_stride,
+                                     const uint8_t *uv, int uv_stride,
+                                     int width, int height);
+extern int vk_video_p010_supported(void);
+extern void vk_video_set_hdr(int on);
 extern void vk_video_set_nv12_bt709(int bt709);
 // PyroWave decode (pyrowave_decode_linux.c).
 extern size_t pyrowave_linux_unframe(const uint8_t *in, size_t len, uint8_t *out);
@@ -83,11 +88,12 @@ extern uint8_t *pyrowave_linux_slot_begin(size_t total);
 extern void pyrowave_linux_slot_commit(size_t total);
 extern void pyrowave_linux_teardown(void);
 extern uint64_t pyrowave_linux_frames(void);
-extern int vk_video_try_submit_dmabuf(int fd, uint64_t modifier, int surf_w, int surf_h,
-                                       int vis_w, int vis_h, uint32_t plane_count,
-                                       uint32_t offset0, uint32_t pitch0,
-                                       uint32_t offset1, uint32_t pitch1,
-                                       void *release_ctx, void (*release_fn)(void*));
+extern int vk_video_try_submit_dmabuf_fmt(int fd, uint64_t modifier, int surf_w, int surf_h,
+                                           int vis_w, int vis_h, uint32_t plane_count,
+                                           uint32_t offset0, uint32_t pitch0,
+                                           uint32_t offset1, uint32_t pitch1,
+                                           int is_p010,
+                                           void *release_ctx, void (*release_fn)(void*));
 
 #include "moonlight_cgo_shared.h"
 
@@ -572,23 +578,22 @@ static int try_deliver_zerocopy(AVFrame *frame) {
                                          &desc);
     if (vs != VA_STATUS_SUCCESS) { av_frame_free(&vaframe); return 0; }
 
-    // Only NV12 (8-bit 4:2:0) in a single dma-buf object is wired up on the
-    // Vulkan side today (vk_video_impl_linux.c's fixed pipeline is
-    // VK_FORMAT_G8_B8R8_2PLANE_420_UNORM only) -- anything else (P010 from
-    // a Main10 stream, or a driver that hands back >1 dma-buf object) falls
-    // back to the CPU path below rather than being force-fit.
-    if (desc.fourcc != VA_FOURCC_NV12 || desc.num_objects != 1 || desc.num_layers != 2) {
+    // Support NV12 (8-bit 4:2:0) and P010 (10-bit 4:2:0 HDR10) in a single
+    // dma-buf object with 2 layers; anything else falls back to the CPU path.
+    int is_p010 = (desc.fourcc == VA_FOURCC_P010);
+    if ((desc.fourcc != VA_FOURCC_NV12 && !is_p010) || desc.num_objects != 1 || desc.num_layers != 2) {
         for (uint32_t i = 0; i < desc.num_objects; i++) close(desc.objects[i].fd);
         av_frame_free(&vaframe);
         return 0;
     }
 
-    int ok = vk_video_try_submit_dmabuf(
+    int ok = vk_video_try_submit_dmabuf_fmt(
         desc.objects[0].fd, desc.objects[0].drm_format_modifier,
         (int)desc.width, (int)desc.height, frame->width, frame->height,
         2,
         desc.layers[0].offset[0], desc.layers[0].pitch[0],
         desc.layers[1].offset[0], desc.layers[1].pitch[0],
+        is_p010,
         (void *)vaframe, release_vaframe_cb);
     if (!ok) {
         // vk_video_try_submit_dmabuf's contract: on failure it touched
@@ -628,16 +633,53 @@ static int try_deliver_nv12(AVFrame *frame) {
 
     AVFrame *src = frame;
     AVFrame *dl = NULL;
+    int is_p010 = 0;
     if (frame->hw_frames_ctx) {
         dl = av_frame_alloc();
         if (!dl) return 0;
-        dl->format = AV_PIX_FMT_NV12;
-        if (av_hwframe_transfer_data(dl, frame, 0) < 0 || dl->format != AV_PIX_FMT_NV12) {
-            av_frame_free(&dl); // e.g. P010 (10-bit) -- not wired up, RGBA path handles it
+        // Let FFmpeg pick the native surface download format (NV12 for 8-bit,
+        // P010LE for 10-bit Main10).
+        if (av_hwframe_transfer_data(dl, frame, 0) < 0) {
+            av_frame_free(&dl);
+            return 0;
+        }
+        if (dl->format == AV_PIX_FMT_P010LE) {
+            if (!to_vk || !vk_video_p010_supported()) {
+                av_frame_free(&dl);
+                return 0;
+            }
+            is_p010 = 1;
+        } else if (dl->format != AV_PIX_FMT_NV12) {
+            av_frame_free(&dl);
             return 0;
         }
         dl->width = frame->width; dl->height = frame->height;
         src = dl;
+    } else if (frame->format == AV_PIX_FMT_P010LE) {
+        if (!to_vk || !vk_video_p010_supported()) return 0;
+        is_p010 = 1;
+    } else if (frame->format == AV_PIX_FMT_YUV420P10LE) {
+        if (!to_vk || !vk_video_p010_supported()) return 0;
+        is_p010 = 1;
+        int w = frame->width, h = frame->height;
+        if (!g_sws_nv12 || g_sws_nv12_w != w || g_sws_nv12_h != h || g_sws_nv12_fmt != frame->format) {
+            if (g_sws_nv12) sws_freeContext(g_sws_nv12);
+            g_sws_nv12 = sws_getContext(w, h, (enum AVPixelFormat)frame->format,
+                                        w, h, AV_PIX_FMT_P010LE, SWS_POINT, NULL, NULL, NULL);
+            g_sws_nv12_w = w; g_sws_nv12_h = h; g_sws_nv12_fmt = frame->format;
+            av_frame_free(&g_nv12_scratch);
+        }
+        if (!g_sws_nv12) return 0;
+        if (!g_nv12_scratch) {
+            g_nv12_scratch = av_frame_alloc();
+            if (!g_nv12_scratch) return 0;
+            g_nv12_scratch->format = AV_PIX_FMT_P010LE;
+            g_nv12_scratch->width = w; g_nv12_scratch->height = h;
+            if (av_frame_get_buffer(g_nv12_scratch, 0) < 0) { av_frame_free(&g_nv12_scratch); return 0; }
+        }
+        sws_scale(g_sws_nv12, (const uint8_t *const *)frame->data, frame->linesize, 0, h,
+                  g_nv12_scratch->data, g_nv12_scratch->linesize);
+        src = g_nv12_scratch;
     } else if (frame->format != AV_PIX_FMT_NV12) {
         if (frame->format != AV_PIX_FMT_YUV420P && frame->format != AV_PIX_FMT_YUVJ420P) return 0;
         int w = frame->width, h = frame->height;
@@ -663,17 +705,21 @@ static int try_deliver_nv12(AVFrame *frame) {
 
     if (goAIVisionShouldSample()) sample_frame_for_ai_vision(src);
 
-    int ok = to_vk ? vk_video_try_submit_nv12(src->data[0], src->linesize[0],
-                                              src->data[1], src->linesize[1],
-                                              frame->width, frame->height)
-                   : gl_video_try_submit_nv12(src->data[0], src->linesize[0],
-                                              src->data[1], src->linesize[1],
-                                              frame->width, frame->height);
+    int ok = is_p010 ? vk_video_try_submit_p010(src->data[0], src->linesize[0],
+                                                src->data[1], src->linesize[1],
+                                                frame->width, frame->height)
+           : to_vk   ? vk_video_try_submit_nv12(src->data[0], src->linesize[0],
+                                                src->data[1], src->linesize[1],
+                                                frame->width, frame->height)
+                     : gl_video_try_submit_nv12(src->data[0], src->linesize[0],
+                                                src->data[1], src->linesize[1],
+                                                frame->width, frame->height);
     if (dl) av_frame_free(&dl);
     if (!ok) return 0;
     if (++g_av_nv12_frame_cnt == 1) {
         char msg[128];
-        snprintf(msg, sizeof(msg), "libavcodec: first NV12 frame -> %s GPU YCbCr (%s, %dx%d)",
+        snprintf(msg, sizeof(msg), "libavcodec: first %s frame -> %s GPU YCbCr (%s, %dx%d)",
+                 is_p010 ? "P010 (HDR10)" : "NV12",
                  to_vk ? "Vulkan" : "GL", frame->hw_frames_ctx ? "hw download" : "sw decode",
                  frame->width, frame->height);
         goVTLog(msg);
@@ -774,6 +820,7 @@ void platform_post_stop(void) {
     linux_av_teardown();
     pthread_mutex_unlock(&g_av_mu);
     pyrowave_linux_teardown();
+    vk_video_set_hdr(0);
 }
 
 // platform_set_video_format records the negotiated codec so linux_av_init()
@@ -782,7 +829,10 @@ void platform_post_stop(void) {
 // bitstream auto-detection, so this can't be skipped.
 void platform_set_video_format(int videoFormat) {
     g_video_format = videoFormat ? videoFormat : 0x0001;
-    // PyroWave hosts convert to BT.709; the H.26x/AV1 paths render as BT.601.
+    // PyroWave hosts convert to BT.709; the H.26x/AV1 paths render as BT.601
+    // (or BT.2020 PQ when a 10-bit HDR10 profile is negotiated).
+    int is_hdr = (g_video_format & (0x0200 | 0x0800 | 0x2000 | 0x4000)) != 0;
+    vk_video_set_hdr(is_hdr);
     vk_video_set_nv12_bt709((g_video_format & VIDEO_FORMAT_MASK_PYROWAVE) != 0);
     gl_video_set_nv12_bt709((g_video_format & VIDEO_FORMAT_MASK_PYROWAVE) != 0);
 }

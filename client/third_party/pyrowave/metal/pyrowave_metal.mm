@@ -885,6 +885,9 @@ struct EncoderImpl : WaveletBuffers
 					dispatch(cmd, (push.aligned_resolution.x + 31) / 32, (push.aligned_resolution.y + 31) / 32, 64);
 				}
 			}
+			// Components within a level write disjoint textures and run concurrently;
+			// synchronize once per level so the next level (or quant) sees the LL/subband writes.
+			[cmd memoryBarrierWithScope:MTLBarrierScopeTextures];
 		}
 	}
 
@@ -927,6 +930,7 @@ struct EncoderImpl : WaveletBuffers
 				}
 			}
 		}
+		[cmd memoryBarrierWithScope:MTLBarrierScopeBuffers];
 	}
 
 	void analyze_rdo(id<MTLComputeCommandEncoder> cmd)
@@ -967,8 +971,10 @@ struct EncoderImpl : WaveletBuffers
 			}
 		}
 
+		[cmd memoryBarrierWithScope:MTLBarrierScopeBuffers];
 		[cmd setComputePipelineState:pipelines->analyze_rate_control_finalize];
 		dispatch(cmd, 1, 1, 512);
+		[cmd memoryBarrierWithScope:MTLBarrierScopeBuffers];
 	}
 
 	void resolve_rdo(id<MTLComputeCommandEncoder> cmd, size_t target_payload_size)
@@ -990,6 +996,7 @@ struct EncoderImpl : WaveletBuffers
 		[cmd setBuffer:bucket_buffer offset:0 atIndex:0];
 		[cmd setBuffer:quant_buffer offset:0 atIndex:1];
 		dispatch(cmd, NumRDOBuckets * BlockSpaceSubdivision, 1, SimdWidth);
+		[cmd memoryBarrierWithScope:MTLBarrierScopeBuffers];
 	}
 
 	void block_packing(id<MTLComputeCommandEncoder> cmd)
@@ -1066,7 +1073,10 @@ struct EncoderImpl : WaveletBuffers
 		[blit fillBuffer:quant_buffer range:NSMakeRange(0, quant_buffer.length) value:0];
 		[blit endEncoding];
 
-		id<MTLComputeCommandEncoder> cmd = [cmd_buf computeCommandEncoderWithDispatchType:MTLDispatchTypeSerial];
+		// Concurrent compute encoder with explicit stage barriers: MTLDispatchTypeSerial
+		// inserts a full GPU barrier between every band/component dispatch (~145 barriers/frame
+		// instead of 9), inflating Metal encode/decode time on Apple Silicon.
+		id<MTLComputeCommandEncoder> cmd = [cmd_buf computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
 		dwt(cmd, *planes);
 		quant(cmd);
 		analyze_rdo(cmd);
@@ -1379,6 +1389,7 @@ struct DecoderImpl : WaveletBuffers
 				}
 			}
 		}
+		[cmd memoryBarrierWithScope:MTLBarrierScopeTextures];
 	}
 
 	void idwt(id<MTLComputeCommandEncoder> cmd, id<MTLTexture> y_plane)
@@ -1431,6 +1442,7 @@ struct DecoderImpl : WaveletBuffers
 					dispatch(cmd, groups_x, groups_y, 64);
 				}
 			}
+			[cmd memoryBarrierWithScope:MTLBarrierScopeTextures];
 		}
 	}
 
@@ -1450,7 +1462,10 @@ struct DecoderImpl : WaveletBuffers
 			return fail(PWM_ERROR_GPU, "allocating the payload buffer failed");
 
 		id<MTLCommandBuffer> cmd_buf = [queue commandBuffer];
-		id<MTLComputeCommandEncoder> cmd = [cmd_buf computeCommandEncoderWithDispatchType:MTLDispatchTypeSerial];
+		// Concurrent compute encoder with explicit stage barriers: MTLDispatchTypeSerial
+		// inserts a full GPU barrier between every band/component dispatch (~145 barriers/frame
+		// instead of 9), inflating Metal encode/decode time on Apple Silicon.
+		id<MTLComputeCommandEncoder> cmd = [cmd_buf computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
 		dequant(cmd);
 		idwt(cmd, planes->y);
 

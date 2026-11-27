@@ -31,6 +31,7 @@ extern void phase_probe_after_commit(void);
 #include "pyrowave.h"
 #include <vulkan/vulkan_xlib.h>
 #include <vulkan/vulkan_wayland.h>
+#include <wayland-client.h>
 #include "vk_video_wl_linux.h"
 #include <X11/Xlib.h>
 #include <X11/extensions/shape.h>
@@ -122,6 +123,10 @@ static VkImageView             *g_swap_views   = NULL;
 static VkFormat                 g_swap_fmt     = VK_FORMAT_UNDEFINED;
 static VkExtent2D               g_swap_ext     = {0, 0};
 static int                      g_have_vk13    = 0; // set by vk_create_instance
+static int                      g_has_colorspace_ext = 0; // VK_EXT_swapchain_colorspace enabled
+static atomic_int               g_hdr_wanted;       // 1 when decoder negotiated a 10-bit HDR10 stream
+static int                      g_swap_hdr     = 0; // 1 when current swapchain is HDR10_ST2084
+static atomic_int               g_force_recreate;   // set when g_hdr_wanted flips mid-session
 
 // ─── Create infos kept alive for PyroWave ─────────────────────────────────────
 // pyrowave_create_device() reads the instance/device create infos (extensions and the
@@ -129,7 +134,7 @@ static int                      g_have_vk13    = 0; // set by vk_create_instance
 // device's lifetime -- so they are file-static rather than locals of vk_create_*.
 static VkApplicationInfo        g_app_keep;
 static VkInstanceCreateInfo     g_ici_keep;
-static const char              *g_inst_exts_keep[2];
+static const char              *g_inst_exts_keep[4];
 static VkDeviceCreateInfo       g_dci_keep;
 static VkDeviceQueueCreateInfo  g_qci_keep;
 static const char              *g_dev_exts_keep[8];
@@ -216,19 +221,20 @@ typedef struct {
     int      vis_w, vis_h;   // negotiated/visible frame extent (for UV crop)
     uint32_t plane_count;
     uint32_t offset0, pitch0, offset1, pitch1;
+    int      is_p010;        // 1 = 10-bit P010 (HDR10), 0 = 8-bit NV12
     void     *release_ctx;
     void    (*release_fn)(void*);
 } DmabufFrame;
 static DmabufFrame      g_dmabuf_pending;
 static volatile int     g_dmabuf_ready = 0;
 
-// NV12 upload frame slot (see vk_video_try_submit_nv12) -- triple-buffered
-// so neither side copies under g_mu: the decoder fills g_nv12_back, then
-// swaps it with g_nv12_pending under the lock; the render thread swaps
-// g_nv12_pending with g_nv12_front under the lock and uploads from front.
-// Each buffer is tightly packed Y (w*h) followed by interleaved UV
-// (cw*2 * ch) at nv12_uv_offset(). Capacity 1, drop-on-full like the others.
-typedef struct { uint8_t *p; size_t cap; int w, h; int bt709; } Nv12Buf;
+// NV12 / P010 upload frame slot (see vk_video_try_submit_nv12 / _p010) --
+// triple-buffered so neither side copies under g_mu: the decoder fills
+// g_nv12_back, then swaps it with g_nv12_pending under the lock; the render
+// thread swaps g_nv12_pending with g_nv12_front under the lock and uploads
+// from front. Each buffer is tightly packed Y (w*bps*h) followed by
+// interleaved UV (cw*2*bps * ch) at nv12_uv_offset().
+typedef struct { uint8_t *p; size_t cap; int w, h; int bt709; int is_p010; } Nv12Buf;
 static Nv12Buf          g_nv12_bufs[3];
 static int              g_nv12_back = 0, g_nv12_pending = 1, g_nv12_front = 2;
 static volatile int     g_nv12_ready = 0;
@@ -280,9 +286,31 @@ static uint32_t vk_find_mem(VkPhysicalDeviceMemoryProperties *mp,
 static int vk_create_instance(void) {
     // Test knob: exercise the GL/EGL fallback on a machine with Vulkan.
     if (getenv("USBRIDGE_VK_DISABLE")) { goVKLog("Vulkan disabled by USBRIDGE_VK_DISABLE", 1); return 0; }
-    g_inst_exts_keep[0] = VK_KHR_SURFACE_EXTENSION_NAME;
-    g_inst_exts_keep[1] = g_is_wl ? VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME
-                                  : VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
+    uint32_t ext_n = 0;
+    g_inst_exts_keep[ext_n++] = VK_KHR_SURFACE_EXTENSION_NAME;
+    g_inst_exts_keep[ext_n++] = g_is_wl ? VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME
+                                        : VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
+    // Enable VK_EXT_swapchain_colorspace when available so HDR10_ST2084
+    // surface formats are listed by vkGetPhysicalDeviceSurfaceFormatsKHR.
+    g_has_colorspace_ext = 0;
+    {
+        uint32_t navail = 0;
+        if (vkEnumerateInstanceExtensionProperties(NULL, &navail, NULL) == VK_SUCCESS && navail > 0) {
+            VkExtensionProperties *avail = malloc(navail * sizeof(*avail));
+            if (avail) {
+                if (vkEnumerateInstanceExtensionProperties(NULL, &navail, avail) == VK_SUCCESS) {
+                    for (uint32_t i = 0; i < navail; i++) {
+                        if (strcmp(avail[i].extensionName, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME) == 0) {
+                            g_has_colorspace_ext = 1;
+                            g_inst_exts_keep[ext_n++] = VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME;
+                            break;
+                        }
+                    }
+                }
+                free(avail);
+            }
+        }
+    }
     // apiVersion 1.3: the zero-copy dma-buf render path needs
     // VkSamplerYcbcrConversion and dynamic rendering (vkCmdBeginRendering),
     // both core since 1.3 -- requesting a plain 1.0 instance (the previous
@@ -293,7 +321,7 @@ static int vk_create_instance(void) {
     g_app_keep.apiVersion = VK_API_VERSION_1_3;
     g_ici_keep = (VkInstanceCreateInfo){ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
     g_ici_keep.pApplicationInfo       = &g_app_keep;
-    g_ici_keep.enabledExtensionCount   = 2;
+    g_ici_keep.enabledExtensionCount   = ext_n;
     g_ici_keep.ppEnabledExtensionNames = g_inst_exts_keep;
     if (vkCreateInstance(&g_ici_keep, NULL, &g_inst) == VK_SUCCESS) {
         g_have_vk13 = 1;
@@ -362,6 +390,7 @@ static const char *kZeroCopyExts[] = {
 static int g_zerocopy_supported = 0;
 static int g_ycbcr_supported = 0;    // samplerYcbcrConversion + dynamicRendering enabled on g_dev
 static int g_nv12_supported = 0;     // NV12 upload path usable (see vk_render_frame_nv12)
+static int g_p010_supported = 0;     // P010 (10-bit HDR10) upload path usable
 
 static int vk_create_device(void) {
     uint32_t navail = 0;
@@ -417,8 +446,12 @@ static int vk_create_device(void) {
                                     VK_FORMAT_FEATURE_COSITED_CHROMA_SAMPLES_BIT |
                                     VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT;
         g_nv12_supported = (fp.optimalTilingFeatures & need) == need;
+
+        VkFormatProperties fp10;
+        vkGetPhysicalDeviceFormatProperties(g_pdev, VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16, &fp10);
+        g_p010_supported = (fp10.optimalTilingFeatures & need) == need;
     }
-    if (getenv("USBRIDGE_VK_NO_NV12")) g_nv12_supported = 0;
+    if (getenv("USBRIDGE_VK_NO_NV12")) { g_nv12_supported = 0; g_p010_supported = 0; }
 
     for (uint32_t i = 0; i < next && i < 8; i++) g_dev_exts_keep[i] = dev_exts[i];
     g_qci_keep = (VkDeviceQueueCreateInfo){ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
@@ -454,11 +487,28 @@ static int vk_create_swapchain(int w, int h) {
     vkGetPhysicalDeviceSurfaceFormatsKHR(g_pdev, g_surf, &nfmt, fmts);
     g_swap_fmt = fmts[0].format;
     VkColorSpaceKHR csp = fmts[0].colorSpace;
+    g_swap_hdr = 0;
+    if (atomic_load(&g_hdr_wanted) && g_has_colorspace_ext) {
+        for (uint32_t i = 0; i < nfmt; i++) {
+            if (fmts[i].colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT &&
+                (fmts[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ||
+                 fmts[i].format == VK_FORMAT_A2R10G10B10_UNORM_PACK32)) {
+                g_swap_fmt = fmts[i].format;
+                csp = fmts[i].colorSpace;
+                g_swap_hdr = 1;
+                break;
+            }
+        }
+        if (!g_swap_hdr) {
+            goVKLog("HDR10 requested but the surface offers no HDR10_ST2084 format -- presenting as SDR", 1);
+        }
+    }
     // Prefer RGBA_UNORM (matches our RGBA input — no channel swap needed).
     // Fall back to BGRA_UNORM (common on Linux/Mesa); BGRA_SRGB is last resort
     // because it applies gamma correction which washes out the image.
     int best = 0;
-    for (uint32_t i = 0; i < nfmt; i++) {
+    for (uint32_t i = 0; i < nfmt && !g_swap_hdr; i++) {
+        if (fmts[i].colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) continue;
         int rank = 0;
         if (fmts[i].format == VK_FORMAT_R8G8B8A8_UNORM) rank = 3;
         else if (fmts[i].format == VK_FORMAT_R8G8B8A8_SRGB) rank = 2;
@@ -469,12 +519,15 @@ static int vk_create_swapchain(int w, int h) {
     g_tex_is_bgra = (g_swap_fmt == VK_FORMAT_B8G8R8A8_UNORM ||
                      g_swap_fmt == VK_FORMAT_B8G8R8A8_SRGB);
     {
-        const char *fn = (g_swap_fmt == VK_FORMAT_R8G8B8A8_UNORM) ? "R8G8B8A8_UNORM"
+        const char *fn = (g_swap_fmt == VK_FORMAT_A2B10G10R10_UNORM_PACK32) ? "A2B10G10R10_UNORM"
+                       : (g_swap_fmt == VK_FORMAT_A2R10G10B10_UNORM_PACK32) ? "A2R10G10B10_UNORM"
+                       : (g_swap_fmt == VK_FORMAT_R8G8B8A8_UNORM) ? "R8G8B8A8_UNORM"
                        : (g_swap_fmt == VK_FORMAT_R8G8B8A8_SRGB)  ? "R8G8B8A8_SRGB"
                        : (g_swap_fmt == VK_FORMAT_B8G8R8A8_UNORM) ? "B8G8R8A8_UNORM"
                        : (g_swap_fmt == VK_FORMAT_B8G8R8A8_SRGB)  ? "B8G8R8A8_SRGB"
                        : "other";
-        char msg[96]; snprintf(msg, sizeof(msg), "swapchain format: %s bgra_swap=%d", fn, g_tex_is_bgra);
+        char msg[128]; snprintf(msg, sizeof(msg), "swapchain format: %s%s bgra_swap=%d",
+                                fn, g_swap_hdr ? " (HDR10_ST2084)" : "", g_tex_is_bgra);
         goVKLog(msg, 0);
     }
     free(fmts);
@@ -565,9 +618,15 @@ static void vk_destroy_swapchain(void) {
     g_swap_count = 0;
 }
 
+static void vk_nv12_destroy_image(void);
+static void vk_ycbcr_destroy_pipeline(void);
+static void vk_ycbcr3_destroy_pipeline(void);
+static void vk_hud_destroy(void);
+
 static int vk_recreate_swapchain(void) {
     if (!g_dev || !g_surf) return 0;
     vkDeviceWaitIdle(g_dev);
+    VkFormat old_fmt = g_swap_fmt;
     vk_destroy_swapchain();
     int w = atomic_load(&g_dst_w);
     int h = atomic_load(&g_dst_h);
@@ -577,7 +636,18 @@ static int vk_recreate_swapchain(void) {
     snprintf(msg, sizeof(msg), "vk: recreating swapchain %dx%d", w, h);
     goVKLog(msg, 0);
     int ok = vk_create_swapchain(w, h);
-    if (!ok) goVKLog("vk: swapchain recreation failed", 2);
+    if (!ok) {
+        goVKLog("vk: swapchain recreation failed", 2);
+        return 0;
+    }
+    // Dynamic-rendering pipelines bake g_swap_fmt into VkPipelineRenderingCreateInfo;
+    // when HDR10 <-> SDR switches swapchain formats, rebuild them lazily on the next frame.
+    if (old_fmt != g_swap_fmt) {
+        vk_nv12_destroy_image();
+        vk_ycbcr_destroy_pipeline();
+        vk_ycbcr3_destroy_pipeline();
+        vk_hud_destroy();
+    }
     return ok;
 }
 
@@ -701,7 +771,8 @@ static VkDescriptorPool         g_ydpool       = VK_NULL_HANDLE;
 static VkDescriptorSet          g_ydset        = VK_NULL_HANDLE;
 static VkImageView              g_ydset_bound_view = VK_NULL_HANDLE; // NV12 path's view g_ydset currently points at (NULL = something else)
 static int                      g_ypipeline_ok = 0; // 0=not tried, 1=ready, -1=failed (don't retry)
-static int                      g_yconv_bt709  = 0; // matrix g_yconv is (to be) created with
+static int                      g_yconv_model  = 0; // 0=BT.601, 1=BT.709, 2=BT.2020
+static int                      g_yconv_p010   = 0; // 0=NV12 8-bit, 1=P010 10-bit
 
 // Previous zero-copy frame's per-frame resources (fresh VkImage/VkDeviceMemory
 // /VkImageView every frame, since the underlying VASurfaceID's contents
@@ -736,9 +807,11 @@ static int vk_ycbcr_ensure_pipeline(void) {
     g_ypipeline_ok = -1; // assume failure; flipped to 1 at the end on success
 
     VkSamplerYcbcrConversionCreateInfo convCI = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO };
-    convCI.format = VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
-    convCI.ycbcrModel = g_yconv_bt709 ? VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709
-                                      : VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_601;
+    convCI.format = g_yconv_p010 ? VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16
+                                 : VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
+    convCI.ycbcrModel = (g_yconv_model == 2) ? VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_2020
+                      : (g_yconv_model == 1) ? VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709
+                                             : VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_601;
     convCI.ycbcrRange = VK_SAMPLER_YCBCR_RANGE_ITU_NARROW;
     convCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -851,7 +924,8 @@ static int vk_ycbcr_ensure_pipeline(void) {
     }
 
     g_ypipeline_ok = 1;
-    goVKLog("vk: zero-copy dma-buf NV12 pipeline ready", 0);
+    goVKLog(g_yconv_p010 ? "vk: YCbCr P010 (10-bit BT.2020) pipeline ready"
+                         : "vk: zero-copy dma-buf NV12 pipeline ready", 0);
     return 1;
 }
 
@@ -1079,6 +1153,16 @@ static int vk_wl_has_holes(void) {
 // either afterward.
 static int vk_render_frame_dmabuf(DmabufFrame *f) {
     if (!g_dev || !g_swap) { close(f->fd); if (f->release_fn) f->release_fn(f->release_ctx); return 0; }
+    int want_model = f->is_p010 ? 2 : (atomic_load(&g_nv12_submit_bt709) ? 1 : 0);
+    if (g_ypipeline_ok > 0 && (g_yconv_p010 != f->is_p010 || g_yconv_model != want_model)) {
+        vkDeviceWaitIdle(g_dev);
+        vk_nv12_destroy_image();
+        vk_ycbcr_destroy_pipeline();
+    }
+    if (!g_ypipeline_ok) {
+        g_yconv_p010 = f->is_p010;
+        g_yconv_model = want_model;
+    }
     if (!vk_ycbcr_ensure_pipeline()) {
         // Pipeline creation failed for a reason vk_create_device's
         // extension check couldn't catch (e.g. an unexpected format/
@@ -1128,7 +1212,8 @@ static int vk_render_frame_dmabuf(DmabufFrame *f) {
     vk_dmabuf_release_prev();
 
     // ---- import this frame's dma-buf as a VkImage ----
-    VkFormat fmt = VK_FORMAT_G8_B8R8_2PLANE_420_UNORM; // NV12 8-bit -- the only format deliver_frame exports today
+    VkFormat fmt = f->is_p010 ? VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16
+                              : VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
     VkSubresourceLayout planeLayouts[2] = {0};
     planeLayouts[0].offset = f->offset0; planeLayouts[0].rowPitch = f->pitch0;
     planeLayouts[1].offset = f->offset1; planeLayouts[1].rowPitch = f->pitch1;
@@ -1363,11 +1448,12 @@ static int vk_render_frame_dmabuf(DmabufFrame *f) {
 // release_fn(release_ctx) exactly once, once the corresponding GPU read (if
 // any) has retired. On failure (return 0, e.g. renderer not active), the
 // caller keeps ownership of both and must release them itself.
-int vk_video_try_submit_dmabuf(int fd, uint64_t modifier, int surf_w, int surf_h,
-                                int vis_w, int vis_h, uint32_t plane_count,
-                                uint32_t offset0, uint32_t pitch0,
-                                uint32_t offset1, uint32_t pitch1,
-                                void *release_ctx, void (*release_fn)(void*)) {
+int vk_video_try_submit_dmabuf_fmt(int fd, uint64_t modifier, int surf_w, int surf_h,
+                                    int vis_w, int vis_h, uint32_t plane_count,
+                                    uint32_t offset0, uint32_t pitch0,
+                                    uint32_t offset1, uint32_t pitch1,
+                                    int is_p010,
+                                    void *release_ctx, void (*release_fn)(void*)) {
     if (!atomic_load(&g_active)) return 0;
     pthread_mutex_lock(&g_mu);
     if (!atomic_load(&g_active)) { pthread_mutex_unlock(&g_mu); return 0; }
@@ -1392,6 +1478,7 @@ int vk_video_try_submit_dmabuf(int fd, uint64_t modifier, int surf_w, int surf_h
     g_dmabuf_pending.pitch0      = pitch0;
     g_dmabuf_pending.offset1     = offset1;
     g_dmabuf_pending.pitch1      = pitch1;
+    g_dmabuf_pending.is_p010     = is_p010 ? 1 : 0;
     g_dmabuf_pending.release_ctx = release_ctx;
     g_dmabuf_pending.release_fn  = release_fn;
     g_dmabuf_ready = 1;
@@ -1399,6 +1486,16 @@ int vk_video_try_submit_dmabuf(int fd, uint64_t modifier, int surf_w, int surf_h
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) pipe_wake(g_pipe_w, 1);
     return 1;
+}
+
+int vk_video_try_submit_dmabuf(int fd, uint64_t modifier, int surf_w, int surf_h,
+                                int vis_w, int vis_h, uint32_t plane_count,
+                                uint32_t offset0, uint32_t pitch0,
+                                uint32_t offset1, uint32_t pitch1,
+                                void *release_ctx, void (*release_fn)(void*)) {
+    return vk_video_try_submit_dmabuf_fmt(fd, modifier, surf_w, surf_h, vis_w, vis_h,
+                                          plane_count, offset0, pitch0, offset1, pitch1,
+                                          0, release_ctx, release_fn);
 }
 
 // vk_video_zerocopy_supported lets moonlight_cgo_linux.go check, before
@@ -1420,32 +1517,34 @@ int vk_video_zerocopy_supported(void) { return g_zerocopy_supported; }
 static VkImage        g_nv12_img  = VK_NULL_HANDLE;
 static VkDeviceMemory g_nv12_mem  = VK_NULL_HANDLE;
 static VkImageView    g_nv12_view = VK_NULL_HANDLE;
-static int            g_nv12_img_w = 0, g_nv12_img_h = 0;
+static int            g_nv12_img_w = 0, g_nv12_img_h = 0, g_nv12_img_p010 = 0;
 
-static size_t nv12_uv_offset(int w, int h) {
-    return ((size_t)w * (size_t)h + 15) & ~(size_t)15;
+static size_t nv12_uv_offset(int w, int h, int bps) {
+    return ((size_t)w * (size_t)bps * (size_t)h + 15) & ~(size_t)15;
 }
-static size_t nv12_total_size(int w, int h) {
+static size_t nv12_total_size(int w, int h, int bps) {
     size_t cw = (size_t)(w + 1) / 2, ch = (size_t)(h + 1) / 2;
-    return nv12_uv_offset(w, h) + cw * 2 * ch;
+    return nv12_uv_offset(w, h, bps) + cw * 2 * (size_t)bps * ch;
 }
 
 static void vk_nv12_destroy_image(void) {
     if (g_nv12_view) { vkDestroyImageView(g_dev, g_nv12_view, NULL); g_nv12_view = VK_NULL_HANDLE; }
     if (g_nv12_img)  { vkDestroyImage(g_dev, g_nv12_img, NULL);     g_nv12_img  = VK_NULL_HANDLE; }
     if (g_nv12_mem)  { vkFreeMemory(g_dev, g_nv12_mem, NULL);       g_nv12_mem  = VK_NULL_HANDLE; }
-    g_nv12_img_w = g_nv12_img_h = 0;
+    g_nv12_img_w = g_nv12_img_h = g_nv12_img_p010 = 0;
     g_ydset_bound_view = VK_NULL_HANDLE;
 }
 
 // Caller must have waited g_fence (no in-flight work references the old image).
-static int vk_nv12_ensure_image(int w, int h) {
-    if (g_nv12_img && g_nv12_img_w == w && g_nv12_img_h == h) return 1;
+static int vk_nv12_ensure_image(int w, int h, int is_p010) {
+    if (g_nv12_img && g_nv12_img_w == w && g_nv12_img_h == h && g_nv12_img_p010 == is_p010) return 1;
     vk_nv12_destroy_image();
 
+    VkFormat fmt = is_p010 ? VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16
+                           : VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
     VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     ici.imageType = VK_IMAGE_TYPE_2D;
-    ici.format = VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
+    ici.format = fmt;
     // 4:2:0 multi-planar images need even extents; the padding row/col is
     // cropped off by the draw's UV scale.
     ici.extent = (VkExtent3D){ (uint32_t)((w + 1) & ~1), (uint32_t)((h + 1) & ~1), 1 };
@@ -1477,16 +1576,16 @@ static int vk_nv12_ensure_image(int w, int h) {
     VkImageViewCreateInfo viewCI = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, &convInfo };
     viewCI.image = g_nv12_img;
     viewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewCI.format = VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
+    viewCI.format = fmt;
     viewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewCI.subresourceRange.levelCount = 1;
     viewCI.subresourceRange.layerCount = 1;
     if (vkCreateImageView(g_dev, &viewCI, NULL, &g_nv12_view) != VK_SUCCESS) {
         g_nv12_view = VK_NULL_HANDLE; vk_nv12_destroy_image(); return 0;
     }
-    g_nv12_img_w = w; g_nv12_img_h = h;
+    g_nv12_img_w = w; g_nv12_img_h = h; g_nv12_img_p010 = is_p010;
     char msg[96];
-    snprintf(msg, sizeof(msg), "vk: NV12 upload image ready %dx%d", w, h);
+    snprintf(msg, sizeof(msg), "vk: %s upload image ready %dx%d", is_p010 ? "P010" : "NV12", w, h);
     goVKLog(msg, 0);
     return 1;
 }
@@ -1495,7 +1594,8 @@ static int vk_render_frame_nv12(const Nv12Buf *fb) {
     if (!g_dev || !g_swap) return 0;
     char dbg[128];
     int fw = fb->w, fh = fb->h;
-    size_t total = nv12_total_size(fw, fh);
+    int bps = fb->is_p010 ? 2 : 1;
+    size_t total = nv12_total_size(fw, fh, bps);
 
     // Wait for the previous submission FIRST: it may still be reading the
     // staging buffer / NV12 image / descriptor set we're about to touch.
@@ -1507,19 +1607,26 @@ static int vk_render_frame_nv12(const Nv12Buf *fb) {
     // Any dma-buf frame deferred from a previous mode switch is retired now.
     vk_dmabuf_release_prev();
 
-    // A stream with a different YCbCr matrix than the pipeline was built for (PyroWave
-    // is BT.709, the other decode paths BT.601): rebuild the conversion. Nothing is in
-    // flight after the fence wait above, and the NV12 view is the only one bound to it.
-    if (g_ypipeline_ok > 0 && g_yconv_bt709 != fb->bt709) {
+    // A stream with a different YCbCr matrix or bit depth than the pipeline was
+    // built for (P010 is BT.2020, PyroWave BT.709, 8-bit H.26x/AV1 BT.601):
+    // rebuild the conversion. Nothing is in flight after the fence wait above.
+    int want_model = fb->is_p010 ? 2 : (fb->bt709 ? 1 : 0);
+    if (g_ypipeline_ok > 0 && (g_yconv_p010 != fb->is_p010 || g_yconv_model != want_model)) {
         vk_nv12_destroy_image();
         vk_ycbcr_destroy_pipeline();
     }
-    if (!g_ypipeline_ok) g_yconv_bt709 = fb->bt709;
-    if (!vk_ycbcr_ensure_pipeline()) { g_nv12_supported = 0; g_render_stage = 1; return 0; }
+    if (!g_ypipeline_ok) {
+        g_yconv_p010 = fb->is_p010;
+        g_yconv_model = want_model;
+    }
+    if (!vk_ycbcr_ensure_pipeline()) {
+        if (fb->is_p010) g_p010_supported = 0; else g_nv12_supported = 0;
+        g_render_stage = 1; return 0;
+    }
 
     g_render_stage = 2;
-    if (!vk_ensure_staging(total))     { g_render_stage = 1; return 0; }
-    if (!vk_nv12_ensure_image(fw, fh)) { g_render_stage = 1; return 0; }
+    if (!vk_ensure_staging(total))                  { g_render_stage = 1; return 0; }
+    if (!vk_nv12_ensure_image(fw, fh, fb->is_p010)) { g_render_stage = 1; return 0; }
     memcpy(g_stage_ptr, fb->p, total);
 
     // The dma-buf path repoints g_ydset every frame; re-point it here
@@ -1574,8 +1681,8 @@ static int vk_render_frame_nv12(const Nv12Buf *fb) {
     bic[0].imageSubresource.layerCount = 1;
     bic[0].imageExtent = (VkExtent3D){ (uint32_t)fw, (uint32_t)fh, 1 };
     uint32_t cw = (uint32_t)(fw + 1) / 2, ch = (uint32_t)(fh + 1) / 2;
-    bic[1].bufferOffset = nv12_uv_offset(fw, fh);
-    bic[1].bufferRowLength = cw;   // in R8G8 texels
+    bic[1].bufferOffset = nv12_uv_offset(fw, fh, bps);
+    bic[1].bufferRowLength = cw;   // in R8G8 (NV12) or R16G16 (P010) texels
     bic[1].bufferImageHeight = ch;
     bic[1].imageSubresource.aspectMask = VK_IMAGE_ASPECT_PLANE_1_BIT;
     bic[1].imageSubresource.layerCount = 1;
@@ -2054,28 +2161,31 @@ void vk_video_set_nv12_bt709(int bt709) { atomic_store(&g_nv12_submit_bt709, bt7
 // vk_video_try_submit_nv12 queues one NV12 frame (arbitrary strides) for the
 // render thread. The copy into the back buffer happens outside g_mu.
 // Must only be called from the (single) decoder thread.
-int vk_video_try_submit_nv12(const uint8_t *y, int y_stride,
-                             const uint8_t *uv, int uv_stride,
-                             int width, int height) {
-    if (!atomic_load(&g_active) || !g_nv12_supported || width <= 0 || height <= 0) return 0;
-    phase_probe_note_submit(y, y_stride, width, height);
+static int vk_video_try_submit_planar(const uint8_t *y, int y_stride,
+                                      const uint8_t *uv, int uv_stride,
+                                      int width, int height, int is_p010) {
+    if (!atomic_load(&g_active) || width <= 0 || height <= 0) return 0;
+    if (is_p010 ? !g_p010_supported : !g_nv12_supported) return 0;
+    if (!is_p010) phase_probe_note_submit(y, y_stride, width, height);
+    int bps = is_p010 ? 2 : 1;
     Nv12Buf *b = &g_nv12_bufs[g_nv12_back];
-    size_t total = nv12_total_size(width, height);
+    size_t total = nv12_total_size(width, height, bps);
     if (b->cap < total) {
         free(b->p);
         b->p = malloc(total);
         b->cap = b->p ? total : 0;
         if (!b->p) return 0;
     }
-    if (y_stride == width) {
-        memcpy(b->p, y, (size_t)width * (size_t)height);
+    size_t yrow = (size_t)width * (size_t)bps;
+    if ((size_t)y_stride == yrow) {
+        memcpy(b->p, y, yrow * (size_t)height);
     } else {
         for (int r = 0; r < height; r++)
-            memcpy(b->p + (size_t)r * width, y + (size_t)r * y_stride, (size_t)width);
+            memcpy(b->p + (size_t)r * yrow, y + (size_t)r * y_stride, yrow);
     }
-    size_t uvrow = (size_t)((width + 1) / 2) * 2;
+    size_t uvrow = (size_t)((width + 1) / 2) * 2 * (size_t)bps;
     int ch = (height + 1) / 2;
-    uint8_t *uvdst = b->p + nv12_uv_offset(width, height);
+    uint8_t *uvdst = b->p + nv12_uv_offset(width, height, bps);
     if ((size_t)uv_stride == uvrow) {
         memcpy(uvdst, uv, uvrow * (size_t)ch);
     } else {
@@ -2084,6 +2194,7 @@ int vk_video_try_submit_nv12(const uint8_t *y, int y_stride,
     }
     b->w = width; b->h = height;
     b->bt709 = atomic_load(&g_nv12_submit_bt709);
+    b->is_p010 = is_p010 ? 1 : 0;
 
     pthread_mutex_lock(&g_mu);
     if (!atomic_load(&g_active)) { pthread_mutex_unlock(&g_mu); return 0; }
@@ -2100,6 +2211,28 @@ int vk_video_try_submit_nv12(const uint8_t *y, int y_stride,
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) pipe_wake(g_pipe_w, 1);
     return 1;
+}
+
+int vk_video_try_submit_nv12(const uint8_t *y, int y_stride,
+                             const uint8_t *uv, int uv_stride,
+                             int width, int height) {
+    return vk_video_try_submit_planar(y, y_stride, uv, uv_stride, width, height, 0);
+}
+
+int vk_video_try_submit_p010(const uint8_t *y, int y_stride,
+                             const uint8_t *uv, int uv_stride,
+                             int width, int height) {
+    return vk_video_try_submit_planar(y, y_stride, uv, uv_stride, width, height, 1);
+}
+
+int vk_video_p010_supported(void) { return g_p010_supported; }
+
+void vk_video_set_hdr(int on) {
+    on = on ? 1 : 0;
+    if (atomic_exchange(&g_hdr_wanted, on) != on) {
+        atomic_store(&g_force_recreate, 1);
+        if (g_pipe_w >= 0) pipe_wake(g_pipe_w, 1);
+    }
 }
 
 // ─── render one frame ─────────────────────────────────────────────────────────
@@ -2380,7 +2513,11 @@ static void *vk_render_thread(void *unused) {
 
         // A Wayland surface takes whatever size the buffers have, so the
         // swapchain never reports OUT_OF_DATE on a resize: follow the rect.
-        if (g_is_wl) {
+        // Also recreate if vk_video_set_hdr flipped SDR <-> HDR10 mid-session.
+        if (atomic_exchange(&g_force_recreate, 0)) {
+            g_render_stage = 7;
+            vk_recreate_swapchain();
+        } else if (g_is_wl) {
             int ww = atomic_load(&g_dst_w), wh = atomic_load(&g_dst_h);
             if (ww > 0 && wh > 0 && ((uint32_t)ww != g_swap_ext.width || (uint32_t)wh != g_swap_ext.height)) {
                 g_render_stage = 7;
@@ -2651,10 +2788,14 @@ static void vk_full_cleanup(void) {
             g_dmabuf_ready = 0;
         }
         vk_ycbcr_destroy_pipeline();
-        g_yconv_bt709 = 0;
+        g_yconv_model = 0;
+        g_yconv_p010 = 0;
         g_zerocopy_supported = 0;
         g_nv12_supported = 0;
+        g_p010_supported = 0;
         g_ycbcr_supported = 0;
+        g_swap_hdr = 0;
+        g_has_colorspace_ext = 0;
         if (g_img_sem) { vkDestroySemaphore(g_dev, g_img_sem, NULL); g_img_sem = VK_NULL_HANDLE; }
         if (g_rnd_sem) { vkDestroySemaphore(g_dev, g_rnd_sem, NULL); g_rnd_sem = VK_NULL_HANDLE; }
         if (g_fence)   { vkDestroyFence(g_dev, g_fence, NULL);       g_fence   = VK_NULL_HANDLE; }
@@ -2961,6 +3102,170 @@ void vk_video_get_video_dest(int *dx, int *dy, int *dw, int *dh, int *sw, int *s
     if (dh) *dh = atomic_load(&g_video_dh);
     if (sw) *sw = atomic_load(&g_video_sw);
     if (sh) *sh = atomic_load(&g_video_sh);
+}
+
+// ─── HDR10 display capability probe ──────────────────────────────────────────
+
+static int vk_pdev_surface_supports_hdr10(VkPhysicalDevice pdev, VkSurfaceKHR surf) {
+    VkPhysicalDeviceProperties pr;
+    vkGetPhysicalDeviceProperties(pdev, &pr);
+    if (pr.apiVersion < VK_API_VERSION_1_3) return 0;
+
+    VkPhysicalDeviceVulkan11Features f11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+    VkPhysicalDeviceVulkan13Features f13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+    f11.pNext = &f13;
+    VkPhysicalDeviceFeatures2 f2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f11 };
+    vkGetPhysicalDeviceFeatures2(pdev, &f2);
+    if (!f11.samplerYcbcrConversion || !f13.dynamicRendering) return 0;
+
+    VkFormatProperties fp10;
+    vkGetPhysicalDeviceFormatProperties(pdev, VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16, &fp10);
+    VkFormatFeatureFlags need = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+                                VK_FORMAT_FEATURE_COSITED_CHROMA_SAMPLES_BIT |
+                                VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT;
+    if ((fp10.optimalTilingFeatures & need) != need) return 0;
+
+    uint32_t nfmt = 0;
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(pdev, surf, &nfmt, NULL) != VK_SUCCESS || nfmt == 0)
+        return 0;
+    VkSurfaceFormatKHR *fmts = malloc(nfmt * sizeof(*fmts));
+    if (!fmts) return 0;
+    int ok = 0;
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(pdev, surf, &nfmt, fmts) == VK_SUCCESS) {
+        for (uint32_t i = 0; i < nfmt; i++) {
+            if (fmts[i].colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT &&
+                (fmts[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ||
+                 fmts[i].format == VK_FORMAT_A2R10G10B10_UNORM_PACK32)) {
+                ok = 1;
+                break;
+            }
+        }
+    }
+    free(fmts);
+    return ok;
+}
+
+typedef struct {
+    struct wl_compositor *comp;
+} HdrWlProbe;
+
+static void hdr_wl_reg_global(void *data, struct wl_registry *r, uint32_t name,
+                              const char *iface, uint32_t version) {
+    HdrWlProbe *p = (HdrWlProbe *)data;
+    if (strcmp(iface, wl_compositor_interface.name) == 0) {
+        p->comp = wl_registry_bind(r, name, &wl_compositor_interface, version < 4 ? version : 4);
+    }
+}
+static void hdr_wl_reg_remove(void *data, struct wl_registry *r, uint32_t name) {
+    (void)data; (void)r; (void)name;
+}
+static const struct wl_registry_listener hdr_wl_reg_listener = { hdr_wl_reg_global, hdr_wl_reg_remove };
+
+// vk_video_hdr_supported reports whether this Linux display + Vulkan driver
+// can present an HDR10 (BT.2020 + PQ) swapchain with 10-bit YCbCr sampling.
+int vk_video_hdr_supported(void) {
+    if (getenv("USBRIDGE_VK_DISABLE")) return 0;
+
+    // Fast path: reuse the active overlay's device & surface.
+    if (atomic_load(&g_active) && g_pdev != VK_NULL_HANDLE && g_surf != VK_NULL_HANDLE) {
+        return g_has_colorspace_ext && vk_pdev_surface_supports_hdr10(g_pdev, g_surf);
+    }
+
+    // Check VK_EXT_swapchain_colorspace availability first.
+    int has_csp = 0;
+    uint32_t navail = 0;
+    if (vkEnumerateInstanceExtensionProperties(NULL, &navail, NULL) != VK_SUCCESS || navail == 0)
+        return 0;
+    VkExtensionProperties *avail = malloc(navail * sizeof(*avail));
+    if (!avail) return 0;
+    if (vkEnumerateInstanceExtensionProperties(NULL, &navail, avail) == VK_SUCCESS) {
+        for (uint32_t i = 0; i < navail; i++) {
+            if (strcmp(avail[i].extensionName, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME) == 0) {
+                has_csp = 1;
+                break;
+            }
+        }
+    }
+    free(avail);
+    if (!has_csp) return 0;
+
+    const char *wl_env = getenv("WAYLAND_DISPLAY");
+    int use_wl = (wl_env && wl_env[0] != '\0');
+    const char *exts[3] = {
+        VK_KHR_SURFACE_EXTENSION_NAME,
+        use_wl ? VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME : VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
+        VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME,
+    };
+    VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
+    app.apiVersion = VK_API_VERSION_1_3;
+    VkInstanceCreateInfo ici = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+    ici.pApplicationInfo = &app;
+    ici.enabledExtensionCount = 3;
+    ici.ppEnabledExtensionNames = exts;
+
+    VkInstance inst = VK_NULL_HANDLE;
+    if (vkCreateInstance(&ici, NULL, &inst) != VK_SUCCESS) return 0;
+
+    struct wl_display  *w_dpy  = NULL;
+    struct wl_registry *w_reg  = NULL;
+    HdrWlProbe          w_pr   = {0};
+    struct wl_surface  *w_surf = NULL;
+    Display            *x_dpy  = NULL;
+    Window              x_win  = 0;
+    VkSurfaceKHR        surf   = VK_NULL_HANDLE;
+    int                 result = 0;
+
+    if (use_wl) {
+        w_dpy = wl_display_connect(NULL);
+        if (!w_dpy) goto cleanup;
+        w_reg = wl_display_get_registry(w_dpy);
+        wl_registry_add_listener(w_reg, &hdr_wl_reg_listener, &w_pr);
+        wl_display_roundtrip(w_dpy);
+        if (!w_pr.comp) goto cleanup;
+        w_surf = wl_compositor_create_surface(w_pr.comp);
+        if (!w_surf) goto cleanup;
+        VkWaylandSurfaceCreateInfoKHR wci = { VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR };
+        wci.display = w_dpy;
+        wci.surface = w_surf;
+        if (vkCreateWaylandSurfaceKHR(inst, &wci, NULL, &surf) != VK_SUCCESS) goto cleanup;
+    } else {
+        x_dpy = XOpenDisplay(NULL);
+        if (!x_dpy) goto cleanup;
+        int scr = DefaultScreen(x_dpy);
+        x_win = XCreateSimpleWindow(x_dpy, RootWindow(x_dpy, scr), 0, 0, 16, 16, 0, 0, 0);
+        if (!x_win) goto cleanup;
+        VkXlibSurfaceCreateInfoKHR xci = { VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR };
+        xci.dpy = x_dpy;
+        xci.window = x_win;
+        if (vkCreateXlibSurfaceKHR(inst, &xci, NULL, &surf) != VK_SUCCESS) goto cleanup;
+    }
+
+    uint32_t ndev = 0;
+    if (vkEnumeratePhysicalDevices(inst, &ndev, NULL) == VK_SUCCESS && ndev > 0) {
+        VkPhysicalDevice *devs = malloc(ndev * sizeof(*devs));
+        if (devs) {
+            if (vkEnumeratePhysicalDevices(inst, &ndev, devs) == VK_SUCCESS) {
+                for (uint32_t i = 0; i < ndev; i++) {
+                    if (vk_pdev_surface_supports_hdr10(devs[i], surf)) {
+                        result = 1;
+                        break;
+                    }
+                }
+            }
+            free(devs);
+        }
+    }
+
+cleanup:
+    if (surf != VK_NULL_HANDLE) vkDestroySurfaceKHR(inst, surf, NULL);
+    if (inst != VK_NULL_HANDLE) vkDestroyInstance(inst, NULL);
+    if (w_surf) wl_surface_destroy(w_surf);
+    if (w_pr.comp) wl_compositor_destroy(w_pr.comp);
+    if (w_reg) wl_registry_destroy(w_reg);
+    if (w_dpy) wl_display_disconnect(w_dpy);
+    if (x_win && x_dpy) XDestroyWindow(x_dpy, x_win);
+    if (x_dpy) XCloseDisplay(x_dpy);
+    return result;
 }
 
 #endif // defined(__linux__) && !defined(__ANDROID__)

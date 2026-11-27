@@ -12,6 +12,11 @@ import (
 func (fd *FullscreenDialog) platformInitWindow() {
 	logrus.Info("🔍 Desktop: creating a new window for fullscreen mode")
 	fd.fullscreenWindow = fyne.CurrentApp().NewWindow("")
+	// Without SetPadded(false), Fyne insets the fullscreen content (and
+	// TouchpadWrapper) by theme.Padding() on all four sides while the native
+	// video overlay fills (0,0,W,H), shifting absolute cursor coordinates up
+	// and left across the entire screen.
+	fd.fullscreenWindow.SetPadded(false)
 	fd.fullscreenWindow.SetTitle(i18n.Current.FullscreenWindowTitle)
 	fd.fullscreenWindow.SetFullScreen(true)
 

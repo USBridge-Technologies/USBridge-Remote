@@ -76,9 +76,13 @@ func (vw *VideoWidget) handleHotkeyDown(event *fyne.KeyEvent) bool {
 	switch vk {
 	case vkHotkeyQuit:
 		logrus.Info("⌨️ [hotkey] Ctrl+Alt+Shift+Q: stopping the stream")
+		vw.releaseAllMoonlightKeys()
 		fyne.Do(func() { vw.ExitFullscreenIfNeeded() })
 		vw.StopVideoAsync()
 	case vkHotkeyFullscreen:
+		// Release Ctrl/Alt/Shift on the host immediately, before the
+		// fullscreen window transition steals focus and drops their KeyUps.
+		vw.releaseAllMoonlightKeys()
 		fyne.Do(func() {
 			if vw.ExitFullscreenIfNeeded() {
 				noteFullscreenExitKey()
