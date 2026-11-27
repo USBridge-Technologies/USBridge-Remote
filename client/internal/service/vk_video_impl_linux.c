@@ -1826,6 +1826,7 @@ static void vk_pw_destroy_decoder(void) {
 // vk_pw_init_device creates PyroWave's device on the renderer's VkDevice. Called once from
 // vk_video_create after the device exists. Sets g_pw_gpu_ok.
 static void vk_pw_init_device(void) {
+    if (g_pwdev) return;
     g_pw_gpu_ok = 0;
     if (!g_feats_keep_valid || !g_ycbcr_supported) return;
     if (getenv("USBRIDGE_PYROWAVE_CPU")) return; // force the CPU-readback path
@@ -2649,7 +2650,6 @@ static void vk_wl_apply_visibility(void) {
 // Called from CGO thread only; safe to call X11 here.
 void vk_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active)) return;
-    vk_pw_init_device();
 
     atomic_store(&g_dst_x, x);
     atomic_store(&g_dst_y, y);
@@ -3032,6 +3032,7 @@ static int vk_video_create_common(int x, int y, int w, int h) {
         if (vkCreateSemaphore(g_dev, &semi, NULL, &g_rnd_sem) != VK_SUCCESS) goto fail;
         if (vkCreateFence(g_dev, &fci,  NULL, &g_fence)       != VK_SUCCESS) goto fail;
     }
+    vk_pw_init_device();
 
     atomic_store(&g_dst_x, x);
     atomic_store(&g_dst_y, y);
