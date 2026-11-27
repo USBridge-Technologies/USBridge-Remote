@@ -224,9 +224,9 @@ func (vw *VideoWidget) startVKKeyForwarding(exitFn func()) {
 					case 1: // keydown
 						vkWinUpdateModifiers(&vw.keyboardModifierState, vkCode, true)
 						mods := widgetToMoonlightModifiers(int(vw.keyboardModifierState.Load()))
-						if vw.moonlightTrackKeyDown(vkCode16) {
-							mi.SendMoonlightKey(vkCode16, service.LiKeyActionUp, mods)
-						}
+						// Auto-repeat of a held key: a press again, no release
+						// (see handlePhysicalKeyDown) -- held Cmd/Alt stays held.
+						vw.moonlightTrackKeyDown(vkCode16)
 						mi.SendMoonlightKey(vkCode16, service.LiKeyActionDown, mods)
 					case 2: // keyup
 						vkWinUpdateModifiers(&vw.keyboardModifierState, vkCode, false)

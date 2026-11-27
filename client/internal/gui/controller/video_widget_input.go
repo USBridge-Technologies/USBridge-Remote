@@ -94,17 +94,14 @@ func (vw *VideoWidget) currentHIDModifiers() int {
 	return int(vw.keyboardModifierState.Load())
 }
 
-// moonlightTrackKeyDown records vkCode as held. Returns true if the key was
-// already tracked as held — meaning Fyne dropped the preceding KeyUp event.
-func (vw *VideoWidget) moonlightTrackKeyDown(vkCode int16) (wasAlreadyHeld bool) {
+// moonlightTrackKeyDown records vkCode as held.
+func (vw *VideoWidget) moonlightTrackKeyDown(vkCode int16) {
 	vw.moonlightKeyMu.Lock()
 	defer vw.moonlightKeyMu.Unlock()
 	if vw.moonlightHeldVKs == nil {
 		vw.moonlightHeldVKs = make(map[int16]bool)
 	}
-	wasAlreadyHeld = vw.moonlightHeldVKs[vkCode]
 	vw.moonlightHeldVKs[vkCode] = true
-	return
 }
 
 // moonlightTrackKeyUp removes vkCode from the held set.
@@ -200,12 +197,12 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 				logrus.Infof("⌨️ [INPUT][ENTER] sending VK_RETURN (0x0D) to Moonlight (key=%q, scan=%d)", event.Name, event.Physical.ScanCode)
 			}
 			mods := widgetToMoonlightModifiers(vw.currentHIDModifiers())
-			if vw.moonlightTrackKeyDown(vkCode) {
-				// Fyne dropped the preceding KeyUp — key is stuck on the remote.
-				// Send a synthetic release so Sunshine/HID clears it before the new press.
-				logrus.Warnf("⌨️ [INPUT][DOWN] vk=0x%04X re-press without release — auto-releasing stuck key", uint16(vkCode))
-				vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods) })
-			}
+			// A press of a key already held is the OS's auto-repeat: it goes
+			// out as another press, never with a release in front. A release
+			// let go of the key on the host -- Cmd/Alt held for an IDE hover
+			// dropped after the repeat delay (0.5 s) -- and a USB host repeats
+			// a held key on its own anyway.
+			vw.moonlightTrackKeyDown(vkCode)
 			vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionDown, mods) })
 		}
 	}
