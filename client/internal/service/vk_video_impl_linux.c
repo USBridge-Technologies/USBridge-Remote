@@ -153,7 +153,7 @@ static int                      g_feats_keep_valid = 0;
 static pyrowave_device          g_pwdev        = NULL;
 static pyrowave_decoder         g_pwdec        = NULL;
 static int                      g_pw_gpu_ok    = 0;  // device created and the 3-plane format is usable
-static int                      g_pw_w = 0, g_pw_h = 0;
+static int                      g_pw_w = 0, g_pw_h = 0, g_pw_c444 = 0, g_pw_hdr = 0;
 static VkImage                  g_pw_img       = VK_NULL_HANDLE;
 static VkDeviceMemory           g_pw_mem       = VK_NULL_HANDLE;
 static VkImageView              g_pw_view      = VK_NULL_HANDLE;
@@ -165,9 +165,12 @@ static VkDescriptorSetLayout    g_y3dsl        = VK_NULL_HANDLE;
 static VkPipelineLayout         g_y3playout    = VK_NULL_HANDLE;
 static VkDescriptorPool         g_y3dpool      = VK_NULL_HANDLE;
 static VkDescriptorSet          g_y3dset       = VK_NULL_HANDLE;
+static VkImageView              g_y3dset_bound_view = VK_NULL_HANDLE;
 static VkPipeline               g_y3pipeline   = VK_NULL_HANDLE;
 static int                      g_y3pipeline_ok = 0;
 static int                      g_y3_limited    = 1; // range the 3-plane conversion was built for
+static int                      g_y3_c444       = 0;
+static int                      g_y3_hdr        = 0;
 // Access-unit slot (network bytes only: a PyroWave frame is a few hundred KB): written by the
 // decode thread, picked up by the render thread. Capacity 1, newest frame wins.
 static uint8_t                 *g_pwau_buf[2];
@@ -817,9 +820,12 @@ static int vk_ycbcr_ensure_pipeline(void) {
     convCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    VkFormatProperties fp3;
+    vkGetPhysicalDeviceFormatProperties(g_pdev, convCI.format, &fp3);
     convCI.xChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
     convCI.yChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
-    convCI.chromaFilter = VK_FILTER_LINEAR;
+    convCI.chromaFilter = (fp3.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT)
+                        ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
     if (vkCreateSamplerYcbcrConversion(g_dev, &convCI, NULL, &g_yconv) != VK_SUCCESS) {
         goVKLog("vk_ycbcr_ensure_pipeline: vkCreateSamplerYcbcrConversion failed", 2);
         return 0;
@@ -932,28 +938,39 @@ static int vk_ycbcr_ensure_pipeline(void) {
 static void vk_pw_destroy_decoder(void);
 static void vk_ycbcr3_destroy_pipeline(void);
 
-static int vk_ycbcr3_ensure_pipeline(int limited) {
-    if (g_y3pipeline_ok > 0 && g_y3_limited != limited) {
-        // The range lives in the immutable sampler conversion: rebuild it (and the ring views).
+static VkFormat vk_pw_format(int c444, int hdr) {
+    if (hdr) return c444 ? VK_FORMAT_G16_B16_R16_3PLANE_444_UNORM : VK_FORMAT_G16_B16_R16_3PLANE_420_UNORM;
+    return c444 ? VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM : VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
+}
+
+static int vk_ycbcr3_ensure_pipeline(int limited, int c444, int hdr) {
+    if (g_y3pipeline_ok > 0 && (g_y3_limited != limited || g_y3_c444 != c444 || g_y3_hdr != hdr)) {
+        // The range / format / color model live in the immutable sampler conversion: rebuild it (and the ring views).
         vkDeviceWaitIdle(g_dev);
         vk_pw_destroy_decoder();
         vk_ycbcr3_destroy_pipeline();
     }
     g_y3_limited = limited;
+    g_y3_c444 = c444;
+    g_y3_hdr = hdr;
     if (g_y3pipeline_ok) return g_y3pipeline_ok > 0;
     g_y3pipeline_ok = -1; // assume failure; flipped to 1 at the end on success
 
     VkSamplerYcbcrConversionCreateInfo convCI = { VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO };
-    convCI.format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
-    convCI.ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709;
+    convCI.format = vk_pw_format(c444, hdr);
+    convCI.ycbcrModel = hdr ? VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_2020
+                            : VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709;
     convCI.ycbcrRange = limited ? VK_SAMPLER_YCBCR_RANGE_ITU_NARROW : VK_SAMPLER_YCBCR_RANGE_ITU_FULL;
     convCI.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
     convCI.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    VkFormatProperties fp3;
+    vkGetPhysicalDeviceFormatProperties(g_pdev, convCI.format, &fp3);
     convCI.xChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
     convCI.yChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
-    convCI.chromaFilter = VK_FILTER_LINEAR;
+    convCI.chromaFilter = (fp3.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT)
+                        ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
     if (vkCreateSamplerYcbcrConversion(g_dev, &convCI, NULL, &g_y3conv) != VK_SUCCESS) {
         goVKLog("vk_ycbcr3_ensure_pipeline: vkCreateSamplerYcbcrConversion failed", 2);
         return 0;
@@ -1786,6 +1803,7 @@ static void vk_ycbcr3_destroy_pipeline(void) {
     if (g_y3dsl)      { vkDestroyDescriptorSetLayout(g_dev, g_y3dsl, NULL); g_y3dsl = VK_NULL_HANDLE; }
     if (g_y3sampler)  { vkDestroySampler(g_dev, g_y3sampler, NULL); g_y3sampler = VK_NULL_HANDLE; }
     if (g_y3conv)     { vkDestroySamplerYcbcrConversion(g_dev, g_y3conv, NULL); g_y3conv = VK_NULL_HANDLE; }
+    g_y3dset_bound_view = VK_NULL_HANDLE;
     g_y3pipeline_ok = 0;
 }
 
@@ -1795,13 +1813,14 @@ static void vk_pw_destroy_image(void) {
     if (g_pw_view) { vkDestroyImageView(g_dev, g_pw_view, NULL); g_pw_view = VK_NULL_HANDLE; }
     if (g_pw_img)  { vkDestroyImage(g_dev, g_pw_img, NULL);      g_pw_img  = VK_NULL_HANDLE; }
     if (g_pw_mem)  { vkFreeMemory(g_dev, g_pw_mem, NULL);        g_pw_mem  = VK_NULL_HANDLE; }
+    g_y3dset_bound_view = VK_NULL_HANDLE;
     g_pw_img_inited = 0;
 }
 
 static void vk_pw_destroy_decoder(void) {
     if (g_pwdec) { pyrowave_decoder_destroy(g_pwdec); g_pwdec = NULL; }
     vk_pw_destroy_image();
-    g_pw_w = g_pw_h = 0;
+    g_pw_w = g_pw_h = g_pw_c444 = g_pw_hdr = 0;
 }
 
 // vk_pw_init_device creates PyroWave's device on the renderer's VkDevice. Called once from
@@ -1848,18 +1867,21 @@ static void vk_pw_init_device(void) {
     goVKLog("pyrowave: GPU decode on the renderer's device (zero-copy)", 0);
 }
 
-// vk_pw_ensure (re)creates the decoder and the ring image for a stream size. Render thread only,
+// vk_pw_ensure (re)creates the decoder and the ring image for a stream size/format. Render thread only,
 // after the previous frame's fence was waited.
-static int vk_pw_ensure(int w, int h) {
-    if (g_pwdec && g_pw_w == w && g_pw_h == h) return 1;
+static int vk_pw_ensure(int w, int h, int c444, int hdr) {
+    if (g_pwdec && g_pw_w == w && g_pw_h == h && g_pw_c444 == c444 && g_pw_hdr == hdr) return 1;
     vk_pw_destroy_decoder();
+
+    VkFormat img_fmt = vk_pw_format(c444, hdr);
+    VkFormat plane_fmt = hdr ? VK_FORMAT_R16_UNORM : VK_FORMAT_R8_UNORM;
 
     pyrowave_decoder_create_info info;
     memset(&info, 0, sizeof(info));
     info.device = g_pwdev;
     info.width = w;
     info.height = h;
-    info.chroma = PYROWAVE_CHROMA_SUBSAMPLING_420;
+    info.chroma = c444 ? PYROWAVE_CHROMA_SUBSAMPLING_444 : PYROWAVE_CHROMA_SUBSAMPLING_420;
     info.fragment_path = false;
     if (pyrowave_decoder_create(&info, &g_pwdec) != PYROWAVE_SUCCESS || !g_pwdec) {
         g_pwdec = NULL;
@@ -1870,7 +1892,7 @@ static int vk_pw_ensure(int w, int h) {
     VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     ici.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
     ici.imageType = VK_IMAGE_TYPE_2D;
-    ici.format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
+    ici.format = img_fmt;
     ici.extent = (VkExtent3D){ (uint32_t)w, (uint32_t)h, 1 };
     ici.mipLevels = 1; ici.arrayLayers = 1; ici.samples = VK_SAMPLE_COUNT_1_BIT;
     ici.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -1897,7 +1919,7 @@ static int vk_pw_ensure(int w, int h) {
     VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, &uci };
     vci.image = g_pw_img;
     vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vci.format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
+    vci.format = img_fmt;
     vci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     vci.subresourceRange.levelCount = 1; vci.subresourceRange.layerCount = 1;
     if (vkCreateImageView(g_dev, &vci, NULL, &g_pw_view) != VK_SUCCESS) { g_pw_view = VK_NULL_HANDLE; goto fail; }
@@ -1907,16 +1929,17 @@ static int vk_pw_ensure(int w, int h) {
         memset(v, 0, sizeof(*v));
         v->image = g_pw_img;
         v->width = (uint32_t)w; v->height = (uint32_t)h;
-        v->image_format = VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
-        v->view_format = VK_FORMAT_R8_UNORM;
+        v->image_format = img_fmt;
+        v->view_format = plane_fmt;
         v->aspect = (VkImageAspectFlagBits)(VK_IMAGE_ASPECT_PLANE_0_BIT << pl);
         v->swizzle = VK_COMPONENT_SWIZZLE_IDENTITY;
         v->layout = VK_IMAGE_LAYOUT_GENERAL;
     }
-    g_pw_w = w; g_pw_h = h;
+    g_pw_w = w; g_pw_h = h; g_pw_c444 = c444; g_pw_hdr = hdr;
     {
-        char msg[96];
-        snprintf(msg, sizeof(msg), "pyrowave: GPU decoder ready %dx%d (zero-copy)", w, h);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "pyrowave: GPU decoder ready %dx%d %s%s (zero-copy)",
+                 w, h, c444 ? "4:4:4" : "4:2:0", hdr ? " HDR10" : "");
         goVKLog(msg, 0);
     }
     return 1;
@@ -1939,33 +1962,33 @@ static int vk_render_frame_pyrowave(const uint8_t *au, size_t aulen) {
     vk_dmabuf_release_prev();
 
     // BitstreamSequenceHeader (pyrowave_common.hpp): width-1 in bits 0..13, height-1 in 14..27,
-    // `extended` in bit 31 of word 0; chroma resolution in bit 26 of word 1.
+    // `extended` in bit 31 of word 0; word 1: bit 26 = 4:4:4, bit 28 = PQ (HDR10), bit 30 = limited range.
     if (aulen < 8) { goVKLog("pyrowave: access unit too short", 1); g_render_stage = 1; return 0; }
     uint32_t w0 = (uint32_t)au[0] | (uint32_t)au[1] << 8 | (uint32_t)au[2] << 16 | (uint32_t)au[3] << 24;
     uint32_t w1 = (uint32_t)au[4] | (uint32_t)au[5] << 8 | (uint32_t)au[6] << 16 | (uint32_t)au[7] << 24;
     if (!(w0 >> 31)) { goVKLog("pyrowave: no sequence header", 1); g_render_stage = 1; return 0; }
     int fw = (int)(w0 & 0x3fff) + 1, fh = (int)((w0 >> 14) & 0x3fff) + 1;
-    if (((w1 >> 26) & 1) || ((fw | fh) & 1)) { g_render_stage = 1; return 0; } // 4:4:4 / odd: not negotiated here
+    int c444 = (int)((w1 >> 26) & 1);
+    int hdr  = (int)((w1 >> 28) & 1);
+    int limited = (int)((w1 >> 30) & 1);
+    if (!c444 && ((fw | fh) & 1)) { g_render_stage = 1; return 0; }
 
-    if (!vk_ycbcr3_ensure_pipeline((int)((w1 >> 30) & 1))) { g_pw_gpu_ok = 0; g_render_stage = 1; return 0; }
+    if (!vk_ycbcr3_ensure_pipeline(limited, c444, hdr)) { g_pw_gpu_ok = 0; g_render_stage = 1; return 0; }
     g_render_stage = 2;
-    if (!vk_pw_ensure(fw, fh)) { g_render_stage = 1; return 0; }
+    if (!vk_pw_ensure(fw, fh, c444, hdr)) { g_render_stage = 1; return 0; }
 
     pyrowave_decoder_clear(g_pwdec); // anything queued belongs to a frame that never completed
     if (pyrowave_decoder_push_packet(g_pwdec, au, aulen) != PYROWAVE_SUCCESS) { g_render_stage = 1; return 0; }
     if (!pyrowave_decoder_decode_is_ready(g_pwdec, false)) { g_render_stage = 1; return 0; }
 
-    {
-        static VkImageView bound = VK_NULL_HANDLE;
-        if (bound != g_pw_view) {
-            VkDescriptorImageInfo imgInfo = { VK_NULL_HANDLE, g_pw_view, VK_IMAGE_LAYOUT_GENERAL };
-            VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            write.dstSet = g_y3dset; write.dstBinding = 0; write.descriptorCount = 1;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write.pImageInfo = &imgInfo;
-            vkUpdateDescriptorSets(g_dev, 1, &write, 0, NULL);
-            bound = g_pw_view;
-        }
+    if (g_y3dset_bound_view != g_pw_view) {
+        VkDescriptorImageInfo imgInfo = { VK_NULL_HANDLE, g_pw_view, VK_IMAGE_LAYOUT_GENERAL };
+        VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet = g_y3dset; write.dstBinding = 0; write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &imgInfo;
+        vkUpdateDescriptorSets(g_dev, 1, &write, 0, NULL);
+        g_y3dset_bound_view = g_pw_view;
     }
 
     uint32_t img_idx = 0;
@@ -3266,6 +3289,65 @@ cleanup:
     if (x_win && x_dpy) XDestroyWindow(x_dpy, x_win);
     if (x_dpy) XCloseDisplay(x_dpy);
     return result;
+}
+
+static int vk_pdev_pw_format_supported(VkPhysicalDevice pdev, int c444, int hdr) {
+    VkPhysicalDeviceProperties pr;
+    vkGetPhysicalDeviceProperties(pdev, &pr);
+    if (pr.apiVersion < VK_API_VERSION_1_3) return 0;
+
+    VkPhysicalDeviceVulkan11Features f11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+    VkPhysicalDeviceVulkan13Features f13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+    f11.pNext = &f13;
+    VkPhysicalDeviceFeatures2 f2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f11 };
+    vkGetPhysicalDeviceFeatures2(pdev, &f2);
+    if (!f11.samplerYcbcrConversion || !f13.dynamicRendering) return 0;
+
+    VkFormat fmt = vk_pw_format(c444, hdr);
+    VkFormatProperties fp;
+    vkGetPhysicalDeviceFormatProperties(pdev, fmt, &fp);
+    if (!(fp.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) return 0;
+
+    VkImageFormatProperties ifp;
+    return vkGetPhysicalDeviceImageFormatProperties(
+        pdev, fmt, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+        VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT,
+        &ifp) == VK_SUCCESS;
+}
+
+// vk_video_pyrowave_color_supported reports whether this Linux GPU can decode
+// PyroWave 4:4:4 and/or HDR10 (16-bit 3-plane YCbCr) directly on Vulkan.
+int vk_video_pyrowave_color_supported(int c444, int hdr) {
+    if (getenv("USBRIDGE_VK_DISABLE") || getenv("USBRIDGE_PYROWAVE_CPU")) return 0;
+    if (atomic_load(&g_active) && g_pdev != VK_NULL_HANDLE) {
+        return vk_pdev_pw_format_supported(g_pdev, c444, hdr);
+    }
+    VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
+    app.apiVersion = VK_API_VERSION_1_3;
+    VkInstanceCreateInfo ici = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+    ici.pApplicationInfo = &app;
+    VkInstance inst = VK_NULL_HANDLE;
+    if (vkCreateInstance(&ici, NULL, &inst) != VK_SUCCESS) return 0;
+
+    int ok = 0;
+    uint32_t ndev = 0;
+    if (vkEnumeratePhysicalDevices(inst, &ndev, NULL) == VK_SUCCESS && ndev > 0) {
+        VkPhysicalDevice *devs = malloc(ndev * sizeof(*devs));
+        if (devs) {
+            if (vkEnumeratePhysicalDevices(inst, &ndev, devs) == VK_SUCCESS) {
+                for (uint32_t i = 0; i < ndev; i++) {
+                    if (vk_pdev_pw_format_supported(devs[i], c444, hdr)) {
+                        ok = 1;
+                        break;
+                    }
+                }
+            }
+            free(devs);
+        }
+    }
+    vkDestroyInstance(inst, NULL);
+    return ok;
 }
 
 #endif // defined(__linux__) && !defined(__ANDROID__)

@@ -830,8 +830,8 @@ void platform_post_stop(void) {
 void platform_set_video_format(int videoFormat) {
     g_video_format = videoFormat ? videoFormat : 0x0001;
     // PyroWave hosts convert to BT.709; the H.26x/AV1 paths render as BT.601
-    // (or BT.2020 PQ when a 10-bit HDR10 profile is negotiated).
-    int is_hdr = (g_video_format & (0x0200 | 0x0800 | 0x2000 | 0x4000)) != 0;
+    // (or BT.2020 PQ when a 10-bit/HDR10 profile is negotiated, including PyroWave HDR).
+    int is_hdr = (g_video_format & (0x0200 | 0x0800 | 0x2000 | 0x4000 | 0x40000 | 0x80000)) != 0;
     vk_video_set_hdr(is_hdr);
     vk_video_set_nv12_bt709((g_video_format & VIDEO_FORMAT_MASK_PYROWAVE) != 0);
     gl_video_set_nv12_bt709((g_video_format & VIDEO_FORMAT_MASK_PYROWAVE) != 0);
