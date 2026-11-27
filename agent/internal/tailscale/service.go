@@ -407,6 +407,15 @@ func (s *Service) Server() (*tsnet.Server, error) {
 		return nil, err
 	}
 
+	// Match the client's TS_DEBUG_MTU=1440 (client/internal/service/tailscale_service.go):
+	// Moonlight requests 1392-byte video packets over the tailnet (1436 bytes on the wire).
+	// Without raising tsnet's MTU from 1280 here, every single video packet is IP-fragmented
+	// into two fragments inside gVisor netstack, doubling the packet rate and causing severe
+	// bufferbloat and frame drops under high-bitrate streams (especially PyroWave).
+	if os.Getenv("TS_DEBUG_MTU") == "" {
+		os.Setenv("TS_DEBUG_MTU", "1440")
+	}
+
 	// Not ephemeral: an ephemeral node is removed from the tailnet by the
 	// control server shortly after it goes offline, so on the next launch
 	// there is no identity left to resume — tsnet has to register as a brand

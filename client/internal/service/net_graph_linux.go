@@ -78,12 +78,12 @@ var netGraphVkPushCount atomic.Int64
 
 func netGraphLinuxNativeFPS() float64 {
 	if VKVideoIsActive() {
-		if st := VKVideoGetStats(); st.FPSReady {
+		if st := VKVideoGetStats(); st.FPS > 0 {
 			return float64(st.FPS)
 		}
 	}
 	if GLVideoIsActive() {
-		if st := GLVideoGetStats(); st.FPSReady {
+		if st := GLVideoGetStats(); st.FPS > 0 {
 			return float64(st.FPS)
 		}
 	}
