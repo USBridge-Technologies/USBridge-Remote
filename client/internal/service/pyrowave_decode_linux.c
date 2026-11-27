@@ -31,6 +31,7 @@
 #include <time.h>
 
 extern void goVTLog(char *msg);
+extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 // Hands a decoded frame to the renderer (moonlight_cgo_linux.go).
 extern void pyrowave_linux_deliver(const uint8_t *y, const uint8_t *uv, int w, int h, int full_range);
 
@@ -173,7 +174,13 @@ static int pw_decode_dense(const uint8_t *au, size_t len,
     if (!(w0 >> 31)) { pw_fail("no sequence header", (int)len); return 0; }
     int w = (int)(w0 & 0x3fff) + 1;
     int h = (int)((w0 >> 14) & 0x3fff) + 1;
-    if ((w1 >> 26) & 1) { pw_fail("4:4:4 stream", (int)len); return 0; } // not negotiated here
+    if (((w1 >> 26) & 1) || ((w1 >> 28) & 1)) {
+        // 4:4:4 and HDR10 PyroWave are decoded directly on the Vulkan renderer
+        // (vk_render_frame_pyrowave). Report the frame size once so VideoWidget
+        // creates the Vulkan overlay and switches subsequent frames to the GPU path.
+        goVTFrame(NULL, w, h, 0);
+        return 0;
+    }
     if ((w | h) & 1) { pw_fail("odd size", w); return 0; }
 
     int ok = 0;
