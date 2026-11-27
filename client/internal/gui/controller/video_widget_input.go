@@ -94,6 +94,26 @@ func (vw *VideoWidget) currentHIDModifiers() int {
 	return int(vw.keyboardModifierState.Load())
 }
 
+// sendSideMouseButton sends Back / Forward to the host: button 8 / 9 (the
+// X11 numbering, which the Windows and macOS overlays use too) of a native
+// press (typ 2) or release (typ 3). Fyne has no such buttons, so they skip
+// the TouchpadWrapper and go out as Moonlight's X1 / X2. False for any
+// other event.
+func (vw *VideoWidget) sendSideMouseButton(typ, button int) bool {
+	if (typ != 2 && typ != 3) || (button != 8 && button != 9) {
+		return false
+	}
+	if mi := vw.moonlightInput(); mi != nil {
+		action := service.LiMouseButtonRelease
+		if typ == 2 {
+			action = service.LiMouseButtonPress
+			service.HideVideoHint()
+		}
+		mi.SendMoonlightMouseButton(action, button-4) // 4 X1, 5 X2
+	}
+	return true
+}
+
 // moonlightTrackKeyDown records vkCode as held.
 func (vw *VideoWidget) moonlightTrackKeyDown(vkCode int16) {
 	vw.moonlightKeyMu.Lock()

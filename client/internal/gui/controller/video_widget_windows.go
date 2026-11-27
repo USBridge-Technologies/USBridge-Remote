@@ -280,17 +280,7 @@ func vkWinUpdateModifiers(state *atomic.Int32, vkCode int, down bool) {
 }
 
 func (vw *VideoWidget) dispatchVKWinMouseEvent(typ int, x, y float32, button int) {
-	// Back / Forward (X1 = 8, X2 = 9 from the C side): Fyne has no such
-	// buttons, so they go to the host directly as Moonlight's X1 / X2.
-	if (typ == 2 || typ == 3) && (button == 8 || button == 9) {
-		if mi := vw.moonlightInput(); mi != nil {
-			action := service.LiMouseButtonRelease
-			if typ == 2 {
-				action = service.LiMouseButtonPress
-				service.HideVideoHint()
-			}
-			mi.SendMoonlightMouseButton(action, button-4) // 4 X1, 5 X2
-		}
+	if vw.sendSideMouseButton(typ, button) {
 		return
 	}
 

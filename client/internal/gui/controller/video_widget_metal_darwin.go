@@ -134,6 +134,9 @@ func (vw *VideoWidget) dispatchMetalMouseEvent(typ int, x, y float32, button int
 		}
 		return
 	}
+	if vw.sendSideMouseButton(typ, button) { // Back / Forward (metal_other_button)
+		return
+	}
 	pos := fyne.NewPos(x, y)
 	switch typ {
 	case 1: // move

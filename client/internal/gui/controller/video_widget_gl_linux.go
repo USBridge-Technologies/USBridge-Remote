@@ -578,6 +578,9 @@ func (vw *VideoWidget) dispatchVKMouseEvent(typ int, x, y float32, button int) {
 		}
 		return
 	}
+	if vw.sendSideMouseButton(typ, button) { // X11 buttons 8 / 9: Back / Forward
+		return
+	}
 	pos := fyne.NewPos(x, y)
 	switch typ {
 	case 1: // MotionNotify
@@ -596,6 +599,15 @@ func (vw *VideoWidget) dispatchVKMouseEvent(typ int, x, y float32, button int) {
 				PointEvent: fyne.PointEvent{Position: pos},
 				Scrolled:   fyne.Delta{DX: 0, DY: -10},
 			})
+		case 6, 7: // X11 wheel left / right (GLFW's DX: positive = left)
+			dx := float32(10)
+			if button == 7 {
+				dx = -10
+			}
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: dx},
+			})
 		default:
 			tw.MouseDown(&desktop.MouseEvent{
 				PointEvent: fyne.PointEvent{Position: pos},
@@ -603,7 +615,7 @@ func (vw *VideoWidget) dispatchVKMouseEvent(typ int, x, y float32, button int) {
 			})
 		}
 	case 3: // ButtonRelease — ignore scroll pseudo-buttons
-		if button != 4 && button != 5 {
+		if button < 4 || button > 7 {
 			tw.MouseUp(&desktop.MouseEvent{
 				PointEvent: fyne.PointEvent{Position: pos},
 				Button:     vkX11ButtonToFyne(button),

@@ -1592,8 +1592,17 @@ void metal_video_set_holes(const float *xywhr, int n) {
 - (void)mouseUp:(NSEvent *)e          { [self pushButtonEvent:3 btn:1 event:e]; }
 - (void)rightMouseDown:(NSEvent *)e   { [self pushButtonEvent:2 btn:3 event:e]; }
 - (void)rightMouseUp:(NSEvent *)e     { [self pushButtonEvent:3 btn:3 event:e]; }
-- (void)otherMouseDown:(NSEvent *)e   { [self pushButtonEvent:2 btn:2 event:e]; }
-- (void)otherMouseUp:(NSEvent *)e     { [self pushButtonEvent:3 btn:2 event:e]; }
+// Other buttons: 2 middle; 3 / 4 Back / Forward, pushed as 8 / 9 (the X11
+// and Windows overlay numbering). They all came as middle before.
+static int metal_other_button(NSEvent *e) {
+    switch (e.buttonNumber) {
+    case 3: return 8;
+    case 4: return 9;
+    default: return 2;
+    }
+}
+- (void)otherMouseDown:(NSEvent *)e   { [self pushButtonEvent:2 btn:metal_other_button(e) event:e]; }
+- (void)otherMouseUp:(NSEvent *)e     { [self pushButtonEvent:3 btn:metal_other_button(e) event:e]; }
 // ── scroll wheel ──────────────────────────────────────────────────────────
 // One notch per event along its main axis: 4 up, 5 down, 6 right, 7 left
 // (the tilt-wheel pseudo-buttons, as on Windows). A sideways wheel or swipe
