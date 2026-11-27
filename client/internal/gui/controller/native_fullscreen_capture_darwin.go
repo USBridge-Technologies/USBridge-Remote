@@ -438,6 +438,7 @@ func activeCapture() *darwinNativeFullscreenCapture {
 
 //export goNativeCaptureMove
 func goNativeCaptureMove(dx, dy C.int) {
+	noteUserInput()
 	capture := activeCapture()
 	if capture == nil {
 		return
@@ -448,6 +449,7 @@ func goNativeCaptureMove(dx, dy C.int) {
 
 //export goNativeCaptureButton
 func goNativeCaptureButton(button, pressed C.int) {
+	noteUserInput()
 	capture := activeCapture()
 	if capture == nil {
 		return
@@ -461,6 +463,7 @@ func goNativeCaptureButton(button, pressed C.int) {
 
 //export goNativeCaptureScroll
 func goNativeCaptureScroll(delta C.int) {
+	noteUserInput()
 	capture := activeCapture()
 	if capture == nil {
 		return
@@ -473,6 +476,7 @@ func goNativeCaptureScroll(delta C.int) {
 
 //export goNativeCaptureHScroll
 func goNativeCaptureHScroll(delta C.int) {
+	noteUserInput()
 	capture := activeCapture()
 	if capture == nil {
 		return

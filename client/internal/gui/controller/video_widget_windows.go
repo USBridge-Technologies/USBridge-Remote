@@ -215,6 +215,7 @@ func (vw *VideoWidget) startVKKeyForwarding(exitFn func()) {
 					if typ == 1 {
 						service.HideVideoHint() // any key: the hint has been seen
 					}
+					noteUserInput()
 					mi := vw.moonlightInput()
 					if mi == nil {
 						continue

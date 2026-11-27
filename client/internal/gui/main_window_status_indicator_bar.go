@@ -395,6 +395,7 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		mw.inputModeIcon,
 		mw.mouseIcon,
 		mw.clipboardIcon,
+		mw.keepAwakeIcon,
 		mw.screenshotToolIcon,
 		mw.rndisIcon,
 		mw.sdStorageProgress,
@@ -455,6 +456,8 @@ func (mw *MainWindow) applyControlFooterIconHover() {
 	style(mw.mouseIcon, assets.MouseIconFooterHover)
 	style(mw.inputModeIcon, assets.KeyboardInputModeIconFooterHover)
 	style(mw.clipboardIcon, assets.ClipboardIconFooterHover)
+	style(mw.keepAwakeIcon, assets.KeepAwakeIconFooterHover)
+	mw.refreshKeepAwakeIcon()
 	style(mw.screenshotToolIcon, assets.ScreenshotToolIconFooterHover)
 	style(mw.audioIcon, assets.AudioIconFooterHover)
 	style(mw.rndisIcon, assets.NetworkIconFooterHover)
@@ -491,6 +494,7 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 	mw.inputModeIcon.Show()
 	mw.mouseIcon.Show()
 	mw.clipboardIcon.Show()
+	mw.keepAwakeIcon.Show()
 	if mw.screenshotToolIcon != nil {
 		mw.screenshotToolIcon.Show()
 	}
@@ -535,6 +539,7 @@ func (mw *MainWindow) buildDesktopControlFooterActions() fyne.CanvasObject {
 		controlFooterIconBox(mw.inputModeIcon),
 		controlFooterIconBox(mw.mouseIcon),
 		controlFooterIconBox(mw.clipboardIcon),
+		controlFooterIconBox(mw.keepAwakeIcon),
 		controlFooterIconBox(mw.screenshotToolIcon),
 	)
 	videoGroup := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, videoParts...)

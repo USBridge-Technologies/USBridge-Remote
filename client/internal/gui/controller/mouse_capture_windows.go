@@ -143,6 +143,7 @@ func logCaptureStats() {
 
 //export goMouseCaptureMove
 func goMouseCaptureMove(dx, dy C.int) {
+	noteUserInput()
 	capStatSeen.Add(1)
 	logCaptureStats()
 	e := activeWinMouseCapture()
@@ -168,6 +169,7 @@ func goMouseCaptureMove(dx, dy C.int) {
 //
 //export goMouseCaptureButton
 func goMouseCaptureButton(button, pressed C.int) {
+	noteUserInput()
 	capStatButtons.Add(1)
 	e := activeWinMouseCapture()
 	if e == nil || e.miProvider == nil {
@@ -186,6 +188,7 @@ func goMouseCaptureButton(button, pressed C.int) {
 
 //export goMouseCaptureScroll
 func goMouseCaptureScroll(delta C.int) {
+	noteUserInput()
 	e := activeWinMouseCapture()
 	if e == nil || e.miProvider == nil {
 		return
@@ -199,6 +202,7 @@ func goMouseCaptureScroll(delta C.int) {
 
 //export goMouseCaptureHScroll
 func goMouseCaptureHScroll(delta C.int) {
+	noteUserInput()
 	e := activeWinMouseCapture()
 	if e == nil || e.miProvider == nil {
 		return

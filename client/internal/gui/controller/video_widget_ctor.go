@@ -98,5 +98,6 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 	}
 	vw.startVideoOpsLoop()
 
+	vw.startKeepAwake()
 	return vw
 }

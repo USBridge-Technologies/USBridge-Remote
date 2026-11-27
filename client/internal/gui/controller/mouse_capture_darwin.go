@@ -121,6 +121,7 @@ func activeMouseCapture() *darwinMouseCaptureEngine {
 
 //export goMouseCaptureMove
 func goMouseCaptureMove(dx, dy C.int) {
+	noteUserInput()
 	e := activeMouseCapture()
 	if e == nil || e.miProvider == nil {
 		return
@@ -143,6 +144,7 @@ func goMouseCaptureMove(dx, dy C.int) {
 //
 //export goMouseCaptureButton
 func goMouseCaptureButton(button, pressed C.int) {
+	noteUserInput()
 	e := activeMouseCapture()
 	if e == nil || e.miProvider == nil {
 		return
@@ -160,6 +162,7 @@ func goMouseCaptureButton(button, pressed C.int) {
 
 //export goMouseCaptureScroll
 func goMouseCaptureScroll(delta C.int) {
+	noteUserInput()
 	e := activeMouseCapture()
 	if e == nil || e.miProvider == nil {
 		return
@@ -173,6 +176,7 @@ func goMouseCaptureScroll(delta C.int) {
 
 //export goMouseCaptureHScroll
 func goMouseCaptureHScroll(delta C.int) {
+	noteUserInput()
 	e := activeMouseCapture()
 	if e == nil || e.miProvider == nil {
 		return

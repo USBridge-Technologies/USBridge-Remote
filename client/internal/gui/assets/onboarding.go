@@ -56,6 +56,8 @@ var (
 	clipboardSyncIcon []byte
 	//go:embed screenshot-tool.svg
 	screenshotToolIcon []byte
+	//go:embed keep-awake.svg
+	keepAwakeIcon []byte
 	//go:embed keyboard-input-mode.svg
 	keyboardInputModeIcon []byte
 	//go:embed cursor-pointer.svg
@@ -238,6 +240,11 @@ var (
 	// from Screen menu (screenshot_tool.go), same style as ClipboardIcon.
 	ScreenshotToolIcon            = fyne.NewStaticResource("screenshot-tool.svg", recolorStrokeIcon(screenshotToolIcon, "#C9C9C9", "1.8"))
 	ScreenshotToolIconFooterHover = fyne.NewStaticResource("screenshot-tool-footer-hover.svg", recolorStrokeIcon(screenshotToolIcon, "#e0e3e7", "1.8"))
+	// KeepAwakeIcon -- the Control footer's keep-awake menu (keep_awake_menu.go);
+	// KeepAwakeIconOn while one of its switches is on.
+	KeepAwakeIcon            = fyne.NewStaticResource("keep-awake.svg", recolorStrokeIcon(keepAwakeIcon, "#C9C9C9", "1.8"))
+	KeepAwakeIconFooterHover = fyne.NewStaticResource("keep-awake-footer-hover.svg", recolorStrokeIcon(keepAwakeIcon, "#e0e3e7", "1.8"))
+	KeepAwakeIconOn          = fyne.NewStaticResource("keep-awake-on.svg", recolorStrokeIcon(keepAwakeIcon, "#41e0c3", "1.8"))
 	KeyboardInputModeIcon            = fyne.NewStaticResource("keyboard-input-mode.svg", recolorStrokeIcon(keyboardInputModeIcon, "#C9C9C9", "1.8"))
 	KeyboardInputModeIconFooterHover = fyne.NewStaticResource("keyboard-input-mode-footer-hover.svg", recolorStrokeIcon(keyboardInputModeIcon, "#e0e3e7", "1.8"))
 	FullscreenIconFooterHover        = fyne.NewStaticResource("fullscreen-svgrepo-com-footer-hover.svg", recolorFillIcon(fullscreenIcon, "#e0e3e7"))

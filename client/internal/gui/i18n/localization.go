@@ -782,6 +782,10 @@ type LocalizedStrings struct {
 	PhaseSyncHint                    string    // Client settings: what it does
 	SwapWinAlt                       string    // Client settings: Win <-> Alt switch
 	SwapWinAltHint                   string    // Client settings: what it does
+	KeepAwakeMouse                   string    // Control footer keep-awake menu: mouse switch
+	KeepAwakeShift                   string    // Control footer keep-awake menu: Shift switch
+	KeepAwakeAfterSeconds            string    // keep-awake idle wait, %d seconds
+	KeepAwakeAfterMinutes            string    // keep-awake idle wait, %d minutes
 	RendererHintWindows              string    // Client settings: when the Windows choice applies
 	RendererHintMac                  string    // Client settings: when the macOS choice applies
 	Fec                              string    // FEC slider caption in the bitrate card (agent POST /api/video/fec)
@@ -1678,6 +1682,10 @@ func EN() *LocalizedStrings {
 		PhaseSync:                            "Sync frames to this display",
 		SwapWinAlt:                           "Swap Win and Alt",
 		SwapWinAltHint:                       "Win acts as Alt on the host, and Alt as Win. For a PC keyboard on a Mac host this puts Command (Win) next to the space bar, as on a Mac keyboard.",
+		KeepAwakeMouse:                       "Keep awake: move the mouse",
+		KeepAwakeShift:                       "Keep awake: press Shift",
+		KeepAwakeAfterSeconds:                "After %d s idle",
+		KeepAwakeAfterMinutes:                "After %d min idle",
 		PhaseSyncHint:                        "Lower latency: the host times each frame to arrive just before this screen refreshes. Works when the host has a fast source, such as a virtual display at 240 Hz or more. No effect with VSync off or on Linux X11.",
 		RendererHintWindows:                  "Applies after restarting the client.",
 		RendererHintMac:                      "Applies to the next stream.",
@@ -2216,6 +2224,10 @@ func ES() *LocalizedStrings {
 	locale.PhaseSync = "Sincronizar los fotogramas con esta pantalla"
 	locale.SwapWinAlt = "Intercambiar Win y Alt"
 	locale.SwapWinAltHint = "Win actúa como Alt en el host, y Alt como Win. Con un teclado de PC y un host Mac, Command (Win) queda junto a la barra espaciadora, como en un teclado Mac."
+	locale.KeepAwakeMouse = "Mantener activo: mover el ratón"
+	locale.KeepAwakeShift = "Mantener activo: pulsar Mayús"
+	locale.KeepAwakeAfterSeconds = "Tras %d s de inactividad"
+	locale.KeepAwakeAfterMinutes = "Tras %d min de inactividad"
 	locale.PhaseSyncHint = "Menor latencia: el host programa cada fotograma para que llegue justo antes de que esta pantalla se actualice. Funciona cuando el host tiene una fuente rápida, como una pantalla virtual de 240 Hz o más. Sin efecto con VSync desactivado o en X11 de Linux."
 	locale.RendererHintWindows = "Se aplica al reiniciar el cliente."
 	locale.RendererHintMac = "Se aplica a la próxima transmisión."
@@ -2797,6 +2809,10 @@ func UKProper() *LocalizedStrings {
 	locale.PhaseSync = "Синхронізувати кадри з цим екраном"
 	locale.SwapWinAlt = "Поміняти місцями Win і Alt"
 	locale.SwapWinAltHint = "Win працює на хості як Alt, а Alt як Win. З PC-клавіатурою та хостом Mac клавіша Command (Win) опиняється біля пробілу, як на клавіатурі Mac."
+	locale.KeepAwakeMouse = "Не давати заснути: рухати мишею"
+	locale.KeepAwakeShift = "Не давати заснути: натискати Shift"
+	locale.KeepAwakeAfterSeconds = "Після %d с бездіяльності"
+	locale.KeepAwakeAfterMinutes = "Після %d хв бездіяльності"
 	locale.PhaseSyncHint = "Менша затримка: хост розраховує кожен кадр так, щоб він надходив якраз перед оновленням цього екрана. Працює, коли хост має швидке джерело, наприклад віртуальний дисплей від 240 Гц. Без ефекту з вимкненим VSync або на Linux X11."
 	locale.RendererHintWindows = "Застосовується після перезапуску клієнта."
 	locale.RendererHintMac = "Застосовується до наступного стріму."

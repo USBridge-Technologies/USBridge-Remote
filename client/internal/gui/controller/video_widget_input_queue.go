@@ -122,6 +122,7 @@ const maxQueuedSends = 512
 // handler. Callers must preserve their own ordering requirements by only
 // relying on FIFO delivery, not by re-entering enqueueSend from within fn.
 func (vw *VideoWidget) enqueueSend(fn func()) {
+	noteUserInput() // keep_awake.go: the user is here
 	vw.startSendWorker()
 
 	vw.sendQueueMu.Lock()

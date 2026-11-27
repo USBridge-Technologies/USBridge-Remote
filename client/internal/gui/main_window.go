@@ -254,6 +254,8 @@ type MainWindow struct {
 	// send/get/auto-sync and keyboard keys/characters mode. Clipboard also
 	// appears on the mobile Control footer (mobileClipboardToggle).
 	clipboardIcon *headerStatusBadgeButton
+	// keepAwakeIcon: the keep-awake menu (keep_awake_menu.go).
+	keepAwakeIcon *headerStatusBadgeButton
 	inputModeIcon *headerStatusBadgeButton
 	rndisIcon     *headerStatusBadgeButton
 	// screenshotToolIcon opens the Screenshot / Copy Text from Screen menu
@@ -381,6 +383,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	view.RestorePlayoutBufferPreference()
 	view.RestoreScrollSpeedPreference()
 	service.SetSwapWinAlt(a.Preferences().BoolWithFallback(swapWinAltPref, false))
+	loadKeepAwake(a.Preferences())
 	restoreTailscaleControlURL(a)
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")

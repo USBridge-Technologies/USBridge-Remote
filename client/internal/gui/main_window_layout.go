@@ -1416,6 +1416,12 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.clipboardIcon.SetIconSize(fyne.NewSize(14, 14))
 	mw.clipboardIcon.SetBadgeText("")
 	mw.clipboardIcon.Hide()
+	mw.keepAwakeIcon = newHeaderStatusBadgeButton(assets.KeepAwakeIcon, func() {
+		mw.showKeepAwakeMenu()
+	})
+	mw.keepAwakeIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.keepAwakeIcon.SetBadgeText("")
+	mw.keepAwakeIcon.Hide()
 	mw.screenshotToolIcon = newHeaderStatusBadgeButton(assets.ScreenshotToolIcon, func() {
 		mw.showScreenshotToolMenu()
 	})
@@ -1768,7 +1774,7 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.mouseIcon.Refresh()
 		}
-		for _, icon := range []*headerStatusBadgeButton{mw.inputModeIcon, mw.clipboardIcon} {
+		for _, icon := range []*headerStatusBadgeButton{mw.inputModeIcon, mw.clipboardIcon, mw.keepAwakeIcon} {
 			if icon == nil {
 				continue
 			}
