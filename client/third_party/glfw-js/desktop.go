@@ -350,6 +350,8 @@ const (
 	MouseButton1 = MouseButton(glfw.MouseButton1)
 	MouseButton2 = MouseButton(glfw.MouseButton2)
 	MouseButton3 = MouseButton(glfw.MouseButton3)
+	MouseButton4 = MouseButton(glfw.MouseButton4)
+	MouseButton5 = MouseButton(glfw.MouseButton5)
 
 	MouseButtonLeft   = MouseButton(glfw.MouseButtonLeft)
 	MouseButtonRight  = MouseButton(glfw.MouseButtonRight)

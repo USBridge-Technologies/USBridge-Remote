@@ -838,6 +838,8 @@ const (
 	MouseButton1 MouseButton = 0
 	MouseButton2 MouseButton = 2 // Web MouseEvent has middle and right mouse buttons in reverse order.
 	MouseButton3 MouseButton = 1 // Web MouseEvent has middle and right mouse buttons in reverse order.
+	MouseButton4 MouseButton = 3 // Back
+	MouseButton5 MouseButton = 4 // Forward
 
 	MouseButtonLeft   = MouseButton1
 	MouseButtonRight  = MouseButton2
