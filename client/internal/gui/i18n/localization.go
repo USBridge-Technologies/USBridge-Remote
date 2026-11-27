@@ -1645,18 +1645,18 @@ func EN() *LocalizedStrings {
 		AIVisionBadge:                        "Debug",
 		Color444:                             "4:4:4 Color (USBridge)",
 		Color444Hint:                         "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
-		Color444UnavailableHint:              "The remote GPU cannot encode HEVC 4:4:4 — this hardware does not support the mode.",
-		Color444UnavailableMessage:           "This remote GPU cannot encode HEVC 4:4:4. That is a hardware limit.",
+		Color444UnavailableHint:              "The remote GPU cannot encode HEVC 4:4:4 — requires 4:4:4 GPU hardware or the PyroWave codec.",
+		Color444UnavailableMessage:           "This remote GPU cannot encode HEVC 4:4:4. Requires 4:4:4 GPU hardware or the PyroWave codec.",
 		Color444DecodeUnavailableHint:        "This device's video decoder cannot play HEVC 4:4:4 — the stream stays 4:2:0.",
 		Color444DecodeUnavailableMessage:     "The host can encode HEVC 4:4:4, but this device's hardware video decoder cannot decode it. That is a limit of this device.",
-		Color444RequiresH265Hint:             "Only available with the H.265 codec -- select it above to use 4:4:4 color.",
+		Color444RequiresH265Hint:             "Not available for this codec — requires H.265 (with 4:4:4 GPU hardware) or the PyroWave codec.",
 		Color444Badge:                        "Pro",
 		Hdr:                                  "HDR Color (USBridge)",
 		HdrHint:                              "Captures and streams high dynamic range video (BT.2020 color, PQ curve) instead of standard SDR -- brighter highlights and a wider color range on an HDR-capable display, at a higher bitrate cost.",
-		HdrUnavailableHint:                   "HDR encode is not offered on this remote host. It needs a host that can encode HEVC Main10: an Apple Silicon Mac, or a Windows/Linux PC with an NVIDIA GPU.",
-		HdrUnavailableMessage:                "HDR is a separate encode path from 4:4:4: the remote host must report HDR encode. Today that is an Apple Silicon Mac (VideoToolbox) or a Windows/Linux PC with an NVIDIA GPU (NVENC). Intel/AMD Linux hosts and Sunshine will not enable this checkbox. That is a hardware limit, not a license issue -- HDR is free.",
+		HdrUnavailableHint:                   "HDR encode is not offered on this remote host. Requires HEVC Main10 hardware (Apple Silicon Mac or NVIDIA GPU) or the PyroWave codec.",
+		HdrUnavailableMessage:                "HDR is a separate encode path from 4:4:4: the remote host must report HDR encode. Today that is an Apple Silicon Mac (VideoToolbox) or a Windows/Linux PC with an NVIDIA GPU (NVENC), or the PyroWave codec. That is a hardware limit, not a license issue -- HDR is free.",
 		HdrClientUnsupportedHint:             "The host can stream HDR, but this device or display doesn't support HDR10 output right now.",
-		HdrRequiresH265Hint:                  "Only available with the H.265 codec -- select it above to use HDR.",
+		HdrRequiresH265Hint:                  "Not available for this codec — requires H.265 (with 10-bit GPU hardware) or the PyroWave codec.",
 		HdrBadge:                             "",
 		NetGraph:                             "Net Graph",
 		NetGraphHint:                         "Shows a live TF2-style HUD in the corner of the video: latency, packet loss, FEC recovery, and render/decode timing.",
@@ -2128,16 +2128,16 @@ func ES() *LocalizedStrings {
 	locale.AIVisionHint = "Muestra sobre el video lo que detecta ui.parse() (cajas + IDs hex). Es para depurar: scripts y agentes de IA funcionan sin el."
 	locale.AIVisionBadge = "Debug"
 	locale.Color444Hint = "Croma 4:4:4 completa en vez de 4:2:0: texto mas nitido, mas bitrate."
-	locale.Color444UnavailableHint = "La GPU remota no puede codificar HEVC 4:4:4 — el hardware no soporta este modo."
-	locale.Color444UnavailableMessage = "Esta GPU remota no puede codificar HEVC 4:4:4. Es un limite de hardware."
+	locale.Color444UnavailableHint = "La GPU remota no puede codificar HEVC 4:4:4 — requiere hardware GPU 4:4:4 o el codec PyroWave."
+	locale.Color444UnavailableMessage = "Esta GPU remota no puede codificar HEVC 4:4:4. Requiere hardware GPU 4:4:4 o el codec PyroWave."
 	locale.Color444DecodeUnavailableHint = "El decodificador de este dispositivo no reproduce HEVC 4:4:4 — se usa 4:2:0."
 	locale.Color444DecodeUnavailableMessage = "El host puede codificar HEVC 4:4:4, pero el decodificador de video de este dispositivo no. Es un limite de este dispositivo."
-	locale.Color444RequiresH265Hint = "Solo con codec H.265 -- seleccionalo arriba."
+	locale.Color444RequiresH265Hint = "No disponible para este codec — requiere H.265 (con hardware GPU 4:4:4) o el codec PyroWave."
 	locale.HdrHint = "Flujo HDR (BT.2020, PQ) en vez de SDR: luces mas brillantes en pantalla HDR."
-	locale.HdrUnavailableHint = "Este host remoto no ofrece encode HDR. Requiere un host con HEVC Main10: Mac Apple Silicon o PC Windows/Linux con GPU NVIDIA."
-	locale.HdrUnavailableMessage = "HDR es un camino de encode distinto de 4:4:4: el host remoto debe ofrecer HDR. Hoy: Mac Apple Silicon (VideoToolbox) o PC Windows/Linux con GPU NVIDIA (NVENC). Hosts Linux Intel/AMD o Sunshine no activaran esta casilla. Es un limite de hardware, no de licencia -- HDR es gratis."
+	locale.HdrUnavailableHint = "Este host remoto no ofrece encode HDR. Requiere hardware HEVC Main10 o el codec PyroWave."
+	locale.HdrUnavailableMessage = "HDR es un camino de encode distinto de 4:4:4: el host remoto debe ofrecer HDR. Hoy: Mac Apple Silicon (VideoToolbox), PC Windows/Linux con GPU NVIDIA (NVENC) o el codec PyroWave. Es un limite de hardware, no de licencia -- HDR es gratis."
 	locale.HdrClientUnsupportedHint = "El host puede enviar HDR, pero este dispositivo o pantalla no admite salida HDR10 ahora mismo."
-	locale.HdrRequiresH265Hint = "Solo con codec H.265 -- seleccionalo arriba."
+	locale.HdrRequiresH265Hint = "No disponible para este codec — requiere H.265 (con hardware 10-bit) o el codec PyroWave."
 	locale.VideoJPEGRTPHint = "JPEG RTP: MJPEG se reenvia; YUYV se codifica a JPEG antes de enviar."
 	locale.VideoRawYUYVHint = "RAW YUYV: video sin comprimir por RTP. Solo en enlaces locales rapidos."
 	locale.VideoModeH264Description = "UVC capture → H.264 encode → RTP/UDP"
@@ -2714,16 +2714,16 @@ func UKProper() *LocalizedStrings {
 	locale.AIVisionHint = "Показує поверх відео те, що бачить ui.parse() (рамки + hex ID). Це налагодження: скрипти й AI-агенти працюють і без неї."
 	locale.AIVisionBadge = "Debug"
 	locale.Color444Hint = "Повна хрома 4:4:4 замість 4:2:0 — чіткіший текст, вищий бітрейт."
-	locale.Color444UnavailableHint = "Віддалений GPU не вміє HEVC 4:4:4 — це обмеження заліза."
-	locale.Color444UnavailableMessage = "Цей віддалений GPU не кодує HEVC 4:4:4. Це обмеження обладнання."
+	locale.Color444UnavailableHint = "Віддалений GPU не вміє HEVC 4:4:4 — потрібне залізо 4:4:4 або кодек PyroWave."
+	locale.Color444UnavailableMessage = "Цей віддалений GPU не кодує HEVC 4:4:4. Потрібне залізо 4:4:4 або кодек PyroWave."
 	locale.Color444DecodeUnavailableHint = "Відеодекодер цього пристрою не відтворює HEVC 4:4:4 — потік лишається 4:2:0."
 	locale.Color444DecodeUnavailableMessage = "Хост уміє кодувати HEVC 4:4:4, але апаратний відеодекодер цього пристрою його не декодує. Це обмеження пристрою."
-	locale.Color444RequiresH265Hint = "Лише з кодеком H.265 — оберіть його вище."
+	locale.Color444RequiresH265Hint = "Недоступно для цього кодека — потрібен H.265 (із залізом 4:4:4) або кодек PyroWave."
 	locale.HdrHint = "HDR-потік (BT.2020, PQ) замість SDR — яскравіші світла на HDR-екрані."
-	locale.HdrUnavailableHint = "Цей віддалений хост не пропонує HDR encode. Потрібен хост з HEVC Main10: Mac на Apple Silicon або ПК Windows/Linux з GPU NVIDIA."
-	locale.HdrUnavailableMessage = "HDR — окремий шлях encode, не 4:4:4: хост має вміти HDR. Зараз це Mac на Apple Silicon (VideoToolbox) або ПК Windows/Linux з GPU NVIDIA (NVENC). Хости Linux з Intel/AMD або Sunshine цю галочку не ввімкнуть. Це обмеження заліза, не ліцензії — HDR безкоштовний."
+	locale.HdrUnavailableHint = "Цей віддалений хост не пропонує HDR encode. Потрібне залізо HEVC Main10 або кодек PyroWave."
+	locale.HdrUnavailableMessage = "HDR — окремий шлях encode, не 4:4:4: хост має вміти HDR. Зараз це Mac на Apple Silicon (VideoToolbox), ПК Windows/Linux з GPU NVIDIA (NVENC) або кодек PyroWave. Це обмеження заліза, не ліцензії — HDR безкоштовний."
 	locale.HdrClientUnsupportedHint = "Хост може передавати HDR, але цей пристрій або дисплей зараз не підтримує вивід HDR10."
-	locale.HdrRequiresH265Hint = "Лише з кодеком H.265 — оберіть його вище."
+	locale.HdrRequiresH265Hint = "Недоступно для цього кодека — потрібен H.265 (із 10-bit залізом) або кодек PyroWave."
 	locale.VideoJPEGRTPHint = "JPEG RTP: MJPEG іде напряму; YUYV кодується в JPEG перед відправкою."
 	locale.VideoRawYUYVHint = "RAW YUYV: без стиснення по RTP. Лише на швидкому LAN."
 	locale.VideoModeH265Description = "HEVC апаратне кодування — краща якість при нижчому бітрейті"

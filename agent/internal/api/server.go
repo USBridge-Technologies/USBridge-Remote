@@ -1015,7 +1015,7 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 // past 50 parity costs more bitrate than it saves on bursty Wi-Fi loss.
 const (
 	DefaultFecPercent = 20
-	MinFecPercent     = 5
+	MinFecPercent     = 1
 	MaxFecPercent     = 50
 )
 

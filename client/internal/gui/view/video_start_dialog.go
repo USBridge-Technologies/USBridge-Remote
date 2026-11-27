@@ -1792,11 +1792,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	// VSync/AI Vision's static copy -- built with no spans yet here, since
 	// videoDialogWrapText.SetSpans is what actually fills it in, called by
 	// refreshModeUI before this dialog is ever shown.
-	vsd.color444Check = newVideoDialogCheckbox(false, func(on bool) {
-		if on {
-			vsd.switchToColorCodec(vsd.color444AppliesTo)
-		}
-	})
+	vsd.color444Check = newVideoDialogCheckbox(false, nil)
 	vsd.color444Check.OnTapWhileDisabled = func() {
 		if !vsd.color444Available && !vsd.pyroWave444Available {
 			msg := i18n.Current.Color444UnavailableMessage
@@ -1806,11 +1802,9 @@ func (vsd *VideoStartDialog) createInterface() {
 			ShowInfoDialog(i18n.Current.Color444, msg, vsd.parent)
 			return
 		}
-		if vsd.color444AppliesTo(vsd.selectedModeID()) {
-			return
+		if !vsd.color444AppliesTo(vsd.selectedModeID()) {
+			ShowInfoDialog(i18n.Current.Color444, i18n.Current.Color444RequiresH265Hint, vsd.parent)
 		}
-		vsd.switchToColorCodec(vsd.color444AppliesTo)
-		vsd.color444Check.SetChecked(true)
 	}
 	vsd.color444Hint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW), videoDialogHintTextSize, true)
 	vsd.color444TitleText = newVideoDialogRowTitle(i18n.Current.Color444)
@@ -1830,11 +1824,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	// server-side (rust-shine's AppState::hdr_licensed is always `true`),
 	// so hdrAvailable here only ever reflects hardware capability, never a
 	// license -- see hdrRow's badge below for the UI-side consequence.
-	vsd.hdrCheck = newVideoDialogCheckbox(false, func(on bool) {
-		if on {
-			vsd.switchToColorCodec(vsd.hdrAppliesTo)
-		}
-	})
+	vsd.hdrCheck = newVideoDialogCheckbox(false, nil)
 	vsd.hdrCheck.OnTapWhileDisabled = func() {
 		if !vsd.hdrAvailable && !vsd.pyroWaveHdrAvailable {
 			msg := i18n.Current.HdrUnavailableMessage
@@ -1844,11 +1834,9 @@ func (vsd *VideoStartDialog) createInterface() {
 			ShowInfoDialog(i18n.Current.Hdr, msg, vsd.parent)
 			return
 		}
-		if vsd.hdrAppliesTo(vsd.selectedModeID()) {
-			return
+		if !vsd.hdrAppliesTo(vsd.selectedModeID()) {
+			ShowInfoDialog(i18n.Current.Hdr, i18n.Current.HdrRequiresH265Hint, vsd.parent)
 		}
-		vsd.switchToColorCodec(vsd.hdrAppliesTo)
-		vsd.hdrCheck.SetChecked(true)
 	}
 	vsd.hdrHint = newVideoDialogWrapText(videoDialogToggleDescWidthFor(hintPanelW), videoDialogHintTextSize, true)
 	vsd.hdrTitleText = newVideoDialogRowTitle(i18n.Current.Hdr)
@@ -2203,8 +2191,15 @@ func (vsd *VideoStartDialog) configureFec(info *models.VideoInfoData) {
 	if fec.AutoSupported {
 		vsd.fecChoices = append(vsd.fecChoices, models.VideoFecSetting{Percent: fec.Percent, Auto: true})
 	}
-	for p := (lo + 9) / 10 * 10; p <= hi; p += 10 {
-		vsd.fecChoices = append(vsd.fecChoices, models.VideoFecSetting{Percent: p})
+	for _, low := range []int{1, 5} {
+		if low >= lo && low <= hi {
+			vsd.fecChoices = append(vsd.fecChoices, models.VideoFecSetting{Percent: low})
+		}
+	}
+	for p := 10; p <= hi; p += 10 {
+		if p >= lo {
+			vsd.fecChoices = append(vsd.fecChoices, models.VideoFecSetting{Percent: p})
+		}
 	}
 	current := 0
 	best := -1
@@ -2653,11 +2648,11 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: hint, Color: videoDialogHintColor})
 		vsd.setColor444TitleEnabled(true)
 	case !vsd.color444AppliesTo(modeID):
-		vsd.color444Check.SetWarn(false)
+		vsd.color444Check.SetWarn(true)
 		vsd.color444Check.SetChecked(false)
-		vsd.color444Check.Enable()
-		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444Hint, Color: videoDialogHintColor})
-		vsd.setColor444TitleEnabled(true)
+		vsd.color444Check.Disable()
+		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444RequiresH265Hint, Color: videoDialogHintColor})
+		vsd.setColor444TitleEnabled(false)
 	default:
 		vsd.color444Check.SetWarn(false)
 		vsd.color444Check.Enable()
@@ -2677,11 +2672,11 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 		vsd.hdrHint.SetSpans(videoDialogWrapSpan{Text: hint, Color: videoDialogHintColor})
 		vsd.setHdrTitleEnabled(true)
 	case !vsd.hdrAppliesTo(modeID):
-		vsd.hdrCheck.SetWarn(false)
+		vsd.hdrCheck.SetWarn(true)
 		vsd.hdrCheck.SetChecked(false)
-		vsd.hdrCheck.Enable()
-		vsd.hdrHint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.HdrHint, Color: videoDialogHintColor})
-		vsd.setHdrTitleEnabled(true)
+		vsd.hdrCheck.Disable()
+		vsd.hdrHint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.HdrRequiresH265Hint, Color: videoDialogHintColor})
+		vsd.setHdrTitleEnabled(false)
 	default:
 		vsd.hdrCheck.SetWarn(false)
 		vsd.hdrCheck.Enable()
