@@ -23,6 +23,11 @@ const (
 	// Since: 2.0
 	MouseButtonTertiary
 
+	// MouseButtonBack / MouseButtonForward are a mouse's side buttons
+	// (GLFW buttons 4 / 5). USBridge addition.
+	MouseButtonBack
+	MouseButtonForward
+
 	// LeftMouseButton is the most common mouse button - on some systems the only one.
 	//
 	// Deprecated: use MouseButtonPrimary which will adapt to mouse configuration.

@@ -523,6 +523,9 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
+	if t.sideButton(ev, 2) {
+		return
+	}
 	t.updateTouchpadSize()
 
 	t.videoWidget.touchStartX = ev.Position.X
@@ -576,12 +579,29 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	}
 }
 
+// sideButton sends Back / Forward (Fyne's side buttons, from GLFW: the
+// Wayland window, and wherever no native overlay sees the mouse) straight to
+// the host, outside the left/right/middle drag state. typ: 2 press, 3
+// release. They used to come as button 0 and were dropped.
+func (t *TouchpadWrapper) sideButton(ev *desktop.MouseEvent, typ int) bool {
+	switch ev.Button {
+	case desktop.MouseButtonBack:
+		return t.videoWidget.sendSideMouseButton(typ, 8)
+	case desktop.MouseButtonForward:
+		return t.videoWidget.sendSideMouseButton(typ, 9)
+	}
+	return false
+}
+
 // MouseUp handles a mouse button release (desktop)
 func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 	if t.inCaptureMode() {
 		return
 	}
 	if !t.videoWidget.isMouseConnected {
+		return
+	}
+	if t.sideButton(ev, 3) {
 		return
 	}
 	if t.endViewportPanGesture() {
